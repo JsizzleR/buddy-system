@@ -1,0 +1,6 @@
+.cache/
+bin/
+
+# Internal engineering logs — local only, never published.
+PLAN.md
+docs/p0-facts.md
