@@ -15,13 +15,54 @@ import (
 )
 
 // fakeConn scripts a server connection. Sends are recorded; events are pushed
-// by the test. Closing the events channel simulates connection death.
+// by the test. Closing the events channel simulates connection death, because
+// that is the Conn contract the daemon relies on: `for ev := range c.Events()`
+// ends only when the channel closes.
+//
+// That contract is also the fake's one hazard, and it is why every event goes
+// through emit. Close runs on the daemon's shutdown watcher while joins run on
+// its main goroutine, so an unguarded `f.events <- ev` is a send racing a
+// close of the same channel — a real data race, in the double rather than in
+// the daemon, which is the worst place for one: it reports a race that belongs
+// to nobody and it can just as easily hide one that belongs to somebody.
+// (Issue #4; the detector flagged only ChatJoin, but all six send sites had
+// the same shape.)
+//
+// emit takes the SAME lock that closes the channel, and sends non-blockingly
+// so holding that lock can never wedge Close. A closed connection drops the
+// event and says so, which is what a dead socket does; a full buffer means the
+// fixture out-ran the daemon, which is a fixture bug and is reported as one.
 type fakeConn struct {
 	mu     sync.Mutex
 	events chan tocwire.Event
 	sends  []string
 	err    error
 	closed bool
+}
+
+var errFakeConnClosed = errors.New("fakeConn: connection closed")
+
+func (f *fakeConn) emit(ev tocwire.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return errFakeConnClosed
+	}
+	select {
+	case f.events <- ev:
+		return nil
+	default:
+		return errors.New("fakeConn: event buffer full — the fixture is ahead of the daemon")
+	}
+}
+
+// push is emit for a test body: a dropped event there is a fixture bug and
+// must be loud, never a silently missing assertion input.
+func (f *fakeConn) push(t *testing.T, ev tocwire.Event) {
+	t.Helper()
+	if err := f.emit(ev); err != nil {
+		t.Fatalf("push %T: %v", ev, err)
+	}
 }
 
 func newFakeConn() *fakeConn { return &fakeConn{events: make(chan tocwire.Event, 16)} }
@@ -40,8 +81,7 @@ func (f *fakeConn) recorded() []string {
 }
 func (f *fakeConn) ChatJoin(room string) error {
 	f.record("join " + room)
-	f.events <- tocwire.ChatJoin{RoomID: "7", Room: room}
-	return nil
+	return f.emit(tocwire.ChatJoin{RoomID: "7", Room: room})
 }
 func (f *fakeConn) ChatSend(roomID, text string) error {
 	f.record("send " + roomID + " " + text)
@@ -194,7 +234,7 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 	}
 
 	// Inbound: a peer talks in the room → journaled under the room name.
-	c.events <- tocwire.ChatIn{RoomID: "7", From: "jay", Text: "hello fleet"}
+	c.push(t, tocwire.ChatIn{RoomID: "7", From: "jay", Text: "hello fleet"})
 	msgs := h.waitJournal(t, "lobby", func(m []Msg) bool { return len(m) >= 1 })
 	if msgs[0].Sender != "jay" || msgs[0].Body != "hello fleet" || msgs[0].Kind != "chat" {
 		t.Fatalf("bad journal row: %+v", msgs[0])
@@ -220,7 +260,7 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 	}
 
 	// Inbound IM → journaled under @dm.
-	c.events <- tocwire.IMIn{From: "nightly", Text: "state=RED"}
+	c.push(t, tocwire.IMIn{From: "nightly", Text: "state=RED"})
 	h.waitJournal(t, "@dm", func(m []Msg) bool { return len(m) == 1 && m[0].Sender == "nightly" })
 }
 
@@ -239,7 +279,7 @@ func TestReconnectRejoinsAndJournalSurvives(t *testing.T) {
 	c1 := newFakeConn()
 	h.conns <- c1
 	waitJoined(t, c1, "lobby")
-	c1.events <- tocwire.ChatIn{RoomID: "7", From: "jay", Text: "before the drop"}
+	c1.push(t, tocwire.ChatIn{RoomID: "7", From: "jay", Text: "before the drop"})
 	h.waitJournal(t, "lobby", func(m []Msg) bool { return len(m) >= 1 })
 
 	c1.die(errors.New("server went away"))
@@ -341,7 +381,7 @@ func TestOversizeBodyTruncatedInJournal(t *testing.T) {
 	h.conns <- c
 	waitJoined(t, c, "lobby")
 	huge := strings.Repeat("x", maxBody+1000)
-	c.events <- tocwire.ChatIn{RoomID: "7", From: "jay", Text: huge}
+	c.push(t, tocwire.ChatIn{RoomID: "7", From: "jay", Text: huge})
 	msgs := h.waitJournal(t, "lobby", func(m []Msg) bool { return len(m) >= 1 })
 	if len(msgs[0].Body) > maxBody+32 || !strings.HasSuffix(msgs[0].Body, "…[truncated]") {
 		t.Fatalf("hostile-size body must be truncated, got len=%d", len(msgs[0].Body))
@@ -393,7 +433,7 @@ func TestChatLeftPrunesRoomState(t *testing.T) {
 	if _, err := h.call(t, Request{Op: "say", Room: "lobby", From: "alpha", Text: "hi"}); err != nil {
 		t.Fatalf("say while joined: %v", err)
 	}
-	c.events <- tocwire.ChatLeft{RoomID: "7"} // kicked/parted
+	c.push(t, tocwire.ChatLeft{RoomID: "7"}) // kicked/parted
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		_, err := h.call(t, Request{Op: "say", Room: "lobby", From: "alpha", Text: "again"})
