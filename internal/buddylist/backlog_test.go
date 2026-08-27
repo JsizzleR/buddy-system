@@ -388,7 +388,12 @@ func TestMCPMentionsMeDerivesTokensFromIdentity(t *testing.T) {
 	driveMCP(t, deps,
 		`{"jsonrpc":"2.0","id":100,"method":"initialize","params":{}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chat_read","arguments":{"room":"lobby","mentions_me":true,"mentions":["b81-inspect-markers"]}}}`)
-	want := []string{"b81-inspect-markers", "e284b102-c678-4fce", "bastle/s-e284b102", "s-e284b102"}
+	// Order is load-bearing, not incidental: mentionSet truncates the derived
+	// TAIL at the token cap, so the names that actually match must lead.
+	// Caller-named tokens first (a claim slug is how peers address a session),
+	// then the short label, then the label, then the id — which measured 0
+	// matches in 2313 messages of the live room.
+	want := []string{"b81-inspect-markers", "s-e284b102", "bastle/s-e284b102", "e284b102-c678-4fce"}
 	if fmt.Sprint(got.Mentions) != fmt.Sprint(want) {
 		t.Fatalf("mention tokens: got %v want %v", got.Mentions, want)
 	}

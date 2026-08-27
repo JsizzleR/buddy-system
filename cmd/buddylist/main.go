@@ -4,13 +4,17 @@
 //	buddylist say    <room> <text...> [--from <label>]
 //	buddylist read   <room> [--after <seq>] [--tail <n>] [--before <seq>] [--mentions a,b]
 //	buddylist status [--session <id>] [--mentions a,b]
+//	buddylist alert  [--session <id>] [--cwd <dir>]   (PostToolUse hook)
 //	buddylist who | dm <to> <text...> | health
 package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -34,7 +38,7 @@ func defaultSocket() string { return filepath.Join(stateDir(), "buddylist.sock")
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: buddylist serve|say|read|status|who|dm|health|mcp ...")
+		fmt.Fprintln(os.Stderr, "usage: buddylist serve|say|read|status|alert|who|dm|health|mcp ...")
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
@@ -56,6 +60,8 @@ func main() {
 		err = runHealth()
 	case "mcp":
 		err = runMCP()
+	case "alert":
+		err = runAlert(args)
 	default:
 		fmt.Fprintf(os.Stderr, "buddylist: unknown command %q\n", cmd)
 		os.Exit(2)
@@ -303,6 +309,97 @@ func runMCP() error {
 		Label:     func() string { _, label := cli.SessionIdentityFor(cwd); return label },
 		SessionID: func() string { id, _ := cli.SessionIdentityFor(cwd); return id },
 	})
+}
+
+// runAlert is the PostToolUse hook half of proactive alerting: it tells this
+// session that a room message names it, without making it read the room.
+//
+// It lives on the CHAT binary and gets its own hook entry on purpose. That is
+// the answer to the coupling question this feature was held on: pushing chat
+// through `buddy` would have put the chat stack in front of the claims
+// ledger's hot path, and the whole design rests on chat never being able to
+// drag the safety-critical half. Here the ledger is only READ (for the claim
+// slugs peers actually address), the daemon call is bounded, and every
+// failure — no daemon, no socket, no ledger, no session — costs the notice
+// and nothing else. The hook line ends in `exit 0`.
+func runAlert(args []string) error {
+	fs := flag.NewFlagSet("alert", flag.ExitOnError)
+	session := fs.String("session", "", "session id (default: from hook JSON on stdin)")
+	dir := fs.String("cwd", "", "working directory whose ledger names this session (default: hook JSON, then $PWD)")
+	fs.Parse(args)
+
+	sid, cwd := *session, *dir
+	hookDriven := false
+	if sid == "" || cwd == "" {
+		// Hook JSON is the authority when it is there: a session id taken
+		// from the environment can name a DIFFERENT session in the same
+		// checkout, and the alert cursor it would advance is not ours.
+		if h, err := readHookStdin(); err == nil {
+			hookDriven = true
+			if sid == "" {
+				sid = h.SessionID
+			}
+			if cwd == "" {
+				cwd = h.Cwd
+			}
+		}
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	id, label, slugs := cli.ChatIdentity(cwd, sid)
+	if id == "" {
+		id = sid
+	}
+	deps := buddylist.AlertDeps{
+		Call: func(req buddylist.Request, timeout time.Duration) (buddylist.Response, error) {
+			return buddylist.Call(defaultSocket(), req, timeout)
+		},
+		SessionID: id, Label: label, Slugs: slugs,
+	}
+	return buddylist.RunAlert(deps, func(text string) error {
+		// Hand runs print the notice; only a hook gets the envelope. The
+		// alert is silent by design, which makes "is it working?" an
+		// unanswerable question without a surface to ask it from — this is
+		// that surface, and it is the same code path, not a mirror of it.
+		if !hookDriven {
+			_, err := fmt.Print(text)
+			return err
+		}
+		// One hook event emits one JSON document.
+		enc, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName":     "PostToolUse",
+			"additionalContext": text,
+		}})
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(append(enc, '\n'))
+		return err
+	})
+}
+
+// hookStdin is the sliver of the hook payload the alert needs. It is parsed
+// here rather than reused from internal/cli because that parser fails CLOSED
+// for the gate; this one has no authority to fail closed over.
+type hookStdin struct {
+	SessionID string `json:"session_id"`
+	Cwd       string `json:"cwd"`
+}
+
+const maxHookStdin = 1 << 20
+
+func readHookStdin() (hookStdin, error) {
+	var h hookStdin
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice != 0 {
+		return h, errors.New("no hook input (stdin is a terminal)")
+	}
+	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxHookStdin))
+	if err != nil || len(data) == 0 {
+		return h, errors.New("no hook input on stdin")
+	}
+	return h, json.Unmarshal(data, &h)
 }
 
 func runHealth() error {

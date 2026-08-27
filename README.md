@@ -67,7 +67,9 @@ binary just turns the feature off:
     "PreToolUse": [{"matcher": "Edit|Write|NotebookEdit|Bash", "hooks": [{"type": "command",
       "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" gate; exit 0"}]}],
     "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command",
-      "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"}]}],
+      "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"},
+      {"type": "command",
+      "command": "[ -x \"$HOME/bin/buddylist\" ] && \"$HOME/bin/buddylist\" alert 2>/dev/null; exit 0"}]}],
     "SessionEnd": [{"hooks": [{"type": "command",
       "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" bye 2>/dev/null; exit 0"}]}]
   }
@@ -215,6 +217,26 @@ buddy CLI ──► <repo>/.git/buddy.db      ergo / open-oscar-server
   the result — a cursor that stepped over a dropped row would make that row
   unreachable forever. Which rows a byte budget drops follows the read's
   direction: a forward page keeps the oldest, a tail keeps the newest.
+- **A message that names you finds you.** The `buddylist alert` hook tells a
+  session, on its next tool call, that a room message named it — which room,
+  how many, which seqs, and the exact `chat_read` that fetches them. It carries
+  no chat text: the alert says go look, and the deliberate read is where the
+  byte budget and the untrusted-content fence live.
+  - The names it matches are the session's **claim slugs** first, then its
+    label and id. That is the one place the chat half reads the claims half,
+    and it is why the feature works at all: measured against a 2313-message
+    room, identity alone matched **0** messages, because peers address each
+    other by slug.
+  - It never alerts a session about its own post. That is harder than it
+    sounds — the wire chunks a long message and only the first chunk carries
+    the `[label]` attribution, so a session's own announcement of its own slug
+    arrives looking exactly like a peer naming it. The discriminator is the
+    outbox: every echoed chunk is a substring of the row that recorded the
+    submission (measured, 13 of 13 on a 3566-byte send). Across four real
+    sessions the filter suppressed 7 self-alerts and kept all 3 genuine ones.
+  - The alert cursor is **not** the read cursor. Being told about a message is
+    not having seen it, and a session that has read a room must still be told
+    about a later one that names it.
 - Everything agents read back from chat is fenced as untrusted, one line per
   message, spoof-resistant. Prompt injection through a chat room is assumed,
   not hoped away.
@@ -233,11 +255,8 @@ Working, tested (hermetic suites plus a live end-to-end against the real
 pinned servers — `scripts/check.sh`), and used to coordinate the agent fleet
 that built it. Design rationale, measured facts, and refuted assumptions:
 [docs/DESIGN.md](docs/DESIGN.md). Roadmap-ish: per-session buddy presence
-with away-message statuses, a commit-time claims gate, multi-machine
-coordination, and **push delivery of addressed chat messages** — today a
-directed message is cheap to *find* (`chat_status`, `mentions_me`) but still
-has to be pulled; routing it into the ledger inbox the way `buddy msg` is
-routed would surface it without the recipient asking.
+with away-message statuses, a commit-time claims gate, and multi-machine
+coordination.
 
 ## License
 

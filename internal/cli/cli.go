@@ -541,6 +541,43 @@ func SessionIdentityFor(cwd string) (id, label string) {
 	return si.SessionID, si.Label
 }
 
+// ChatIdentity best-effort resolves the names a session answers to in a chat
+// room: its id, its label, and the slug of every claim it currently holds.
+//
+// The slugs are the point. A session's id and label are how the LEDGER names
+// it; a claim slug is how peers actually address it in the room, so a chat
+// filter built from identity alone matches almost nothing. This is the one
+// place the two halves meet, and it meets them in the safe direction: the
+// chat side READS the ledger, and nothing about chat can write to it or hold
+// a lock in front of it (WAL readers never block the writer).
+//
+// Every failure is silent and partial: an unresolvable session yields no
+// names, a ledger that cannot be opened yields none, and a claims read that
+// fails still yields the identity. Losing a name costs an alert, never a
+// claim.
+func ChatIdentity(cwd, sessionID string) (id, label string, slugs []string) {
+	env := Env{Cwd: cwd}
+	st, err := openLedger(cwd, env)
+	if err != nil {
+		return "", "", nil
+	}
+	defer st.Close()
+	si, err := whoAmI(st, env, sessionID)
+	if err != nil {
+		return "", "", nil
+	}
+	claims, err := st.Claims(false)
+	if err != nil {
+		return si.SessionID, si.Label, nil
+	}
+	for _, c := range claims {
+		if c.Owner.SessionID == si.SessionID {
+			slugs = append(slugs, c.Slug)
+		}
+	}
+	return si.SessionID, si.Label, slugs
+}
+
 // ---- commands ----
 
 func cmdInit(args []string, env Env) error {

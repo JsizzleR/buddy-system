@@ -14,7 +14,7 @@ import (
 
 // Request is one JSON line on the control socket.
 type Request struct {
-	Op    string `json:"op"` // say | read | stat | ack | who | dm | status | health
+	Op    string `json:"op"` // say | read | stat | ack | alerts | alertack | who | dm | status | health
 	Room  string `json:"room,omitempty"`
 	From  string `json:"from,omitempty"`
 	To    string `json:"to,omitempty"`
@@ -35,8 +35,12 @@ type Request struct {
 	Session string `json:"session,omitempty"`
 	// SinceLast starts a read at Session's stored cursor.
 	SinceLast bool `json:"since_last,omitempty"`
-	// Seq is the cursor an ack advances to.
+	// Seq is the cursor an ack (or alertack) advances to.
 	Seq int64 `json:"seq,omitempty"`
+	// Label is the sender name this session's own room messages carry, used
+	// by `alerts` to recognize the echoes of its own posts. Like Session it
+	// confers no authority; a wrong one costs its owner a self-alert.
+	Label string `json:"label,omitempty"`
 }
 
 // Response is the one JSON line answered per request.
@@ -53,6 +57,8 @@ type Response struct {
 	// (ack) — never what the caller asked for, which ack may decline to
 	// apply.
 	Cursor int64 `json:"cursor,omitempty"`
+	// Alerts is one entry per room with an unalerted addressed backlog.
+	Alerts []RoomAlert `json:"alerts,omitempty"`
 }
 
 const maxRequestLine = 64 * 1024
@@ -184,6 +190,28 @@ func (d *Daemon) dispatch(req Request) Response {
 			return Response{Error: "ack needs session and room"}
 		}
 		cur, err := d.cfg.Journal.SetCursor(req.Session, req.Room, req.Seq)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{OK: true, Cursor: cur}
+	case "alerts":
+		// Read-only from the caller's side: it reports what a session has not
+		// been told about and does NOT advance the cursor for anything it
+		// hands back. The caller acks after it has actually delivered, so a
+		// lost reply costs a repeat rather than a silently dropped alert.
+		if req.Session == "" {
+			return Response{Error: "alerts needs a session id"}
+		}
+		alerts, err := d.cfg.Journal.Addressed(req.Session, req.Label, req.Mentions, req.Limit)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{OK: true, Alerts: alerts}
+	case "alertack":
+		if req.Session == "" || req.Room == "" {
+			return Response{Error: "alertack needs session and room"}
+		}
+		cur, err := d.cfg.Journal.SetAlertCursor(req.Session, req.Room, req.Seq)
 		if err != nil {
 			return Response{Error: err.Error()}
 		}

@@ -16,6 +16,15 @@ the architecture: a transactional SQLite ledger owns claims and control; chat
 is presence, visibility, and a place for the operator to talk — never
 authority.
 
+That separation is also what decided how proactive alerting could be built.
+Pushing an addressed room message into the ledger's inbox — the way `buddy
+msg` is pushed — would have put the chat stack in front of the claims hot
+path, where a wedged daemon or a held write lock could stall the gate. So the
+arrow points the other way: the alert is a separate binary on its own hook,
+keeps its cursor in the chat journal, and only ever READS the ledger (for the
+claim slugs peers actually address). Chat can still be entirely absent; it
+just goes quiet.
+
 The reverse also holds: the chat stack can be entirely absent — not installed,
 crashed, mid-migration between backends — without weakening safety. That
 independence was load-bearing in practice: the chat backend was swapped from
@@ -109,6 +118,19 @@ recording them:
 - *"Our own messages come back."* True on TOC (reflection is always on),
   false on IRC without `echo-message`. The journal's honesty depended on
   noticing.
+- *"A room message knows who wrote it."* It does not. Every relayed message
+  has the concierge as its sender, and the `[label]` attribution is text
+  inside the body — which the wire then CHUNKS, so only the first chunk of a
+  long message carries it. Measured on a live room: 215 of 2291 rows are
+  attributed at all. Proactive alerting was built on the assumption that
+  "don't alert me about my own post" was a sender comparison; it is not, and
+  the working discriminator turned out to be the outbox row the daemon writes
+  before it sends (every echoed chunk is a substring of it, 13/13 measured).
+- *"A session answers to its own name."* A `mentions_me` filter built from a
+  session's id and label scored **0** on 2313 messages of the busiest live
+  room. Peers address each other by **claim slug** — which lives in the
+  ledger, not in chat. The feature that looked like a chat feature could only
+  be finished by reading the safety half.
 
 ## Security posture
 

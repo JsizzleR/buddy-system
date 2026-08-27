@@ -43,6 +43,19 @@ CREATE TABLE IF NOT EXISTS read_cursor (
 	at      INTEGER NOT NULL,
 	PRIMARY KEY (session, room)
 );
+-- Per-session ALERT cursor: the highest seq this session has been TOLD ABOUT
+-- by the proactive addressed-message alert. It is deliberately NOT the read
+-- cursor. An alert names a message without showing it, so advancing the read
+-- cursor to alert would mark unseen rows read and put them behind the
+-- since_last backlog forever; and a session that reads a room normally must
+-- still be alerted about a later message that names it.
+CREATE TABLE IF NOT EXISTS alert_cursor (
+	session TEXT NOT NULL,
+	room    TEXT NOT NULL,
+	seq     INTEGER NOT NULL,
+	at      INTEGER NOT NULL,
+	PRIMARY KEY (session, room)
+);
 `
 
 const (
@@ -239,6 +252,64 @@ func mentionClause(tokens []string) (string, []any, error) {
 	return "(" + strings.Join(parts, " OR ") + ")", args, nil
 }
 
+// mentionSet normalizes and de-duplicates the names a read or an alert filters
+// by, applying the same length rules mentionClause enforces.
+//
+// The two argument classes differ ONLY in what an unusable token means.
+// `chosen` was named by the caller, so a token too short to filter with is an
+// ERROR: the caller picked it and needs to know it would have matched nearly
+// every message. `derived` comes from the session's own id, label and claim
+// slugs, which the caller cannot reshape, so an unusable one is dropped and
+// the rest still work.
+//
+// Order is chosen-then-derived and de-duplication keeps the FIRST spelling,
+// so a token the caller named is reported back the way the caller wrote it.
+// Overflow past maxMentionTokens truncates the DERIVED tail rather than
+// failing: a session holding several claims must still be told about the
+// first of them, and every caller reports the set it actually used.
+func mentionSet(chosen, derived []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	add := func(t string, isChosen bool) error {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			return nil
+		}
+		if utf8.RuneCountInString(t) < minMentionToken {
+			if !isChosen {
+				return nil
+			}
+			return fmt.Errorf("mention %q is shorter than %d characters; it would match nearly every message", t, minMentionToken)
+		}
+		if len(t) > maxMentionBytes {
+			if !isChosen {
+				return nil
+			}
+			return fmt.Errorf("mention is %d bytes; cap %d", len(t), maxMentionBytes)
+		}
+		if key := strings.ToLower(t); !seen[key] {
+			seen[key] = true
+			out = append(out, t)
+		}
+		return nil
+	}
+	for _, t := range chosen {
+		if err := add(t, true); err != nil {
+			return nil, err
+		}
+	}
+	if len(out) > maxMentionTokens {
+		return nil, fmt.Errorf("too many mention tokens (%d; cap %d)", len(out), maxMentionTokens)
+	}
+	for _, t := range derived {
+		if len(out) >= maxMentionTokens {
+			break
+		}
+		_ = add(t, false)
+	}
+	return out, nil
+}
+
 var likeEscaper = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 
 func likeEscape(s string) string { return likeEscaper.Replace(s) }
@@ -247,11 +318,31 @@ func likeEscape(s string) string { return likeEscaper.Replace(s) }
 // session has never read it (which is indistinguishable from "read nothing",
 // and deliberately so: both mean "start at the horizon").
 func (j *Journal) Cursor(session, room string) (int64, error) {
+	return j.cursor(readCursorTable, session, room)
+}
+
+// AlertCursor is the highest seq `session` has been ALERTED about in `room`.
+// See the alert_cursor table: it answers a different question from Cursor and
+// the two must never be conflated.
+func (j *Journal) AlertCursor(session, room string) (int64, error) {
+	return j.cursor(alertCursorTable, session, room)
+}
+
+// The two cursor tables are identical in shape and semantics, so they share
+// one implementation. The table name is interpolated, which is only safe
+// because it can never be caller-derived: these two constants are the whole
+// domain.
+const (
+	readCursorTable  = "read_cursor"
+	alertCursorTable = "alert_cursor"
+)
+
+func (j *Journal) cursor(table, session, room string) (int64, error) {
 	if session == "" {
 		return 0, errNoSession
 	}
 	var seq int64
-	err := j.db.QueryRow(`SELECT seq FROM read_cursor WHERE session=? AND room=?`, session, room).Scan(&seq)
+	err := j.db.QueryRow(`SELECT seq FROM `+table+` WHERE session=? AND room=?`, session, room).Scan(&seq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
@@ -266,18 +357,30 @@ func (j *Journal) Cursor(session, room string) (int64, error) {
 // is worse than ignoring it — the caller is told the value that actually
 // stands.
 func (j *Journal) SetCursor(session, room string, seq int64) (int64, error) {
+	return j.setCursor(readCursorTable, session, room, seq)
+}
+
+// SetAlertCursor advances a session's alert cursor. Monotonic, for the same
+// reason SetCursor is: moving it backwards would re-alert a backlog the
+// session has already been told about, and an undeduplicated warning is worse
+// than no warning.
+func (j *Journal) SetAlertCursor(session, room string, seq int64) (int64, error) {
+	return j.setCursor(alertCursorTable, session, room, seq)
+}
+
+func (j *Journal) setCursor(table, session, room string, seq int64) (int64, error) {
 	if session == "" {
 		return 0, errNoSession
 	}
 	if seq < 0 {
 		seq = 0
 	}
-	if _, err := j.db.Exec(`INSERT INTO read_cursor (session, room, seq, at) VALUES (?,?,?,?)
+	if _, err := j.db.Exec(`INSERT INTO `+table+` (session, room, seq, at) VALUES (?,?,?,?)
 		ON CONFLICT(session, room) DO UPDATE SET seq=MAX(seq, excluded.seq), at=excluded.at`,
 		session, room, seq, j.now().Unix()); err != nil {
 		return 0, err
 	}
-	return j.Cursor(session, room)
+	return j.cursor(table, session, room)
 }
 
 // RoomStat is one room's backlog for one session. Every field is a COUNT or a
