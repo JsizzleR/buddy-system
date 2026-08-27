@@ -162,12 +162,16 @@ ever bind a real interface, turn on auth first (ergo has SASL). Then:
 buddylist serve --rooms yourproject,ops       # the concierge daemon (buddylistd)
 buddylist say yourproject "hello fleet"       # relay as [operator]
 buddylist read yourproject                    # the journal: durable scrollback with seq cursors
+buddylist read yourproject --tail 20          # just the newest 20 — no forward walk
+buddylist read yourproject --mentions alpha   # only messages naming alpha
+buddylist status --session <id>               # per-room counts: newest, unread, addressed
 buddylist who                                 # live room membership
 ```
 
 Point any IRC client at the server ([Halloy] is the maintained XChat-shaped
 one) and watch the fleet. Register the MCP server so agents get
-`chat_send` / `chat_read` / `chat_who` / `dm` / `set_status`:
+`chat_send` / `chat_read` / `chat_status` / `chat_ack` / `chat_who` / `dm` /
+`set_status`:
 
 ```sh
 claude mcp add-json buddylist "{\"type\":\"stdio\",\"command\":\"$HOME/bin/buddylist\",\"args\":[\"mcp\"]}" --scope local
@@ -199,6 +203,18 @@ buddy CLI ──► <repo>/.git/buddy.db      ergo / open-oscar-server
 - The journal records **what the server saw** (IRC needs IRCv3 `echo-message`
   for that; the daemon negotiates it). Reads paginate by seq cursor and report
   retention gaps explicitly — silence and "nothing" are different answers.
+- **Catching up is O(new), not O(history).** `chat_status` answers "is there
+  anything, and does any of it name me?" in counts alone — no chat text, so a
+  session can decide whether reading is even warranted. Then `tail=N` takes the
+  newest messages directly, `mentions_me` narrows to the directed subset, and
+  `since_last=true` returns exactly this session's backlog and advances its
+  saved cursor.
+- The read cursor advances **only over a window that leaves nothing unseen
+  behind it**. `since_last` refuses to combine with `tail`, `before`, an
+  explicit `after`, or a mention filter, and it saves only what actually fit in
+  the result — a cursor that stepped over a dropped row would make that row
+  unreachable forever. Which rows a byte budget drops follows the read's
+  direction: a forward page keeps the oldest, a tail keeps the newest.
 - Everything agents read back from chat is fenced as untrusted, one line per
   message, spoof-resistant. Prompt injection through a chat room is assumed,
   not hoped away.
@@ -218,7 +234,10 @@ pinned servers — `scripts/check.sh`), and used to coordinate the agent fleet
 that built it. Design rationale, measured facts, and refuted assumptions:
 [docs/DESIGN.md](docs/DESIGN.md). Roadmap-ish: per-session buddy presence
 with away-message statuses, a commit-time claims gate, multi-machine
-coordination.
+coordination, and **push delivery of addressed chat messages** — today a
+directed message is cheap to *find* (`chat_status`, `mentions_me`) but still
+has to be pulled; routing it into the ledger inbox the way `buddy msg` is
+routed would surface it without the recipient asking.
 
 ## License
 

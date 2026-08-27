@@ -14,13 +14,29 @@ import (
 
 // Request is one JSON line on the control socket.
 type Request struct {
-	Op    string `json:"op"` // say | read | who | dm | status | health
+	Op    string `json:"op"` // say | read | stat | ack | who | dm | status | health
 	Room  string `json:"room,omitempty"`
 	From  string `json:"from,omitempty"`
 	To    string `json:"to,omitempty"`
 	Text  string `json:"text,omitempty"`
 	After int64  `json:"after,omitempty"`
 	Limit int    `json:"limit,omitempty"`
+
+	// Read window (see ReadOpts): Before walks backwards, Tail takes the
+	// newest rows, Mentions filters to rows naming one of these tokens.
+	Before   int64    `json:"before,omitempty"`
+	Tail     int      `json:"tail,omitempty"`
+	Mentions []string `json:"mentions,omitempty"`
+
+	// Session keys the per-session read cursor (read with SinceLast, stat,
+	// ack). It is a bookkeeping key and confers no authority: the socket is
+	// loopback-only and every caller on it is already trusted equally, so a
+	// forged session id costs its owner a wrong cursor and nothing else.
+	Session string `json:"session,omitempty"`
+	// SinceLast starts a read at Session's stored cursor.
+	SinceLast bool `json:"since_last,omitempty"`
+	// Seq is the cursor an ack advances to.
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // Response is the one JSON line answered per request.
@@ -32,6 +48,11 @@ type Response struct {
 	Connected bool                `json:"connected,omitempty"`
 	Note      string              `json:"note,omitempty"`
 	Rooms     map[string][]string `json:"rooms,omitempty"`
+	Stats     []RoomStat          `json:"stats,omitempty"`
+	// Cursor is the read cursor this request USED (read) or LEFT IN FORCE
+	// (ack) — never what the caller asked for, which ack may decline to
+	// apply.
+	Cursor int64 `json:"cursor,omitempty"`
 }
 
 const maxRequestLine = 64 * 1024
@@ -122,11 +143,51 @@ func (d *Daemon) dispatch(req Request) Response {
 		if req.Room == "" {
 			return Response{Error: "read needs room"}
 		}
-		msgs, gap, err := d.cfg.Journal.ReadAfter(req.Room, req.After, req.Limit)
+		opts := ReadOpts{Room: req.Room, After: req.After, Before: req.Before,
+			Tail: req.Tail, Limit: req.Limit, Mentions: req.Mentions}
+		if req.SinceLast {
+			// A cursor advance is only safe over a window that leaves nothing
+			// unseen behind it, so since_last owns the whole selection: it
+			// refuses to ride on top of a caller-chosen start, a backwards or
+			// tail window, or a filter. Silently ignoring one of these would
+			// advance the cursor past rows the caller was never shown, and
+			// those rows are then unreachable by the cursor forever.
+			switch {
+			case req.Session == "":
+				return Response{Error: "since_last needs a session id"}
+			case req.After != 0:
+				return Response{Error: "since_last and after both set: pass one"}
+			case req.Before != 0 || req.Tail != 0:
+				return Response{Error: "since_last cannot be combined with before/tail: the cursor would advance past rows outside that window"}
+			case len(req.Mentions) > 0:
+				return Response{Error: "since_last cannot be combined with mentions: the cursor would advance past rows the filter dropped"}
+			}
+			cur, err := d.cfg.Journal.Cursor(req.Session, req.Room)
+			if err != nil {
+				return Response{Error: err.Error()}
+			}
+			opts.After = cur
+		}
+		msgs, gap, err := d.cfg.Journal.Read(opts)
 		if err != nil {
 			return Response{Error: err.Error()}
 		}
-		return Response{OK: true, Msgs: msgs, Gap: gap}
+		return Response{OK: true, Msgs: msgs, Gap: gap, Cursor: opts.After}
+	case "stat":
+		stats, err := d.cfg.Journal.Stat(req.Session, req.Mentions)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{OK: true, Stats: stats}
+	case "ack":
+		if req.Session == "" || req.Room == "" {
+			return Response{Error: "ack needs session and room"}
+		}
+		cur, err := d.cfg.Journal.SetCursor(req.Session, req.Room, req.Seq)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		return Response{OK: true, Cursor: cur}
 	case "status":
 		if err := d.Status(req.Text); err != nil {
 			return Response{Error: err.Error()}
