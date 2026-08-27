@@ -46,6 +46,13 @@ go build -o ~/bin/buddylist ./cmd/buddylist
 (Everything below assumes `~/bin` is on your `PATH`; the hook snippets spell
 the path out so they work either way.)
 
+**Upgrading on macOS: delete the old binary, do not copy over it.** `cp` onto
+an existing Mach-O invalidates its ad-hoc code signature and the kernel
+SIGKILLs the result — measured, exit 137 on the very next run. `go build -o`
+replaces the file, so the command above is safe; `cp new ~/bin/buddylist` is
+not. It matters because the hook lines end in `exit 0`: a killed binary is
+indistinguishable from a binary that had nothing to say.
+
 ### 1. Claims (the safety half — start here)
 
 ```sh
