@@ -518,17 +518,27 @@ func sessionFlag(fs *flag.FlagSet, into *string) {
 // unknown — including when the directory is ambiguous, since signing a message
 // with a bystander's name is worse than signing it "agent".
 func SessionLabelFor(cwd string) string {
+	_, label := SessionIdentityFor(cwd)
+	return label
+}
+
+// SessionIdentityFor best-effort resolves the calling session's id AND label
+// for a working directory. Both or neither: the id keys the chat journal's
+// per-session read cursor, and handing back an id whose label could not be
+// resolved (or the reverse) would let a caller key a cursor by one identity
+// while signing its messages with another.
+func SessionIdentityFor(cwd string) (id, label string) {
 	env := Env{Cwd: cwd}
 	st, err := openLedger(cwd, env)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer st.Close()
 	si, err := whoAmI(st, env, "")
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return si.Label
+	return si.SessionID, si.Label
 }
 
 // ---- commands ----

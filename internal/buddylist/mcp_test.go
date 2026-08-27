@@ -55,9 +55,12 @@ func TestMCPHandshakeAndToolsList(t *testing.T) {
 	if init["protocolVersion"] != "2025-06-18" {
 		t.Fatalf("initialize must state the SERVER's protocol version: %v", init)
 	}
+	// The advertised set must be the built-in set; WHICH tools those are is
+	// asserted by name in TestMCPToolsListNamesEveryTool, because a count
+	// cannot see one tool substituted for another.
 	tools := resps[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 5 {
-		t.Fatalf("want 5 tools, got %d", len(tools))
+	if len(tools) != len(mcpTools) {
+		t.Fatalf("tools/list must advertise every tool: got %d of %d", len(tools), len(mcpTools))
 	}
 }
 

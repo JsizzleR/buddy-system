@@ -2,7 +2,8 @@
 //
 //	buddylist serve --server 127.0.0.1:9898 --name SmarterChild --rooms lobby,ops
 //	buddylist say    <room> <text...> [--from <label>]
-//	buddylist read   <room> [--after <seq>]
+//	buddylist read   <room> [--after <seq>] [--tail <n>] [--before <seq>] [--mentions a,b]
+//	buddylist status [--session <id>] [--mentions a,b]
 //	buddylist who | dm <to> <text...> | health
 package main
 
@@ -33,7 +34,7 @@ func defaultSocket() string { return filepath.Join(stateDir(), "buddylist.sock")
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: buddylist serve|say|read|who|dm|health|mcp ...")
+		fmt.Fprintln(os.Stderr, "usage: buddylist serve|say|read|status|who|dm|health|mcp ...")
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
@@ -45,6 +46,8 @@ func main() {
 		err = runSay(args)
 	case "read":
 		err = runRead(args)
+	case "status":
+		err = runStatus(args)
 	case "who":
 		err = runWho()
 	case "dm":
@@ -191,16 +194,21 @@ func runDM(args []string) error {
 func runRead(args []string) error {
 	fs := flag.NewFlagSet("read", flag.ExitOnError)
 	after := fs.Int64("after", 0, "return messages with seq greater than this")
+	before := fs.Int64("before", 0, "return the messages just before this seq (walks backwards)")
+	tail := fs.Int("tail", 0, "return the newest N messages")
 	limit := fs.Int("limit", 50, "max messages")
+	mentions := fs.String("mentions", "", "comma-separated names; show only messages naming one of them")
 	room := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		room, args = args[0], args[1:]
 	}
 	fs.Parse(args)
 	if room == "" {
-		return fmt.Errorf("usage: buddylist read <room> [--after <seq>] [--limit <n>]")
+		return fmt.Errorf("usage: buddylist read <room> [--after <seq>] [--before <seq>] [--tail <n>] [--limit <n>] [--mentions a,b]")
 	}
-	resp, err := buddylist.Call(defaultSocket(), buddylist.Request{Op: "read", Room: room, After: *after, Limit: *limit}, 5*time.Second)
+	resp, err := buddylist.Call(defaultSocket(), buddylist.Request{Op: "read", Room: room,
+		After: *after, Before: *before, Tail: *tail, Limit: *limit,
+		Mentions: splitList(*mentions)}, 5*time.Second)
 	if err != nil {
 		return err
 	}
@@ -217,6 +225,49 @@ func runRead(args []string) error {
 		// like the MCP reader does, or a peer's <BR>s fabricate perfectly
 		// formatted journal rows (and ANSI escapes) on the operator's terminal.
 		fmt.Printf("%d %s <%s> %s\n", m.Seq, ts, buddylist.Fence(who, 64), buddylist.Fence(m.Body, 2048))
+	}
+	return nil
+}
+
+// splitList turns a comma-separated flag into tokens, dropping the blanks a
+// trailing or doubled comma leaves behind — an empty token would be refused
+// by the journal and take the whole read down with it.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// runStatus prints the per-room backlog digest: counts only, never content.
+func runStatus(args []string) error {
+	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	session := fs.String("session", "", "session id whose read cursor to report (default: none — unread is then the whole retained room)")
+	mentions := fs.String("mentions", "", "comma-separated names to count as addressed")
+	fs.Parse(args)
+	resp, err := buddylist.Call(defaultSocket(), buddylist.Request{Op: "stat",
+		Session: *session, Mentions: splitList(*mentions)}, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	if *session == "" {
+		fmt.Println("(no --session: unread is the whole retained room, not anyone's backlog)")
+	}
+	fmt.Printf("%-28s  %6s  %5s  %6s  %9s\n", "room", "newest", "last", "unread", "addressed")
+	for _, st := range resp.Stats {
+		room := st.Room
+		if room == "" {
+			room = "(system)"
+		}
+		gap := ""
+		if st.Gap {
+			gap = "  [GAP]"
+		}
+		fmt.Printf("%-28s  %6d  %5s  %6d  %9d%s\n", buddylist.Fence(room, 28), st.NewestSeq,
+			time.Unix(st.NewestAt, 0).Format("15:04"), st.Unread, st.Addressed, gap)
 	}
 	return nil
 }
@@ -245,7 +296,12 @@ func runMCP() error {
 		Call: func(req buddylist.Request, timeout time.Duration) (buddylist.Response, error) {
 			return buddylist.Call(defaultSocket(), req, timeout)
 		},
-		Label: func() string { return cli.SessionLabelFor(cwd) },
+		// Resolved per call, not once at startup: a session's ledger row is
+		// written by its SessionStart hook, which can land after the MCP
+		// server is spawned. Caching "unknown" here would key this session's
+		// read cursor to nothing for its whole life.
+		Label:     func() string { _, label := cli.SessionIdentityFor(cwd); return label },
+		SessionID: func() string { id, _ := cli.SessionIdentityFor(cwd); return id },
 	})
 }
 
