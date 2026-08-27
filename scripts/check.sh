@@ -16,6 +16,18 @@ set -eu
 cd "$(dirname "$0")/.."
 fmt=$(gofmt -l cmd internal)
 [ -z "$fmt" ] || { echo "gofmt needed: $fmt"; exit 1; }
+# Source-shape gate for issue #4. fakeConn's events channel is closed by the
+# daemon's shutdown watcher, so any bare send into it races that close. Exactly
+# one raw send is legal: the guarded one inside emit. This is gated by GREP and
+# not by -race because -race structurally cannot see it — measured, a raw send
+# restored at a test-body call site survives 5 of 5 race runs, since only
+# ChatJoin has a second goroutine live at the same instant. Two clauses on
+# purpose: the count catches a new send, the identity catches this gate being
+# quietly defeated by respelling the line it allows.
+raws=$(grep -o '\.events <-' internal/buddylist/chatd_test.go | wc -l | tr -d ' ')
+[ "$raws" = 1 ] || { echo "check.sh: $raws raw sends into fakeConn.events; exactly 1 is allowed (inside emit). Route events through emit/push — issue #4." >&2; exit 1; }
+grep -q 'case f\.events <- ev:' internal/buddylist/chatd_test.go || { echo "check.sh: emit's guarded send is gone or respelled — re-point this gate in the same commit." >&2; exit 1; }
+
 go vet ./...
 go test ./... -count=1
 go test -race ./... -count=1

@@ -21,12 +21,17 @@ import (
 //
 // That contract is also the fake's one hazard, and it is why every event goes
 // through emit. Close runs on the daemon's shutdown watcher while joins run on
-// its main goroutine, so an unguarded `f.events <- ev` is a send racing a
-// close of the same channel — a real data race, in the double rather than in
+// its main goroutine, so a bare send into the events channel races a close of
+// that same channel — a real data race, in the double rather than in
 // the daemon, which is the worst place for one: it reports a race that belongs
 // to nobody and it can just as easily hide one that belongs to somebody.
 // (Issue #4; the detector flagged only ChatJoin, but all six send sites had
 // the same shape.)
+//
+// scripts/check.sh gates that: exactly ONE raw send may exist in this file,
+// the guarded one inside emit. The race detector cannot do it — measured, a
+// raw send restored at a test-BODY call site survives -race 5 runs out of 5,
+// because only ChatJoin has a second goroutine live at the same moment.
 //
 // emit takes the SAME lock that closes the channel, and sends non-blockingly
 // so holding that lock can never wedge Close. A closed connection drops the
