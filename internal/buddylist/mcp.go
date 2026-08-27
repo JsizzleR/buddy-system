@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
 )
@@ -589,54 +588,40 @@ func sessionID(deps MCPDeps) string {
 
 // mentionTokens is the set of names this session answers to: its id, its
 // label, the label's last segment (the short form peers actually type), and
-// anything the caller adds — a claim slug, a bundle name. Derived tokens are
-// dropped when they are too short to filter with rather than refused, since a
-// caller cannot fix the shape of its own id; an explicitly passed one is an
-// error, because the caller chose it and needs to know it did nothing.
+// anything the caller adds — a claim slug, a bundle name. The chosen/derived
+// split is mentionSet's: a caller-named token that cannot be used is an
+// error, a derived one is dropped. sessionNames is shared with the proactive
+// alert so an alert and the chat_read it recommends can never disagree about
+// which names a session answers to.
 func mentionTokens(deps MCPDeps, me bool, extra []string) ([]string, error) {
-	var out []string
-	seen := map[string]bool{}
-	add := func(t string, derived bool) error {
-		t = strings.TrimSpace(t)
-		if t == "" {
-			return nil
-		}
-		if utf8.RuneCountInString(t) < minMentionToken {
-			if derived {
-				return nil
-			}
-			return fmt.Errorf("mention %q is shorter than %d characters; it would match nearly every message", t, minMentionToken)
-		}
-		if len(t) > maxMentionBytes {
-			return fmt.Errorf("mention is %d bytes; cap %d", len(t), maxMentionBytes)
-		}
-		if key := strings.ToLower(t); !seen[key] {
-			seen[key] = true
-			out = append(out, t)
-		}
-		return nil
-	}
-	for _, t := range extra {
-		if err := add(t, false); err != nil {
-			return nil, err
-		}
-	}
+	var derived []string
 	if me {
-		id, label := sessionID(deps), ""
+		label := ""
 		if deps.Label != nil {
 			label = strings.TrimSpace(deps.Label())
 		}
-		_ = add(id, true)
-		_ = add(label, true)
-		if i := strings.LastIndexByte(label, '/'); i >= 0 {
-			_ = add(label[i+1:], true)
-		}
+		derived = sessionNames(sessionID(deps), label, nil)
 	}
-	if len(out) > maxMentionTokens {
-		return nil, fmt.Errorf("too many mention tokens (%d; cap %d)", len(out), maxMentionTokens)
+	out, err := mentionSet(extra, derived)
+	if err != nil {
+		return nil, err
 	}
 	if me && len(out) == 0 {
 		return nil, errors.New("no session identity could be resolved, so there is nothing to match: pass mentions=[\"name\", ...] with the names you answer to")
 	}
 	return out, nil
+}
+
+// sessionNames orders the names a session answers to by how well they
+// actually match. Claim slugs lead: measured against the live journal, a
+// session's id and label matched 0 of 2313 messages in a busy room because
+// peers address each other by SLUG. Ordering matters because mentionSet
+// truncates the tail at the token cap, and the tail is the part that has
+// never matched anything.
+func sessionNames(id, label string, slugs []string) []string {
+	out := append([]string{}, slugs...)
+	if i := strings.LastIndexByte(label, '/'); i >= 0 {
+		out = append(out, label[i+1:])
+	}
+	return append(out, label, id)
 }

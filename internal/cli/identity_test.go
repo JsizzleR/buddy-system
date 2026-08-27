@@ -314,3 +314,63 @@ func TestSessionLabelForUsesIdentityNotTheDirectory(t *testing.T) {
 		t.Fatalf("an ambiguous directory must sign nothing (caller renders \"agent\"), got %q", got)
 	}
 }
+
+// ChatIdentity is the one place the chat half reads the claims half, and the
+// slugs are why it has to: measured against the live journal, a session's id
+// and label matched 0 of 2313 messages in a busy room, because peers address
+// each other by claim slug.
+func TestChatIdentityCarriesThisSessionsClaimSlugs(t *testing.T) {
+	f := newFixture(t)
+	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatal(errw)
+	}
+	f.helloIn(t, f.repo, "sess-a", "alpha")
+	f.helloIn(t, f.repo, "sess-b", "bravo")
+	f.asSession("sess-a", func() {
+		if out, errw, code := f.run(t, f.repo, "", "claim", "a-work", "--desc", "d", "--scope", "pkg/a"); code != 0 {
+			t.Fatalf("claim: %s %s", out, errw)
+		}
+	})
+	f.asSession("sess-b", func() {
+		if out, errw, code := f.run(t, f.repo, "", "claim", "b-work", "--desc", "d", "--scope", "pkg/b"); code != 0 {
+			t.Fatalf("claim: %s %s", out, errw)
+		}
+	})
+
+	id, label, slugs := ChatIdentity(f.repo, "sess-a")
+	if id != "sess-a" || label != "alpha" {
+		t.Fatalf("identity: id=%q label=%q", id, label)
+	}
+	// The peer's slug is the point of the negative half: alerting on it would
+	// wake this session for somebody else's work.
+	if len(slugs) != 1 || slugs[0] != "a-work" {
+		t.Fatalf("want only this session's own slugs, got %v", slugs)
+	}
+
+	// Released claims stop being names this session answers to.
+	f.asSession("sess-a", func() {
+		if out, errw, code := f.run(t, f.repo, "", "release", "a-work"); code != 0 {
+			t.Fatalf("release: %s %s", out, errw)
+		}
+	})
+	if _, _, slugs := ChatIdentity(f.repo, "sess-a"); len(slugs) != 0 {
+		t.Fatalf("a released claim is not a name: %v", slugs)
+	}
+}
+
+// Every failure here costs a chat notice, never a claim, so it is silent and
+// total rather than partial-and-wrong: an id that names nobody must not come
+// back with somebody else's label.
+func TestChatIdentityFailsSilentlyRatherThanGuessing(t *testing.T) {
+	f := newFixture(t)
+	if id, label, slugs := ChatIdentity(f.repo, "sess-a"); id != "" || label != "" || slugs != nil {
+		t.Fatalf("no ledger must yield no identity: %q %q %v", id, label, slugs)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatal(errw)
+	}
+	f.helloIn(t, f.repo, "sess-a", "alpha")
+	if id, label, _ := ChatIdentity(f.repo, "sess-nobody"); id != "" || label != "" {
+		t.Fatalf("an unregistered id must not resolve to the one live session: %q %q", id, label)
+	}
+}
