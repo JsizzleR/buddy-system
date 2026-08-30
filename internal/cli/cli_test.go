@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -631,5 +632,86 @@ func TestGateDeniesHookInputWithoutToolName(t *testing.T) {
 	}
 	if !strings.Contains(reason, "tool_name") {
 		t.Fatalf("denial should name the cause: %q", reason)
+	}
+}
+
+// TestSessionsAgeDatesTheEventItReports pins WHICH timestamp the age column
+// dates, per state. Every row used to report the age of last_seen, ended rows
+// included — so an ended row said how long ago the session last ran a tool and
+// presented it as how long ago the session died. Measured on a real ledger:
+// `bastle/s-86a5764d  ended  12h` for a session whose last_seen was 07:25:52
+// and whose ended was 16:33:38, read at 19:52 — dead 3h19m, reported 12h. The
+// error is one-directional (last_seen is always the earlier write), so the
+// number an agent got was systematically too large, and nothing in the row let
+// it recover the real one.
+//
+// The `clean` case is the control: a session that beat and died in the same
+// instant has one number, so a fix that merely shifted every ended row would
+// pass `reaped` and fail here.
+func TestSessionsAgeDatesTheEventItReports(t *testing.T) {
+	f := newFixture(t)
+	t0 := f.clock
+	at := func(d time.Duration) { f.clock = t0.Add(d) }
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	hook := func(s string) string { return hookJSON("sess-"+s, f.repo, "", "") }
+
+	must("", "init")
+	for _, s := range []string{"fresh", "stale", "clean", "reaped"} {
+		must(hook(s), "hello", "--label", s)
+	}
+	at(2 * time.Hour) // clean beats and dies in the same instant
+	must(hook("clean"), "beat")
+	must(hook("clean"), "bye")
+	at(3 * time.Hour) // reaped has been silent since t0 and is only now closed
+	must(hook("reaped"), "bye")
+	at(5*time.Hour + 55*time.Minute)
+	must(hook("fresh"), "beat") // inside StaleAfter of the read; stale never beats again
+	at(6 * time.Hour)
+
+	out, errw, code := f.run(t, f.repo, "", "sessions")
+	if code != 0 {
+		t.Fatalf("sessions: exit %d: %s", code, errw)
+	}
+	rowRE := regexp.MustCompile(`^(\S+) +(live STALE|live|ended) +(\S+) +(.*?) +\(sess-([^)]+)\)(.*)$`)
+	type row struct{ state, age, note string }
+	got := map[string]row{}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	for _, ln := range lines {
+		m := rowRE.FindStringSubmatch(ln)
+		if m == nil {
+			t.Fatalf("unparseable sessions row %q\nfull output:\n%s", ln, out)
+		}
+		got[m[1]] = row{state: m[2], age: m[3], note: strings.TrimSpace(m[6])}
+	}
+
+	for _, tc := range []struct {
+		label, state, age, note, why string
+	}{
+		{"fresh", "live", "5m", "",
+			"a live session is dated by its last beat: that beat is the only evidence it is still there"},
+		{"stale", "live STALE", "6h", "",
+			"a stale live session is dated by its last beat too — the silence is what makes it stale"},
+		{"reaped", "ended", "3h", "last beat 6h",
+			"the measured defect: silent since t0, closed at t0+3h, observed at t0+6h — 3h dead, not 6h"},
+		{"clean", "ended", "4h", "last beat 4h",
+			"beat and bye in the same instant: the numbers agree, and the note prints anyway"},
+	} {
+		g, ok := got[tc.label]
+		if !ok {
+			t.Errorf("%s: no row (%s)", tc.label, tc.why)
+			continue
+		}
+		if g.state != tc.state || g.age != tc.age || g.note != tc.note {
+			t.Errorf("%s: got state=%q age=%q note=%q, want state=%q age=%q note=%q\n  %s",
+				tc.label, g.state, g.age, g.note, tc.state, tc.age, tc.note, tc.why)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("got %d session rows, want 4:\n%s", len(got), out)
 	}
 }
