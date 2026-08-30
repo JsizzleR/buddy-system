@@ -1212,13 +1212,33 @@ func cmdSessions(args []string, env Env) error {
 	}
 	now := nowOf(env)
 	for _, si := range sessions {
-		state := "live"
-		if !si.Live() {
-			state = "ended"
-		} else if now.Sub(si.LastSeen) > store.StaleAfter {
+		// The age column dates the event the state word reports. A live
+		// session is dated by its last beat: that beat IS the evidence it is
+		// still there. An ended one must be dated by `ended`, because
+		// last_seen says when the session last ran a tool, not when it died —
+		// and Beat refuses an ended row while Bye only stamps a live one, so
+		// last_seen is necessarily the earlier of the two writes and dating
+		// an ended row by it overstates the age, never understates it.
+		state, since, note := "live", si.LastSeen, ""
+		switch {
+		case !si.Live():
+			// Both numbers print, because they are different facts and
+			// neither implies the other: `ended` is when the process went
+			// away, the last beat is when its work stopped, and the distance
+			// between them is how long it sat idle before it went. That
+			// distance is routinely wide — over the 151 ended rows in this
+			// box's two ledgers, 71 exceeded StaleAfter, the median was 18m
+			// and the widest 5.1 days — so a reader handed one number cannot
+			// recover the other. Unconditional on purpose: an annotation that
+			// appeared only on rows whose numbers differ would be a fact the
+			// reader has to already know to miss.
+			state, since = "ended", si.Ended
+			note = "  last beat " + age(now, si.LastSeen)
+		case now.Sub(si.LastSeen) > store.StaleAfter:
 			state = "live STALE"
 		}
-		fmt.Fprintf(env.Stdout, "%-24s %-12s %6s  %s  (%s)\n", si.Label, state, age(now, si.LastSeen), si.Worktree, si.SessionID)
+		fmt.Fprintf(env.Stdout, "%-24s %-12s %6s  %s  (%s)%s\n",
+			si.Label, state, age(now, since), si.Worktree, si.SessionID, note)
 	}
 	return nil
 }
