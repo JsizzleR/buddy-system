@@ -239,8 +239,12 @@ func RunAlert(deps AlertDeps, emit func(text string) error) error {
 	if len(tokens) == 0 {
 		return nil
 	}
+	// Slugs ride along for presence: this call already carries the identity
+	// the daemon needs to show the session as a buddy in its room, and the
+	// ledger read that produced them has already happened here. It adds no
+	// round-trip and the daemon does no I/O with them.
 	resp, err := deps.Call(Request{Op: "alerts", Session: deps.SessionID, Label: deps.Label,
-		Mentions: tokens, Limit: alertRowCap}, alertCallTime)
+		Slugs: deps.Slugs, Mentions: tokens, Limit: alertRowCap}, alertCallTime)
 	if err != nil {
 		return err
 	}

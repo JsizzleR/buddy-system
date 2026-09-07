@@ -50,7 +50,16 @@ type Config struct {
 	SocketPath string
 	Journal    *Journal
 	Dial       Dialer
-	Log        *slog.Logger
+	// DialAs opens an ADDITIONAL connection under a chosen name, which is how
+	// a session becomes its own buddy in the room. Nil disables per-session
+	// presence entirely and the daemon runs exactly as it did before it
+	// existed — the concierge relay is untouched either way.
+	//
+	// An implementation must report a name collision as ErrNickInUse (wrapped
+	// is fine); anything else is treated as a server or network failure and
+	// retried under the same name.
+	DialAs func(ctx context.Context, name string) (Conn, error)
+	Log    *slog.Logger
 	// MaxBackoff caps the reconnect backoff (default 60s).
 	MaxBackoff time.Duration
 	// now is a test seam; nil = wall clock.
@@ -62,6 +71,11 @@ type Daemon struct {
 	cfg Config
 	log *slog.Logger
 
+	// presence is the per-session buddy manager, or nil when Config.DialAs is
+	// unset. It is its own connections and its own state: nothing on the
+	// concierge path consults it.
+	presence *presence
+
 	mu        sync.Mutex
 	conn      Conn
 	status    string                     // last requested away/status text; reapplied on reconnect
@@ -69,6 +83,14 @@ type Daemon struct {
 	roomNames map[string]string          // room id → room name
 	members   map[string]map[string]bool // room name → screen names present
 	lastError string
+}
+
+// now is the daemon's clock seam; presence ages sessions by it.
+func (d *Daemon) now() time.Time {
+	if d.cfg.Now != nil {
+		return d.cfg.Now()
+	}
+	return time.Now()
 }
 
 func New(cfg Config) (*Daemon, error) {
@@ -86,13 +108,17 @@ func New(cfg Config) (*Daemon, error) {
 	if cfg.MaxBackoff <= 0 {
 		cfg.MaxBackoff = 60 * time.Second
 	}
-	return &Daemon{
+	d := &Daemon{
 		cfg:       cfg,
 		log:       cfg.Log,
 		roomIDs:   map[string]string{},
 		roomNames: map[string]string{},
 		members:   map[string]map[string]bool{},
-	}, nil
+	}
+	if cfg.DialAs != nil {
+		d.presence = newPresence(d)
+	}
+	return d, nil
 }
 
 // Run serves the socket and maintains the server connection until ctx ends.
@@ -111,6 +137,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 		srvErr <- err
 	}()
+
+	// Presence runs beside the concierge, not inside it: its connections are
+	// unaffected by a concierge reconnect, and a presence stall cannot hold up
+	// the relay or the journal.
+	if d.presence != nil {
+		go d.presence.run(ctx)
+	}
 
 	backoff := time.Second
 	for {
@@ -355,8 +388,14 @@ func (d *Daemon) Who() (connected bool, rooms map[string][]string) {
 // Health reports connection state and the last system note.
 func (d *Daemon) Health() (connected bool, note string) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.conn != nil, d.lastError
+	connected, note = d.conn != nil, d.lastError
+	d.mu.Unlock()
+	// Presence is silent by design, which makes "is it working?" unanswerable
+	// without a surface to ask from. This is that surface.
+	if online, wanted := d.presence.live(); wanted > 0 {
+		note = fmt.Sprintf("%s; presence: %d/%d session buddies online", note, online, wanted)
+	}
+	return connected, note
 }
 
 func fold(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
