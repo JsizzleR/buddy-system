@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS inbox_delivery (
 	delivered  INTEGER NOT NULL,
 	PRIMARY KEY (msg_id, session_id)
 );
+-- A broadcast addresses the sessions that are live WHEN it is sent. Without
+-- this audience snapshot, target='all' matches every session created later
+-- until a manual sweep removes the row: a one-line interjection becomes
+-- recurring context for tomorrow's unrelated sessions.
+CREATE TABLE IF NOT EXISTS inbox_recipient (
+	msg_id     INTEGER NOT NULL,
+	session_id TEXT NOT NULL,
+	PRIMARY KEY (msg_id, session_id)
+);
 CREATE TABLE IF NOT EXISTS dirty_paths (
 	session_id TEXT NOT NULL,
 	worktree   TEXT NOT NULL,
@@ -116,9 +125,46 @@ func Open(dbPath string, now func() time.Time) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open ledger: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
+	// Detect the one migration that needs data backfill before the schema
+	// creates its marker table. Existing broadcasts can be assigned to the
+	// sessions whose recorded lifetime covered the send; sessions that started
+	// later are deliberately excluded.
+	hadRecipientTable := false
+	var one int
+	err = db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='inbox_recipient'`).Scan(&one)
+	switch {
+	case err == nil:
+		hadRecipientTable = true
+	case !errors.Is(err, sql.ErrNoRows):
+		db.Close()
+		return nil, fmt.Errorf("inspect ledger migration state: %w", err)
+	}
+	// Create the marker table and backfill in one transaction. If the process
+	// dies between those steps, SQLite rolls both back; a later Open can never
+	// mistake a half-finished migration for a completed one.
+	tx, err := db.Begin()
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("begin ledger migration: %w", err)
+	}
+	if _, err := tx.Exec(schema); err != nil {
+		tx.Rollback()
 		db.Close()
 		return nil, fmt.Errorf("migrate ledger: %w", err)
+	}
+	if !hadRecipientTable {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO inbox_recipient (msg_id, session_id)
+			SELECT m.msg_id, s.session_id FROM inbox m JOIN sessions s
+				ON s.started<=m.created AND (s.ended IS NULL OR s.ended>=m.created)
+			WHERE m.target='all'`); err != nil {
+			tx.Rollback()
+			db.Close()
+			return nil, fmt.Errorf("backfill broadcast recipients: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("commit ledger migration: %w", err)
 	}
 	return &Store{db: db, now: now}, nil
 }
@@ -733,7 +779,11 @@ func (s *Store) Sweep(ttl, forceAfter time.Duration, force bool) (orphaned, dele
 
 		// Inbox GC: messages past ttl are dropped with their delivery marks.
 		if _, err := tx.Exec(`DELETE FROM inbox_delivery WHERE msg_id IN
-			(SELECT msg_id FROM inbox WHERE created < ?)`, cutoff); err != nil {
+				(SELECT msg_id FROM inbox WHERE created < ?)`, cutoff); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM inbox_recipient WHERE msg_id IN
+				(SELECT msg_id FROM inbox WHERE created < ?)`, cutoff); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM inbox WHERE created < ?`, cutoff); err != nil {
@@ -777,11 +827,30 @@ func (s *Store) PausedFor(sessionID, label string) (string, bool, error) {
 	return note, true, nil
 }
 
-// Msg queues a message for a session id, label, or "all".
+// BroadcastKeep is the maximum useful life of a fleet-wide interjection. A
+// direct message remains durable until delivery or sweep; a broadcast is a
+// statement to the fleet that existed when it was sent, not standing context
+// for a session that has been idle for days.
+const BroadcastKeep = 24 * time.Hour
+
+// Msg queues a message for a session id, label, or "all". A broadcast snapshots
+// its live recipients in the same transaction as the message, so a later
+// session can never inherit stale fleet context.
 func (s *Store) Msg(target, from, body string) error {
-	_, err := s.db.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES (?,?,?,?)`,
-		target, from, body, s.now().Unix())
-	return err
+	return s.tx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES (?,?,?,?)`,
+			target, from, body, s.now().Unix())
+		if err != nil || target != "all" {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO inbox_recipient (msg_id, session_id)
+			SELECT ?, session_id FROM sessions WHERE ended IS NULL`, id)
+		return err
+	})
 }
 
 // InboxMsg is one queued message.
@@ -792,13 +861,15 @@ type InboxMsg struct {
 	Created time.Time
 }
 
-// Undelivered returns messages addressed to the session (by id, label, or
-// "all") not yet marked delivered to it, oldest first.
+// Undelivered returns messages addressed to the session (by id or label), plus
+// unexpired broadcasts whose recipient snapshot contains it, not yet marked
+// delivered, oldest first.
 func (s *Store) Undelivered(sessionID, label string) ([]InboxMsg, error) {
 	rows, err := s.db.Query(`SELECT m.msg_id, m.sender, m.body, m.created FROM inbox m
-		WHERE m.target IN (?, ?, 'all')
-		AND NOT EXISTS (SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=?)
-		ORDER BY m.msg_id`, sessionID, label, sessionID)
+			WHERE (m.target IN (?, ?) OR (m.target='all' AND m.created>=? AND EXISTS
+				(SELECT 1 FROM inbox_recipient r WHERE r.msg_id=m.msg_id AND r.session_id=?)))
+			AND NOT EXISTS (SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=?)
+			ORDER BY m.msg_id`, sessionID, label, s.now().Add(-BroadcastKeep).Unix(), sessionID, sessionID)
 	if err != nil {
 		return nil, err
 	}

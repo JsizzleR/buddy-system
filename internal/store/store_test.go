@@ -304,6 +304,99 @@ func TestInboxAtLeastOnceAndBroadcast(t *testing.T) {
 	if len(bm) != 2 {
 		t.Fatalf("b should see label+broadcast regardless of a's delivery, got %d", len(bm))
 	}
+
+	// "all" means the fleet that existed when the message was sent. A later
+	// session must not inherit standing context from a historical broadcast.
+	c := hello(t, st, "sess-c", "charlie", "/wt/c")
+	if cm, err := st.Undelivered(c.SessionID, c.Label); err != nil || len(cm) != 0 {
+		t.Fatalf("future session inherited a broadcast: %v (%v)", cm, err)
+	}
+}
+
+func TestBroadcastSnapshotsOnlyLiveRecipients(t *testing.T) {
+	st, _ := openTest(t)
+	live := hello(t, st, "sess-live", "live", "/wt/live")
+	ended := hello(t, st, "sess-ended", "ended", "/wt/ended")
+	if err := st.Bye(ended.SessionID, ended.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Msg("all", "operator", "current fleet only"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Undelivered(live.SessionID, live.Label); len(got) != 1 {
+		t.Fatalf("live recipient missed broadcast: %v", got)
+	}
+	revived := hello(t, st, ended.SessionID, ended.Label, ended.Worktree)
+	if got, _ := st.Undelivered(revived.SessionID, revived.Label); len(got) != 0 {
+		t.Fatalf("session revived after broadcast inherited it: %v", got)
+	}
+}
+
+func TestBroadcastExpiresWithoutDependingOnSweep(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if err := st.Msg("all", "operator", "time-sensitive"); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(BroadcastKeep + time.Second)
+	if got, err := st.Undelivered(a.SessionID, a.Label); err != nil || len(got) != 0 {
+		t.Fatalf("expired broadcast remained deliverable: %v (%v)", got, err)
+	}
+	// Direct interjections keep their existing durable semantics.
+	if err := st.Msg(a.SessionID, "operator", "still relevant"); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(BroadcastKeep + time.Second)
+	if got, err := st.Undelivered(a.SessionID, a.Label); err != nil || len(got) != 1 {
+		t.Fatalf("direct message expired with broadcasts: %v (%v)", got, err)
+	}
+}
+
+func TestLegacyBroadcastWithoutAudienceIsInert(t *testing.T) {
+	st, _ := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if _, err := st.db.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES ('all','operator','legacy',?)`, st.now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.Undelivered(a.SessionID, a.Label); err != nil || len(got) != 0 {
+		t.Fatalf("pre-migration broadcast without a recipient snapshot was replayed: %v (%v)", got, err)
+	}
+}
+
+func TestRecipientMigrationReconstructsOnlyTheAudienceAtSendTime(t *testing.T) {
+	clk := &pinnedClock{t: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)}
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	st, err := Open(path, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if _, err := st.db.Exec(`DROP TABLE inbox_recipient`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES ('all','operator','legacy',?)`, clk.now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = Open(path, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	var recipients int
+	if err := st.db.QueryRow(`SELECT count(*) FROM inbox_recipient`).Scan(&recipients); err != nil || recipients != 1 {
+		t.Fatalf("migration must commit its marker and backfill together: recipients=%d err=%v", recipients, err)
+	}
+	if got, _ := st.Undelivered(a.SessionID, a.Label); len(got) != 1 {
+		t.Fatalf("migration lost the session live at send time: %v", got)
+	}
+	b := hello(t, st, "sess-b", "bravo", "/wt/b")
+	if got, _ := st.Undelivered(b.SessionID, b.Label); len(got) != 0 {
+		t.Fatalf("migration admitted a future session: %v", got)
+	}
 }
 
 func TestPauseTargetsAndResume(t *testing.T) {
@@ -423,6 +516,10 @@ func TestSweepGCsAgedInbox(t *testing.T) {
 	}
 	if msgs, _ := st.Undelivered(a.SessionID, a.Label); len(msgs) != 0 {
 		t.Fatalf("aged inbox rows must be GCed by sweep, got %d", len(msgs))
+	}
+	var recipients int
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM inbox_recipient`).Scan(&recipients); err != nil || recipients != 0 {
+		t.Fatalf("sweep left broadcast recipients: count=%d err=%v", recipients, err)
 	}
 }
 

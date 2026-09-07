@@ -380,6 +380,7 @@ func TestMCPMentionsMeDerivesTokensFromIdentity(t *testing.T) {
 	deps := MCPDeps{
 		SessionID: func() string { return "e284b102-c678-4fce" },
 		Label:     func() string { return "bastle/s-e284b102" },
+		Slugs:     func() []string { return []string{"b81-inspect-markers"} },
 		Call: func(req Request, _ time.Duration) (Response, error) {
 			got = req
 			return Response{OK: true}, nil
@@ -387,15 +388,41 @@ func TestMCPMentionsMeDerivesTokensFromIdentity(t *testing.T) {
 	}
 	driveMCP(t, deps,
 		`{"jsonrpc":"2.0","id":100,"method":"initialize","params":{}}`,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chat_read","arguments":{"room":"lobby","mentions_me":true,"mentions":["b81-inspect-markers"]}}}`)
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chat_read","arguments":{"room":"lobby","mentions_me":true}}}`)
 	// Order is load-bearing, not incidental: mentionSet truncates the derived
 	// TAIL at the token cap, so the names that actually match must lead.
-	// Caller-named tokens first (a claim slug is how peers address a session),
-	// then the short label, then the label, then the id — which measured 0
+	// Claim slugs first (they are how peers address a session), then the short
+	// label, then the label, then the id — which measured 0
 	// matches in 2313 messages of the live room.
 	want := []string{"b81-inspect-markers", "s-e284b102", "bastle/s-e284b102", "e284b102-c678-4fce"}
 	if fmt.Sprint(got.Mentions) != fmt.Sprint(want) {
 		t.Fatalf("mention tokens: got %v want %v", got.Mentions, want)
+	}
+}
+
+func TestMCPBareReadIsCompactAndExplicitLimitOptsWide(t *testing.T) {
+	var limits []int
+	deps := MCPDeps{Call: func(req Request, _ time.Duration) (Response, error) {
+		limits = append(limits, req.Limit)
+		return Response{OK: true, Msgs: bigMsgs(20)}, nil
+	}}
+	read := func(args string) string {
+		resps := driveMCP(t, deps,
+			`{"jsonrpc":"2.0","id":100,"method":"initialize","params":{}}`,
+			`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chat_read","arguments":`+args+`}}`)
+		text, isErr := toolText(t, resps[1])
+		if isErr {
+			t.Fatalf("read failed: %s", text)
+		}
+		return text
+	}
+	compact := read(`{"room":"lobby"}`)
+	wide := read(`{"room":"lobby","limit":50}`)
+	if fmt.Sprint(limits) != fmt.Sprint([]int{defaultReadRows, 50}) {
+		t.Fatalf("read limits: got %v", limits)
+	}
+	if len(wide) <= len(compact)*2 {
+		t.Fatalf("explicit wide read did not materially expand the result: compact=%d wide=%d", len(compact), len(wide))
 	}
 }
 

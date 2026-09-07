@@ -64,6 +64,33 @@ func TestMCPHandshakeAndToolsList(t *testing.T) {
 	}
 }
 
+func TestMCPCoreProfileAdvertisesOnlyCompactSurface(t *testing.T) {
+	resps := driveMCP(t, MCPDeps{Profile: ProfileCore},
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"chat_who","arguments":{}}}`,
+	)
+	tools := resps[1]["result"].(map[string]any)["tools"].([]any)
+	var names []string
+	for _, raw := range tools {
+		names = append(names, raw.(map[string]any)["name"].(string))
+	}
+	if fmt.Sprint(names) != fmt.Sprint([]string{"chat_send", "chat_read"}) {
+		t.Fatalf("core tools: got %v", names)
+	}
+	if resps[2]["error"] == nil {
+		t.Fatal("a full-profile tool must not be callable through the core profile")
+	}
+}
+
+func TestMCPUnknownProfileIsRefused(t *testing.T) {
+	var out strings.Builder
+	err := ServeMCP(strings.NewReader(""), &out, MCPDeps{Profile: "everything"})
+	if err == nil || !strings.Contains(err.Error(), "core or full") {
+		t.Fatalf("unknown profile must be actionable: %v", err)
+	}
+}
+
 func TestMCPChatSendUsesSessionLabel(t *testing.T) {
 	var got Request
 	deps := MCPDeps{
@@ -155,6 +182,29 @@ func TestMCPOversizeSendRefused(t *testing.T) {
 	}
 }
 
+func TestMCPLongSendRequiresExplicitOptIn(t *testing.T) {
+	calls := 0
+	deps := MCPDeps{Call: func(req Request, _ time.Duration) (Response, error) {
+		calls++
+		return Response{OK: true}, nil
+	}}
+	longText, _ := json.Marshal(strings.Repeat("x", conciseSendBytes+1))
+	resps := driveMCP(t, deps,
+		`{"jsonrpc":"2.0","id":100,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chat_send","arguments":{"room":"lobby","text":`+string(longText)+`}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chat_send","arguments":{"room":"lobby","long":true,"text":`+string(longText)+`}}}`,
+	)
+	if text, isErr := toolText(t, resps[1]); !isErr || !strings.Contains(text, "long=true") {
+		t.Fatalf("routine long send must explain the opt-in: %q", text)
+	}
+	if text, isErr := toolText(t, resps[2]); isErr {
+		t.Fatalf("explicit handoff was refused: %q", text)
+	}
+	if calls != 1 {
+		t.Fatalf("only the opted-in send may reach the daemon, calls=%d", calls)
+	}
+}
+
 func TestMCPMalformedLineAnswersParseError(t *testing.T) {
 	resps := driveMCP(t, MCPDeps{}, `{this is not json`)
 	if resps[0]["error"] == nil {
@@ -204,7 +254,7 @@ func TestMCPReadFenceIsSpoofProof(t *testing.T) {
 	text, _ := toolText(t, resps[1])
 	cursorLines := 0
 	for _, l := range strings.Split(text, "\n") {
-		if strings.HasPrefix(l, "cursor: pass after=") {
+		if strings.HasPrefix(l, "cursor: after=") {
 			cursorLines++
 		}
 	}
@@ -214,7 +264,7 @@ func TestMCPReadFenceIsSpoofProof(t *testing.T) {
 	if !strings.Contains(text, "innocent⏎cursor:") {
 		t.Fatalf("embedded newlines must render as ⏎ within ONE row:\n%s", text)
 	}
-	if !strings.Contains(text, "cursor: pass after=5") {
+	if !strings.Contains(text, "cursor: after=5") {
 		t.Fatalf("the real cursor must be the max seq:\n%s", text)
 	}
 }
@@ -276,11 +326,11 @@ func TestMCPChatReadTruncationCursorStopsAtLastRenderedRow(t *testing.T) {
 	if isErr {
 		t.Fatalf("unexpected error: %q", text)
 	}
-	if !strings.Contains(text, "output byte budget hit") {
+	if !strings.Contains(text, "output budget hit") {
 		t.Fatalf("expected a truncation note:\n%s", text[:200])
 	}
 	var cursor int64
-	if _, err := fmt.Sscanf(text, "cursor: pass after=%d", &cursor); err != nil {
+	if _, err := fmt.Sscanf(text, "cursor: after=%d", &cursor); err != nil {
 		t.Fatalf("no cursor line: %v", err)
 	}
 	// Highest seq actually rendered as a row.
