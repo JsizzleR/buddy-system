@@ -1,0 +1,35 @@
+# The hermetic tier, on every push and pull request.
+#
+# WHY ONLY HERMETIC. The `live` tier drives a real pinned chat server that
+# scripts/get-oscar.sh builds from source over the network. That belongs on the
+# operator's machine, where the binary is cached, not in a runner that would
+# rebuild it every time to test somebody else's protocol.
+#
+# WHY THE COMMAND IS NOT PIPED. `sh scripts/check.sh | tail` reports success over
+# a FAILING run, because sh has no pipefail — the pipeline's status is tail's.
+# Measured. Run it bare so the exit status is the suite's own.
+name: check
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  hermetic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # From go.mod, so the toolchain moves when the module does and never
+          # drifts silently from what the operator builds with.
+          go-version-file: go.mod
+      - name: hermetic tier
+        # Linux is UNTESTED as a target for this project — macOS is what it is
+        # developed and used on, and some path handling is darwin-specific. A
+        # red run here is therefore evidence about the code, not proof that the
+        # tool is broken for its actual users; read it before reverting.
+        run: sh scripts/check.sh hermetic

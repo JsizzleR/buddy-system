@@ -65,6 +65,17 @@ but can't be read. It cannot bind a process that bypasses the harness, and a
 shell command's side effects are invisible to it. It's a seatbelt for agents,
 not a sandbox against them. Pretending otherwise would be the worse design.
 
+There is a **second line** at the commit boundary, because the first one is
+structurally blind to a whole class of writes: a generator, a shell redirect or
+a tree-wide formatter never declares a path to any tool. `buddy commit-gate`,
+run from `pre-commit`, adjudicates the paths of the pending commit against open
+claims. It reports collisions only, warns rather than refuses by default, and
+never refuses a commit it cannot attribute to a session — a human at a terminal
+has no session id, and blocking them is how a hook gets uninstalled. Its
+coverage claim is deliberately narrow: the ordinary commit path, when the hook
+is installed. `--no-verify` and `commit-tree` skip it, merges run a different
+hook, and rebase, cherry-pick, revert and `am` do not run `pre-commit` at all.
+
 A related boundary that took discipline to hold: the gate distinguishes
 "provably no ledger here" (feature off, stay silent) from "discovery failed"
 (git missing from PATH, a dangling ledger symlink, unreadable database —
@@ -126,6 +137,25 @@ recording them:
   "don't alert me about my own post" was a sender comparison; it is not, and
   the working discriminator turned out to be the outbox row the daemon writes
   before it sends (every echoed chunk is a substring of it, 13/13 measured).
+- *"Sanitizing a child git's environment is always the safe move."* The
+  dirty-path scan strips the whole `GIT_*` namespace, for a good reason: those
+  variables re-point git at another tree, and `GIT_CONFIG_*` can reinstate the
+  `core.fsmonitor` program the scan pins off. Reusing that idiom in the commit
+  gate would have been a correctness bug. A **partial commit** (`git commit --
+  <path>`) builds a TEMPORARY index and names it in `GIT_INDEX_FILE`; strip it
+  and the gate reads the real index, warning about files the commit does not
+  touch. Measured on git 2.50.1: inherited, the listing is the one committed
+  path; stripped, two. The environment is how git STATES what is being
+  committed, so only `GIT_CONFIG*` goes.
+- *"Listing changed paths is the easy part."* Three defaults each silently
+  produce a path the ledger can never match: the porcelain **C-quotes**
+  non-ASCII names (`"b/caf\303\251.txt"`) unless `-z`; **rename detection**
+  reports only a rename's destination, hiding that moving a file out of a
+  claimed scope is a write to that scope; and a user's `diff.relative=true`
+  makes output **cwd-relative**. All three fail toward silence, which is the
+  worst direction for a gate. (Measured and NOT a problem: intent-to-add
+  entries appear in neither the cached diff nor the commit, and `diff --cached`
+  handles the first commit with no `HEAD` special case.)
 - *"A session answers to its own name."* A `mentions_me` filter built from a
   session's id and label scored **0** on 2313 messages of the busiest live
   room. Peers address each other by **claim slug** — which lives in the

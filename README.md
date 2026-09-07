@@ -152,6 +152,54 @@ the *target* repo's ledger) and fails closed when the ledger is unreadable, but
 it cannot bind processes that bypass the harness. It is a seatbelt for agents,
 not a sandbox against them.
 
+### 1b. The commit gate — the second line
+
+The tool-call gate only ever sees the path a tool *declares*. A file written by
+a code generator, a shell redirect, or a formatter run across the tree reaches
+the index without it ever being asked. That is visible at the commit boundary,
+so there is a check there too:
+
+```sh
+sh scripts/setup-clone.sh          # sets core.hooksPath, inits the ledger
+```
+
+From then on `git commit` reports any staged path sitting inside another
+session's open claim — grouped by claim, naming the slug, the owner, and
+whether that owner is live, silent, or gone:
+
+```
+buddy commit-gate: 2 staged paths in 1 claim inside ANOTHER session's open claim:
+
+  path "internal/router/proxy.go"
+  path "internal/router/edge.go"
+      claim "router-work" held by repo/s-5d6c5614 (live, last seen 40s)
+      scope internal/router — edge cap rework
+
+Warning only — the commit proceeds. Set BUDDY_COMMIT_GATE=deny to refuse instead.
+```
+
+It **warns and lets the commit through** by default. Nobody has yet measured how
+often a commit in a shared checkout legitimately touches a peer's scope — a
+handoff looks exactly like a mistake from here — so enforcing first would be
+enforcing against an unmeasured false-positive rate. `BUDDY_COMMIT_GATE=deny`
+flips it; `=off` or `BUDDY_COMMIT_GATE_SKIP=1` silences it; `--no-verify`
+bypasses it for one commit.
+
+What it deliberately does **not** do, so the promise stays honest:
+
+- It reports **collisions only** — a path inside somebody else's open claim.
+  It does not nag about paths nobody claimed, which would fire on nearly every
+  commit; and it does not accuse you using the dirty-path table, because a
+  peer's tool call naming a file is not authorship of your staged hunks.
+- It **never refuses a commit it cannot attribute.** A human typing `git commit`
+  has no session id; blocking that is how a hook gets uninstalled. It still
+  reports the covering claims, wording them as "these may be yours".
+- It covers the **ordinary commit path only**. `--no-verify` and `commit-tree`
+  skip it; merge commits run a different hook; the commits that rebase,
+  cherry-pick, revert and `git am` create do not run `pre-commit` at all.
+- An unreadable ledger still fails **closed** here, exactly as the tool-call
+  gate does. A repo that was never `buddy init`-ed stays silent.
+
 ### 2. Presence (the fun half)
 
 Run an [ergo] IRC server — a single Go binary. Make the loopback binding
@@ -303,7 +351,8 @@ boundary.
 Working, tested (hermetic suites plus a live end-to-end against the real
 pinned servers — `scripts/check.sh`), and used to coordinate the agent fleet
 that built it. Design rationale, measured facts, and refuted assumptions:
-[docs/DESIGN.md](docs/DESIGN.md). Roadmap-ish: a commit-time claims gate, a
+[docs/DESIGN.md](docs/DESIGN.md); the rulings behind them, and what is known
+to be unfixed, are in [docs/decisions.md](docs/decisions.md). Roadmap-ish: a
 chat-command bridge once auth is on, and multi-machine coordination.
 
 ## License

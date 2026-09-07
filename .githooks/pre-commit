@@ -1,0 +1,53 @@
+#!/bin/sh
+# pre-commit — the Buddy System's commit-time claim gate.
+#
+# WHAT IT DOES. Hands the paths staged for this commit to `buddy commit-gate`,
+# which reports any that sit inside ANOTHER session's OPEN claim. (Open, not
+# live: a claim outlives the session that took it, and one whose owner has ended
+# is exactly the case that needs `buddy sweep --force` rather than a chat.) This is
+# the second line behind the PreToolUse gate: a file written by a generator, a
+# Bash redirect or a formatter never declared a path to any tool, so the first
+# line never saw it. This one sees it at the commit boundary.
+#
+# WHAT IT DOES NOT DO. It warns; it does not block, unless BUDDY_COMMIT_GATE is
+# set to deny. It cannot cover a commit that never runs it: `--no-verify`,
+# `git commit-tree`, and the commits created by rebase, cherry-pick, revert and
+# `git am` all skip pre-commit, and a merge commit runs pre-merge-commit
+# instead. It is a courtesy to the fleet, not a lock.
+#
+# DELIBERATELY MINIMAL, because parallel sessions share one checkout. It reads
+# the index and the ledger and nothing else — no formatter, no build, no test.
+# A tree-wide check here would block on another session's half-written file.
+#
+# ENABLE:  sh scripts/setup-clone.sh      (sets core.hooksPath; git will not
+#                                          let a repo configure that for itself)
+# KNOBS:   BUDDY_COMMIT_GATE=warn|deny|off   posture, default warn
+#          BUDDY_COMMIT_GATE_SKIP=1          skip entirely, this once
+# BYPASS:  git commit --no-verify            skips this and every other commit
+#                                            hook for that one commit
+set -eu
+
+if [ "${BUDDY_COMMIT_GATE_SKIP:-}" = "1" ]; then
+	exit 0
+fi
+
+# Find the binary the way the Claude Code hooks do: PATH first, then the fleet's
+# install directory. An ABSENT binary exits 0 in silence, deliberately — a
+# checkout without the Buddy System installed must not have every commit
+# refused by a tool it does not have. setup-clone.sh checks for it loudly at
+# install time, which is the moment somebody is actually listening.
+BUDDY=$(command -v buddy 2>/dev/null || true)
+if [ -z "$BUDDY" ] && [ -x "$HOME/bin/buddy" ]; then
+	BUDDY="$HOME/bin/buddy"
+fi
+if [ -z "$BUDDY" ]; then
+	exit 0
+fi
+
+# NO TRAILING `exit 0`. Every Claude Code hook line in this project ends in one,
+# because a chat-side failure must never cost a tool call — but copying that
+# idiom here would discard the gate's verdict and make the deny posture and the
+# fail-closed ledger arm both inert while still appearing to work. The gate's
+# exit status IS this hook's exit status: 0 allow, 1 refused on a claim
+# collision, 2 the gate itself could not run.
+exec "$BUDDY" commit-gate
