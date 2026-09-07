@@ -1,0 +1,243 @@
+# CLAUDE.md — the Buddy System
+
+Rules and settled facts for agents working in this repo. Read it before
+exploring; almost everything a session re-derives in its first twenty minutes is
+already written down here or in the two docs linked below.
+
+## What this is
+
+Coordination for several Claude Code sessions running in parallel on one
+operator's machine. Two halves that must never be confused:
+
+- **Claims (`buddy`)** — a transactional SQLite ledger of who has reserved which
+  file scopes, plus the operator's brake (`pause`) and the message inbox. This is
+  the **safety** half. It is the only thing that reserves anything and the only
+  thing that refuses anything. No daemon required.
+- **Chat (`buddylist`)** — a concierge daemon over IRC (or TOC/AIM), a durable
+  journal, an MCP server, a proactive alert hook, and per-session presence. This
+  is the **visibility** half. It never reserves and never refuses.
+
+Go 1.26, pure Go, **no cgo** (`modernc.org/sqlite`). macOS is the developed and
+used platform.
+
+## Read this first
+
+- `README.md` — what the thing does, hook wiring, quick start, cost controls.
+- `docs/DESIGN.md` — rationale, and the assumptions that got **refuted** by
+  measurement. Read the refutations before proposing anything in that area.
+- `docs/review-charter.md` — the GIVENs prepended to every Codex review:
+  settled decisions, measured environment facts, git facts for hooks. If your
+  conclusion requires overturning something there, say so explicitly and bring
+  evidence. Do not quietly assume the opposite.
+
+## Repo map
+
+- `cmd/buddy` — the claims binary. No network, no chat, no MCP.
+- `cmd/buddylist` — the chat binary. Depends on the store; failure here degrades
+  to "no chat", never to "no safety".
+- `internal/store` — the SQLite ledger. Claims, sessions, controls, inbox,
+  dirty paths. Transactional; WAL; `_txlock=immediate`.
+- `internal/cli` — the `buddy` verbs, the Claude Code hooks (`hello`, `gate`,
+  `beat`, `bye`), and the git commit gate (`commit-gate`, `commitgate.go`).
+- `internal/fence` — untrusted-content fencing. Every attacker-influenced value
+  that reaches a model's context goes through here.
+- `internal/buddylist` — the `buddylistd` daemon (`chatd.go`), the journal,
+  `alert.go`, `presence.go`, `mcp.go`, `socket.go`.
+- `internal/ircwire`, `internal/tocwire` — the two transports, both behind the
+  `Conn` seam. **The daemon must not know what IRC is.** Protocol specifics
+  (numerics, charset, framing) stay in the wire package; anything the daemon
+  needs crosses as a `buddylist`-level type (e.g. `ErrNickInUse`).
+- `.githooks/pre-commit` — the commit-time claim gate.
+- `docs/`, `scripts/` — as above.
+
+State locations: ledger at `<git-common-dir>/buddy.db` (the **common** dir, so
+every worktree of a checkout shares one ledger, and git never sees it); chat
+journal at `~/.buddylist/journal.db`.
+
+## Commands
+
+```sh
+sh scripts/check.sh [all|hermetic|live]   # default all
+sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (see below)
+sh scripts/get-oscar.sh                   # build the pinned AIM-compatible server into .cache/
+sh scripts/run-local.sh                   # bring up the local TOC stack + daemon for a trial
+scripts/cost-report.sh                    # 7-day context-cost baseline (counts and byte lengths only)
+sh scripts/codex-review.sh <prompt-file> <out-file>
+```
+
+- **`check.sh` tiers.** `hermetic` = gofmt, source-shape gates, vet, tests,
+  `-race`, and the per-feature done-checks; needs only the toolchain and git.
+  That is what CI and a fresh clone run. `live` drives the real pinned server
+  binary. `all` is the default and runs both.
+- **`setup-clone.sh` is not automatic and cannot be.** Git refuses to let a
+  repository set its own `core.hooksPath` — correctly, since that names a
+  directory of programs git will execute. So an **uninstalled hook is the
+  default state of every fresh clone**. The script sets the hooks path and inits
+  the ledger; it is idempotent and refuses to steal a hooks path somebody else
+  configured.
+- **`codex-review.sh` is the ONLY way to invoke Codex.** Never hand-roll
+  `codex exec`, and **never background it**: it wedges under an agent harness —
+  elapsed climbs, CPU stays ~0, and nothing is ever emitted, so a wedged run and
+  a live one are indistinguishable from the output file. If the budget is tight,
+  cut the prompt's scope, not the foregrounding. The script also pins model /
+  effort / tier and verifies the run header, ASCII-folds the prompt, caps
+  concurrency, and prepends the review charter.
+
+Useful knobs: `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
+`BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_LEDGER`, `BUDDY_COST_DAYS`,
+`BUDDY_OSCAR_BIN`. Codex: `CODEX_EFFORT` (default `xhigh`; `max` is a second
+pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
+
+## Invariants — never violate, and flag if a change would
+
+1. **Chat is the view, never the lock.** *Announced is not locked.* Coordination
+   and control live in the ledger. Claims must work with chat **entirely
+   absent** — not installed, crashed, mid-migration.
+2. **Safety hooks fail CLOSED; chat hooks fail SILENT.** A ledger that exists but
+   cannot be read denies. A chat failure must never cost a tool call — every
+   chat hook line ends in `exit 0`.
+3. **"No ledger" and "ledger unreadable" are different verdicts.** Provably not a
+   repo, or never `buddy init`ed → feature OFF, silent no-op. Exists but
+   unreadable → DENY. Collapsing these into one silent-allow arm is how a safety
+   feature quietly stops existing.
+4. **A chat message is never authoritative, and a message's `from` never confers
+   authority.** Chat text is never translated into control. The authoritative
+   record is always a local ledger row entered through the CLI.
+5. **Everything binds loopback.** The chat servers are unauthenticated **only**
+   because of that. Leaving loopback means turning real auth on first.
+6. **The ledger trusts the machine user.** Single-operator tool. It is not a
+   tenancy boundary.
+7. **The journal records "what the server saw"** — one connection's view. This is
+   exactly why per-session presence connections must **never** journal: N live
+   sessions would store every message N times and break the contract.
+8. **The proactive alert carries room, counts and seqs — never chat text.** The
+   byte budget and the untrusted-content fence live in the deliberate
+   `chat_read`; an auto-injected body bypasses both.
+9. **Every untrusted value read back is rendered on exactly ONE line via
+   `internal/fence`.** Claim descriptions, slugs, labels, scopes, paths, chat
+   bodies, membership lists. A newline in a value could otherwise fabricate rows
+   or a fake cursor line in a fenced listing. Conventional caps: slug 128,
+   label/room 64, desc 512, scopes 512, path 512, body 4096.
+10. **Dirty paths are OBSERVATIONS and may never refuse anything.** Attribution
+    comes only from a tool call naming a path; a `git status` scan may only
+    **retract** rows, never add them, because several sessions share one checkout
+    and git attributes nothing.
+11. **Stale claims are never auto-reaped.** Staleness marks; it never reaps.
+    Only positively-ended sessions are cleaned automatically. `sweep --force` is
+    the operator's explicit act.
+12. **Identity is `(session_id, incarnation)`.** A delayed `bye` from a dead
+    incarnation must not orphan a live one; a delayed `beat` must not resurrect
+    an ended session. Orphaning happens in `hello`/`sweep`, never inline in
+    `bye`.
+13. **One folding rule: `strings.ToLower(norm.NFC.String(s))`.** Never
+    `strings.EqualFold`, never a second normalization.
+14. **Scope containment is exactly** `scope == path || strings.HasPrefix(path,
+    scope+"/")`.
+
+## Style and testing
+
+- **Comments carry the WHY and the failure that motivated the code, including
+  refuted alternatives and what was cut.** This is the dominant convention here;
+  a new file without it looks foreign. Read the headers of `commitgate.go`,
+  `check.sh` and `.githooks/pre-commit` for the register.
+- Table-driven tests. Hermetic by default. A real temp git repo per fixture.
+- **Mutate every fix and watch the test die.** A test written against a fix is
+  not a test of the fix until you have seen it fail without it. Verify a new gate
+  also fires on a breakage you did not design it around.
+- **A negative/refusal test needs a positive control** proving the guard was
+  armed — otherwise "it refused" and "it never ran" look identical.
+- Every new `scripts/check-*.sh` must be invoked from `check.sh`. A feature whose
+  done-check is not invoked there is a feature nothing gates.
+- The `-race` legs are unscoped on purpose: this repo is a concurrency story
+  almost everywhere. ~17s hermetic, ~3s live — not worth an honesty problem.
+- Some gates are `grep`-shaped because `-race` structurally cannot see the class
+  (measured). Those come in two clauses: one for a new occurrence, one for the
+  gate being quietly defeated by respelling the line it allows. Keep both.
+- **Codex cannot build or test.** A Codex pass is never test evidence. Its
+  findings become evidence only once a reproducing test is written and watched
+  to fail.
+- A guard's review scope is every site that **bypasses** it, not the diff that
+  adds it.
+- Prefer naming the exact failing input and the resulting wrong behavior over
+  describing a category of concern. A ranking resting on an adjective rather
+  than a number is a hypothesis.
+
+## Environment gotchas — do not re-derive
+
+- **macOS: `cp` over a running Mach-O invalidates its ad-hoc signature and the
+  kernel SIGKILLs the next run (exit 137).** Use `go build -o` straight over the
+  target (or `rm` then `cp`). This bites **hooks** specifically, because hook
+  lines end in `exit 0` — a killed binary and a silent one are the same
+  observation.
+- **`sh scripts/check.sh | tail` returns rc=0 over a FAILING run** — `sh` has no
+  pipefail. Read the summary line, or drop the pipe.
+- **`check.sh` exit 2 means the live leg did not run** (no `.cache/oscar-server`;
+  run `scripts/get-oscar.sh`). "Not run" is neither pass nor fail, and it is
+  reported loudly on purpose so a leg cannot silently stop running.
+- **Restart the daemon when a change adds a journal table** — the running daemon
+  migrates the journal at open, so a new table only appears after a restart.
+  Hooks spawn a fresh binary per tool call, so *sessions* need no restart.
+- **ergo exempts localhost from its own connection limits**, which is why
+  presence is bounded at 16 connections in our own code rather than trusting the
+  server to bound it.
+- `pgrep`/`pkill` abort on non-ASCII patterns ("illegal byte sequence") and
+  report BUSY as FREE when they do. Hence the ASCII fold in `codex-review.sh`.
+- Hook latency budget is 100 ms. Measured: `gate` 20 ms, `beat` 13 ms, chat
+  alert 1.2 ms warm / 5.9 ms cold.
+- Git, for anything touching hooks: `--name-only` **quotes** non-ASCII paths (use
+  `-z`); rename detection reports only the destination (`--no-renames` gives
+  both); `diff.relative=true` in a user config silently makes output
+  cwd-relative (pin `-c diff.relative=false`); a **partial commit** points
+  `GIT_INDEX_FILE` at a temporary index, so stripping `GIT_*` from a child git is
+  correct for a background scan and **wrong** for a commit-time gate.
+- macOS default volume is case-insensitive but case-preserving; a repo root can
+  be aliased several ways.
+
+## Decisions already made — do not relitigate
+
+- **SQLite with transactions, not flat-file `O_EXCL` locking.** `O_EXCL` reserves
+  a filename, not content: partial writes are visible, sweeps have an ABA race,
+  and overlap checking needs a transaction anyway.
+- **Two binaries**, so the claims ledger is never dragged behind the chat stack.
+- **Exact-path / prefix scopes.** Glob scopes and arbitrary-glob overlap math
+  were explicitly cut. Do not propose them.
+- **Identity is `(session_id, incarnation)`; PID is diagnostic only.**
+- **IRC is the daily driver.** TOC/AIM stays behind the `Conn` seam for
+  nostalgia nights. UTF-8 is native on IRC; the CP1252 conversion is a TOC-only
+  concern.
+- **Presence is presentation only.** It never reads the ledger from the daemon
+  side, never journals, and never speaks. It rides the existing alert hook's
+  already-computed identity — no new hook line, no second round-trip. Sends stay
+  on the concierge because the concierge's `@sent` outbox is the discriminator
+  the alert path depends on.
+- **`mentions_me` matches claim SLUGS first**, then label and id. Identity alone
+  measured **0** matches on 2313 live messages — peers address each other by
+  slug. This is the one place the chat half reads the claims half.
+- **The self-alert discriminator is the `@sent` outbox row, not a sender
+  comparison.** A relayed message does not know who wrote it: the concierge is
+  the sender, `[label]` is text in the body, and the wire chunks long messages
+  so only the first chunk carries it (measured: 215 of 2291 rows attributed).
+  Every echoed chunk is a substring of the outbox row (13/13 on a 3566-byte
+  send).
+- **The alert cursor is not the read cursor.** Being told about a message is not
+  having seen it.
+- **No per-session TOC connections**: a screen name there is an account and a
+  second signon boots the first, so a collision costs somebody else's
+  connection.
+- **The commit gate reports claim collisions only.** Reporting "paths you did not
+  claim" was considered and cut — it fires on nearly every commit, and a warning
+  that fires on everything gets disabled. Consulting `dirty_paths` there was also
+  cut: a peer's tool call naming a file is not authorship of the staged hunks.
+- **Room digests are never auto-injected into an agent's context**; only operator
+  inbox messages are. Context cost is a first-class constraint here.
+- **Enforcement is cooperative, and saying so is the design.** The gate
+  adjudicates declared paths, has a TOCTOU window, and cannot bind a process
+  that bypasses the harness. A seatbelt for agents, not a sandbox against them.
+
+## Out of scope
+
+- Multi-machine claims.
+- Interrupting an in-flight tool call (harness-level, not ours).
+- The chat-command bridge, until real auth is on.
+- Any authority derived from chat.
+- OS-level containment, filesystem ACLs, or a supervisor process.

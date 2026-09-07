@@ -64,6 +64,8 @@ func Run(args []string, env Env) int {
 		err = cmdBeat(rest, env)
 	case "gate":
 		return cmdGate(rest, env)
+	case "commit-gate":
+		return cmdCommitGate(rest, env)
 	case "claim":
 		err = cmdClaim(rest, env)
 	case "release":
@@ -114,6 +116,8 @@ operator      pause <session|label|all> [--note <text>]   deny the target's next
               sessions              list sessions       sweep [--force]  tidy closed claims
 setup         init                  create the ledger for this repo
 hooks         hello · gate · beat · bye   (wired in .claude/settings; read hook JSON on stdin)
+git hook      commit-gate [--deny]  staged paths vs. other sessions' claims (pre-commit;
+              install with "sh scripts/setup-clone.sh"; BUDDY_COMMIT_GATE=warn|deny|off)
 
 enforcement is COOPERATIVE. A claim is the only thing that reserves anything, and gate is the
 only thing that refuses anything. "whose" and the dirty-path notice beat emits are ADVISORY
