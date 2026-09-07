@@ -14,7 +14,7 @@ import (
 
 // Request is one JSON line on the control socket.
 type Request struct {
-	Op    string `json:"op"` // say | read | stat | ack | alerts | alertack | who | dm | status | health
+	Op    string `json:"op"` // say | read | stat | ack | alerts | alertack | who | dm | status | health | presence
 	Room  string `json:"room,omitempty"`
 	From  string `json:"from,omitempty"`
 	To    string `json:"to,omitempty"`
@@ -41,6 +41,14 @@ type Request struct {
 	// by `alerts` to recognize the echoes of its own posts. Like Session it
 	// confers no authority; a wrong one costs its owner a self-alert.
 	Label string `json:"label,omitempty"`
+	// Slugs are the claim slugs this session currently holds. They ride along
+	// so the caller that already read the ledger for its own purposes can
+	// present them in the room; the daemon never reads the ledger itself.
+	Slugs []string `json:"slugs,omitempty"`
+	// Gone retires this session's presence now instead of at its idle
+	// timeout. Presentation only — it neither ends a session nor touches a
+	// claim, both of which are the ledger's business.
+	Gone bool `json:"gone,omitempty"`
 }
 
 // Response is the one JSON line answered per request.
@@ -202,6 +210,12 @@ func (d *Daemon) dispatch(req Request) Response {
 		if req.Session == "" {
 			return Response{Error: "alerts needs a session id"}
 		}
+		// Presence rides the alert hook rather than adding a second hook line
+		// and a second round-trip to every tool call: this request already
+		// carries the identity and the claim slugs, because the alert needed
+		// them for its own mention tokens. note does no I/O, so the hook's
+		// measured cost is unchanged.
+		d.presence.note(req.Session, req.Label, req.Slugs)
 		alerts, err := d.cfg.Journal.Addressed(req.Session, req.Label, req.Mentions, req.Limit)
 		if err != nil {
 			return Response{Error: err.Error()}
@@ -221,6 +235,21 @@ func (d *Daemon) dispatch(req Request) Response {
 			return Response{Error: err.Error()}
 		}
 		return Response{OK: true}
+	case "presence":
+		// The explicit door for what `alerts` does implicitly, plus the
+		// retirement a SessionEnd hook can announce. It always answers OK:
+		// presence is decoration, and a caller must never be given a failure
+		// to handle over it.
+		if req.Session == "" {
+			return Response{Error: "presence needs a session id"}
+		}
+		if req.Gone {
+			d.presence.forget(req.Session)
+		} else {
+			d.presence.note(req.Session, req.Label, req.Slugs)
+		}
+		online, wanted := d.presence.live()
+		return Response{OK: true, Note: fmt.Sprintf("presence: %d/%d session buddies online", online, wanted)}
 	case "who":
 		connected, rooms := d.Who()
 		return Response{OK: true, Connected: connected, Rooms: rooms}

@@ -62,6 +62,8 @@ func main() {
 		err = runMCP(args)
 	case "alert":
 		err = runAlert(args)
+	case "presence":
+		err = runPresence(args)
 	default:
 		fmt.Fprintf(os.Stderr, "buddylist: unknown command %q\n", cmd)
 		os.Exit(2)
@@ -84,6 +86,7 @@ func runChatd(args []string) error {
 	journalPath := fs.String("journal", filepath.Join(stateDir(), "journal.db"), "journal db path")
 	socket := fs.String("socket", defaultSocket(), "control socket path")
 	keep := fs.Duration("keep", 14*24*time.Hour, "journal retention")
+	presence := fs.Bool("presence", true, "per-session buddies: each live session joins its project room under its own name (irc backend only)")
 	fs.Parse(args)
 
 	if *server == "" {
@@ -112,17 +115,37 @@ func runChatd(args []string) error {
 	trim()
 
 	var dial buddylist.Dialer
+	var dialAs func(context.Context, string) (buddylist.Conn, error)
 	apiAddr := ""
 	switch *backend {
 	case "irc":
 		dial = func(ctx context.Context) (buddylist.Conn, error) {
 			return ircwire.Dial(ctx, *server, *name, *pass)
 		}
+		if *presence {
+			dialAs = func(ctx context.Context, nick string) (buddylist.Conn, error) {
+				c, err := ircwire.Dial(ctx, *server, nick, *pass)
+				if err != nil {
+					// Translate the backend's refusal into the seam's
+					// vocabulary; the daemon must not know what IRC is.
+					if errors.Is(err, ircwire.ErrNickInUse) {
+						return nil, fmt.Errorf("%s: %w", err, buddylist.ErrNickInUse)
+					}
+					return nil, err
+				}
+				return c, nil
+			}
+		}
 	case "toc":
 		apiAddr = *api // exchange-5 rooms need API pre-creation on the oscar server
 		dial = func(ctx context.Context) (buddylist.Conn, error) {
 			return tocwire.Dial(ctx, *server, *name, *pass, tocwire.WithChatExchange(*exchange))
 		}
+		// No per-session presence on the nostalgia path, deliberately. A TOC
+		// screen name is an ACCOUNT, and a second signon under one boots the
+		// first — so a nick collision there does not cost a suffix, it costs
+		// somebody else's connection. IRC nicks are per-connection and the
+		// collision is recoverable, which is what makes presence safe on it.
 	default:
 		return fmt.Errorf("unknown --backend %q (irc|toc)", *backend)
 	}
@@ -135,6 +158,7 @@ func runChatd(args []string) error {
 		Journal:    j,
 		Log:        slog.Default(),
 		Dial:       dial,
+		DialAs:     dialAs,
 	})
 	if err != nil {
 		return err
@@ -390,6 +414,61 @@ func runAlert(args []string) error {
 		_, err = os.Stdout.Write(append(enc, '\n'))
 		return err
 	})
+}
+
+// presenceCallTime bounds the round-trip. SessionEnd is not the alert's hot
+// path, but a wedged daemon must not hold up a session's exit either.
+const presenceCallTime = 2 * time.Second
+
+// runPresence announces or retires this session's buddy in its project room.
+//
+// The PostToolUse alert already carries presence for a working session, so the
+// job left for a hook line is the retirement: SessionEnd runs this with --gone
+// and the session leaves the room at once instead of aging out. Hand-run
+// without --gone it announces, which is also how you check the feature is on.
+//
+// Like the alert, it is decoration on the chat binary: no daemon, no socket,
+// no ledger, or no session each cost the presence update and nothing else.
+func runPresence(args []string) error {
+	fs := flag.NewFlagSet("presence", flag.ExitOnError)
+	session := fs.String("session", "", "session id (default: from hook JSON on stdin)")
+	dir := fs.String("cwd", "", "working directory whose ledger names this session (default: hook JSON, then $PWD)")
+	gone := fs.Bool("gone", false, "retire this session's buddy now (SessionEnd)")
+	fs.Parse(args)
+
+	sid, cwd := *session, *dir
+	hookDriven := false
+	if sid == "" || cwd == "" {
+		if h, err := readHookStdin(); err == nil {
+			hookDriven = true
+			if sid == "" {
+				sid = h.SessionID
+			}
+			if cwd == "" {
+				cwd = h.Cwd
+			}
+		}
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	id, label, slugs := cli.ChatIdentity(cwd, sid)
+	if id == "" {
+		id = sid
+	}
+	if id == "" {
+		return errors.New("no session identity (pass --session, or run inside a session)")
+	}
+	resp, err := buddylist.Call(defaultSocket(),
+		buddylist.Request{Op: "presence", Session: id, Label: label, Slugs: slugs, Gone: *gone},
+		presenceCallTime)
+	if err != nil {
+		return err
+	}
+	if !hookDriven {
+		fmt.Println(resp.Note)
+	}
+	return nil
 }
 
 // hookStdin is the sliver of the hook payload the alert needs. It is parsed

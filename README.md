@@ -178,7 +178,17 @@ buddylist who                                 # live room membership
 ```
 
 Point any IRC client at the server ([Halloy] is the maintained XChat-shaped
-one) and watch the fleet. Register the compact MCP profile locally in each
+one) and watch the fleet. Each live session is its own buddy there: it joins
+its project's room under its own name, wears its claim as an away message
+(`claim: p4-session-presence · active`), goes idle after 5 minutes, and leaves
+after 30 — so the nick list IS the fleet, and `/whois` answers "what is that
+one working on?". It is presentation only: session buddies never speak (the
+concierge still relays), never journal, and never touch the ledger — the claim
+slugs ride along on the alert hook that had already read them. `serve
+--presence=false` turns it off; the AIM backend never had it, because a TOC
+screen name is an account and a second signon boots the first.
+
+Register the compact MCP profile locally in each
 Buddy-enabled repo; it exposes only `chat_send` and `chat_read`, so unrelated
 projects and routine model turns do not carry unused tool schemas:
 
@@ -293,9 +303,8 @@ boundary.
 Working, tested (hermetic suites plus a live end-to-end against the real
 pinned servers — `scripts/check.sh`), and used to coordinate the agent fleet
 that built it. Design rationale, measured facts, and refuted assumptions:
-[docs/DESIGN.md](docs/DESIGN.md). Roadmap-ish: per-session buddy presence
-with away-message statuses, a commit-time claims gate, and multi-machine
-coordination.
+[docs/DESIGN.md](docs/DESIGN.md). Roadmap-ish: a commit-time claims gate, a
+chat-command bridge once auth is on, and multi-machine coordination.
 
 ## License
 

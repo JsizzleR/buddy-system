@@ -73,6 +73,14 @@ type Client struct {
 	members map[string]map[string]bool // channel → nicks
 }
 
+// ErrNickInUse reports a registration refused because the name is already
+// taken (433 nickname in use, 436 nick collision). Per-session presence walks
+// a collision suffix on this and ONLY this: every other refusal is about the
+// server, the network, or the credentials, and renaming a session over one
+// would hide the real fault behind a session that quietly answers to the
+// wrong name.
+var ErrNickInUse = errors.New("irc: nick in use")
+
 // Dial connects and registers (NICK/USER, wait for 001). password, when
 // non-empty, is sent as PASS before registration. A nick collision (433) is
 // an error — the daemon's reconnect backoff retries, by which time the dead
@@ -191,7 +199,11 @@ func Dial(ctx context.Context, addr, nick, password string, opts ...Option) (*Cl
 		case "432", "433", "436", "464", "465":
 			stop()
 			conn.Close()
-			return nil, fmt.Errorf("irc: registration refused (%s %s) for nick %q — a dead predecessor may not have timed out yet, or the nick/password is invalid", msg.cmd, msg.trailing, nick)
+			refused := fmt.Errorf("irc: registration refused (%s %s) for nick %q — a dead predecessor may not have timed out yet, or the nick/password is invalid", msg.cmd, msg.trailing, nick)
+			if msg.cmd == "433" || msg.cmd == "436" {
+				return nil, fmt.Errorf("%s: %w", refused, ErrNickInUse)
+			}
+			return nil, refused
 		case "ERROR":
 			stop()
 			conn.Close()
