@@ -137,7 +137,7 @@ And for the operator:
 
 ```sh
 buddy pause session-2 --note "hold off — deciding the design first"
-buddy msg all "CI is red, check before pushing"   # delivered after each session's next tool call
+buddy msg all "CI is red, check before pushing"   # current live fleet only; expires after 24h
 buddy resume session-2
 buddy sweep                       # tidies released/orphaned claims; never reaps live ones
 ```
@@ -178,13 +178,16 @@ buddylist who                                 # live room membership
 ```
 
 Point any IRC client at the server ([Halloy] is the maintained XChat-shaped
-one) and watch the fleet. Register the MCP server so agents get
-`chat_send` / `chat_read` / `chat_status` / `chat_ack` / `chat_who` / `dm` /
-`set_status`:
+one) and watch the fleet. Register the compact MCP profile locally in each
+Buddy-enabled repo; it exposes only `chat_send` and `chat_read`, so unrelated
+projects and routine model turns do not carry unused tool schemas:
 
 ```sh
-claude mcp add-json buddylist "{\"type\":\"stdio\",\"command\":\"$HOME/bin/buddylist\",\"args\":[\"mcp\"]}" --scope local
+claude mcp add-json buddylist "{\"type\":\"stdio\",\"command\":\"$HOME/bin/buddylist\",\"args\":[\"mcp\",\"--profile\",\"core\"]}" --scope local
 ```
+
+The operator-oriented `chat_status` / `chat_ack` / `chat_who` / `dm` /
+`set_status` surface remains available with `buddylist mcp --profile full`.
 
 For the full 2002 experience instead: run [open-oscar-server] and
 `buddylist serve --backend toc`, then sign into real AIM (on macOS,
@@ -247,6 +250,35 @@ buddy CLI ──► <repo>/.git/buddy.db      ergo / open-oscar-server
 - Everything agents read back from chat is fenced as untrusted, one line per
   message, spoof-resistant. Prompt injection through a chat room is assumed,
   not hoped away.
+
+## Cost controls
+
+Buddy itself makes no model calls. Its model cost comes from text deliberately
+placed into an agent's context, so the defaults keep that text narrow:
+
+- `buddy msg all` snapshots the sessions live at send time. A session created
+  later never inherits the broadcast, and an undelivered broadcast expires
+  after 24 hours. Use it for urgent fleet-wide interjections; put routine
+  status in chat or target one session with `buddy msg <session|label>`.
+- MCP `chat_read` defaults to 10 rows and a 4 KiB result. `mentions_me=true`
+  includes current claim slugs; `tail=N` is the normal catch-up path. An
+  explicit limit above 10 opts into the 16 KiB history budget.
+- MCP `chat_send` has a 750-byte routine budget. Prefer a compact
+  claim/outcome/blocker/next/reference update. A deliberate handoff can pass
+  `long=true`, up to the 4096-byte hard cap.
+- The proactive alert hook injects counts and sequence numbers, never chat
+  bodies. Silent hooks add no model context.
+
+For a privacy-preserving seven-day baseline (counts and byte lengths only):
+
+```sh
+scripts/cost-report.sh
+# Run from another Buddy repo, or point at its ledger:
+BUDDY_LEDGER=/path/to/repo/.git/buddy.db scripts/cost-report.sh
+```
+
+Set `BUDDY_COST_DAYS` to change the window. The report never prints messages,
+prompts, or tool results.
 
 ## Security posture
 

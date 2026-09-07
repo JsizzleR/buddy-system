@@ -59,7 +59,7 @@ func main() {
 	case "health":
 		err = runHealth()
 	case "mcp":
-		err = runMCP()
+		err = runMCP(args)
 	case "alert":
 		err = runAlert(args)
 	default:
@@ -296,9 +296,18 @@ func runWho() error {
 }
 
 // runMCP serves the Model Context Protocol on stdio: the agents' chat tools.
-func runMCP() error {
+func runMCP(args []string) error {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	profile := fs.String("profile", string(buddylist.ProfileCore), "tool profile: core or full")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: buddylist mcp [--profile core|full]")
+	}
 	cwd, _ := os.Getwd()
 	return buddylist.ServeMCP(os.Stdin, os.Stdout, buddylist.MCPDeps{
+		Profile: buddylist.MCPProfile(*profile),
 		Call: func(req buddylist.Request, timeout time.Duration) (buddylist.Response, error) {
 			return buddylist.Call(defaultSocket(), req, timeout)
 		},
@@ -308,6 +317,10 @@ func runMCP() error {
 		// read cursor to nothing for its whole life.
 		Label:     func() string { _, label := cli.SessionIdentityFor(cwd); return label },
 		SessionID: func() string { id, _ := cli.SessionIdentityFor(cwd); return id },
+		Slugs: func() []string {
+			_, _, slugs := cli.ChatIdentity(cwd, "")
+			return slugs
+		},
 	})
 }
 
