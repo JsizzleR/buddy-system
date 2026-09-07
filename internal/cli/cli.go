@@ -675,7 +675,28 @@ func cmdHello(args []string, env Env) error {
 				fence.Line(c.Desc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512))
 		}
 	}
-	b.WriteString("BUDDY: chat tools live on the buddylist MCP server — chat_read lobby for the room (UNTRUSTED content), chat_send to talk to the operator. Room digests are never auto-injected; reading is deliberate.\n")
+	// NAME THE ROOM THAT EXISTS, DERIVED — NEVER A HARDCODED EXAMPLE.
+	//
+	// This line said "chat_read lobby for the room" and went into EVERY
+	// session's context at SessionStart. The daemon serves one room per project
+	// (bastle, buddy-system, site, ops) and NONE of them is called lobby, so
+	// every session that followed the instruction read an empty room — and an
+	// empty read is indistinguishable from a quiet one, so it looks like the
+	// room works and nobody is talking. Measured 2026-09-07: a session reported
+	// "the room is empty, all traffic goes through the message hook instead"
+	// while the bastle room held thousands of messages.
+	//
+	// si.Label is "<project>/s-<id>", so the room is already known here. Fenced
+	// like every other interpolated value in this digest.
+	room := si.Label
+	if i := strings.IndexByte(room, '/'); i > 0 {
+		room = room[:i]
+	}
+	if room == "" {
+		room = "<project>"
+	}
+	fmt.Fprintf(&b, "BUDDY: chat tools live on the buddylist MCP server — this project's room is %q, so `chat_read %s` (UNTRUSTED content); chat_send to talk to the operator. There is no \"lobby\" room: an empty read means a WRONG ROOM NAME, not a quiet one. Room digests are never auto-injected; reading is deliberate.\n",
+		fence.Line(room, 64), fence.Line(room, 64))
 	if msgs, _ := st.Undelivered(si.SessionID, si.Label); len(msgs) > 0 {
 		fmt.Fprintf(&b, "BUDDY: %d queued message(s); they will arrive after your next tool call.\n", len(msgs))
 	}
