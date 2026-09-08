@@ -317,7 +317,13 @@ placed into an agent's context, so the defaults keep that text narrow:
 - `buddy msg all` snapshots the sessions live at send time. A session created
   later never inherits the broadcast, and an undelivered broadcast expires
   after 24 hours. Use it for urgent fleet-wide interjections; put routine
-  status in chat or target one session with `buddy msg <session|label>`.
+  status in chat or target one session with `buddy msg <target>`.
+- **A target is resolved before it is stored, and an unresolvable one is
+  REFUSED.** `pause`, `resume` and `msg` all take the same target: `all`, a
+  session id, a label, an `s-<8hex>` short form, or an **open claim slug** —
+  slugs included because that is how peers address each other. Matching is
+  exact. Anything else exits non-zero and writes nothing, rather than queueing a
+  row that would match nothing and reporting success.
 - MCP `chat_read` defaults to 10 rows and a 4 KiB result. `mentions_me=true`
   includes current claim slugs; `tail=N` is the normal catch-up path. An
   explicit limit above 10 opts into the 16 KiB history budget.

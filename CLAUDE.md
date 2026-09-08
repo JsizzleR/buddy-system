@@ -84,8 +84,10 @@ sh scripts/codex-review.sh <prompt-file> <out-file>
   concurrency, and prepends the review charter.
 
 Useful knobs: `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
-`BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_LEDGER`, `BUDDY_COST_DAYS`,
-`BUDDY_OSCAR_BIN`. Codex: `CODEX_EFFORT` (default `xhigh`; `max` is a second
+`BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_COST_DAYS`,
+`BUDDY_OSCAR_BIN`. (`BUDDY_LEDGER` is `cost-report.sh`'s knob ONLY — the `buddy`
+binary does not read it, and it finds its ledger from the cwd's git common dir.)
+Codex: `CODEX_EFFORT` (default `xhigh`; `max` is a second
 pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 
 ## Invariants — never violate, and flag if a change would
@@ -230,6 +232,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   cut: a peer's tool call naming a file is not authorship of the staged hunks.
 - **Room digests are never auto-injected into an agent's context**; only operator
   inbox messages are. Context cost is a first-class constraint here.
+- **`pause`, `resume` and `msg` share ONE target namespace, resolved before it is
+  stored**: `all`, session id, label, `s-<8hex>` short form, or an OPEN claim slug —
+  most-specific-first, exact (never folded), and anything else is REFUSED rather than
+  written as a row that would match nothing. They take a `store.Target`, so the
+  compiler is the guard. Slugs resolve because peers address each other by slug
+  (D-009); released slugs do not, since the answer would change as history grows.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

@@ -110,9 +110,12 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
               whose <path>          who has uncommitted changes to it, so you can address them
               who is calling: --session <id>, else $BUDDY_SESSION, else $CLAUDE_CODE_SESSION_ID,
               else the worktree — and that only when it names the one live session there is
-operator      pause <session|label|all> [--note <text>]   deny the target's next mutating tool
-              resume <session|label|all>                  clear pause
-              msg <session|label|all> [--from <who>] <text...>
+operator      pause <target> [--note <text>]             deny the target's next mutating tool
+              resume <target>                            clear pause
+              msg <target> [--from <who>] <text...>
+              a TARGET is a session id, a label, an s-<id> short form, an OPEN claim slug,
+              or "all". Anything else is REFUSED — never queued against a row that would
+              match nothing. Peers address each other by slug, so slugs resolve too.
               sessions              list sessions       sweep [--force]  tidy closed claims
 setup         init                  create the ledger for this repo
 hooks         hello · gate · beat · bye   (wired in .claude/settings; read hook JSON on stdin)
@@ -1124,9 +1127,42 @@ func cmdSweep(args []string, env Env) error {
 	return nil
 }
 
+// resolveTarget maps the operator's argument for pause/resume/msg onto exactly
+// one session, and REFUSES what names nothing.
+//
+// Before this, all three verbs wrote the raw argument into the ledger and
+// reported success. The matching queries on the other side are exact, so a
+// target naming nothing produced a row matching nothing — measured on this
+// machine's busiest ledger as 16 of 31 targeted messages never delivered, 8 of
+// them addressed as claim slugs or "s-<8hex>" short ids, which nothing
+// resolved. The same namespace is the operator's brake: `buddy pause <slug>`
+// announced it would take effect and paused nobody.
+//
+// THE ERROR IS FENCED HERE, not in the store. An ambiguity report names the
+// candidate LABELS, and a label is peer-controlled free text that reaches this
+// stderr — which lands in an agent's tool result whenever an agent runs the
+// verb. internal/store stays free of the fence dependency on purpose: it is the
+// safety core, and rendering is not its job.
+//
+// A resolved-but-ENDED target warns and proceeds. The row is still correct —
+// Hello revives a session under its own id, so an inbox message survives to be
+// drained — but nothing will drain it until that happens, and silence there
+// looks exactly like delivery.
+func resolveTarget(st *store.Store, raw string, env Env) (store.Target, error) {
+	t, err := st.ResolveTarget(raw)
+	if err != nil {
+		return store.Target{}, errors.New(fence.Line(err.Error(), 512))
+	}
+	if !t.Live {
+		fmt.Fprintf(env.Stderr, "buddy: %s has ENDED — this is queued against its id and waits for it to come back\n",
+			fence.Line(t.String(), 128))
+	}
+	return t, nil
+}
+
 func cmdPause(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy pause <session|label|all> [--note <text>]")
+		return errors.New("usage: buddy pause <session|label|slug|all> [--note <text>]")
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("pause", flag.ContinueOnError)
@@ -1140,33 +1176,41 @@ func cmdPause(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	if err := st.Pause(target, *note); err != nil {
+	tgt, err := resolveTarget(st, target, env)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "paused %s — takes effect on their next mutating tool call\n", target)
+	if err := st.Pause(tgt, *note); err != nil {
+		return err
+	}
+	fmt.Fprintf(env.Stdout, "paused %s — takes effect on their next mutating tool call\n", fence.Line(tgt.String(), 128))
 	return nil
 }
 
 func cmdResume(args []string, env Env) error {
 	if len(args) != 1 {
-		return errors.New("usage: buddy resume <session|label|all>")
+		return errors.New("usage: buddy resume <session|label|slug|all>")
 	}
 	st, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	n, err := st.Resume(args[0])
+	tgt, err := resolveTarget(st, args[0], env)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "cleared %d pause(s) for %s\n", n, args[0])
+	n, err := st.Resume(tgt)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(env.Stdout, "cleared %d pause(s) for %s\n", n, fence.Line(tgt.String(), 128))
 	return nil
 }
 
 func cmdMsg(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy msg <session|label|all> [--from <who>] <text...>")
+		return errors.New("usage: buddy msg <session|label|slug|all> [--from <who>] <text...>")
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("msg", flag.ContinueOnError)
@@ -1176,17 +1220,21 @@ func cmdMsg(args []string, env Env) error {
 		return err
 	}
 	if fs.NArg() == 0 {
-		return errors.New("usage: buddy msg <session|label|all> [--from <who>] <text...>")
+		return errors.New("usage: buddy msg <session|label|slug|all> [--from <who>] <text...>")
 	}
 	st, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	if err := st.Msg(target, *from, strings.Join(fs.Args(), " ")); err != nil {
+	tgt, err := resolveTarget(st, target, env)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "queued for %s — delivered after their next tool call\n", target)
+	if err := st.Msg(tgt, *from, strings.Join(fs.Args(), " ")); err != nil {
+		return err
+	}
+	fmt.Fprintf(env.Stdout, "queued for %s — delivered after their next tool call\n", fence.Line(tgt.String(), 128))
 	return nil
 }
 

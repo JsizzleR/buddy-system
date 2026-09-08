@@ -794,17 +794,33 @@ func (s *Store) Sweep(ttl, forceAfter time.Duration, force bool) (orphaned, dele
 	return orphaned, deleted, err
 }
 
-// Pause records a pause control for a session id, label, or "all".
-func (s *Store) Pause(target, note string) error {
+// Pause records a pause control against a RESOLVED target. It stores the
+// canonical session id, which is why PausedFor below needs no change: its
+// (session_id, label, "all") match already covers the id arm.
+func (s *Store) Pause(t Target, note string) error {
+	if err := t.check(); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`INSERT INTO controls (kind, target, note, created) VALUES ('pause',?,?,?)`,
-		target, note, s.now().Unix())
+		t.ID, note, s.now().Unix())
 	return err
 }
 
 // Resume clears pause controls for the target.
-func (s *Store) Resume(target string) (int, error) {
-	res, err := s.db.Exec(`UPDATE controls SET cleared=? WHERE kind='pause' AND target=? AND cleared IS NULL`,
-		s.now().Unix(), target)
+//
+// It matches the resolved id, the operator's raw argument, AND the resolved
+// label, because rows written before targets were resolved carry whatever was
+// typed — commonly a label — and the operator resuming need not use the same
+// alias they paused with. PausedFor still honours those rows (its label arm),
+// so a resume that missed them would strand a live pause that the gate keeps
+// enforcing and no verb can lift. Clearing by label is safe here only because
+// ResolveTarget refuses a label held by more than one session.
+func (s *Store) Resume(t Target) (int, error) {
+	if err := t.check(); err != nil {
+		return 0, err
+	}
+	res, err := s.db.Exec(`UPDATE controls SET cleared=? WHERE kind='pause' AND target IN (?, ?, ?) AND cleared IS NULL`,
+		s.now().Unix(), t.ID, t.Raw, t.Label)
 	if err != nil {
 		return 0, err
 	}
@@ -833,14 +849,18 @@ func (s *Store) PausedFor(sessionID, label string) (string, bool, error) {
 // for a session that has been idle for days.
 const BroadcastKeep = 24 * time.Hour
 
-// Msg queues a message for a session id, label, or "all". A broadcast snapshots
+// Msg queues a message against a RESOLVED target, storing the canonical
+// session id so Undelivered's (session_id, label) match finds it. A broadcast snapshots
 // its live recipients in the same transaction as the message, so a later
 // session can never inherit stale fleet context.
-func (s *Store) Msg(target, from, body string) error {
+func (s *Store) Msg(t Target, from, body string) error {
+	if err := t.check(); err != nil {
+		return err
+	}
 	return s.tx(func(tx *sql.Tx) error {
 		res, err := tx.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES (?,?,?,?)`,
-			target, from, body, s.now().Unix())
-		if err != nil || target != "all" {
+			t.ID, from, body, s.now().Unix())
+		if err != nil || t.ID != AllTarget {
 			return err
 		}
 		id, err := res.LastInsertId()

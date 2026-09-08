@@ -399,6 +399,105 @@ delete and a typechange are all writes to the path.
 not prevent the write that created them, does not establish who made them, and does not cover
 commits whose creation never invokes it.
 
+## D-013 — One target namespace for `pause`, `resume` and `msg`, resolved before it is stored
+
+2026-09-07 · found by a model-diverse roadmap pass (Codex + a Claude pass), then measured
+against this machine's live ledgers
+
+**What was wrong** — All three verbs that address ANOTHER session took one argument the help
+called "<session|label|all>" and wrote it into the ledger VERBATIM. The matching queries on
+the other side are exact — `PausedFor` matches `(session_id, label, 'all')`, `Undelivered`
+matches `(session_id, label)` — so a target naming nothing produced a row matching nothing,
+and every one of those verbs then printed success and exited 0. Measured on the busiest
+ledger on this machine: **31 targeted inbox messages, 16 never delivered, and 8 of those
+addressed in forms the delivery query cannot match** — five bare `s-<8hex>` short ids and
+three CLAIM SLUGS. All three slugs had an open claim at the instant their message was sent,
+so all three were resolvable at the time and simply never resolved.
+
+The same namespace is the operator's brake, which is the part that matters. `buddy pause
+<slug>` printed *"paused <slug> — takes effect on their next mutating tool call"* and paused
+nobody. It had gone unnoticed because `controls` has **zero rows** in that ledger: the brake
+has never been used in anger, so its silent failure had never been observed. This is the one
+place where the project's own measurement pointed straight at the gap and nothing consumed
+it — D-009 established that peers address each other by claim slug (identity scored 0
+matches over 2313 live messages), and no target query consulted the claims table.
+
+**What shipped** — `store.ResolveTarget` maps an argument onto exactly one session or
+refuses, in a fixed most-specific-first order: `all` → full session id → label → `s-<8hex>`
+short form → open claim slug. Slugs resolve only among OPEN claims, where the
+`claims_open_slug` partial unique index makes the answer unique by construction; a released
+slug is deliberately unresolvable, because the same slug may have been held by several
+sessions over time and the answer would silently change as history accumulated. An ambiguous
+short id refuses and names its candidates rather than picking one. Matching is exact, never
+folded — a second folding rule here would resolve targets that the exact read-side queries
+cannot match, which is the bug being removed.
+
+`Pause`, `Resume` and `Msg` now take a `Target` rather than a string, so **the compiler is
+what stops an unresolved value reaching a row**. A guard's review scope is every site that
+bypasses it; making the resolved type the only accepted argument means there is no such site
+to review, and the change was located by the type checker naming all three call sites.
+
+Resolution happens at the WRITE boundary and stores the canonical session id. The read side
+is the gate's hot path — `PausedFor` runs on every mutating tool call against a 100 ms hook
+budget — so both matching queries are untouched, this costs the gate nothing, and it cannot
+alter what an already-written row matches. `Resume` clears the resolved id **and** the raw
+argument, because rows written before this carry whatever was typed; `PausedFor` still
+honours those through its label arm, so clearing only the resolved id would strand a live
+pause that the gate keeps enforcing and no verb can lift.
+
+**What it deliberately does not do** — It does not resolve a released claim's slug (above).
+It does not fold case. It does not refuse a target whose session has ENDED: `Hello` revives a
+session under its own id, so the row remains correct and durable — but it warns on stderr,
+because nothing will drain it until that happens and silence there is indistinguishable from
+delivery. And the resolver's errors and echoes are fenced in `internal/cli`, not in the
+store: an ambiguity report names candidate LABELS, which are peer-controlled text reaching an
+agent's tool result, while `internal/store` stays free of the fence dependency because it is
+the safety core and rendering is not its job.
+
+**Evidence** — Six new store tests and six CLI tests, the four behavioural ones watched to
+fail first against unmodified code (`pause s-deadbeef` printing "takes effect", `msg
+no-such-slug` printing "queued for", both exiting 0). Six mutations, each killing its own
+test and nothing else: refuse→fall-back-to-raw, dropping the slug arm, ambiguity picking
+instead of refusing, `Resume` forgetting the raw arm, released slugs resolving, and dropping
+the output fence. The fence test's FIRST version passed with the fence removed — it addressed
+the session by id, and `Target.String()` returns the raw argument for that form, so no
+peer-controlled value was ever rendered; it is written through the slug form for that reason,
+and the note is kept in the test. Verified against a copy of the live ledger in a scratch
+repo: all four currently-open slugs and a live short id resolve to the right session and echo
+which one, while the long-released slugs correctly refuse.
+
+**The Codex code pass then found six defects, each reproduced by a test watched to fail
+before it was fixed.** Three were introduced by this change and three were latent in what it
+assumed. (1) `sessions.label` has NO unique index and `Hello` never checks one, so a label
+held by two sessions resolved by `LIMIT 1` and silently picked one — also a REGRESSION, since
+storing the label had made both readers' label arm match every session carrying it. (2) The
+short-id arm matched with SQL `LIKE`, and both of that operator's defaults are wrong here:
+metacharacters were unescaped, so an open claim slug of the form `s-1111aaa_` was captured by
+the SHORT arm — which runs first — and resolved to whichever session's label it happened to
+match; and the default collation folds ASCII case, so `s-1111AAAA` resolved though this
+change documents matching as exact. Both were verified directly against sqlite before the
+fix. Matching now happens in Go over the whole session table, which is small and on the write
+path only. (3) Storing the CANONICAL id can widen a row's reach, because the readers still
+match on label: where one session's label equals another's id, a pause written against the id
+matches the other's label arm too, and the old code — storing the raw argument — hit only
+one. Resolution now refuses that collision, and refuses a session whose id is the reserved
+word `all`; migrating every legacy row so the readers could drop their label arm is the
+alternative, and it is a change with its own evidence to gather. (4) `Resume` matched the
+resolved id and the raw argument but not the resolved label, so a legacy row was liftable
+only by retyping the exact string it was paused with. (5) is (2). (6) "the compiler is the
+guard" was overstated: `Target`'s fields are exported, so a hand-built or zero value was a
+legal argument that would insert an unresolved target. The type stops a STRING; an unexported
+marker only `ResolveTarget` can set is what stops a forged `Target`, and all three write
+boundaries now check it.
+
+**Residuals** — Resolution is exact, so a target differing only in case is refused rather
+than matched. A message to an ended session stays queued against its id and is delivered only
+if that id ever helloes again. The three slug-addressed messages measured above are not
+retroactively deliverable; this stops the next one being lost, it does not recover them. And
+the readers still carry their label arm, which is why resolution has to refuse the id/label
+collision rather than simply store the id: removing that arm needs a migration of every
+legacy `controls` and `inbox` row, which was not attempted here.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
