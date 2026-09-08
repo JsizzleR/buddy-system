@@ -108,15 +108,88 @@ if [ -n "$ledger" ] && [ -f "$ledger" ]; then
 	fi
 else
 	echo
-	echo "Ledger context fan-out: unavailable (set BUDDY_LEDGER=/path/to/.git/buddy.db)"
+	# The git COMMON dir, not `.git`: in a `git worktree` checkout `.git` is a
+	# FILE, so the obvious spelling names a path that does not exist and the
+	# reader gets this same line back with no hint why.
+	echo "Ledger context fan-out: unavailable (set BUDDY_LEDGER=<git-common-dir>/buddy.db; in a worktree the common dir is NOT .git)"
 fi
 
 if [ -d "$claude_projects" ]; then
 	events=$(mktemp "${TMPDIR:-/tmp}/buddy-cost.XXXXXX")
-	trap 'rm -f "$events"' EXIT INT TERM
-	find "$claude_projects" -type f -name '*.jsonl' -print0 2>/dev/null |
-		xargs -0 -n 1 jq -r --arg cutoff "$cutoff_iso" '
-			if .type=="assistant" then .timestamp as $ts | .message.content[]? |
+	transcripts=$(mktemp "${TMPDIR:-/tmp}/buddy-cost-files.XXXXXX")
+	jqerr=$(mktemp "${TMPDIR:-/tmp}/buddy-cost-jqerr.XXXXXX")
+	trap 'rm -f "$events" "$transcripts" "$jqerr"' EXIT INT TERM
+	find "$claude_projects" -type f -name '*.jsonl' -size +0c -print0 2>/dev/null >"$transcripts"
+	seen=$(tr -cd '\000' < "$transcripts" | wc -c | tr -d ' ')
+	# NO `-n 1`, NO PIPELINE, `-size +0c`, `<= 1` RATHER THAN `== 1`, AND THE FLOOR
+	# VERDICT KEYED ON JQ'S OWN STDERR. Five lessons: four measured on one fixture
+	# — a handful of transcripts, one holding a line that is not JSON — and the
+	# fifth only visible against the real 1448-transcript corpus.
+	#
+	# `-n 1` was one jq process per transcript, hundreds of them on a working
+	# machine. Worse, the old shape was `find … | xargs …`: a transcript jq cannot
+	# parse makes xargs exit 123, that is the PIPELINE's status, and `set -e` then
+	# killed the whole report — measured, rc=1 with this entire section missing and
+	# not one word about why, after the sections above had already printed. One
+	# malformed line in one transcript silently deleted the numbers.
+	#
+	# Batched and un-piped, that failure degrades instead of aborting, but it does
+	# cost more: measured on jq 1.7.1, a parse error ABANDONS the rest of that
+	# invocation's file list (rc=5, remaining files never opened). The report has
+	# to say so when it happens — and the FILE COUNT IS THE WRONG WITNESS for it,
+	# wrong in BOTH directions. Refuted by measurement, not by argument:
+	#
+	#   It misses the loss. The `F` row lands when a file yields its FIRST value,
+	#   so every file jq had already opened counts as parsed even if jq then died
+	#   partway through the last of them. Measured, three transcripts in find's
+	#   order b, c, a with the bad line third inside a: `seen=3 parsed=3`, no note
+	#   of any kind, and 4 of the fixture's 5 tool_use records presented as the
+	#   whole truth. $jqerr was one line long the entire time and nothing looked
+	#   at it.
+	#
+	#   It invents a loss. A file that yields no first-line value is opened, read
+	#   to the end, and still counted unparsed. Measured by dropping one empty
+	#   .jsonl into that fixture: `seen=4 parsed=3`, "1 transcript(s) were not
+	#   read", "(0 jq error line(s))" — a warning that declares data missing in
+	#   the same breath as reporting that jq complained about nothing. Permanent
+	#   noise once it starts, which is the failure mode D-012 already rules
+	#   against. `-size +0c` drops the empty ones before they are ever counted.
+	#
+	# So `-s "$jqerr"` — jq's own evidence that it stopped early — decides the
+	# FLOOR verdict, and seen/parsed stay what they always were: reported numbers,
+	# the ones that distinguish "1200 transcripts, all read" from "1200
+	# transcripts, jq opened 40".
+	#
+	# `<= 1`, NOT `== 1`, and this is the one that says the count could never have
+	# been the verdict. input_line_number counts NEWLINES CONSUMED so far, not the
+	# line a value sits on, and jq refills from the file 4095 bytes at a time — so
+	# when a first line ends exactly on that boundary its closing brace is the
+	# last byte of one block and its newline the first byte of the next, and the
+	# first value reports 0. Measured on jq 1.7.1, first line sized to the byte:
+	# 4094 -> 1, 4095 -> 1, 4096 -> 0, 4097 -> 1, 8191 -> 0.
+	#
+	# It hides well, which is why it survived the review that found the two above.
+	# Whether it costs the file its `F` row depends on the SECOND line too: a
+	# 4096-byte first line followed by a ~4095-byte one gives 0, 1, … and the row
+	# still lands, while the same first line followed by a SHORT one gives
+	# 0, 2, 3, … and `== 1` matches nothing in that file at all. Found by running
+	# this report against the real corpus rather than by reading jq: 1447 of 1448,
+	# and the odd one out was a 136-line 873 KB subagent transcript with a
+	# 4096-byte first line and short lines after it — reported unread forever, on
+	# a file jq had read cover to cover, at a rate of about one file in every
+	# 4095. `<= 1` restores 1448/1448 and cannot double count: the analysis awk
+	# keys the row on the filename.
+	#
+	# Residual, deliberately left: a transcript whose FIRST line is blank still
+	# yields its first value at line 2 and is still counted unparsed. Zero such
+	# files exist in the 1448 here, machines write these, and the cost of finding
+	# out is emitting a row per line rather than per file. It lands in the second
+	# NOTE arm below, which names its evidence instead of blaming jq.
+	#
+	# The `F` row costs one line per file and the analysis awk below ignores it.
+	xargs -0 jq -r --arg cutoff "$cutoff_iso" '
+			(if input_line_number <= 1 then (["F", input_filename] | @tsv) else empty end),
+			(if .type=="assistant" then .timestamp as $ts | .message.content[]? |
 				select(.type=="tool_use" and ((.name // "")|startswith("mcp__buddylist__")) and $ts >= $cutoff) |
 				["C",.id,.name,(.input|tojson|utf8bytelength),
 					(if .name=="mcp__buddylist__chat_read" then
@@ -127,11 +200,27 @@ if [ -d "$claude_projects" ]; then
 					 else "-" end)] | @tsv
 			elif .type=="user" then .message.content[]? | select(.type=="tool_result") |
 				["R",.tool_use_id,(.content|if type=="string" then utf8bytelength else (tojson|utf8bytelength) end)] | @tsv
-			else empty end
-		' 2>/dev/null >"$events"
+			else empty end)
+		' <"$transcripts" 2>"$jqerr" >"$events" || true
+	parsed=$(awk -F '\t' '$1=="F" && !f[$2]++ {n++} END {print n+0}' "$events")
 
 	echo
 	echo "Claude Buddy MCP usage"
+	printf 'transcripts\tseen=%s\tparsed=%s\n' "$seen" "$parsed"
+	if [ -s "$jqerr" ]; then
+		echo "  NOTE: jq stopped early on at least one transcript, and a parse error abandons the rest of its file list; every number below is a FLOOR."
+		# The COUNT of jq's complaints, never their text: a parse error message
+		# can quote the bytes it choked on (jq 1.6 appends "while parsing '…'"),
+		# and this report promises in its own header to print no transcript
+		# content. Re-run jq by hand on a transcript if the reason matters.
+		echo "  ($(wc -l < "$jqerr" | tr -d ' ') jq error line(s), not shown: they can quote transcript bytes.)"
+	elif [ "$parsed" -lt "$seen" ]; then
+		# Not a jq failure — jq said nothing — so this arm reports only what it
+		# can actually see: a transcript that yielded no value on its first line.
+		# Still a FLOOR, because from here "read and empty" and "opened and
+		# skipped" look the same.
+		echo "  NOTE: $((seen - parsed)) transcript(s) yielded no first-line value and jq reported nothing; every number below is a FLOOR."
+	fi
 	awk -F '\t' '
 		$1=="C" && !seen[$2]++ {name[$2]=$3; mode[$2]=$5; calls[$3]++; args[$3]+=$4; if($3=="mcp__buddylist__chat_read") reads[$5]++}
 		$1=="R" && name[$2]!="" && !rseen[$2]++ {results[name[$2]]++; bytes[name[$2]]+=$3; if(name[$2]=="mcp__buddylist__chat_read") {rresults[mode[$2]]++; rbytes[mode[$2]]+=$3}}

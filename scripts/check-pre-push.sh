@@ -6,8 +6,9 @@
 # exists — without it, this check would invoke check.sh, which invokes this
 # check, forever.
 set -eu
-cd "$(dirname "$0")/.."
-ROOT=$(pwd)
+. "$(dirname -- "$0")/lib.sh"
+ROOT=$(repo_root "$0")
+CDPATH= cd -- "$ROOT"
 HOOK="$ROOT/.githooks/pre-push"
 
 fail() { echo "check-pre-push: FAIL — $*" >&2; exit 1; }
@@ -19,10 +20,7 @@ WORK=$(mktemp -d) || fail "mktemp failed"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
 REPO="$WORK/repo"
-git init -q "$REPO"
-git -C "$REPO" config user.email t@t
-git -C "$REPO" config user.name t
-git -C "$REPO" config commit.gpgsign false
+mkrepo "$REPO"
 printf 'x\n' > "$REPO/f.txt"
 git -C "$REPO" add -A
 git -C "$REPO" commit -q -m one

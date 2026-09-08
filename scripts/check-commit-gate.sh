@@ -19,8 +19,9 @@
 #         the deny posture and the fail-closed arm both inert while still
 #         printing everything they would have printed.
 set -eu
-cd "$(dirname "$0")/.."
-ROOT=$(pwd)
+. "$(dirname -- "$0")/lib.sh"
+ROOT=$(repo_root "$0")
+CDPATH= cd -- "$ROOT"
 HOOK="$ROOT/.githooks/pre-commit"
 
 fail() { echo "check-commit-gate: FAIL — $*" >&2; exit 1; }
@@ -44,11 +45,8 @@ PATH="$WORK/bin:$PATH"
 export PATH
 
 REPO="$WORK/repo"
-git init -q "$REPO"
-git -C "$REPO" config user.email t@t
-git -C "$REPO" config user.name t
-# Otherwise the fixture depends on the developer's signing setup.
-git -C "$REPO" config commit.gpgsign false
+mkrepo "$REPO"
+# The hook under test, reached the way a real checkout reaches it.
 git -C "$REPO" config core.hooksPath "$ROOT/.githooks"
 
 seed() { mkdir -p "$(dirname "$REPO/$1")" && printf '%s\n' "$2" > "$REPO/$1"; }
@@ -108,8 +106,14 @@ echo "$out" | grep -q 'REFUSING' || fail "QA-2: the refusal must say so
 $out"
 echo "$out" | grep -q 'no-verify' || fail "QA-2: the refusal must name its bypass
 $out"
-# And the commit really did not happen.
-( cd "$REPO" && git log --oneline -1 ) | grep -q 'deny case' && fail "QA-2: the commit landed despite the refusal"
+# And the commit really did not happen. The log is CAPTURED rather than piped
+# into grep: `git log | grep -q 'deny case' && fail` passes vacuously when the
+# git command itself fails (sh has no pipefail), so a fixture repo that had
+# stopped being readable would report this leg green forever.
+log=$( cd "$REPO" && git log --oneline -1 ) || fail "QA-2: could not read the fixture's log; the assertion would have passed vacuously"
+case $log in
+*'deny case'*) fail "QA-2: the commit landed despite the refusal" ;;
+esac
 
 # QA-3: the documented bypass works.
 out=$(BUDDY_COMMIT_GATE=deny commit "bypass case" --no-verify) && rc=0 || rc=$?
@@ -147,10 +151,7 @@ $out"
 
 # QA-6: a repo that was never buddy-inited is a silent no-op, not a failure.
 BARE="$WORK/nobuddy"
-git init -q "$BARE"
-git -C "$BARE" config user.email t@t
-git -C "$BARE" config user.name t
-git -C "$BARE" config commit.gpgsign false
+mkrepo "$BARE"
 git -C "$BARE" config core.hooksPath "$ROOT/.githooks"
 printf 'x\n' > "$BARE/f.txt"
 git -C "$BARE" add -A

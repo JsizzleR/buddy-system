@@ -1,6 +1,12 @@
 .cache/
 bin/
 
+# Built binaries at the repo root. `go build ./cmd/...` drops them here, and a
+# stray one has been committed before (see "remove stray committed binary").
+# Anchored, so cmd/buddy, cmd/buddylist and internal/buddylist are untouched.
+/buddy
+/buddylist
+
 # Internal engineering logs — local only, never published.
 PLAN.md
 docs/p0-facts.md

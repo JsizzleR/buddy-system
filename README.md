@@ -270,14 +270,14 @@ exchange the AIM client's own Buddy Chat dialog uses. You will hear the door.
 ## How it holds together
 
 ```
-agents (Claude Code sessions)                       operator
-  │ hooks: hello/gate/beat/bye     ┌─ IRC client (Halloy) / AIM 5.1
-  ▼                                ▼
-buddy CLI ──► <repo>/.git/buddy.db      ergo / open-oscar-server
-  claims · controls · inbox                   ▲
-  (SQLite, transactional)                     │ ircwire / tocwire (Conn seam)
-  │                                     buddylistd ──► ~/.buddylist/journal.db
-  └─ MCP tools ─────────────────────────► unix socket   (durable room history)
+agents (Claude Code sessions)                            operator
+  │ hooks: hello/gate/beat/bye          ┌─ IRC client (Halloy) / AIM 5.1
+  ▼                                     ▼
+buddy CLI ──► <git-common-dir>/buddy.db      ergo / open-oscar-server
+  claims · controls · inbox                        ▲
+  (SQLite, transactional)                          │ ircwire / tocwire (Conn seam)
+  │                                          buddylistd ──► ~/.buddylist/journal.db
+  └─ MCP tools ──────────────────────────────► unix socket   (durable room history)
 ```
 
 - One ledger per repo, in the git **common dir** — shared by every worktree,
@@ -351,8 +351,11 @@ For a privacy-preserving seven-day baseline (counts and byte lengths only):
 
 ```sh
 scripts/cost-report.sh
-# Run from another Buddy repo, or point at its ledger:
-BUDDY_LEDGER=/path/to/repo/.git/buddy.db scripts/cost-report.sh
+# Or point it at another Buddy repo's ledger. That ledger lives in the git
+# COMMON dir, which is `.git` only in a plain checkout — in a `git worktree`
+# checkout `.git` is a FILE and `.../.git/buddy.db` names nothing:
+common=$(cd /path/to/repo && git rev-parse --path-format=absolute --git-common-dir)
+BUDDY_LEDGER="$common/buddy.db" scripts/cost-report.sh
 ```
 
 Set `BUDDY_COST_DAYS` to change the window. The report never prints messages,
