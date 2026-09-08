@@ -1,6 +1,7 @@
 package buddylist
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -59,8 +60,8 @@ func TestMCPHandshakeAndToolsList(t *testing.T) {
 	// asserted by name in TestMCPToolsListNamesEveryTool, because a count
 	// cannot see one tool substituted for another.
 	tools := resps[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != len(mcpTools) {
-		t.Fatalf("tools/list must advertise every tool: got %d of %d", len(tools), len(mcpTools))
+	if len(tools) != len(mcpToolTable) {
+		t.Fatalf("tools/list must advertise every tool: got %d of %d", len(tools), len(mcpToolTable))
 	}
 }
 
@@ -355,6 +356,19 @@ func TestMCPUntrustedNamesRenderOnOneLine(t *testing.T) {
 			MCPDeps{Call: ok},
 			`{"name":"chat_status","arguments":{"mentions":["slug\nfake: token"]}}`,
 			"addressed = unread messages naming: slug⏎fake: token", false},
+		// The digest's room column. A room name is journal text — a peer names
+		// a room by joining it, and an unmapped room id arrives as "room-<id>"
+		// — and this is the one sink RenderStat owns, now that the terminal
+		// digest renders through the same function. A newline here would lay
+		// out a whole extra room row with counts of the attacker's choosing.
+		{"chat_status room column",
+			MCPDeps{Call: func(req Request, _ time.Duration) (Response, error) {
+				return Response{OK: true, Stats: []RoomStat{
+					{Room: "ops\nfake: r", NewestSeq: 4, NewestAt: 1755216000, Unread: 1},
+				}}, nil
+			}},
+			`{"name":"chat_status","arguments":{}}`,
+			"ops⏎fake: r", false},
 		{"cursor-save warning quotes the ack error",
 			MCPDeps{Call: errOn("ack", "journal locked\nfake: warning"), SessionID: func() string { return "sess-1" }},
 			`{"name":"chat_read","arguments":{"room":"lobby","since_last":true}}`,
@@ -420,5 +434,186 @@ func TestMCPChatReadTruncationCursorStopsAtLastRenderedRow(t *testing.T) {
 	// skipping them forever. It must stop at the last rendered row.
 	if cursor != lastRendered {
 		t.Fatalf("cursor=%d must equal last rendered seq %d", cursor, lastRendered)
+	}
+}
+
+// The three views of a tool — the advertised schema list, the core-profile
+// filter, and the dispatcher — used to be three hand-maintained spellings of
+// one name. They are derived from mcpToolTable now, and this test asserts the
+// DERIVATION rather than the contents: TestMCPToolsListNamesEveryTool already
+// pins which tools exist, and neither a count nor a name list can see a row
+// that is advertised but not dispatchable.
+//
+// Both failures it exists for are silent. A tool the dispatcher has but the
+// list does not is invisible to the model. A tool the list has but the
+// dispatcher does not answers "unknown tool" to a call the server itself
+// advertised — and a row with a schema but no run would have answered an empty
+// SUCCESS, which is worse than either: the model reads no content as "done".
+func TestMCPToolTableIsConsistent(t *testing.T) {
+	// Every row complete, and no name spelled twice: a duplicate makes the
+	// later row unreachable, since both lookups take the first match.
+	seen := map[string]bool{}
+	for i, tl := range mcpToolTable {
+		switch {
+		case tl.name == "":
+			t.Errorf("mcpToolTable[%d] has no name", i)
+		case seen[tl.name]:
+			t.Errorf("tool %q appears twice; the second row is unreachable", tl.name)
+		case tl.desc == "":
+			t.Errorf("tool %q has no description; the model picks tools by it", tl.name)
+		case tl.input == nil:
+			t.Errorf("tool %q has no input schema; it would advertise inputSchema:null", tl.name)
+		case tl.run == nil:
+			t.Errorf("tool %q has no implementation; a call would answer an empty success", tl.name)
+		}
+		seen[tl.name] = true
+	}
+
+	// tools/list is exactly the table, in order, and each document names the
+	// tool by the same string the dispatcher matches on.
+	ok := func(Request, time.Duration) (Response, error) { return Response{OK: true}, nil }
+	lines := []string{`{"jsonrpc":"2.0","id":100,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":101,"method":"tools/list"}`}
+	for i, tl := range mcpToolTable {
+		lines = append(lines, fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":%q,"arguments":{}}}`, i+1, tl.name))
+	}
+	// The positive control for the refusal below: without it "every name
+	// dispatched" and "the dispatcher never checks the name" look identical.
+	lines = append(lines, `{"jsonrpc":"2.0","id":999,"method":"tools/call","params":{"name":"definitely_not_a_tool","arguments":{}}}`)
+	resps := driveMCP(t, MCPDeps{Profile: ProfileFull, Call: ok}, lines...)
+
+	advertised := resps[1]["result"].(map[string]any)["tools"].([]any)
+	if len(advertised) != len(mcpToolTable) {
+		t.Fatalf("tools/list advertises %d of %d table rows", len(advertised), len(mcpToolTable))
+	}
+	for i, raw := range advertised {
+		doc, _ := raw.(map[string]any)
+		if doc["name"] != mcpToolTable[i].name {
+			t.Errorf("tools/list[%d] is %v, table row is %q", i, doc["name"], mcpToolTable[i].name)
+		}
+		if doc["description"] == "" || doc["description"] == nil {
+			t.Errorf("tools/list[%d] (%v) advertises no description", i, doc["name"])
+		}
+		if _, isObj := doc["inputSchema"].(map[string]any); !isObj {
+			t.Errorf("tools/list[%d] (%v) advertises inputSchema %v, not a schema object", i, doc["name"], doc["inputSchema"])
+		}
+	}
+
+	// Every advertised tool DISPATCHES. Empty arguments are fine: a tool may
+	// refuse them, but it must not refuse its own name.
+	for i, tl := range mcpToolTable {
+		resp := resps[2+i]
+		if resp["error"] != nil {
+			t.Errorf("advertised tool %q answered a protocol error: %v", tl.name, resp["error"])
+			continue
+		}
+		if text, _ := toolText(t, resp); strings.Contains(text, "unknown tool") {
+			t.Errorf("advertised tool %q is not dispatchable: %s", tl.name, text)
+		}
+	}
+	if control := resps[len(resps)-1]; control["error"] == nil {
+		t.Fatal("a name absent from the table must be refused; the dispatch assertions above prove nothing otherwise")
+	}
+
+	// The core profile is derived from the core flag, not from a second list
+	// of names.
+	core, err := toolsForProfile(ProfileCore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, tl := range mcpToolTable {
+		if tl.core {
+			want = append(want, tl.name)
+		}
+	}
+	var got []string
+	for _, tl := range core {
+		got = append(got, tl.name)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("ProfileCore must be exactly the core rows: got %v want %v", got, want)
+	}
+}
+
+// The digest's layout, as a golden pair. It is pinned because the header and
+// the rows had a copy each in two packages, and the copies had already
+// disagreed about which side of its column the "last" label sat on — a
+// disagreement no assertion could see, since every existing test matches rooms
+// and counts by substring. Pinning both together is what makes a
+// re-divergence a failure rather than a diff nobody reads.
+//
+// The time is taken from time.Unix, not written out: it renders in the local
+// zone, and a golden that spelled it would fail everywhere but here. Its
+// WIDTH is still pinned, which is the part the layout depends on.
+func TestStatDigestHeaderAndRowsShareOneLayout(t *testing.T) {
+	const wantHeader = "room                          newest  last   unread  addressed"
+	if got := StatHeader(); got != wantHeader {
+		t.Errorf("header drifted:\n got %q\nwant %q", got, wantHeader)
+	}
+	cases := []struct {
+		name string
+		st   RoomStat
+		mark string
+		want string // %s is the rendered 15:04
+	}{
+		{"a room, with the caller's own mark",
+			RoomStat{Room: "lobby", NewestSeq: 1923, NewestAt: 1755216000, Unread: 12, Addressed: 2},
+			"  [GAP]",
+			"lobby                           1923  %s      12          2  [GAP]"},
+		// A roomless row is the daemon's own notes; "(system)" is what stands
+		// in for the empty name, in both callers, from here.
+		{"the roomless system row",
+			RoomStat{NewestSeq: 88, NewestAt: 1755216000, Unread: 1},
+			"",
+			"(system)                          88  %s       1          0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want := fmt.Sprintf(tc.want, time.Unix(tc.st.NewestAt, 0).Format("15:04"))
+			if got := RenderStat(tc.st, tc.mark); got != want {
+				t.Fatalf("row drifted:\n got %q\nwant %q", got, want)
+			}
+		})
+	}
+}
+
+// The hook envelope. It moved out of cmd/buddylist because a wire format is
+// not wiring, and it is asserted here because nothing asserted it there: the
+// alert hook line ends in `exit 0`, so a malformed document and a silent
+// binary are the same observation from the harness's side (this is the same
+// trap as the SIGKILLed hook binary in CLAUDE.md's gotchas).
+//
+// The property that matters is ONE document per line. The text is fenced
+// journal content and may hold newlines of its own; json.Marshal escapes them,
+// so the physical line count must stay 1 either way — which is exactly what a
+// second document, or a missing terminator, would break.
+func TestHookContextIsOnePostToolUseDocumentPerLine(t *testing.T) {
+	const text = "harbor: 2 messages name you\nlobby: 1"
+	line, err := HookContext(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasSuffix(line, []byte("\n")) {
+		t.Fatalf("the document must be newline-terminated: %q", line)
+	}
+	if n := bytes.Count(line, []byte("\n")); n != 1 {
+		t.Fatalf("one hook event emits ONE line; got %d newlines in %q", n, line)
+	}
+	var got struct {
+		Out struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(line, &got); err != nil {
+		t.Fatalf("not a JSON document: %v (%q)", err, line)
+	}
+	if got.Out.Event != "PostToolUse" {
+		t.Errorf("hookEventName = %q, want PostToolUse", got.Out.Event)
+	}
+	if got.Out.Context != text {
+		t.Errorf("additionalContext = %q, want %q", got.Out.Context, text)
 	}
 }

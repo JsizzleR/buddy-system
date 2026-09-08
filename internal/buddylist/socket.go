@@ -261,6 +261,52 @@ func (d *Daemon) dispatch(req Request) Response {
 	}
 }
 
+// defaultCallTimeout bounds a socket round-trip. Five seconds is what every
+// verb passed before Client existed, save one: the presence/SessionEnd path
+// names its own tighter presenceCallTime, which is why zero here means "the
+// default" and not "no deadline". It is generous because the daemon may be
+// mid-reconnect, and the caller is a person or an MCP tool that can wait.
+const defaultCallTimeout = 5 * time.Second
+
+// Client is one caller's handle on the daemon socket: the path, and the bound.
+//
+// It exists because `Call(defaultSocket(), ...)` was spelled out at nine sites
+// in cmd/buddylist — seven verbs and two dep closures — and the socket path
+// repeated nine times is the half that matters: a verb that dialed a different
+// socket than the rest would simply report the daemon as unreachable, which
+// reads as "the daemon is down" rather than "this verb is wrong". The five-
+// second bound was repeated at six of those nine (the two dep closures forward
+// their caller's timeout and presence passes its own tighter one), and a bound
+// repeated six times is a bound that gets changed in five places.
+//
+// Call stays exported beside it. It is the whole client protocol, the daemon's
+// own tests dial it directly with their own temp socket, and a struct is not an
+// improvement for a caller that already has both values in hand.
+type Client struct {
+	// Socket is the control socket path.
+	Socket string
+	// Timeout bounds dial, write and read together. Zero means
+	// defaultCallTimeout; a caller with a tighter budget — SessionEnd, which
+	// must not be held up by a wedged daemon — names its own.
+	Timeout time.Duration
+}
+
+// timeout resolves the bound. It is its own method so the defaulting rule can
+// be asserted without a socket: the rule that matters is that a ZERO Timeout
+// does not reach net.DialTimeout, where 0 means "no deadline at all" — a hook
+// that forgot to name a bound would then block forever on a wedged daemon
+// instead of costing one notice.
+func (c Client) timeout() time.Duration {
+	if c.Timeout <= 0 {
+		return defaultCallTimeout
+	}
+	return c.Timeout
+}
+
+func (c Client) Call(req Request) (Response, error) {
+	return Call(c.Socket, req, c.timeout())
+}
+
 // Call is the client half: one request, one response, over the unix socket.
 func Call(socketPath string, req Request, timeout time.Duration) (Response, error) {
 	conn, err := net.DialTimeout("unix", socketPath, timeout)
