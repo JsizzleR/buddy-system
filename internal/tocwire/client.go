@@ -366,6 +366,21 @@ func (c *Client) AddBuddies(names ...string) error {
 	return c.send("toc_add_buddy", "toc_add_buddy "+strings.Join(names, " "))
 }
 
+// Presence cannot be answered on TOC, and says so rather than guessing.
+//
+// The protocol has no synchronous presence query: a client learns who is
+// online by putting a name on its buddy list with toc_add_buddy and waiting
+// for an UPDATE_BUDDY that arrives whenever the server feels like it — and
+// never at all for a name that has no session. Reading that silence as
+// "offline" would refuse messages to anyone whose update simply had not
+// arrived yet, and mutating the concierge's buddy list as a side effect of
+// every DM is a worse trade than the honest "unknown" this returns. So the
+// TOC backend keeps its historical best-effort semantics: the DM goes out and
+// the server drops it if nobody is there (measured, docs/p0-facts.md).
+func (c *Client) Presence(names ...string) ([]string, bool, error) {
+	return nil, false, nil
+}
+
 // checkBareArg refuses values that would break the server's space-separated,
 // quote-aware tokenizer when sent unquoted (screen names, room ids). Text
 // arguments are escaped and quoted instead and take any bytes.
