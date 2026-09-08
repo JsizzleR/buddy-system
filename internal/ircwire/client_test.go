@@ -747,3 +747,212 @@ func TestPresenceRefusesAnOverLongQuery(t *testing.T) {
 		t.Fatalf("a later query should work normally: %#v", r)
 	}
 }
+
+// noLF is a peer that streams bytes and never sends the line terminator. The
+// old reader accumulated until the LF arrived and checked the length only
+// afterwards, so this input grew memory without bound and the "line exceeds
+// 32KB" verdict could never be reached. The bound is the reader's buffer now.
+var noLF = strings.Repeat("x", 40<<10)
+
+// awaitEventsClosed is the bounded wait that makes a hang a failure: with
+// ReadString in place, the read loop never returns on noLF.
+func awaitEventsClosed(t *testing.T, c *Client) {
+	t.Helper()
+	for {
+		select {
+		case _, ok := <-c.Events():
+			if !ok {
+				return
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("read loop must end on an over-long line without an LF")
+		}
+	}
+}
+
+func TestInboundLineIsBoundedWithoutAnLF(t *testing.T) {
+	t.Run("read loop", func(t *testing.T) {
+		f := newFakeServer(t)
+		c := dialOK(t, f)
+
+		// Positive control: an ordinary long line still parses.
+		long := strings.Repeat("y", 480)
+		f.send(":operator!u@h PRIVMSG #lobby :" + long)
+		if in, ok := wantEvent(t, c).(tocwire.ChatIn); !ok || in.Text != long {
+			t.Fatalf("a 500-byte line must still parse: %#v", in)
+		}
+
+		if _, err := f.conn.Write([]byte(noLF)); err != nil {
+			t.Fatal(err)
+		}
+		awaitEventsClosed(t, c)
+		if err := c.Err(); err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Fatalf("the terminal error must be the line-too-long verdict, got %v", err)
+		}
+	})
+
+	t.Run("registration", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			payload string // written after USER, in place of 001
+			wantErr string // "" means Dial must succeed
+		}{
+			{"500-byte 001 still registers", ":buddy.local 001 SmarterChild :" + strings.Repeat("w", 480) + "\r\n", ""},
+			{"40KB without an LF is refused", noLF, "exceeds"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				f := newFakeServer(t)
+				go func() {
+					conn, err := f.ln.Accept()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					f.conn = conn
+					f.br = bufio.NewReader(conn)
+					for line := f.readLine(); !strings.HasPrefix(line, "USER "); line = f.readLine() {
+					}
+					conn.Write([]byte(tc.payload))
+				}()
+				// Shorter than the default so the wrong outcome under the old
+				// reader — a handshake timeout — is reached, and named, fast.
+				c, err := Dial(context.Background(), f.addr(), "SmarterChild", "", WithKeepAlive(0), WithHandshakeTimeout(3*time.Second))
+				if tc.wantErr == "" {
+					if err != nil {
+						t.Fatal(err)
+					}
+					c.Close()
+					return
+				}
+				if err == nil {
+					c.Close()
+					t.Fatal("Dial must fail")
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Dial error %v must carry %q", err, tc.wantErr)
+				}
+			})
+		}
+	})
+}
+
+// The read loop can end with the socket still open — the over-long line does
+// exactly that — and the client is then dead as far as the daemon can tell
+// (Events closed). Two things used to outlive it: the keepalive loop, which
+// selected only on closed and so PINGed the peer for as long as it kept the
+// socket open, and a Presence call, which installed its mailbox, sent its ISON
+// over the healthy socket, and waited the full presenceTimeout for a reply no
+// read loop was left to deliver. Both are answered by the read loop's exit
+// closing the conn and the keepalive watching readDone.
+func TestNothingOutlivesTheReadLoop(t *testing.T) {
+	// endReadLoop drives the read loop off the too-long path while the fake
+	// server keeps its end of the socket open.
+	endReadLoop := func(t *testing.T, f *fakeServer, c *Client) {
+		t.Helper()
+		if _, err := f.conn.Write([]byte(noLF)); err != nil {
+			t.Fatal(err)
+		}
+		awaitEventsClosed(t, c)
+	}
+
+	t.Run("keepalive stops", func(t *testing.T) {
+		f := newFakeServer(t)
+		done := make(chan struct{})
+		go func() { f.acceptAndRegister(); close(done) }()
+		c, err := Dial(context.Background(), f.addr(), "SmarterChild", "", WithKeepAlive(20*time.Millisecond))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		<-done
+
+		// Positive control: the keepalive is armed while the client lives.
+		if got := f.readLine(); got != "PING :keepalive" {
+			t.Fatalf("keepalive must PING while alive, got %q", got)
+		}
+
+		endReadLoop(t, f, c)
+		// A PING written in the instant before the loop noticed readDone is
+		// not a failure; one written after a settle is. Drain, then listen.
+		settle := time.Now().Add(100 * time.Millisecond)
+		for time.Now().Before(settle) {
+			if _, ok := f.tryReadLine(50 * time.Millisecond); !ok {
+				break
+			}
+		}
+		if line, ok := f.tryReadLine(200 * time.Millisecond); ok {
+			t.Fatalf("keepalive must stop once the read loop has ended, got %q", line)
+		}
+	})
+
+	t.Run("keepalive goroutine exits at once, not at its next tick", func(t *testing.T) {
+		// A closed conn alone also silences the PINGs — the next tick's send
+		// fails — but at the 60s default that leaves the goroutine alive for
+		// up to a minute after the daemon has moved on. The interval here is
+		// longer than the wait, so only the readDone arm can pass this.
+		f := newFakeServer(t)
+		done := make(chan struct{})
+		go func() { f.acceptAndRegister(); close(done) }()
+		c, err := Dial(context.Background(), f.addr(), "SmarterChild", "", WithKeepAlive(time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		<-done
+
+		endReadLoop(t, f, c)
+		select {
+		case <-c.keepAliveDone:
+		case <-time.After(2 * time.Second):
+			t.Fatal("keepalive goroutine must exit when the read loop ends, not at its next tick")
+		}
+	})
+
+	t.Run("presence returns promptly", func(t *testing.T) {
+		// Long enough that the timeout cannot be what returns: if the dead
+		// connection does not fail the send, this test hangs and fails.
+		old := presenceTimeout
+		presenceTimeout = 30 * time.Second
+		t.Cleanup(func() { presenceTimeout = old })
+
+		f := newFakeServer(t)
+		c := dialOK(t, f)
+		endReadLoop(t, f, c)
+
+		r := wantPresence(t, presenceCall(c, "jay"))
+		if r.err == nil || r.ok {
+			t.Fatalf("a Presence on a dead connection must fail at once: %#v", r)
+		}
+	})
+}
+
+// A middle parameter ends at the first space. PASS sent that way delivered
+// `hunter two` to the server as `hunter`, and the refusal read as a wrong
+// password. The trailing form carries the whole value.
+func TestPassIsSentAsTheTrailingParameter(t *testing.T) {
+	cases := []struct{ name, password, want string }{
+		{"plain", "secret", "PASS :secret"},
+		{"with a space", "hunter two", "PASS :hunter two"},
+		{"injection bytes are stripped, not split on", "a\r\nb\x00c", "PASS :abc"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeServer(t)
+			done := make(chan struct{})
+			go func() { f.acceptAndRegister(); close(done) }()
+			c, err := Dial(context.Background(), f.addr(), "SmarterChild", tc.password, WithKeepAlive(0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			<-done
+			c.Close()
+			f.mu.Lock()
+			got := append([]string(nil), f.got...)
+			f.mu.Unlock()
+			if len(got) == 0 || got[0] != tc.want {
+				t.Fatalf("first line on the wire must be %q, got %q", tc.want, got)
+			}
+		})
+	}
+}

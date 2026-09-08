@@ -30,7 +30,35 @@ const (
 	// maxChunk bounds one PRIVMSG payload; the IRC line limit is 512 bytes
 	// including command, target, and CRLF.
 	maxChunk = 400
+	// maxLine bounds one INBOUND line, and it is the reader's buffer size,
+	// not a check applied afterwards. ergo enforces far less, so nothing
+	// legitimate comes near it; the bound exists for a peer that streams
+	// bytes with no LF at all. The earlier shape — ReadString('\n') and then
+	// `len(raw) > 32*1024` — could never fire on that peer, because
+	// ReadString accumulates until the LF arrives and the check ran only
+	// once it had: memory grew without bound and the guard sat unreached.
+	maxLine = 32 << 10
 )
+
+// errLineTooLong is the terminal error for a line that overran maxLine. It is
+// the same verdict the old post-hoc check gave, now reachable.
+var errLineTooLong = fmt.Errorf("irc: read: line exceeds %dKB", maxLine>>10)
+
+// readLine returns one line without its CRLF, or errLineTooLong when the
+// reader's buffer filled before an LF arrived. ReadSlice is what makes the
+// bound real: it hands back at most the buffer and reports ErrBufferFull
+// instead of growing. The slice aliases the buffer, so it is copied to a
+// string before the next read can overwrite it.
+func readLine(br *bufio.Reader) (string, error) {
+	raw, err := br.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return "", errLineTooLong
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(raw), "\r\n"), nil
+}
 
 type options struct {
 	handshakeTimeout time.Duration
@@ -60,6 +88,12 @@ type Client struct {
 	events   chan tocwire.Event
 	closed   chan struct{}
 	readDone chan struct{}
+	// keepAliveDone closes when the keepalive goroutine exits (at once when
+	// keepalive is off). Observability only: it is how a test tells "stopped
+	// because the read loop ended" from "lingered until the next tick found
+	// the socket closed" — which, at the 60s default, would be a goroutine
+	// outliving its connection by up to a minute.
+	keepAliveDone chan struct{}
 
 	closeOnce sync.Once
 	closeErr  error
@@ -153,13 +187,16 @@ func Dial(ctx context.Context, addr, nick, password string, opts ...Option) (*Cl
 	}()
 	stop := func() { close(watcherDone); <-watcherExited }
 
-	br := bufio.NewReader(conn)
+	br := bufio.NewReaderSize(conn, maxLine)
 	send := func(line string) error {
 		_, err := conn.Write([]byte(line + "\r\n"))
 		return err
 	}
 	if password != "" {
-		if err := send("PASS " + sanitizeParam(password)); err != nil {
+		// Trailing, not a middle parameter: a middle parameter ends at the
+		// first space, so `hunter two` reached the server as `hunter` and
+		// the registration was refused for a password nobody had mistyped.
+		if err := send("PASS :" + sanitizeParam(password)); err != nil {
 			stop()
 			conn.Close()
 			return nil, fmt.Errorf("irc: send PASS: %w", err)
@@ -181,7 +218,7 @@ func Dial(ctx context.Context, addr, nick, password string, opts ...Option) (*Cl
 	}
 
 	for {
-		raw, err := br.ReadString('\n')
+		line, err := readLine(br)
 		if err != nil {
 			stop()
 			conn.Close()
@@ -190,7 +227,7 @@ func Dial(ctx context.Context, addr, nick, password string, opts ...Option) (*Cl
 			}
 			return nil, fmt.Errorf("irc: registration read: %w", err)
 		}
-		msg := parseLine(strings.TrimRight(raw, "\r\n"))
+		msg := parseLine(line)
 		switch msg.cmd {
 		case "PING":
 			if err := send("PONG :" + msg.firstParamOrTrailing()); err != nil {
@@ -215,18 +252,26 @@ func Dial(ctx context.Context, addr, nick, password string, opts ...Option) (*Cl
 			}
 		case "001":
 			stop()
-			conn.SetDeadline(time.Time{})
+			// A deadline that fails to clear would end the connection at
+			// the handshake timeout and look like a server that went away.
+			if err := conn.SetDeadline(time.Time{}); err != nil {
+				conn.Close()
+				return nil, fmt.Errorf("irc: clear handshake deadline: %w", err)
+			}
 			c := &Client{
-				conn:     conn,
-				nick:     nick,
-				events:   make(chan tocwire.Event),
-				closed:   make(chan struct{}),
-				readDone: make(chan struct{}),
-				members:  map[string]map[string]bool{},
+				conn:          conn,
+				nick:          nick,
+				events:        make(chan tocwire.Event),
+				closed:        make(chan struct{}),
+				readDone:      make(chan struct{}),
+				keepAliveDone: make(chan struct{}),
+				members:       map[string]map[string]bool{},
 			}
 			go c.readLoop(br)
 			if o.keepAlive > 0 {
 				go c.keepAliveLoop(o.keepAlive)
+			} else {
+				close(c.keepAliveDone)
 			}
 			return c, nil
 		case "432", "433", "436", "464", "465":
@@ -259,7 +304,12 @@ func (c *Client) Err() error {
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.closed)
-		c.closeErr = c.conn.Close()
+		// finish() also closes the conn when the read loop ends on its own,
+		// and closing c.closed can be what ends it — losing that benign race
+		// is not a Close failure (the same filter tocwire adopted).
+		if err := c.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			c.closeErr = err
+		}
 	})
 	<-c.readDone
 	return c.closeErr
@@ -308,10 +358,6 @@ func (c *Client) SetAway(text string) error {
 	}, text)
 	return c.sendLine("AWAY :" + oneLine)
 }
-
-// AddBuddies is a no-op on IRC (channel membership IS presence here;
-// MONITOR could back this later if buddy-level presence is wanted).
-func (c *Client) AddBuddies(names ...string) error { return nil }
 
 // presenceTimeout bounds one ISON round-trip.
 //
@@ -530,11 +576,19 @@ func (c *Client) writeLocked(line string) error {
 }
 
 func (c *Client) keepAliveLoop(every time.Duration) {
+	defer close(c.keepAliveDone)
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
 		select {
 		case <-c.closed:
+			return
+		case <-c.readDone:
+			// The read loop can end with the socket still writable — an
+			// over-long line is the reachable case — and Events has closed,
+			// so nobody is listening for the PONG. Without this arm the
+			// loop PINGed a connection the daemon had already given up on,
+			// for as long as the peer kept the socket open.
 			return
 		case <-t.C:
 			if err := c.sendLine("PING :keepalive"); err != nil {
@@ -544,6 +598,12 @@ func (c *Client) keepAliveLoop(every time.Duration) {
 	}
 }
 
+// finish records the terminal error, wakes an outstanding Presence, and
+// closes the conn. Closing is what makes the death visible to writers: the
+// read loop does not always end because the socket did (the over-long-line
+// path ends it with the socket healthy), and a Presence installed after
+// that point would otherwise send its ISON fine and then wait out the full
+// presenceTimeout for a reply no loop is left to deliver.
 func (c *Client) finish(err error) {
 	c.errMu.Lock()
 	select {
@@ -556,6 +616,7 @@ func (c *Client) finish(err error) {
 	}
 	c.errMu.Unlock()
 	c.failPresence(err)
+	c.conn.Close() // Close() filters the resulting net.ErrClosed
 }
 
 func (c *Client) deliver(ev tocwire.Event) bool {
@@ -571,16 +632,15 @@ func (c *Client) readLoop(br *bufio.Reader) {
 	defer close(c.readDone)
 	defer close(c.events)
 	for {
-		raw, err := br.ReadString('\n')
+		line, err := readLine(br)
 		if err != nil {
-			c.finish(fmt.Errorf("irc: read: %w", err))
+			if errors.Is(err, errLineTooLong) {
+				c.finish(err) // a hostile peer gets cut off
+			} else {
+				c.finish(fmt.Errorf("irc: read: %w", err))
+			}
 			return
 		}
-		if len(raw) > 32*1024 { // ergo enforces far less; a hostile peer gets cut off
-			c.finish(fmt.Errorf("irc: read: line exceeds 32KB"))
-			return
-		}
-		line := strings.TrimRight(raw, "\r\n")
 		if line == "" {
 			continue
 		}
@@ -821,25 +881,22 @@ func checkBare(what, s string) error {
 	return nil
 }
 
-// sanitizeParam strips line-injection bytes from a single parameter.
-func sanitizeParam(s string) string {
+// dropRunes removes every rune of bad from s. The two sanitizers below are
+// this with different bad sets; they were two copies of the same rune map.
+func dropRunes(s, bad string) string {
 	return strings.Map(func(r rune) rune {
-		if r == '\r' || r == '\n' || r == 0 {
+		if strings.ContainsRune(bad, r) {
 			return -1
 		}
 		return r
 	}, s)
 }
 
+// sanitizeParam strips line-injection bytes from a single parameter.
+func sanitizeParam(s string) string { return dropRunes(s, "\r\n\x00") }
+
 // sanitizeText strips CR/NUL (newlines are handled by splitMessage).
-func sanitizeText(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '\r' || r == 0 {
-			return -1
-		}
-		return r
-	}, s)
-}
+func sanitizeText(s string) string { return dropRunes(s, "\r\x00") }
 
 // splitMessageN turns arbitrary text into safe PRIVMSG payloads: one per
 // line, each chunked under limit bytes on rune boundaries. This is the

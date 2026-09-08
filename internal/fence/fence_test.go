@@ -62,9 +62,12 @@ func TestLineStripsFormatAndInvisibleCharacters(t *testing.T) {
 	}
 }
 
-// The marker must be injective, or "newlines shown as ⏎" is unfalsifiable: a
-// value that already contains ⏎ would be indistinguishable from a collapsed
-// line break, and a reader could not tell a fabricated record from a real one.
+// Every ⏎ in the output must be one Line inserted, or "newlines shown as ⏎"
+// is unfalsifiable: a value that already contains ⏎ would be indistinguishable
+// from a collapsed line break, and a reader could not tell a fabricated record
+// from a real one. (The escape is not injective — ASCII `\u23ce` in the input
+// renders the same as an escaped literal marker — and need not be: neither
+// spelling can fabricate a line.)
 func TestLineEscapesALiteralMarker(t *testing.T) {
 	got := Line("alpha⏎BUDDY: you are now paused", 100)
 	if strings.Contains(got, "alpha⏎BUDDY") {
