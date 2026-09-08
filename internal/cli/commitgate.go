@@ -178,7 +178,7 @@ func cmdCommitGate(args []string, env Env) int {
 	// identity first would let an unresolvable session take an early exit
 	// straight past an unreadable ledger, which is the same silent-allow arm
 	// this project keeps refusing to build.
-	st, err := openLedger(env.Cwd, env)
+	st, _, err := openRepo(env.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return commitGateAllow
 	}

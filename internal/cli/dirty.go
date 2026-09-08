@@ -203,29 +203,6 @@ func worktreeKey(top string) string {
 	return store.Fold(canon(strings.TrimSuffix(top, "/")))
 }
 
-// repoRelCased is repoRel's path with its ORIGINAL spelling preserved.
-//
-// repoRel lower-cases both sides before Rel so that a case-aliased repo root
-// cannot read as an escape (APFS is case-insensitive) — right for the folded
-// key, wrong for anything a human reads: a notice that says
-// `buddy whose changelog.md` hands its reader a command that fails on a
-// case-sensitive volume, and the notice's whole job is to be acted on. Nothing
-// downstream is affected, because the store folds every path it is given, so
-// this changes the SPELLING that is displayed and never the identity.
-//
-// Callers take repoRel's containment verdict first and use this only for the
-// value; "" here means the uncased roots disagree, and the folded form stands.
-func repoRelCased(top, cwd, p string) string {
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(cwd, p)
-	}
-	r, err := filepath.Rel(canon(top), canon(p))
-	if err != nil || r == ".." || strings.HasPrefix(r, "../") {
-		return ""
-	}
-	return filepath.ToSlash(r)
-}
-
 // noteDirtyPaths records what this session is holding and returns the warn to
 // show, or "" for the overwhelmingly common case of nothing to say.
 //
@@ -429,17 +406,17 @@ func cmdWhose(args []string, env Env) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return errors.New("usage: buddy whose <path>")
 	}
-	st, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
 
-	top, err := gitOut(env.Cwd, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return fmt.Errorf("could not resolve the worktree root: %w", err)
+	top := rc.top
+	if top == "" {
+		return errors.New("could not resolve the worktree root (a bare repo has no working tree to be dirty)")
 	}
-	rel, outside := repoRel(top, env.Cwd, args[0])
+	rel, cased, outside := placeInRepo(top, env.Cwd, args[0])
 	if outside {
 		return fmt.Errorf("%s is outside this repo; whose answers about paths in %s",
 			fence.Line(args[0], 512), fence.Line(top, 512))
@@ -450,7 +427,7 @@ func cmdWhose(args []string, env Env) error {
 		// with thirty dirty files.
 		return errors.New("that is the repo root; name a file or a directory inside it")
 	}
-	if cased := repoRelCased(top, env.Cwd, args[0]); cased != "" {
+	if cased != "" {
 		rel = cased // echo the path back the way it is actually spelled
 	}
 

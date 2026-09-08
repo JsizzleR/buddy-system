@@ -7,6 +7,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -219,13 +220,89 @@ func canon(p string) string {
 	return filepath.Join(canon(dir), filepath.Base(clean))
 }
 
-func gitOut(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+// ledgerName is the ledger's filename inside the git common dir.
+const ledgerName = "buddy.db"
+
+// discoveryBudget bounds the ONE git call a hook makes to find out where it is.
+//
+// The old gitOut ran with NO deadline, and beat's own comment already named the
+// hazard that left open: "a wedged index would stall the heartbeat AND the
+// operator's queued messages behind it". On the gate it is worse, because the
+// installed hook line ends in `exit 0` — a git that never returns is killed by
+// the harness and READS AS ALLOW. Fail-closed means discovery must produce a
+// verdict rather than a timeout. Measured on this machine, rev-parse costs
+// 7-9 ms, so two seconds is three orders of magnitude of headroom and only a
+// genuinely wedged git can reach it.
+const discoveryBudget = 2 * time.Second
+
+// repoContext answers the two questions every hook asks on arrival: where the
+// ledger is, and where the worktree root is that repo-relative paths are
+// relative TO.
+//
+// They are ONE question to git and used to be two processes. Every mutating
+// tool call ran `rev-parse --git-common-dir` to find the ledger and then, when
+// the call carried a path, a second `rev-parse --show-toplevel` to place it.
+// Measured 2026-09-08: 7-9 ms per fork against an 18 ms gate, so the second one
+// was roughly a third of the hook — and git answers both in one process for the
+// same price (8.7 ms for one value, 8.8 ms for two).
+//
+// top is "" when git will not name a root (a bare repo answers the ledger
+// question and refuses the root one). A caller that needs a root must treat ""
+// as a failure to place, never as the root itself.
+type repoContext struct {
+	ledger string // absolute path to buddy.db in the git COMMON dir
+	top    string // absolute worktree root, or "" if git would not say
+}
+
+// revParse runs one bounded, locale-pinned `git rev-parse` and returns stdout
+// RAW. Raw on purpose: how many values came back is exactly what the caller has
+// to be careful about, so the splitting is not hidden in here.
+//
+// The environment is INHERITED apart from the LC_ALL pin, which deliberately
+// differs from the dirty scan's cleanGitEnv (that drops the whole GIT_*
+// namespace). In a pre-commit hook git's environment is how git STATES what is
+// being committed, and discovery runs on that path too — see commitGitEnv, and
+// CLAUDE.md's note that stripping GIT_* is right for a background scan and
+// wrong for a commit-time gate.
+func revParse(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), discoveryBudget)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git",
+		append([]string{"-C", dir, "rev-parse", "--path-format=absolute"}, args...)...)
+	// Pin git's diagnostics to English: the errNoLedger verdict matches on the
+	// message text, and a localized git would silently fail OPEN.
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	return string(out), err
+}
+
+// gitLine strips the single terminator git puts after a value.
+//
+// NOT strings.TrimSpace, which is what this code used to do: a directory name
+// may legally end in a space, and trimming it yields a root that nothing inside
+// the repo is relative to, so every path in it reads as "outside this repo".
+// git terminates each value with exactly one \n and escapes nothing.
+func gitLine(s string) string { return strings.TrimSuffix(s, "\n") }
+
+// splitTwoPaths splits a two-value rev-parse output, and REFUSES rather than
+// guess when it cannot do so unambiguously.
+//
+// git neither quotes nor escapes --show-toplevel, so a repo whose path contains
+// a newline — legal on every platform this runs on, verified 2026-09-08 that
+// git emits it raw — produces a value spanning lines, and a positional split
+// silently misassigns the root. In a gate a wrong root is a wrong verdict.
+// Exactly two terminators means exactly two values; anything else falls back to
+// asking one question at a time, which cannot be ambiguous because a single
+// value is simply whatever precedes its own terminator.
+// It needs no gitLine: slicing at the terminators already excludes them, which
+// is also why the trailing-space hazard gitLine exists for is reachable only
+// through the fallback.
+func splitTwoPaths(out string) (first, second string, ok bool) {
+	if strings.Count(out, "\n") != 2 || !strings.HasSuffix(out, "\n") {
+		return "", "", false
 	}
-	return strings.TrimSpace(string(out)), nil
+	i := strings.IndexByte(out, '\n')
+	return out[:i], out[i+1 : len(out)-1], true
 }
 
 // errNoLedger means the feature is legitimately off here: the directory is
@@ -235,13 +312,25 @@ func gitOut(dir string, args ...string) (string, error) {
 // gate fails closed on those.
 var errNoLedger = errors.New("buddy: no ledger here")
 
-// ledgerPath returns the buddy.db path for the repo containing dir.
-func ledgerPath(dir string) (string, error) {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	// Pin git's diagnostics to English: the errNoLedger verdict below matches
-	// the message text, and a localized git would silently fail OPEN.
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	out, err := cmd.Output()
+// resolveRepo locates the ledger and the worktree root for dir, in one git
+// process wherever git will give both.
+//
+// errNoLedger here means the feature is legitimately off: dir is provably not a
+// repo. Every OTHER discovery failure is ambiguous — git missing from PATH, a
+// deleted cwd, EACCES on an ancestor — and comes back as a real error, because
+// a gate that cannot tell "off" from "broken" is a gate that has quietly
+// stopped existing (invariant 3).
+func resolveRepo(dir string) (repoContext, error) {
+	if out, err := revParse(dir, "--git-common-dir", "--show-toplevel"); err == nil {
+		if common, top, ok := splitTwoPaths(out); ok {
+			return repoContext{ledger: filepath.Join(common, ledgerName), top: top}, nil
+		}
+	}
+	// One question at a time. Three ways to get here, all rare and none of them
+	// worth a guess: a repo with no worktree (bare — the combined form exits
+	// non-zero even though the common dir did print), a path containing a
+	// newline, and a real failure that is about to be diagnosed below.
+	out, err := revParse(dir, "--git-common-dir")
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -249,12 +338,18 @@ func ledgerPath(dir string) (string, error) {
 			// message would hard-deny every edit outside a repo): the message
 			// check is a fast path, the .git-ancestor probe the durable one.
 			if strings.Contains(string(ee.Stderr), "not a git repository") || !hasGitAncestor(dir) {
-				return "", errNoLedger
+				return repoContext{}, errNoLedger
 			}
 		}
-		return "", fmt.Errorf("repo discovery failed: %w", err)
+		return repoContext{}, fmt.Errorf("repo discovery failed: %w", err)
 	}
-	return filepath.Join(strings.TrimSpace(string(out)), "buddy.db"), nil
+	rc := repoContext{ledger: filepath.Join(gitLine(out), ledgerName)}
+	// The root is best-effort HERE and required by the CALLER: a bare repo has a
+	// ledger and no root, and only the callers that must place a path care.
+	if top, err := revParse(dir, "--show-toplevel"); err == nil {
+		rc.top = gitLine(top)
+	}
+	return rc, nil
 }
 
 // hasGitAncestor reports whether dir or any ancestor contains a .git entry
@@ -273,14 +368,11 @@ func hasGitAncestor(dir string) bool {
 	}
 }
 
-// openLedger opens the ledger. errNoLedger means feature-off; any other
-// error is a real failure the caller must not swallow.
-func openLedger(dir string, env Env) (*store.Store, error) {
-	p, err := ledgerPath(dir)
-	if err != nil {
-		return nil, err
-	}
-	fi, err := os.Lstat(p)
+// openLedgerAt opens the ledger named by rc. errNoLedger means the repo exists
+// but was never `buddy init`ed; any other error is a real failure the caller
+// must not swallow.
+func openLedgerAt(rc repoContext, env Env) (*store.Store, error) {
+	fi, err := os.Lstat(rc.ledger)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, errNoLedger // never inited
@@ -288,18 +380,39 @@ func openLedger(dir string, env Env) (*store.Store, error) {
 		return nil, fmt.Errorf("ledger stat: %w", err)
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
-		if _, err := os.Stat(p); err != nil {
+		if _, err := os.Stat(rc.ledger); err != nil {
 			return nil, fmt.Errorf("ledger is a dangling symlink: %w", err)
 		}
 	}
-	return store.Open(p, env.Now)
+	return store.Open(rc.ledger, env.Now)
 }
 
-// repoRel maps a tool target path to a folded repo-relative path.
-// Relative inputs resolve against the hook cwd; both sides are symlink-
-// canonicalized and folded before containment (APFS is case-insensitive, so a
-// case-aliased repo root must not read as an escape). outside=true means the
-// path provably lives outside the repo.
+// openRepo is THE entry point: one git process, then the ledger. Every hook and
+// every verb goes through it, so there is one place where "off", "broken" and
+// "ready" are decided and one place that knows where the root is.
+//
+// The context comes back even alongside an error, so a caller that wants to
+// name the path it looked for still can.
+func openRepo(dir string, env Env) (*store.Store, repoContext, error) {
+	rc, err := resolveRepo(dir)
+	if err != nil {
+		return nil, rc, err
+	}
+	st, err := openLedgerAt(rc, env)
+	return st, rc, err
+}
+
+// placeInRepo maps a tool target onto the repo rooted at top, returning BOTH
+// spellings of its repo-relative path: rel is folded and is what every
+// comparison uses, cased preserves the original spelling and is what a reader
+// is shown. Relative inputs resolve against the hook cwd; both sides are
+// symlink-canonicalized and folded before containment (APFS is
+// case-insensitive, so a case-aliased repo root must not read as an escape).
+// outside=true means the path could not be placed inside the repo.
+//
+// A notice that says `buddy whose changelog.md` hands its reader a command that
+// fails on a case-sensitive volume, and the notice's whole job is to be acted
+// on — which is why the cased spelling exists at all.
 //
 // store.Fold, never a bare ToLower (invariant 13: one folding rule). This used
 // ToLower alone, and macOS spells an accented directory NFD while git reports
@@ -308,32 +421,51 @@ func openLedger(dir string, env Env) (*store.Store, error) {
 // SAME ledger, failed to place the path again, and allowed. Reproduced
 // 2026-09-08: an Edit under a peer's claimed scope, spelled NFD, drew no
 // verdict at all while its NFC control was denied.
-func repoRel(top, cwd, p string) (rel string, outside bool) {
+func placeInRepo(top, cwd, p string) (rel, cased string, outside bool) {
+	if top == "" {
+		// No root to be relative to. Saying "outside" would be a verdict; this
+		// is the absence of one, and the caller must treat it as a failure.
+		return "", "", true
+	}
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(cwd, p)
 	}
-	pf := store.Fold(canon(p))
-	tf := store.Fold(canon(top))
-	r, err := filepath.Rel(tf, pf)
-	if err != nil {
-		return "", true
+	// Two canon walks, not four. repoRel and repoRelCased were separate
+	// functions always called as a pair, each resolving both sides again.
+	cp, ct := canon(p), canon(top)
+	r, err := filepath.Rel(store.Fold(ct), store.Fold(cp))
+	if err != nil || r == ".." || strings.HasPrefix(r, "../") {
+		return "", "", true
 	}
-	if r == ".." || strings.HasPrefix(r, "../") {
-		return "", true
+	rel = filepath.ToSlash(r)
+	// The cased spelling is for humans and is allowed to be unavailable: ""
+	// means the unfolded roots disagree and the folded form stands. Nothing
+	// downstream is affected, because the store folds every path it is given,
+	// so this changes the SPELLING that is displayed and never the identity.
+	if c, err := filepath.Rel(ct, cp); err == nil && c != ".." && !strings.HasPrefix(c, "../") {
+		cased = filepath.ToSlash(c)
 	}
-	return filepath.ToSlash(r), false
+	return rel, cased, false
 }
 
-// mustLedger opens the ledger for verbs that require it.
-func mustLedger(dir string, env Env) (*store.Store, error) {
-	p, err := ledgerPath(dir)
-	if err != nil {
-		return nil, err
+// mustLedger opens the ledger for verbs that require one. It differs from
+// openRepo in exactly one way — how it words "there is no ledger here", because
+// a verb typed at a prompt should be told to run `buddy init` while a hook must
+// stay silent.
+//
+// It used to be a SECOND copy of the discovery rather than a wording on top of
+// it, and the copy had drifted: no dangling-symlink check, and every stat
+// failure reported as "run buddy init" — advice that cannot work for a 0600
+// ledger owned by another user, where the real answer is EACCES.
+func mustLedger(dir string, env Env) (*store.Store, repoContext, error) {
+	st, rc, err := openRepo(dir, env)
+	if errors.Is(err, errNoLedger) {
+		if rc.ledger == "" {
+			return nil, rc, errors.New("not a git repository — the Buddy System keeps its ledger in one")
+		}
+		return nil, rc, fmt.Errorf("no ledger at %s — run `buddy init` in this repo first", fence.Line(rc.ledger, 512))
 	}
-	if _, err := os.Stat(p); err != nil {
-		return nil, fmt.Errorf("no ledger at %s — run `buddy init` in this repo first", fence.Line(p, 512))
-	}
-	return store.Open(p, env.Now)
+	return st, rc, err
 }
 
 // ---- caller identity ----
@@ -549,7 +681,7 @@ func SessionLabelFor(cwd string) string {
 // while signing its messages with another.
 func SessionIdentityFor(cwd string) (id, label string) {
 	env := Env{Cwd: cwd}
-	st, err := openLedger(cwd, env)
+	st, _, err := openRepo(cwd, env)
 	if err != nil {
 		return "", ""
 	}
@@ -577,7 +709,7 @@ func SessionIdentityFor(cwd string) (id, label string) {
 // claim.
 func ChatIdentity(cwd, sessionID string) (id, label string, slugs []string) {
 	env := Env{Cwd: cwd}
-	st, err := openLedger(cwd, env)
+	st, _, err := openRepo(cwd, env)
 	if err != nil {
 		return "", "", nil
 	}
@@ -601,10 +733,11 @@ func ChatIdentity(cwd, sessionID string) (id, label string, slugs []string) {
 // ---- commands ----
 
 func cmdInit(args []string, env Env) error {
-	p, err := ledgerPath(env.Cwd)
+	rc, err := resolveRepo(env.Cwd)
 	if err != nil {
 		return err
 	}
+	p := rc.ledger
 	st, err := store.Open(p, env.Now)
 	if err != nil {
 		return err
@@ -641,7 +774,7 @@ func cmdHello(args []string, env Env) error {
 	if session == "" {
 		return fmt.Errorf("no session id (pipe hook JSON, pass --session, or set %s)", EnvSession)
 	}
-	st, err := openLedger(dir, env)
+	st, rc, err := openRepo(dir, env)
 	if errors.Is(err, errNoLedger) {
 		return nil // feature off
 	}
@@ -650,8 +783,10 @@ func cmdHello(args []string, env Env) error {
 	}
 	defer st.Close()
 
-	top, err := gitOut(dir, "rev-parse", "--show-toplevel")
-	if err != nil {
+	// The root came back with the ledger; a repo that would not name one (bare)
+	// registers under the directory it was called from, as it always has.
+	top := rc.top
+	if top == "" {
 		top = dir
 	}
 	si, err := st.Hello(session, label, top, os.Getpid())
@@ -736,7 +871,7 @@ func cmdBye(args []string, env Env) error {
 	if session == "" {
 		return errors.New("no session id")
 	}
-	st, err := openLedger(dir, env)
+	st, _, err := openRepo(dir, env)
 	if errors.Is(err, errNoLedger) {
 		return nil
 	}
@@ -752,7 +887,7 @@ func cmdBeat(args []string, env Env) error {
 	if err != nil {
 		return fmt.Errorf("beat is a hook verb; pipe PostToolUse JSON (%v)", err)
 	}
-	st, err := openLedger(h.Cwd, env)
+	st, rc, err := openRepo(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return nil
 	}
@@ -761,25 +896,24 @@ func cmdBeat(args []string, env Env) error {
 	}
 	defer st.Close()
 
-	// The rev-parse stays INSIDE the has-a-path guard, where it has always
-	// been. Hoisting it out to serve the addressing layer was a real
-	// regression: every path-less tool call — Bash, Grep, Task, every mcp__*
-	// tool — would fork a git that beat previously never ran, and gitOut is a
-	// bare exec.Command with no deadline, so a wedged index would stall the
-	// heartbeat AND the operator's queued messages behind it. The addressing
-	// layer is a courtesy; it does not get to sit in front of the inbox.
+	// NO SECOND GIT PROCESS, and still nothing extra for a path-less call. The
+	// rev-parse used to sit INSIDE this guard, because hoisting it out was a
+	// measured regression: every path-less tool call — Bash, Grep, Task, every
+	// mcp__* tool — would fork a git that beat never used to run. The root now
+	// arrives with the ledger from the one call openRepo already made, so the
+	// guard costs nothing to keep and the fork it was avoiding no longer exists.
+	// The addressing layer is a courtesy; it still does not sit in front of the
+	// inbox.
 	top, rel := "", ""
 	if h.path() != "" {
-		if t, err := gitOut(h.Cwd, "rev-parse", "--show-toplevel"); err == nil {
-			top = t
-			if r, outside := repoRel(top, h.Cwd, h.path()); !outside {
-				// repoRel decides containment; its folded spelling is not what
-				// a reader should be handed (see repoRelCased). Everything
-				// below folds what it is given, so this is display only.
-				rel = r
-				if cased := repoRelCased(top, h.Cwd, h.path()); cased != "" {
-					rel = cased
-				}
+		top = rc.top
+		if r, cased, outside := placeInRepo(top, h.Cwd, h.path()); !outside {
+			// Containment is decided on the folded spelling; a reader is handed
+			// the original one. Everything below folds what it is given, so
+			// this is display only.
+			rel = r
+			if cased != "" {
+				rel = cased
 			}
 		}
 	}
@@ -918,7 +1052,7 @@ func cmdGate(args []string, env Env) int {
 	if readOnlyTools[h.ToolName] {
 		return 0
 	}
-	st, err := openLedger(h.Cwd, env)
+	st, rc, err := openRepo(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return 0 // feature off: provably no repo or never inited
 	}
@@ -958,12 +1092,15 @@ func cmdGate(args []string, env Env) int {
 		// contents are an accepted bypass.
 		return 0
 	}
-	top, err := gitOut(h.Cwd, "rev-parse", "--show-toplevel")
-	if err != nil {
-		deny(env, fmt.Sprintf("buddy gate could not resolve the worktree root (%v); refusing %s", err, h.ToolName))
+	if rc.top == "" {
+		// git named a ledger and would not name a root (a bare repo). Nothing
+		// can be placed, so nothing can be adjudicated: refuse rather than
+		// treat an unplaceable path as an unclaimed one.
+		deny(env, fmt.Sprintf("buddy gate could not resolve the worktree root for %s; refusing %s",
+			fence.Line(h.Cwd, 512), h.ToolName))
 		return 0
 	}
-	rel, outside := repoRel(top, h.Cwd, h.path())
+	rel, _, outside := placeInRepo(rc.top, h.Cwd, h.path())
 	if outside {
 		// The target lives outside THIS repo — but it may live inside another
 		// buddy-governed repo, whose own claims must be consulted (Codex
@@ -997,7 +1134,7 @@ func gateForeignRepo(h hookInput, env Env) int {
 		target = filepath.Join(h.Cwd, target)
 	}
 	dir := existingDir(canon(target))
-	st, err := openLedger(dir, env)
+	st, rc, err := openRepo(dir, env)
 	if errors.Is(err, errNoLedger) {
 		return 0 // not buddy-governed → genuinely outside our jurisdiction
 	}
@@ -1007,12 +1144,13 @@ func gateForeignRepo(h hookInput, env Env) int {
 		return 0
 	}
 	defer st.Close()
-	top, err := gitOut(dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		deny(env, fmt.Sprintf("buddy: could not resolve the target repo root (%v); refusing %s", err, h.ToolName))
+	top := rc.top
+	if top == "" {
+		deny(env, fmt.Sprintf("buddy: could not resolve the target repo root for %s; refusing %s",
+			fence.Line(target, 512), h.ToolName))
 		return 0
 	}
-	rel, outside := repoRel(top, dir, target)
+	rel, _, outside := placeInRepo(top, dir, target)
 	if outside {
 		// A ledger was found under the target, so this repo IS governed — and
 		// the path could still not be placed inside its root. That is a
@@ -1077,7 +1215,7 @@ func cmdClaim(args []string, env Env) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1106,7 +1244,7 @@ func cmdRelease(args []string, env Env) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1124,7 +1262,7 @@ func cmdRelease(args []string, env Env) error {
 
 func cmdLs(args []string, env Env) error {
 	all := len(args) > 0 && args[0] == "--all"
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1157,7 +1295,7 @@ func cmdLs(args []string, env Env) error {
 
 func cmdSweep(args []string, env Env) error {
 	force := len(args) > 0 && args[0] == "--force"
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1228,7 +1366,7 @@ func cmdPause(args []string, env Env) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1248,7 +1386,7 @@ func cmdResume(args []string, env Env) error {
 	if len(args) != 1 {
 		return errors.New("usage: buddy resume <session|label|slug|all>")
 	}
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1279,7 +1417,7 @@ func cmdMsg(args []string, env Env) error {
 	if fs.NArg() == 0 {
 		return errors.New("usage: buddy msg <session|label|slug|all> [--from <who>] <text...>")
 	}
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1303,7 +1441,7 @@ func cmdInbox(args []string, env Env) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -1331,7 +1469,7 @@ func cmdInbox(args []string, env Env) error {
 }
 
 func cmdSessions(args []string, env Env) error {
-	st, err := mustLedger(env.Cwd, env)
+	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
