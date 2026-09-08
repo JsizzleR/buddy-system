@@ -10,7 +10,7 @@ import (
 const (
 	testSession = "e284b102-c678-4fce"
 	testLabel   = "harbor/s-e284b102"
-	testSlug    = "b81-inspect-markers"
+	testSlug    = "api-inspect-markers"
 )
 
 func testTokens() []string { return []string{testSlug, "s-e284b102", testLabel, testSession} }

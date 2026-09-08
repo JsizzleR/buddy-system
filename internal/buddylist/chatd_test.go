@@ -14,6 +14,20 @@ import (
 	"github.com/JsizzleR/buddy-system/internal/tocwire"
 )
 
+// settleBudget is how long a hermetic test waits for the daemon to reach an
+// expected state before declaring failure.
+//
+// It is a FAILURE budget, not a wait: every use polls and returns the instant
+// the predicate holds, so a healthy run finishes in milliseconds no matter how
+// large this is, and enlarging it cannot mask a defect — only postpone the
+// verdict on one. It was 2s, which is ample on a developer's machine and NOT
+// ample under -race on a contended CI runner: the race detector's
+// instrumentation is roughly an order of magnitude slower, and the first Linux
+// CI run failed TestRelayBothWaysAndJournal on exactly that budget while the
+// same runner passed the uninstrumented leg in 1.0s. That is a timing-tuned
+// test failing for want of time, not a race — the detector reported none.
+const settleBudget = 30 * time.Second
+
 // fakeConn scripts a server connection. Sends are recorded; events are pushed
 // by the test. Closing the events channel simulates connection death, because
 // that is the Conn contract the daemon relies on: `for ev := range c.Events()`
@@ -164,7 +178,7 @@ func start(t *testing.T) *harness {
 		cancel()
 		select {
 		case <-h.done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(settleBudget):
 			t.Error("daemon did not shut down")
 		}
 	})
@@ -175,7 +189,7 @@ func start(t *testing.T) *harness {
 // file appears (observable readiness, not a tuned sleep).
 func (h *harness) call(t *testing.T, req Request) (Response, error) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for {
 		resp, err := Call(h.sock, req, time.Second)
 		if err != nil && strings.Contains(err.Error(), "not reachable") && time.Now().Before(deadline) {
@@ -189,7 +203,7 @@ func (h *harness) call(t *testing.T, req Request) (Response, error) {
 // waitJournal polls the journal until pred matches or times out.
 func (h *harness) waitJournal(t *testing.T, room string, pred func([]Msg) bool) []Msg {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for time.Now().Before(deadline) {
 		msgs, _, err := h.j.ReadAfter(room, 0, 100)
 		if err != nil {
@@ -208,7 +222,7 @@ func (h *harness) waitJournal(t *testing.T, room string, pred func([]Msg) bool) 
 // mirroring the real server, which never delivers CHAT_IN before CHAT_JOIN.
 func waitJoined(t *testing.T, c *fakeConn, room string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for time.Now().Before(deadline) {
 		for _, s := range c.recorded() {
 			if s == "join "+room {
@@ -226,7 +240,7 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 	h.conns <- c
 
 	// Wait until joined (via who over the REAL socket).
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for {
 		resp, err := h.call(t, Request{Op: "who"})
 		if err == nil && resp.Connected {
@@ -292,7 +306,7 @@ func TestReconnectRejoinsAndJournalSurvives(t *testing.T) {
 	c2 := newFakeConn()
 	h.conns <- c2
 	// The daemon reconnects and rejoins the room on the NEW connection.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for {
 		joined := false
 		for _, s := range c2.recorded() {
@@ -439,7 +453,7 @@ func TestChatLeftPrunesRoomState(t *testing.T) {
 		t.Fatalf("say while joined: %v", err)
 	}
 	c.push(t, tocwire.ChatLeft{RoomID: "7"}) // kicked/parted
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for {
 		_, err := h.call(t, Request{Op: "say", Room: "lobby", From: "alpha", Text: "again"})
 		if err != nil && strings.Contains(err.Error(), "not joined") {

@@ -133,7 +133,7 @@ func startPresence(t *testing.T) *presenceHarness {
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(settleBudget):
 			t.Error("daemon did not shut down")
 		}
 	})
@@ -144,7 +144,7 @@ func startPresence(t *testing.T) *presenceHarness {
 // so every assertion about it is an eventual one.
 func waitFor(t *testing.T, what string, pred func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for time.Now().Before(deadline) {
 		if pred() {
 			return
@@ -172,7 +172,7 @@ func recordedHas(c *fakeConn, want string) bool {
 func TestPresenceJoinsTheProjectRoomAndWearsTheClaim(t *testing.T) {
 	h := startPresence(t)
 	resp := h.d.dispatch(Request{Op: "alerts", Session: "sess-a", Label: "harbor/s-e284b102",
-		Slugs: []string{"b81-inspect-markers"}, Mentions: []string{"b81-inspect-markers"}})
+		Slugs: []string{"api-inspect-markers"}, Mentions: []string{"api-inspect-markers"}})
 	if !resp.OK {
 		t.Fatalf("alerts refused: %s", resp.Error)
 	}
@@ -180,7 +180,7 @@ func TestPresenceJoinsTheProjectRoomAndWearsTheClaim(t *testing.T) {
 		return recordedHas(h.script.conn("harbor-s-e284b102"), "join harbor")
 	})
 	waitFor(t, "away text to carry the claim", func() bool {
-		return recordedHas(h.script.conn("harbor-s-e284b102"), "away claim: b81-inspect-markers · active")
+		return recordedHas(h.script.conn("harbor-s-e284b102"), "away claim: api-inspect-markers · active")
 	})
 	// The room is derived from the label, so a session in another project
 	// must not land in this one.
