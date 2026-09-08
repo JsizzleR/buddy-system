@@ -25,6 +25,18 @@ func openTest(t *testing.T) (*Store, *pinnedClock) {
 	return st, clk
 }
 
+// mustResolve is the test-side door onto ResolveTarget. Pause/Resume/Msg take a
+// resolved Target so the compiler stops an unresolved string reaching a row;
+// these tests go through the same door the CLI does.
+func mustResolve(t *testing.T, st *Store, target string) Target {
+	t.Helper()
+	tgt, err := st.ResolveTarget(target)
+	if err != nil {
+		t.Fatalf("ResolveTarget(%q): %v", target, err)
+	}
+	return tgt
+}
+
 func hello(t *testing.T, st *Store, id, label, wt string) SessionInfo {
 	t.Helper()
 	si, err := st.Hello(id, label, wt, 1234)
@@ -274,13 +286,13 @@ func TestInboxAtLeastOnceAndBroadcast(t *testing.T) {
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
 	b := hello(t, st, "sess-b", "bravo", "/wt/b")
 
-	if err := st.Msg(a.SessionID, "operator", "direct to a"); err != nil {
+	if err := st.Msg(mustResolve(t, st, a.SessionID), "operator", "direct to a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Msg("bravo", "operator", "by label to b"); err != nil {
+	if err := st.Msg(mustResolve(t, st, "bravo"), "operator", "by label to b"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Msg("all", "operator", "everyone"); err != nil {
+	if err := st.Msg(mustResolve(t, st, "all"), "operator", "everyone"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,7 +332,7 @@ func TestBroadcastSnapshotsOnlyLiveRecipients(t *testing.T) {
 	if err := st.Bye(ended.SessionID, ended.Incarnation); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Msg("all", "operator", "current fleet only"); err != nil {
+	if err := st.Msg(mustResolve(t, st, "all"), "operator", "current fleet only"); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := st.Undelivered(live.SessionID, live.Label); len(got) != 1 {
@@ -335,7 +347,7 @@ func TestBroadcastSnapshotsOnlyLiveRecipients(t *testing.T) {
 func TestBroadcastExpiresWithoutDependingOnSweep(t *testing.T) {
 	st, clk := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
-	if err := st.Msg("all", "operator", "time-sensitive"); err != nil {
+	if err := st.Msg(mustResolve(t, st, "all"), "operator", "time-sensitive"); err != nil {
 		t.Fatal(err)
 	}
 	clk.advance(BroadcastKeep + time.Second)
@@ -343,7 +355,7 @@ func TestBroadcastExpiresWithoutDependingOnSweep(t *testing.T) {
 		t.Fatalf("expired broadcast remained deliverable: %v (%v)", got, err)
 	}
 	// Direct interjections keep their existing durable semantics.
-	if err := st.Msg(a.SessionID, "operator", "still relevant"); err != nil {
+	if err := st.Msg(mustResolve(t, st, a.SessionID), "operator", "still relevant"); err != nil {
 		t.Fatal(err)
 	}
 	clk.advance(BroadcastKeep + time.Second)
@@ -403,13 +415,13 @@ func TestPauseTargetsAndResume(t *testing.T) {
 	st, _ := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
 	for _, target := range []string{a.SessionID, "alpha", "all"} {
-		if err := st.Pause(target, "hold on"); err != nil {
+		if err := st.Pause(mustResolve(t, st, target), "hold on"); err != nil {
 			t.Fatal(err)
 		}
 		if _, paused, _ := st.PausedFor(a.SessionID, a.Label); !paused {
 			t.Fatalf("pause target %q did not pause the session", target)
 		}
-		if _, err := st.Resume(target); err != nil {
+		if _, err := st.Resume(mustResolve(t, st, target)); err != nil {
 			t.Fatal(err)
 		}
 		if _, paused, _ := st.PausedFor(a.SessionID, a.Label); paused {
@@ -507,7 +519,7 @@ func TestSweepRejectsNonPositiveTTL(t *testing.T) {
 func TestSweepGCsAgedInbox(t *testing.T) {
 	st, clk := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
-	if err := st.Msg("all", "operator", "old news"); err != nil {
+	if err := st.Msg(mustResolve(t, st, "all"), "operator", "old news"); err != nil {
 		t.Fatal(err)
 	}
 	clk.advance(25 * time.Hour)
