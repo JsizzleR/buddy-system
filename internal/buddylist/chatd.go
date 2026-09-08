@@ -22,6 +22,11 @@ import (
 // input and the journal is read back into agent context.
 const maxBody = 4096
 
+// journalTrimEvery is how often retention is reapplied. Trimming is continuous,
+// not launch-only: a daemon that stays up for weeks would otherwise grow
+// journal.db without bound, and the operator's only lever would be a restart.
+const journalTrimEvery = time.Hour
+
 // Conn is the slice of tocwire.Client the daemon uses; a seam for hermetic tests.
 type Conn interface {
 	Events() <-chan tocwire.Event
@@ -57,7 +62,21 @@ type Config struct {
 	Exchange   int
 	SocketPath string
 	Journal    *Journal
-	Dial       Dialer
+	// Keep is the journal retention window: rows older than it are trimmed
+	// once at startup and then every TrimEvery. Retention lives here, next to
+	// the journal, rather than in the binary that happens to own the flag — it
+	// is a policy of the daemon's storage, and as fourteen lines of goroutine
+	// in main() nothing could test it.
+	//
+	// Zero DISABLES trimming. That is not a defaulting convenience: Trim(0)
+	// puts the cutoff at now and deletes the whole journal, so a daemon
+	// constructed without a retention window (every hermetic fixture) must do
+	// nothing rather than silently reap the rows the test just wrote.
+	Keep time.Duration
+	// TrimEvery is the retention loop's period; 0 means journalTrimEvery. A
+	// test seam like Now — production has no reason to set it.
+	TrimEvery time.Duration
+	Dial      Dialer
 	// DialAs opens an ADDITIONAL connection under a chosen name, which is how
 	// a session becomes its own buddy in the room. Nil disables per-session
 	// presence entirely and the daemon runs exactly as it did before it
@@ -134,6 +153,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Retention, before the socket accepts anything: the launch pass used to
+	// run in main() ahead of New, and keeping it ahead of the listener keeps
+	// that ordering — no caller can be mid-read of rows this is about to
+	// delete.
+	d.trimJournal()
+	if d.cfg.Keep > 0 {
+		go d.retainJournal(ctx)
+	}
+
 	// A daemon without its socket is headless: a socket failure ends the run
 	// rather than leaving a connected-but-unreachable ghost (Codex finding).
 	srvErr := make(chan error, 1)
@@ -209,6 +237,41 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	return ctx.Err()
+}
+
+// trimJournal applies the retention window once. A failure is LOGGED, not
+// returned: a journal that cannot be trimmed is a disk problem, and taking the
+// relay and the socket down over it would turn a growing file into an outage.
+func (d *Daemon) trimJournal() {
+	if d.cfg.Keep <= 0 {
+		return // retention off; see Config.Keep for why 0 is not "trim everything"
+	}
+	n, err := d.cfg.Journal.Trim(d.cfg.Keep)
+	if err != nil {
+		d.log.Error("journal trim failed", "err", err)
+		return
+	}
+	if n > 0 {
+		d.log.Info("journal trimmed", "rows", n)
+	}
+}
+
+// retainJournal reapplies it until ctx ends.
+func (d *Daemon) retainJournal(ctx context.Context) {
+	every := d.cfg.TrimEvery
+	if every <= 0 {
+		every = journalTrimEvery
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			d.trimJournal()
+		}
+	}
 }
 
 // ensureRooms creates the configured rooms via the Management API (idempotent:

@@ -223,7 +223,10 @@ func TestMCPToolsListNamesEveryTool(t *testing.T) {
 	want := map[string]bool{"chat_send": true, "chat_read": true, "chat_status": true,
 		"chat_ack": true, "chat_who": true, "dm": true, "set_status": true}
 	got := map[string]bool{}
-	for _, tool := range mcpTools {
+	// Read through schemas(), the same derivation tools/list serves, so a name
+	// that survives in the dispatch table but is dropped from the advertised
+	// document still fails here.
+	for _, tool := range schemas(mcpToolTable) {
 		got[tool["name"].(string)] = true
 	}
 	for name := range want {

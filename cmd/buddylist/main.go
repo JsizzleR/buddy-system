@@ -36,6 +36,19 @@ func stateDir() string {
 
 func defaultSocket() string { return filepath.Join(stateDir(), "buddylist.sock") }
 
+// daemon is the socket client every verb but `serve` talks through. The path
+// and the five-second bound used to be spelled out at each call site; see
+// buddylist.Client for why one spelling of both matters more than the six
+// characters it saves.
+func daemon() buddylist.Client { return buddylist.Client{Socket: defaultSocket()} }
+
+// callAt is the dep shape the MCP server and the alert hook want: those two
+// choose their own bound per request (mcpCallTime, the alert's own budget), so
+// they get a client carrying the timeout they named rather than the default.
+func callAt(req buddylist.Request, timeout time.Duration) (buddylist.Response, error) {
+	return buddylist.Client{Socket: defaultSocket(), Timeout: timeout}.Call(req)
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: buddylist serve|say|read|status|alert|who|dm|health|mcp ...")
@@ -85,7 +98,14 @@ func runChatd(args []string) error {
 	exchange := fs.Int("exchange", 4, "chat exchange: 4 = AIM Buddy Chat dialog territory (default), 5 = public/API-created")
 	journalPath := fs.String("journal", filepath.Join(stateDir(), "journal.db"), "journal db path")
 	socket := fs.String("socket", defaultSocket(), "control socket path")
-	keep := fs.Duration("keep", 14*24*time.Hour, "journal retention")
+	// "0 disables" is stated because it CHANGED: retention used to be an
+	// unconditional j.Trim(*keep) here, and Trim(0) puts the cutoff at now, so
+	// --keep 0 emptied the journal every hour. The daemon now reads 0 as "off"
+	// (Config.Keep), which is the safe reading for the many Daemons built
+	// without a window — but an operator who set --keep 0 to bound disk gets
+	// the opposite of what they asked for, and silence here is how they find
+	// out from the disk.
+	keep := fs.Duration("keep", 14*24*time.Hour, "journal retention window; 0 disables trimming (was: trim everything)")
 	presence := fs.Bool("presence", true, "per-session buddies: each live session joins its project room under its own name (irc backend only)")
 	fs.Parse(args)
 
@@ -105,14 +125,6 @@ func runChatd(args []string) error {
 		return err
 	}
 	defer j.Close()
-	trim := func() {
-		if n, err := j.Trim(*keep); err != nil {
-			slog.Error("journal trim failed", "err", err)
-		} else if n > 0 {
-			slog.Info("journal trimmed", "rows", n)
-		}
-	}
-	trim()
 
 	var dial buddylist.Dialer
 	var dialAs func(context.Context, string) (buddylist.Conn, error)
@@ -156,6 +168,7 @@ func runChatd(args []string) error {
 		Exchange:   *exchange,
 		SocketPath: *socket,
 		Journal:    j,
+		Keep:       *keep,
 		Log:        slog.Default(),
 		Dial:       dial,
 		DialAs:     dialAs,
@@ -165,20 +178,6 @@ func runChatd(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// Retention is continuous, not launch-only: a long-lived daemon would
-	// otherwise grow journal.db without bound.
-	go func() {
-		t := time.NewTicker(time.Hour)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				trim()
-			}
-		}
-	}()
 	slog.Info("buddylistd up", "backend", *backend, "server", *server, "rooms", *rooms, "socket", *socket)
 	if err := d.Run(ctx); err != nil && err != context.Canceled {
 		return err
@@ -186,6 +185,18 @@ func runChatd(args []string) error {
 	return nil
 }
 
+// splitFrom pulls `--from <label>` out of an argument list from ANY position,
+// leaving the rest as the message.
+//
+// It is hand-parsed, and a flag.FlagSet cannot replace it, which is worth
+// writing down because the shape looks like an oversight next to every other
+// verb here. `say` and `dm` take variadic text, and the documented form puts
+// the flag last: `buddylist say lobby ship it --from alpha`. Go's flag package
+// stops parsing at the first argument that does not begin with '-', so a
+// FlagSet would see "lobby" and hand back "--from" and "alpha" as two more
+// words of the message — relayed into the room, silently, as text. `read`
+// escapes this only because its positional is single and can be sliced off
+// before Parse; there is no equivalent for a trailing variadic.
 func splitFrom(args []string) (rest []string, from string) {
 	from = "operator"
 	for i := 0; i < len(args); i++ {
@@ -204,9 +215,9 @@ func runSay(args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: buddylist say <room> <text...> [--from <label>]")
 	}
-	_, err := buddylist.Call(defaultSocket(), buddylist.Request{
+	_, err := daemon().Call(buddylist.Request{
 		Op: "say", Room: args[0], From: from, Text: strings.Join(args[1:], " "),
-	}, 5*time.Second)
+	})
 	return err
 }
 
@@ -215,9 +226,9 @@ func runDM(args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: buddylist dm <to> <text...> [--from <label>]")
 	}
-	_, err := buddylist.Call(defaultSocket(), buddylist.Request{
+	_, err := daemon().Call(buddylist.Request{
 		Op: "dm", To: args[0], From: from, Text: strings.Join(args[1:], " "),
-	}, 5*time.Second)
+	})
 	return err
 }
 
@@ -236,9 +247,9 @@ func runRead(args []string) error {
 	if room == "" {
 		return fmt.Errorf("usage: buddylist read <room> [--after <seq>] [--before <seq>] [--tail <n>] [--limit <n>] [--mentions a,b]")
 	}
-	resp, err := buddylist.Call(defaultSocket(), buddylist.Request{Op: "read", Room: room,
+	resp, err := daemon().Call(buddylist.Request{Op: "read", Room: room,
 		After: *after, Before: *before, Tail: *tail, Limit: *limit,
-		Mentions: splitList(*mentions)}, 5*time.Second)
+		Mentions: splitList(*mentions)})
 	if err != nil {
 		return err
 	}
@@ -246,15 +257,13 @@ func runRead(args []string) error {
 		fmt.Println("(gap: messages before this point aged out of the journal)")
 	}
 	for _, m := range resp.Msgs {
-		ts := time.Unix(m.At, 0).Format("15:04")
-		who := m.Sender
-		if who == "" {
-			who = m.Kind
-		}
-		// Sender and body are wire-derived hostile text: fence them exactly
-		// like the MCP reader does, or a peer's <BR>s fabricate perfectly
-		// formatted journal rows (and ANSI escapes) on the operator's terminal.
-		fmt.Printf("%d %s <%s> %s\n", m.Seq, ts, buddylist.Fence(who, 64), buddylist.Fence(m.Body, 2048))
+		// Sender and body are wire-derived hostile text, and the fence lives
+		// inside RenderRow — which is the SAME renderer the MCP reader uses.
+		// It was a second copy of the format here, and a second copy is how a
+		// peer's <BR>s end up fabricating perfectly formatted journal rows
+		// (and ANSI escapes) on the operator's terminal from the one copy that
+		// was not hardened.
+		fmt.Println(buddylist.RenderRow(m))
 	}
 	return nil
 }
@@ -278,32 +287,30 @@ func runStatus(args []string) error {
 	session := fs.String("session", "", "session id whose read cursor to report (default: none — unread is then the whole retained room)")
 	mentions := fs.String("mentions", "", "comma-separated names to count as addressed")
 	fs.Parse(args)
-	resp, err := buddylist.Call(defaultSocket(), buddylist.Request{Op: "stat",
-		Session: *session, Mentions: splitList(*mentions)}, 5*time.Second)
+	resp, err := daemon().Call(buddylist.Request{Op: "stat",
+		Session: *session, Mentions: splitList(*mentions)})
 	if err != nil {
 		return err
 	}
 	if *session == "" {
 		fmt.Println("(no --session: unread is the whole retained room, not anyone's backlog)")
 	}
-	fmt.Printf("%-28s  %6s  %5s  %6s  %9s\n", "room", "newest", "last", "unread", "addressed")
+	fmt.Println(buddylist.StatHeader())
 	for _, st := range resp.Stats {
-		room := st.Room
-		if room == "" {
-			room = "(system)"
-		}
 		gap := ""
 		if st.Gap {
+			// Terse for a terminal; the MCP tool result spells the same fact
+			// out for a model. That wording is the only thing the two callers
+			// of RenderStat are allowed to differ about.
 			gap = "  [GAP]"
 		}
-		fmt.Printf("%-28s  %6d  %5s  %6d  %9d%s\n", buddylist.Fence(room, 28), st.NewestSeq,
-			time.Unix(st.NewestAt, 0).Format("15:04"), st.Unread, st.Addressed, gap)
+		fmt.Println(buddylist.RenderStat(st, gap))
 	}
 	return nil
 }
 
 func runWho() error {
-	resp, err := buddylist.Call(defaultSocket(), buddylist.Request{Op: "who"}, 5*time.Second)
+	resp, err := daemon().Call(buddylist.Request{Op: "who"})
 	if err != nil {
 		return err
 	}
@@ -332,9 +339,7 @@ func runMCP(args []string) error {
 	cwd, _ := os.Getwd()
 	return buddylist.ServeMCP(os.Stdin, os.Stdout, buddylist.MCPDeps{
 		Profile: buddylist.MCPProfile(*profile),
-		Call: func(req buddylist.Request, timeout time.Duration) (buddylist.Response, error) {
-			return buddylist.Call(defaultSocket(), req, timeout)
-		},
+		Call:    callAt,
 		// Resolved per call, not once at startup: a session's ledger row is
 		// written by its SessionStart hook, which can land after the MCP
 		// server is spawned. Caching "unknown" here would key this session's
@@ -367,9 +372,7 @@ func runAlert(args []string) error {
 
 	id, label, slugs, hookDriven := resolveIdentity(*session, *dir)
 	deps := buddylist.AlertDeps{
-		Call: func(req buddylist.Request, timeout time.Duration) (buddylist.Response, error) {
-			return buddylist.Call(defaultSocket(), req, timeout)
-		},
+		Call:      callAt,
 		SessionID: id, Label: label, Slugs: slugs,
 	}
 	return buddylist.RunAlert(deps, func(text string) error {
@@ -381,15 +384,13 @@ func runAlert(args []string) error {
 			_, err := fmt.Print(text)
 			return err
 		}
-		// One hook event emits one JSON document.
-		enc, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-			"hookEventName":     "PostToolUse",
-			"additionalContext": text,
-		}})
+		// One hook event emits one JSON document. The envelope is
+		// buddylist.HookContext's, not main's: a wire format is not wiring.
+		line, err := buddylist.HookContext(text)
 		if err != nil {
 			return err
 		}
-		_, err = os.Stdout.Write(append(enc, '\n'))
+		_, err = os.Stdout.Write(line)
 		return err
 	})
 }
@@ -424,9 +425,8 @@ func runPresence(args []string) error {
 	if id == "" {
 		return errors.New("no session identity (pass --session, or run inside a session)")
 	}
-	resp, err := buddylist.Call(defaultSocket(),
-		buddylist.Request{Op: "presence", Session: id, Label: label, Slugs: slugs, Gone: *gone},
-		presenceCallTime)
+	resp, err := buddylist.Client{Socket: defaultSocket(), Timeout: presenceCallTime}.Call(
+		buddylist.Request{Op: "presence", Session: id, Label: label, Slugs: slugs, Gone: *gone})
 	if err != nil {
 		return err
 	}
@@ -499,7 +499,7 @@ func readHookStdin() (hookStdin, error) {
 }
 
 func runHealth() error {
-	resp, err := buddylist.Call(defaultSocket(), buddylist.Request{Op: "health"}, 5*time.Second)
+	resp, err := daemon().Call(buddylist.Request{Op: "health"})
 	if err != nil {
 		return err
 	}
