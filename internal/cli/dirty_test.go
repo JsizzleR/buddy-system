@@ -75,6 +75,7 @@ func (f *fixture) twoSessionsIn(t *testing.T, dir string) {
 // this, `buddy msg all` about "whoever owns the CHANGELOG edit" was the only
 // option available and it named nobody.
 func TestWhoseNamesTheSessionHoldingAnUncommittedFile(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "## 0.1.20\n- a bullet that is about to go stale\n")
@@ -119,6 +120,7 @@ func holderRow(t *testing.T, out, label string) string {
 // and rendering the first as the second is how a reader concludes a hunk is
 // unowned when it is merely unobserved.
 func TestWhoseSeparatesUnrecordedFromClean(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 
@@ -151,6 +153,7 @@ func TestWhoseSeparatesUnrecordedFromClean(t *testing.T) {
 // THE WARN fires once, at the moment it is actionable, naming someone
 // reachable — and says it is not a lock.
 func TestSecondSessionToTouchAFileIsWarnedOnce(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha's hunk\n")
@@ -180,6 +183,7 @@ func TestSecondSessionToTouchAFileIsWarnedOnce(t *testing.T) {
 // The dedup is durable, in the ledger, because sessions RESTART. An in-memory
 // set would re-announce the same file after every resume.
 func TestWarnDedupSurvivesASessionRestart(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha\n")
@@ -202,6 +206,7 @@ func TestWarnDedupSurvivesASessionRestart(t *testing.T) {
 // alarm, and a false alarm is the fastest way to teach someone to ignore the
 // real one.
 func TestSameRelativePathInTwoWorktreesIsNotAConflict(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -240,6 +245,7 @@ func TestSameRelativePathInTwoWorktreesIsNotAConflict(t *testing.T) {
 // is in a real collision — staying silent on it was the failure. What the
 // notice must not do is imply someone is there to answer.
 func TestAQuietHolderIsReportedAsQuietNotHiddenAndNotAsLive(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha, then silence\n")
@@ -279,6 +285,7 @@ func TestAQuietHolderIsReportedAsQuietNotHiddenAndNotAsLive(t *testing.T) {
 // per modified file, on every fresh session, is how a reader learns to skip
 // the one that mattered.
 func TestAnEndedHoldersEditIsReportedByWhoseButNeverWarnedAbout(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha's orphaned hunk\n")
@@ -306,6 +313,7 @@ func TestAnEndedHoldersEditIsReportedByWhoseButNeverWarnedAbout(t *testing.T) {
 // stay silent on a live collision. `bye` is a statement; staleness is an
 // inference.
 func TestAStaleHolderStillWarnsBecauseSilenceIsNotDeath(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha, mid-build\n")
@@ -326,6 +334,7 @@ func TestAStaleHolderStillWarnsBecauseSilenceIsNotDeath(t *testing.T) {
 // When a LIVE holder is present the notice must name a reachable target, even
 // if quiet holders are listed alongside.
 func TestALiveHolderGetsAMessageTarget(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha\n")
@@ -339,6 +348,8 @@ func TestALiveHolderGetsAMessageTarget(t *testing.T) {
 // shim below breaks `git status` while leaving every other git verb working,
 // which is the precise failure the scan can hit.
 func TestABrokenGitCostsTheNoticeAndNothingElse(t *testing.T) {
+	// No t.Parallel(): t.Setenv below, which the runtime refuses to combine
+	// with a parallel test (see the note on newFixture).
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha\n")
@@ -388,6 +399,7 @@ func TestABrokenGitCostsTheNoticeAndNothingElse(t *testing.T) {
 // gitDirtyPaths parses git's ACTUAL -z output. Each case here is a measured
 // fact that a guessed parser gets wrong.
 func TestGitDirtyPathsParsesTheRealPorcelainFormat(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	git := func(args ...string) {
 		t.Helper()
@@ -457,6 +469,7 @@ func TestGitDirtyPathsParsesTheRealPorcelainFormat(t *testing.T) {
 // tool-named path: without it a row names an owner forever, and `whose` would
 // answer with someone who handed the file back hours ago.
 func TestCommittingAFileRetractsTheClaimOnIt(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha's hunk\n")
@@ -499,6 +512,7 @@ func TestCommittingAFileRetractsTheClaimOnIt(t *testing.T) {
 // say so rather than guess. In a shared checkout `git status` shows the union
 // of every session's work, so the scan has no way to tell whose it is.
 func TestAnUnattributableWriteIsReportedAsSuchNotGuessed(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 
@@ -524,6 +538,7 @@ func TestAnUnattributableWriteIsReportedAsSuchNotGuessed(t *testing.T) {
 // Reading a file a peer is editing is not a conflict, and spending the
 // one-shot notice on it would leave nothing to say at the moment that matters.
 func TestReadingAHeldFileDoesNotSpendTheWarn(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha\n")
@@ -545,6 +560,7 @@ func TestReadingAHeldFileDoesNotSpendTheWarn(t *testing.T) {
 // The notice and the inbox drain share one hook event, so they must share one
 // JSON document — two writes would produce output no hook consumer can parse.
 func TestNoticeAndMessagesShareOneDocument(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha\n")
@@ -573,6 +589,7 @@ func TestNoticeAndMessagesShareOneDocument(t *testing.T) {
 // A hostile label or path must not be able to fabricate lines in the context
 // the notice is injected into — the same fence the inbox drain already uses.
 func TestNoticeFencesUntrustedText(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -597,6 +614,7 @@ func TestNoticeFencesUntrustedText(t *testing.T) {
 // exist to protect claim attribution — an operator asking who holds a file has
 // no identity to assert and nothing to attribute.
 func TestWhoseNeedsNoCallerIdentity(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo) // two live sessions: identity here is AMBIGUOUS
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha\n")
@@ -615,6 +633,7 @@ func TestWhoseNeedsNoCallerIdentity(t *testing.T) {
 
 // A path outside the repo is refused with the reason, not answered about.
 func TestWhoseRefusesAPathOutsideTheRepo(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	_, errw, code := f.run(t, f.repo, "", "whose", "/etc/hosts")
@@ -630,6 +649,7 @@ func TestWhoseRefusesAPathOutsideTheRepo(t *testing.T) {
 // sessions row, so a row written after it ended is not merely a leak — it is
 // RETURNED, and `whose` would attribute a fresh edit to someone who is gone.
 func TestAnEndedSessionRecordsNothingFurther(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	if _, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "", ""), "bye"); code != 0 {
@@ -654,6 +674,7 @@ func TestAnEndedSessionRecordsNothingFurther(t *testing.T) {
 // roots differ only in spelling (APFS is case-insensitive, so both resolve to
 // the same directory) land under different keys and NEVER see each other.
 func TestWorktreeKeyFoldsCase(t *testing.T) {
+	boundedParallel(t)
 	a := worktreeKey("/Users/dev/Projects/App")
 	b := worktreeKey("/Users/dev/Projects/app")
 	if a != b {
@@ -684,6 +705,7 @@ func TestWorktreeKeyFoldsCase(t *testing.T) {
 // will not produce on demand. Each row is a fact that a guessed parser gets
 // wrong.
 func TestParseDirtyStatusHandlesTheDocumentedFormat(t *testing.T) {
+	boundedParallel(t)
 	z := func(entries ...string) []byte { return []byte(strings.Join(entries, "\x00") + "\x00") }
 	cases := []struct {
 		name string
@@ -731,6 +753,7 @@ func TestParseDirtyStatusHandlesTheDocumentedFormat(t *testing.T) {
 // EVIDENCE: in a SHARED checkout -- several sessions live in one worktree --
 // `git status` reports the UNION of everyone's edits and attributes none of it.
 func TestScanMustNotAttributeAPeersEditsToTheScanner(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "ALPHA's hunk, nobody else's\n")
@@ -753,6 +776,7 @@ func TestScanMustNotAttributeAPeersEditsToTheScanner(t *testing.T) {
 // "Edit", so three of the four entries in dirtyingTools could be deleted with
 // the whole suite green — including Write, the tool that creates a file.
 func TestEveryMutatingToolAttributesItsTarget(t *testing.T) {
+	boundedParallel(t)
 	for _, tool := range []string{"Edit", "Write", "MultiEdit", "NotebookEdit"} {
 		t.Run(tool, func(t *testing.T) {
 			f := newFixture(t)
@@ -784,6 +808,7 @@ func TestEveryMutatingToolAttributesItsTarget(t *testing.T) {
 // bounded however many holders accumulate. Live holders must survive the cap:
 // they are the only ones anyone can act on.
 func TestTheNoticeCapsTheHolderListAndKeepsTheLiveOnes(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -879,6 +904,7 @@ func suggestedArg(t *testing.T, warn, verb string) string {
 // --label` validates nothing, and a filename is whatever a peer creates. A
 // fence stops line fabrication and does nothing at all to shell metacharacters.
 func TestTheNoticesSuggestedCommandsCannotBeInjected(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -920,6 +946,7 @@ func TestTheNoticesSuggestedCommandsCannotBeInjected(t *testing.T) {
 // A single quote in the payload is the one character that could close the
 // quoting, so it gets the standard `'\”` escape and must not be able to.
 func TestAQuoteInALabelCannotCloseTheQuoting(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -941,6 +968,7 @@ func TestAQuoteInALabelCannotCloseTheQuoting(t *testing.T) {
 // neither was refused, and both were answered "clean" in a tree full of dirty
 // files.
 func TestWhoseRefusesTheRepoRoot(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "dirty.txt", "alpha\n")
@@ -957,6 +985,7 @@ func TestWhoseRefusesTheRepoRoot(t *testing.T) {
 
 // A directory is what an operator actually asks about.
 func TestWhoseAnswersForADirectory(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "src/api/handler.go", "alpha\n")
@@ -979,6 +1008,7 @@ func TestWhoseAnswersForADirectory(t *testing.T) {
 // is "a\nb"), and both reach every session's SessionStart digest and the
 // gate's permissionDecisionReason, which the model reads on every deny.
 func TestClaimTextCannotForgeALineInInjectedContext(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.asSession("sess-a", func() {
@@ -1022,6 +1052,7 @@ func TestClaimTextCannotForgeALineInInjectedContext(t *testing.T) {
 // execution inside every OTHER session's hook, on a timer, under a wrapper that
 // discards stderr.
 func TestTheScanDoesNotRunProgramsNamedByRepoConfig(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 
@@ -1062,6 +1093,8 @@ func TestTheScanDoesNotRunProgramsNamedByRepoConfig(t *testing.T) {
 // and GIT_CONFIG_* injects settings — including the very one the -c pin exists
 // to remove, which would make that pin decorative.
 func TestTheGitChildEnvironmentIsScrubbed(t *testing.T) {
+	// No t.Parallel(): t.Setenv below, which the runtime refuses to combine
+	// with a parallel test (see the note on newFixture).
 	for _, k := range []string{
 		"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG",
@@ -1096,6 +1129,8 @@ func TestTheGitChildEnvironmentIsScrubbed(t *testing.T) {
 // through it: GIT_CONFIG_COUNT/KEY/VALUE set configuration with the same force
 // as .git/config.
 func TestGitConfigEnvCannotReinstateFsmonitor(t *testing.T) {
+	// No t.Parallel(): t.Setenv below, which the runtime refuses to combine
+	// with a parallel test (see the note on newFixture).
 	f := newFixture(t)
 	marker := filepath.Join(t.TempDir(), "ran")
 	hook := filepath.Join(t.TempDir(), "fsm.sh")

@@ -31,6 +31,7 @@ func paused(t *testing.T, f *fixture, session, cwd string) (string, bool) {
 }
 
 func TestPauseBySlugStopsTheClaimsOwner(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	if _, errw, code := f.run(t, f.repo, "", "claim", "router-work", "--session", "sess-a",
@@ -74,6 +75,7 @@ func TestPauseBySlugStopsTheClaimsOwner(t *testing.T) {
 // THE CENTRAL REFUSAL. An unresolvable target must exit non-zero and write
 // NOTHING, rather than reporting success over a row that can never match.
 func TestPauseRefusesATargetThatNamesNothing(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 
@@ -106,6 +108,7 @@ func TestPauseRefusesATargetThatNamesNothing(t *testing.T) {
 }
 
 func TestMsgBySlugAndShortIDReachTheOwner(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if out, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatalf("init: %s %s", out, errw)
@@ -140,6 +143,7 @@ func TestMsgBySlugAndShortIDReachTheOwner(t *testing.T) {
 }
 
 func TestMsgRefusesATargetThatNamesNothing(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 
@@ -172,6 +176,7 @@ func TestMsgRefusesATargetThatNamesNothing(t *testing.T) {
 // "all" is a reserved word in this namespace, not a name to resolve. A fleet
 // broadcast must keep working even though no session is called "all".
 func TestAllStaysReserved(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 
@@ -202,6 +207,7 @@ func TestAllStaysReserved(t *testing.T) {
 // peer-controlled value was ever printed and the test passed with the fence
 // REMOVED. It is written through the slug form for that reason.
 func TestResolvedTargetIsFencedInOutput(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if out, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatalf("init: %s %s", out, errw)
