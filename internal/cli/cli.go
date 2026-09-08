@@ -682,13 +682,13 @@ func cmdHello(args []string, env Env) error {
 	// NAME THE ROOM THAT EXISTS, DERIVED — NEVER A HARDCODED EXAMPLE.
 	//
 	// This line said "chat_read lobby for the room" and went into EVERY
-	// session's context at SessionStart. The daemon serves one room per project
-	// (bastle, buddy-system, site, ops) and NONE of them is called lobby, so
-	// every session that followed the instruction read an empty room — and an
-	// empty read is indistinguishable from a quiet one, so it looks like the
-	// room works and nobody is talking. Measured 2026-09-07: a session reported
-	// "the room is empty, all traffic goes through the message hook instead"
-	// while the bastle room held thousands of messages.
+	// session's context at SessionStart. The daemon serves ONE ROOM PER PROJECT
+	// and none of them is called lobby, so every session that followed the
+	// instruction read an empty room — and an empty read is indistinguishable
+	// from a quiet one, so it looks like the room works and nobody is talking.
+	// Measured 2026-09-07: a session reported "the room is empty, all traffic
+	// goes through the message hook instead" while its actual project room held
+	// thousands of messages.
 	//
 	// si.Label is "<project>/s-<id>", so the room is already known here. Fenced
 	// like every other interpolated value in this digest.

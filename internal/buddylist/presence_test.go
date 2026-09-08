@@ -103,7 +103,7 @@ func startPresence(t *testing.T) *presenceHarness {
 	served := make(chan *fakeConn, 1)
 	served <- h.conn
 	d, err := New(Config{
-		Rooms:      []string{"buddy-system", "bastle"},
+		Rooms:      []string{"buddy-system", "harbor"},
 		SocketPath: filepath.Join(sockDir, "d.sock"),
 		Journal:    j,
 		Log:        slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})),
@@ -133,7 +133,7 @@ func startPresence(t *testing.T) *presenceHarness {
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(settleBudget):
 			t.Error("daemon did not shut down")
 		}
 	})
@@ -144,7 +144,7 @@ func startPresence(t *testing.T) *presenceHarness {
 // so every assertion about it is an eventual one.
 func waitFor(t *testing.T, what string, pred func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(settleBudget)
 	for time.Now().Before(deadline) {
 		if pred() {
 			return
@@ -171,20 +171,20 @@ func recordedHas(c *fakeConn, want string) bool {
 // buddy in its OWN project's room, wearing its claim.
 func TestPresenceJoinsTheProjectRoomAndWearsTheClaim(t *testing.T) {
 	h := startPresence(t)
-	resp := h.d.dispatch(Request{Op: "alerts", Session: "sess-a", Label: "bastle/s-e284b102",
-		Slugs: []string{"b81-inspect-markers"}, Mentions: []string{"b81-inspect-markers"}})
+	resp := h.d.dispatch(Request{Op: "alerts", Session: "sess-a", Label: "harbor/s-e284b102",
+		Slugs: []string{"api-inspect-markers"}, Mentions: []string{"api-inspect-markers"}})
 	if !resp.OK {
 		t.Fatalf("alerts refused: %s", resp.Error)
 	}
 	waitFor(t, "buddy to join its room", func() bool {
-		return recordedHas(h.script.conn("bastle-s-e284b102"), "join bastle")
+		return recordedHas(h.script.conn("harbor-s-e284b102"), "join harbor")
 	})
 	waitFor(t, "away text to carry the claim", func() bool {
-		return recordedHas(h.script.conn("bastle-s-e284b102"), "away claim: b81-inspect-markers · active")
+		return recordedHas(h.script.conn("harbor-s-e284b102"), "away claim: api-inspect-markers · active")
 	})
 	// The room is derived from the label, so a session in another project
 	// must not land in this one.
-	if names := h.script.names(); len(names) != 1 || names[0] != "bastle-s-e284b102" {
+	if names := h.script.names(); len(names) != 1 || names[0] != "harbor-s-e284b102" {
 		t.Fatalf("unexpected dials: %v", names)
 	}
 }
@@ -195,9 +195,9 @@ func TestPresenceJoinsTheProjectRoomAndWearsTheClaim(t *testing.T) {
 func TestPresenceSkipsLabelsWithNoServedRoom(t *testing.T) {
 	h := startPresence(t)
 	h.d.presence.note("sess-x", "jayclark.ai/s-11111111", []string{"site-copy"})
-	h.d.presence.note("sess-y", "bastle/s-22222222", nil)
+	h.d.presence.note("sess-y", "harbor/s-22222222", nil)
 	waitFor(t, "the served session to join", func() bool {
-		return recordedHas(h.script.conn("bastle-s-22222222"), "join bastle")
+		return recordedHas(h.script.conn("harbor-s-22222222"), "join harbor")
 	})
 	for _, n := range h.script.names() {
 		if strings.HasPrefix(n, "jayclark") {
@@ -213,12 +213,12 @@ func TestPresenceSkipsLabelsWithNoServedRoom(t *testing.T) {
 // predecessor whose socket has not timed out yet.
 func TestPresenceWalksTheSuffixOnANameCollision(t *testing.T) {
 	h := startPresence(t)
-	h.script.fail["bastle-s-33333333"] = fmt.Errorf("registration refused (433): %w", ErrNickInUse)
-	h.d.presence.note("sess-c", "bastle/s-33333333", []string{"claimed"})
+	h.script.fail["harbor-s-33333333"] = fmt.Errorf("registration refused (433): %w", ErrNickInUse)
+	h.d.presence.note("sess-c", "harbor/s-33333333", []string{"claimed"})
 	waitFor(t, "the suffixed name to connect", func() bool {
-		return recordedHas(h.script.conn("bastle-s-33333333-2"), "join bastle")
+		return recordedHas(h.script.conn("harbor-s-33333333-2"), "join harbor")
 	})
-	if names := h.script.names(); len(names) != 2 || names[1] != "bastle-s-33333333-2" {
+	if names := h.script.names(); len(names) != 2 || names[1] != "harbor-s-33333333-2" {
 		t.Fatalf("collision walk: %v", names)
 	}
 }
@@ -228,13 +228,13 @@ func TestPresenceWalksTheSuffixOnANameCollision(t *testing.T) {
 // answers to a name nobody addresses.
 func TestPresenceKeepsItsNameWhenTheFailureIsNotACollision(t *testing.T) {
 	h := startPresence(t)
-	h.script.fail["bastle-s-44444444"] = errors.New("dial tcp 127.0.0.1:6667: connection refused")
-	h.d.presence.note("sess-d", "bastle/s-44444444", nil)
+	h.script.fail["harbor-s-44444444"] = errors.New("dial tcp 127.0.0.1:6667: connection refused")
+	h.d.presence.note("sess-d", "harbor/s-44444444", nil)
 	waitFor(t, "the failed dial to be recorded", func() bool { return len(h.script.names()) > 0 })
 	// Give the manager room to make a wrong second attempt if it were going to.
 	time.Sleep(50 * time.Millisecond)
 	for _, n := range h.script.names() {
-		if n != "bastle-s-44444444" {
+		if n != "harbor-s-44444444" {
 			t.Fatalf("a non-collision failure renamed the session: %v", h.script.names())
 		}
 	}
@@ -248,15 +248,15 @@ func TestPresenceKeepsItsNameWhenTheFailureIsNotACollision(t *testing.T) {
 // the room and `buddy ls` tell the same story.
 func TestPresenceGoesIdleThenLeaves(t *testing.T) {
 	h := startPresence(t)
-	h.d.presence.note("sess-e", "bastle/s-55555555", []string{"slow-work"})
+	h.d.presence.note("sess-e", "harbor/s-55555555", []string{"slow-work"})
 	waitFor(t, "buddy online", func() bool {
-		return recordedHas(h.script.conn("bastle-s-55555555"), "away claim: slow-work · active")
+		return recordedHas(h.script.conn("harbor-s-55555555"), "away claim: slow-work · active")
 	})
 
 	h.clk.advance(presenceIdleAfter + time.Minute)
 	h.d.presence.wakeSoon()
 	waitFor(t, "idle status", func() bool {
-		return recordedHas(h.script.conn("bastle-s-55555555"), "away claim: slow-work · idle 5m")
+		return recordedHas(h.script.conn("harbor-s-55555555"), "away claim: slow-work · idle 5m")
 	})
 
 	h.clk.advance(presenceDropAfter)
@@ -265,7 +265,7 @@ func TestPresenceGoesIdleThenLeaves(t *testing.T) {
 		_, wanted := h.d.presence.live()
 		return wanted == 0
 	})
-	c := h.script.conn("bastle-s-55555555")
+	c := h.script.conn("harbor-s-55555555")
 	c.mu.Lock()
 	closed := c.closed
 	c.mu.Unlock()
@@ -278,9 +278,9 @@ func TestPresenceGoesIdleThenLeaves(t *testing.T) {
 // for half an hour.
 func TestPresenceGoneRetiresImmediately(t *testing.T) {
 	h := startPresence(t)
-	h.d.presence.note("sess-f", "bastle/s-66666666", nil)
+	h.d.presence.note("sess-f", "harbor/s-66666666", nil)
 	waitFor(t, "buddy online", func() bool {
-		return recordedHas(h.script.conn("bastle-s-66666666"), "join bastle")
+		return recordedHas(h.script.conn("harbor-s-66666666"), "join harbor")
 	})
 	resp := h.d.dispatch(Request{Op: "presence", Session: "sess-f", Gone: true})
 	if !resp.OK {
@@ -289,7 +289,7 @@ func TestPresenceGoneRetiresImmediately(t *testing.T) {
 	if online, wanted := h.d.presence.live(); online != 0 || wanted != 0 {
 		t.Fatalf("gone must retire the buddy: online=%d wanted=%d", online, wanted)
 	}
-	c := h.script.conn("bastle-s-66666666")
+	c := h.script.conn("harbor-s-66666666")
 	c.mu.Lock()
 	closed := c.closed
 	c.mu.Unlock()
@@ -304,19 +304,19 @@ func TestPresenceGoneRetiresImmediately(t *testing.T) {
 // meaningless.
 func TestPresenceConnectionsNeverJournal(t *testing.T) {
 	h := startPresence(t)
-	h.d.presence.note("sess-g", "bastle/s-77777777", nil)
+	h.d.presence.note("sess-g", "harbor/s-77777777", nil)
 	waitFor(t, "buddy online", func() bool {
-		return recordedHas(h.script.conn("bastle-s-77777777"), "join bastle")
+		return recordedHas(h.script.conn("harbor-s-77777777"), "join harbor")
 	})
-	c := h.script.conn("bastle-s-77777777")
+	c := h.script.conn("harbor-s-77777777")
 	c.push(t, tocwire.ChatIn{RoomID: "7", From: "operator", Text: "seen by every session"})
 	c.push(t, tocwire.IMIn{From: "operator", Text: "a dm to somebody"})
 
 	// The concierge's own room join is the observable that proves the daemon
 	// processed events at all while the presence rows stayed out.
-	waitJoined(t, h.conn, "bastle")
+	waitJoined(t, h.conn, "harbor")
 	time.Sleep(50 * time.Millisecond)
-	for _, room := range []string{"bastle", "@dm"} {
+	for _, room := range []string{"harbor", "@dm"} {
 		msgs, _, err := h.j.ReadAfter(room, 0, 100)
 		if err != nil {
 			t.Fatal(err)
@@ -334,7 +334,7 @@ func TestPresenceConnectionsNeverJournal(t *testing.T) {
 func TestPresenceCapsConcurrentBuddies(t *testing.T) {
 	h := startPresence(t)
 	for i := 0; i < maxPresenceBuddies+4; i++ {
-		h.d.presence.note(fmt.Sprintf("sess-%02d", i), fmt.Sprintf("bastle/s-%08d", i), nil)
+		h.d.presence.note(fmt.Sprintf("sess-%02d", i), fmt.Sprintf("harbor/s-%08d", i), nil)
 	}
 	waitFor(t, "the cap to fill", func() bool {
 		online, _ := h.d.presence.live()
@@ -368,7 +368,7 @@ func TestPresenceDisabledIsInert(t *testing.T) {
 
 func TestNickForDerivesALegalName(t *testing.T) {
 	cases := []struct{ label, want string }{
-		{"bastle/s-e284b102", "bastle-s-e284b102"},
+		{"harbor/s-e284b102", "harbor-s-e284b102"},
 		{"buddy-system/s-03bf0f5c", "buddy-system-s-03bf0f5c"},
 		{"jayclark.ai/s-11111111", "jayclark-ai-s-11111111"},
 		{"weird name!/s-1", "weird-name-s-1"},

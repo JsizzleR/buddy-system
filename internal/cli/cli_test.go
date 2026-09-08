@@ -639,7 +639,7 @@ func TestGateDeniesHookInputWithoutToolName(t *testing.T) {
 // dates, per state. Every row used to report the age of last_seen, ended rows
 // included — so an ended row said how long ago the session last ran a tool and
 // presented it as how long ago the session died. Measured on a real ledger:
-// `bastle/s-86a5764d  ended  12h` for a session whose last_seen was 07:25:52
+// `harbor/s-86a5764d  ended  12h` for a session whose last_seen was 07:25:52
 // and whose ended was 16:33:38, read at 19:52 — dead 3h19m, reported 12h. The
 // error is one-directional (last_seen is always the earlier write), so the
 // number an agent got was systematically too large, and nothing in the row let

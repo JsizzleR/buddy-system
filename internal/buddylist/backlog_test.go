@@ -379,8 +379,8 @@ func TestMCPMentionsMeDerivesTokensFromIdentity(t *testing.T) {
 	var got Request
 	deps := MCPDeps{
 		SessionID: func() string { return "e284b102-c678-4fce" },
-		Label:     func() string { return "bastle/s-e284b102" },
-		Slugs:     func() []string { return []string{"b81-inspect-markers"} },
+		Label:     func() string { return "harbor/s-e284b102" },
+		Slugs:     func() []string { return []string{"api-inspect-markers"} },
 		Call: func(req Request, _ time.Duration) (Response, error) {
 			got = req
 			return Response{OK: true}, nil
@@ -394,7 +394,7 @@ func TestMCPMentionsMeDerivesTokensFromIdentity(t *testing.T) {
 	// Claim slugs first (they are how peers address a session), then the short
 	// label, then the label, then the id — which measured 0
 	// matches in 2313 messages of the live room.
-	want := []string{"b81-inspect-markers", "s-e284b102", "bastle/s-e284b102", "e284b102-c678-4fce"}
+	want := []string{"api-inspect-markers", "s-e284b102", "harbor/s-e284b102", "e284b102-c678-4fce"}
 	if fmt.Sprint(got.Mentions) != fmt.Sprint(want) {
 		t.Fatalf("mention tokens: got %v want %v", got.Mentions, want)
 	}
