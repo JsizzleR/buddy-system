@@ -26,7 +26,8 @@
 # Escape hatch: a line ending in `// fence: not peer text` is skipped, and the
 # reason has to be on that line, where the next reader sees it.
 set -eu
-CDPATH= cd -- "$(dirname "$0")/.."
+. "$(dirname -- "$0")/lib.sh"
+CDPATH= cd -- "$(repo_root "$0")"
 
 # scan reads Go source on stdin and prints one line per offending statement.
 scan() {

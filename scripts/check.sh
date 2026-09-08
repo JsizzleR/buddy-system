@@ -28,7 +28,10 @@
 # existed, a real data race sat green at HEAD indefinitely, visible only to
 # someone who typed -race by hand.
 set -eu
-cd "$(dirname "$0")/.."
+# Safe spelling, not `cd "$(dirname "$0")/.."`: that resolves through the
+# CALLER's $CDPATH and can run this whole suite against a DIFFERENT checkout.
+# scripts/lib.sh has the measurement.
+CDPATH= cd -- "$(dirname -- "$0")/.."
 
 TIER=${1:-all}
 case "$TIER" in
@@ -55,11 +58,52 @@ if [ "$run_hermetic" = 1 ]; then
   grep -q 'case f\.events <- ev:' internal/buddylist/chatd_test.go || { echo "check.sh: emit's guarded send is gone or respelled — re-point this gate in the same commit." >&2; exit 1; }
 
   # Every script that git executes must at least parse. A hook with a syntax
-  # error fails at commit time, which is the worst moment to discover it.
+  # error fails at commit time, which is the worst moment to discover it. The
+  # glob also covers scripts/lib.sh, which nothing executes and all four
+  # done-checks SOURCE — a syntax error there takes every one of them down.
   for s in .githooks/* scripts/*.sh; do
     [ -f "$s" ] || continue
     sh -n "$s" || { echo "check.sh: $s has a syntax error" >&2; exit 1; }
   done
+
+  # CDPATH GATE, source-shape. `cd "$(dirname "$0")/.."` resolves its operand
+  # through the CALLER's exported $CDPATH before the filesystem, so with
+  # CDPATH=$HOME/src set for interactive convenience a script can land in a
+  # DIFFERENT checkout — and then every leg below builds, seeds and greps that
+  # one while reporting GREEN for this one. Six of the nine scripts here carried
+  # the unsafe spelling (counted, 2026-09-08); the safe one is `CDPATH= cd -- …`, and
+  # scripts/lib.sh carries the reasoning. grep-shaped because no test can see
+  # the class: a suite run against the wrong repo still passes.
+  #
+  # Two clauses, the same as the fakeConn gate above: the scan, and a planted
+  # control the scan MUST agree with, so a respelled pattern that matches
+  # nothing cannot report the same GREEN as a clean tree. The scan is a pattern
+  # and TWO filters: whole-comment lines are dropped (this very comment quotes
+  # the bad spelling, and so does lib.sh) and so is the safe spelling itself.
+  cdscan() { grep -nHE 'cd +(--)? *"?\$\(dirname' "$@" | grep -v ':[[:space:]]*#' | grep -v 'CDPATH= cd -- '; }
+  # THE CONTROL IS FOUR LINES, NOT ONE, because a one-line control arms the
+  # pattern and NEITHER FILTER — and the filters are what decide the scan is
+  # allowed to drop something. Measured, review 2026-09-08: widen the comment
+  # filter to `grep -v '#'` (the sloppy edit somebody reaches for when this
+  # comment's own quoting of the bad spelling trips the scan) and restore
+  # scripts/run-local.sh:11 to the unsafe spelling it carried until this
+  # commit — trailing comment and all, which is how that line is really
+  # written. The one-line control still passed, the gate printed NOTHING and
+  # exited 0, and the violation shipped. So the control pins WHICH lines come
+  # back, not merely that something did:
+  #   1  bare violation                  -> MUST be reported
+  #   2  violation + trailing comment    -> MUST be reported (arms filter 1)
+  #   3  a wholly commented-out mention  -> must NOT be (this file has one)
+  #   4  the safe spelling               -> must NOT be (arms filter 2)
+  # `dirname` arrives as a printf ARGUMENT so none of these lines spells the bad
+  # idiom here and trips the scan on check.sh itself; the control file holds it
+  # verbatim.
+  cdctl=$(mktemp -t cdpath-control.XXXXXX)
+  printf 'cd "$(%s "$0")/.."\ncd "$(%s "$0")/.."   # trailing comment\n  # cd "$(%s "$0")/.."\nCDPATH= cd -- "$(%s -- "$0")/.."\n' dirname dirname dirname dirname > "$cdctl"
+  ctlhit=$(cdscan "$cdctl" | sed 's/^[^:]*:\([0-9][0-9]*\):.*$/\1/' | tr '\n' ' ' || true); rm -f "$cdctl"
+  [ "$ctlhit" = "1 2 " ] || { echo "check.sh: the CDPATH scan reported line(s) '$ctlhit' of its four-line control, want '1 2 ' — the gate is broken, not the tree" >&2; exit 1; }
+  unsafe=$(cdscan .githooks/* scripts/*.sh || true)
+  [ -z "$unsafe" ] || { echo "check.sh: CDPATH-unsafe cd — use \`CDPATH= cd -- \"\$(dirname -- \"\$0\")/..\"\` (see scripts/lib.sh):" >&2; echo "$unsafe" >&2; exit 1; }
 
   go vet ./...
   go test ./... -count=1
@@ -70,6 +114,7 @@ if [ "$run_hermetic" = 1 ]; then
   sh scripts/check-commit-gate.sh
   sh scripts/check-pre-push.sh
   sh scripts/check-fence.sh
+  sh scripts/check-charter.sh
 fi
 
 if [ "$run_live" = 1 ]; then
