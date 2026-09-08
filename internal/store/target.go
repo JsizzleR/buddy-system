@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -216,12 +215,11 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 		// The claim slug: the form peers actually use, and the reason this file
 		// exists. Unique among OPEN claims by the claims_open_slug partial
 		// index, so at most one row can match and there is no ambiguity arm.
-		var owner string
-		err := s.db.QueryRow(`SELECT session_id FROM claims WHERE state='open' AND slug=?`, target).Scan(&owner)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		_, owner, taken, err := openSlugOwner(s.db, target)
+		if err != nil {
 			return Target{}, err
 		}
-		if err == nil {
+		if taken {
 			for _, si := range all {
 				if si.SessionID == owner {
 					found, via = si, "slug"
