@@ -78,6 +78,22 @@ func (f *fakeServer) readLine() string {
 	return line
 }
 
+// tryReadLine is readLine for an assertion that nothing arrives: it returns
+// false on timeout instead of failing the test.
+func (f *fakeServer) tryReadLine(d time.Duration) (string, bool) {
+	f.t.Helper()
+	f.conn.SetReadDeadline(time.Now().Add(d))
+	line, err := f.br.ReadString('\n')
+	if err != nil {
+		return "", false
+	}
+	line = strings.TrimRight(line, "\r\n")
+	f.mu.Lock()
+	f.got = append(f.got, line)
+	f.mu.Unlock()
+	return line, true
+}
+
 func (f *fakeServer) send(lines ...string) {
 	f.t.Helper()
 	for _, l := range lines {
@@ -396,5 +412,338 @@ func TestSplitMessageNarrowLimitMakesProgress(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("splitMessageN hung: no progress on a limit narrower than one rune")
+	}
+}
+
+// presenceCall runs Presence off the test goroutine, which has to stay free to
+// play the server.
+type presenceResult struct {
+	online []string
+	ok     bool
+	err    error
+}
+
+func presenceCall(c *Client, names ...string) <-chan presenceResult {
+	res := make(chan presenceResult, 1)
+	go func() {
+		online, ok, err := c.Presence(names...)
+		res <- presenceResult{online, ok, err}
+	}()
+	return res
+}
+
+func wantPresence(t *testing.T, res <-chan presenceResult) presenceResult {
+	t.Helper()
+	select {
+	case r := <-res:
+		return r
+	case <-time.After(5 * time.Second):
+		t.Fatal("Presence never returned")
+	}
+	return presenceResult{}
+}
+
+// ISON is the presence question, and its answer lists only who is there —
+// in EITHER of two shapes. Measured against ergo 2.19.1: `ISON jsizl` answers
+// `303 me jsizl` (one name, so no trailing colon is needed) while `ISON jsizl
+// SmarterChild` answers `303 me :jsizl SmarterChild`. Reading only the
+// trailing form passed every hermetic test written against the two-name shape
+// and then reported NOBODY online for the one-name query a DM actually makes.
+func TestPresenceAnswersFromISON(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ask   []string
+		query string
+		reply string
+		want  []string
+	}{
+		{
+			name:  "one name comes back as a plain parameter",
+			ask:   []string{"jay"},
+			query: "ISON jay",
+			reply: ":buddy.local 303 SmarterChild jay",
+			want:  []string{"jay"},
+		},
+		{
+			name:  "several names come back as a trailing list",
+			ask:   []string{"jay", "ghost", "kim"},
+			query: "ISON jay ghost kim",
+			reply: ":buddy.local 303 SmarterChild :Jay kim",
+			want:  []string{"Jay", "kim"}, // the server's spelling, untouched
+		},
+		{
+			name:  "nobody online is an empty answer, not a missing one",
+			ask:   []string{"ghost"},
+			query: "ISON ghost",
+			reply: ":buddy.local 303 SmarterChild :",
+			want:  nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeServer(t)
+			c := dialOK(t, f)
+
+			res := presenceCall(c, tc.ask...)
+			if line := f.readLine(); line != tc.query {
+				t.Fatalf("wrong query: %q", line)
+			}
+			f.send(tc.reply)
+
+			r := wantPresence(t, res)
+			if r.err != nil || !r.ok {
+				t.Fatalf("ISON answered but Presence did not: ok=%v err=%v", r.ok, r.err)
+			}
+			if len(r.online) != len(tc.want) {
+				t.Fatalf("online=%q, want %q", r.online, tc.want)
+			}
+			for i := range tc.want {
+				if r.online[i] != tc.want[i] {
+					t.Fatalf("online=%q, want %q", r.online, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// A server without ISON answers by refusing the command. "Cannot tell" is a
+// different fact from "nobody is there", and the caller must be able to see
+// the difference — otherwise every DM to such a server is refused.
+func TestPresenceUnknownWhenServerRefusesISON(t *testing.T) {
+	f := newFakeServer(t)
+	c := dialOK(t, f)
+
+	res := presenceCall(c, "jay")
+	f.readLine()
+	f.send(":buddy.local 421 SmarterChild ISON :Unknown command")
+
+	r := wantPresence(t, res)
+	if r.err != nil {
+		t.Fatalf("a refused command is an answer, not a failure: %v", r.err)
+	}
+	if r.ok {
+		t.Fatal("a server that cannot answer must not be reported as answering")
+	}
+	// The numeric is still surfaced: a provoked error is not swallowed.
+	if ev, want := wantEvent(t, c), "421 Unknown command"; ev != (tocwire.ServerError{Code: want}) {
+		t.Fatalf("421 should still reach the event stream as %q, got %#v", want, ev)
+	}
+}
+
+// A dead connection must wake the waiter with the reason, not leave it to
+// discover the death by timing out.
+func TestPresenceWakesOnConnectionDeath(t *testing.T) {
+	// Long enough that the timeout cannot be what returns: if the waiter is
+	// not woken by the death itself, this test hangs and fails, instead of
+	// passing on a timeout error that looks the same from the outside.
+	old := presenceTimeout
+	presenceTimeout = 30 * time.Second
+	t.Cleanup(func() { presenceTimeout = old })
+
+	f := newFakeServer(t)
+	c := dialOK(t, f)
+
+	res := presenceCall(c, "jay")
+	f.readLine()
+	f.conn.Close()
+
+	r := wantPresence(t, res)
+	if r.err == nil {
+		t.Fatal("a Presence outstanding when the connection died must report it")
+	}
+	if r.ok {
+		t.Fatalf("a dead connection cannot have answered: %#v", r)
+	}
+}
+
+// RPL_ISON carries no request tag, so a reply can only be matched to a query
+// by there being exactly one outstanding. A query the server never answers
+// therefore leaves a reply owed with nothing to identify it — and the answer
+// is to stop asking on this connection, not to hand that reply to whoever
+// asks next. Measured provocation: an over-long ISON draws `417 Input line
+// too long` and no 303, on a connection that stays up.
+//
+// Stopping must not be permanent, though. The usual reason a reply is late is
+// a busy connection, not a silent server: ergo fakelags a non-oper client, and
+// one 4 KB message ahead of the query pushes its 303 past three seconds
+// (measured). So the owed reply, when it lands, puts the connection back in
+// sync — otherwise one busy minute would disable presence for days.
+func TestUnansweredQueryPausesPresenceUntilTheOwedReplyArrives(t *testing.T) {
+	old := presenceTimeout
+	presenceTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { presenceTimeout = old })
+
+	f := newFakeServer(t)
+	c := dialOK(t, f)
+
+	first := presenceCall(c, "alpha")
+	if line := f.readLine(); line != "ISON alpha" {
+		t.Fatalf("wrong query: %q", line)
+	}
+	f.send(":buddy.local 417 SmarterChild :Input line too long") // answered, but never with a 303
+	if r := wantPresence(t, first); r.err == nil || r.ok {
+		t.Fatalf("an unanswered query must fail: %#v", r)
+	}
+	wantEvent(t, c) // the 417 still surfaces as a server error
+
+	// While a reply is owed, nothing may go out — there would be no way to
+	// tell the two answers apart.
+	paused := wantPresence(t, presenceCall(c, "beta"))
+	switch {
+	case paused.err != nil:
+		t.Fatalf("a paused presence check reports \"cannot tell\", not an error: %v", paused.err)
+	case paused.ok:
+		t.Fatalf("a paused connection must not claim to have answered: %#v", paused)
+	case len(paused.online) != 0:
+		t.Fatalf("the second caller was handed the first query's answer: %q", paused.online)
+	}
+	if line, ok := f.tryReadLine(100 * time.Millisecond); ok {
+		t.Fatalf("a paused connection must not keep querying, got %q", line)
+	}
+
+	// The owed reply finally lands. Nobody is waiting for it, and taking it
+	// is what puts the connection back in sync. The PRIVMSG behind it is the
+	// synchronisation: the read loop handles lines in order, so its event
+	// cannot arrive before the 303 has been dealt with.
+	f.send(":buddy.local 303 SmarterChild :alpha",
+		":jay!u@h PRIVMSG SmarterChild :the reply has been consumed")
+	if ev := wantEvent(t, c); ev != (tocwire.IMIn{From: "jay", Text: "the reply has been consumed"}) {
+		t.Fatalf("unexpected event: %#v", ev)
+	}
+
+	resumed := presenceCall(c, "gamma")
+	if line := f.readLine(); line != "ISON gamma" {
+		t.Fatalf("presence should be asking again, got %q", line)
+	}
+	f.send(":buddy.local 303 SmarterChild :gamma")
+	if r := wantPresence(t, resumed); !r.ok || len(r.online) != 1 || r.online[0] != "gamma" {
+		t.Fatalf("the connection did not resume cleanly: %#v", r)
+	}
+}
+
+// A reply with nobody waiting for it must be dropped, not held — the read
+// loop is what delivers it, and blocking there stops the connection dead
+// while holding the lock every other answer needs.
+//
+// Against a mailbox that is left installed, this test does not fail cleanly:
+// it HANGS, because the wedged read loop never closes readDone and Close waits
+// for it. That is the defect being demonstrated, not a flaw in the test — run
+// it with -timeout if you are mutating this code.
+func TestASecondReplyDoesNotWedgeTheReadLoop(t *testing.T) {
+	f := newFakeServer(t)
+	c := dialOK(t, f)
+
+	res := presenceCall(c, "alpha")
+	if line := f.readLine(); line != "ISON alpha" {
+		t.Fatalf("wrong query: %q", line)
+	}
+	// Three replies for one query: the mailbox holds one, so an implementation
+	// that leaves it installed blocks on the third — inside the lock every
+	// other answer needs, on the goroutine that reads the socket.
+	f.send(":buddy.local 303 SmarterChild :alpha",
+		":buddy.local 303 SmarterChild :stranger", // more than was asked for
+		":buddy.local 303 SmarterChild :another",
+		":jay!u@h PRIVMSG SmarterChild :still reading")
+
+	if r := wantPresence(t, res); !r.ok || len(r.online) != 1 || r.online[0] != "alpha" {
+		t.Fatalf("caller got the wrong answer: %#v", r)
+	}
+	if ev := wantEvent(t, c); ev != (tocwire.IMIn{From: "jay", Text: "still reading"}) {
+		t.Fatalf("the read loop stopped after the extra reply: %#v", ev)
+	}
+}
+
+// The timer and the reply can become ready together, and only one of them
+// wins the select. Which one is a scheduling coincidence, so the decision to
+// pause the connection cannot rest on it: clearWaiter settles "was this query
+// answered?" under the same lock the delivery takes. A test cannot stage that
+// interleaving, so this pins the helper it turns on directly.
+func TestAnAnsweredQueryIsNeverPaused(t *testing.T) {
+	f := newFakeServer(t)
+	c := dialOK(t, f)
+
+	ch := make(chan presenceReply, 1)
+	c.qmu.Lock()
+	c.waiter = ch
+	c.qmu.Unlock()
+
+	// The reply arrives — this is what the read loop does.
+	c.answerPresence(presenceReply{online: []string{"alpha"}, ok: true})
+
+	// ...and only now does the timing-out caller try to give up.
+	c.clearWaiter(ch, true)
+
+	c.qmu.Lock()
+	dead := c.dead
+	c.qmu.Unlock()
+	if dead {
+		t.Fatal("a query that WAS answered paused the connection; nothing is owed, so nothing would ever un-pause it")
+	}
+	select {
+	case r := <-ch:
+		if !r.ok || len(r.online) != 1 || r.online[0] != "alpha" {
+			t.Fatalf("the answer was mangled: %#v", r)
+		}
+	default:
+		t.Fatal("the answer was thrown away")
+	}
+}
+
+// One query at a time, held across the whole round-trip. Waiters that queue
+// under one lock and write under another can reach the wire in the opposite
+// order, and then each caller is told about the other's names — which for a
+// DM means refusing a recipient who is online.
+func TestOnlyOneQueryIsOutstandingAtATime(t *testing.T) {
+	f := newFakeServer(t)
+	c := dialOK(t, f)
+
+	first := presenceCall(c, "alpha")
+	if line := f.readLine(); line != "ISON alpha" {
+		t.Fatalf("wrong query: %q", line)
+	}
+
+	// A second caller arrives while the first is still outstanding: nothing
+	// of theirs may reach the wire yet.
+	second := presenceCall(c, "beta")
+	if line, ok := f.tryReadLine(150 * time.Millisecond); ok {
+		t.Fatalf("a second query went out while one was outstanding: %q", line)
+	}
+
+	f.send(":buddy.local 303 SmarterChild :alpha")
+	if r := wantPresence(t, first); !r.ok || len(r.online) != 1 || r.online[0] != "alpha" {
+		t.Fatalf("first caller got the wrong answer: %#v", r)
+	}
+
+	if line := f.readLine(); line != "ISON beta" {
+		t.Fatalf("second query should follow the first: %q", line)
+	}
+	f.send(":buddy.local 303 SmarterChild :beta")
+	if r := wantPresence(t, second); !r.ok || len(r.online) != 1 || r.online[0] != "beta" {
+		t.Fatalf("second caller got the wrong answer: %#v", r)
+	}
+}
+
+// The name comes from the caller — `buddylist dm <name>` — so an absurd one
+// must not reach the wire. ergo answers an over-long line with 417 and no
+// 303, which would cost this connection its presence check for good.
+func TestPresenceRefusesAnOverLongQuery(t *testing.T) {
+	f := newFakeServer(t)
+	c := dialOK(t, f)
+
+	r := wantPresence(t, presenceCall(c, strings.Repeat("n", 600)))
+	if r.err == nil || r.ok {
+		t.Fatalf("an over-long query must be refused: %#v", r)
+	}
+	if line, ok := f.tryReadLine(100 * time.Millisecond); ok {
+		t.Fatalf("the refused query still reached the wire: %q", line)
+	}
+
+	// And the connection is untouched: the refusal cost only its own caller.
+	next := presenceCall(c, "alpha")
+	if line := f.readLine(); line != "ISON alpha" {
+		t.Fatalf("wrong query: %q", line)
+	}
+	f.send(":buddy.local 303 SmarterChild :alpha")
+	if r := wantPresence(t, next); !r.ok || len(r.online) != 1 {
+		t.Fatalf("a later query should work normally: %#v", r)
 	}
 }

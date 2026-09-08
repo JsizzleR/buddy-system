@@ -182,6 +182,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **ergo exempts localhost from its own connection limits**, which is why
   presence is bounded at 16 connections in our own code rather than trusting the
   server to bound it.
+- **`ISON` answers in two shapes.** `ISON one` → `303 me one` (a plain
+  parameter); `ISON one two` → `303 me :one two` (trailing). Reading only the
+  trailing form passes every test written against the multi-name shape and then
+  reports NOBODY online for the single-name query a DM makes. An over-long ISON
+  draws `417 Input line too long` and no 303 at all, on a connection that stays
+  up — so the query is length-checked before it reaches the wire.
 - `pgrep`/`pkill` abort on non-ASCII patterns ("illegal byte sequence") and
   report BUSY as FREE when they do. Hence the ASCII fold in `codex-review.sh`.
 - Hook latency budget is 100 ms. Measured: `gate` 20 ms, `beat` 13 ms, chat
@@ -223,6 +229,16 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   send).
 - **The alert cursor is not the read cursor.** Being told about a message is not
   having seen it.
+- **A DM asks whether the recipient is there before sending**, because nothing
+  holds mail for a name with no session: `dm` refuses a definite "not online",
+  naming them, and sends in every other case (backend cannot answer, probe
+  failed, command unsupported). ISON is serialized to ONE outstanding query per
+  connection — the reply carries no request tag, so a queue hands one caller
+  another's answer — and a query that goes unanswered retires presence on that
+  connection rather than leaving a reply owed. Every failure degrades to the old
+  unchecked send: refusing somebody reachable would lose a message. Store-and-
+  forward for an absent operator was cut; the DM is decoration, and the durable
+  channel is elsewhere.
 - **No per-session TOC connections**: a screen name there is an account and a
   second signon boots the first, so a collision costs somebody else's
   connection.

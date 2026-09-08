@@ -498,6 +498,68 @@ the readers still carry their label arm, which is why resolution has to refuse t
 collision rather than simply store the id: removing that arm needs a migration of every
 legacy `controls` and `inbox` row, which was not attempted here.
 
+## D-014 — A DM asks whether the recipient is there, because there is no offline delivery
+
+2026-09-07 · measured on the live stack, then a Codex code pass and a second-model review
+
+**What was wrong** — `buddylist dm nobody-here-12345 "…"` printed nothing and exited 0.
+Nothing was delivered and nothing could have been: a chat server holds no mail for a name
+with no session. The refusal did arrive — the journal has it, as a roomless system row
+reading `server error 401 No such nick`, naming neither the recipient nor the message, and
+written after the CLI process was already gone. That is the anatomy of a silent failure:
+the evidence exists, and it reaches nobody who could act on it. It mattered now because
+the next roadmap item is a nightly job that DMs the operator when a build goes RED — at
+the hour their client is least likely to be running. `DM`'s own doc comment claimed
+"same visibility rules as `Say`", and it had none of them.
+
+**What shipped** — A `Presence(names …string) (online []string, known bool, err error)`
+method on the daemon's `Conn` seam. IRC answers it with ISON (a lookup with a definite
+answer, unlike waiting out the ABSENCE of an error numeric after a send); TOC answers
+`known=false`, because there a client learns who is online only by adding a name to its
+buddy list and waiting for an `UPDATE_BUDDY` that never comes for a name with no session.
+`Daemon.DM` refuses ONLY a definite "not online", naming the recipient and sending
+nothing. Every other outcome — a backend that cannot answer, a probe that errors, a
+server without the command — sends exactly as before.
+
+**What it deliberately does not do** — It does not confirm delivery: the window between
+the answer and the send is the one `Say` already accepts. It does not journal an outbox
+row for DMs; a delivered DM already echoes back into `@dm` via `echo-message`, and adding
+rows to the `@sent` outbox would widen the substring containment that D-009's self-alert
+suppression runs over. And it does not hold a message for an operator who is away —
+store-and-forward was considered and cut: the nightly DM is decoration, the durable
+channel is elsewhere, and a refusal a script can see is what makes that split honest.
+
+**The measurement that mattered, and it bit before it was believed** — ergo 2.19.1 answers
+`ISON jsizl` with `303 me jsizl` — the name list as an ordinary parameter, no colon —
+but `ISON jsizl SmarterChild` with `303 me :jsizl SmarterChild`. Reading only the trailing
+parameter passed every hermetic test, which had been written against the multi-name shape,
+and then reported nobody online for the SINGLE-name query a DM actually makes: it would
+have refused every DM on the machine. Caught by driving the real server, not by the suite;
+both shapes are now a table.
+
+**Two review findings, both about the same wrong idea** — The first implementation queued
+waiters, because RPL_ISON carries no request tag and replies were assumed to come back in
+the order the queries went out. (1) They need not: waiters enqueued under one lock and
+written under another can reach the wire in the opposite order, so one caller gets
+another's answer — reproduced, 2 failures in 100 runs under `-race`, and the wrong answer
+refuses a DM to somebody who is right there. (2) A query the server answers with anything
+but a 303 leaves a reply owed forever: an over-long line draws `417 Input line too long`
+and nothing else, on a connection that stays up, so every later query on it was
+misaligned — and the length was caller-supplied, via the DM's own recipient name. What
+shipped instead: ONE outstanding query per connection, held across the whole round-trip,
+so a reply can only belong to the query that is waiting for it; a query that goes
+unanswered retires presence on that connection, and every later caller is told "cannot
+tell" rather than being handed a stranger's reply; and an over-long query is refused
+before it reaches the wire.
+
+**Residuals** — Every failure of the mechanism degrades to the old unchecked send, which
+is the only safe direction: refusing a reachable recipient loses a message the previous
+code would have delivered. A retired connection stays retired until the daemon reconnects.
+The TOC backend keeps its historical best-effort semantics entirely. And the comparison
+uses the daemon's `fold` (`ToLower` + `TrimSpace`, no NFC), which is right on ergo's ASCII
+casemapping and would mis-compare the rfc1459 bracket characters on a server configured
+for it.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

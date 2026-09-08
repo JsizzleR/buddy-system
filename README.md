@@ -223,7 +223,21 @@ buddylist read yourproject --tail 20          # just the newest 20 — no forwar
 buddylist read yourproject --mentions alpha   # only messages naming alpha
 buddylist status --session <id>               # per-room counts: newest, unread, addressed
 buddylist who                                 # live room membership
+buddylist dm jsizl "nightly is RED"           # exits non-zero if nobody is there to receive it
 ```
+
+There is no offline delivery here, so `dm` asks the server whether the
+recipient is online before it sends, and refuses — naming them, having sent
+nothing — when they are not. That is what makes it usable from a script:
+
+```sh
+buddylist dm "$OPERATOR" "nightly RED: $summary" || notify_some_other_way
+```
+
+Only a definite *not online* refuses. A backend that cannot answer the
+question (AIM/TOC has no synchronous presence query), a probe that fails, a
+server without the command — all still send, exactly as before. A presence
+check that breaks must cost a diagnosis, never the message.
 
 Point any IRC client at the server ([Halloy] is the maintained XChat-shaped
 one) and watch the fleet. Each live session is its own buddy there: it joins

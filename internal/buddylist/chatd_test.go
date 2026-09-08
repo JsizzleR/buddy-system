@@ -57,6 +57,21 @@ type fakeConn struct {
 	sends  []string
 	err    error
 	closed bool
+
+	// online is who this fake server would report for an ISON. The zero
+	// value is a server where NOBODY is online, which is the state a DM must
+	// refuse — a fixture that answered "sure, they're there" by default
+	// would arm nothing.
+	online []string
+	// presenceUnknown makes it a backend that cannot answer the question at
+	// all (tocwire's case), and presenceErr makes the probe itself fail.
+	// Both must still let the message through.
+	presenceUnknown bool
+	presenceErr     error
+	// presenceRaw answers with `online` verbatim instead of the subset that
+	// was asked about — a server naming somebody else. Without it, "is
+	// anyone online?" and "is THIS ONE online?" are indistinguishable here.
+	presenceRaw bool
 }
 
 var errFakeConnClosed = errors.New("fakeConn: connection closed")
@@ -107,6 +122,35 @@ func (f *fakeConn) ChatSend(roomID, text string) error {
 	return nil
 }
 func (f *fakeConn) IM(to, text string) error { f.record("im " + to + " " + text); return nil }
+func (f *fakeConn) Presence(names ...string) ([]string, bool, error) {
+	f.record("presence " + strings.Join(names, " "))
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.presenceErr != nil {
+		return nil, false, f.presenceErr
+	}
+	if f.presenceUnknown {
+		return nil, false, nil
+	}
+	// Answer with the SERVER's spelling, as a real one does.
+	if f.presenceRaw {
+		return f.online, true, nil
+	}
+	var out []string
+	for _, n := range names {
+		for _, o := range f.online {
+			if strings.ToLower(n) == strings.ToLower(o) {
+				out = append(out, o)
+			}
+		}
+	}
+	return out, true, nil
+}
+func (f *fakeConn) setOnline(names ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.online = names
+}
 func (f *fakeConn) SetAway(text string) error {
 	f.record("away " + text)
 	return nil
@@ -273,7 +317,9 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 		t.Fatalf("say did not relay with the [alpha] prefix: %v", c.recorded())
 	}
 
-	// DM out.
+	// DM out. The recipient has to actually be there now: an absent one is
+	// refused rather than reported as sent (TestDMRefusesAnAbsentRecipient).
+	c.setOnline("jay")
 	if _, err := h.call(t, Request{Op: "dm", To: "jay", From: "alpha", Text: "psst"}); err != nil {
 		t.Fatal(err)
 	}
@@ -281,6 +327,94 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 	// Inbound IM → journaled under @dm.
 	c.push(t, tocwire.IMIn{From: "nightly", Text: "state=RED"})
 	h.waitJournal(t, "@dm", func(m []Msg) bool { return len(m) == 1 && m[0].Sender == "nightly" })
+}
+
+// A DM to a name with no session cannot be delivered — there is no offline
+// delivery here — and used to be reported as sent anyway. Each row asserts on
+// what reached the WIRE, because "refused" and "the fixture never ran" look
+// identical from an error alone: the online row is the positive control that
+// proves this harness can send a DM at all.
+func TestDMRefusesAnAbsentRecipient(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		setup   func(*fakeConn)
+		to      string
+		wantErr string // "" = the DM must go out
+	}{
+		{
+			name:  "present recipient is sent to",
+			setup: func(c *fakeConn) { c.setOnline("jay") },
+			to:    "jay",
+		},
+		{
+			name:    "absent recipient is refused, naming them",
+			setup:   func(c *fakeConn) { c.setOnline("someone-else") },
+			to:      "jay",
+			wantErr: "jay is not on the chat server",
+		},
+		{
+			// The answer has to be about the RECIPIENT. A check that only
+			// asked whether anybody at all was online would pass the row
+			// above, where the fake filters the stranger out for us.
+			name: "somebody else being online is not the recipient being online",
+			setup: func(c *fakeConn) {
+				c.setOnline("someone-else")
+				c.presenceRaw = true
+			},
+			to:      "jay",
+			wantErr: "jay is not on the chat server",
+		},
+		{
+			name:  "the server's spelling of the nick still counts",
+			setup: func(c *fakeConn) { c.setOnline("Jay") },
+			to:    "jay",
+		},
+		{
+			// tocwire's answer: no synchronous presence query exists there.
+			name:  "a backend that cannot answer sends anyway",
+			setup: func(c *fakeConn) { c.presenceUnknown = true },
+			to:    "jay",
+		},
+		{
+			// A broken probe must cost a diagnosis, never the message.
+			name:  "a failing probe sends anyway",
+			setup: func(c *fakeConn) { c.presenceErr = errors.New("probe exploded") },
+			to:    "jay",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := start(t)
+			c := newFakeConn()
+			tc.setup(c)
+			h.conns <- c
+			waitJoined(t, c, "lobby")
+
+			_, err := h.call(t, Request{Op: "dm", To: tc.to, From: "alpha", Text: "psst"})
+			// A refusal means NOTHING was sent, not merely that the expected
+			// payload was absent: anything reaching IM at all is a failure.
+			sent, anySend := false, false
+			for _, s := range c.recorded() {
+				if strings.HasPrefix(s, "im ") {
+					anySend = true
+				}
+				if s == "im "+tc.to+" [alpha] psst" {
+					sent = true
+				}
+			}
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("dm failed: %v", err)
+			case tc.wantErr == "" && !sent:
+				t.Fatalf("dm reported success but nothing reached the wire: %v", c.recorded())
+			case tc.wantErr != "" && err == nil:
+				t.Fatal("dm to an absent recipient must fail visibly")
+			case tc.wantErr != "" && !strings.Contains(err.Error(), tc.wantErr):
+				t.Fatalf("error should name the recipient and say nothing was sent: %v", err)
+			case tc.wantErr != "" && anySend:
+				t.Fatalf("refused DM still reached the wire: %v", c.recorded())
+			}
+		})
+	}
 }
 
 func TestSendFailsVisiblyWhileDisconnected(t *testing.T) {

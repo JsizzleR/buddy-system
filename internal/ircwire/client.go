@@ -71,6 +71,39 @@ type Client struct {
 	// can be surfaced as per-room presence events.
 	mmu     sync.Mutex
 	members map[string]map[string]bool // channel → nicks
+
+	// asking serializes ISON: ONE outstanding query per connection, held
+	// across the whole round-trip. RPL_ISON carries no request tag, so a
+	// reply can only be matched to a query by knowing that exactly one is
+	// outstanding — and a queue of them was measurably wrong twice. Waiters
+	// enqueued under one lock and written under another could go out in the
+	// opposite order, so one caller got another's answer and refused a DM to
+	// a recipient who was right there (reproduced, 2 failures in 100 runs
+	// under -race). And a query the server answers with something other than
+	// 303 — measured: an over-long line answers `417 Input line too long`
+	// and nothing else — left a waiter that no reply would ever pop, which
+	// misaligned every later query for the life of the connection.
+	//
+	// Concurrency here bought nothing anyway: a DM asks about one name.
+	asking sync.Mutex
+
+	// waiter is the single outstanding query's mailbox (nil when none), and
+	// dead latches the connection out of asking at all once a query has gone
+	// unanswered. After that, presence reports "cannot tell" and every caller
+	// falls back to its unchecked behaviour — the only safe direction, since
+	// the alternative is refusing to send to someone who is reachable.
+	qmu    sync.Mutex
+	waiter chan presenceReply
+	dead   bool
+}
+
+// presenceReply is one answer to one ISON. ok distinguishes "the server told
+// us who is online" from "the server cannot answer that question", which the
+// caller must NOT read as absence.
+type presenceReply struct {
+	online []string
+	ok     bool
+	err    error
 }
 
 // ErrNickInUse reports a registration refused because the name is already
@@ -280,6 +313,168 @@ func (c *Client) SetAway(text string) error {
 // MONITOR could back this later if buddy-level presence is wanted).
 func (c *Client) AddBuddies(names ...string) error { return nil }
 
+// presenceTimeout bounds one ISON round-trip.
+//
+// The reply is a lookup, but the connection is not always free to receive it:
+// ergo applies fakelag to a non-oper client, and this one never sends OPER.
+// Measured against the live server (burst 5, 2 messages/second): with nothing
+// sent first, the 303 comes back in 0 ms; after 10 PRIVMSGs — which is ONE
+// 4 KB message, since maxChunk is 400 — it takes 3.008 s, and after 30, 13 s.
+// So a timeout here is an ordinary consequence of a busy connection, not a
+// broken one, which is why one must not be terminal (see answerPresence).
+//
+// It stays at 3s rather than rising to cover fakelag because the callers'
+// own deadlines are 5s: a probe that outlives them turns a courtesy check
+// into the reason a DM fails. Under a burst, the message goes out unchecked
+// and the next one is checked again — the same trade as any other failure of
+// this mechanism.
+//
+// A var, not a const: the tests that drive a timeout have to out-wait it, and
+// a three-second test is a test people delete.
+var presenceTimeout = 3 * time.Second
+
+// Presence reports which of names the server currently knows to be online,
+// spelled the way the SERVER spells them. ok is false when the server cannot
+// answer at all; a caller must then treat presence as unknown, never as
+// absence — refusing to send on "we could not ask" would turn a probe outage
+// into lost messages.
+//
+// ISON is the right question here and the only one asked: it is a lookup with
+// a definite answer, unlike waiting out the ABSENCE of an error numeric after
+// a send. Measured against ergo 2.19.1: `ISON jsizl nobody-here-12345
+// SmarterChild` answers `303 :jsizl SmarterChild` — present names listed,
+// absent ones simply omitted.
+//
+// One query at a time (see the asking lock), and a query that goes unanswered
+// retires the mechanism instead of leaving a reply owed: every failure here
+// degrades to "cannot tell", which is exactly what the caller does when the
+// backend has no presence query at all.
+func (c *Client) Presence(names ...string) ([]string, bool, error) {
+	if len(names) == 0 {
+		return nil, true, nil
+	}
+	for _, n := range names {
+		if err := checkBare("nick", n); err != nil {
+			return nil, false, err
+		}
+	}
+	line := "ISON " + strings.Join(names, " ")
+	// Refuse an over-long query BEFORE it reaches the wire. ergo answers one
+	// with `417 Input line too long` and no 303 (measured), and a caller
+	// supplies the name: `buddylist dm <500-byte name>` would otherwise have
+	// cost this connection its presence check permanently.
+	if len(line)+2 > 512 {
+		return nil, false, fmt.Errorf("irc: ISON for %d name(s) exceeds the 512-byte line limit", len(names))
+	}
+
+	c.asking.Lock()
+	defer c.asking.Unlock()
+
+	ch := make(chan presenceReply, 1) // buffered: the read loop must never block handing off
+	c.qmu.Lock()
+	if c.dead {
+		c.qmu.Unlock()
+		return nil, false, nil
+	}
+	c.waiter = ch
+	c.qmu.Unlock()
+
+	if err := c.sendLine(line); err != nil {
+		// A write error does not prove nothing went out: a Write can report
+		// failure having transmitted the whole line. So this retires rather
+		// than simply clearing — if the query DID reach the server, its reply
+		// is owed, and answerPresence will un-retire the connection when it
+		// lands. Clearing alone would let that reply answer the next caller.
+		c.clearWaiter(ch, true)
+		return nil, false, err
+	}
+
+	t := time.NewTimer(presenceTimeout)
+	defer t.Stop()
+	select {
+	case r := <-ch:
+		c.clearWaiter(ch, false)
+		return r.online, r.ok, r.err
+	case <-c.closed:
+		c.clearWaiter(ch, false)
+		return nil, false, ErrClosed
+	case <-t.C:
+		// The reply can land in the instant the timer fires, and then this
+		// query is not unanswered at all. clearWaiter settles that under the
+		// same lock the delivery takes — it only pauses the connection if
+		// this mailbox was still installed — so the decision cannot fall
+		// between the two facts. Pausing while holding the answer would
+		// disable presence over a scheduling coincidence AND leave nothing
+		// owed to bring it back.
+		c.clearWaiter(ch, true)
+		select {
+		case r := <-ch:
+			return r.online, r.ok, r.err
+		default:
+		}
+		// A reply is still owed and can arrive at any time, with nothing in
+		// it to say which query it belongs to. Rather than let it be handed
+		// to the next caller, this connection stops asking until that reply
+		// arrives and puts it back in sync.
+		return nil, false, fmt.Errorf("irc: no ISON reply within %s (presence checks paused for this connection)", presenceTimeout)
+	}
+}
+
+// clearWaiter releases this query's mailbox and, when asked, pauses presence
+// on the connection — but ONLY if the mailbox was still installed. A mailbox
+// that is gone was taken by answerPresence, which means the reply is already
+// in it: this query was answered, nothing is owed, and pausing here would
+// retire a healthy connection with no owed reply left to revive it.
+//
+// The identity comparison is also what stops a stale caller from clearing a
+// live query's mailbox.
+func (c *Client) clearWaiter(ch chan presenceReply, pause bool) {
+	c.qmu.Lock()
+	defer c.qmu.Unlock()
+	if c.waiter != ch {
+		return // answered, or never installed: not ours to clear or to pause
+	}
+	c.waiter = nil
+	if pause {
+		c.dead = true
+	}
+}
+
+// answerPresence hands one reply to the outstanding query, if any is still
+// waiting. A late or unsolicited reply lands here with no waiter and is
+// dropped, which is the whole point of there being at most one.
+//
+// Dropping it is also what UN-retires the connection. At most one reply can
+// ever be owed — a query only goes out when none is outstanding and the
+// connection is not retired — so a reply that arrives with nobody waiting IS
+// the owed one, and taking it puts the connection back in sync. That matters
+// because the common way to time out here is a slow server rather than a
+// silent one (see presenceTimeout): without this, one busy minute would
+// disable presence until the next reconnect, which can be days.
+func (c *Client) answerPresence(r presenceReply) {
+	c.qmu.Lock()
+	defer c.qmu.Unlock()
+	if c.waiter == nil {
+		c.dead = false
+		return
+	}
+	c.waiter <- r
+	c.waiter = nil
+}
+
+// failPresence wakes an outstanding query when the connection ends, so a
+// caller learns the connection died instead of waiting out its own timeout.
+// A dead connection has nothing owed to it, so this must not un-retire.
+func (c *Client) failPresence(err error) {
+	c.qmu.Lock()
+	defer c.qmu.Unlock()
+	if c.waiter == nil {
+		return
+	}
+	c.waiter <- presenceReply{err: err}
+	c.waiter = nil
+}
+
 func (c *Client) privmsg(target, text string) error {
 	// Budget the payload against the 512-byte line limit for THIS target,
 	// and hold the write lock across the whole logical message so concurrent
@@ -360,6 +555,7 @@ func (c *Client) finish(err error) {
 		c.err = err
 	}
 	c.errMu.Unlock()
+	c.failPresence(err)
 }
 
 func (c *Client) deliver(ev tocwire.Event) bool {
@@ -432,6 +628,18 @@ func (c *Client) handle(m ircMsg, raw string) []tocwire.Event {
 			}
 		}
 		return nil
+	case "303": // RPL_ISON: <me> [:]<nick> <nick> ... — present names only.
+		// The list is everything after the client identifier, and it does NOT
+		// always arrive as a trailing parameter: measured on ergo 2.19.1,
+		// `ISON jsizl` answers `303 me jsizl` — one name needs no colon —
+		// while `ISON jsizl SmarterChild` answers `303 me :jsizl
+		// SmarterChild`. Reading only the trailing form made every
+		// single-name query, which is exactly what a DM asks, report that
+		// nobody was online.
+		online := append([]string(nil), m.params[min(1, len(m.params)):]...)
+		online = append(online, strings.Fields(m.trailing)...)
+		c.answerPresence(presenceReply{online: online, ok: true})
+		return nil
 	case "PART":
 		ch := m.firstParamOrTrailing()
 		nick := m.nick()
@@ -493,6 +701,15 @@ func (c *Client) handle(m ircMsg, raw string) []tocwire.Event {
 			return []tocwire.Event{tocwire.ChatIn{RoomID: target, From: m.nick(), Text: text}}
 		}
 		return []tocwire.Event{tocwire.IMIn{From: m.nick(), Text: text}}
+	case "421": // ERR_UNKNOWNCOMMAND: <me> <command> :Unknown command
+		// A server without ISON answers the question by refusing it. That is
+		// still an answer — "cannot tell" — and the waiter gets it now
+		// instead of timing out. It stays an error event as well: a numeric
+		// this client provoked is not something to swallow.
+		if len(m.params) >= 2 && strings.ToUpper(m.params[1]) == "ISON" {
+			c.answerPresence(presenceReply{ok: false})
+		}
+		return []tocwire.Event{tocwire.ServerError{Code: m.cmd + " " + m.trailing}}
 	case "ERROR":
 		return []tocwire.Event{tocwire.ServerError{Code: "ERROR: " + m.trailing}}
 	default:

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/tocwire"
 )
 
@@ -28,6 +29,12 @@ type Conn interface {
 	ChatSend(roomID, text string) error
 	IM(to, text string) error
 	SetAway(text string) error
+	// Presence reports which of names the server currently knows to be
+	// online. The second result is false when the backend CANNOT answer —
+	// which is a different fact from "nobody is there" and must never be
+	// read as absence. Names come back spelled the way the server spells
+	// them, so callers compare folded.
+	Presence(names ...string) ([]string, bool, error)
 	Close() error
 }
 
@@ -341,7 +348,29 @@ func (d *Daemon) Say(room, from, text string) error {
 	return c.ChatSend(id, text)
 }
 
-// DM sends an instant message. Same visibility rules as Say.
+// DM sends an instant message. It fails visibly like Say — but a DM has a
+// second way to vanish that a room message does not: there is no offline
+// delivery, so a message to a name with no session is simply refused by the
+// server, long after the caller has been told it succeeded.
+//
+// Measured on the live stack before this check existed: `buddylist dm
+// nobody-here-12345 "…"` printed nothing and exited 0. The server's refusal
+// did arrive, and was journaled — as a roomless system row reading "server
+// error 401 No such nick", naming neither the recipient nor the message, well
+// after the process was gone. That is the shape of a silent failure: the
+// evidence exists and reaches nobody who could act on it.
+//
+// So the recipient is looked up BEFORE the send and an absent one is refused,
+// with nothing sent. Only a definite "not online" refuses: a backend that
+// cannot answer, a probe that errors, a server without the query — all send,
+// exactly as before. A failing presence check must cost a diagnosis, never
+// the message.
+//
+// The window between the answer and the send is real, and is the same one Say
+// already accepts: the recipient can quit inside it. This closes the failure
+// that actually happens — nobody there at all, all night, which is precisely
+// when a nightly report is sent — and does not pretend to close the one that
+// races.
 func (d *Daemon) DM(to, from, text string) error {
 	d.mu.Lock()
 	c := d.conn
@@ -349,10 +378,31 @@ func (d *Daemon) DM(to, from, text string) error {
 	if c == nil {
 		return errors.New("not connected to the chat server")
 	}
+	switch online, known, err := c.Presence(to); {
+	case err != nil:
+		d.log.Warn("presence check failed, sending anyway", "to", to, "err", err)
+	case known && !containsFold(online, to):
+		// The name is the caller's, and this error is read back by a model
+		// through the MCP tool as well as by a person: one line, always.
+		return fmt.Errorf("%s is not on the chat server: nothing was sent", fence.Line(to, 64))
+	}
 	if from != "" {
 		text = "[" + from + "] " + text
 	}
 	return c.IM(to, text)
+}
+
+// containsFold reports whether names holds name, under the daemon's one
+// folding rule — the server echoes its own spelling of a nick, which need not
+// be the caller's.
+func containsFold(names []string, name string) bool {
+	want := fold(name)
+	for _, n := range names {
+		if fold(n) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // Status sets (or with "" clears) the concierge's away text, remembering it
