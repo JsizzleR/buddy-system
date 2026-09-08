@@ -41,6 +41,14 @@ type dialScript struct {
 	asked []string
 	fail  map[string]error
 	conns map[string]*fakeConn
+
+	// hold, when set, parks every dial after it has been recorded until the
+	// channel is closed (or ctx ends). It is how a test puts a retirement
+	// INSIDE the dial window, which is the only place the orphaned-connection
+	// race can be reproduced deterministically. held reports each parked
+	// dial so the test knows the window is open before it acts.
+	hold chan struct{}
+	held chan string
 }
 
 func newDialScript() *dialScript {
@@ -53,6 +61,19 @@ func (s *dialScript) dial(ctx context.Context, nick string) (Conn, error) {
 	s.asked = append(s.asked, nick)
 	if err := s.fail[nick]; err != nil {
 		return nil, err
+	}
+	if s.hold != nil {
+		// Released so the parked dial never deadlocks the fixture's other
+		// callers; the gate is the test's, not the mutex's.
+		s.mu.Unlock()
+		s.held <- nick
+		select {
+		case <-s.hold:
+		case <-ctx.Done():
+			s.mu.Lock()
+			return nil, ctx.Err()
+		}
+		s.mu.Lock()
 	}
 	c := newFakeConn()
 	s.conns[nick] = c
@@ -298,6 +319,84 @@ func TestPresenceGoneRetiresImmediately(t *testing.T) {
 	}
 }
 
+// A retirement that lands while the dial is in flight must not leave a ghost.
+// forget, drop-after expiry, and shutdown can only close the conn they can see,
+// and a dialing buddy's is nil; the dial then landed on the orphaned struct,
+// installed the conn, and started drain. Nothing ever closed it: a nick that
+// stayed in the room until the daemon restarted, a leaked socket, and a
+// connection that neither the 16-cap nor live() could count. The positive
+// control is the same parked dial with no retirement, proving the park itself
+// does not stop a join.
+func TestPresenceDialLandingAfterRetirementIsClosed(t *testing.T) {
+	const session, label, nick = "sess-g", "harbor/s-77777777", "harbor-s-77777777"
+	cases := []struct {
+		name       string
+		retire     func(t *testing.T, h *presenceHarness) // nil: the positive control
+		wantClosed bool
+		wantOnline int
+	}{
+		{name: "positive control: no retirement, the parked dial joins", wantClosed: false, wantOnline: 1},
+		{name: "forget (SessionEnd) during the dial", wantClosed: true, wantOnline: 0,
+			retire: func(t *testing.T, h *presenceHarness) {
+				h.d.presence.forget(session)
+			}},
+		{name: "drop-after expiry during the dial", wantClosed: true, wantOnline: 0,
+			retire: func(t *testing.T, h *presenceHarness) {
+				h.clk.advance(h.d.presence.dropAfter + time.Minute)
+				waitFor(t, "reconcile to expire the buddy", func() bool {
+					_, wanted := h.d.presence.live()
+					return wanted == 0
+				})
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := startPresence(t)
+			h.script.hold, h.script.held = make(chan struct{}), make(chan string, 1)
+			h.d.presence.note(session, label, nil)
+			select {
+			case got := <-h.script.held:
+				if got != nick {
+					t.Fatalf("parked dial for %q, want %q", got, nick)
+				}
+			case <-time.After(settleBudget):
+				t.Fatal("dial never started")
+			}
+			if tc.retire != nil {
+				tc.retire(t, h)
+			}
+			close(h.script.hold)
+
+			what := "the parked dial to join"
+			if tc.wantClosed {
+				what = "the landed connection to be closed"
+			}
+			waitFor(t, what, func() bool {
+				c := h.script.conn(nick)
+				if c == nil {
+					return false
+				}
+				if !tc.wantClosed {
+					return recordedHas(c, "join harbor")
+				}
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				return c.closed
+			})
+			c := h.script.conn(nick)
+			c.mu.Lock()
+			closed := c.closed
+			c.mu.Unlock()
+			if closed != tc.wantClosed {
+				t.Fatalf("closed=%v, want %v", closed, tc.wantClosed)
+			}
+			if online, wanted := h.d.presence.live(); online != tc.wantOnline || wanted != tc.wantOnline {
+				t.Fatalf("live()=%d/%d, want %d/%d", online, wanted, tc.wantOnline, tc.wantOnline)
+			}
+		})
+	}
+}
+
 // Session connections see the same room traffic the concierge does. If they
 // journaled it, every message would be stored once per live session and the
 // journal's "what the server saw" contract — one connection's view — would be
@@ -363,6 +462,38 @@ func TestPresenceDisabledIsInert(t *testing.T) {
 	}
 	if resp := h.d.dispatch(Request{Op: "presence", Session: "sess-h"}); !resp.OK {
 		t.Fatalf("presence op must answer OK with presence off: %s", resp.Error)
+	}
+}
+
+// The room lookup folds by the ONE rule the ledger uses (invariant 13),
+// which includes NFC. Before, fold here was ToLower(TrimSpace) — a second
+// rule — so a room configured precomposed never matched a label whose
+// project half arrived decomposed, and that session was never presented.
+// The lookup is exercised in both directions and with the padding --rooms
+// leaves in, so a fix that normalized only one side would show.
+func TestServedRoomFoldsLikeTheLedger(t *testing.T) {
+	const nfc, nfd = "caf\u00e9", "cafe\u0301"
+	cases := []struct {
+		name  string
+		rooms []string
+		label string
+		want  string
+	}{
+		{"exact", []string{"harbor"}, "harbor/s-11111111", "harbor"},
+		{"case folds", []string{"Harbor"}, "harbor/s-11111111", "Harbor"},
+		{"NFC room, NFD label", []string{nfc}, nfd + "/s-11111111", nfc},
+		{"NFD room, NFC label", []string{nfd}, nfc + "/s-11111111", nfd},
+		{"padded room from --rooms", []string{" harbor"}, "harbor/s-11111111", " harbor"},
+		{"no such project", []string{"harbor"}, "elsewhere/s-11111111", ""},
+		{"empty project half", []string{"harbor"}, "/s-11111111", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &Daemon{cfg: Config{Rooms: tc.rooms}}
+			if got := d.servedRoom(tc.label); got != tc.want {
+				t.Fatalf("servedRoom(%q) with rooms %q = %q, want %q", tc.label, tc.rooms, got, tc.want)
+			}
+		})
 	}
 }
 

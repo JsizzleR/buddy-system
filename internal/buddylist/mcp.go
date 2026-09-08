@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -92,8 +93,31 @@ func textResult(s string) toolResult {
 	return toolResult{Content: []toolContent{{Type: "text", Text: s}}}
 }
 
+// maxErrBytes bounds a tool-level error rendered back to the model. Errors
+// here are not all ours: a daemon refusal carries the daemon's text, which
+// carries the wire's — an IRC ERROR line, a server's own notice. That is
+// untrusted, and it reaches an agent's context through exactly this sink.
+const maxErrBytes = 512
+
+// errResult renders a tool-level failure. It fences (invariant 9): "%v" of a
+// socket error is server-influenced text, and an error was the one result
+// path that rendered raw — a multi-line ERROR reply would have laid out extra
+// lines the model reads as its own tool output.
 func errResult(format string, args ...any) toolResult {
-	return toolResult{Content: []toolContent{{Type: "text", Text: fmt.Sprintf(format, args...)}}, IsError: true}
+	return toolResult{Content: []toolContent{{Type: "text", Text: Fence(fmt.Sprintf(format, args...), maxErrBytes)}}, IsError: true}
+}
+
+// fenceTokens renders a mention-token list on one line. The tokens are claim
+// slugs and caller-chosen names — ledger text, not chat text, but free text
+// all the same — and mentionSet trims and bounds them without neutralizing
+// line breaks; the alert renders these same tokens fenced, and a listing
+// header that did not would be the one place a slug could fabricate a row.
+func fenceTokens(tokens []string) string {
+	fenced := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		fenced = append(fenced, Fence(t, maxMentionBytes))
+	}
+	return strings.Join(fenced, ", ")
 }
 
 var mcpTools = []map[string]any{
@@ -359,7 +383,7 @@ func callTool(deps MCPDeps, name string, rawArgs json.RawMessage) toolResult {
 		if _, err := deps.Call(Request{Op: "say", Room: args.Room, From: from, Text: args.Text}, mcpCallTime); err != nil {
 			return errResult("send failed: %v", err)
 		}
-		return textResult(fmt.Sprintf("said in %s as [%s]", args.Room, from))
+		return textResult(fmt.Sprintf("said in %s as [%s]", Fence(args.Room, 64), Fence(from, 64)))
 	case "chat_read":
 		if args.Room == "" {
 			return errResult("chat_read needs room")
@@ -421,8 +445,8 @@ func callTool(deps MCPDeps, name string, rawArgs json.RawMessage) toolResult {
 			kept = append(kept, resp.Msgs[i])
 		}
 		if newestFirst {
-			reverseRows(rows)
-			reverseMsgs(kept)
+			slices.Reverse(rows)
+			slices.Reverse(kept)
 		}
 
 		// The cursor must stop at the last RENDERED row: advancing it past
@@ -445,7 +469,7 @@ func callTool(deps MCPDeps, name string, rawArgs json.RawMessage) toolResult {
 			ack, aerr := deps.Call(Request{Op: "ack", Room: args.Room, Session: sid, Seq: newest}, mcpCallTime)
 			switch {
 			case aerr != nil:
-				ackNote = fmt.Sprintf("(warning: your read cursor was NOT saved (%v) — these messages will come back)\n", aerr)
+				ackNote = fmt.Sprintf("(warning: your read cursor was NOT saved (%s) — these messages will come back)\n", Fence(aerr.Error(), maxErrBytes))
 			case ack.Cursor != newest:
 				ackNote = fmt.Sprintf("(note: your saved cursor stands at %d)\n", ack.Cursor)
 			}
@@ -461,7 +485,7 @@ func callTool(deps MCPDeps, name string, rawArgs json.RawMessage) toolResult {
 		}
 		b.WriteString(ackNote)
 		if len(tokens) > 0 {
-			fmt.Fprintf(&b, "filtered to messages naming: %s (other messages in this window are NOT shown)\n", strings.Join(tokens, ", "))
+			fmt.Fprintf(&b, "filtered to messages naming: %s (other messages in this window are NOT shown)\n", fenceTokens(tokens))
 		}
 		if resp.Gap && len(resp.Msgs) == 0 {
 			b.WriteString("(gap: everything after your cursor up to the retention horizon was trimmed — pass after=0 to resume from the oldest retained message)\n")
@@ -511,7 +535,7 @@ func callTool(deps MCPDeps, name string, rawArgs json.RawMessage) toolResult {
 		if len(tokens) == 0 {
 			b.WriteString("addressed: not counted (no names to match; pass mentions=[...])\n")
 		} else {
-			fmt.Fprintf(&b, "addressed = unread messages naming: %s\n", strings.Join(tokens, ", "))
+			fmt.Fprintf(&b, "addressed = unread messages naming: %s\n", fenceTokens(tokens))
 		}
 		b.WriteString("room                          newest  last   unread  addressed\n")
 		for _, st := range stats {
@@ -593,7 +617,7 @@ func callTool(deps MCPDeps, name string, rawArgs json.RawMessage) toolResult {
 		if _, err := deps.Call(Request{Op: "dm", To: args.To, From: from, Text: args.Text}, mcpCallTime); err != nil {
 			return errResult("dm failed: %v", err)
 		}
-		return textResult(fmt.Sprintf("sent to %s as [%s]", args.To, from))
+		return textResult(fmt.Sprintf("sent to %s as [%s]", Fence(args.To, 64), Fence(from, 64)))
 	case "set_status":
 		if _, err := deps.Call(Request{Op: "status", Text: args.Text}, mcpCallTime); err != nil {
 			return errResult("status failed: %v", err)
@@ -614,18 +638,6 @@ func renderRow(m Msg) string {
 	}
 	return fmt.Sprintf("%d %s <%s> %s", m.Seq, time.Unix(m.At, 0).Format("15:04"),
 		Fence(who, 64), Fence(m.Body, 2048))
-}
-
-func reverseRows(s []string) {
-	for i, k := 0, len(s)-1; i < k; i, k = i+1, k-1 {
-		s[i], s[k] = s[k], s[i]
-	}
-}
-
-func reverseMsgs(s []Msg) {
-	for i, k := 0, len(s)-1; i < k; i, k = i+1, k-1 {
-		s[i], s[k] = s[k], s[i]
-	}
 }
 
 func sessionID(deps MCPDeps) string {

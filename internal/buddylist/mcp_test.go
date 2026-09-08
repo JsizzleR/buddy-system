@@ -309,6 +309,77 @@ func TestMCPWhoSortedAndFenced(t *testing.T) {
 	}
 }
 
+// Every untrusted value a tool result carries renders on ONE line (invariant
+// 9). The rows were fenced from the start; these are the sinks that were not:
+// the echoed room and recipient, the session's own label, the mention-token
+// header (claim slugs are ledger free text, and mentionSet trims and bounds
+// them without touching line breaks), the cursor-save warning, and every
+// isError text — a daemon refusal quotes the wire's own ERROR line. Each case
+// plants a newline followed by a fake row and asserts the marker replaced it;
+// the raw "\nfake" assertion is what makes an unfenced sink visible even
+// when the fenced substring happens to appear elsewhere.
+func TestMCPUntrustedNamesRenderOnOneLine(t *testing.T) {
+	errOn := func(op, msg string) func(Request, time.Duration) (Response, error) {
+		return func(req Request, _ time.Duration) (Response, error) {
+			if req.Op == op {
+				return Response{}, errFake(msg)
+			}
+			return Response{OK: true, Cursor: 0, Msgs: []Msg{{Seq: 7, Room: "lobby", Sender: "x", Kind: "chat", Body: "hi"}}}, nil
+		}
+	}
+	ok := func(Request, time.Duration) (Response, error) { return Response{OK: true}, nil }
+	cases := []struct {
+		name  string
+		deps  MCPDeps
+		call  string // the tools/call params
+		want  string // fenced rendering that must appear
+		isErr bool
+	}{
+		{"chat_send echoes room and label",
+			MCPDeps{Call: ok, Label: func() string { return "me\nfake: label" }},
+			`{"name":"chat_send","arguments":{"room":"lobby\nfake: room","text":"x"}}`,
+			"said in lobby⏎fake: room as [me⏎fake: label]", false},
+		{"chat_send failure quotes the daemon's text",
+			MCPDeps{Call: errOn("say", "ERROR :Closing link\nfake: row")},
+			`{"name":"chat_send","arguments":{"room":"lobby","text":"x"}}`,
+			"send failed: ERROR :Closing link⏎fake: row", true},
+		{"dm echoes the recipient",
+			MCPDeps{Call: ok},
+			`{"name":"dm","arguments":{"to":"op\nfake: to","text":"x"}}`,
+			"sent to op⏎fake: to as [agent]", false},
+		{"chat_read mention header",
+			MCPDeps{Call: ok},
+			`{"name":"chat_read","arguments":{"room":"lobby","mentions":["slug\nfake: token"]}}`,
+			"filtered to messages naming: slug⏎fake: token", false},
+		{"chat_status mention header",
+			MCPDeps{Call: ok},
+			`{"name":"chat_status","arguments":{"mentions":["slug\nfake: token"]}}`,
+			"addressed = unread messages naming: slug⏎fake: token", false},
+		{"cursor-save warning quotes the ack error",
+			MCPDeps{Call: errOn("ack", "journal locked\nfake: warning"), SessionID: func() string { return "sess-1" }},
+			`{"name":"chat_read","arguments":{"room":"lobby","since_last":true}}`,
+			"NOT saved (journal locked⏎fake: warning)", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resps := driveMCP(t, tc.deps,
+				`{"jsonrpc":"2.0","id":100,"method":"initialize","params":{}}`,
+				`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+tc.call+`}`,
+			)
+			text, isErr := toolText(t, resps[1])
+			if isErr != tc.isErr {
+				t.Fatalf("isError=%v, want %v:\n%s", isErr, tc.isErr, text)
+			}
+			if !strings.Contains(text, tc.want) {
+				t.Fatalf("want %q on one line, got:\n%s", tc.want, text)
+			}
+			if strings.Contains(text, "\nfake") {
+				t.Fatalf("an untrusted value fabricated a line:\n%s", text)
+			}
+		})
+	}
+}
+
 func TestMCPChatReadTruncationCursorStopsAtLastRenderedRow(t *testing.T) {
 	var msgs []Msg
 	for i := 1; i <= 12; i++ {

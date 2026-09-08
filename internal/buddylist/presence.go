@@ -285,7 +285,25 @@ func (p *presence) dial(ctx context.Context, b *buddy) {
 		return
 	}
 
+	// Publish the connection ONLY if this buddy is still the one the map
+	// holds. forget (SessionEnd), reconcile's drop-after expiry, and closeAll
+	// all delete the entry while a dial may be in flight, and they can only
+	// close the conn they can see — which for a dialing buddy is nil. Before
+	// this check, the landing dial installed the conn on the orphaned struct
+	// and started drain: a nick that stayed in the room until the daemon
+	// restarted, a leaked socket and goroutine, and a connection invisible
+	// to both the 16-cap and live(), so `health` swore presence was fine.
+	// The check is under the same lock as the publication, not before it —
+	// checked earlier, a forget could still slip in between. Pointer
+	// identity, not key presence: a session that re-noted after its forget
+	// owns a NEW *buddy, and this conn belongs to the dead one.
 	p.mu.Lock()
+	if p.buddies[b.session] != b {
+		p.mu.Unlock()
+		conn.Close()
+		p.d.log.Info("presence buddy retired while dialing", "nick", nick, "room", room)
+		return
+	}
 	b.conn, b.nick, b.dialing = conn, nick, false
 	b.failures, b.applied = 0, ""
 	p.mu.Unlock()
@@ -341,6 +359,10 @@ func (p *presence) wakeSoon() {
 	}
 }
 
+// closeAll retires every buddy at shutdown. Replacing the map (rather than
+// clearing entries) is what makes an in-flight dial safe here: the dial's
+// publication check compares against this map, finds its buddy gone, and
+// closes the connection it just opened.
 func (p *presence) closeAll() {
 	p.mu.Lock()
 	conns := make([]Conn, 0, len(p.buddies))
@@ -388,8 +410,7 @@ func (p *presence) awayText(b *buddy, now time.Time) string {
 	return fmt.Sprintf("%s · idle %dm", claim, mins)
 }
 
-// backoffFor doubles per consecutive failure, capped. (The package's own min
-// takes Durations, so the shifts are bounded the long way round.)
+// backoffFor doubles per consecutive failure, capped.
 func backoffFor(failures int) time.Duration {
 	if failures < 1 {
 		failures = 1

@@ -15,6 +15,7 @@ import (
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/tocwire"
+	"golang.org/x/text/unicode/norm"
 )
 
 // maxBody bounds any single journaled body: server frames are hostile-ish
@@ -448,7 +449,24 @@ func (d *Daemon) Health() (connected bool, note string) {
 	return connected, note
 }
 
-func fold(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+// fold is the ONE folding rule (invariant 13), spelled exactly as store.Fold
+// spells it: strings.ToLower(norm.NFC.String(s)). It is restated here rather
+// than imported because the chat half must not take a compile-time dependency
+// on the ledger package for a string function — the ledger is the safety half,
+// and this package must remain droppable without it. If store.Fold ever
+// changes, this line changes with it; there is no third spelling.
+//
+// The failure that motivated it: the previous spelling was
+// ToLower(TrimSpace(s)), a second rule with no normalization. A room
+// configured as precomposed "café" then never matched a session label whose
+// project half arrived decomposed (labels are derived from directory names,
+// and a path can come back from the filesystem in either form), so the
+// session was never presented and its room lookups keyed on a name nothing
+// else used.
+//
+// TrimSpace stays as its own explicit step, not part of the rule: --rooms is
+// comma-split without trimming, so "lobby, ops" reaches here padded.
+func fold(s string) string { return strings.ToLower(norm.NFC.String(strings.TrimSpace(s))) }
 
 func jitter(d time.Duration) time.Duration {
 	return d/2 + time.Duration(rand.Int63n(int64(d)/2+1))
@@ -463,11 +481,4 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	case <-t.C:
 		return true
 	}
-}
-
-func min(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
 }
