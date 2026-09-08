@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -296,15 +297,23 @@ func openLedger(dir string, env Env) (*store.Store, error) {
 
 // repoRel maps a tool target path to a folded repo-relative path.
 // Relative inputs resolve against the hook cwd; both sides are symlink-
-// canonicalized and case-folded before containment (APFS is case-insensitive,
-// so a case-aliased repo root must not read as an escape). outside=true means
-// the path provably lives outside the repo.
+// canonicalized and folded before containment (APFS is case-insensitive, so a
+// case-aliased repo root must not read as an escape). outside=true means the
+// path provably lives outside the repo.
+//
+// store.Fold, never a bare ToLower (invariant 13: one folding rule). This used
+// ToLower alone, and macOS spells an accented directory NFD while git reports
+// the root NFC, so the two spellings of one path failed filepath.Rel, read as
+// "outside this repo", and went to the foreign-repo gate — which found the
+// SAME ledger, failed to place the path again, and allowed. Reproduced
+// 2026-09-08: an Edit under a peer's claimed scope, spelled NFD, drew no
+// verdict at all while its NFC control was denied.
 func repoRel(top, cwd, p string) (rel string, outside bool) {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(cwd, p)
 	}
-	pf := strings.ToLower(canon(p))
-	tf := strings.ToLower(canon(top))
+	pf := store.Fold(canon(p))
+	tf := store.Fold(canon(top))
 	r, err := filepath.Rel(tf, pf)
 	if err != nil {
 		return "", true
@@ -322,7 +331,7 @@ func mustLedger(dir string, env Env) (*store.Store, error) {
 		return nil, err
 	}
 	if _, err := os.Stat(p); err != nil {
-		return nil, fmt.Errorf("no ledger at %s — run `buddy init` in this repo first", p)
+		return nil, fmt.Errorf("no ledger at %s — run `buddy init` in this repo first", fence.Line(p, 512))
 	}
 	return store.Open(p, env.Now)
 }
@@ -349,9 +358,11 @@ type errAmbiguous struct {
 
 func (e errAmbiguous) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d live sessions share %s, so buddy cannot tell which one is calling", len(e.candidates), e.cwd)
+	// The newlines here are this message's own structure; every VALUE on a
+	// line is fenced so a candidate's label cannot add a line of its own.
+	fmt.Fprintf(&b, "%d live sessions share %s, so buddy cannot tell which one is calling", len(e.candidates), fence.Line(e.cwd, 512))
 	for _, si := range e.candidates {
-		fmt.Fprintf(&b, "\n  - %s (%s)", si.Label, si.SessionID)
+		fmt.Fprintf(&b, "\n  - %s (%s)", fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
 	}
 	fmt.Fprintf(&b, "\nsay which: --session <id>, or set %s. (Refusing rather than guessing: a claim\n"+
 		"recorded against the wrong session locks its real owner out of its own scope.)", EnvSession)
@@ -377,7 +388,8 @@ func (e errUncorroborated) Error() string {
 		"this worktree is registered to %s (%s), but %d sessions are live here and nothing in the\n"+
 			"directory shows you are that one — if you are, `--session %s` says so (or export %s=%s\n"+
 			"once for this shell). A worktree records where a session STARTED, not who is calling.",
-		e.match.Label, e.match.SessionID, e.liveTotal, e.match.SessionID, EnvSession, e.match.SessionID)
+		fence.Line(e.match.Label, 64), fence.Line(e.match.SessionID, 128), e.liveTotal,
+		fence.Line(e.match.SessionID, 128), EnvSession, fence.Line(e.match.SessionID, 128))
 }
 
 // whoAmI resolves the identity of the CALLER of an agent verb.
@@ -458,7 +470,7 @@ func whoAmI(st *store.Store, env Env, explicit string) (store.SessionInfo, error
 		// answer to give: so infer, and say out loud that it was inferred.
 		if env.Stderr != nil {
 			fmt.Fprintf(env.Stderr, "buddy: assuming you are %s (%s), inferred from %s — pass --session or set $%s if that is wrong\n",
-				cands[0].Label, cands[0].SessionID, env.Cwd, EnvSession)
+				fence.Line(cands[0].Label, 64), fence.Line(cands[0].SessionID, 128), fence.Line(env.Cwd, 512), EnvSession)
 		}
 		return cands[0], nil
 	}
@@ -482,6 +494,7 @@ func whoAmI(st *store.Store, env Env, explicit string) (store.SessionInfo, error
 // worse one, since both fallback arms are already conditional.
 func assertedNotLive(st *store.Store, id, from string, known bool, rest []struct{ id, from string }) error {
 	var b strings.Builder
+	id = fence.Line(id, 128) // asserted by the caller, echoed to a tool result
 	if known {
 		fmt.Fprintf(&b, "session %s (from %s) has ended", id, from)
 	} else {
@@ -493,7 +506,7 @@ func assertedNotLive(st *store.Store, id, from string, known bool, rest []struct
 		}
 		if si, ok, err := st.Session(alt.id); err == nil && ok && si.Live() {
 			fmt.Fprintf(&b, " — but %s names %s (%s), which is live here: %s to use it",
-				alt.from, si.Label, si.SessionID, clearing(from))
+				alt.from, fence.Line(si.Label, 64), fence.Line(si.SessionID, 128), clearing(from))
 			return errors.New(b.String())
 		}
 	}
@@ -597,7 +610,7 @@ func cmdInit(args []string, env Env) error {
 		return err
 	}
 	st.Close()
-	fmt.Fprintf(env.Stdout, "ledger ready: %s\n", p)
+	fmt.Fprintf(env.Stdout, "ledger ready: %s\n", fence.Line(p, 512))
 	return nil
 }
 
@@ -653,9 +666,10 @@ func cmdHello(args []string, env Env) error {
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n", si.Label, si.SessionID)
+	fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n",
+		fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
 	if note, paused, _ := st.PausedFor(si.SessionID, si.Label); paused {
-		fmt.Fprintf(&b, "BUDDY: you are PAUSED: %s\n", note)
+		fmt.Fprintf(&b, "BUDDY: you are PAUSED: %s\n", fence.Line(note, 512))
 	}
 	if len(claims) == 0 {
 		b.WriteString("BUDDY: no live claims.\n")
@@ -786,7 +800,10 @@ func cmdBeat(args []string, env Env) error {
 
 	// Drain the inbox: write first, mark delivered only after the write
 	// succeeded (at-least-once).
-	label := sessionLabel(st, h.SessionID)
+	label, err := sessionLabel(st, h.SessionID)
+	if err != nil {
+		return err
+	}
 	msgs, err := st.Undelivered(h.SessionID, label)
 	if err != nil {
 		return err
@@ -846,12 +863,22 @@ func cmdBeat(args []string, env Env) error {
 	return st.MarkDelivered(h.SessionID, ids)
 }
 
-func sessionLabel(st *store.Store, sessionID string) string {
+// sessionLabel resolves the label a hook's session answers to. "" for a
+// session the ledger has never seen (a hook that fires before hello); the
+// ERROR is returned, not folded into "", because the two are different
+// verdicts. This used to return "" for both, so a row the gate could not READ
+// adjudicated exactly like an unknown session — PausedFor ran with no label
+// and a pause addressed by label was missed, on the one hook that must fail
+// closed (invariant 2).
+func sessionLabel(st *store.Store, sessionID string) (string, error) {
 	si, ok, err := st.SessionByID(sessionID)
-	if err != nil || !ok {
-		return ""
+	if err != nil {
+		return "", err
 	}
-	return si.Label
+	if !ok {
+		return "", nil
+	}
+	return si.Label, nil
 }
 
 // pathTools are the tools whose hook input MUST carry a target path; a
@@ -902,14 +929,18 @@ func cmdGate(args []string, env Env) int {
 	}
 	defer st.Close()
 
-	label := sessionLabel(st, h.SessionID)
+	label, err := sessionLabel(st, h.SessionID)
+	if err != nil {
+		deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
+		return 0
+	}
 	if note, paused, err := st.PausedFor(h.SessionID, label); err != nil {
 		deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
 		return 0
 	} else if paused {
 		msg := "the operator paused this session (buddy pause)"
 		if note != "" {
-			msg += ": " + note
+			msg += ": " + fence.Line(note, 512)
 		}
 		deny(env, msg+" — stop current work; wait for `buddy resume`.")
 		return 0
@@ -971,7 +1002,8 @@ func gateForeignRepo(h hookInput, env Env) int {
 		return 0 // not buddy-governed → genuinely outside our jurisdiction
 	}
 	if err != nil {
-		deny(env, fmt.Sprintf("buddy: target %s is in a repo whose ledger is unavailable (%v); refusing %s", target, err, h.ToolName))
+		deny(env, fmt.Sprintf("buddy: target %s is in a repo whose ledger is unavailable (%s); refusing %s",
+			fence.Line(target, 512), fence.Line(err.Error(), 512), h.ToolName))
 		return 0
 	}
 	defer st.Close()
@@ -982,6 +1014,14 @@ func gateForeignRepo(h hookInput, env Env) int {
 	}
 	rel, outside := repoRel(top, dir, target)
 	if outside {
+		// A ledger was found under the target, so this repo IS governed — and
+		// the path could still not be placed inside its root. That is a
+		// placement failure, not "outside our jurisdiction": the only way here
+		// is a disagreement between how git spells the root and how the tool
+		// spelled the target, and a disagreement the gate cannot resolve must
+		// not resolve to allow. This arm was the exit the NFD spelling took.
+		deny(env, fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
+			fence.Line(target, 512), fence.Line(top, 512), h.ToolName))
 		return 0
 	}
 	return denyIfHeld(st, h, env, rel, top)
@@ -1047,9 +1087,10 @@ func cmdClaim(args []string, env Env) error {
 		return err
 	}
 	if err := st.Claim(si.SessionID, si.Incarnation, slug, *desc, scopes); err != nil {
-		return err
+		return fencedErr(err)
 	}
-	fmt.Fprintf(env.Stdout, "claimed %q for %s — scopes: %s\n", slug, si.Label, strings.Join(scopes, ", "))
+	fmt.Fprintf(env.Stdout, "claimed %s for %s — scopes: %s\n",
+		strconv.Quote(fence.Line(slug, 128)), fence.Line(si.Label, 64), fence.Line(strings.Join(scopes, ", "), 512))
 	return nil
 }
 
@@ -1075,9 +1116,9 @@ func cmdRelease(args []string, env Env) error {
 		return err
 	}
 	if err := st.Release(si.SessionID, si.Incarnation, slug); err != nil {
-		return err
+		return fencedErr(err)
 	}
-	fmt.Fprintf(env.Stdout, "released %q\n", slug)
+	fmt.Fprintf(env.Stdout, "released %s\n", strconv.Quote(fence.Line(slug, 128)))
 	return nil
 }
 
@@ -1102,8 +1143,14 @@ func cmdLs(args []string, env Env) error {
 		if c.Stale(now) {
 			state += " STALE"
 		}
+		// Slug, label, scopes and desc are peer-controlled free text, and ls
+		// is an agent verb whose stdout lands in a tool result. The hello
+		// digest fenced these for exactly this reason; ls did not, so a label
+		// with a newline fabricated a claim row in every other session's
+		// listing (invariant 9).
 		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s — %s\n",
-			c.Slug, c.Owner.Label, state, age(now, c.Renewed), strings.Join(c.Scopes, ","), c.Desc)
+			fence.Line(c.Slug, 128), fence.Line(c.Owner.Label, 64), state, age(now, c.Renewed),
+			fence.Line(strings.Join(c.Scopes, ","), 512), fence.Line(c.Desc, 512))
 	}
 	return nil
 }
@@ -1148,6 +1195,16 @@ func cmdSweep(args []string, env Env) error {
 // Hello revives a session under its own id, so an inbox message survives to be
 // drained — but nothing will drain it until that happens, and silence there
 // looks exactly like delivery.
+// fencedErr renders a store refusal for a tool result. ErrRefused and
+// ErrNoRelease name the CLAIMANT — a peer-controlled label — and Run prints
+// the error verbatim, so this is the same sink resolveTarget fences and for
+// the same reason: internal/store does not render, and must not learn to.
+// The store's refusal messages are single-line by construction, so folding
+// the whole string costs nothing legitimate.
+func fencedErr(err error) error {
+	return errors.New(fence.Line(err.Error(), 1024))
+}
+
 func resolveTarget(st *store.Store, raw string, env Env) (store.Target, error) {
 	t, err := st.ResolveTarget(raw)
 	if err != nil {
@@ -1311,7 +1368,8 @@ func cmdSessions(args []string, env Env) error {
 			state = "live STALE"
 		}
 		fmt.Fprintf(env.Stdout, "%-24s %-12s %6s  %s  (%s)%s\n",
-			si.Label, state, age(now, since), si.Worktree, si.SessionID, note)
+			fence.Line(si.Label, 64), state, age(now, since), fence.Line(si.Worktree, 512),
+			fence.Line(si.SessionID, 128), note)
 	}
 	return nil
 }
