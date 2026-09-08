@@ -48,9 +48,14 @@ EFFORT=${CODEX_EFFORT:-xhigh}
 # TIER is passed EXPLICITLY rather than inherited from ~/.codex/config.toml, because an
 # inherited setting is invisible here — the run header echoes model and effort but NOT
 # the tier, so a config edit elsewhere would silently change what the gate runs on with
-# nothing to notice it by. It is a latency choice; model and effort carry the diversity
-# guarantee. CODEX_TIER=default to override.
-TIER=${CODEX_TIER:-fast}
+# nothing to notice it by.
+#
+# DEFAULT, not fast, on this project (operator's call, 2026-09-07): the fast tier buys
+# latency, and latency is the one thing a review here does not need — the run is
+# foreground, budgeted, and happens once per change. What it must not do is give up
+# depth on a codebase whose whole point is the failure nobody noticed. CODEX_TIER=fast
+# to trade back.
+TIER=${CODEX_TIER:-default}
 BUDGET=${CODEX_BUDGET:-540} # under the 600s foreground tool cap; scope the prompt to fit
 
 die() { echo "codex-review: $*" >&2; exit 1; }
