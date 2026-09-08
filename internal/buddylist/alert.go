@@ -1,6 +1,7 @@
 package buddylist
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -81,26 +82,15 @@ func (j *Journal) Addressed(session, label string, tokens []string, limit int) (
 	// what makes "advance to newest" provable: a row appended between the two
 	// queries is outside the window, so it is not skipped, it is simply next
 	// time's work.
-	type roomTop struct {
-		name   string
-		newest int64
-	}
-	var rooms []roomTop
-	rows, err := j.db.Query(`SELECT room, MAX(seq) FROM messages
-		WHERE room<>? AND room<>'' AND kind IN ('chat','im') GROUP BY room ORDER BY room`, sentRoom)
+	rooms, err := j.alertRoomTops()
 	if err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var r roomTop
-		if err := rows.Scan(&r.name, &r.newest); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		rooms = append(rooms, r)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	// One read of this session's whole cursor set, not one per room: see
+	// alertCursors. A room with no row reads back as 0, which is the same
+	// "never alerted" AlertCursor reports for a missing row.
+	cursors, err := j.alertCursors(session)
+	if err != nil {
 		return nil, err
 	}
 
@@ -111,10 +101,7 @@ func (j *Journal) Addressed(session, label string, tokens []string, limit int) (
 
 	var out []RoomAlert
 	for _, r := range rooms {
-		cur, err := j.AlertCursor(session, r.name)
-		if err != nil {
-			return nil, err
-		}
+		cur := cursors[r.name]
 		if cur >= r.newest {
 			continue
 		}
@@ -164,6 +151,168 @@ func (j *Journal) Addressed(session, label string, tokens []string, limit int) (
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// roomTop is one room and the newest seq in it that could possibly alert.
+type roomTop struct {
+	name   string
+	newest int64
+}
+
+// alertRoomTopsQuery lists every room holding at least one chat/im row,
+// ordered by room, with that room's newest such seq (NULL when it holds none).
+//
+// The obvious spelling of this is one aggregate, and it is what shipped:
+//
+//	SELECT room, MAX(seq) FROM messages
+//	 WHERE room<>'@sent' AND room<>'' AND kind IN ('chat','im')
+//	 GROUP BY room ORDER BY room
+//
+// That is LINEAR IN THE WHOLE JOURNAL. Measured plan, 60k-row synthetic
+// journal over 8 rooms:
+//
+//	SCAN messages USING INDEX messages_room_seq
+//
+// The index hands over the grouping for free, but `kind` is not in it, so each
+// of the 60k index entries pays a row lookup and the scan is not covering.
+// This runs on the PostToolUse hook, once per tool call, in a freshly spawned
+// process — so what the aggregate costs is what RETENTION costs. Today's real
+// journal is ~553 rows, where none of this is measurable; the number below is
+// how the cost GROWS, not a speedup anybody would feel today.
+//
+// So the rooms are walked by SEEK. A loose index scan (the "MIN(room) WHERE
+// room > the previous one" idiom) enumerates the distinct rooms in R+1
+// covering seeks, and each room's newest message is one more seek into that
+// room's own slice of the same index. Measured plan on the same 60k rows —
+// EVERY line EXPLAIN QUERY PLAN emits, indented by its parent link, because an
+// abridged quote of a plan sends the next reader looking for the lines it
+// dropped:
+//
+//	CO-ROUTINE rooms
+//	  SETUP
+//	    SEARCH messages USING COVERING INDEX messages_room_seq
+//	  RECURSIVE STEP
+//	    SCAN rooms
+//	    CORRELATED SCALAR SUBQUERY 2
+//	      SEARCH messages USING COVERING INDEX messages_room_seq (room>?)
+//	SCAN rooms
+//	CORRELATED SCALAR SUBQUERY 4
+//	  SEARCH m USING INDEX messages_room_seq (room=?)
+//	USE TEMP B-TREE FOR ORDER BY
+//
+// The two `SCAN rooms` are the CTE being consumed — once by the recursive step,
+// once by the outer SELECT — and the temp b-tree sorts that CTE's output for the
+// final `ORDER BY room`. Both are over R rows, never over the journal, which is
+// the whole point of the rewrite: no line of this plan grows with retention.
+//
+// Measured on the same 60k rows: the aggregate 27.8-30.7 ms/call, this walk
+// 0.041-0.047 ms. The whole Addressed call was 27.6 ms before and 0.078 ms
+// after, in the steady state where every cursor is parked at its room's newest
+// — which is the state every tool call finds. So the aggregate WAS the call.
+//
+// The exclusions live INSIDE the MIN() subqueries, so @sent and "" never become
+// states of the walk and cost neither a seek of their own nor a MAX() subquery.
+// That placement is cost, NOT correctness — and the two mutations that probe it
+// are LINKED, not independent. Neither alone fails a single test in this package
+// (both watched):
+//
+//   - Moving both exclusions out to the final filter returns the same set: what
+//     advances the walk is room>previous, so the outbox becomes one more state
+//     the final WHERE then drops.
+//   - Making an exclusion the recursion GUARD (`FROM rooms WHERE rooms.room IS
+//     NOT NULL AND rooms.room<>?`) is a NO-OP against this placement, and that is
+//     the placement's doing: with the exclusion inside the MIN(), @sent is never
+//     a state of the walk, so a guard testing for it can never fire.
+//
+// It is the PAIR that loses rooms. Exclusions in the final filter put @sent back
+// into the walk; the guard then ends the walk AT it and silently drops every room
+// sorting after — watched, on the test's outbox-straddling fixture: seeks
+// [{!alpha 4} {@dm 3}] against aggr [{!alpha 4} {@dm 3} {zulu 1}]. That
+// combination is what TestAlertRoomTopsMatchTheAggregateItReplaced kills.
+//
+// Note what that means for a later edit: there is NO defence in depth here. The
+// exclusions appear only in the MIN() subqueries and are not repeated in the
+// final `WHERE room IS NOT NULL`, so moving them "somewhere equivalent" is one
+// step away from a walk that ends at the outbox. The test is the only guard.
+//
+// REFUTED alternative: have the caller pass in the rooms it serves (the
+// daemon's configured room list, plus the DM pseudo-room). Cut, because the
+// reported set must not depend on the config: @dm is not a configured room, and
+// a room dropped from the config still holds an unacked backlog somebody is
+// owed. Deriving the set from the same table with the same predicates makes
+// "exactly the rooms the aggregate listed" true by construction instead of by
+// review — and TestAlertRoomTopsMatchTheAggregateItReplaced pins it there.
+//
+// What this trades is linear-in-ROWS for linear-in-DISTINCT-ROOMS, which is the
+// right way round while rooms are the handful the daemon joins plus @dm. A
+// journal that grew a room per peer would want a rooms table instead.
+const alertRoomTopsQuery = `WITH RECURSIVE rooms(room) AS (
+	SELECT MIN(room) FROM messages WHERE room<>'' AND room<>?
+	UNION ALL
+	SELECT (SELECT MIN(room) FROM messages WHERE room>rooms.room AND room<>'' AND room<>?)
+		FROM rooms WHERE rooms.room IS NOT NULL
+)
+SELECT room, (SELECT MAX(seq) FROM messages m WHERE m.room=rooms.room AND m.kind IN ('chat','im'))
+FROM rooms WHERE room IS NOT NULL ORDER BY room`
+
+func (j *Journal) alertRoomTops() ([]roomTop, error) {
+	rows, err := j.db.Query(alertRoomTopsQuery, sentRoom, sentRoom)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []roomTop
+	for rows.Next() {
+		var name string
+		var newest sql.NullInt64
+		if err := rows.Scan(&name, &newest); err != nil {
+			return nil, err
+		}
+		if !newest.Valid {
+			// A room holding only presence/system rows has no message anybody
+			// addressed. The aggregate did not list it either — GROUP BY over a
+			// kind-filtered WHERE produces no group at all — so dropping it here
+			// is what keeps the two sets identical.
+			continue
+		}
+		out = append(out, roomTop{name: name, newest: newest.Int64})
+	}
+	return out, rows.Err()
+}
+
+// alertCursors reads this session's ENTIRE alert cursor set in one query.
+//
+// One AlertCursor call per room is R round trips on a path that runs on every
+// tool call, and they all answer from the same index: (session, room) is the
+// table's primary key, so its automatic index answers the whole set from a
+// single seek at the session prefix. Measured plan:
+//
+//	SEARCH alert_cursor USING INDEX sqlite_autoindex_alert_cursor_1 (session=?)
+//
+// A room absent from the map reads back as 0, which is exactly what
+// AlertCursor returns for sql.ErrNoRows: "never alerted, start at the
+// horizon". The empty-session refusal is kept here rather than left to the
+// per-room helper, because that helper is no longer on this path and a cursor
+// keyed to "" is one every unidentified session would share.
+func (j *Journal) alertCursors(session string) (map[string]int64, error) {
+	if session == "" {
+		return nil, errNoSession
+	}
+	rows, err := j.db.Query(`SELECT room, seq FROM `+alertCursorTable+` WHERE session=?`, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var room string
+		var seq int64
+		if err := rows.Scan(&room, &seq); err != nil {
+			return nil, err
+		}
+		out[room] = seq
+	}
+	return out, rows.Err()
 }
 
 // ownSends is a session's recent outbox, used to recognize the echoes of its
