@@ -257,14 +257,17 @@ func (s *Store) DirtyWarnPending(sessionID, worktree, relPath string) (bool, err
 // of the same file trains its reader to skip it, and then it is worse than
 // nothing. The accepted cost: if the peer holding the file changes, the second
 // holder is never announced. That is the deliberate trade for silence.
+//
+// It is FirstDirtyWarn with the answer discarded: the two carried the same
+// INSERT verbatim, and a change to the key (the fold, say) would have had to be
+// made twice or the dedup would silently disagree with itself.
 func (s *Store) MarkDirtyWarned(sessionID, worktree, relPath string) error {
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO dirty_warned (session_id, worktree, folded, warned) VALUES (?,?,?,?)`,
-		sessionID, worktree, fold(relPath), s.now().Unix())
+	_, err := s.FirstDirtyWarn(sessionID, worktree, relPath)
 	return err
 }
 
 // FirstDirtyWarn is the atomic check-and-mark, for callers with nothing to
-// deliver in between.
+// deliver in between. It is the one INSERT behind both verbs.
 func (s *Store) FirstDirtyWarn(sessionID, worktree, relPath string) (bool, error) {
 	res, err := s.db.Exec(`INSERT OR IGNORE INTO dirty_warned (session_id, worktree, folded, warned) VALUES (?,?,?,?)`,
 		sessionID, worktree, fold(relPath), s.now().Unix())

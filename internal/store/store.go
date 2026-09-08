@@ -54,6 +54,12 @@ CREATE TABLE IF NOT EXISTS claim_scopes (
 	scope    TEXT NOT NULL,
 	folded   TEXT NOT NULL
 );
+-- Covering index for the per-claim scope lookups: claimsWhere reads scopes by
+-- claim_id, and Claim (refresh) and Sweep delete by it. Without it every one
+-- of those is a full scan of claim_scopes. IF NOT EXISTS is what puts it on a
+-- ledger created before it existed: any ledger below schemaVersion re-runs
+-- this whole script under Open's migration, and the index lands then.
+CREATE INDEX IF NOT EXISTS claim_scopes_claim ON claim_scopes(claim_id, scope);
 CREATE TABLE IF NOT EXISTS controls (
 	id      INTEGER PRIMARY KEY AUTOINCREMENT,
 	kind    TEXT NOT NULL CHECK (kind IN ('pause')),
@@ -109,6 +115,13 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 );
 `
 
+// schemaVersion is stamped into PRAGMA user_version once the schema above and
+// its backfills have been applied. Bump it whenever the schema string changes:
+// a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
+// ledger at it is opened without touching the write lock at all. Ledgers from
+// before the stamp existed read 0 and migrate exactly once.
+const schemaVersion = 1
+
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
 	db  *sql.DB
@@ -116,6 +129,15 @@ type Store struct {
 }
 
 // Open opens (creating if needed) the ledger at dbPath. now==nil uses the wall clock.
+//
+// The version check is a plain read, deliberately OUTSIDE any transaction.
+// Open used to begin a transaction for `CREATE TABLE IF NOT EXISTS` on every
+// call, and the ledger opens with _txlock=immediate — so every open, including
+// the read-only gate hook's, took the database WRITE lock. Uncontended that
+// costs ~30 µs, which is nothing; the problem is SERIALIZATION, not latency: a
+// gate opening behind a peer's Sweep or RetainDirty queues for up to
+// busy_timeout, 5000 ms against a 100 ms hook budget. A ledger already at
+// schemaVersion (every open after the first) now never asks for that lock.
 func Open(dbPath string, now func() time.Time) (*Store, error) {
 	if now == nil {
 		now = time.Now
@@ -125,48 +147,77 @@ func Open(dbPath string, now func() time.Time) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open ledger: %w", err)
 	}
+	var ver int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspect ledger schema version: %w", err)
+	}
+	if ver < schemaVersion {
+		if err := migrate(db); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	return &Store{db: db, now: now}, nil
+}
+
+// migrate brings a ledger below schemaVersion up to it, in ONE transaction:
+// the version re-check, the marker-table inspection, the schema, the backfill
+// and the stamp all commit together or not at all. If the process dies part
+// way, SQLite rolls all of it back and the next Open sees the old version and
+// starts over; it can never mistake a half-finished migration for a complete
+// one. The earlier shape inspected sqlite_master BEFORE beginning, which was
+// not the atomicity its comment claimed: a peer could have created the marker
+// table between the look and the lock.
+//
+// The version is re-read under the lock because two openers can both pass the
+// unlocked check in Open: the second one to win BEGIN IMMEDIATE finds the
+// first one's stamp and does nothing.
+func migrate(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin ledger migration: %w", err)
+	}
+	defer tx.Rollback()
+	var ver int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil {
+		return fmt.Errorf("inspect ledger schema version: %w", err)
+	}
+	if ver >= schemaVersion {
+		return nil
+	}
 	// Detect the one migration that needs data backfill before the schema
 	// creates its marker table. Existing broadcasts can be assigned to the
 	// sessions whose recorded lifetime covered the send; sessions that started
 	// later are deliberately excluded.
 	hadRecipientTable := false
 	var one int
-	err = db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='inbox_recipient'`).Scan(&one)
+	err = tx.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='inbox_recipient'`).Scan(&one)
 	switch {
 	case err == nil:
 		hadRecipientTable = true
 	case !errors.Is(err, sql.ErrNoRows):
-		db.Close()
-		return nil, fmt.Errorf("inspect ledger migration state: %w", err)
-	}
-	// Create the marker table and backfill in one transaction. If the process
-	// dies between those steps, SQLite rolls both back; a later Open can never
-	// mistake a half-finished migration for a completed one.
-	tx, err := db.Begin()
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("begin ledger migration: %w", err)
+		return fmt.Errorf("inspect ledger migration state: %w", err)
 	}
 	if _, err := tx.Exec(schema); err != nil {
-		tx.Rollback()
-		db.Close()
-		return nil, fmt.Errorf("migrate ledger: %w", err)
+		return fmt.Errorf("migrate ledger: %w", err)
 	}
 	if !hadRecipientTable {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO inbox_recipient (msg_id, session_id)
 			SELECT m.msg_id, s.session_id FROM inbox m JOIN sessions s
 				ON s.started<=m.created AND (s.ended IS NULL OR s.ended>=m.created)
 			WHERE m.target='all'`); err != nil {
-			tx.Rollback()
-			db.Close()
-			return nil, fmt.Errorf("backfill broadcast recipients: %w", err)
+			return fmt.Errorf("backfill broadcast recipients: %w", err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("commit ledger migration: %w", err)
+	// PRAGMA takes no bound parameters; the value is a compile-time constant.
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+		return fmt.Errorf("stamp ledger schema version: %w", err)
 	}
-	return &Store{db: db, now: now}, nil
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit ledger migration: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -280,25 +331,20 @@ func (s *Store) Hello(sessionID, label, worktree string, pid int) (SessionInfo, 
 				return err
 			}
 			inc = newToken()
-			set := `incarnation=?, worktree=?, pid=?, started=?, last_seen=?, ended=NULL`
-			args := []any{inc, worktree, pid, now, now}
-			if label != "" {
-				set += `, label=?`
-				args = append(args, label)
-			}
-			args = append(args, sessionID)
-			if _, err := tx.Exec(`UPDATE sessions SET `+set+` WHERE session_id=?`, args...); err != nil {
+			if _, err := tx.Exec(`UPDATE sessions SET incarnation=?, worktree=?, pid=?, started=?, last_seen=?, ended=NULL,
+				label=COALESCE(NULLIF(?,''), label) WHERE session_id=?`,
+				inc, worktree, pid, now, now, label, sessionID); err != nil {
 				return err
 			}
 		default:
-			set := `last_seen=?, worktree=?, pid=?`
-			args := []any{now, worktree, pid}
-			if label != "" {
-				set += `, label=?`
-				args = append(args, label)
-			}
-			args = append(args, sessionID)
-			if _, err := tx.Exec(`UPDATE sessions SET `+set+` WHERE session_id=?`, args...); err != nil {
+			// An empty label means "keep the one you have" (labels are pause/msg
+			// targets and must not drift under a session — see defaultLabel), so
+			// NULLIF turns it into NULL and COALESCE falls through to the stored
+			// value. One fixed statement replaces two hand-assembled SET clauses
+			// that appended `, label=?` conditionally.
+			if _, err := tx.Exec(`UPDATE sessions SET last_seen=?, worktree=?, pid=?,
+				label=COALESCE(NULLIF(?,''), label) WHERE session_id=?`,
+				now, worktree, pid, label, sessionID); err != nil {
 				return err
 			}
 		}
@@ -339,12 +385,15 @@ func defaultLabel(worktree, sessionID string) string {
 // next hello reopens); orphaning happens in Hello/Sweep, where it is
 // idempotent and keyed to rows still ended when they run. A non-empty
 // incarnation fences the update.
+//
+// One statement, so no explicit transaction: a single UPDATE is atomic on its
+// own, and the fence (ended IS NULL AND incarnation matches) is evaluated by
+// the same statement that writes. The earlier wrap in s.tx bought nothing and
+// cost a second BEGIN IMMEDIATE round-trip on the SessionEnd hook.
 func (s *Store) Bye(sessionID, incarnation string) error {
-	return s.tx(func(tx *sql.Tx) error {
-		_, err := tx.Exec(`UPDATE sessions SET ended=? WHERE session_id=? AND ended IS NULL AND (incarnation=? OR ?='')`,
-			s.now().Unix(), sessionID, incarnation, incarnation)
-		return err
-	})
+	_, err := s.db.Exec(`UPDATE sessions SET ended=? WHERE session_id=? AND ended IS NULL AND (incarnation=? OR ?='')`,
+		s.now().Unix(), sessionID, incarnation, incarnation)
+	return err
 }
 
 // orphanEnded orphans open claims whose owner session is ended, stamping
@@ -461,27 +510,30 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 		}
 
 		// Slug conflict?
-		var ownID, ownSession string
-		err := tx.QueryRow(`SELECT claim_id, session_id FROM claims WHERE slug=? AND state='open'`, slug).Scan(&ownID, &ownSession)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		ownID, ownSession, taken, err := openSlugOwner(tx, slug)
+		if err != nil {
 			return err
 		}
-		if err == nil && ownSession != sessionID {
+		if taken && ownSession != sessionID {
 			label, _ := s.labelOf(tx, ownSession)
 			return ErrRefused{Slug: slug, Claimant: label}
 		}
 
-		// Overlap with any OTHER session's open scopes?
-		rows, err := tx.Query(`SELECT cs.folded, c.slug, c.session_id FROM claim_scopes cs
+		// Overlap with any OTHER session's open scopes? The comparison runs on
+		// the folded column; the refusal reports the scope AS CLAIMED, because
+		// that is what `buddy ls` prints and what the peer typed — an operator
+		// told they overlap "src/api" went looking for a claim on "Src/API" and
+		// found no such line.
+		rows, err := tx.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id FROM claim_scopes cs
 			JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open' AND c.session_id<>?`, sessionID)
 		if err != nil {
 			return err
 		}
-		type held struct{ folded, slug, session string }
+		type held struct{ folded, scope, slug, session string }
 		var theirs []held
 		for rows.Next() {
 			var h held
-			if err := rows.Scan(&h.folded, &h.slug, &h.session); err != nil {
+			if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session); err != nil {
 				rows.Close()
 				return err
 			}
@@ -495,7 +547,7 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 			for _, h := range theirs {
 				if scopesOverlap(nf, h.folded) {
 					label, _ := s.labelOf(tx, h.session)
-					return ErrRefused{Slug: h.slug, Scope: n, Their: h.folded, Claimant: label}
+					return ErrRefused{Slug: h.slug, Scope: n, Their: h.scope, Claimant: label}
 				}
 			}
 		}
@@ -518,6 +570,29 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 		}
 		return insertScopes(tx, id, norm)
 	})
+}
+
+// rowQuerier is what openSlugOwner needs from either a *sql.Tx (Claim, inside
+// its transaction) or a *sql.DB (ResolveTarget, outside one).
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// openSlugOwner answers "who holds this slug open?": the claim id and its
+// owning session, or taken=false. At most one row can match, because
+// claims_open_slug is UNIQUE over state='open'. It is the ONE spelling of that
+// query: Claim and ResolveTarget each wrote their own with the columns in a
+// different order, and two copies of a rule drift — a change to what "open"
+// means (say, excluding orphaned rows) would have had to be found twice.
+func openSlugOwner(q rowQuerier, slug string) (claimID, sessionID string, taken bool, err error) {
+	err = q.QueryRow(`SELECT claim_id, session_id FROM claims WHERE slug=? AND state='open'`, slug).Scan(&claimID, &sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return claimID, sessionID, true, nil
 }
 
 func insertScopes(tx *sql.Tx, claimID string, scopes []string) error {
@@ -649,6 +724,13 @@ func (s *Store) Claims(includeClosed bool) ([]ClaimInfo, error) {
 
 // claimsWhere lists claims matching a WHERE clause over c (claims) and ses
 // (sessions), with scopes attached.
+//
+// Two queries, not 1+N: the scopes of every matching claim come back in one
+// statement keyed by the SAME where clause, then attach in Go. The earlier
+// shape issued one scope query per claim, and each one was a full scan of
+// claim_scopes until claim_scopes_claim existed. Scopes stay sorted by scope
+// within a claim, as the per-claim query sorted them — listings and the
+// commit gate's output are compared by eye and by tests.
 func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 	rows, err := s.db.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed,
 			ses.session_id, ses.incarnation, ses.label, ses.worktree, ses.pid, ses.started, ses.last_seen, COALESCE(ses.ended,0)
@@ -665,25 +747,36 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 			unixScan{&c.Owner.Started}, unixScan{&c.Owner.LastSeen}, unixScan{&c.Owner.Ended}); err != nil {
 			return nil, err
 		}
-		srows, err := s.db.Query(`SELECT scope FROM claim_scopes WHERE claim_id=? ORDER BY scope`, c.ClaimID)
-		if err != nil {
-			return nil, err
-		}
-		for srows.Next() {
-			var sc string
-			if err := srows.Scan(&sc); err != nil {
-				srows.Close()
-				return nil, err
-			}
-			c.Scopes = append(c.Scopes, sc)
-		}
-		srows.Close()
-		if err := srows.Err(); err != nil {
-			return nil, err
-		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	srows, err := s.db.Query(`SELECT cs.claim_id, cs.scope FROM claim_scopes cs WHERE cs.claim_id IN
+			(SELECT c.claim_id FROM claims c JOIN sessions ses ON ses.session_id=c.session_id `+where+`)
+		ORDER BY cs.claim_id, cs.scope`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer srows.Close()
+	scopes := make(map[string][]string, len(out))
+	for srows.Next() {
+		var id, sc string
+		if err := srows.Scan(&id, &sc); err != nil {
+			return nil, err
+		}
+		scopes[id] = append(scopes[id], sc)
+	}
+	if err := srows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Scopes = scopes[out[i].ClaimID]
+	}
+	return out, nil
 }
 
 // OwnerOf returns the open claim of ANOTHER session covering relPath, if any.
@@ -944,17 +1037,12 @@ func (s *Store) Sessions() ([]SessionInfo, error) {
 // an id need the difference: "never said hello here" and "said bye" have
 // different remedies, and recommending the wrong one is worse than saying
 // nothing.
+//
+// Deprecated: it is SessionByID under an older name — the same contract, and
+// it now delegates rather than loading every session and scanning in Go. Kept
+// so existing callers compile; new code should call SessionByID.
 func (s *Store) Session(sessionID string) (SessionInfo, bool, error) {
-	sessions, err := s.Sessions()
-	if err != nil {
-		return SessionInfo{}, false, err
-	}
-	for _, si := range sessions {
-		if si.SessionID == sessionID {
-			return si, true, nil
-		}
-	}
-	return SessionInfo{}, false, nil
+	return s.SessionByID(sessionID)
 }
 
 // ResolveSessions returns EVERY live session whose registered worktree contains

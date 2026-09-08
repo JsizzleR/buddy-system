@@ -1,8 +1,10 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -386,6 +388,12 @@ func TestRecipientMigrationReconstructsOnlyTheAudienceAtSendTime(t *testing.T) {
 	if _, err := st.db.Exec(`DROP TABLE inbox_recipient`); err != nil {
 		t.Fatal(err)
 	}
+	// A ledger from before the marker table is also from before the version
+	// stamp: it reads user_version 0. Without resetting it here the fixture is
+	// a CURRENT ledger with a table missing, which Open rightly never repairs.
+	if _, err := st.db.Exec(`PRAGMA user_version = 0`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.db.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES ('all','operator','legacy',?)`, clk.now().Unix()); err != nil {
 		t.Fatal(err)
 	}
@@ -711,4 +719,218 @@ func hello2(t *testing.T, st *Store, id, label, wt string) SessionInfo {
 		t.Fatal(err)
 	}
 	return si
+}
+
+// Open on a ledger already at schemaVersion must not ask for the write lock.
+// It used to BEGIN IMMEDIATE for CREATE TABLE IF NOT EXISTS on every open, so
+// the read-only gate hook queued behind any peer's write transaction for up to
+// busy_timeout — 5000 ms against a 100 ms hook budget. Here a second connection
+// holds that lock while Open runs on a third; the positive control proves the
+// lock was really held, or "returned promptly" and "never contended" would be
+// the same observation.
+func TestOpenOnACurrentLedgerTakesNoWriteLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fleet.db")
+	st, err := Open(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	holder, err := sql.Open("sqlite", "file:"+path+"?_txlock=immediate&_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	held, err := holder.Begin() // BEGIN IMMEDIATE: the ledger's write lock
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Rollback()
+
+	// Positive control: a writer that will not wait is refused right now.
+	probe, err := sql.Open("sqlite", "file:"+path+"?_txlock=immediate&_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	if ptx, err := probe.Begin(); err == nil {
+		ptx.Rollback()
+		t.Fatal("control: the write lock was not actually held, so this test proves nothing")
+	}
+
+	start := time.Now()
+	st2, err := Open(path, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Open queued behind a peer's write lock and failed after %v: %v", elapsed, err)
+	}
+	st2.Close()
+	if elapsed > time.Second {
+		t.Fatalf("Open of a current ledger took %v; it must not touch the write lock", elapsed)
+	}
+}
+
+// A ledger written before the version stamp existed reads user_version 0 with
+// every table present. Open must still run the schema once — that is how a new
+// IF NOT EXISTS index reaches an existing ledger — and stamp it, so the next
+// open takes the fast path.
+func TestOpenMigratesAnUnstampedLedgerAndStampsIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	st, err := Open(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`DROP INDEX claim_scopes_claim`, `PRAGMA user_version = 0`} {
+		if _, err := st.db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	st.Close()
+
+	st, err = Open(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	var ver int
+	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil || ver != schemaVersion {
+		t.Fatalf("migration must stamp user_version=%d, got %d (err=%v)", schemaVersion, ver, err)
+	}
+	var one int
+	if err := st.db.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='index' AND name='claim_scopes_claim'`).Scan(&one); err != nil {
+		t.Fatalf("migration must add the index an older ledger lacks: %v", err)
+	}
+}
+
+// Scopes come back sorted within their claim, attached to THEIR claim, with
+// the claims in creation order — the shape the per-claim query produced before
+// the scope lookup became one statement grouped in Go.
+func TestClaimsScopesAreSortedAndAttachedToTheirOwnClaim(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if err := st.Claim(a.SessionID, a.Incarnation, "first", "x", []string{"z/last", "a/first", "m/mid"}); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(time.Second)
+	if err := st.Claim(a.SessionID, a.Incarnation, "second", "x", []string{"q/two", "b/two"}); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := st.Claims(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		slug   string
+		scopes []string
+	}{
+		{"first", []string{"a/first", "m/mid", "z/last"}},
+		{"second", []string{"b/two", "q/two"}},
+	}
+	if len(claims) != len(want) {
+		t.Fatalf("want %d claims, got %d", len(want), len(claims))
+	}
+	for i, w := range want {
+		if claims[i].Slug != w.slug || !reflect.DeepEqual(claims[i].Scopes, w.scopes) {
+			t.Fatalf("claim %d: got %s %v, want %s %v", i, claims[i].Slug, claims[i].Scopes, w.slug, w.scopes)
+		}
+	}
+	// The single-claim path (what the gate uses on a hit) attaches the same way.
+	owner, held, err := st.OwnerOf("m/mid/f.go", "someone-else")
+	if err != nil || !held || !reflect.DeepEqual(owner.Scopes, want[0].scopes) {
+		t.Fatalf("OwnerOf scopes: held=%v %v (err=%v)", held, owner.Scopes, err)
+	}
+}
+
+// Session and SessionByID share one contract: a live row, an ended row, and no
+// row are three different answers, and both verbs must give the same one.
+func TestSessionAgreesWithSessionByID(t *testing.T) {
+	st, _ := openTest(t)
+	live := hello(t, st, "sess-live", "live", "/wt/live")
+	ended := hello(t, st, "sess-ended", "ended", "/wt/ended")
+	if err := st.Bye(ended.SessionID, ended.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name     string
+		id       string
+		wantOK   bool
+		wantLive bool
+	}{
+		{"live", live.SessionID, true, true},
+		{"ended", ended.SessionID, true, false},
+		{"unknown", "never-said-hello", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s1, ok1, err1 := st.Session(tc.id)
+			s2, ok2, err2 := st.SessionByID(tc.id)
+			if err1 != nil || err2 != nil {
+				t.Fatalf("errors: %v / %v", err1, err2)
+			}
+			if ok1 != tc.wantOK || (ok1 && s1.Live() != tc.wantLive) {
+				t.Fatalf("Session: ok=%v live=%v, want ok=%v live=%v", ok1, s1.Live(), tc.wantOK, tc.wantLive)
+			}
+			if ok1 != ok2 || !reflect.DeepEqual(s1, s2) {
+				t.Fatalf("Session and SessionByID disagree: (%v,%+v) vs (%v,%+v)", ok1, s1, ok2, s2)
+			}
+		})
+	}
+}
+
+// A refusal names the peer's scope AS CLAIMED, not its folded form: the
+// operator goes looking for the line `buddy ls` prints, and "src/api" is not
+// on it when the peer claimed "Src/API".
+func TestRefusalNamesTheScopeAsClaimed(t *testing.T) {
+	st, _ := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	b := hello(t, st, "sess-b", "bravo", "/wt/b")
+	if err := st.Claim(a.SessionID, a.Incarnation, "api", "x", []string{"Src/API"}); err != nil {
+		t.Fatal(err)
+	}
+	err := st.Claim(b.SessionID, b.Incarnation, "under", "x", []string{"src/api/x"})
+	var refused ErrRefused
+	if !errors.As(err, &refused) {
+		t.Fatalf("want ErrRefused, got %v", err)
+	}
+	if refused.Their != "Src/API" {
+		t.Fatalf("refusal must name the scope as claimed (Src/API), got %q", refused.Their)
+	}
+	if refused.Scope != "src/api/x" {
+		t.Fatalf("refusal must name the requested scope as typed, got %q", refused.Scope)
+	}
+}
+
+// Hello's label rule, over both UPDATE arms: an empty label keeps the stored
+// one (labels are pause/msg targets and must not drift), a non-empty one
+// replaces it.
+func TestHelloLabelKeepsOrReplaces(t *testing.T) {
+	cases := []struct {
+		name  string
+		ended bool
+		label string
+		want  string
+	}{
+		{"live refresh keeps", false, "", "alpha"},
+		{"live refresh replaces", false, "beta", "beta"},
+		{"revive keeps", true, "", "alpha"},
+		{"revive replaces", true, "gamma", "gamma"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st, _ := openTest(t)
+			a := hello(t, st, "sess-a", "alpha", "/wt/a")
+			if tc.ended {
+				if err := st.Bye(a.SessionID, a.Incarnation); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := hello(t, st, "sess-a", tc.label, "/wt/a")
+			if got.Label != tc.want {
+				t.Fatalf("label %q after hello(%q): want %q", got.Label, tc.label, tc.want)
+			}
+			if (got.Incarnation != a.Incarnation) != tc.ended {
+				t.Fatalf("incarnation changed=%v, want %v", got.Incarnation != a.Incarnation, tc.ended)
+			}
+		})
+	}
 }
