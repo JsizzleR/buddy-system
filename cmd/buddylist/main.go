@@ -365,29 +365,7 @@ func runAlert(args []string) error {
 	dir := fs.String("cwd", "", "working directory whose ledger names this session (default: hook JSON, then $PWD)")
 	fs.Parse(args)
 
-	sid, cwd := *session, *dir
-	hookDriven := false
-	if sid == "" || cwd == "" {
-		// Hook JSON is the authority when it is there: a session id taken
-		// from the environment can name a DIFFERENT session in the same
-		// checkout, and the alert cursor it would advance is not ours.
-		if h, err := readHookStdin(); err == nil {
-			hookDriven = true
-			if sid == "" {
-				sid = h.SessionID
-			}
-			if cwd == "" {
-				cwd = h.Cwd
-			}
-		}
-	}
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	id, label, slugs := cli.ChatIdentity(cwd, sid)
-	if id == "" {
-		id = sid
-	}
+	id, label, slugs, hookDriven := resolveIdentity(*session, *dir)
 	deps := buddylist.AlertDeps{
 		Call: func(req buddylist.Request, timeout time.Duration) (buddylist.Response, error) {
 			return buddylist.Call(defaultSocket(), req, timeout)
@@ -416,6 +394,12 @@ func runAlert(args []string) error {
 	})
 }
 
+// maxNoteBytes caps a daemon note printed to the terminal. The note is the
+// daemon's last system line, and that line quotes the connection's own error
+// (an IRC ERROR reply, a server notice) verbatim and unbounded — so it is
+// server-influenced text and gets the body cap, rendered on one line.
+const maxNoteBytes = 4096
+
 // presenceCallTime bounds the round-trip. SessionEnd is not the alert's hot
 // path, but a wedged daemon must not hold up a session's exit either.
 const presenceCallTime = 2 * time.Second
@@ -436,8 +420,40 @@ func runPresence(args []string) error {
 	gone := fs.Bool("gone", false, "retire this session's buddy now (SessionEnd)")
 	fs.Parse(args)
 
-	sid, cwd := *session, *dir
-	hookDriven := false
+	id, label, slugs, hookDriven := resolveIdentity(*session, *dir)
+	if id == "" {
+		return errors.New("no session identity (pass --session, or run inside a session)")
+	}
+	resp, err := buddylist.Call(defaultSocket(),
+		buddylist.Request{Op: "presence", Session: id, Label: label, Slugs: slugs, Gone: *gone},
+		presenceCallTime)
+	if err != nil {
+		return err
+	}
+	if !hookDriven {
+		// The note is the daemon's last system line, which embeds the wire's
+		// own error text; a server can put a newline in that.
+		fmt.Println(buddylist.Fence(resp.Note, maxNoteBytes))
+	}
+	return nil
+}
+
+// resolveIdentity answers "which session is this, and what does it claim" for
+// the two hook-carried verbs, alert and presence. Flags win when given; the
+// hook JSON on stdin fills what they leave blank; the cwd falls back to $PWD.
+// hookDriven reports whether stdin was a hook payload, which decides the
+// output envelope (a hook gets JSON, a hand run gets text).
+//
+// One helper because it was two verbatim copies, and the copies had already
+// begun to drift: the alert's copy carried the comment explaining why hook
+// JSON outranks the environment and the presence copy did not. The rule is
+// the same for both and belongs in one place:
+//
+// Hook JSON is the authority when it is there. A session id taken from the
+// environment can name a DIFFERENT session in the same checkout, and the
+// alert cursor it would advance — or the buddy it would retire — is not ours.
+func resolveIdentity(session, dir string) (id, label string, slugs []string, hookDriven bool) {
+	sid, cwd := session, dir
 	if sid == "" || cwd == "" {
 		if h, err := readHookStdin(); err == nil {
 			hookDriven = true
@@ -452,23 +468,11 @@ func runPresence(args []string) error {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	id, label, slugs := cli.ChatIdentity(cwd, sid)
+	id, label, slugs = cli.ChatIdentity(cwd, sid)
 	if id == "" {
 		id = sid
 	}
-	if id == "" {
-		return errors.New("no session identity (pass --session, or run inside a session)")
-	}
-	resp, err := buddylist.Call(defaultSocket(),
-		buddylist.Request{Op: "presence", Session: id, Label: label, Slugs: slugs, Gone: *gone},
-		presenceCallTime)
-	if err != nil {
-		return err
-	}
-	if !hookDriven {
-		fmt.Println(resp.Note)
-	}
-	return nil
+	return id, label, slugs, hookDriven
 }
 
 // hookStdin is the sliver of the hook payload the alert needs. It is parsed
@@ -503,6 +507,6 @@ func runHealth() error {
 	if !resp.Connected {
 		state = "DISCONNECTED"
 	}
-	fmt.Printf("%s  last: %s\n", state, resp.Note)
+	fmt.Printf("%s  last: %s\n", state, buddylist.Fence(resp.Note, maxNoteBytes))
 	return nil
 }

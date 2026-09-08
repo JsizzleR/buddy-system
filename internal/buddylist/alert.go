@@ -246,10 +246,7 @@ func RunAlert(deps AlertDeps, emit func(text string) error) error {
 	resp, err := deps.Call(Request{Op: "alerts", Session: deps.SessionID, Label: deps.Label,
 		Slugs: deps.Slugs, Mentions: tokens, Limit: alertRowCap}, alertCallTime)
 	if err != nil {
-		return err
-	}
-	if !resp.OK {
-		return errors.New(resp.Error)
+		return err // Call already turns a !OK reply into this error
 	}
 	if len(resp.Alerts) == 0 {
 		return nil

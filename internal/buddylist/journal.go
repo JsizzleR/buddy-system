@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -203,9 +204,7 @@ func (j *Journal) Read(o ReadOpts) (msgs []Msg, gap bool, err error) {
 		return nil, false, err
 	}
 	if newestFirst {
-		for i, k := 0, len(msgs)-1; i < k; i, k = i+1, k-1 {
-			msgs[i], msgs[k] = msgs[k], msgs[i]
-		}
+		slices.Reverse(msgs)
 	}
 	return msgs, gap, nil
 }
