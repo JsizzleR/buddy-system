@@ -292,7 +292,7 @@ func TestSessionLabelForUsesIdentityNotTheDirectory(t *testing.T) {
 	label := func(env map[string]string) string {
 		e := Env{Cwd: f.repo, Now: func() time.Time { return f.clock },
 			Getenv: func(k string) string { return env[k] }}
-		st, err := openLedger(f.repo, e)
+		st, _, err := openRepo(f.repo, e)
 		if err != nil {
 			t.Fatalf("open ledger: %v", err)
 		}

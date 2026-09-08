@@ -866,3 +866,145 @@ func TestAgentVerbsFencePeerControlledText(t *testing.T) {
 		t.Fatalf("refusal must fence the claimant's label:\n%s", errw)
 	}
 }
+
+// gitInvocations puts a logging shim ahead of git on PATH and returns one entry
+// per invocation, so a test can count what a hook actually forked. The shim
+// execs the real git, so the command under test behaves normally.
+func gitInvocations(t *testing.T, f *fixture, cwd, stdin string, args ...string) []string {
+	t.Helper()
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	shimDir := t.TempDir()
+	log := filepath.Join(shimDir, "invocations")
+	shim := "#!/bin/sh\necho \"$*\" >> " + log + "\nexec " + realGit + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(shimDir, "git"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if _, errw, code := f.run(t, cwd, stdin, args...); code != 0 {
+		t.Fatalf("%v exited %d: %s", args, code, errw)
+	}
+	b, err := os.ReadFile(log)
+	if err != nil {
+		return nil // never forked at all
+	}
+	var out []string
+	for _, l := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// ONE discovery process per hook, and the number is the point.
+//
+// The ledger lives in the git COMMON dir and repo-relative paths are relative to
+// the WORKTREE root, so every hook needs both answers. They used to be two
+// rev-parse processes: measured 2026-09-08 at 7-9 ms each against an 18 ms
+// gate, so the second fork was about a third of the hook, and git answers both
+// in one process for the same price (gate fell to 12.1 ms, beat to 12.7 ms).
+// Pinned as a test because the regression is invisible — two processes and one
+// produce identical output, and the only symptom is latency nobody attributes
+// to the right place.
+//
+// It counts rev-parse SPECIFICALLY rather than every git. beat also runs the
+// dirty-path `git status`, which is a different thing on purpose: throttled by
+// DueForDirtyScan, separately budgeted, and advisory. Counting all git
+// invocations would make this test fail whenever that throttle happened to be
+// open, which is a fact about the throttle and not about discovery.
+//
+// Path-LESS calls are in the table deliberately. beat's rev-parse used to sit
+// inside a has-a-path guard precisely so Bash, Grep, Task and every mcp__* tool
+// would not fork a git they did not need; this asserts the new shape did not
+// quietly take that back.
+func TestEachHookRunsOneDiscoveryProcess(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	withPath := hookJSON("sess-b", f.repo, "Edit", filepath.Join(f.repo, "x.go"))
+	noPath := hookJSON("sess-b", f.repo, "Bash", "")
+	for _, tc := range []struct{ name, stdin, verb string }{
+		{"gate/path-bearing", withPath, "gate"},
+		{"gate/path-less", noPath, "gate"},
+		{"beat/path-bearing", withPath, "beat"},
+		{"beat/path-less", noPath, "beat"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := gitInvocations(t, f, f.repo, tc.stdin, tc.verb)
+			n := 0
+			for _, inv := range got {
+				if strings.Contains(inv, "rev-parse") {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Fatalf("%s ran %d rev-parse processes, want exactly 1:\n  %s",
+					tc.name, n, strings.Join(got, "\n  "))
+			}
+			// And the one call asks for BOTH answers, so a future edit cannot
+			// satisfy the count by dropping the root and re-forking for it
+			// somewhere else.
+			for _, inv := range got {
+				if strings.Contains(inv, "rev-parse") {
+					if !strings.Contains(inv, "--git-common-dir") || !strings.Contains(inv, "--show-toplevel") {
+						t.Fatalf("%s: discovery must ask both questions at once, got %q", tc.name, inv)
+					}
+				}
+			}
+		})
+	}
+}
+
+// Repo roots git reports in a shape a careless parser gets wrong.
+//
+// Both cases put a NEWLINE in the repo's path, which is legal on every platform
+// this runs on and which git neither quotes nor escapes (verified 2026-09-08 by
+// od). That matters twice over. First, the combined two-value rev-parse output
+// then spans more than two lines, so a positional split silently misassigns the
+// root — and in a gate a wrong root places every path wrongly. splitTwoPaths
+// must REFUSE to split and fall back to asking one question at a time.
+//
+// Second, the fallback is the ONLY path that reaches gitLine, so it is the only
+// place the difference between stripping git's single terminator and calling
+// strings.TrimSpace can be observed at all. Hence the second case, whose
+// directory ALSO ends in a space: a directory name may legally end in one, and
+// TrimSpace — what this code used to do — eats it, yielding a root that nothing
+// inside the repo is relative to, so every path reads as "outside this repo".
+// (Measured while writing this test: a trailing space alone is NOT enough to
+// catch that, because the combined path slices at the terminators and never
+// calls gitLine. The first version of this test asserted a property it did not
+// exercise.)
+//
+// Each case asserts a DENY naming the claim, which happens only if the root was
+// resolved and the path placed inside it.
+func TestGateResolvesRootsGitReportsAwkwardly(t *testing.T) {
+	for _, tc := range []struct{ name, dir string }{
+		{"newline in the repo path", "re\npo"},
+		{"newline and a trailing space", "re\npo "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixtureNamed(t, tc.dir)
+			f.initAndHello(t)
+			if _, errw, code := f.run(t, f.repo, "", "claim", "core", "--session", "sess-a", "--desc", "d", "--scope", "src"); code != 0 {
+				t.Fatalf("claim: %s", errw)
+			}
+			out, errw, _ := f.run(t, f.repo, hookJSON("sess-b", f.repo, "Edit", filepath.Join(f.repo, "src", "a.go")), "gate")
+			reason, denied := decodeDeny(t, out)
+			if !denied {
+				t.Fatalf("a peer's scope must be denied however git spells the root: out=%q stderr=%q", out, errw)
+			}
+			if !strings.Contains(reason, `slug "core"`) {
+				t.Fatalf("denial must name the claim, got %q", reason)
+			}
+			// Positive control: an unclaimed path in the same awkward repo still
+			// passes, so the deny above is the CLAIM and not a blanket refusal
+			// of a repo whose name we could not parse.
+			out, _, code := f.run(t, f.repo, hookJSON("sess-b", f.repo, "Edit", filepath.Join(f.repo, "free.go")), "gate")
+			if code != 0 || strings.TrimSpace(out) != "" {
+				t.Fatalf("control: unclaimed path must pass, got code=%d out=%q", code, out)
+			}
+		})
+	}
+}
