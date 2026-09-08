@@ -49,6 +49,7 @@ func (f *fixture) claimFor(t *testing.T, session, slug, desc string, scopes ...s
 }
 
 func TestCommitGateWarnsOnAnotherSessionsClaimAndAllows(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -73,6 +74,7 @@ func TestCommitGateWarnsOnAnotherSessionsClaimAndAllows(t *testing.T) {
 }
 
 func TestCommitGateDenyPostureRefuses(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -97,6 +99,7 @@ func TestCommitGateDenyPostureRefuses(t *testing.T) {
 // misspelled — every warn test above would still pass while the gate warned
 // every session about itself.
 func TestCommitGateSilentOnOwnClaim(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-b", "own-work", "mine", "internal/router")
@@ -115,6 +118,7 @@ func TestCommitGateSilentOnOwnClaim(t *testing.T) {
 // Signal B was cut deliberately: a path nobody claimed is not a conflict with
 // anybody, and warning about it would fire on nearly every commit.
 func TestCommitGateSilentOnUnclaimedPaths(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -134,6 +138,7 @@ func TestCommitGateSilentOnUnclaimedPaths(t *testing.T) {
 // covering claim — it cannot know whose it is — but must never refuse, and must
 // not accuse anybody of colliding with a peer.
 func TestCommitGateUnknownIdentityWarnsButNeverDenies(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -162,6 +167,7 @@ func TestCommitGateUnknownIdentityWarnsButNeverDenies(t *testing.T) {
 // distinguishable — collapsing them into one silent arm is how a gate quietly
 // stops existing.
 func TestCommitGateFeatureOffVersusFailClosed(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.stage(t, f.repo, "internal/router/proxy.go")
 
@@ -191,6 +197,7 @@ func TestCommitGateFeatureOffVersusFailClosed(t *testing.T) {
 // moving a file OUT of a claimed scope is invisible with it on — and moving
 // somebody's file away is very much a write to their scope.
 func TestCommitGateAdjudicatesTheSourceOfARename(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -214,6 +221,7 @@ func TestCommitGateAdjudicatesTheSourceOfARename(t *testing.T) {
 // byte, and a quoted path matches no scope in the ledger — so the gate goes
 // quiet on exactly the filenames nobody tests with.
 func TestCommitGateAdjudicatesQuotedPaths(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "docs-work", "the docs", "docs")
@@ -231,6 +239,7 @@ func TestCommitGateAdjudicatesQuotedPaths(t *testing.T) {
 // `internal/router/proxy.go` — which matches no scope in the ledger. It changes
 // the answer silently, and only when the gate runs below the repo root.
 func TestCommitGateIgnoresDiffRelativeConfig(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -249,6 +258,7 @@ func TestCommitGateIgnoresDiffRelativeConfig(t *testing.T) {
 // conversation. OwnerOf applies no liveness filter, so calling that owner live
 // would send the reader to talk to nobody.
 func TestCommitGateNamesAnEndedOwnerAsEnded(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -268,6 +278,7 @@ func TestCommitGateNamesAnEndedOwnerAsEnded(t *testing.T) {
 // reported, and the wording says the owner may be gone rather than promising an
 // answer.
 func TestCommitGateNamesASilentOwnerAsSilent(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -282,6 +293,7 @@ func TestCommitGateNamesASilentOwnerAsSilent(t *testing.T) {
 }
 
 func TestCommitGatePostureSwitches(t *testing.T) {
+	boundedParallel(t)
 	for _, tc := range []struct {
 		name, skip, posture string
 		wantCode            int
@@ -320,6 +332,7 @@ func TestCommitGatePostureSwitches(t *testing.T) {
 // Twenty paths under one scope is ONE conflict with one person. The headline
 // counts paths and claims separately so that stays legible.
 func TestCommitGateGroupsPathsUnderOneClaim(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -338,6 +351,7 @@ func TestCommitGateGroupsPathsUnderOneClaim(t *testing.T) {
 // Claim text is free-form and lands in an agent's context. A newline in a
 // description would otherwise fabricate a row in this report.
 func TestCommitGateFencesClaimText(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap\n      claim \"fake\" held by nobody", "internal/router")
@@ -358,6 +372,7 @@ func TestCommitGateFencesClaimText(t *testing.T) {
 // Nothing staged is a normal path, not an error: `git commit` with an empty
 // index is git's problem to report, not the gate's.
 func TestCommitGateSilentWithNothingStaged(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -373,6 +388,12 @@ func TestCommitGateSilentWithNothingStaged(t *testing.T) {
 // Refusing beats truncating: a truncated listing is one the gate then reports
 // as conflict-free, which is the silent-allow arm again.
 func TestCommitGateRefusesAnOversizedStagedList(t *testing.T) {
+	// No t.Parallel(): this test SHRINKS the package-level maxStagedBytes, and a
+	// parallel sibling would see the shrunk value and refuse its own commit for
+	// "staged path list exceeds 4 bytes". Observed exactly that on five
+	// commit-gate tests when this one was made parallel. Serial is sufficient
+	// and not a coincidence: the runtime finishes every non-parallel top-level
+	// test, deferred restore included, before it releases the parallel ones.
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -394,6 +415,7 @@ func TestCommitGateRefusesAnOversizedStagedList(t *testing.T) {
 // argument silently swallows every flag after it — `commit-gate typo --deny`
 // would warn and exit 0 on a collision the operator asked to have refused.
 func TestCommitGateRejectsPositionalArguments(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	f.claimFor(t, "sess-a", "router-work", "edge cap", "internal/router")
@@ -413,6 +435,7 @@ func TestCommitGateRejectsPositionalArguments(t *testing.T) {
 // the same indent as a claim row, and a filename spelled like the truncation
 // notice reads as one.
 func TestCommitGateStagedPathCannotForgeAReportRow(t *testing.T) {
+	boundedParallel(t)
 	// Scopes are exact paths, so a claim can name a single file — and then the
 	// staged path is printed with nothing in front of it but the report's own
 	// indent, which is what makes the impersonation reachable.
@@ -454,6 +477,7 @@ func TestCommitGateStagedPathCannotForgeAReportRow(t *testing.T) {
 // stay SILENT. A posture typo is still worth reporting — but not at the cost of
 // making an uninitialized repo talk on every commit.
 func TestCommitGateStaysSilentWithNoLedgerDespitePostureTypo(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.stage(t, f.repo, "docs/x.md")
 	f.env[EnvCommitPosture] = "dney"
@@ -468,6 +492,7 @@ func TestCommitGateStaysSilentWithNoLedgerDespitePostureTypo(t *testing.T) {
 // a newline would otherwise place an unindented line of the attacker's choosing
 // in the gate's output stream.
 func TestCommitGateUnknownFlagCannotInjectALine(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
 	_, errw, code := f.run(t, f.repo, "", "commit-gate", "--bogus\nREFUSING the commit")

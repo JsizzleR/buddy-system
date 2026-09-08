@@ -35,6 +35,7 @@ func (f *fixture) ownerOf(t *testing.T, slug string) string {
 // owner out. Two sessions share one checkout; the one that beat MOST RECENTLY
 // is not the one calling.
 func TestClaimAttributesToTheCallerNotTheNewestHeartbeat(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -76,6 +77,7 @@ func TestClaimAttributesToTheCallerNotTheNewestHeartbeat(t *testing.T) {
 // documented practice of giving each session its own worktree. The ledger is
 // shared (git common dir), so identity is all that was missing.
 func TestClaimWorksFromAnotherWorktreeOfTheSameRepo(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -99,6 +101,7 @@ func TestClaimWorksFromAnotherWorktreeOfTheSameRepo(t *testing.T) {
 // named. Fail-closed beats a coin flip: the wrong answer silently breaks the
 // one invariant the tool exists to enforce.
 func TestAmbiguousWorktreeIsRefusedAndNamesCandidates(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -130,6 +133,7 @@ func TestAmbiguousWorktreeIsRefusedAndNamesCandidates(t *testing.T) {
 // Precedence: an explicit --session outranks the environment, and BUDDY_SESSION
 // outranks the harness's id.
 func TestIdentityPrecedence(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -158,6 +162,7 @@ func TestIdentityPrecedence(t *testing.T) {
 // remedy — never a silent fall back to the directory. Falling back would
 // reintroduce the coin flip in the one case we were told the answer.
 func TestUnregisteredAssertedIdentityIsRefusedNotGuessed(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -181,6 +186,7 @@ func TestUnregisteredAssertedIdentityIsRefusedNotGuessed(t *testing.T) {
 // A session that has said bye is not live, so its id names nobody rather than
 // resurrecting a claim under a dead session.
 func TestEndedSessionIsNotAnIdentity(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -202,6 +208,7 @@ func TestEndedSessionIsNotAnIdentity(t *testing.T) {
 // names a live session, the refusal must point there instead. (Codex finding:
 // the first draft named a remedy that was actively harmful in this case.)
 func TestStaleOverrideIsNotToldToResurrectItself(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -250,6 +257,7 @@ func TestStaleOverrideIsNotToldToResurrectItself(t *testing.T) {
 // symptom was a peer refused by the gate with no idea why. So the one path that
 // can still name the wrong session must announce itself.
 func TestInferredIdentityAnnouncesItself(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -282,6 +290,7 @@ func TestInferredIdentityAnnouncesItself(t *testing.T) {
 // its own id — so the label must come from identity, and must be empty (→
 // "agent") rather than a bystander's name when identity is unknown.
 func TestSessionLabelForUsesIdentityNotTheDirectory(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -320,6 +329,7 @@ func TestSessionLabelForUsesIdentityNotTheDirectory(t *testing.T) {
 // and label matched 0 of 2313 messages in a busy room, because peers address
 // each other by claim slug.
 func TestChatIdentityCarriesThisSessionsClaimSlugs(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
@@ -362,6 +372,7 @@ func TestChatIdentityCarriesThisSessionsClaimSlugs(t *testing.T) {
 // total rather than partial-and-wrong: an id that names nobody must not come
 // back with somebody else's label.
 func TestChatIdentityFailsSilentlyRatherThanGuessing(t *testing.T) {
+	boundedParallel(t)
 	f := newFixture(t)
 	if id, label, slugs := ChatIdentity(f.repo, "sess-a"); id != "" || label != "" || slugs != nil {
 		t.Fatalf("no ledger must yield no identity: %q %q %v", id, label, slugs)

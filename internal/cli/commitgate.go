@@ -68,6 +68,10 @@ import (
 const commitGateBudget = 5 * time.Second
 
 // maxStagedBytes bounds one listing. A var so the over-cap arm can be tested
+// without staging a megabyte — which means the test that shrinks it MUST stay
+// serial: every other test in the package runs in parallel, and one that read a
+// temporarily-shrunken cap would refuse its own commit for a reason that has
+// nothing to do with what it is testing.
 // without generating a megabyte of filenames.
 var maxStagedBytes = 1 << 20
 
