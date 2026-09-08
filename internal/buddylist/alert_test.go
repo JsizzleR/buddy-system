@@ -2,6 +2,7 @@ package buddylist
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -416,5 +417,221 @@ func TestDispatchAlertsAndAlertAckRoundTrip(t *testing.T) {
 	}
 	if _, err := h.call(t, Request{Op: "alertack", Session: testSession, Seq: 1}); err == nil {
 		t.Fatal("alertack without a room must be refused")
+	}
+}
+
+// ---- the room walk ----
+
+// The room list is walked by index SEEKS (see alertRoomTopsQuery), not by an
+// aggregate over the whole journal. That rewrite fails SILENTLY: a room the
+// walk steps over simply never alerts anybody, and every other test in this
+// file uses ONE room, so not one of them can see it happen.
+//
+// The oracle is the aggregate the seeks replaced, spelled out here in full
+// rather than called, so the two cannot drift together. wantRooms is the
+// positive control on every fixture but the empty one: without it a case where
+// BOTH sides answer "no rooms" would go green while proving that nothing was
+// ever enumerated. The empty journal is the one case with no control of its own
+// — the rest of the table is its control — and what it asserts is that the
+// recursive walk terminates on an empty table at all.
+func TestAlertRoomTopsMatchTheAggregateItReplaced(t *testing.T) {
+	const oracle = `SELECT room, MAX(seq) FROM messages
+		WHERE room<>? AND room<>'' AND kind IN ('chat','im') GROUP BY room ORDER BY room`
+
+	type row struct{ room, kind string }
+	for _, tc := range []struct {
+		name      string
+		rows      []row
+		wantRooms []string
+	}{
+		{
+			name: "several rooms interleaved",
+			rows: []row{{"harbor", "chat"}, {"lobby", "chat"}, {"ops", "chat"},
+				{"harbor", "chat"}, {"ops", "chat"}, {"lobby", "chat"}},
+			wantRooms: []string{"harbor", "lobby", "ops"},
+		},
+		{
+			// A room nobody has spoken in is not a room with a message in it.
+			name: "a presence-and-system-only room is listed by neither",
+			rows: []row{{"harbor", "chat"}, {"quiet", "presence"}, {"quiet", "system"},
+				{"quiet", "presence"}},
+			wantRooms: []string{"harbor"},
+		},
+		{
+			// The outbox is self-authored by construction and "" is the system
+			// pseudo-room; both are excluded regardless of the kind of row they
+			// hold, which is why the "" row here is a chat row.
+			name: "the outbox and the system room are excluded",
+			rows: []row{{sentRoom, "system"}, {"", "chat"}, {"harbor", "chat"},
+				{sentRoom, "system"}},
+			wantRooms: []string{"harbor"},
+		},
+		{
+			// The walk must step OVER the excluded outbox, not stop at it.
+			// Sort order is "!alpha" < "@dm" < "@sent" < "zulu". The mutation
+			// this was watched to die on is the COMBINED shape alertRoomTopsQuery
+			// names: exclusions moved out to the final filter AND used as the
+			// recursion guard (FROM rooms WHERE rooms.room IS NOT NULL AND
+			// rooms.room<>'@sent'). The walk then ends at the outbox and zulu
+			// silently disappears — seeks [{!alpha 4} {@dm 3}] against aggr
+			// [{!alpha 4} {@dm 3} {zulu 1}]. The guard ALONE is NOT that
+			// mutation: against the shipped in-subquery placement @sent is never
+			// a state of the walk, so the guard cannot fire and fails nothing
+			// here — do not read this fixture as a control on it. @dm rides along
+			// as the DM pseudo-room, whose rows are kind 'im' not 'chat'.
+			name: "rooms sorting on both sides of the outbox",
+			rows: []row{{"zulu", "chat"}, {sentRoom, "system"}, {"@dm", "im"},
+				{"!alpha", "chat"}},
+			wantRooms: []string{"!alpha", "@dm", "zulu"},
+		},
+		{
+			// Adjacent and prefix-sharing names: "ops" < "ops-2" < "ops2". A
+			// walk written with room>= instead of room> never gets past the
+			// first of them.
+			name:      "adjacent and prefix-sharing room names",
+			rows:      []row{{"ops2", "chat"}, {"ops", "chat"}, {"ops-2", "chat"}},
+			wantRooms: []string{"ops", "ops-2", "ops2"},
+		},
+		{
+			name:      "an empty journal terminates the walk",
+			rows:      nil,
+			wantRooms: nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			j := testJournal(t)
+			for _, r := range tc.rows {
+				if _, err := j.Append(r.room, "SmarterChild", r.kind, "body naming "+testSlug); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			var want []roomTop
+			rows, err := j.db.Query(oracle, sentRoom)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var r roomTop
+				if err := rows.Scan(&r.name, &r.newest); err != nil {
+					t.Fatal(err)
+				}
+				want = append(want, r)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+			if got := namesOf(want); fmt.Sprint(got) != fmt.Sprint(tc.wantRooms) {
+				t.Fatalf("control: the aggregate itself listed %v, want %v — the fixture proves nothing",
+					got, tc.wantRooms)
+			}
+
+			got, err := j.alertRoomTops()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(want) {
+				t.Fatalf("the seek walk and the aggregate must agree exactly:\n seeks %v\n aggr  %v", got, want)
+			}
+		})
+	}
+}
+
+func namesOf(tops []roomTop) []string {
+	var out []string
+	for _, r := range tops {
+		out = append(out, r.name)
+	}
+	return out
+}
+
+// One entry per room, and the count is per room rather than a total: a total
+// cannot tell a vanished room from one room's messages being attributed to
+// another. The second half is the cursor read — one query for the whole
+// session's set now, not one per room — and a cursor set read without its room
+// key would ack every room at once.
+func TestAddressedReportsEveryRoomWithItsOwnCountAndAcksOnePerRoom(t *testing.T) {
+	j := testJournal(t)
+	peerSays(t, j, "harbor", "[harbor/s-other] @"+testSlug+" one")
+	peerSays(t, j, "harbor", "[harbor/s-other] unrelated chatter")
+	peerSays(t, j, "lobby", "[harbor/s-other] @"+testSlug+" two")
+	peerSays(t, j, "lobby", "[harbor/s-other] @"+testSlug+" three")
+	quiet := peerSays(t, j, "ops", "[harbor/s-other] nothing here for anybody")
+	if _, err := j.Append("@dm", "jsizl", "im", "@"+testSlug+" four"); err != nil {
+		t.Fatal(err)
+	}
+
+	counts := func() map[string]int {
+		out := map[string]int{}
+		for _, a := range addressed(t, j) {
+			if _, dup := out[a.Room]; dup {
+				t.Fatalf("room %q reported twice", a.Room)
+			}
+			out[a.Room] = len(a.Msgs)
+		}
+		return out
+	}
+	want := map[string]int{"harbor": 1, "lobby": 2, "@dm": 1}
+	if got := counts(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("per-room counts: got %v want %v", got, want)
+	}
+	// ops had nothing addressed, so it banks its scan instead of alerting —
+	// otherwise every later call rescans it forever.
+	if cur, err := j.AlertCursor(testSession, "ops"); err != nil || cur != quiet {
+		t.Fatalf("a room with nothing to report must bank its scan: got %d want %d (%v)", cur, quiet, err)
+	}
+
+	// Acking ONE room must retire that room and leave the others owed.
+	if _, err := j.SetAlertCursor(testSession, "harbor", 999); err != nil {
+		t.Fatal(err)
+	}
+	want = map[string]int{"lobby": 2, "@dm": 1}
+	if got := counts(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("one room's ack must not answer for another: got %v want %v", got, want)
+	}
+}
+
+// setCursor writes and reads in ONE statement (RETURNING). What comes back must
+// be the cursor that STANDS, never the one asked for: a caller told its rewind
+// succeeded would re-alert a backlog the session has already been told about.
+func TestSetAlertCursorReportsTheCursorThatStands(t *testing.T) {
+	j := testJournal(t)
+	if cur, err := j.SetAlertCursor(testSession, "harbor", 7); err != nil || cur != 7 {
+		t.Fatalf("first set: got %d want 7 (%v)", cur, err)
+	}
+	if cur, err := j.SetAlertCursor(testSession, "harbor", 3); err != nil || cur != 7 {
+		t.Fatalf("a rewind must be declined and the standing value reported: got %d want 7 (%v)", cur, err)
+	}
+	// The positive control: the same call path still advances, so "declined"
+	// above cannot be "the write never happened".
+	if cur, err := j.SetAlertCursor(testSession, "harbor", 9); err != nil || cur != 9 {
+		t.Fatalf("an advance must apply and be reported: got %d want 9 (%v)", cur, err)
+	}
+	if cur, err := j.AlertCursor(testSession, "harbor"); err != nil || cur != 9 {
+		t.Fatalf("the reported cursor must be the stored one: got %d want 9 (%v)", cur, err)
+	}
+	// A negative seq is floored, not stored as one — and it is still a write,
+	// so it must not rewind what stands either.
+	if cur, err := j.SetAlertCursor(testSession, "harbor", -5); err != nil || cur != 9 {
+		t.Fatalf("a negative seq must not disturb the cursor: got %d want 9 (%v)", cur, err)
+	}
+	if _, err := j.SetAlertCursor("", "harbor", 1); err == nil {
+		t.Fatal("a cursor with no session id must be refused, never shared")
+	}
+}
+
+// Addressed reads the whole cursor set in one query, and that query is where
+// the empty-session refusal now lives. An alert cursor keyed to "" is one every
+// unidentified session would share.
+func TestAddressedRefusesAnEmptySession(t *testing.T) {
+	j := testJournal(t)
+	peerSays(t, j, "harbor", "@"+testSlug+" ping")
+	if _, err := j.Addressed("", testLabel, testTokens(), 0); err == nil {
+		t.Fatal("Addressed without a session must be refused")
+	}
+	// The control: the same fixture answers for a real session.
+	if got := addressed(t, j); len(got) != 1 {
+		t.Fatalf("control: a real session must be answered from this fixture: %+v", got)
 	}
 }

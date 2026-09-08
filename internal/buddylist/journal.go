@@ -25,6 +25,29 @@ CREATE TABLE IF NOT EXISTS messages (
 	at     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_room_seq ON messages(room, seq);
+-- ONE index on messages is deliberate. Every query on the alert hook's path was
+-- read with EXPLAIN QUERY PLAN against a 60k-row synthetic journal over 8
+-- rooms, and each is already a SEEK, so a second index would fix no scan -- while
+-- costing write time on the DAEMON's relay, which is the only writer of this
+-- table: one row per message the server reflects, plus one @sent outbox row per
+-- Say. (The hook path writes nothing here. It READS messages and writes
+-- alert_cursor rows, so an index on messages could only ever cost it the read
+-- planning it does not need.) The seeks, one line per query -- the room walk's
+-- plan is quoted in full at alertRoomTopsQuery, sort node included:
+--   room enumeration     SEARCH ... USING COVERING INDEX messages_room_seq (room>?)
+--   per-room newest seq  SEARCH messages USING INDEX messages_room_seq (room=?)
+--   @sent outbox         SEARCH messages USING INDEX messages_room_seq (room=?)
+--   mention window       SEARCH messages USING INTEGER PRIMARY KEY (rowid>? AND rowid<?)
+--   both cursor tables   SEARCH ... USING INDEX sqlite_autoindex_*_1 (session=? [AND room=?])
+-- rowid IS seq here (INTEGER PRIMARY KEY), so the seq window is a range seek and
+-- not a scan, and the cursor tables are answered by the automatic index over
+-- their (session, room) primary key. CUT: a (room, kind, seq) index, which would
+-- have saved the row lookups the kind filter costs while walking back from a
+-- room's newest row -- one lookup, unless a room happens to end in a run of
+-- presence rows. If anything is ever added here, note that the running daemon
+-- migrates the journal at OPEN, so a new index only exists after a daemon
+-- restart; hooks spawn a fresh binary per tool call and need none.
+
 -- Per-room high-water mark of trimmed seqs. seq is GLOBAL (one AUTOINCREMENT
 -- across rooms), so "cursor < MIN(seq) of the room" cannot distinguish trimmed
 -- rows from seqs that simply belonged to other rooms; this table can.
@@ -374,12 +397,21 @@ func (j *Journal) setCursor(table, session, room string, seq int64) (int64, erro
 	if seq < 0 {
 		seq = 0
 	}
-	if _, err := j.db.Exec(`INSERT INTO `+table+` (session, room, seq, at) VALUES (?,?,?,?)
-		ON CONFLICT(session, room) DO UPDATE SET seq=MAX(seq, excluded.seq), at=excluded.at`,
-		session, room, seq, j.now().Unix()); err != nil {
+	// RETURNING, not upsert-then-re-read. The upsert already knows the value
+	// that stands, and DO UPDATE always fires — it moves `at` even when it
+	// declines to move `seq` — so a row always comes back; an ON CONFLICT DO
+	// NOTHING here would return none, which is why the arm has to stay an
+	// UPDATE. Two reasons the second statement had to go: this sits on the
+	// alert path, which runs once per tool call in a freshly spawned process,
+	// and the gap between the write and the re-read is a window in which
+	// another writer's advance would be reported back as this call's result.
+	var cur int64
+	if err := j.db.QueryRow(`INSERT INTO `+table+` (session, room, seq, at) VALUES (?,?,?,?)
+		ON CONFLICT(session, room) DO UPDATE SET seq=MAX(seq, excluded.seq), at=excluded.at
+		RETURNING seq`, session, room, seq, j.now().Unix()).Scan(&cur); err != nil {
 		return 0, err
 	}
-	return j.cursor(table, session, room)
+	return cur, nil
 }
 
 // RoomStat is one room's backlog for one session. Every field is a COUNT or a
