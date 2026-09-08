@@ -91,6 +91,17 @@ type presence struct {
 	mu      sync.Mutex
 	buddies map[string]*buddy
 	capped  bool // reported the buddy cap once; not once per tool call
+	// passes counts completed reconcile passes. It is TEST-VISIBLE
+	// INSTRUMENTATION — nothing in production reads it. Every negative
+	// assertion about presence ("no second dial after a non-collision
+	// failure", "no seventeenth buddy") used to sleep a fixed 50ms and then
+	// look, which proves elapsed time and not that the manager ever looked; a
+	// count the test can watch advance turns "I waited a while" into "it
+	// looked twice and chose not to act". The argument for it, and for why it
+	// is TWO passes and not one, is kept in one place: settle, in
+	// presence_test.go. Cost is one uncontended mutex acquire per pass, on a
+	// path that runs once per presenceTick plus a wake.
+	passes uint64
 
 	// Test seams. Production values come from the constants above.
 	idleAfter, dropAfter, tick time.Duration
@@ -252,6 +263,14 @@ func (p *presence) reconcile(ctx context.Context) {
 	for _, b := range dials {
 		go p.dial(ctx, b)
 	}
+
+	// Counted here, at the end: a pass is one complete look at every buddy,
+	// not the I/O it started. The dials above land later, on their own
+	// goroutines, and a test that needs one landed waits for the landing
+	// itself.
+	p.mu.Lock()
+	p.passes++
+	p.mu.Unlock()
 }
 
 // dial brings one buddy online: connect under a free nick, join its room, and
@@ -377,6 +396,15 @@ func (p *presence) closeAll() {
 	for _, c := range conns {
 		c.Close()
 	}
+}
+
+// reconciles reports completed reconcile passes, for tests only (see the
+// passes field). Read under the same lock everything else here is, so it
+// cannot be the thing that introduces a race into the manager.
+func (p *presence) reconciles() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.passes
 }
 
 // live reports how many session buddies are connected, for `health`.

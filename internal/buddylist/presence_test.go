@@ -163,6 +163,19 @@ func startPresence(t *testing.T) *presenceHarness {
 
 // waitFor polls until pred holds. Presence is reconciled by a background loop,
 // so every assertion about it is an eventual one.
+//
+// The 2ms below is a POLL INTERVAL, not a settle: pred is checked before it and
+// the loop returns the instant pred holds, so shortening or lengthening it
+// changes how often the question is asked and never what the answer is. It is
+// the one sleep this file is allowed — the fixed settles that used to precede
+// the negative assertions are gone, see settle.
+//
+// ONE exemption, and it is why this is spelled out: the backed-off-retry pred
+// below DRIVES the pinned clock as well as reading it, so there the interval
+// does decide how much pinned time passes per wall second, and an unbounded
+// advance aged its own buddy out of existence. A side-effecting pred must
+// therefore say why its side effect cannot change the answer; that one keeps
+// the buddy's lastSeen fresh for exactly that reason.
 func waitFor(t *testing.T, what string, pred func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(settleBudget)
@@ -173,6 +186,48 @@ func waitFor(t *testing.T, what string, pred func() bool) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
+}
+
+// settle waits for the manager to complete two full reconcile passes. It is
+// what a NEGATIVE assertion here waits on, in place of the fixed 50ms sleeps
+// that used to stand in front of one — the same shape as settleBudget: a
+// FAILURE budget spent polling, not a duration spent waiting.
+//
+// TWO passes, not one, and the count decides which: reading N means passes
+// 1..N have finished, so pass N+1 may already have been in flight when the
+// read happened and may have looked at the world BEFORE the state under test
+// existed. Pass N+1 can only have finished after the read (or the read would
+// have returned it), and the manager is a single goroutine, so pass N+2 began
+// after the read entirely. That is the pass that proves the manager looked at
+// the thing being asserted about and chose not to act.
+//
+// A sleep proved only that time had passed, never that the manager looked, and
+// those are different claims about a single goroutine that does real work
+// inline (reconcile applies away text on the wire before it returns). A pass
+// held up there, or simply not scheduled, is invisible from a sleep: the
+// negative assertion passes either way, so the test would quietly stop testing
+// and stay green forever. That failure mode is worse than a flaky red, which
+// at least reports itself. The 50ms this replaced was ~10 ticks of ARITHMETIC
+// at this fixture's 5ms tick — no count was ever observed, and the count was
+// never the question.
+func (h *presenceHarness) settle(t *testing.T, before string) {
+	t.Helper()
+	from := h.d.presence.reconciles()
+	waitFor(t, "two reconcile passes before asserting "+before, func() bool {
+		return h.d.presence.reconciles() >= from+2
+	})
+}
+
+// journalRows reads one room, failing rather than returning an error: a read
+// failure here is a broken fixture, and swallowing it as "no rows" would turn
+// this file's central negative assertion into a tautology.
+func journalRows(t *testing.T, j *Journal, room string) []Msg {
+	t.Helper()
+	msgs, _, err := j.ReadAfter(room, 0, 100)
+	if err != nil {
+		t.Fatalf("journal read %q: %v", room, err)
+	}
+	return msgs
 }
 
 func recordedHas(c *fakeConn, want string) bool {
@@ -252,8 +307,51 @@ func TestPresenceKeepsItsNameWhenTheFailureIsNotACollision(t *testing.T) {
 	h.script.fail["harbor-s-44444444"] = errors.New("dial tcp 127.0.0.1:6667: connection refused")
 	h.d.presence.note("sess-d", "harbor/s-44444444", nil)
 	waitFor(t, "the failed dial to be recorded", func() bool { return len(h.script.names()) > 0 })
-	// Give the manager room to make a wrong second attempt if it were going to.
-	time.Sleep(50 * time.Millisecond)
+
+	// Then drive the backed-off RETRY, because that is the ordering proof this
+	// assertion needs and a sleep is not. A name is recorded when the dial
+	// script is entered, so the first attempt's walk — if it walked — is still
+	// in flight at that point; a second attempt can only be spawned after the
+	// first one's connect returned, since dialing stays true until then. Once
+	// two names are on the record, every name the first attempt was ever going
+	// to ask for is on it too. It also asserts something the fixed sleep never
+	// could: the retry keeps the name as well, which is the other half of the
+	// claim.
+	//
+	// The advance lives INSIDE the poll on purpose. The failing dial computes
+	// nextTry from whatever the clock reads when its bookkeeping gets there, so
+	// a single advance up front can lose that race and set a deadline the test
+	// then never reaches — a timeout instead of an answer. Re-advancing cannot.
+	//
+	// Re-NOTING, rather than the bare wakeSoon this used to do, is what makes
+	// that safe. The advance is unbounded — one backoff per 2ms poll is ~1000x
+	// wall time — so merely SLOW dialling pushed the pinned clock past
+	// presenceDropAfter (30m) in ~1.8s of wall clock, reconcile CORRECTLY
+	// expired the buddy, and the test failed on a healthy implementation
+	// naming the wrong thing entirely: a 3s sleep at the top of dial (pure
+	// slowness, no behaviour change) gave "must stay wanted but not online:
+	// online=0 wanted=0" at 6.02s. Enlarging settleBudget made that MORE
+	// likely, inverting what that budget is for. note is also exactly what a
+	// live session does between retries — it reports in on every tool call —
+	// so lastSeen tracks the clock this loop is driving and only the backoff
+	// ages. It wakes the manager too, so the wakeSoon it replaced is not
+	// missing. Capping the cumulative advance was the alternative and is
+	// worse: it freezes the clock while a stalled dial is still computing
+	// nextTry, and the retry being waited for then never comes due at all.
+	waitFor(t, "the backed-off retry", func() bool {
+		if len(h.script.names()) >= 2 {
+			return true
+		}
+		h.clk.advance(backoffFor(1))
+		h.d.presence.note("sess-d", "harbor/s-44444444", nil)
+		return false
+	})
+	// "no rename", not "no third dial": nothing here caps the number of
+	// retries, and capping it would be asserting the backoff schedule, which
+	// is backoffFor's business. What settle buys is that the manager got a
+	// complete look after the retry landed — so a walk, had it been going to
+	// walk, had its chance to put a second name on the record.
+	h.settle(t, "no rename after the retry")
 	for _, n := range h.script.names() {
 		if n != "harbor-s-44444444" {
 			t.Fatalf("a non-collision failure renamed the session: %v", h.script.names())
@@ -401,30 +499,88 @@ func TestPresenceDialLandingAfterRetirementIsClosed(t *testing.T) {
 // journaled it, every message would be stored once per live session and the
 // journal's "what the server saw" contract — one connection's view — would be
 // meaningless.
+//
+// The proof is ORDERING, not elapsed time. drain ranges over its connection's
+// events and returns only when the channel closes, so closing the connection
+// here means every event pushed above has been taken off it — and journaled,
+// had this tier journaled — strictly before drain's exit bookkeeping drops the
+// conn and live() falls to zero. The old shape pushed two events, slept 50ms
+// and read the journal: under -race on a loaded runner the drain goroutine may
+// not have been scheduled at all in that window, so the test reported a clean
+// journal it had never given presence the chance to dirty, and it would have
+// gone on reporting one after a regression.
+//
+// The concierge's own IM is the positive control, and the SAME event shape on
+// purpose: without a row that does land, "presence journaled nothing" and
+// "this fixture cannot journal anything" are one observation.
 func TestPresenceConnectionsNeverJournal(t *testing.T) {
+	// Distinct markers so the assertion names the offender instead of counting
+	// rows, and so an unrelated system row can never satisfy it.
+	const (
+		fromRoom      = "presence-room-marker: seen by every session"
+		fromDM        = "presence-dm-marker: a dm to somebody"
+		fromConcierge = "concierge-marker: the journal is armed"
+	)
 	h := startPresence(t)
 	h.d.presence.note("sess-g", "harbor/s-77777777", nil)
 	waitFor(t, "buddy online", func() bool {
 		return recordedHas(h.script.conn("harbor-s-77777777"), "join harbor")
 	})
 	c := h.script.conn("harbor-s-77777777")
-	c.push(t, tocwire.ChatIn{RoomID: "7", From: "operator", Text: "seen by every session"})
-	c.push(t, tocwire.IMIn{From: "operator", Text: "a dm to somebody"})
+	c.push(t, tocwire.ChatIn{RoomID: "7", From: "operator", Text: fromRoom})
+	c.push(t, tocwire.IMIn{From: "operator", Text: fromDM})
 
-	// The concierge's own room join is the observable that proves the daemon
-	// processed events at all while the presence rows stayed out.
+	c.Close()
+	waitFor(t, "drain to consume both events and retire the connection", func() bool {
+		online, _ := h.d.presence.live()
+		return online == 0
+	})
+
 	waitJoined(t, h.conn, "harbor")
-	time.Sleep(50 * time.Millisecond)
-	for _, room := range []string{"harbor", "@dm"} {
-		msgs, _, err := h.j.ReadAfter(room, 0, 100)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, m := range msgs {
-			if strings.Contains(m.Body, "seen by every session") || strings.Contains(m.Body, "a dm to somebody") {
-				t.Fatalf("a presence connection journaled %q into %s", m.Body, room)
+	h.conn.push(t, tocwire.IMIn{From: "operator", Text: fromConcierge})
+	waitFor(t, "the concierge's own message to be journaled", func() bool {
+		for _, m := range journalRows(t, h.j, "@dm") {
+			if strings.Contains(m.Body, fromConcierge) {
+				return true
 			}
 		}
+		return false
+	})
+	// No settle here on purpose: by this point the connection is closed and
+	// drain has exited, so no reconcile pass can produce a journal row and two
+	// more passes would be two idle passes dressed as evidence. The wait above
+	// is the proof.
+
+	// Ask the JOURNAL which rooms it holds instead of listing them here. The
+	// list was the first shape and it was a false green: it named
+	// {"harbor", "buddy-system", "@dm", ""} on the belief that "" is where a
+	// row with no known room lands, but roomName files an UNREGISTERED id
+	// under "room-<id>" (chatd.go) and "" is only ever noteSystem's and the
+	// ServerError arm's. A presence connection carries its own per-connection
+	// room ids, which the concierge's roomNames map does not contain — so a
+	// drain that journaled every ChatIn it saw landed in "room-99", the list
+	// never scanned it, and the test reported ok 3/3. Stat GROUPs BY room over
+	// the messages table, so this covers "room-<anything>" by construction.
+	stats, err := h.j.Stat("", nil)
+	if err != nil {
+		t.Fatalf("journal stat: %v", err)
+	}
+	// The scan's coverage is now Stat's answer, so prove Stat answered: the
+	// positive control's own room must be in it, or an empty stat list would
+	// make the loop below vacuous in exactly the way the hand list was.
+	var sawControlRoom bool
+	for _, st := range stats {
+		if st.Room == "@dm" {
+			sawControlRoom = true
+		}
+		for _, m := range journalRows(t, h.j, st.Room) {
+			if strings.Contains(m.Body, fromRoom) || strings.Contains(m.Body, fromDM) {
+				t.Fatalf("a presence connection journaled %q into %q", m.Body, st.Room)
+			}
+		}
+	}
+	if !sawControlRoom {
+		t.Fatalf("journal stat did not report the room holding the positive control: %+v", stats)
 	}
 }
 
@@ -435,11 +591,22 @@ func TestPresenceCapsConcurrentBuddies(t *testing.T) {
 	for i := 0; i < maxPresenceBuddies+4; i++ {
 		h.d.presence.note(fmt.Sprintf("sess-%02d", i), fmt.Sprintf("harbor/s-%08d", i), nil)
 	}
+	// note applies the cap synchronously, so the WANTED count is already final
+	// when the last note returns and this assertion needs no wait at all. A cap
+	// that admitted the four extra sessions fails here, immediately, instead of
+	// depending on whether a sleep outlasted sixteen dials.
+	if _, wanted := h.d.presence.live(); wanted != maxPresenceBuddies {
+		t.Fatalf("note admitted %d sessions past a cap of %d", wanted, maxPresenceBuddies)
+	}
 	waitFor(t, "the cap to fill", func() bool {
 		online, _ := h.d.presence.live()
 		return online == maxPresenceBuddies
 	})
-	time.Sleep(50 * time.Millisecond)
+	// The negative half — no seventeenth socket — waits for two full reconcile
+	// passes over the filled set rather than 50ms. Sixteen dials landing is
+	// exactly when the machine is busiest, so 50ms bought the fewest passes
+	// precisely where the assertion needed the most.
+	h.settle(t, "no seventeenth connection")
 	if online, wanted := h.d.presence.live(); online != maxPresenceBuddies || wanted != maxPresenceBuddies {
 		t.Fatalf("cap exceeded: online=%d wanted=%d cap=%d", online, wanted, maxPresenceBuddies)
 	}
