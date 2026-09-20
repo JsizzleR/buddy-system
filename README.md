@@ -200,6 +200,31 @@ What it deliberately does **not** do, so the promise stays honest:
 - An unreadable ledger still fails **closed** here, exactly as the tool-call
   gate does. A repo that was never `buddy init`-ed stays silent.
 
+### 1c. The roster — which session takes the next task?
+
+```sh
+buddy sessions                    # the roster; --by started for arrival order
+# * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  claims 2
+#   repo/s-299a236a  live STALE   started 15d  seen 12d  /path/to/repo  (299a236a-…)  PAUSED
+#   repo/s-68a57050  ended 29d    started 36d  seen 34d  /path/to/repo  (68a57050-…)
+```
+
+Every age carries its own word, because one unlabelled column next to `live`
+reads as uptime and was time-since-last-tool-call: a session ten hours old that
+had just heartbeated rendered as `9s`. `started` dates *this incarnation's*
+registration, `seen` the last hook that spoke for the session, and the state
+word carries its own age when the state is a dated event (`ended 29d`).
+`--by started|seen` picks which of the two orders the rows, both newest-first,
+live rows always above ended ones. `*` marks the row you are calling from.
+
+The annotations after the id are what an orchestrator picks on:
+
+- `PAUSED` — the operator's brake is on this session. Its next mutating tool
+  call will be **denied**, and without this the row just says `live`.
+- `claims N` — open claims held now. The names are in `buddy ls`; the row
+  carries the count, because a slug is 128 bytes of free text and a session may
+  hold several.
+
 ### 2. Presence (the fun half)
 
 Run an [ergo] IRC server — a single Go binary. Make the loopback binding

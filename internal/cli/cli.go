@@ -118,8 +118,9 @@ operator      pause <target> [--note <text>]             deny the target's next 
               a TARGET is a session id, a label, an s-<id> short form, an OPEN claim slug,
               or "all". Anything else is REFUSED — never queued against a row that would
               match nothing. Peers address each other by slug, so slugs resolve too.
-              sessions [--by seen|started]  list sessions, live first; every age column
-                                    is labelled and "*" marks the row you are calling from
+              sessions [--by seen|started]  the roster, live first: every age column is
+                                    labelled, "*" marks you, and PAUSED / claims N trail
+                                    the row with what an orchestrator picks on
               sweep [--force]       tidy closed claims
 setup         init                  create the ledger for this repo
 hooks         hello · gate · beat · bye   (wired in .claude/settings; read hook JSON on stdin)
@@ -1511,6 +1512,14 @@ func cmdSessions(args []string, env Env) error {
 	if si, err := whoAmI(st, env, session); err == nil {
 		me = si.SessionID
 	}
+	// FITNESS, computed BEFORE anything is printed so a failed read cannot
+	// leave half a listing behind. Two facts an orchestrator needs to pick a
+	// peer, both already in the ledger and neither with any output until now:
+	// whether the gate would refuse it, and how much it is already holding.
+	notes, err := fitness(st, sessions)
+	if err != nil {
+		return err
+	}
 	now := nowOf(env)
 	for _, si := range sessions {
 		// EVERY NUMBER CARRIES ITS OWN WORD, and the columns do not move
@@ -1556,11 +1565,70 @@ func cmdSessions(args []string, env Env) error {
 		if si.SessionID == me {
 			mark = "* "
 		}
-		fmt.Fprintf(env.Stdout, "%s%-24s %-11s started %-4s seen %-4s  %s  (%s)\n",
+		// The annotations trail the (id) rather than sitting between the
+		// columns, so a row that has nothing to add is the same shape as one
+		// that has three things — which is what makes the fixed columns
+		// scannable down a 300-row listing.
+		fmt.Fprintf(env.Stdout, "%s%-24s %-11s started %-4s seen %-4s  %s  (%s)%s\n",
 			mark, fence.Line(si.Label, 64), state, age(now, si.Started), age(now, si.LastSeen),
-			fence.Line(si.Worktree, 512), fence.Line(si.SessionID, 128))
+			fence.Line(si.Worktree, 512), fence.Line(si.SessionID, 128), notes[si.SessionID])
 	}
 	return nil
+}
+
+// fitness renders, per session id, the trailing annotations that say whether
+// a session can take work: whether it is PAUSED, and how many claims it is
+// holding. Empty string for a session with nothing to report.
+//
+// PAUSED IS THE SAME DEFECT CLASS AS THE AGE COLUMN: the state word lies by
+// omission. `buddy pause all` leaves every row reading `live`, and the next
+// mutating tool call of whichever session an orchestrator picked is DENIED by
+// the gate — a refusal no listing gave any warning of. It asks PausedFor
+// rather than reading `controls` itself, because the applicability rule (id,
+// label, or "all", newest uncleared first) belongs to one function; a second
+// copy of it here would be a copy that drifts.
+//
+// Only live rows are asked. A pause that matches an ended session's label is
+// true and useless: nothing is going to be denied.
+//
+// The claim COUNT and not the slugs. Slugs are peer free text capped at 128
+// bytes and a session may hold several, so a row could carry 1.5 KB of them
+// into every reader's context; the count is what an orchestrator ranks on,
+// and `buddy ls` already prints the names. The incarnation comparison is what
+// keeps a revived session from being charged for its predecessor's
+// reservations: hello orphans those, but the comparison is free and states
+// the rule in the one place a reader will look for it.
+func fitness(st *store.Store, sessions []store.SessionInfo) (map[string]string, error) {
+	open, err := st.Claims(false)
+	if err != nil {
+		return nil, err
+	}
+	held := map[string]int{}
+	for _, c := range open {
+		if c.Incarnation == c.Owner.Incarnation {
+			held[c.Owner.SessionID]++
+		}
+	}
+	out := make(map[string]string, len(sessions))
+	for _, si := range sessions {
+		var parts []string
+		if si.Live() {
+			_, paused, err := st.PausedFor(si.SessionID, si.Label)
+			if err != nil {
+				return nil, err
+			}
+			if paused {
+				parts = append(parts, "PAUSED")
+			}
+		}
+		if n := held[si.SessionID]; n > 0 {
+			parts = append(parts, fmt.Sprintf("claims %d", n))
+		}
+		if len(parts) > 0 {
+			out[si.SessionID] = "  " + strings.Join(parts, "  ")
+		}
+	}
+	return out, nil
 }
 
 // ---- helpers ----

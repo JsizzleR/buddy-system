@@ -909,6 +909,96 @@ func TestSessionsTieBreakIsStable(t *testing.T) {
 	}
 }
 
+// TestSessionsRowSaysWhetherAPeerCanTakeWork covers the fitness annotations.
+// The failing case they exist for: `buddy pause all`, then a listing in which
+// every row still reads `live`, an orchestrator hands out work, and the gate
+// denies the next mutating call of a session nothing warned it about.
+func TestSessionsRowSaysWhetherAPeerCanTakeWork(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	hook := func(s string) string { return hookJSON("sess-"+s, f.repo, "", "") }
+	rowOf := func(t *testing.T, label string) string {
+		t.Helper()
+		out, errw, code := f.run(t, f.repo, "", "sessions")
+		if code != 0 {
+			t.Fatalf("sessions: exit %d: %s", code, errw)
+		}
+		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			if fs := strings.Fields(ln); len(fs) > 0 && fs[0] == label {
+				return ln
+			}
+		}
+		t.Fatalf("no row for %q in:\n%s", label, out)
+		return ""
+	}
+
+	must("", "init")
+	for _, s := range []string{"holder", "paused", "free"} {
+		must(hook(s), "hello", "--label", s)
+	}
+	must("", "claim", "one", "--session", "sess-holder", "--desc", "d", "--scope", "src/a")
+	must("", "claim", "two", "--session", "sess-holder", "--desc", "d", "--scope", "src/b")
+	must("", "claim", "gone", "--session", "sess-free", "--desc", "d", "--scope", "src/c")
+	must("", "release", "gone", "--session", "sess-free")
+	must("", "pause", "paused", "--note", "operator is looking at something")
+
+	for _, tc := range []struct {
+		label, want, notWant, why string
+	}{
+		{"holder", "claims 2", "PAUSED",
+			"two open claims, counted; the count and not the slugs, which are 128-byte free text"},
+		{"paused", "PAUSED", "claims",
+			"the decisive fact: its next mutating call is denied, and the state word says `live`"},
+		{"free", "", "PAUSED",
+			"nothing to report — and a RELEASED claim is not work in progress, so it is not counted"},
+	} {
+		row := rowOf(t, tc.label)
+		if tc.want != "" && !strings.Contains(row, tc.want) {
+			t.Errorf("%s: row lacks %q (%s):\n  %s", tc.label, tc.want, tc.why, row)
+		}
+		if strings.Contains(row, tc.notWant) {
+			t.Errorf("%s: row must not say %q (%s):\n  %s", tc.label, tc.notWant, tc.why, row)
+		}
+	}
+	// A claim count of 1 would prove nothing about counting; 2 vs 0 does.
+	if row := rowOf(t, "free"); strings.Contains(row, "claims") {
+		t.Errorf("a session holding no open claim must carry no count:\n  %s", row)
+	}
+
+	// `pause all` reaches every LIVE row, and no ended one: a pause that
+	// matches a dead session is true and useless, because nothing of its is
+	// ever going to be denied.
+	must(hook("free"), "bye")
+	must("", "pause", "all")
+	for _, tc := range []struct {
+		label  string
+		paused bool
+	}{{"holder", true}, {"paused", true}, {"free", false}} {
+		if got := strings.Contains(rowOf(t, tc.label), "PAUSED"); got != tc.paused {
+			t.Errorf("under `pause all`, %s: PAUSED=%v, want %v\n  %s", tc.label, got, tc.paused, rowOf(t, tc.label))
+		}
+	}
+	must("", "resume", "all")
+	must("", "resume", "paused")
+	if row := rowOf(t, "paused"); strings.Contains(row, "PAUSED") {
+		t.Errorf("resume must clear the annotation — otherwise PAUSED is decoration:\n  %s", row)
+	}
+
+	// A revived session is not charged for its predecessor's reservations:
+	// hello orphans them, and an orphaned claim is not work in progress.
+	must(hook("holder"), "bye")
+	must(hook("holder"), "hello", "--label", "holder")
+	if row := rowOf(t, "holder"); strings.Contains(row, "claims") {
+		t.Errorf("a revived incarnation starts at zero claims:\n  %s", row)
+	}
+}
+
 func TestGateDeniesNFDSpelledPathInsideForeignScope(t *testing.T) {
 	boundedParallel(t)
 	// The repo root carries an accented component, spelled NFC on disk. macOS
