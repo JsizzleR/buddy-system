@@ -259,7 +259,7 @@ func TestBeatCannotResurrectEndedSession(t *testing.T) {
 	if err := st.Beat(a.SessionID, ""); err != nil {
 		t.Fatal(err)
 	}
-	sessions, _ := st.Sessions()
+	sessions, _ := st.Sessions(ByLastSeen)
 	if sessions[0].Live() {
 		t.Fatal("a delayed beat resurrected an ended session")
 	}
@@ -276,7 +276,7 @@ func TestDelayedByeCannotEndNewIncarnation(t *testing.T) {
 	if err := st.Bye(a1.SessionID, a1.Incarnation); err != nil {
 		t.Fatal(err)
 	}
-	sessions, _ := st.Sessions()
+	sessions, _ := st.Sessions(ByLastSeen)
 	if !sessions[0].Live() {
 		t.Fatal("delayed bye from a dead incarnation ended the live one")
 	}
