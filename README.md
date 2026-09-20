@@ -108,6 +108,29 @@ buddy ls                          # the board: who holds what, STALE flags
 buddy release api-refactor
 ```
 
+A claim is granted whole or refused whole, and a refusal names **every**
+collision, not the first. To see the conflict set before taking anything:
+
+```sh
+buddy claim api-refactor --dry-run --desc "…" --scope internal/api --scope docs --scope cmd
+# REFUSED: docs  (overlaps "docs" held by repo/s-82bacdd8, claim "docs-pass")
+# would claim: internal/api, cmd
+# dry run: 1 conflict(s); nothing was taken          (exit 1)
+```
+
+It writes nothing and exits non-zero on any conflict, so a scripted caller
+cannot read "some of it was free" as "go ahead". And a holder that is finished
+with part of a claim hands back the named scopes, exactly as claimed, rather
+than saying so in prose the gate never reads:
+
+```sh
+buddy release api-refactor --scope docs     # still held: internal/api, cmd
+```
+
+Releasing the last scope releases the claim. Releasing `pkg/sub` from a claim
+that holds `pkg` is refused: prefix scopes have no subtraction, and the only
+other answer would be `pkg` still held with success reported.
+
 ### 1a. Addressing — whose is this uncommitted hunk?
 
 A claim is *declared intent* over a scope. It cannot answer a different and very
@@ -123,6 +146,12 @@ buddy whose CHANGELOG.md
 #   repo/s-82bacdd8   live STALE   39h  uncommitted     2h  other worktree: /path/to/wt-2
 buddy msg repo/s-5d6c5614 "your 0.1.20 bullet goes stale with my change"
 ```
+
+A message is signed with the sending session's **label**, which the recipient
+can always answer to (`buddy msg <that label> …`); `--from <tag>` adds a tag
+after it. This exists because a message once went out signed with a claim slug
+whose claim had been *refused* — so it never opened, so the reply bounced with
+`no such target`, at the one party trying to unblock the sender.
 
 The second session to modify a file another session already has uncommitted is
 also told once, at the moment it happens, in the same PostToolUse context the

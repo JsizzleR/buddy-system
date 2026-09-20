@@ -786,6 +786,85 @@ away, and only because of what it holds: every row is re-derived from a session'
 transcript on its next tool call. Claims, pauses and messages are records and none of
 them may be dropped to change a column.
 
+## D-019 — The conflict set is reported whole, a claim can be narrowed by its holder, and a message is signed with a name that resolves
+
+2026-09-20 · three items from a field wishlist written after a 14-session orchestrated
+run on the reference repo (§5b and §5d there), measured against that run's ledger
+
+**What was wrong** — Three all-or-nothing shapes, each correct and each costing a round
+trip or a stuck file. (1) A claim naming four paths was refused WHOLE because one was
+held, and the refusal named that one conflict; the three free paths were not taken and
+the next collision cost another try. The coordinator had issued an assignment whose
+scopes could not all be satisfied, and neither side could see that until the claim was
+tried. (2) A holder finished with two of its four scopes narrowed them by SAYING SO — its
+description ends "Docs scopes RELEASED." — and the recorded scope was unchanged, because
+release was whole too; the gate kept enforcing four paths, a waiter correctly stayed off
+two of them, and nothing contradicted either party. Acquisition fails loudly; a prose
+release fails silently in both directions. (3) Session A messaged B twice signing
+`--from <its claim slug>`, and B's reply to that slug bounced `no such target`: A's claim
+had been REFUSED, so it never opened, so the slug resolved to nothing. Measured in that
+ledger: of 111 direct messages the sender was a session label ONCE; 104 times it was a
+claim slug, 14 of which no longer resolve because the claim closed — and a refused
+claim's slug never appears in the ledger at all.
+
+**What shipped** — `claim --dry-run`: the whole conflict set, one `REFUSED:` line per
+collision naming the requested scope, the held scope as claimed, the holder and the slug,
+then `would claim: …` for the free set; it writes nothing and exits non-zero on any
+conflict so a script cannot read "some of it was free" as "go ahead". The real refusal
+now carries the rest of the set too (`ErrRefused.More`) and prints it, because both run
+the SAME computation (`scopeConflicts`), which is what keeps a forecast from disagreeing
+with the refusal it predicts. `release <slug> --scope <path>…`: the holder hands back
+named scopes, exactly as claimed; the claim's `renewed` moves; releasing the last scope
+releases the claim, so nothing can sit open over nothing; fenced by incarnation as
+`release` is and diagnosed by the same `ErrNoRelease`. `msg` signs with the calling
+session's LABEL — the one name D-013 guarantees resolves — read from the environment
+only (`BUDDY_SESSION`, then `CLAUDE_CODE_SESSION_ID`), and an explicit `--from` that is
+not the label is kept as a tag after it: `alpha (r1701-console-quoting)`. Label first
+because the inbox fences the sender to 64 bytes and truncation must cost the tag, never
+the address. No session in the environment is the operator at a terminal, whose sender
+is what they typed or `operator`, exactly as before.
+
+**What it deliberately does not do** — No partial ACQUISITION. It was the first thing
+asked for and it is the wrong fix: a claim that comes back holding three of four paths
+has changed shape under its caller, whose next edit lands on the fourth as if it were
+held. D-001's "granted whole or refused whole" stands; the dry run is how a request gets
+narrowed in one round trip instead of three. No containment on release: releasing
+`pkg/sub` from a claim holding `pkg` is REFUSED naming what is held, because prefix scopes
+have no subtraction (D-002 cut glob math for the same reason) and the only honest result
+would be `pkg` still held with success reported — the prose failure with a command in
+front of it. The dry run runs on autocommit reads, not in a transaction: the ledger's
+`_txlock=immediate` would make a read-only forecast take the WRITE lock. The price is
+that a peer's claim can land between its two reads; it is a forecast, and the real
+`Claim` re-checks everything under its own lock. `msg` never consults `whoAmI`'s cwd
+inference for the signature: that arm can refuse or guess, and a message must never be
+refused for want of a name.
+
+**What the code review changed** — A Codex code pass found one defect and one divergence,
+and both shipped fixed the same day with a test watched to die under a mutation. (1) The
+dry run checked the session id and liveness but not the INCARNATION, so a caller that had
+resolved itself before a bye and a hello was forecast "free" and then refused at the write;
+it now takes the incarnation and checks it as `Claim` does. (2) `Claim`'s slug check
+returned before the scope scan, so a request colliding on slug AND scope was forecast with
+two conflicts and refused with one — the exact disagreement the shared computation exists
+to prevent. Both paths now call ONE `allConflicts` (slug first, then every overlapping
+pair). The pass also named four ways the tests could pass a wrong implementation — partial
+acquisition on refusal, a mixed partial release committing the held scope before refusing
+the missing one, one requested prefix reporting only its first holder, and deleting the
+claim row instead of marking it released — and each got a test and a mutation that died.
+Fifteen mutations in all: fourteen caught, and one turned out EQUIVALENT — it rewrote the
+claim's description before the conflict check, inside the transaction the refusal rolls
+back, so nothing observable changed; the property it aimed at is held by the transaction,
+not by a check. A confirmation pass found every finding closed and no new defect.
+
+**Residuals** — A refused claim still leaves no trace, so `whose`/`ls` cannot show that
+somebody WANTED a scope; the address now travels on the message instead. The tag after
+the label is free text and is fenced like every other sender. The stamp resolves only
+while the rendered label equals the stored one: the inbox fences the sender to 64 bytes,
+so a hand-chosen label over that, or one carrying a space or a newline, is shown altered
+and no longer matches D-013's exact resolution. Default labels are short and plain. The
+dry run's two reads can straddle a peer's write; it is a forecast, and `Claim` re-checks
+under its own lock.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
