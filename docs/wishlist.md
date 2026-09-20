@@ -474,7 +474,16 @@ DIRTY IN     (none)
 Two sessions hit this in one day. The second one only caught it because a coordinator
 happened to hold the claim table and contradicted the answer.
 
-## 13. A usage error exits 0, and a pipe then eats even that
+## 13. `buddy msg` ignores stdin, and the exit status that looked like the second cause was the pipe
+
+> **Status (2026-09-20):** half of this item is REFUTED, and it is the half the title led
+> with. The usage path does NOT return 0. Measured on the committed binary: `buddy msg all
+> --from s-xxx` with no text exits **1** — `Run` returns 1 for any command error
+> (`internal/cli/cli.go`), and it always has. The `rc=0` recorded below is the `| tail -5`:
+> `sh` has no pipefail, so the status read back was the filter's, not the command's. That
+> trap is already in CLAUDE.md's environment gotchas; this item is what it looks like when
+> it bites something other than a check run. What SURVIVES is the stdin half, and it is
+> enough on its own to have caused the incident.
 
 ```
 $ buddy msg all --from s-xxx <<'EOF' | tail -5
@@ -484,16 +493,31 @@ buddy msg: usage: buddy msg <session|label|slug|all> [--from <who>] <text...>
 --- rc=0 ---
 ```
 
-**The broadcast was never sent and the exit status said success.** Two independent causes
-stacked: `msg` takes its text as argv and silently ignores stdin, and the usage path returns
-0. A caller checking `rc` — which is the disciplined thing to do — is told the message went
-out. In a coordination tool, a send that fails silently is the worst available failure: the
-sender proceeds believing the fleet was told, and the fleet proceeds never having been.
+**The broadcast was never sent.** `msg` takes its text as argv and silently ignores stdin,
+so the heredoc went nowhere and what ran was a usage error. Measured both ways on one
+binary, 2026-09-20: unpiped, that command exits 1 and a caller checking `rc` learns it;
+through the pipe it reads 0. **One cause, not two** — and the one that remains is the one no
+exit code would have fixed, because a caller who redirects instead of piping still has to
+notice that the text it fed the command was discarded.
 
-Wanted: **non-zero on usage error** (table stakes), and **read stdin when it is not a TTY**,
-because every other line-oriented tool in this workflow does and the muscle memory is real.
-A `buddy msg --check` that prints the resolved recipient set and byte count without sending
-would also have caught it.
+The inconsistency lives inside a single binary: the hook verbs DO read stdin (`readHook`),
+so `buddy gate` and `buddy beat` take their payload there while `msg` throws the same
+channel away without a word.
+
+Wanted: **read stdin when it is not a TTY**, because every other line-oriented tool in this
+workflow does and the muscle memory is real — or REFUSE when stdin is not a TTY and no text
+was given, which is cheaper and fails at the moment the mistake is made rather than at the
+moment somebody notices the fleet was never told. Either way the discriminator is already
+written and already load-bearing: `stdinIsTTY` sits beside `readHook`, added so a human at
+a terminal would not block waiting for hook JSON that is not coming. A `buddy msg --check`
+printing the resolved recipient set and byte count without sending would also have caught
+it.
+
+**Why this is corrected in place rather than deleted**, which is §5e's rule applied to its
+author: the item was written with two causes, one observed and one inferred from it, and the
+inferred one went in the title. The observation (`rc=0`) was real; the explanation attached
+to it was not. A wishlist item that names a mechanism is a hypothesis until somebody runs
+it, and the cost of running this one was a single command with the pipe removed.
 
 ## 14. A long-running session's copy of the standing rules rots, and nothing says so
 
