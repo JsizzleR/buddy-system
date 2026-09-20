@@ -66,7 +66,10 @@ ledger row entered through the CLI (D-006).
    boundary.
 10. **Sessions are identified by `(session_id, incarnation)` (D-003).** A delayed `bye`
     from a dead incarnation must not orphan a live one; a delayed `beat` must not resurrect
-    an ended session. PID is diagnostic only, never authoritative.
+    an ended session. The pid is never identity — but since D-025 it is AUTHORITATIVE for
+    exactly one decision: a hook-driven `bye` ends a session only when no registered
+    harness process (pid + kernel start time, `session_procs`) is still alive. On the
+    roster it is diagnostic only.
 11. **Dirty paths are OBSERVATIONS and may never refuse anything.** `dirty_paths` records
     which session's tool call named which file. It exists so a message about an
     uncommitted hunk can be ADDRESSED to someone. Attribution comes only from a tool call
@@ -218,6 +221,15 @@ ledger row entered through the CLI (D-006).
     dir, so a linked worktree's name is wrong; deriving it differently was cut because labels
     are a stable addressing namespace (D-013) and already-minted ones would not change.
     `servesRoom` is shared with the presence path, which has always done this check.
+
+29. **A `bye` is fenced by the registered PROCESS, found by NAME (D-025).** Hook-driven
+    `hello` and `beat` register the `claude` ancestor of the hook (walked up to 16 hops by
+    exec path / argv[0], never by depth, never `p_comm` — which is the version string);
+    `bye` removes its own registration and ends the session only when no other
+    registered process is alive, judged by pid AND start time. Several registrations per
+    session are legal (a second `--resume`), a session with none is UNBOUND and ends on
+    any bye as before, a manual `bye` needs `--force` past a live registration, nothing
+    auto-ends on `GONE`, and non-darwin platforms record no anchor.
 
 ## Environment facts (measured, do not re-derive)
 

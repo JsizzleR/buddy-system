@@ -92,6 +92,15 @@ binary just turns the feature off:
       "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" busy 2>/dev/null; exit 0"}]}],
 ```
 
+`SessionEnd` (`bye`) is fenced by the **process**, not by the payload: the hook
+JSON names a session id and no incarnation, and `claude --resume` keeps the id,
+so a `bye` that fired late from a dead incarnation used to end the live one —
+its heartbeats went silent and the next peer's `hello` orphaned its claims
+mid-edit. Now `hello` and every `beat` register the `claude` process the hook
+was spawned by, and `bye` ends the session only when no registered process is
+still alive. A hand-run `buddy bye <id>` is refused by a live registration and
+names the process; `--force` is the operator's act.
+
 `Stop` marks the session idle at its prompt so the roster can tell "waiting for
 a human" from "hard at work"; without it nothing ever prints `idle`, and
 nothing else changes. `busy` retracts that mark when a new turn starts — which
@@ -321,6 +330,21 @@ The annotations after the id are what an orchestrator picks on:
 - `claims N` — open claims held now. The names are in `buddy ls`; the row
   carries the count, because a slug is 128 bytes of free text and a session may
   hold several.
+- `pid 30479` — the harness process this row IS: the `claude` process the
+  session's hooks were spawned by, found by walking up from the hook (by exec
+  path and `argv[0]`, never by the kernel's `p_comm`, which for the launcher is
+  a version string). It is what the operator kills to end the session without
+  asking it — a coordinator can report that a session is safe to kill and must
+  never be able to obtain permission to kill it, and a pid on the roster keeps
+  the coordinator out of that loop. `pid 30479 GONE` means the process is no
+  longer there (killed without `bye`): diagnostic only, nothing ends or reaps
+  on it. Two pids on one row (`pid 100,200`) is a session id opened twice
+  (`--resume` while the first still runs); the row ends only when the last one
+  says `bye`. A row with no `pid` is **unbound** — its `hello` was hand-run or
+  predates this, and its `bye` ends it as it always did.
+- `pane herdr:w14:pA` — the terminal the harness inherited its environment
+  from (`HERDR_PANE_ID`, else `TMUX_PANE`), reported at registration: which
+  window on the operator's screen this row is. Buddy never acts on it.
 - `claude-opus-5/xhigh prompt 90k turn 4s` — what the session is running and
   how much context it was last seen carrying. The model and the effort are read
   from the same record as the counts and printed only when it recorded them:

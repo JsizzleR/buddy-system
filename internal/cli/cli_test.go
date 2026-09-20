@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JsizzleR/buddy-system/internal/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -88,6 +89,15 @@ type fixture struct {
 	// session — one that exists in no fixture ledger. Tests that exercise
 	// environment identity set it explicitly.
 	env map[string]string
+	// proc is the harness process a hook-driven verb reports it was spawned
+	// by, and alive is which processes exist (pid -> birth time). Both start
+	// EMPTY for the reason env does: the suite runs under a claude process of
+	// its own, and a fixture reading the real process tree would anchor every
+	// session to the developer's harness — on this box — and to nothing on
+	// CI. Unset, every session is UNBOUND, which is the pre-D-025 behaviour
+	// every older test was written against.
+	proc  store.ProcRef
+	alive map[int]int64
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -123,7 +133,7 @@ func newFixtureNamed(t *testing.T, name string) *fixture {
 	wtB := filepath.Join(dir, "wtB")
 	git("worktree", "add", "-q", wtB)
 	return &fixture{repo: repo, wtB: wtB, clock: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC),
-		env: map[string]string{}}
+		env: map[string]string{}, alive: map[int]int64{}}
 }
 
 // run executes a buddy command with stdin JSON (may be empty) from cwd.
@@ -137,9 +147,28 @@ func (f *fixture) run(t *testing.T, cwd, stdin string, args ...string) (stdout, 
 		Cwd:    cwd,
 		Now:    func() time.Time { return f.clock },
 		Getenv: func(k string) string { return f.env[k] },
+		Anchor: func() (store.ProcRef, bool) { return f.proc, f.proc.PID != 0 },
+		ProcAlive: func(p store.ProcRef) bool {
+			born, ok := f.alive[p.PID]
+			return ok && (p.Born == 0 || born == 0 || born == p.Born)
+		},
 	})
 	return out.String(), errw.String(), code
 }
+
+// asProcess runs fn as if every hook in it were spawned by harness process
+// pid (born at `born`), and registers that process as alive for the rest of
+// the test unless the test kills it with f.kill.
+func (f *fixture) asProcess(pid int, born int64, fn func()) {
+	prev := f.proc
+	f.proc = store.ProcRef{PID: pid, Born: born}
+	f.alive[pid] = born
+	defer func() { f.proc = prev }()
+	fn()
+}
+
+// kill makes pid not exist any more.
+func (f *fixture) kill(pid int) { delete(f.alive, pid) }
 
 // asSession runs fn with the given session id in the environment, the way
 // Claude Code exports it to a Bash tool call.

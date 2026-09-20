@@ -262,7 +262,7 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 // sessionsWhere is the shared row reader for session lookups that can return
 // more than one row.
 func (s *Store) sessionsWhere(where string, args ...any) ([]SessionInfo, error) {
-	rows, err := s.db.Query(`SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
+	rows, err := s.db.Query(`SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
 		FROM sessions `+where+` ORDER BY label`, args...)
 	if err != nil {
 		return nil, err
@@ -272,7 +272,7 @@ func (s *Store) sessionsWhere(where string, args ...any) ([]SessionInfo, error) 
 	for rows.Next() {
 		var si SessionInfo
 		if err := rows.Scan(&si.SessionID, &si.Incarnation, &si.Label, &si.Worktree,
-			&si.PID, unixScan{&si.Started}, unixScan{&si.LastSeen}, unixScan{&si.Ended}); err != nil {
+			&si.PID, &si.Terminal, unixScan{&si.Started}, unixScan{&si.LastSeen}, unixScan{&si.Ended}); err != nil {
 			return nil, err
 		}
 		out = append(out, si)

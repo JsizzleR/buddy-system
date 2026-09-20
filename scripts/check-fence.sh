@@ -12,7 +12,9 @@
 # WHAT IT CHECKS. Every fmt.Fprint*/Sprintf/Errorf statement in the non-test
 # Go of the packages that render (cli, buddylist, cmd) is joined into one line
 # (an argument list routinely spans several) and searched for a field that
-# carries peer text: .Label .Slug .Desc .Scopes .Worktree .Body .From .Note.
+# carries peer text: .Label .Slug .Desc .Scopes .Worktree .Body .From .Note
+# .Terminal (the last is read from an ENVIRONMENT and printed into other
+# sessions' context, which is the same trigger).
 # A statement that names one of those must call fence.Line, fence.Field or
 # Fence at least as many times as it names them. (Field is Line plus a
 # guarantee that the value stays ONE whitespace-delimited field — see issue
@@ -40,7 +42,7 @@ scan() {
     function flush(   nf, nfence, tmp) {
       if (stmt == "") return
       if (stmt !~ /fence: not peer text/) {
-        tmp = stmt; nf = gsub(/\.(Label|Slug|Desc|Scopes|Worktree|Body|From|Note)([^A-Za-z0-9_]|$)/, "&", tmp)
+        tmp = stmt; nf = gsub(/\.(Label|Slug|Desc|Scopes|Worktree|Body|From|Note|Terminal)([^A-Za-z0-9_]|$)/, "&", tmp)
         tmp = stmt; nfence = gsub(/fence\.Line\(|fence\.Field\(|[^a-zA-Z]Fence\(/, "&", tmp)
         if (nf > nfence) printf "%s:%d: %d peer field(s), %d fence call(s): %s\n", FILENAME, start, nf, nfence, stmt
       }

@@ -40,6 +40,13 @@ type Env struct {
 	Cwd    string
 	Now    func() time.Time    // nil = wall clock
 	Getenv func(string) string // nil = os.Getenv
+	// Anchor names the harness process this hook was spawned by, and
+	// ProcAlive says whether a registered one is still there (proc.go). Both
+	// are seams so a test can play two incarnations as two processes; nil
+	// means the real process tree, which a test must never read — the suite
+	// runs under a claude process of its own.
+	Anchor    func() (store.ProcRef, bool)
+	ProcAlive func(store.ProcRef) bool
 }
 
 func (e Env) getenv(k string) string {
@@ -47,6 +54,20 @@ func (e Env) getenv(k string) string {
 		return e.Getenv(k)
 	}
 	return os.Getenv(k)
+}
+
+func (e Env) anchor() (store.ProcRef, bool) {
+	if e.Anchor != nil {
+		return e.Anchor()
+	}
+	return anchorProc()
+}
+
+func (e Env) procAlive(p store.ProcRef) bool {
+	if e.ProcAlive != nil {
+		return e.ProcAlive(p)
+	}
+	return procAlive(p)
 }
 
 func Run(args []string, env Env) int {
@@ -797,11 +818,19 @@ func helloFlags(args []string) (session, label string, rest []string) {
 func cmdHello(args []string, env Env) error {
 	session, label, _ := helloFlags(args)
 	dir := env.Cwd
+	// The process and the terminal are recorded ONLY for a hook-driven hello
+	// (proc.go says why: a hand-run hello has no harness ancestor, or the
+	// operator's own terminal, and would bind the session to the wrong thing
+	// or to nothing).
+	var proc store.ProcRef
+	terminal := ""
 	if session == "" {
 		// Only consult stdin when the flag didn't already answer; hello with
 		// --session at a terminal must not wait on hook JSON.
 		if h, err := readHook(env); err == nil {
 			session, dir = h.SessionID, h.Cwd
+			proc, _ = env.anchor()
+			terminal = terminalHandle(env)
 		}
 	}
 	if session == "" {
@@ -827,7 +856,7 @@ func cmdHello(args []string, env Env) error {
 	if top == "" {
 		top = dir
 	}
-	si, err := st.Hello(session, label, top, os.Getpid())
+	si, err := st.HelloFrom(session, label, top, proc, terminal)
 	if err != nil {
 		return err
 	}
@@ -907,13 +936,43 @@ func cmdHello(args []string, env Env) error {
 	return nil
 }
 
+// cmdBye is the SessionEnd hook, and the manual `buddy bye <id> [--force]`.
+//
+// THE FENCE (D-025). The hook payload names no incarnation, so for a long
+// time this ended whichever incarnation of the id was live — and a delayed
+// SessionEnd from a dead incarnation ended a live one. What it carries now
+// is the PROCESS it was spawned by (proc.go), and the store ends the session
+// only when no OTHER registered process is still alive. A refusal is a
+// stderr note and exit 0, like every other courtesy hook: the session stays
+// live because something live is still registered to it, which is the
+// point, and the hook line swallows stderr anyway.
+//
+// The manual form registers no process, so ANY live registration refuses it
+// — the operator is saying "this session is over" about a harness process
+// that is still running. --force is the operator's explicit act, the same
+// word `sweep` uses for the same reason; without it the refusal names the
+// process so they can kill it instead.
 func cmdBye(args []string, env Env) error {
 	session := ""
 	dir := env.Cwd
+	force := false
+	var from store.ProcRef
+	hookDriven := false
 	if h, err := readHook(env); err == nil {
 		session, dir = h.SessionID, h.Cwd
-	} else if len(args) > 0 {
-		session = args[0]
+		hookDriven = true
+		from, _ = env.anchor()
+	} else {
+		for _, a := range args {
+			switch {
+			case a == "--force":
+				force = true
+			case strings.HasPrefix(a, "-"):
+				return fmt.Errorf("usage: buddy bye <session> [--force]  (or pipe SessionEnd hook JSON)")
+			case session == "":
+				session = a
+			}
+		}
 	}
 	if session == "" {
 		return errors.New("no session id")
@@ -926,7 +985,31 @@ func cmdBye(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	return st.Bye(session, "")
+	res, err := st.ByeFrom(session, from, env.procAlive, force)
+	if err != nil {
+		return err
+	}
+	if res.Ended || !res.Known {
+		return nil
+	}
+	// Refused: something registered is still alive. The pids are numbers the
+	// kernel handed out, not peer text — but the session id is echoed and is
+	// the caller's, so it is fenced like every other echoed argument.
+	pids := make([]string, 0, len(res.Blocking))
+	for _, p := range res.Blocking {
+		pids = append(pids, strconv.Itoa(p.PID))
+	}
+	who := "another process this session registered"
+	if res.Stranger {
+		who = fmt.Sprintf("process %d, which this session never registered", from.PID)
+	}
+	msg := fmt.Sprintf("session %s stays live: still registered to running process(es) %s — this bye came from %s",
+		fence.Line(session, 128), strings.Join(pids, ","), who)
+	if hookDriven {
+		fmt.Fprintf(env.Stderr, "buddy bye: %s\n", msg)
+		return nil
+	}
+	return fmt.Errorf("%s; kill it, or `buddy bye %s --force` to end the registration anyway", msg, fence.Line(session, 128))
 }
 
 // cmdIdle is the Stop hook: the turn is over and the session is waiting at
@@ -1056,7 +1139,12 @@ func cmdBeat(args []string, env Env) error {
 			}
 		}
 	}
-	if err := st.Beat(h.SessionID, rel); err != nil {
+	// The process rides the heartbeat too (BeatFrom): a session whose hello
+	// registered nothing is bound by its first hook-driven tool call, and a
+	// second process on the same id registers itself the moment it acts. Two
+	// sysctls, no fork; measured under the 100 ms budget with room to spare.
+	proc, _ := env.anchor()
+	if err := st.BeatFrom(h.SessionID, rel, proc); err != nil {
 		return err
 	}
 
@@ -1985,7 +2073,7 @@ func cmdSessions(args []string, env Env) error {
 	// leave half a listing behind: whether the gate would refuse this session,
 	// how much it is already holding, and how much context it was last seen
 	// carrying — the three things an orchestrator picks on.
-	notes, err := fitness(st, sessions, now)
+	notes, err := fitness(st, env, sessions, now)
 	if err != nil {
 		return err
 	}
@@ -2073,7 +2161,7 @@ func cmdSessions(args []string, env Env) error {
 // keeps a revived session from being charged for its predecessor's
 // reservations: hello orphans those, but the comparison is free and states
 // the rule in the one place a reader will look for it.
-func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[string]string, error) {
+func fitness(st *store.Store, env Env, sessions []store.SessionInfo, now time.Time) (map[string]string, error) {
 	open, err := st.Claims(false)
 	if err != nil {
 		return nil, err
@@ -2083,6 +2171,10 @@ func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[
 		return nil, err
 	}
 	idle, err := st.IdleSessions()
+	if err != nil {
+		return nil, err
+	}
+	procs, err := st.SessionProcs()
 	if err != nil {
 		return nil, err
 	}
@@ -2121,6 +2213,24 @@ func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[
 		if n := held[si.SessionID+"\x00"+si.Incarnation]; n > 0 {
 			parts = append(parts, fmt.Sprintf("claims %d", n))
 		}
+		// THE PROCESS AND THE PANE, for the operator winding a fleet down
+		// (issues #20, #22): which harness process a row IS, so it can be
+		// killed without asking the session — a coordinator can report that
+		// a session is safe to kill and must never be able to obtain
+		// permission to kill it, and a pid on the roster is what keeps the
+		// coordinator out of that loop. GONE marks a registered process that
+		// no longer exists (a session killed without bye): diagnostic only —
+		// nothing ends or reaps on it, `sweep --force` stays the operator's
+		// act, because a wrongly-recorded anchor plus an auto-end would be
+		// the delayed-bye defect by another road.
+		if si.Live() {
+			if note := procNote(env, procs[si.SessionID]); note != "" {
+				parts = append(parts, note)
+			}
+			if si.Terminal != "" {
+				parts = append(parts, "pane "+fence.Field(si.Terminal, 64))
+			}
+		}
 		// The sample and the session row come from two queries, so a
 		// revival between them leaves a row and a sample that disagree.
 		// Comparing costs one string and drops the note rather than
@@ -2133,6 +2243,25 @@ func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[
 		}
 	}
 	return out, nil
+}
+
+// procNote renders a session's registered processes: `pid 30479`, or
+// `pid 30479 GONE` when the process is not there any more. Several print
+// comma-separated; the second --resume on one id is the case, and the
+// operator should see both.
+func procNote(env Env, procs []store.ProcRef) string {
+	if len(procs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(procs))
+	for _, p := range procs {
+		s := strconv.Itoa(p.PID)
+		if !env.procAlive(p) {
+			s += " GONE"
+		}
+		parts = append(parts, s)
+	}
+	return "pid " + strings.Join(parts, ",")
 }
 
 // contextNote renders what a session's last turn cost it.
