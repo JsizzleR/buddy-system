@@ -869,6 +869,11 @@ func TestSessionsByStartedIsNotLastSeenInDisguise(t *testing.T) {
 		t.Error(`--by start must be REFUSED: a listing that quietly ignores the key it was given ` +
 			`is indistinguishable from one that honoured it`)
 	}
+	// Go's flag parser stops at the first non-flag, so a stray operand would
+	// otherwise swallow the flag behind it and list in the default order.
+	if _, _, code := f.run(t, f.repo, "", "sessions", "stray", "--by", "started"); code == 0 {
+		t.Error("a stray operand must be REFUSED: everything after it is silently unparsed")
+	}
 }
 
 // TestSessionsTieBreakIsStable pins the tiebreak. started and last_seen are
@@ -996,6 +1001,94 @@ func TestSessionsRowSaysWhetherAPeerCanTakeWork(t *testing.T) {
 	must(hook("holder"), "hello", "--label", "holder")
 	if row := rowOf(t, "holder"); strings.Contains(row, "claims") {
 		t.Errorf("a revived incarnation starts at zero claims:\n  %s", row)
+	}
+}
+
+// TestBeatRecordsContextAndTheRosterReportsIt is the end-to-end of the
+// capacity half: a beat reads the session's own transcript and the roster
+// says what it found. The operator's case for it — "we are good here, you
+// know this area, go take the next one" — is a decision about how much
+// context the candidate is already carrying, and nothing in the ledger knew.
+func TestBeatRecordsContextAndTheRosterReportsIt(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	// The turn is dated at the frozen clock, so `turn 0s` is a fact about the
+	// record and not about when the test ran.
+	ts := f.clock.UTC().Format("2006-01-02T15:04:05.000Z")
+	tr := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(tr, []byte(turnLine(ts, "claude-opus-5", 2, 86_378, 4_119, 368, false, 0)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beat := func() string {
+		in := map[string]any{"session_id": "sess-a", "cwd": f.repo, "tool_name": "Read",
+			"transcript_path": tr, "tool_input": map[string]any{}}
+		b, _ := json.Marshal(in)
+		return string(b)
+	}
+
+	must("", "init")
+	must(hookJSON("sess-a", f.repo, "", ""), "hello", "--label", "alpha")
+	must(hookJSON("sess-b", f.repo, "", ""), "hello", "--label", "quiet")
+
+	row := func(t *testing.T, label string) string {
+		t.Helper()
+		out, errw, code := f.run(t, f.repo, "", "sessions")
+		if code != 0 {
+			t.Fatalf("sessions: exit %d: %s", code, errw)
+		}
+		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			if fs := strings.Fields(ln); len(fs) > 0 && fs[0] == label {
+				return ln
+			}
+		}
+		t.Fatalf("no row for %q in:\n%s", label, out)
+		return ""
+	}
+	// Before any beat: the roster says nothing rather than zero. "Never
+	// reported" and "reported as empty" are different facts about a peer.
+	if got := row(t, "alpha"); strings.Contains(got, "prompt") {
+		t.Fatalf("no observation yet, so no number:\n  %s", got)
+	}
+
+	must(beat(), "beat")
+	// 2 + 86378 + 4119 = 90,499 — the measured live reading this was built
+	// against. Truncating, not rounding: 90k.
+	if got, want := row(t, "alpha"), "claude-opus-5 prompt 90k turn 0s"; !strings.Contains(got, want) {
+		t.Errorf("roster must carry the observation %q:\n  %s", want, got)
+	}
+	if got := row(t, "alpha"); strings.Contains(got, "%") {
+		t.Errorf("with no declared window there is no denominator, so NO percentage — "+
+			"the model string cannot tell the 200k and 1M variants apart:\n  %s", got)
+	}
+	if got := row(t, "quiet"); strings.Contains(got, "prompt") {
+		t.Errorf("a session that never beat with a transcript reports nothing:\n  %s", got)
+	}
+
+	// Declared by the operator, and only then does a percentage appear.
+	f.env[EnvContextWindow] = "1M"
+	must(beat(), "beat")
+	if got, want := row(t, "alpha"), "prompt 90k/1.0M 9%"; !strings.Contains(got, want) {
+		t.Errorf("a DECLARED window is the only denominator there is, want %q:\n  %s", want, got)
+	}
+
+	// The number ages by its own turn time, not by the heartbeat: a peer that
+	// has since compacted or since grown is exactly the wrong handoff, and
+	// the only thing that says so is how old the reading is.
+	f.clock = f.clock.Add(90 * time.Minute)
+	must(hookJSON("sess-a", f.repo, "", ""), "beat") // a beat with no transcript path
+	got := row(t, "alpha")
+	if !strings.Contains(got, "turn 1h") {
+		t.Errorf("the turn age must track the RECORD, not the last beat:\n  %s", got)
+	}
+	if !strings.Contains(got, "seen 0s") {
+		t.Errorf("positive control: the heartbeat itself is fresh, so the two ages must "+
+			"differ here — otherwise this test cannot tell them apart:\n  %s", got)
 	}
 }
 

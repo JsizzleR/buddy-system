@@ -934,3 +934,101 @@ func TestHelloLabelKeepsOrReplaces(t *testing.T) {
 		})
 	}
 }
+
+// sample is a context observation with the fields these tests care about.
+func sample(turn time.Time, prompt int64) ContextSample {
+	return ContextSample{Observed: turn, TurnAt: turn, Model: "m", Prompt: prompt}
+}
+
+func TestContextSampleBelongsToOneIncarnation(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if err := st.RecordContext(a.SessionID, a.Incarnation, sample(clk.t, 90_000)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.ContextSamples()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["sess-a"].Prompt != 90_000 {
+		t.Fatalf("a live session's own observation must read back: %+v", got["sess-a"])
+	}
+
+	// A revived session is a new session wearing an old id, and its
+	// predecessor's footprint is not its own.
+	clk.advance(time.Hour)
+	if err := st.Bye("sess-a", a.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	b := hello(t, st, "sess-a", "alpha", "/wt/a")
+	got, err = st.ContextSamples()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := got["sess-a"]; ok {
+		t.Errorf("the previous incarnation's sample must not be reported as this one's: %+v", c)
+	}
+
+	// And the fresh incarnation can record its own.
+	if err := st.RecordContext("sess-a", b.Incarnation, sample(clk.t, 5_000)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.ContextSamples()
+	if got["sess-a"].Prompt != 5_000 {
+		t.Errorf("positive control: the revived incarnation records its own, got %+v", got["sess-a"])
+	}
+
+	// And the observation of an incarnation that has since been superseded is
+	// DROPPED, not re-stamped onto its successor. A beat reads the transcript,
+	// its session dies and revives, and the write arrives late.
+	if err := st.RecordContext("sess-a", a.Incarnation, sample(clk.t, 77_000)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.ContextSamples()
+	if got["sess-a"].Prompt != 5_000 {
+		t.Errorf("a late write from the previous incarnation must not land on this one, got %+v",
+			got["sess-a"])
+	}
+	if got["sess-a"].Incarnation != b.Incarnation {
+		t.Errorf("a sample must name the incarnation it belongs to, so a caller holding an older "+
+			"session row can tell: got %q, want %q", got["sess-a"].Incarnation, b.Incarnation)
+	}
+}
+
+func TestContextSampleNeverGoesBackwardsOrResurrects(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	t1, t2 := clk.t, clk.t.Add(time.Hour)
+	if err := st.RecordContext(a.SessionID, a.Incarnation, sample(t2, 90_000)); err != nil {
+		t.Fatal(err)
+	}
+	// Two beats can reach the ledger out of order, and a failed capture
+	// leaves the previous tail in place to be re-read.
+	if err := st.RecordContext(a.SessionID, a.Incarnation, sample(t1, 10_000)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.ContextSamples()
+	if got["sess-a"].Prompt != 90_000 || !got["sess-a"].TurnAt.Equal(t2) {
+		t.Errorf("an older turn must not replace a newer one, got %+v", got["sess-a"])
+	}
+
+	// A beat that arrives after bye must not write a row for a dead session —
+	// the same rule that stops a delayed heartbeat resurrecting one.
+	b := hello(t, st, "sess-b", "bravo", "/wt/b")
+	if err := st.Bye(b.SessionID, b.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordContext(b.SessionID, b.Incarnation, sample(clk.t, 1_000)); err != nil {
+		t.Fatalf("a late sample is a silent no-op, not an error: %v", err)
+	}
+	if err := st.RecordContext("sess-never-said-hello", "whatever", sample(clk.t, 1_000)); err != nil {
+		t.Fatalf("a sample for an unknown session is a silent no-op, not an error: %v", err)
+	}
+	got, _ = st.ContextSamples()
+	if c, ok := got["sess-b"]; ok {
+		t.Errorf("an ended session must have no sample recorded: %+v", c)
+	}
+	if c, ok := got["sess-never-said-hello"]; ok {
+		t.Errorf("an unknown session must have no sample recorded: %+v", c)
+	}
+}

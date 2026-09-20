@@ -38,7 +38,9 @@ used platform.
 - `internal/store` — the SQLite ledger. Claims, sessions, controls, inbox,
   dirty paths. Transactional; WAL; `_txlock=immediate`.
 - `internal/cli` — the `buddy` verbs, the Claude Code hooks (`hello`, `gate`,
-  `beat`, `bye`), and the git commit gate (`commit-gate`, `commitgate.go`).
+  `beat`, `bye`), the git commit gate (`commit-gate`, `commitgate.go`), and the
+  ONE place that reads a Claude Code transcript (`transcript.go`: the last
+  turn's token counts for the roster, never any message text).
 - `internal/fence` — untrusted-content fencing. Every attacker-influenced value
   that reaches a model's context goes through here.
 - `internal/buddylist` — the `buddylistd` daemon (`chatd.go`), the journal,
@@ -84,8 +86,11 @@ sh scripts/codex-review.sh <prompt-file> <out-file>
   concurrency, and prepends the review charter.
 
 Useful knobs: `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
-`BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_COST_DAYS`,
-`BUDDY_OSCAR_BIN`. (`BUDDY_LEDGER` is `cost-report.sh`'s knob ONLY — the `buddy`
+`BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_COST_DAYS`, `BUDDY_CONTEXT_WINDOW` (a
+session's context window, e.g. `1M`/`200k` — DECLARED because it cannot be
+derived: the 1M and 200k Opus variants write the same model string into the
+transcript, so unset means the roster prints the prompt size with no
+percentage), `BUDDY_OSCAR_BIN`. (`BUDDY_LEDGER` is `cost-report.sh`'s knob ONLY — the `buddy`
 binary does not read it, and it finds its ledger from the cwd's git common dir.)
 Codex: `CODEX_EFFORT` (default `xhigh`; `max` is a second
 pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
@@ -123,7 +128,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 10. **Dirty paths are OBSERVATIONS and may never refuse anything.** Attribution
     comes only from a tool call naming a path; a `git status` scan may only
     **retract** rows, never add them, because several sessions share one checkout
-    and git attributes nothing.
+    and git attributes nothing. The same holds for a session's context
+    footprint: an observation of its last turn, read from that session's own
+    transcript, stale by construction, and never a denominator it had to guess.
 11. **Stale claims are never auto-reaped.** Staleness marks; it never reaps.
     Only positively-ended sessions are cleaned automatically. `sweep --force` is
     the operator's explicit act.
@@ -248,6 +255,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   cut: a peer's tool call naming a file is not authorship of the staged hunks.
 - **Room digests are never auto-injected into an agent's context**; only operator
   inbox messages are. Context cost is a first-class constraint here.
+- **The roster is the orchestrator's view (D-015).** Every age on a
+  `buddy sessions` row carries its own word, `PAUSED`/`claims N`/the last prompt
+  size trail the id, and the context window is DECLARED (`BUDDY_CONTEXT_WINDOW`)
+  or no percentage prints — the transcript cannot tell the 1M and 200k variants
+  apart. A header line, a stored branch, a `role` field, an undelivered-inbox
+  count and `--json` were all considered and cut; see the decision record.
 - **`pause`, `resume` and `msg` share ONE target namespace, resolved before it is
   stored**: `all`, session id, label, `s-<8hex>` short form, or an OPEN claim slug —
   most-specific-first, exact (never folded), and anything else is REFUSED rather than

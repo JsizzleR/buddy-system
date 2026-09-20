@@ -98,6 +98,25 @@ ledger row entered through the CLI (D-006).
     because refusing somebody reachable would lose a message. ISON is serialized to ONE
     outstanding query per connection: the reply carries no request tag. Store-and-forward
     was cut — the DM is decoration, and the durable channel is elsewhere.
+18. **The roster (`buddy sessions`) is the orchestrator's view, and every number on it
+    carries its own word (D-015).** `started` dates THIS incarnation's registration,
+    `seen` the last hook that spoke for the session, and the state cell carries its own
+    age only when the state is a dated event (`ended 29d`). `--by seen|started`, both
+    DESC, live rows above ended ones, ties broken on `session_id`; an unknown key is
+    refused. `PAUSED`, `claims N` and the context footprint trail the id, so the fixed
+    columns never move. A header line was cut: the common case is ONE row quoted into
+    chat, where a header is gone and the labels have to ride with the numbers.
+19. **The context footprint is an OBSERVATION read from the session's own transcript
+    (D-015), and the window is DECLARED, never derived.** `beat` reads the last 64 KB of
+    the file the hook JSON names, takes the newest non-sidechain turn's token counts, and
+    stores ONE row per session, read back only through a join on the current incarnation.
+    No message text is ever stored. Measured 2026-09-20: a session running the 1M-token
+    Opus variant records `"model":"claude-opus-5"`, identical to the 200k variant, so a
+    percentage inferred from the model string is a fabrication — the denominator comes
+    from `BUDDY_CONTEXT_WINDOW` or no percentage prints. The row says `prompt`, never
+    "context left", and the turn's own age prints beside it always. Every failure of the
+    capture is silent and costs the beat nothing. Measured cost on a 2.3 MB transcript:
+    16.5 ms per beat against 16.4 ms without.
 
 ## Environment facts (measured, do not re-derive)
 

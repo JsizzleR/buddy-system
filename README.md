@@ -224,6 +224,30 @@ The annotations after the id are what an orchestrator picks on:
 - `claims N` — open claims held now. The names are in `buddy ls`; the row
   carries the count, because a slug is 128 bytes of free text and a session may
   hold several.
+- `claude-opus-5 prompt 90k turn 4s` — how much context that session was last
+  seen carrying. `beat` reads the tail of the session's own transcript (the
+  hook JSON already names the file) and stores the newest turn's token counts:
+  input + cache read + cache write, because a cached token occupies the window
+  exactly like a fresh one. **No message text is ever stored or printed** —
+  counts, a model id and two timestamps.
+
+  It says `prompt`, not "context left": that is the last prompt the model was
+  handed, and the session has been working since. The turn's own age prints
+  beside it always, so a reading taken six hours ago cannot be mistaken for one
+  taken this second — a peer that has compacted from 90k to 20k since is
+  exactly the wrong session to pass over.
+
+  A percentage appears **only** against a window you declare:
+
+  ```sh
+  export BUDDY_CONTEXT_WINDOW=1M     # or 200k, or a bare token count
+  # repo/s-16c16a94  live  started 10h  seen 4s  …  prompt 90k/1.0M 9%  turn 4s
+  ```
+
+  It is declared and not inferred because it cannot be inferred: a session
+  running the 1M-token variant writes the same model string into its transcript
+  as the 200k one, and 90,499 tokens is 45% of one window and 9% of the other.
+  Unset, the row prints the count and no percentage.
 
 ### 2. Presence (the fun half)
 

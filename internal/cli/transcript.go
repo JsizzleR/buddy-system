@@ -1,0 +1,235 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// transcript.go — the ONE place buddy reads a Claude Code transcript, and the
+// only thing in the claims binary that looks at a file the harness owns.
+//
+// WHY AT ALL. An orchestrator session deciding who takes the next task is
+// deciding about CAPACITY: "we are good here, you know this area, go take it"
+// rests on how much context the candidate is already carrying, and the ledger
+// knew nothing about it. The number exists in exactly one place — the
+// session's own transcript — and the hook JSON already names the file
+// (`transcript_path`), so reading it costs no new process, no new hook line
+// and no round trip.
+//
+// WHAT IT TAKES: one record — the newest assistant turn's token accounting,
+// its model, and the turn's own timestamp. NEVER ANY CONTENT. The transcript
+// is the operator's entire session, and everything this feature produces lands
+// in OTHER sessions' context windows; a design that could leak a prompt into a
+// peer's listing would be a worse bug than the blindness it cures.
+//
+// WHAT IT REFUSES TO INFER: the context WINDOW. Measured 2026-09-20 on this
+// box: a session running Opus with the 1M-token window records
+// `"model":"claude-opus-5"`, byte for byte what the 200k variant records —
+// nothing in the file distinguishes them. The observed 90,499-token prompt is
+// 45% of one window and 9% of the other, so a percentage derived from the
+// model string is not an approximation, it is a fabrication. The denominator
+// is DECLARED by the operator (BUDDY_CONTEXT_WINDOW) or it is not printed.
+//
+// BOUNDED, AND SILENT WHEN IT CANNOT BE SURE. Measured over the seven
+// transcripts of this project: files 0.6–2.3 MB, single lines up to 267 KB,
+// and the last usage-bearing line beginning 2.8–11.0 KB from EOF. So the file
+// is never read whole; the last tailBytes are read and scanned backwards, and
+// 64 KB clears the measured worst case sixfold. It is still a BOUNDED ATTEMPT
+// and not a guarantee — a 267 KB tool result appended after the last assistant
+// turn puts the record outside the window — and the answer to that case is to
+// keep the previous observation and report nothing new. There is no window
+// size that cannot be missed; there is only a bigger one that costs the hook
+// budget to be wrong less often.
+
+// tailBytes is how much of the end of a transcript is read. See the header:
+// measured worst case 11.0 KB, so this is 6x the evidence, and a miss is
+// designed to be harmless.
+const tailBytes = 64 << 10
+
+// usageSample is one assistant turn's accounting as the transcript recorded
+// it. Prompt is what the model was HANDED: fresh input plus cache read plus
+// cache written. Cache-read tokens occupy the window exactly like any other —
+// a large cache hit is cheaper, not smaller — so they are summed, not netted
+// out.
+type usageSample struct {
+	At         time.Time
+	Model      string
+	Prompt     int64
+	CacheRead  int64
+	CacheWrite int64
+	Output     int64
+}
+
+// transcriptLine is the sliver of a transcript record this cares about. A
+// narrow struct on purpose: the file's shape is the harness's to change, and
+// every field named here is one that has to keep existing.
+type transcriptLine struct {
+	// A subagent's turns are its own context, not the session's. They were
+	// inlined in the parent transcript by older harness versions and live in
+	// a per-session subdirectory in the one measured here (2.1.278) — so this
+	// costs one comparison and guards against reporting a 4k subagent prompt
+	// as the 90k session that spawned it.
+	IsSidechain bool   `json:"isSidechain"`
+	Timestamp   string `json:"timestamp"`
+	Message     struct {
+		Model string `json:"model"`
+		Usage *struct {
+			Input      int64 `json:"input_tokens"`
+			CacheRead  int64 `json:"cache_read_input_tokens"`
+			CacheWrite int64 `json:"cache_creation_input_tokens"`
+			Output     int64 `json:"output_tokens"`
+		} `json:"usage"`
+	} `json:"message"`
+}
+
+// lastUsage returns the newest usable usage record in the transcript at path.
+// Every failure is the same answer — false, meaning "no new observation" —
+// because this runs inside a hook whose verdict it must never change: a
+// missing path, an unreadable file, a record outside the tail, a shape this
+// does not know, an unparseable timestamp. The caller keeps whatever it
+// recorded last and says how old it is.
+func lastUsage(path string) (usageSample, bool) {
+	var zero usageSample
+	if path == "" {
+		return zero, false
+	}
+	// A REGULAR FILE, checked before the open. os.Open on a FIFO with no
+	// writer BLOCKS — indefinitely, inside a 100 ms hook — and a directory
+	// opens fine and fails later. The harness names this path, so neither is
+	// a realistic input; the check costs one stat and removes the class
+	// rather than arguing about how it could be reached.
+	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
+		return zero, false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return zero, false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || fi.Size() == 0 {
+		return zero, false
+	}
+	off := fi.Size() - tailBytes
+	if off < 0 {
+		off = 0
+	}
+	buf := make([]byte, fi.Size()-off)
+	n, err := f.ReadAt(buf, off)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return zero, false
+	}
+	buf = buf[:n]
+	// A window that did not start at byte 0 begins mid-record. That fragment
+	// is not JSON and must never be handed to the parser as though it were:
+	// dropping it is the difference between "no sample" and a sample parsed
+	// out of half a tool result.
+	if off > 0 {
+		i := bytes.IndexByte(buf, '\n')
+		if i < 0 {
+			return zero, false // one line longer than the whole window
+		}
+		buf = buf[i+1:]
+	}
+	// THE LAST RECORD POSITIONALLY, not the greatest timestamp. A transcript
+	// is appended to, so the two coincide; scanning the whole window for a
+	// maximum would parse every record in it to defend against a file the
+	// harness does not write that way.
+	lines := bytes.Split(buf, []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		ln := lines[i]
+		// A prefilter before the parser, because most of a transcript's bytes
+		// are tool results: unmarshalling a 108 KB line to discover it has no
+		// usage in it is the one cost a 100 ms hook cannot spend. A record
+		// still being written fails the parse below and is skipped there.
+		if !bytes.Contains(ln, []byte(`"usage"`)) {
+			continue
+		}
+		// (The prefilter is literal: a record spelling the key with a JSON
+		// escape — "\u0075sage" — would be skipped. No encoder writes that,
+		// and the cost of not assuming so is parsing every tool result.)
+		var rec transcriptLine
+		if err := json.Unmarshal(ln, &rec); err != nil {
+			continue
+		}
+		if rec.IsSidechain || rec.Message.Usage == nil {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, rec.Timestamp)
+		if err != nil {
+			// No substituting "now": the whole point of storing the turn's
+			// own time is that a reader can see how stale the number is, and
+			// a fabricated timestamp reads as the freshest possible sample.
+			continue
+		}
+		u := rec.Message.Usage
+		// Counts outside the plausible are not a smaller problem than a
+		// missing record, they are a louder one: a negative field would print
+		// `prompt -1`, and summing two near-maxint fields wraps to a negative
+		// prompt that then renders as a negative percentage. maxTokens is
+		// thousands of times any real context window, so nothing legitimate
+		// is refused and the addition below cannot overflow.
+		const maxTokens = 1 << 40
+		if u.Input < 0 || u.CacheRead < 0 || u.CacheWrite < 0 || u.Output < 0 ||
+			u.Input > maxTokens || u.CacheRead > maxTokens || u.CacheWrite > maxTokens || u.Output > maxTokens {
+			continue
+		}
+		return usageSample{
+			At:         at,
+			Model:      rec.Message.Model,
+			Prompt:     u.Input + u.CacheRead + u.CacheWrite,
+			CacheRead:  u.CacheRead,
+			CacheWrite: u.CacheWrite,
+			Output:     u.Output,
+		}, true
+	}
+	return zero, false
+}
+
+// declaredWindow reads the operator's declaration of this session's context
+// window, in tokens. 0 means "undeclared", which is a rendering instruction:
+// print the prompt size and no percentage.
+//
+// AN ENVIRONMENT VARIABLE, not a lookup table of model names, because the
+// measured fact is that the transcript cannot tell the 200k and 1M variants
+// apart (see the header). A table would be a guess wearing a number's
+// clothing, and it would be wrong silently, in the direction that matters:
+// reporting 9% for a session that is actually at 45%.
+//
+// Suffixes because an operator types 1M, not 1000000, and a declaration that
+// silently does nothing is worse than no declaration at all.
+func declaredWindow(raw string) int64 {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return 0
+	}
+	mult := int64(1)
+	switch s[len(s)-1] {
+	case 'k', 'K':
+		mult, s = 1_000, s[:len(s)-1]
+	case 'm', 'M':
+		mult, s = 1_000_000, s[:len(s)-1]
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	// The upper bound is what stops the multiply below from wrapping:
+	// BUDDY_CONTEXT_WINDOW=18446744073709552k parses, and n*mult then wraps to
+	// 384 — a denominator small enough to print a confident, enormous
+	// percentage. Undeclared is the right answer to a declaration nobody
+	// meant.
+	if err != nil || n <= 0 || n > maxDeclaredWindow/mult {
+		return 0
+	}
+	return n * mult
+}
+
+// maxDeclaredWindow bounds a declaration at a thousand times the largest
+// window that exists today. It is a sanity bound, not a model fact: the point
+// is that no arithmetic downstream can wrap, not that a bigger window is
+// impossible.
+const maxDeclaredWindow = 1 << 40
