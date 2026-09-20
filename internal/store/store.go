@@ -551,13 +551,25 @@ type ErrRefused struct {
 	Scope    string // the requested scope that overlapped ("" for slug conflicts)
 	Their    string // the conflicting scope
 	Claimant string // owner label (session label)
+	// More is the REST of the conflict set. The named fields carry the first
+	// conflict, as they always have; a four-path claim with two collisions
+	// used to report one and cost a second round trip to learn the other
+	// (wishlist §5b). Error() prints the first and counts the rest, because it
+	// is rendered on one fenced line; a caller that wants the set prints More.
+	More []ErrRefused
 }
 
 func (e ErrRefused) Error() string {
+	var msg string
 	if e.Scope == "" {
-		return fmt.Sprintf("slug %q is already claimed by %s", e.Slug, e.Claimant)
+		msg = fmt.Sprintf("slug %q is already claimed by %s", e.Slug, e.Claimant)
+	} else {
+		msg = fmt.Sprintf("scope %q overlaps %q held by %s (slug %q)", e.Scope, e.Their, e.Claimant, e.Slug)
 	}
-	return fmt.Sprintf("scope %q overlaps %q held by %s (slug %q)", e.Scope, e.Their, e.Claimant, e.Slug)
+	if n := len(e.More); n > 0 {
+		msg += fmt.Sprintf(" — and %d more conflict(s); `claim --dry-run` lists the whole set", n)
+	}
+	return msg
 }
 
 // Claim takes (or, for the same session re-claiming its own slug, refreshes)
@@ -586,47 +598,25 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 			return fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
 		}
 
-		// Slug conflict?
-		ownID, ownSession, taken, err := openSlugOwner(tx, slug)
+		// Somebody else's slug, and overlap with any OTHER session's open
+		// scopes, as ONE set (conflicts.go): the refusal names every collision
+		// and not just the first, and it is the same computation the dry run
+		// makes, so a forecast cannot disagree with the refusal it predicts.
+		// The comparison runs on the folded column; the refusal reports the
+		// scope AS CLAIMED, because that is what `buddy ls` prints and what the
+		// peer typed — an operator told they overlap "src/api" went looking for
+		// a claim on "Src/API" and found no such line.
+		conflicts, err := s.allConflicts(tx, sessionID, slug, norm)
 		if err != nil {
 			return err
 		}
-		if taken && ownSession != sessionID {
-			label, _ := s.labelOf(tx, ownSession)
-			return ErrRefused{Slug: slug, Claimant: label}
+		if len(conflicts) > 0 {
+			return refusedFrom(conflicts)
 		}
-
-		// Overlap with any OTHER session's open scopes? The comparison runs on
-		// the folded column; the refusal reports the scope AS CLAIMED, because
-		// that is what `buddy ls` prints and what the peer typed — an operator
-		// told they overlap "src/api" went looking for a claim on "Src/API" and
-		// found no such line.
-		rows, err := tx.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id FROM claim_scopes cs
-			JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open' AND c.session_id<>?`, sessionID)
+		// Own open slug: a refresh, below.
+		ownID, _, _, err := openSlugOwner(tx, slug)
 		if err != nil {
 			return err
-		}
-		type held struct{ folded, scope, slug, session string }
-		var theirs []held
-		for rows.Next() {
-			var h held
-			if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session); err != nil {
-				rows.Close()
-				return err
-			}
-			theirs = append(theirs, h)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		for _, n := range norm {
-			nf := fold(n)
-			for _, h := range theirs {
-				if scopesOverlap(nf, h.folded) {
-					label, _ := s.labelOf(tx, h.session)
-					return ErrRefused{Slug: h.slug, Scope: n, Their: h.scope, Claimant: label}
-				}
-			}
 		}
 
 		if ownID != "" { // refresh own claim
@@ -682,9 +672,12 @@ func insertScopes(tx *sql.Tx, claimID string, scopes []string) error {
 	return nil
 }
 
-func (s *Store) labelOf(tx *sql.Tx, sessionID string) (string, error) {
+// labelOf takes a rowQuerier, not a *sql.Tx, so the dry run (ClaimConflicts,
+// outside a transaction) and the refusal (Claim, inside one) name holders the
+// same way.
+func (s *Store) labelOf(q rowQuerier, sessionID string) (string, error) {
 	var label string
-	err := tx.QueryRow(`SELECT label FROM sessions WHERE session_id=?`, sessionID).Scan(&label)
+	err := q.QueryRow(`SELECT label FROM sessions WHERE session_id=?`, sessionID).Scan(&label)
 	if err != nil {
 		return sessionID, err
 	}

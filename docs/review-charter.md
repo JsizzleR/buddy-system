@@ -144,6 +144,20 @@ ledger row entered through the CLI (D-006).
     inferred from each other. `session_context` is the one table that may be DROPPED in
     a migration, because every row is re-derived at the next beat.
 
+23. **A claim is still granted whole or refused whole, but the refusal names the WHOLE
+    conflict set, `claim --dry-run` forecasts it without writing, and a holder narrows its
+    own claim with `release <slug> --scope <path>` (D-019).** Forecast and refusal run ONE
+    computation (`allConflicts`: another session's slug first, then every overlapping
+    requested/held pair), so they cannot disagree; the dry run checks the caller's
+    incarnation as the write does and exits non-zero on any conflict. Partial ACQUISITION
+    was cut: a claim that comes back holding three of four paths has changed shape under
+    its caller. Release names scopes EXACTLY as claimed — releasing `pkg/sub` from a claim
+    on `pkg` is refused, because prefix scopes have no subtraction — and releasing the last
+    scope releases the claim. `msg` signs with the sender's LABEL (the one form D-013
+    guarantees resolves), read from the environment only, with an explicit `--from` kept as
+    a tag after it; measured on a live ledger, 1 of 111 direct messages was signed with a
+    label and 104 with a claim slug, 14 of which no longer resolved.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

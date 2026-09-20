@@ -111,14 +111,18 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `buddy — the Buddy System: multi-session claims, control, and messages (ledger: <repo>/.git/buddy.db)
 
 agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a bundle
-              release <slug>                                            hand it back
+                    --dry-run   list every conflict (REFUSED lines) and what would be
+                                taken; writes nothing; exits non-zero on any conflict
+              release <slug> [--scope <path> ...]    hand it back, or only the named
+                                scopes (exactly as claimed); the last scope releases it
               ls [--all]            list claims        inbox            drain my messages
               whose <path>          who has uncommitted changes to it, so you can address them
               who is calling: --session <id>, else $BUDDY_SESSION, else $CLAUDE_CODE_SESSION_ID,
               else the worktree — and that only when it names the one live session there is
 operator      pause <target> [--note <text>]             deny the target's next mutating tool
               resume <target>                            clear pause
-              msg <target> [--from <who>] <text...>
+              msg <target> [--from <tag>] <text...>   signed with YOUR label (which the
+                                recipient can answer to); --from adds a tag after it
               a TARGET is a session id, a label, an s-<id> short form, an OPEN claim slug,
               or "all". Anything else is REFUSED — never queued against a row that would
               match nothing. Peers address each other by slug, so slugs resolve too.
@@ -1363,6 +1367,7 @@ func cmdClaim(args []string, env Env) error {
 	sessionFlag(fs, &session)
 	var scopes multiFlag
 	fs.Var(&scopes, "scope", "repo-relative path or dir prefix (repeatable)")
+	dry := fs.Bool("dry-run", false, "report the conflict set and what would be taken; write nothing")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -1375,7 +1380,39 @@ func cmdClaim(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	if *dry {
+		// The forecast (wishlist §5b): the same conflict computation the
+		// refusal uses, without the write. A coordinator that issued an
+		// assignment whose scopes cannot all be satisfied learns it here in one
+		// round trip instead of one per collision. Non-zero exit when anything
+		// is refused, so a scripted caller cannot read "some of it was free" as
+		// "go ahead".
+		free, conflicts, err := st.ClaimConflicts(si.SessionID, si.Incarnation, slug, scopes)
+		if err != nil {
+			return fencedErr(err)
+		}
+		printConflicts(env, conflicts)
+		if len(free) > 0 {
+			fmt.Fprintf(env.Stdout, "would claim: %s\n", fence.Line(strings.Join(free, ", "), 512))
+		}
+		if len(conflicts) > 0 {
+			return fmt.Errorf("dry run: %d conflict(s); nothing was taken", len(conflicts))
+		}
+		fmt.Fprintln(env.Stdout, "dry run: no conflicts; nothing was taken")
+		return nil
+	}
 	if err := st.Claim(si.SessionID, si.Incarnation, slug, *desc, scopes); err != nil {
+		// A refusal is whole (D-001), and it now carries the whole set: print
+		// every collision, one fenced line each, before the one-line error.
+		var refused store.ErrRefused
+		if errors.As(err, &refused) && len(refused.More) > 0 {
+			all := append([]store.ErrRefused{refused}, refused.More...)
+			set := make([]store.Conflict, 0, len(all))
+			for _, r := range all {
+				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug, Claimant: r.Claimant})
+			}
+			printConflicts(env, set)
+		}
 		return fencedErr(err)
 	}
 	fmt.Fprintf(env.Stdout, "claimed %s for %s — scopes: %s\n",
@@ -1383,15 +1420,32 @@ func cmdClaim(args []string, env Env) error {
 	return nil
 }
 
+// printConflicts renders a conflict set one line per collision. Every value
+// is peer-controlled (a scope, a slug, a label), so each is fenced and the
+// line shape is fixed: a REFUSED line can never be mistaken for a claimed one.
+func printConflicts(env Env, conflicts []store.Conflict) {
+	for _, c := range conflicts {
+		if c.Scope == "" {
+			fmt.Fprintf(env.Stdout, "REFUSED: slug %s is held by %s\n",
+				strconv.Quote(fence.Line(c.Slug, 128)), fence.Line(c.Claimant, 64))
+			continue
+		}
+		fmt.Fprintf(env.Stdout, "REFUSED: %s  (overlaps %s held by %s, claim %s)\n",
+			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
+	}
+}
+
 func cmdRelease(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy release <slug> [--session <id>]")
+		return errors.New("usage: buddy release <slug> [--scope <path> ...] [--session <id>]")
 	}
 	slug := args[0]
 	fs := flag.NewFlagSet("release", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	var session string
 	sessionFlag(fs, &session)
+	var scopes multiFlag
+	fs.Var(&scopes, "scope", "release only this held scope, exactly as claimed (repeatable); the last one releases the claim")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -1403,6 +1457,24 @@ func cmdRelease(args []string, env Env) error {
 	si, err := whoAmI(st, env, session)
 	if err != nil {
 		return err
+	}
+	if len(scopes) > 0 {
+		// The holder narrowing its own reservation (wishlist §5b): the only
+		// form that existed was re-claiming with the smaller set, which a
+		// waiter cannot do on the holder's behalf, so holders narrowed in
+		// prose and the gate kept enforcing the recorded scope.
+		remaining, err := st.ReleaseScopes(si.SessionID, si.Incarnation, slug, scopes)
+		if err != nil {
+			return fencedErr(err)
+		}
+		if len(remaining) == 0 {
+			fmt.Fprintf(env.Stdout, "released %s from %s — that was its last scope, so the claim is released\n",
+				fence.Line(strings.Join(scopes, ", "), 512), strconv.Quote(fence.Line(slug, 128)))
+			return nil
+		}
+		fmt.Fprintf(env.Stdout, "released %s from %s — still held: %s\n",
+			fence.Line(strings.Join(scopes, ", "), 512), strconv.Quote(fence.Line(slug, 128)), fence.Line(strings.Join(remaining, ", "), 512))
+		return nil
 	}
 	if err := st.Release(si.SessionID, si.Incarnation, slug); err != nil {
 		return fencedErr(err)
@@ -1561,7 +1633,7 @@ func cmdMsg(args []string, env Env) error {
 	target := args[0]
 	fs := flag.NewFlagSet("msg", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
-	from := fs.String("from", "operator", "sender name")
+	from := fs.String("from", "", "sender tag; the calling session's label is always stamped on (default: the label, or \"operator\" outside a session)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -1577,11 +1649,63 @@ func cmdMsg(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	if err := st.Msg(tgt, *from, strings.Join(fs.Args(), " ")); err != nil {
+	if err := st.Msg(tgt, senderFor(st, env, *from), strings.Join(fs.Args(), " ")); err != nil {
 		return err
 	}
 	fmt.Fprintf(env.Stdout, "queued for %s — delivered after their next tool call\n", fence.Line(tgt.String(), 128))
 	return nil
+}
+
+// senderFor is the sender field a message carries: something the RECIPIENT
+// can resolve as a target and answer.
+//
+// THE FAILURE (wishlist §5d, 2026-09-20): session A messaged B twice, signing
+// with `--from <its claim slug>`, and B's reply to that slug bounced with `no
+// such target` — A's claim had been REFUSED, so it never opened, so the slug
+// resolved to nothing. The blocked party could reach B and B could not reach
+// back by the only name it had. Measured in that ledger (2026-09-20, 111
+// direct messages): the sender was a session label ONCE; 104 times it was a
+// claim slug, and 14 of those slugs no longer resolve because the claim has
+// closed — and a slug whose claim was REFUSED never appears in the ledger at
+// all, so it is not even in that count.
+//
+// The label always resolves (D-013: it is a pause/msg target by
+// construction), so it is the default, and an explicit --from that is not the
+// label is kept as a tag AFTER it: `alpha (r1701-console-quoting)`. Label
+// first, because the inbox fences the sender to 64 bytes and truncation must
+// cost the tag, never the address. Identity comes from the environment only
+// (BUDDY_SESSION, then CLAUDE_CODE_SESSION_ID) — never whoAmI's cwd inference,
+// which can refuse or guess, and a message must never be refused for want of a
+// signature. No session in the environment is the operator at a terminal, and
+// the sender is what they typed or "operator", as before.
+//
+// RESIDUAL: the stamp resolves when the rendered label equals the stored one.
+// The inbox renders the sender through fence.Line(_, 64), so a label over 64
+// bytes, or one carrying a newline or a space, is shown altered and the shown
+// form no longer matches exactly. Default labels ("<worktree-base>/s-<8hex>")
+// are short and plain; a hand-chosen --label is the caller's own risk, and it
+// was already so for `buddy msg <label>`.
+func senderFor(st *store.Store, env Env, from string) string {
+	label := ""
+	for _, id := range []string{env.getenv(EnvSession), env.getenv(EnvClaudeSession)} {
+		if id == "" {
+			continue
+		}
+		if si, ok, err := st.Session(id); err == nil && ok && si.Live() {
+			label = si.Label
+		}
+		break
+	}
+	switch {
+	case label == "" && from == "":
+		return "operator"
+	case label == "":
+		return from
+	case from == "" || from == label:
+		return label
+	default:
+		return label + " (" + from + ")"
+	}
 }
 
 func cmdInbox(args []string, env Env) error {
