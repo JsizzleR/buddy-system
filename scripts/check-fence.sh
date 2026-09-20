@@ -13,11 +13,14 @@
 # Go of the packages that render (cli, buddylist, cmd) is joined into one line
 # (an argument list routinely spans several) and searched for a field that
 # carries peer text: .Label .Slug .Desc .Scopes .Worktree .Body .From .Note.
-# A statement that names one of those must call fence.Line or Fence at least
-# as many times as it names them. Counting is coarse on purpose: the precise
-# alternative is taint tracking, and a grep that fires slightly too often is
-# corrected in thirty seconds, while one that fires slightly too rarely is the
-# defect this gate exists for.
+# A statement that names one of those must call fence.Line, fence.Field or
+# Fence at least as many times as it names them. (Field is Line plus a
+# guarantee that the value stays ONE whitespace-delimited field — see issue
+# #6 — so it counts as fencing, and a column that needs it is not a second
+# rule but the same one applied where the columns are.) Counting is coarse on
+# purpose: the precise alternative is taint tracking, and a grep that fires
+# slightly too often is corrected in thirty seconds, while one that fires
+# slightly too rarely is the defect this gate exists for.
 #
 # TWO CLAUSES (see check.sh for the convention). The scan is one; the other is
 # a planted violation the scan MUST flag, so that a respelling of the pattern
@@ -38,7 +41,7 @@ scan() {
       if (stmt == "") return
       if (stmt !~ /fence: not peer text/) {
         tmp = stmt; nf = gsub(/\.(Label|Slug|Desc|Scopes|Worktree|Body|From|Note)([^A-Za-z0-9_]|$)/, "&", tmp)
-        tmp = stmt; nfence = gsub(/fence\.Line\(|[^a-zA-Z]Fence\(/, "&", tmp)
+        tmp = stmt; nfence = gsub(/fence\.Line\(|fence\.Field\(|[^a-zA-Z]Fence\(/, "&", tmp)
         if (nf > nfence) printf "%s:%d: %d peer field(s), %d fence call(s): %s\n", FILENAME, start, nf, nfence, stmt
       }
       stmt = ""

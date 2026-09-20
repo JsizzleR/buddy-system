@@ -126,6 +126,24 @@ ledger row entered through the CLI (D-006).
     wired; `UserPromptSubmit` was cut because the next beat clears the mark within a
     second of the prompt.
 
+21. **A column is ONE token (D-017).** Peer text in a fixed-width column goes through
+    `fence.Field`, which renders spaces as `␣` exactly as `fence.Line` renders line
+    breaks as `⏎`. `%-24s` is a minimum width, so a label with a space in it owned the
+    state column of its own row (measured). Quoting was tried and cut —
+    `strings.Fields` splits inside quotes, so it fools only a human. Refusing a bad
+    label at intake was also cut: `hello` runs from a hook line ending in `exit 0`, so a
+    refusal there turns the feature off silently and repairs nothing already stored.
+    Every roster row carries a gutter (`*` the caller, `-` the rest) so the field count
+    never depends on which row is read.
+22. **The context capture samples the NEWEST turn in the window, escalates once, and
+    reports what the model is (D-018).** `turn_ms` is milliseconds — the only column
+    here that is not whole Unix seconds — because at second resolution two turns in one
+    second compared equal and the older one won. The scan takes the greatest timestamp,
+    not the last record positionally. One escalation, 64 KB then a 512 KB cap, paid only
+    after a miss. Model and effort print when the transcript recorded them and are never
+    inferred from each other. `session_context` is the one table that may be DROPPED in
+    a migration, because every row is re-derived at the next beat.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

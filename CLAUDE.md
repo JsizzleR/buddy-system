@@ -38,7 +38,7 @@ used platform.
 - `internal/store` — the SQLite ledger. Claims, sessions, controls, inbox,
   dirty paths. Transactional; WAL; `_txlock=immediate`.
 - `internal/cli` — the `buddy` verbs, the Claude Code hooks (`hello`, `gate`,
-  `beat`, `idle`, `bye`), the git commit gate (`commit-gate`, `commitgate.go`), and the
+  `beat`, `idle`, `busy`, `bye`), the git commit gate (`commit-gate`, `commitgate.go`), and the
   ONE place that reads a Claude Code transcript (`transcript.go`: the last
   turn's token counts for the roster, never any message text).
 - `internal/fence` — untrusted-content fencing. Every attacker-influenced value
@@ -121,7 +121,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
    byte budget and the untrusted-content fence live in the deliberate
    `chat_read`; an auto-injected body bypasses both.
 9. **Every untrusted value read back is rendered on exactly ONE line via
-   `internal/fence`.** Claim descriptions, slugs, labels, scopes, paths, chat
+   `internal/fence`, and in a fixed-width listing on exactly ONE COLUMN via
+   `fence.Field`.** Claim descriptions, slugs, labels, scopes, paths, chat
    bodies, membership lists. A newline in a value could otherwise fabricate rows
    or a fake cursor line in a fenced listing. Conventional caps: slug 128,
    label/room 64, desc 512, scopes 512, path 512, body 4096.
@@ -263,9 +264,18 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   field, an undelivered-inbox count and `--json` were all considered and cut;
   see the decision record.
 - **Idle is reported; busy is never inferred (D-016).** The `Stop` hook marks a
-  session idle and `beat` clears it inside its own transaction. NO ROW MEANS
-  UNKNOWN: the hook is opt-in like every other one, so absence of `idle` must
+  session idle, dated by the TURN's end time read from the transcript (a turn
+  that ended before this incarnation started is refused), and `beat` clears it
+  inside its own transaction. The optional `busy` hook
+  (`UserPromptSubmit`) covers the turn that runs no tool at all. NO ROW MEANS
+  UNKNOWN: the hooks are opt-in like every other one, so absence of `idle` must
   never be rendered or read as "mid-turn".
+- **A column is ONE token (D-017).** Peer text that occupies a fixed-width
+  column — a label, a slug — goes through `fence.Field`, which shows spaces as
+  `␣` the way `fence.Line` shows newlines as `⏎`. `%-24s` is a minimum width,
+  so without it a label owns the columns after it on its own row. Quoting was
+  tried and cut: `strings.Fields` splits inside quotes, so it fools only a
+  human.
 - **`pause`, `resume` and `msg` share ONE target namespace, resolved before it is
   stored**: `all`, session id, label, `s-<8hex>` short form, or an OPEN claim slug —
   most-specific-first, exact (never folded), and anything else is REFUSED rather than

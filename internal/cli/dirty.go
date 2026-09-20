@@ -340,7 +340,7 @@ func renderDirtyWarn(rel string, peers []store.DirtyRecord, now time.Time) strin
 			break
 		}
 		fmt.Fprintf(&b, "    %-24s %-12s uncommitted there for %s\n",
-			fence.Line(p.Owner.Label, 64), sessionState(p, now), age(now, p.FirstSeen))
+			fence.Field(p.Owner.Label, 64), sessionState(p, now), age(now, p.FirstSeen))
 	}
 	for _, p := range peers {
 		if p.Owner.Live() && !p.Stale(now) {
@@ -476,7 +476,7 @@ func cmdWhose(args []string, env Env) error {
 			where = "other worktree: " + fence.Line(h.Worktree, 256)
 		}
 		fmt.Fprintf(env.Stdout, "  %-24s %-12s %6s  uncommitted %6s  %s\n",
-			fence.Line(h.Owner.Label, 64), sessionState(h, now), age(now, h.Owner.LastSeen),
+			fence.Field(h.Owner.Label, 64), sessionState(h, now), age(now, h.Owner.LastSeen),
 			age(now, h.FirstSeen), where)
 	}
 	fmt.Fprint(env.Stdout, "\nadvisory: a dirty path is an observation, never a lock — nobody is blocked and\n"+

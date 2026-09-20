@@ -85,9 +85,20 @@ binary just turns the feature off:
 }
 ```
 
-`Stop` is the only optional one. It marks the session idle at its prompt so the
-roster can tell "waiting for a human" from "hard at work" — without it, nothing
-ever prints `idle`, and nothing else changes.
+`Stop` is optional, and so is its companion:
+
+```json
+    "UserPromptSubmit": [{"hooks": [{"type": "command",
+      "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" busy 2>/dev/null; exit 0"}]}],
+```
+
+`Stop` marks the session idle at its prompt so the roster can tell "waiting for
+a human" from "hard at work"; without it nothing ever prints `idle`, and
+nothing else changes. `busy` retracts that mark when a new turn starts — which
+matters only for a turn that runs **no tool at all**, because every other
+turn's first heartbeat retracts it anyway. Wire `Stop` and skip `busy` if you
+want one line instead of two; the cost is that a text-only answer reads as
+`idle` while it is being written.
 
 From then on, in any session:
 
@@ -210,9 +221,9 @@ What it deliberately does **not** do, so the promise stays honest:
 
 ```sh
 buddy sessions                    # the roster; --by started for arrival order
-# * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  idle 7m  claims 2
-#   repo/s-299a236a  live STALE   started 15d  seen 12d  /path/to/repo  (299a236a-…)  PAUSED
-#   repo/s-68a57050  ended 29d    started 36d  seen 34d  /path/to/repo  (68a57050-…)
+# * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  idle 7m  claims 2  claude-opus-5/xhigh prompt 377k turn 7m
+# - repo/s-299a236a  live STALE   started 15d  seen 12d  /path/to/repo  (299a236a-…)  PAUSED
+# - repo/s-68a57050  ended 29d    started 36d  seen 34d  /path/to/repo  (68a57050-…)
 ```
 
 Every age carries its own word, because one unlabelled column next to `live`
@@ -221,7 +232,15 @@ had just heartbeated rendered as `9s`. `started` dates *this incarnation's*
 registration, `seen` the last hook that spoke for the session, and the state
 word carries its own age when the state is a dated event (`ended 29d`).
 `--by started|seen` picks which of the two orders the rows, both newest-first,
-live rows always above ended ones. `*` marks the row you are calling from.
+live rows always above ended ones. The first column is a gutter: `*` is the row
+you are calling from, `-` is everyone else, and every row has one so the field
+count never depends on which row you are reading.
+
+Peer text in a column — a label, a slug — is rendered so it stays **one
+whitespace-delimited token**: spaces show as `␣`, the way newlines show as `⏎`
+everywhere else in this tool. A label is a minimum-width column and free text,
+so without that a session could label itself `repo/s-aaaaaaaa ended 9d` and own
+the state column of its own row.
 
 The annotations after the id are what an orchestrator picks on:
 
@@ -241,15 +260,23 @@ The annotations after the id are what an orchestrator picks on:
 - `claims N` — open claims held now. The names are in `buddy ls`; the row
   carries the count, because a slug is 128 bytes of free text and a session may
   hold several.
-- `claude-opus-5 prompt 90k turn 4s` — how much context that session was last
-  seen carrying. `beat` reads the tail of the session's own transcript (the
+- `claude-opus-5/xhigh prompt 90k turn 4s` — what the session is running and
+  how much context it was last seen carrying. The model and the effort are read
+  from the same record as the counts and printed only when it recorded them:
+  across this box's transcripts the model discriminates (six `claude-opus-5`,
+  one `claude-fable-5`) and so does the effort (six `xhigh`, one `high`), and
+  two sessions on the same model at different efforts are different
+  instruments. `beat` reads the tail of the session's own transcript (the
   hook JSON already names the file) and stores the newest turn's token counts:
   input + cache read + cache write, because a cached token occupies the window
   exactly like a fresh one. **No message text is ever stored or printed** —
   counts, a model id and two timestamps.
 
   It says `prompt`, not "context left": that is the last prompt the model was
-  handed, and the session has been working since. The turn's own age prints
+  handed, and the session has been working since. The sample is refreshed by
+  every tool call and by the `Stop` hook, so a session that has gone quiet at
+  its prompt still reports the size it finished on rather than freezing at its
+  last tool call. The turn's own age prints
   beside it always, so a reading taken six hours ago cannot be mistaken for one
   taken this second — a peer that has compacted from 90k to 20k since is
   exactly the wrong session to pass over.
