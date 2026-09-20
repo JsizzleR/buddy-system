@@ -648,19 +648,16 @@ undeclared rather than wrapping into a 384-token denominator, and a stray operan
 (`buddy sessions stray --by started`, where Go's flag parser stops at `stray` and the
 flag is never read) is refused.
 
-**Residuals** — The footprint is a last observation, not a live reading: a session that
-compacted or grew since its last beat is reported as it was, which is why the turn age
-prints unconditionally. A transcript whose last usage record sits behind a >64 KB tool
-result is never sampled at all, and reports the previous observation with its real age.
-`turn_at` is stored in whole seconds like every other timestamp here, so two turns inside
-one second can land in either order — worth one turn's tokens, and not worth a column
-that measures time differently from all the others. The scan takes the last record
-POSITIONALLY rather than the greatest timestamp; a transcript is appended to, so they
-coincide. A label longer than the 24-column field shifts every column after it on that
-row — pre-existing, shared with `ls` and `whose`, and a fix belongs in all three at once.
-And the ledger still cannot tell a session mid-turn from one idle at its prompt, which is
-the fact an orchestrator would most like next: `last_seen DESC` ranks the BUSIEST session
-first, the opposite of "who can take work".
+**Residuals, and what became of them** — Five were filed as issues the same day and
+four are closed by D-017 and D-018: the one-second ordering (#7), the positional scan
+(#8), the unsampled record behind a huge tool result (#9), and the column shift (#6,
+which turned out to be a forgery and not a cosmetic issue). The fact the ledger could not
+tell mid-turn from idle-at-prompt became D-016.
+
+What remains is the one that cannot be fixed and should not be: the footprint is a LAST
+OBSERVATION, not a live reading. A session that compacted or grew since its last sample
+is reported as it was, which is why the turn age prints unconditionally and why the row
+says `prompt` rather than "context left".
 
 ## D-016 — Idle is reported; busy is never inferred
 
@@ -700,17 +697,94 @@ under an "EARLIER incarnation of this session"; a release delayed across a bye a
 hello arrives with the OLD incarnation while the open claim belongs to the NEW one, so it
 named the wrong side. It says DIFFERENT now.
 
-**Residuals** — The hook payload carries no incarnation and no event time, so `since` is
-the WRITE time and the incarnation is the one live when the write ran. A Stop whose hook
-is delayed across a bye, a hello and a beat therefore marks the new incarnation idle on
-the old one's event: correctly tagged, and untrue. The next beat clears it, and the
-mirror case has always been live — a delayed beat from a dead incarnation already updates
-its successor's `last_seen`. A turn that runs no tool at all (a plain text answer) leaves
-the session marked idle for its duration, which is true of its tools and not of its
-attention. And the annotation is double-edged on purpose, which the README says out loud:
+**Residuals, and what became of them** — Both of the fixable ones were filed and closed
+the same day. The delayed Stop (#11) is fenced by the TURN's end time, read from the
+transcript the payload does name: `since` now dates the turn rather than the scheduling
+of the hook, and a turn that ended before this incarnation registered is refused. With no
+readable event time the check cannot run and the old behaviour stands, because refusing
+on an unreadable transcript would turn the feature off silently. The tool-less turn (#10)
+has an optional `busy` verb on `UserPromptSubmit`; the mirror case has always been live
+and stays so — a delayed beat from a dead incarnation already updates its successor's
+`last_seen`.
+
+What remains is by design: the annotation is double-edged, which the README says out loud:
 an idle session is the one that can take work AND the one that will not see a `buddy msg`
 until its next tool call, because inbox delivery rides the heartbeat. Routing to it still
 needs a human to poke it.
+
+## D-017 — A column is one token: `fence.Field`, and a marker rather than quotes
+
+2026-09-20 · issue #6, from a Codex code pass on the roster work, reproduced on a
+throwaway repo
+
+**What was wrong** — Every listing prints peer text in a fixed-width column (`%-24s`),
+which is a MINIMUM width and not a maximum. `fence.Line` stops a newline fabricating a
+whole row and never claimed to stop anything else, so a label with a space in it owned
+the columns after it on its own row:
+
+```
+buddy hello --label 'aaaaaaaaaaaaaaaaaaaaaaaa ended 0s'
+buddy sessions
+#   aaaaaaaaaaaaaaaaaaaaaaaa ended 0s live  started 0s  seen 0s  /tmp/x  (s-forge)
+```
+
+A reader splitting that row on whitespace gets state=`ended`, age=`0s`, for a session
+that is LIVE, with the real state one field further along. Measured, not hypothesised.
+
+**What shipped** — `fence.Field(s, max)`: `Line`, then every space rendered as `␣`, the
+way `Line` renders every line break as `⏎`. Applied to the label and slug columns of
+`sessions`, `ls` and `whose`. A literal `␣` in the value is escaped first, for the reason
+`Line` escapes a literal `⏎`: so that every marker in the output provably came from the
+fence. `check-fence.sh` counts `fence.Field` as fencing, or the gate would have flagged
+every call site it was added to.
+
+**Quoting was tried first and cut.** `strconv.Quote` makes the boundary visible to a
+human and changes nothing for a reader: `strings.Fields(`"a b"`)` is still two tokens, so
+the forged state still lands in field 2. The test for it failed on exactly that, which is
+the argument for writing the test as the property ("one value, one token") rather than as
+the rendering.
+
+**Also cut: refusing a bad label at intake.** It was the first half of the filed issue and
+it is the worse fix. `hello` runs from a hook line that ends in `exit 0` with stderr
+swallowed, so a refusal there means a session silently fails to register and the whole
+feature turns off for it — and intake validation could never repair the labels already
+sitting in ledgers, which the display fix does.
+
+**And the same defect one column left** — the caller's gutter was `"* "` or two spaces,
+so the marked row had one MORE whitespace-delimited field than its neighbours. Found by
+the test written for #6. Every row now carries a gutter: `*` for the caller, `-` for the
+rest.
+
+## D-018 — The capture samples the newest turn, escalates once, and records what the model is
+
+2026-09-20 · issues #7, #8, #9, plus the operator's ask for the model on the row
+
+**What was wrong** — Three properties the capture claimed and did not have. (1)
+`turn_at` was whole seconds, so two turns inside one second compared EQUAL and the write
+guard's `>=` let the older one overwrite the newer — a guard that held only when the
+turns were a second apart. (2) `lastUsage` returned the last usable record POSITIONALLY,
+which is the newest only because transcripts are appended to; the comment said so, which
+is the definition of an untested assumption. (3) A record behind a single oversized tool
+result (267 KB measured, against a 64 KB window) was never sampled at all, and the row
+then aged its previous observation instead of saying it had stopped reading.
+
+**What shipped** — `turn_ms`, milliseconds, the only column in the ledger that is not
+whole Unix seconds, and commented as such where it is defined. The scan now takes the
+greatest timestamp in the window. One escalation, from 64 KB to a 512 KB cap, paid only
+when the first window has already missed — a cap and not "read until something turns up",
+because that makes a hook's cost a function of how long a session has run.
+
+**Model and effort on the row**, which is what the operator asked for: `claude-opus-5/xhigh
+prompt 377k turn 7s`. Both come from the same record as the counts, and both print only
+when the transcript recorded them. Measured over this box's seven transcripts, each
+discriminates — six `claude-opus-5` to one `claude-fable-5`, six `xhigh` to one `high` —
+and two sessions on the same model at different efforts are different instruments to hand
+a task to.
+
+**The migration DROPS `session_context`.** It is the one table here that may be thrown
+away, and only because of what it holds: every row is re-derived from a session's own
+transcript on its next tool call. Claims, pauses and messages are records and none of
+them may be dropped to change a column.
 
 ## Known unfixed
 

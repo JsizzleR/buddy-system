@@ -81,3 +81,47 @@ func TestLineEscapesALiteralMarker(t *testing.T) {
 		t.Fatalf("a real newline must still render as the marker: %q", Line("a\nb", 100))
 	}
 }
+
+// TestFieldKeepsAValueToOneColumn is issue #6: `%-24s` is a MINIMUM width, so
+// a label with a space in it moves every column after it on that row, and a
+// reader that splits on whitespace reads the peer's text as this row's state.
+func TestFieldKeepsAValueToOneColumn(t *testing.T) {
+	for _, tc := range []struct {
+		name, in, want, why string
+	}{
+		{"the forgery from the issue",
+			"aaaaaaaaaaaaaaaaaaaaaaaa ended 0s", "aaaaaaaaaaaaaaaaaaaaaaaa␣ended␣0s",
+			"24 characters, a space, then a state and an age — one token again, and visibly so"},
+		{"an ordinary label is untouched",
+			"repo/s-16c16a94", "repo/s-16c16a94",
+			"the common case must not grow markers — every row would carry them"},
+		{"a tab is a space by the time Field sees it",
+			"a\tb", "a␣b", "Line maps tab to space, so the space is the only separator left"},
+		{"a newline is Line's job and stays Line's marker",
+			"a\nb", "a⏎b", "one marker per failure; this one fabricates rows, not columns"},
+		{"both at once",
+			"a\nb c", "a⏎b␣c", ""},
+		{"a literal marker is escaped first",
+			"a␣b", "a\\u2423b",
+			"otherwise a value containing ␣ is indistinguishable from a space this function replaced"},
+		{"an empty value stays empty", "", "", "nothing to separate"},
+	} {
+		if got := Field(tc.in, 128); got != tc.want {
+			t.Errorf("%s: Field(%q) = %q, want %q — %s", tc.name, tc.in, got, tc.want, tc.why)
+		}
+	}
+	// The property the whole thing exists for, stated as the reader sees it:
+	// one value, one token, for anything at all.
+	for _, in := range []string{"a b", "a\tb", "  lots   of   space  ", "plain", "a\nb c", "a\u00a0b"} {
+		if n := len(strings.Fields(Field(in, 128))); n != 1 {
+			t.Errorf("Field(%q) = %q splits into %d fields, want 1", in, Field(in, 128), n)
+		}
+	}
+	// And it is NOT truncated below Line's cap: a label and a slug are exact
+	// addressing targets, so a shortened one would resolve to nothing while
+	// looking like something you could type.
+	long := strings.Repeat("x", 40) + " " + strings.Repeat("y", 40)
+	if got := Field(long, 128); !strings.Contains(got, strings.Repeat("y", 40)) {
+		t.Errorf("Field must keep the whole value when it fits the cap: %q", got)
+	}
+}

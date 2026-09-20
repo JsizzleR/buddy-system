@@ -942,7 +942,7 @@ func TestHelloLabelKeepsOrReplaces(t *testing.T) {
 
 // sample is a context observation with the fields these tests care about.
 func sample(turn time.Time, prompt int64) ContextSample {
-	return ContextSample{Observed: turn, TurnAt: turn, Model: "m", Prompt: prompt}
+	return ContextSample{Observed: turn, TurnAt: turn, Model: "m", Effort: "xhigh", Prompt: prompt}
 }
 
 func TestContextSampleBelongsToOneIncarnation(t *testing.T) {
@@ -1000,6 +1000,73 @@ func TestContextSampleBelongsToOneIncarnation(t *testing.T) {
 	}
 }
 
+// TestContextSampleOrdersInsideOneSecond is issue #7. The guard's whole
+// purpose is "an older turn never replaces a newer one", and at one-second
+// resolution two turns inside one second compared EQUAL, so the older one won.
+func TestContextSampleOrdersInsideOneSecond(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	base := clk.t.Truncate(time.Second)
+	newer, older := base.Add(900*time.Millisecond), base.Add(100*time.Millisecond)
+	if newer.Unix() != older.Unix() {
+		t.Fatal("test bug: the two turns must share a whole second, or this proves nothing")
+	}
+	if err := st.RecordContext(a.SessionID, a.Incarnation, sample(newer, 2000)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordContext(a.SessionID, a.Incarnation, sample(older, 1000)); err != nil {
+		t.Fatal(err)
+	}
+	got := mustSamples(t, st)["sess-a"]
+	if got.Prompt != 2000 {
+		t.Errorf("the older turn overwrote the newer one inside a shared second: prompt %d, want 2000", got.Prompt)
+	}
+	if !got.TurnAt.Equal(newer) {
+		t.Errorf("the stored turn time must keep its sub-second part: got %v, want %v", got.TurnAt, newer)
+	}
+	// Positive control: forward inside the same second still lands.
+	if err := st.RecordContext(a.SessionID, a.Incarnation, sample(base.Add(950*time.Millisecond), 3000)); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustSamples(t, st)["sess-a"]; got.Prompt != 3000 {
+		t.Errorf("a NEWER turn inside the same second must still land: prompt %d, want 3000", got.Prompt)
+	}
+}
+
+// TestContextSampleCarriesModelAndEffort: an orchestrator picks partly on what
+// the session IS, and an unrecorded effort must stay empty rather than default
+// to something that reads as a fact.
+func TestContextSampleCarriesModelAndEffort(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	c := sample(clk.t, 1000)
+	c.Model, c.Effort = "claude-opus-5", "xhigh"
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustSamples(t, st)["sess-a"]; got.Model != "claude-opus-5" || got.Effort != "xhigh" {
+		t.Errorf("model and effort must round-trip: %+v", got)
+	}
+	clk.advance(time.Minute)
+	c = sample(clk.t, 1000)
+	c.Model, c.Effort = "claude-opus-5", ""
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustSamples(t, st)["sess-a"]; got.Effort != "" {
+		t.Errorf("an unrecorded effort must stay empty, got %q", got.Effort)
+	}
+}
+
+func mustSamples(t *testing.T, st *Store) map[string]ContextSample {
+	t.Helper()
+	got, err := st.ContextSamples()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
 func TestContextSampleNeverGoesBackwardsOrResurrects(t *testing.T) {
 	st, clk := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
@@ -1041,7 +1108,7 @@ func TestContextSampleNeverGoesBackwardsOrResurrects(t *testing.T) {
 func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	st, clk := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
-	if err := st.MarkIdle("sess-a"); err != nil {
+	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	idle, err := st.IdleSessions()
@@ -1055,7 +1122,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	// A repeated Stop with no tool call between is a NEW turn ending: the
 	// session became idle again, later.
 	clk.advance(10 * time.Minute)
-	if err := st.MarkIdle("sess-a"); err != nil {
+	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	idle, _ = st.IdleSessions()
@@ -1074,7 +1141,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	if got, ok := idle["sess-a"]; ok {
 		t.Errorf("the previous incarnation's idle mark is not this one's: %+v", got)
 	}
-	if err := st.MarkIdle("sess-a"); err != nil {
+	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	idle, _ = st.IdleSessions()
@@ -1088,7 +1155,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	// listed the sessions a moment earlier would print "idle" for a session
 	// that has since gone: available, and gone.
 	d := hello(t, st, "sess-d", "dee", "/wt/d")
-	if err := st.MarkIdle(d.SessionID); err != nil {
+	if err := st.MarkIdle(d.SessionID, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := mustIdle(t, st)["sess-d"]; !ok {
@@ -1108,7 +1175,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"sess-c", "sess-never-said-hello"} {
-		if err := st.MarkIdle(id); err != nil {
+		if err := st.MarkIdle(id, time.Time{}); err != nil {
 			t.Fatalf("%s: a late idle mark is a no-op, not an error: %v", id, err)
 		}
 	}
@@ -1124,6 +1191,81 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 		// to inherit the moment it registers.
 		if idleRowExists(t, st, id) {
 			t.Errorf("%s: a late Stop must write NOTHING, not a hidden row", id)
+		}
+	}
+}
+
+// TestMarkIdleDatesTheTurnAndRefusesAnEarlierOne is issue #11: the hook
+// payload names no incarnation and no event time, so a Stop delayed across a
+// bye and a hello marked the NEW incarnation idle on the OLD one's turn.
+func TestMarkIdleDatesTheTurnAndRefusesAnEarlierOne(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	turnEnded := clk.t
+	clk.advance(30 * time.Second) // the hook was slow to start
+	if err := st.MarkIdle(a.SessionID, turnEnded); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustIdle(t, st)["sess-a"]; !got.Since.Equal(turnEnded) {
+		t.Errorf("since must date the TURN, not the write: got %v, want %v", got.Since, turnEnded)
+	}
+
+	// The turn that ended before this incarnation registered is not this
+	// incarnation's turn.
+	if err := st.Bye(a.SessionID, a.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(time.Minute)
+	b := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if err := st.MarkIdle("sess-a", turnEnded); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mustIdle(t, st)["sess-a"]; ok {
+		t.Errorf("a turn that ended before this incarnation started must be refused: %+v", got)
+	}
+	// Positive control: this incarnation's own turn lands.
+	clk.advance(time.Second)
+	if err := st.MarkIdle("sess-a", clk.t); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustIdle(t, st)["sess-a"]; got.Incarnation != b.Incarnation || !got.Since.Equal(clk.t) {
+		t.Errorf("this incarnation's own turn must land: %+v", got)
+	}
+
+	// With NO event time the check cannot run, and the old behaviour stands:
+	// written, dated by the clock. Degrading beats refusing — an unreadable
+	// transcript must not turn the feature off.
+	clk.advance(time.Minute)
+	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustIdle(t, st)["sess-a"]; !got.Since.Equal(clk.t) {
+		t.Errorf("a zero event time falls back to the write time: got %v, want %v", got.Since, clk.t)
+	}
+}
+
+// TestClearIdleRetracts is issue #10's half: the turn that runs no tool at
+// all clears nothing, so something else has to.
+func TestClearIdleRetracts(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if err := st.MarkIdle(a.SessionID, clk.t); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := mustIdle(t, st)["sess-a"]; !ok {
+		t.Fatal("positive control: the mark must be there to be retracted")
+	}
+	if err := st.ClearIdle("sess-a"); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mustIdle(t, st)["sess-a"]; ok {
+		t.Errorf("ClearIdle must retract the mark: %+v", got)
+	}
+	// Retracting what is not there, and for a session that never existed, is
+	// a no-op and not an error: a retraction can only ever remove a claim.
+	for _, id := range []string{"sess-a", "sess-never"} {
+		if err := st.ClearIdle(id); err != nil {
+			t.Errorf("ClearIdle(%q): %v", id, err)
 		}
 	}
 }

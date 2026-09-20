@@ -47,10 +47,22 @@ import (
 // size that cannot be missed; there is only a bigger one that costs the hook
 // budget to be wrong less often.
 
-// tailBytes is how much of the end of a transcript is read. See the header:
-// measured worst case 11.0 KB, so this is 6x the evidence, and a miss is
-// designed to be harmless.
-const tailBytes = 64 << 10
+// tailBytes is how much of the end of a transcript is read first, and
+// maxTailBytes is how far one miss is allowed to escalate. See the header:
+// the measured worst case was 11.0 KB from EOF, so the first window is 6x the
+// evidence and answers effectively every call; the second covers the case the
+// first cannot, a record pushed out of the window by ONE huge tool result
+// (largest line measured here: 267 KB).
+//
+// A CAP AND NOT "THE WHOLE FILE". Reading back until something is found makes
+// the cost of a hook a function of how long the session has been running —
+// 2.3 MB and climbing, on the transcripts measured here — and the failure it
+// buys back is one session reporting nothing. The second read is paid only
+// when the first has already missed.
+const (
+	tailBytes    = 64 << 10
+	maxTailBytes = 512 << 10
+)
 
 // usageSample is one assistant turn's accounting as the transcript recorded
 // it. Prompt is what the model was HANDED: fresh input plus cache read plus
@@ -58,8 +70,14 @@ const tailBytes = 64 << 10
 // a large cache hit is cheaper, not smaller — so they are summed, not netted
 // out.
 type usageSample struct {
-	At         time.Time
-	Model      string
+	At    time.Time
+	Model string
+	// Effort is the reasoning effort the turn ran at. Measured across this
+	// box's transcripts: "xhigh" on six of seven, "high" on the other — so it
+	// discriminates, and two sessions on the same model at different efforts
+	// are different instruments to hand a task to. Empty when the harness
+	// does not record it.
+	Effort     string
 	Prompt     int64
 	CacheRead  int64
 	CacheWrite int64
@@ -77,6 +95,7 @@ type transcriptLine struct {
 	// as the 90k session that spawned it.
 	IsSidechain bool   `json:"isSidechain"`
 	Timestamp   string `json:"timestamp"`
+	Effort      string `json:"effort"`
 	Message     struct {
 		Model string `json:"model"`
 		Usage *struct {
@@ -95,35 +114,57 @@ type transcriptLine struct {
 // does not know, an unparseable timestamp. The caller keeps whatever it
 // recorded last and says how old it is.
 func lastUsage(path string) (usageSample, bool) {
-	var zero usageSample
 	if path == "" {
-		return zero, false
+		return usageSample{}, false
 	}
 	// A REGULAR FILE, checked before the open. os.Open on a FIFO with no
 	// writer BLOCKS — indefinitely, inside a 100 ms hook — and a directory
 	// opens fine and fails later. The harness names this path, so neither is
 	// a realistic input; the check costs one stat and removes the class
 	// rather than arguing about how it could be reached.
-	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
-		return zero, false
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() == 0 {
+		return usageSample{}, false
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return zero, false
+		return usageSample{}, false
 	}
 	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil || fi.Size() == 0 {
-		return zero, false
+	// One escalation, then give up. The second window is not a bigger guess
+	// at "enough": it is the one measured shape the first cannot hold, a
+	// record behind a single oversized tool result.
+	for _, window := range [...]int64{tailBytes, maxTailBytes} {
+		if u, ok := usageInTail(f, fi.Size(), window); ok {
+			return u, true
+		}
+		if window >= fi.Size() {
+			break // the whole file was already read; a second pass reads the same bytes
+		}
 	}
-	off := fi.Size() - tailBytes
+	return usageSample{}, false
+}
+
+// usageInTail returns the newest usable record within the last `window` bytes
+// of f.
+//
+// THE NEWEST BY TIMESTAMP, not the last one positionally. A transcript is
+// appended to, so the two coincide on every file measured here — which is
+// exactly why taking the position was an assumption rather than a property.
+// Reading the whole window costs a parse per usage-bearing record (a handful,
+// since the prefilter skips the tool results that are most of the bytes) and
+// makes this function's name true of what it returns.
+func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
+	var best usageSample
+	found := false
+	off := size - window
 	if off < 0 {
 		off = 0
 	}
-	buf := make([]byte, fi.Size()-off)
+	buf := make([]byte, size-off)
 	n, err := f.ReadAt(buf, off)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return zero, false
+		return best, false
 	}
 	buf = buf[:n]
 	// A window that did not start at byte 0 begins mid-record. That fragment
@@ -133,27 +174,22 @@ func lastUsage(path string) (usageSample, bool) {
 	if off > 0 {
 		i := bytes.IndexByte(buf, '\n')
 		if i < 0 {
-			return zero, false // one line longer than the whole window
+			return best, false // one line longer than the whole window
 		}
 		buf = buf[i+1:]
 	}
-	// THE LAST RECORD POSITIONALLY, not the greatest timestamp. A transcript
-	// is appended to, so the two coincide; scanning the whole window for a
-	// maximum would parse every record in it to defend against a file the
-	// harness does not write that way.
-	lines := bytes.Split(buf, []byte("\n"))
-	for i := len(lines) - 1; i >= 0; i-- {
-		ln := lines[i]
+	for _, ln := range bytes.Split(buf, []byte("\n")) {
 		// A prefilter before the parser, because most of a transcript's bytes
 		// are tool results: unmarshalling a 108 KB line to discover it has no
 		// usage in it is the one cost a 100 ms hook cannot spend. A record
 		// still being written fails the parse below and is skipped there.
-		if !bytes.Contains(ln, []byte(`"usage"`)) {
-			continue
-		}
+		//
 		// (The prefilter is literal: a record spelling the key with a JSON
 		// escape — "\u0075sage" — would be skipped. No encoder writes that,
 		// and the cost of not assuming so is parsing every tool result.)
+		if !bytes.Contains(ln, []byte(`"usage"`)) {
+			continue
+		}
 		var rec transcriptLine
 		if err := json.Unmarshal(ln, &rec); err != nil {
 			continue
@@ -168,6 +204,9 @@ func lastUsage(path string) (usageSample, bool) {
 			// a fabricated timestamp reads as the freshest possible sample.
 			continue
 		}
+		if found && at.Before(best.At) {
+			continue // an older record further down the file
+		}
 		u := rec.Message.Usage
 		// Counts outside the plausible are not a smaller problem than a
 		// missing record, they are a louder one: a negative field would print
@@ -180,16 +219,17 @@ func lastUsage(path string) (usageSample, bool) {
 			u.Input > maxTokens || u.CacheRead > maxTokens || u.CacheWrite > maxTokens || u.Output > maxTokens {
 			continue
 		}
-		return usageSample{
+		best, found = usageSample{
 			At:         at,
 			Model:      rec.Message.Model,
+			Effort:     rec.Effort,
 			Prompt:     u.Input + u.CacheRead + u.CacheWrite,
 			CacheRead:  u.CacheRead,
 			CacheWrite: u.CacheWrite,
 			Output:     u.Output,
 		}, true
 	}
-	return zero, false
+	return best, found
 }
 
 // declaredWindow reads the operator's declaration of this session's context

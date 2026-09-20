@@ -66,6 +66,8 @@ func Run(args []string, env Env) int {
 		err = cmdBeat(rest, env)
 	case "idle":
 		err = cmdIdle(rest, env)
+	case "busy":
+		err = cmdBusy(rest, env)
 	case "gate":
 		return cmdGate(rest, env)
 	case "commit-gate":
@@ -121,13 +123,16 @@ operator      pause <target> [--note <text>]             deny the target's next 
               or "all". Anything else is REFUSED — never queued against a row that would
               match nothing. Peers address each other by slug, so slugs resolve too.
               sessions [--by seen|started]  the roster, live first: every age column is
-                                    labelled, "*" marks you, and PAUSED / idle N / claims N
+                                    labelled, "*" marks your row and "-" the rest, and
+                                    PAUSED / idle N / claims N
                                     / the last prompt size trail the row with what an
                                     orchestrator picks on (BUDDY_CONTEXT_WINDOW=1M adds
                                     the percentage; nothing else can know the window)
               sweep [--force]       tidy closed claims
 setup         init                  create the ledger for this repo
 hooks         hello · gate · beat · idle · bye   (wired in .claude/settings; hook JSON on stdin)
+              busy   OPTIONAL, on UserPromptSubmit: only a turn that runs no tool at all
+                     needs it — every other turn's first beat retracts the idle mark
 git hook      commit-gate [--deny]  staged paths vs. other sessions' claims (pre-commit;
               install with "sh scripts/setup-clone.sh"; BUDDY_COMMIT_GATE=warn|deny|off)
 
@@ -936,7 +941,64 @@ func cmdIdle(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	return st.MarkIdle(h.SessionID)
+
+	// THE TURN'S OWN END TIME, read from the transcript the hook payload
+	// already names. Two things come of it, and the second is why it is
+	// worth a read here (measured under a millisecond on a 2.3 MB file):
+	//
+	//  - `since` dates the turn that ended, not the moment this process got
+	//    scheduled, so a slow hook does not report a session as more
+	//    recently idle than it is;
+	//  - a turn that ended BEFORE this incarnation registered cannot be this
+	//    incarnation's, which is how the store refuses a Stop delayed across
+	//    a bye and a hello (issue #11).
+	//
+	// And the same read updates the context footprint. A session that has
+	// gone idle stops beating, so without this its prompt size would freeze
+	// at its last TOOL CALL and age from there — on exactly the sessions an
+	// orchestrator is choosing between. The end of a turn is also when that
+	// number is largest and most worth having.
+	at := time.Time{}
+	if u, ok := lastUsage(h.TranscriptPath); ok {
+		at = u.At
+		if si, known, err := st.SessionByID(h.SessionID); err == nil && known && si.Live() {
+			_ = st.RecordContext(h.SessionID, si.Incarnation, store.ContextSample{
+				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Effort: u.Effort,
+				Prompt: u.Prompt, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
+				Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
+			})
+		}
+	}
+	return st.MarkIdle(h.SessionID, at)
+}
+
+// cmdBusy is the OPTIONAL UserPromptSubmit hook: a turn is starting.
+//
+// `beat` already retracts the idle mark on every tool call, which covers
+// nearly every turn — this covers the one it cannot, a turn that runs no tool
+// at all. A plain text answer clears nothing, so the row went on reading
+// `idle since <the previous turn>` for as long as the model was writing, and
+// an orchestrator reading it saw an available session that was working
+// (issue #10).
+//
+// OPTIONAL, and documented as optional: it buys accuracy in the minority case
+// and should cost nothing to an operator who does not want another line in
+// their settings. Retracting is the safe direction — the worst a missing
+// `busy` can do is what happens today.
+func cmdBusy(args []string, env Env) error {
+	h, err := readHook(env)
+	if err != nil {
+		return fmt.Errorf("busy is a hook verb; pipe UserPromptSubmit JSON (%v)", err)
+	}
+	st, _, err := openRepo(h.Cwd, env)
+	if errors.Is(err, errNoLedger) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	return st.ClearIdle(h.SessionID)
 }
 
 func cmdBeat(args []string, env Env) error {
@@ -1003,9 +1065,9 @@ func cmdBeat(args []string, env Env) error {
 	if known && me.Live() {
 		if u, ok := lastUsage(h.TranscriptPath); ok {
 			_ = st.RecordContext(h.SessionID, me.Incarnation, store.ContextSample{
-				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Prompt: u.Prompt,
-				CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Output: u.Output,
-				Window: declaredWindow(env.getenv(EnvContextWindow)),
+				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Effort: u.Effort,
+				Prompt: u.Prompt, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
+				Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
 			})
 		}
 	}
@@ -1376,7 +1438,7 @@ func cmdLs(args []string, env Env) error {
 		// with a newline fabricated a claim row in every other session's
 		// listing (invariant 9).
 		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s — %s\n",
-			fence.Line(c.Slug, 128), fence.Line(c.Owner.Label, 64), state, age(now, c.Renewed),
+			fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), state, age(now, c.Renewed),
 			fence.Line(strings.Join(c.Scopes, ","), 512), fence.Line(c.Desc, 512))
 	}
 	return nil
@@ -1650,20 +1712,27 @@ func cmdSessions(args []string, env Env) error {
 		case now.Sub(si.LastSeen) > store.StaleAfter:
 			state = "live STALE"
 		}
-		// The gutter marks the caller. A two-column gutter rather than a word
-		// appended to the label, because a label is peer free text up to 64
-		// bytes: a peer labelled `you` would otherwise be able to impersonate
-		// the marker, and any word in the row can be claimed by some label.
-		mark := "  "
+		// The gutter marks the caller. A gutter rather than a word appended
+		// to the label, because a label is peer free text up to 64 bytes: a
+		// peer labelled `you` would otherwise wear the marker, and any word
+		// in the row can be claimed by some label.
+		//
+		// EVERY ROW CARRIES ONE, `-` when it is not yours. Blank for the
+		// others was the first shape and it gave the caller's row one more
+		// whitespace-delimited field than its neighbours — the same defect
+		// as issue #6 one column to the left, found by the test written for
+		// that issue. A column that is sometimes absent is a column a reader
+		// counts wrong.
+		mark := "-"
 		if si.SessionID == me {
-			mark = "* "
+			mark = "*"
 		}
 		// The annotations trail the (id) rather than sitting between the
 		// columns, so a row that has nothing to add is the same shape as one
 		// that has three things — which is what makes the fixed columns
 		// scannable down a 300-row listing.
-		fmt.Fprintf(env.Stdout, "%s%-24s %-11s started %-4s seen %-4s  %s  (%s)%s\n",
-			mark, fence.Line(si.Label, 64), state, age(now, si.Started), age(now, si.LastSeen),
+		fmt.Fprintf(env.Stdout, "%s %-24s %-11s started %-4s seen %-4s  %s  (%s)%s\n",
+			mark, fence.Field(si.Label, 64), state, age(now, si.Started), age(now, si.LastSeen),
 			fence.Line(si.Worktree, 512), fence.Line(si.SessionID, 128), notes[si.SessionID])
 	}
 	return nil
@@ -1775,13 +1844,27 @@ func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[
 // matters — 9% for a session that is actually at 45%.
 func contextNote(now time.Time, c store.ContextSample) string {
 	var b strings.Builder
+	// MODEL AND EFFORT, because "which session do I hand this to" is partly a
+	// question about what the session IS. Measured over this box's seven
+	// transcripts, the model discriminates (six claude-opus-5, one
+	// claude-fable-5) and so does the effort (six xhigh, one high) — and two
+	// sessions on the same model at different efforts are different
+	// instruments. Each is printed only when the transcript recorded it;
+	// neither is ever inferred from the other.
+	//
+	// Fenced although the harness, not a peer, writes these strings: they are
+	// read off disk and printed into every reader's context, which is the
+	// whole of invariant 9's trigger. The exemption comment is not used here
+	// on purpose — "we believe the source is trustworthy" is the reasoning
+	// the invariant exists to stop.
 	if c.Model != "" {
-		// Fenced although the harness, not a peer, writes this string: it is
-		// read off disk and printed into every reader's context, which is the
-		// whole of invariant 9's trigger. The exemption comment is not used
-		// here on purpose — "we believe the source is trustworthy" is the
-		// reasoning the invariant exists to stop.
-		b.WriteString(fence.Line(c.Model, 64) + " ")
+		b.WriteString(fence.Line(c.Model, 64))
+		if c.Effort != "" {
+			b.WriteString("/" + fence.Line(c.Effort, 64))
+		}
+		b.WriteString(" ")
+	} else if c.Effort != "" {
+		b.WriteString(fence.Line(c.Effort, 64) + " ")
 	}
 	fmt.Fprintf(&b, "prompt %s", tokens(c.Prompt))
 	if c.Window > 0 {

@@ -122,8 +122,16 @@ CREATE TABLE IF NOT EXISTS session_context (
 	session_id      TEXT PRIMARY KEY,
 	incarnation     TEXT NOT NULL,
 	observed        INTEGER NOT NULL,
-	turn_at         INTEGER NOT NULL,
+	-- MILLISECONDS, and the only column in this ledger that is not whole
+	-- Unix seconds. The write guard orders observations by this value, and
+	-- at one-second resolution two turns inside one second compared EQUAL,
+	-- the guard accepted the older one, and the roster reported a prompt
+	-- size one turn stale (issue #7). Seconds are right for what they date
+	-- here — a heartbeat, a claim, a pause — and wrong for the one column
+	-- whose whole job is ordering two events that can share a second.
+	turn_ms         INTEGER NOT NULL,
 	model           TEXT NOT NULL,
+	effort          TEXT NOT NULL DEFAULT '',
 	prompt          INTEGER NOT NULL,
 	cache_read      INTEGER NOT NULL,
 	cache_write     INTEGER NOT NULL,
@@ -158,12 +166,15 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
-// 3 adds session_idle. 2 adds session_context. A new TABLE and not a column on sessions: the
+// 4 reshapes session_context (turn_ms, effort) by DROPPING it: every row in
+// it is an observation its session's next beat rewrites, nothing references
+// it, and the alternative is an ALTER-plus-convert arm for a cache. 3 adds
+// session_idle. 2 adds session_context. A new TABLE and not a column on sessions: the
 // script below is all IF NOT EXISTS, which creates a missing table on an old
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -241,6 +252,18 @@ func migrate(db *sql.DB) error {
 		hadRecipientTable = true
 	case !errors.Is(err, sql.ErrNoRows):
 		return fmt.Errorf("inspect ledger migration state: %w", err)
+	}
+	// The one table this ledger is allowed to throw away, and only because
+	// of what it holds: a context observation is re-derived from the
+	// session's own transcript on its next tool call, and a session with no
+	// next tool call has a row nobody can act on anyway. Everything else here
+	// is a record — claims, pauses, messages — and none of it may be dropped
+	// to change a column. Ordered before the script so the CREATE below
+	// rebuilds it in the new shape.
+	if ver < 4 {
+		if _, err := tx.Exec(`DROP TABLE IF EXISTS session_context`); err != nil {
+			return fmt.Errorf("migrate ledger (session_context): %w", err)
+		}
 	}
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("migrate ledger: %w", err)
@@ -1220,7 +1243,8 @@ type ContextSample struct {
 	Observed    time.Time // when a beat read the transcript
 	TurnAt      time.Time // the turn's OWN timestamp: the age of the NUMBER
 	Model       string
-	Prompt      int64 // everything the model was handed: input + cache read + cache write
+	Effort      string // the reasoning effort that turn ran at; "" when unrecorded
+	Prompt      int64  // everything the model was handed: input + cache read + cache write
 	CacheRead   int64
 	CacheWrite  int64
 	Output      int64
@@ -1243,10 +1267,9 @@ type ContextSample struct {
 // order, and re-reading the same tail after a failed capture would otherwise
 // re-stamp an old turn as freshly observed. The guard is on turn_at, not on
 // observed, because turn_at is the fact and observed is only when we looked.
-// Its resolution is one second, like every other timestamp in this ledger, so
-// two turns inside the same second can still land in either order — worth one
-// turn's tokens on a number whose own age is printed beside it, and not worth
-// a column that measures time differently from all the others.
+// It is stored in MILLISECONDS for that comparison alone (see the schema): at
+// one-second resolution two turns inside one second compared equal and the
+// older one won.
 //
 // ONE ROW PER SESSION, overwritten. An append-only history would answer
 // different questions (growth curves, compaction frequency) at 334 sessions x
@@ -1268,16 +1291,16 @@ func (s *Store) RecordContext(sessionID, incarnation string, c ContextSample) er
 			return err
 		}
 		_, err = tx.Exec(`INSERT INTO session_context
-			(session_id, incarnation, observed, turn_at, model, prompt, cache_read, cache_write, output, declared_window)
-			VALUES (?,?,?,?,?,?,?,?,?,?)
+			(session_id, incarnation, observed, turn_ms, model, effort, prompt, cache_read, cache_write, output, declared_window)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(session_id) DO UPDATE SET
-				incarnation=excluded.incarnation, observed=excluded.observed, turn_at=excluded.turn_at,
-				model=excluded.model, prompt=excluded.prompt, cache_read=excluded.cache_read,
-				cache_write=excluded.cache_write, output=excluded.output,
-				declared_window=excluded.declared_window
+				incarnation=excluded.incarnation, observed=excluded.observed, turn_ms=excluded.turn_ms,
+				model=excluded.model, effort=excluded.effort, prompt=excluded.prompt,
+				cache_read=excluded.cache_read, cache_write=excluded.cache_write,
+				output=excluded.output, declared_window=excluded.declared_window
 			WHERE excluded.incarnation<>session_context.incarnation
-				OR excluded.turn_at>=session_context.turn_at`,
-			sessionID, inc, c.Observed.Unix(), c.TurnAt.Unix(), c.Model,
+				OR excluded.turn_ms>=session_context.turn_ms`,
+			sessionID, inc, c.Observed.Unix(), c.TurnAt.UnixMilli(), c.Model, c.Effort,
 			c.Prompt, c.CacheRead, c.CacheWrite, c.Output, c.Window)
 		return err
 	})
@@ -1296,7 +1319,7 @@ func (s *Store) RecordContext(sessionID, incarnation string, c ContextSample) er
 // revival in between has already superseded, and the join can only make this
 // query self-consistent, never the pair of them. Compare before you print.
 func (s *Store) ContextSamples() (map[string]ContextSample, error) {
-	rows, err := s.db.Query(`SELECT c.session_id, c.incarnation, c.observed, c.turn_at, c.model,
+	rows, err := s.db.Query(`SELECT c.session_id, c.incarnation, c.observed, c.turn_ms, c.model, c.effort,
 			c.prompt, c.cache_read, c.cache_write, c.output, c.declared_window
 		FROM session_context c JOIN sessions s ON s.session_id=c.session_id AND s.incarnation=c.incarnation`)
 	if err != nil {
@@ -1307,10 +1330,15 @@ func (s *Store) ContextSamples() (map[string]ContextSample, error) {
 	for rows.Next() {
 		var id string
 		var c ContextSample
-		if err := rows.Scan(&id, &c.Incarnation, unixScan{&c.Observed}, unixScan{&c.TurnAt}, &c.Model,
+		var turnMS int64
+		if err := rows.Scan(&id, &c.Incarnation, unixScan{&c.Observed}, &turnMS, &c.Model, &c.Effort,
 			&c.Prompt, &c.CacheRead, &c.CacheWrite, &c.Output, &c.Window); err != nil {
 			return nil, err
 		}
+		// Not unixScan: this column is milliseconds, for the reason the
+		// schema gives, and reading it as seconds would date every sample to
+		// the year 57000.
+		c.TurnAt = time.UnixMilli(turnMS)
 		out[id] = c
 	}
 	return out, rows.Err()
@@ -1325,8 +1353,12 @@ type IdleState struct {
 }
 
 // MarkIdle records that the session has finished a turn and is waiting for
-// its operator. Ended or unknown session: a silent no-op, like every other
-// late hook.
+// its operator, dated by `at` — the END of the turn that just finished, which
+// the caller reads from the transcript. A zero `at` means the caller could
+// not establish it and the write time is used instead, which is what this
+// did for everything before issue #11.
+//
+// Ended or unknown session: a silent no-op, like every other late hook.
 //
 // THE INCARNATION IS READ HERE, unlike RecordContext next door, and the
 // difference is the point. A context sample is read from a file BEFORE the
@@ -1338,31 +1370,57 @@ type IdleState struct {
 // A repeated Stop with no tool call in between moves `since` forward, because
 // it is a new turn ending: the session became idle again, later.
 //
-// WHAT THIS CANNOT ESTABLISH, and the doc would be lying if it implied
-// otherwise: the incarnation that EMITTED the Stop. `since` is the write
-// time, and the incarnation is the one live when the write ran; the hook
-// payload carries neither. So a Stop whose hook is delayed across a bye, a
-// hello and a beat marks the NEW incarnation idle on the old one's event.
-// Both incarnation checks accept it, because it is correctly tagged and
-// simply untrue. The next beat clears it, which is the same answer the rest
-// of this table gives to staleness — and the reverse case has always been
-// live too: a delayed beat from a dead incarnation already updated its
-// successor's last_seen and renewed its claims.
-func (s *Store) MarkIdle(sessionID string) error {
+// THE EVENT TIME IS WHAT FENCES THE INCARNATION. The hook payload names no
+// incarnation, so this reads whichever one is live — and a Stop delayed
+// across a bye, a hello and a beat would then mark the NEW incarnation idle
+// on the OLD one's turn, correctly tagged and simply untrue (issue #11). A
+// turn that ended before this incarnation registered cannot be this
+// incarnation's turn, so `at < started` is refused. With no event time the
+// check cannot run and the old behaviour stands: written, and cleared by the
+// next beat. Degrading rather than refusing is deliberate — refusing on an
+// unreadable transcript would turn the feature off silently, which is the
+// failure this project keeps finding.
+func (s *Store) MarkIdle(sessionID string, at time.Time) error {
 	return s.tx(func(tx *sql.Tx) error {
 		var inc string
-		err := tx.QueryRow(`SELECT incarnation FROM sessions WHERE session_id=? AND ended IS NULL`, sessionID).Scan(&inc)
+		var started time.Time
+		err := tx.QueryRow(`SELECT incarnation, started FROM sessions WHERE session_id=? AND ended IS NULL`,
+			sessionID).Scan(&inc, unixScan{&started})
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		since := s.now()
+		if !at.IsZero() {
+			if at.Before(started) {
+				return nil // an earlier incarnation's turn, arriving late
+			}
+			since = at
+		}
 		_, err = tx.Exec(`INSERT INTO session_idle (session_id, incarnation, since) VALUES (?,?,?)
 			ON CONFLICT(session_id) DO UPDATE SET incarnation=excluded.incarnation, since=excluded.since`,
-			sessionID, inc, s.now().Unix())
+			sessionID, inc, since.Unix())
 		return err
 	})
+}
+
+// ClearIdle retracts an idle mark: the session is working again.
+//
+// `beat` does this inside its own transaction because a tool call IS a turn
+// in progress. This is the same retraction for the turn that runs no tool at
+// all — a plain text answer clears nothing, so the row kept saying "idle
+// since the previous turn" for as long as the model was writing (issue #10)
+// — and it is driven by the optional UserPromptSubmit hook.
+//
+// No incarnation check and no liveness check, deliberately: deleting an
+// observation can only ever RETRACT a claim about a session, never assert
+// one, so the worst a misdirected clear can do is cost the next Stop a
+// repeat. The asymmetry is the same one the whole table runs on.
+func (s *Store) ClearIdle(sessionID string) error {
+	_, err := s.db.Exec(`DELETE FROM session_idle WHERE session_id=?`, sessionID)
+	return err
 }
 
 // IdleSessions returns the sessions that have reported themselves idle, by

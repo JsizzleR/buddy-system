@@ -771,7 +771,7 @@ func TestSessionsLabelsEveryAgeAndDatesTheEventItReports(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("sessions: exit %d: %s", code, errw)
 	}
-	rowRE := regexp.MustCompile(`^([* ]) (\S+) +(live STALE|live|ended \S+) +started (\S+) +seen (\S+) +(.*?) +\(sess-([^)]+)\)$`)
+	rowRE := regexp.MustCompile(`^([*-]) (\S+) +(live STALE|live|ended \S+) +started (\S+) +seen (\S+) +(.*?) +\(sess-([^)]+)\)$`)
 	type row struct{ mark, state, started, seen string }
 	got := map[string]row{}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
@@ -789,13 +789,13 @@ func TestSessionsLabelsEveryAgeAndDatesTheEventItReports(t *testing.T) {
 		{"fresh", "*", "live", "6h", "5m",
 			"THE DEFECT ISSUE #5 REPORTS: six hours old, heartbeated five minutes ago, and the one " +
 				"column there used to be showed 5m — which reads as uptime and is not"},
-		{"stale", " ", "live STALE", "6h", "6h",
+		{"stale", "-", "live STALE", "6h", "6h",
 			"a stale live session is still dated by its last beat — the silence is what makes it stale"},
-		{"reaped", " ", "ended 3h", "6h", "6h",
+		{"reaped", "-", "ended 3h", "6h", "6h",
 			"silent since t0, closed at t0+3h, observed at t0+6h: 3h dead, not 6h — and the state " +
 				"word carries that age because `ended 3h` is the only one of the three that reads " +
 				"correctly in English beside its word"},
-		{"clean", " ", "ended 4h", "6h", "4h",
+		{"clean", "-", "ended 4h", "6h", "4h",
 			"beat and bye in the same instant: the numbers agree, and all three print anyway, " +
 				"because a reader handed one of them cannot recover the others"},
 	} {
@@ -816,6 +816,13 @@ func TestSessionsLabelsEveryAgeAndDatesTheEventItReports(t *testing.T) {
 	// every assertion above and tell a reader nothing.
 	if n := strings.Count(out, "\n* "); n != 0 || !strings.HasPrefix(out, "* ") {
 		t.Errorf("exactly one row (the caller's, first here) may carry the gutter mark:\n%s", out)
+	}
+	// And every row carries a gutter, so the field count does not depend on
+	// which row you are reading.
+	for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if m := ln[:1]; m != "*" && m != "-" {
+			t.Errorf("every row needs a gutter column, got %q:\n  %s", m, ln)
+		}
 	}
 }
 
@@ -851,7 +858,7 @@ func TestSessionsByStartedIsNotLastSeenInDisguise(t *testing.T) {
 		}
 		var got []string
 		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-			got = append(got, strings.Fields(ln)[0])
+			got = append(got, strings.Fields(ln)[1])
 		}
 		return got
 	}
@@ -906,7 +913,7 @@ func TestSessionsTieBreakIsStable(t *testing.T) {
 		}
 		var ids []string
 		for _, ln := range strings.Split(strings.TrimRight(first, "\n"), "\n") {
-			ids = append(ids, strings.Fields(ln)[0])
+			ids = append(ids, strings.Fields(ln)[1]) // [0] is the caller gutter
 		}
 		if want := []string{"a", "b", "c"}; !reflect.DeepEqual(ids, want) {
 			t.Errorf("--by %s: tied rows must fall back to session_id: got %v, want %v", key, ids, want)
@@ -935,7 +942,7 @@ func TestSessionsRowSaysWhetherAPeerCanTakeWork(t *testing.T) {
 			t.Fatalf("sessions: exit %d: %s", code, errw)
 		}
 		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-			if fs := strings.Fields(ln); len(fs) > 0 && fs[0] == label {
+			if fs := strings.Fields(ln); len(fs) > 1 && fs[1] == label {
 				return ln
 			}
 		}
@@ -1022,7 +1029,7 @@ func TestBeatRecordsContextAndTheRosterReportsIt(t *testing.T) {
 	// record and not about when the test ran.
 	ts := f.clock.UTC().Format("2006-01-02T15:04:05.000Z")
 	tr := filepath.Join(t.TempDir(), "session.jsonl")
-	if err := os.WriteFile(tr, []byte(turnLine(ts, "claude-opus-5", 2, 86_378, 4_119, 368, false, 0)+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(tr, []byte(turnLine(ts, "claude-opus-5", "xhigh", 2, 86_378, 4_119, 368, false, 0)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	beat := func() string {
@@ -1043,7 +1050,7 @@ func TestBeatRecordsContextAndTheRosterReportsIt(t *testing.T) {
 			t.Fatalf("sessions: exit %d: %s", code, errw)
 		}
 		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-			if fs := strings.Fields(ln); len(fs) > 0 && fs[0] == label {
+			if fs := strings.Fields(ln); len(fs) > 1 && fs[1] == label {
 				return ln
 			}
 		}
@@ -1059,7 +1066,7 @@ func TestBeatRecordsContextAndTheRosterReportsIt(t *testing.T) {
 	must(beat(), "beat")
 	// 2 + 86378 + 4119 = 90,499 — the measured live reading this was built
 	// against. Truncating, not rounding: 90k.
-	if got, want := row(t, "alpha"), "claude-opus-5 prompt 90k turn 0s"; !strings.Contains(got, want) {
+	if got, want := row(t, "alpha"), "claude-opus-5/xhigh prompt 90k turn 0s"; !strings.Contains(got, want) {
 		t.Errorf("roster must carry the observation %q:\n  %s", want, got)
 	}
 	if got := row(t, "alpha"); strings.Contains(got, "%") {
@@ -1114,7 +1121,7 @@ func TestIdleIsReportedButBusyIsNotInferred(t *testing.T) {
 			t.Fatalf("sessions: exit %d: %s", code, errw)
 		}
 		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-			if fs := strings.Fields(ln); len(fs) > 0 && fs[0] == label {
+			if fs := strings.Fields(ln); len(fs) > 1 && fs[1] == label {
 				return ln
 			}
 		}
@@ -1167,6 +1174,130 @@ func TestIdleIsReportedButBusyIsNotInferred(t *testing.T) {
 	must(hook("resting"), "idle")
 	if row := rowOf(t, "resting"); !strings.Contains(row, "idle 0s") {
 		t.Errorf("the revived incarnation can report idle itself:\n  %s", row)
+	}
+}
+
+// TestAColumnCannotBeForgedByALabelOrSlug is issue #6, reproduced through the
+// commands: `%-24s` is a minimum width, so peer text with a space in it used
+// to occupy the columns after it on its own row.
+func TestAColumnCannotBeForgedByALabelOrSlug(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	// 24 characters — exactly the column — then a state and an age.
+	const forgery = "aaaaaaaaaaaaaaaaaaaaaaaa ended 9d"
+	must("", "init")
+	must(hookJSON("sess-a", f.repo, "", ""), "hello", "--label", forgery)
+	must("", "claim", "slug with spaces", "--session", "sess-a", "--desc", "d", "--scope", "src")
+
+	out, errw, code := f.run(t, f.repo, "", "sessions")
+	if code != 0 {
+		t.Fatal(errw)
+	}
+	fields := strings.Fields(strings.TrimRight(out, "\n"))
+	if len(fields) < 3 || fields[2] != "live" {
+		t.Errorf("field 3 (gutter, label, STATE) must be the session's real state, got %q from:\n  %s", fields, out)
+	}
+	if strings.Contains(out, " ended ") {
+		t.Errorf("a live session's row must not carry a peer's idea of a state:\n  %s", out)
+	}
+	if !strings.Contains(out, "aaaaaaaaaaaaaaaaaaaaaaaa␣ended␣9d") {
+		t.Errorf("the label must still be shown in full, as one token:\n  %s", out)
+	}
+
+	out, errw, code = f.run(t, f.repo, "", "ls")
+	if code != 0 {
+		t.Fatal(errw)
+	}
+	fields = strings.Fields(strings.TrimRight(out, "\n"))
+	if len(fields) < 2 || fields[0] != "slug␣with␣spaces" || fields[1] != "aaaaaaaaaaaaaaaaaaaaaaaa␣ended␣9d" {
+		t.Errorf("ls: slug and owner must each be ONE column, got %q from:\n  %s", fields[:2], out)
+	}
+}
+
+// TestIdleRefreshesTheFootprintToo: a session that has gone quiet at its
+// prompt stops beating, so without this its prompt size would freeze at its
+// last TOOL CALL and age from there — on exactly the sessions an orchestrator
+// is choosing between. The Stop hook is already reading the transcript for
+// the turn's end time, so the number costs nothing extra.
+func TestIdleRefreshesTheFootprintToo(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	ts := f.clock.UTC().Format("2006-01-02T15:04:05.000Z")
+	tr := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(tr, []byte(turnLine(ts, "claude-opus-5", "xhigh", 2, 86_378, 4_119, 368, false, 0)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop := func() string {
+		in := map[string]any{"session_id": "sess-a", "cwd": f.repo,
+			"hook_event_name": "Stop", "transcript_path": tr}
+		b, _ := json.Marshal(in)
+		return string(b)
+	}
+	must("", "init")
+	must(hookJSON("sess-a", f.repo, "", ""), "hello", "--label", "alpha")
+
+	// No beat has ever run: the only read of this transcript is the Stop.
+	must(stop(), "idle")
+	out, errw, code := f.run(t, f.repo, "", "sessions")
+	if code != 0 {
+		t.Fatal(errw)
+	}
+	if want := "claude-opus-5/xhigh prompt 90k"; !strings.Contains(out, want) {
+		t.Errorf("the Stop hook must record the footprint it already read (%q):\n%s", want, out)
+	}
+	if !strings.Contains(out, "idle 0s") {
+		t.Errorf("and still mark the session idle:\n%s", out)
+	}
+}
+
+// TestBusyRetractsIdleForAToollessTurn is issue #10 through the commands: a
+// turn that runs no tool clears nothing, so the row kept reporting a working
+// session as available.
+func TestBusyRetractsIdleForAToollessTurn(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	hook := hookJSON("sess-a", f.repo, "", "")
+	rowHasIdle := func() bool {
+		t.Helper()
+		out, errw, code := f.run(t, f.repo, "", "sessions")
+		if code != 0 {
+			t.Fatal(errw)
+		}
+		return strings.Contains(out, "idle ")
+	}
+	must("", "init")
+	must(hook, "hello", "--label", "alpha")
+	must(hook, "idle")
+	if !rowHasIdle() {
+		t.Fatal("positive control: the session reported idle and the row must say so")
+	}
+	must(hook, "busy")
+	if rowHasIdle() {
+		t.Error("UserPromptSubmit means a turn is starting: the row must stop calling it idle " +
+			"even though no tool call will follow on a text-only answer")
+	}
+	// And the next Stop marks it again — busy retracts, it does not disable.
+	must(hook, "idle")
+	if !rowHasIdle() {
+		t.Error("busy retracts one mark; it must not stop the next Stop being recorded")
 	}
 }
 

@@ -68,3 +68,38 @@ func Line(s string, max int) string {
 	}
 	return s
 }
+
+// Field is Line for a value that occupies a COLUMN in a fixed-width listing:
+// it additionally guarantees the result is ONE whitespace-delimited token,
+// by showing every space as ␣ the way Line shows every line break as ⏎.
+//
+// THE FAILURE (issue #6). A listing prints a label with `%-24s`, which is a
+// minimum width and not a maximum, and a label is peer free text. A session
+// labelled `aaaaaaaaaaaaaaaaaaaaaaaa ended 0s` renders so that the state and
+// age columns of its own row are occupied by text it chose: measured on a
+// throwaway repo, a field-splitting reader saw state=`ended` age=`0s` for a
+// session that was LIVE, with the real state one field further along. Line
+// does not stop this and never claimed to — it stops a NEWLINE fabricating a
+// whole row, and this needs no newline.
+//
+// A MARKER, NOT QUOTES. Quoting was the first attempt and it fails the test
+// that matters: `strings.Fields(`+"`"+`"a b"`+"`"+`)` is still two tokens, so a reader
+// splitting the row is fooled exactly as before and only a human sees the
+// difference. A marker makes the value one token for every reader, and it is
+// the convention this package already runs on.
+//
+// NEVER TRUNCATED beyond Line's own cap. A label and a slug are the
+// pause/resume/msg target namespace and those matches are exact, so a
+// shortened one would read as an addressing target that resolves to nothing.
+// As with ⏎, what is rendered is not what you type: a reader who needs the
+// literal value reads it from the ledger, not off a column.
+func Field(s string, max int) string {
+	// Escape a LITERAL marker first, for the reason Line escapes a literal
+	// ⏎: otherwise a value containing ␣ is byte-indistinguishable from a
+	// space this function replaced, and "every ␣ in the output came from
+	// here" stops being true.
+	s = strings.ReplaceAll(s, "␣", "\\u2423")
+	// Line first: it maps tabs and NBSP onto ordinary spaces, so after it
+	// runs the only separator left to defend is the space itself.
+	return strings.ReplaceAll(Line(s, max), " ", "␣")
+}
