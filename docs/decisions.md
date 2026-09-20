@@ -1123,6 +1123,74 @@ still accepted — `cmdClaim` refuses only a leading `-` and `store.Claim` never
 the slug — so an empty slug can reach a listing; it renders as `∅` now rather than
 collapsing a column, but refusing it at intake is a separate decision.
 
+## D-024 — An unknown room is REFUSED, because an empty read was the failure
+
+2026-09-20 · the 2026-09-07 `lobby` incident, reached again by a different route
+
+**What was wrong** — Sessions were once told to read a room called `lobby`, which does
+not exist. `Journal.Read` is `WHERE room=? AND seq>?`, so a wrong name returns zero rows
+and renders as `(no messages)` — byte-identical to a room nobody is talking in. Measured
+2026-09-07: a session reported "the room is empty, all traffic goes through the message
+hook instead" while its actual project room held thousands of messages. That was fixed by
+making the digest's room name DERIVED rather than hardcoded — and the derivation is still
+a GUESS. It is the label's project half, and `defaultLabel` builds the label from
+`path.Base(worktree)` while the ledger lives in the git COMMON dir. **So the boundary the
+ledger uses is per-checkout and the boundary the room name uses is per-worktree**, and a
+linked worktree session is told to read a room that was never joined. Measured on this box:
+5 of 27 live sessions in one project's ledger are in linked worktrees, each told the wrong
+room on every SessionStart. Labels are stable by D-013, so changing `defaultLabel` would
+not help a single one of them.
+
+**What shipped** — The refusal is on the READ, not on the guess, because the guess is only
+one of the ways a wrong name arrives: an explicit `--label`, a typo, and an MCP schema that
+until now said `e.g. "lobby"` are the others, and they all converge on `Journal.Read`.
+`Daemon.dispatch`'s read arm now refuses a room this daemon **neither serves nor remembers**,
+naming the rooms it does serve so the caller recovers in one step. **This closes an
+asymmetry rather than inventing a rule:** `Say` has always refused `not joined to room %q`.
+Send told the truth and read did not.
+
+**BOTH CLAUSES ARE LOAD-BEARING.** "Not served" alone would refuse a room dropped from the
+configured list after accruing rows, and the `@sent`/`@dm` pseudo-rooms, which no config
+lists. "No history" alone would refuse a configured room nobody has spoken in yet — which
+is precisely the true `(no messages)` this change exists to preserve. Two positive controls
+pin them, and the second one FAILED first time round for a fixture reason worth recording:
+`kind` is CHECKed against `('chat','im','presence','system')` and `Daemon.append` only LOGS
+a failed insert, so a wrong kind in a test is a silent no-op that reads as a code defect.
+
+**The validation already existed, one path over.** `servedRoom` (presence) has always folded
+the label's project half against `cfg.Rooms` and returned "" — so a worktree session is
+correctly given no presence while being confidently told to read a room that does not exist.
+The two halves disagreed and the silent one was right. `servesRoom` is factored out of it so
+the read path asks the same question, folded the same way.
+
+**What it deliberately does not do** — The guess is NOT replaced. Deriving the room from the
+git common dir's parent basename was considered and cut: it is still an unverified guess
+(`filepath.Base(filepath.Dir(rc.ledger))` is `.git`; a checkout cloned into a differently
+named directory still guesses wrong), it changes label minting, which is an ADDRESSING
+namespace (D-013), and it helps none of the already-minted labels. Storing a room in the
+ledger at `init` was cut: two configs that must agree with nothing checking them is the same
+failure with a longer fuse, and it would put chat configuration into `cmd/buddy`, which has
+no network by design. Querying the daemon at hook time was cut as the wrong binary — the
+claims CLI has no socket, and `runAlert`'s header names that coupling as the thing the
+design refuses. What the digest does instead is stop ASSERTING: it says the name is derived
+from the label, that it can be wrong in a linked worktree, and that a wrong one is refused.
+
+**What the reviews changed** — Two independent reviews (Codex and Fable) were asked
+separately how to fix the guess and both concluded the guess is not the defect and the read
+path is. Fable supplied the asymmetry argument, the two-clause predicate, and the live
+measurement; Codex independently named the same two boundaries and warned against using
+"this query returned rows" as the recognition test, because filters, cursors and trimming
+legitimately produce zero — which is why the check is a separate `KnowsRoom` and not an
+inference from the result. One mutation of six SURVIVED and is EQUIVALENT: removing the
+`len(msgs) == 0` guard cannot change behaviour, because `Read`'s `WHERE` begins `room=?` on
+the same table `KnowsRoom` queries, so any row returned implies the room is known. The guard
+buys a second query on every read of a busy room, not correctness.
+
+**Residuals** — A session can still be pointed at another project's EXISTING room; only an
+explicit checkout-to-room binding would stop that, and that is D-024's cut. `servedRoom`
+still derives presence from the label, so a linked worktree session remains absent from the
+room even now that its reads are honest — the same root, not fixed here.
+
 ## Known unfixed
 
 - **A delayed `bye` ends a LIVE incarnation, and the next peer's `hello` orphans its

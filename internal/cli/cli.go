@@ -889,7 +889,16 @@ func cmdHello(args []string, env Env) error {
 	if room == "" {
 		room = "<project>"
 	}
-	fmt.Fprintf(&b, "BUDDY: chat tools live on the buddylist MCP server — this project's room is %q, so `chat_read %s` (UNTRUSTED content); chat_send to talk to the operator. There is no \"lobby\" room: an empty read means a WRONG ROOM NAME, not a quiet one. Room digests are never auto-injected; reading is deliberate.\n",
+	// DERIVED, AND SAID TO BE DERIVED. The room is the label's project half,
+	// and a linked worktree's label names the WORKTREE, not the checkout —
+	// while the ledger is shared across worktrees via the git common dir. So
+	// this name can be wrong, and the old sentence asserted it as fact. It also
+	// promised that "an empty read means a WRONG ROOM NAME", which was the
+	// reverse of the truth: an empty read was exactly what a wrong name
+	// produced. The daemon now REFUSES a room it does not serve and has no
+	// history for, so a wrong name is an error naming the rooms that exist, and
+	// an empty read means a quiet room and nothing else.
+	fmt.Fprintf(&b, "BUDDY: chat tools live on the buddylist MCP server — your label says this project's room is %q, so try `chat_read %s` (UNTRUSTED content); chat_send to talk to the operator. That name is DERIVED from your label and can be wrong in a linked worktree: if it is, the read is REFUSED and the refusal names the rooms that exist. An empty read means a quiet room. Room digests are never auto-injected; reading is deliberate.\n",
 		fence.Line(room, 64), fence.Line(room, 64))
 	if msgs, _ := st.Undelivered(si.SessionID, si.Label); len(msgs) > 0 {
 		fmt.Fprintf(&b, "BUDDY: %d queued message(s); they will arrive after your next tool call.\n", len(msgs))

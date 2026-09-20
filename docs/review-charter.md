@@ -208,6 +208,17 @@ ledger row entered through the CLI (D-006).
     escaped first, as `␣` and `⏎` already are. The property holds for every input by
     construction and is asserted as one (`FuzzFieldIsOneToken`).
 
+28. **A `chat_read` of a room the daemon NEITHER SERVES NOR REMEMBERS is refused, naming
+    the rooms it serves (D-024).** An empty read now means a quiet room and nothing else.
+    Both clauses are load-bearing: "not served" alone would refuse an archived room and the
+    `@sent`/`@dm` pseudo-rooms; "no history" alone would refuse a configured room nobody has
+    spoken in. The check runs only on an empty result (an equivalent-mutation guard: it buys
+    cost, not behaviour). The SessionStart room name is still DERIVED from the label and the
+    digest now SAYS so — it is `path.Base(worktree)` while the ledger is in the git COMMON
+    dir, so a linked worktree's name is wrong; deriving it differently was cut because labels
+    are a stable addressing namespace (D-013) and already-minted ones would not change.
+    `servesRoom` is shared with the presence path, which has always done this check.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

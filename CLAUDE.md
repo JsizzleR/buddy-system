@@ -317,6 +317,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `DIRTY IN`, each printing `(none)` rather than being omitted — it was read as
   "unclaimed" when it only ever meant "not dirty", and a session that has just
   claimed a path has no dirty row at all.
+- **A `chat_read` of a room the daemon neither SERVES nor REMEMBERS is refused,
+  naming the rooms it serves (D-024).** An empty read means a quiet room and
+  nothing else. `Say` always refused a room it had not joined; read now matches.
+  The SessionStart room name is DERIVED from the label — `path.Base(worktree)`
+  while the ledger is in the git COMMON dir — so it is wrong in a linked
+  worktree, and the digest says so rather than asserting it.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
