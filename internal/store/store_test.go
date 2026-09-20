@@ -689,8 +689,13 @@ func TestReleaseDiagnosesWhyItDidNothing(t *testing.T) {
 	if !errors.As(err, &e) || !e.Yours || e.State != "open" {
 		t.Fatalf("want ErrNoRelease{State:open,Yours:true}, got %+v (%v)", e, err)
 	}
-	if !strings.Contains(e.Error(), "EARLIER incarnation") {
+	if !strings.Contains(e.Error(), "DIFFERENT incarnation") {
 		t.Fatalf("an incarnation mismatch must say so, not blame another session: %s", e.Error())
+	}
+	if strings.Contains(e.Error(), "EARLIER") {
+		t.Fatalf("it must not name a DIRECTION it cannot know: a release delayed across a bye "+
+			"and a hello arrives with the old incarnation while the open claim belongs to the "+
+			"NEW one: %s", e.Error())
 	}
 }
 
@@ -1031,4 +1036,119 @@ func TestContextSampleNeverGoesBackwardsOrResurrects(t *testing.T) {
 	if c, ok := got["sess-never-said-hello"]; ok {
 		t.Errorf("an unknown session must have no sample recorded: %+v", c)
 	}
+}
+
+func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	if err := st.MarkIdle("sess-a"); err != nil {
+		t.Fatal(err)
+	}
+	idle, err := st.IdleSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := idle["sess-a"]; !ok || got.Incarnation != a.Incarnation || !got.Since.Equal(clk.t) {
+		t.Fatalf("a live session's own report must read back with its incarnation and time: %+v", got)
+	}
+
+	// A repeated Stop with no tool call between is a NEW turn ending: the
+	// session became idle again, later.
+	clk.advance(10 * time.Minute)
+	if err := st.MarkIdle("sess-a"); err != nil {
+		t.Fatal(err)
+	}
+	idle, _ = st.IdleSessions()
+	if !idle["sess-a"].Since.Equal(clk.t) {
+		t.Errorf("a second Stop moves `since` forward, got %v want %v", idle["sess-a"].Since, clk.t)
+	}
+
+	// The mark does not survive its incarnation. This is the STORE's half of
+	// the rule; the renderer compares as well, and either guard alone would
+	// hide a break in the other.
+	if err := st.Bye("sess-a", a.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	b := hello(t, st, "sess-a", "alpha", "/wt/a")
+	idle, _ = st.IdleSessions()
+	if got, ok := idle["sess-a"]; ok {
+		t.Errorf("the previous incarnation's idle mark is not this one's: %+v", got)
+	}
+	if err := st.MarkIdle("sess-a"); err != nil {
+		t.Fatal(err)
+	}
+	idle, _ = st.IdleSessions()
+	if got := idle["sess-a"]; got.Incarnation != b.Incarnation {
+		t.Errorf("positive control: the revived incarnation can report idle itself, got %+v", got)
+	}
+
+	// A mark made while live does not survive the session ending. The row is
+	// still tagged with the incarnation that is still the current one, so
+	// only the live predicate can hide it — and without it a caller that
+	// listed the sessions a moment earlier would print "idle" for a session
+	// that has since gone: available, and gone.
+	d := hello(t, st, "sess-d", "dee", "/wt/d")
+	if err := st.MarkIdle(d.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := mustIdle(t, st)["sess-d"]; !ok {
+		t.Fatal("positive control: a live session's mark must be there before the bye")
+	}
+	if err := st.Bye(d.SessionID, d.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mustIdle(t, st)["sess-d"]; ok {
+		t.Errorf("an ended session is not waiting for work: %+v", got)
+	}
+
+	// An ended or unknown session is a silent no-op, like every other late
+	// hook — a Stop arriving after bye must not mark a corpse available.
+	c := hello(t, st, "sess-c", "cee", "/wt/c")
+	if err := st.Bye(c.SessionID, c.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"sess-c", "sess-never-said-hello"} {
+		if err := st.MarkIdle(id); err != nil {
+			t.Fatalf("%s: a late idle mark is a no-op, not an error: %v", id, err)
+		}
+	}
+	idle, _ = st.IdleSessions()
+	for _, id := range []string{"sess-c", "sess-never-said-hello"} {
+		if got, ok := idle[id]; ok {
+			t.Errorf("%s: must have no idle mark: %+v", id, got)
+		}
+		// And no ROW either. The read hides an ended session's mark, so the
+		// reader alone cannot tell "never written" from "written and
+		// hidden" — and the write guard is the one that stops a Stop
+		// arriving after bye from leaving a mark for the next incarnation
+		// to inherit the moment it registers.
+		if idleRowExists(t, st, id) {
+			t.Errorf("%s: a late Stop must write NOTHING, not a hidden row", id)
+		}
+	}
+}
+
+func mustIdle(t *testing.T, st *Store) map[string]IdleState {
+	t.Helper()
+	idle, err := st.IdleSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return idle
+}
+
+// idleRowExists reads the session_idle table directly, past IdleSessions'
+// live-and-current-incarnation join: the two guards are independent and a
+// test that can only see one of them cannot tell which one is working.
+func idleRowExists(t *testing.T, st *Store, sessionID string) bool {
+	t.Helper()
+	var one int
+	err := st.db.QueryRow(`SELECT 1 FROM session_idle WHERE session_id=?`, sessionID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return true
 }

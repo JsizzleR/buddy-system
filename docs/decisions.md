@@ -662,6 +662,56 @@ And the ledger still cannot tell a session mid-turn from one idle at its prompt,
 the fact an orchestrator would most like next: `last_seen DESC` ranks the BUSIEST session
 first, the opposite of "who can take work".
 
+## D-016 — Idle is reported; busy is never inferred
+
+2026-09-20 · proposed by a second-model design critique of D-015, built the same day
+
+**What was wrong** — The ledger could not tell a session mid-turn from one that finished
+ten minutes ago and is waiting for its operator. Both are live, both are inside
+`StaleAfter`, and the busy one looks FRESHER: `last_seen` is the last tool call, so the
+roster's default order ranks the session hardest at work first — the exact inverse of
+"who can take the next task", which is the question the roster exists to answer.
+
+**What shipped** — A `Stop` hook line (`buddy idle`) and a `session_idle` row per
+session, keyed to the incarnation that reported it. `Beat` deletes the row in its own
+transaction, because a tool call IS a turn in progress and the heartbeat and the end of
+idleness are one fact; splitting them would take a second write lock per tool call for a
+row that is usually not there. The roster prints `idle 7m` on a live row whose reporting
+incarnation is still the current one.
+
+**The asymmetry is the design.** A row means "reported idle at its prompt". NO ROW MEANS
+UNKNOWN, never busy. `Stop` is a line in a settings file that a machine may simply not
+have — the same opt-in every other hook here has — so a fleet with it unwired reports
+nobody idle, and a reader that took absence for evidence would conclude that every
+session on it is mid-turn. One-sided evidence, said one-sidedly.
+
+**Only Stop, not UserPromptSubmit.** The mark is cleared by the next `beat`, and the
+first tool call of a turn lands within a second of the prompt that started it. A second
+hook line would buy that second and cost every operator another line to install.
+
+**What the code review changed** — A Codex pass found one case and one wording. (1)
+`IdleSessions` joined on the incarnation but not on liveness, so a session that ended
+between a caller's two queries — the roster reads sessions, then idleness — would print
+`idle` off the earlier snapshot: available, and gone. The join is now live-only, which is
+the one place the two tables differ on purpose: a context footprint stays true after a
+session ends, "waiting for work" does not. The claim count moved to a (session,
+incarnation) key for the same reason. (2) The release diagnostic said a claim was open
+under an "EARLIER incarnation of this session"; a release delayed across a bye and a
+hello arrives with the OLD incarnation while the open claim belongs to the NEW one, so it
+named the wrong side. It says DIFFERENT now.
+
+**Residuals** — The hook payload carries no incarnation and no event time, so `since` is
+the WRITE time and the incarnation is the one live when the write ran. A Stop whose hook
+is delayed across a bye, a hello and a beat therefore marks the new incarnation idle on
+the old one's event: correctly tagged, and untrue. The next beat clears it, and the
+mirror case has always been live — a delayed beat from a dead incarnation already updates
+its successor's `last_seen`. A turn that runs no tool at all (a plain text answer) leaves
+the session marked idle for its duration, which is true of its tools and not of its
+attention. And the annotation is double-edged on purpose, which the README says out loud:
+an idle session is the one that can take work AND the one that will not see a `buddy msg`
+until its next tool call, because inbox delivery rides the heartbeat. Routing to it still
+needs a human to poke it.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

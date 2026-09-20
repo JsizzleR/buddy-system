@@ -130,6 +130,21 @@ CREATE TABLE IF NOT EXISTS session_context (
 	output          INTEGER NOT NULL,
 	declared_window INTEGER NOT NULL DEFAULT 0
 );
+-- Turn state. A row means the session reported itself IDLE — its Stop hook
+-- fired, the turn is over, and it is sitting at its prompt — and has run no
+-- tool since. Beat deletes the row in its own transaction, because a tool
+-- call IS a turn in progress.
+--
+-- NO ROW MEANS UNKNOWN, NEVER "busy". The Stop hook is a line in a settings
+-- file that a machine may simply not have, exactly like the rest of them, so
+-- a fleet with no Stop hook wired reports nobody idle — and a reader that
+-- treated absence as evidence would conclude that every session on it is
+-- mid-turn. The roster prints an idle row and says nothing about the others.
+CREATE TABLE IF NOT EXISTS session_idle (
+	session_id  TEXT PRIMARY KEY,
+	incarnation TEXT NOT NULL,
+	since       INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS dirty_scans (
 	session_id TEXT NOT NULL,
 	worktree   TEXT NOT NULL,
@@ -143,12 +158,12 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
-// 2 adds session_context. A new TABLE and not a column on sessions: the
+// 3 adds session_idle. 2 adds session_context. A new TABLE and not a column on sessions: the
 // script below is all IF NOT EXISTS, which creates a missing table on an old
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -439,6 +454,11 @@ func orphanEnded(tx *sql.Tx, now int64) (int, error) {
 // Beat refreshes last_seen for a live session, and renews the session's own
 // claims that cover relPath (repo-relative; empty renews nothing). A beat for
 // an ended session is ignored — it must not resurrect one.
+//
+// It also clears the session's idle mark, IN THIS TRANSACTION rather than in
+// a second one: a tool call is a turn in progress, so the heartbeat and the
+// end of idleness are one fact, and splitting them would buy a second write
+// lock per tool call for a row that is usually not there.
 func (s *Store) Beat(sessionID, relPath string) error {
 	return s.tx(func(tx *sql.Tx) error {
 		now := s.now().Unix()
@@ -446,7 +466,13 @@ func (s *Store) Beat(sessionID, relPath string) error {
 		if err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n == 0 || relPath == "" {
+		if n, _ := res.RowsAffected(); n == 0 {
+			return nil // ended, or unknown: nothing of this session's to clear
+		}
+		if _, err := tx.Exec(`DELETE FROM session_idle WHERE session_id=?`, sessionID); err != nil {
+			return err
+		}
+		if relPath == "" {
 			return nil
 		}
 		rel := fold(relPath)
@@ -699,7 +725,11 @@ func (e ErrNoRelease) Error() string {
 		return fmt.Sprintf("claim %q is open and held by %s, not you — ask them to release it, or `buddy sweep --force` if they are gone",
 			e.Slug, e.Claimant)
 	default:
-		return fmt.Sprintf("claim %q is open under an EARLIER incarnation of this session (it ended and re-registered since); it is not this incarnation's to release",
+		// A DIFFERENT incarnation, not an earlier one: the caller's is the
+		// one that may be stale. A release delayed across a bye and a hello
+		// arrives with the OLD incarnation while the open claim belongs to
+		// the new one, and "earlier" named the wrong side of that.
+		return fmt.Sprintf("claim %q is open under a DIFFERENT incarnation of this session (it ended and re-registered since); it is not this incarnation's to release",
 			e.Slug)
 	}
 }
@@ -1282,6 +1312,87 @@ func (s *Store) ContextSamples() (map[string]ContextSample, error) {
 			return nil, err
 		}
 		out[id] = c
+	}
+	return out, rows.Err()
+}
+
+// ---- turn state ----
+
+// IdleState is one session's report that it is waiting at its prompt.
+type IdleState struct {
+	Incarnation string
+	Since       time.Time
+}
+
+// MarkIdle records that the session has finished a turn and is waiting for
+// its operator. Ended or unknown session: a silent no-op, like every other
+// late hook.
+//
+// THE INCARNATION IS READ HERE, unlike RecordContext next door, and the
+// difference is the point. A context sample is read from a file BEFORE the
+// write, so the incarnation that observed it has to be carried in or the
+// sample can land on a successor. This observation is MADE at the moment of
+// the call — "whoever is live right now just stopped" is exactly the claim —
+// so the ledger's own current row is the correct answer, not a stale one.
+//
+// A repeated Stop with no tool call in between moves `since` forward, because
+// it is a new turn ending: the session became idle again, later.
+//
+// WHAT THIS CANNOT ESTABLISH, and the doc would be lying if it implied
+// otherwise: the incarnation that EMITTED the Stop. `since` is the write
+// time, and the incarnation is the one live when the write ran; the hook
+// payload carries neither. So a Stop whose hook is delayed across a bye, a
+// hello and a beat marks the NEW incarnation idle on the old one's event.
+// Both incarnation checks accept it, because it is correctly tagged and
+// simply untrue. The next beat clears it, which is the same answer the rest
+// of this table gives to staleness — and the reverse case has always been
+// live too: a delayed beat from a dead incarnation already updated its
+// successor's last_seen and renewed its claims.
+func (s *Store) MarkIdle(sessionID string) error {
+	return s.tx(func(tx *sql.Tx) error {
+		var inc string
+		err := tx.QueryRow(`SELECT incarnation FROM sessions WHERE session_id=? AND ended IS NULL`, sessionID).Scan(&inc)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO session_idle (session_id, incarnation, since) VALUES (?,?,?)
+			ON CONFLICT(session_id) DO UPDATE SET incarnation=excluded.incarnation, since=excluded.since`,
+			sessionID, inc, s.now().Unix())
+		return err
+	})
+}
+
+// IdleSessions returns the sessions that have reported themselves idle, by
+// session id, each carrying the incarnation that reported it.
+//
+// Joined on the current incarnation for the reason ContextSamples is, and
+// returning the incarnation for the reason ContextSamples does: this is a
+// second query, and a caller holding session rows read a moment ago must
+// compare rather than trust two queries to agree.
+//
+// Live only, unlike ContextSamples: a footprint is a fact about a session
+// that remains true after it ends, and "waiting for work" is not. Without
+// the predicate, a session that ended between a caller's two queries would
+// be printed idle off the earlier snapshot — available, and gone.
+func (s *Store) IdleSessions() (map[string]IdleState, error) {
+	rows, err := s.db.Query(`SELECT i.session_id, i.incarnation, i.since FROM session_idle i
+		JOIN sessions s ON s.session_id=i.session_id AND s.incarnation=i.incarnation
+		WHERE s.ended IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]IdleState{}
+	for rows.Next() {
+		var id string
+		var st IdleState
+		if err := rows.Scan(&id, &st.Incarnation, unixScan{&st.Since}); err != nil {
+			return nil, err
+		}
+		out[id] = st
 	}
 	return out, rows.Err()
 }
