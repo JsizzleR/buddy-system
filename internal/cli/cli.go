@@ -119,8 +119,10 @@ operator      pause <target> [--note <text>]             deny the target's next 
               or "all". Anything else is REFUSED — never queued against a row that would
               match nothing. Peers address each other by slug, so slugs resolve too.
               sessions [--by seen|started]  the roster, live first: every age column is
-                                    labelled, "*" marks you, and PAUSED / claims N trail
-                                    the row with what an orchestrator picks on
+                                    labelled, "*" marks you, and PAUSED / claims N / the
+                                    last prompt size trail the row with what an
+                                    orchestrator picks on (BUDDY_CONTEXT_WINDOW=1M adds
+                                    the percentage; nothing else can know the window)
               sweep [--force]       tidy closed claims
 setup         init                  create the ledger for this repo
 hooks         hello · gate · beat · bye   (wired in .claude/settings; read hook JSON on stdin)
@@ -140,7 +142,11 @@ type hookInput struct {
 	SessionID string `json:"session_id"`
 	Cwd       string `json:"cwd"`
 	ToolName  string `json:"tool_name"`
-	ToolInput struct {
+	// TranscriptPath is the session's own JSONL transcript. The only thing
+	// that reads it is beat's context accounting (internal/cli/transcript.go);
+	// nothing in the safety path has any business in a file the harness owns.
+	TranscriptPath string `json:"transcript_path"`
+	ToolInput      struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 		Command      string `json:"command"`
@@ -483,6 +489,18 @@ const EnvSession = "BUDDY_SESSION"
 // harness's own ground truth about who is calling, not an inference.
 // (Measured on Claude Code 2.1.233.)
 const EnvClaudeSession = "CLAUDE_CODE_SESSION_ID"
+
+// EnvContextWindow is the operator's declaration of THIS session's context
+// window, in tokens ("1M", "200k", "1000000"). Hooks are children of the
+// session's own process, so a value exported for a session reaches every beat
+// it makes.
+//
+// DECLARED AND NOT DERIVED, because it cannot be derived: measured
+// 2026-09-20, a session running Opus with the 1M window writes
+// `"model":"claude-opus-5"` into its transcript, byte for byte what the 200k
+// variant writes. Unset means the roster prints the prompt size with no
+// percentage — which is the honest output, not a degraded one.
+const EnvContextWindow = "BUDDY_CONTEXT_WINDOW"
 
 // errAmbiguous reports that the working directory names more than one live
 // session. It is a refusal, not a fallback: see whoAmI.
@@ -924,6 +942,38 @@ func cmdBeat(args []string, env Env) error {
 		return err
 	}
 
+	// CONTEXT ACCOUNTING rides the heartbeat, for the same reason the dirty
+	// scan does: the file is this session's own, the hook JSON already names
+	// it, and the ledger is already open. It answers the one question an
+	// orchestrator cannot ask the ledger — how much context a peer is
+	// carrying before it is handed the next task.
+	//
+	// Swallowed in every arm, deliberately. A beat that failed over an
+	// accounting number would cost a tool call for a listing annotation, and
+	// the number is an observation: absent it prints as unknown, stale it
+	// prints its own age. RecordContext is a silent no-op for a session that
+	// has ended or been revived under a new incarnation, so a beat racing a
+	// bye cannot revive anything and cannot stamp its successor.
+	//
+	// The identity is read BEFORE the transcript, and the ORDER is the point:
+	// the sample belongs to the incarnation that was live when it was
+	// observed. Read afterwards, a bye and a hello in between would hand the
+	// old incarnation's number to the new one under the same session id. It
+	// is one query, and the inbox drain below needs the label from it anyway.
+	me, known, err := st.SessionByID(h.SessionID)
+	if err != nil {
+		return err
+	}
+	if known && me.Live() {
+		if u, ok := lastUsage(h.TranscriptPath); ok {
+			_ = st.RecordContext(h.SessionID, me.Incarnation, store.ContextSample{
+				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Prompt: u.Prompt,
+				CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Output: u.Output,
+				Window: declaredWindow(env.getenv(EnvContextWindow)),
+			})
+		}
+	}
+
 	// Addressing (advisory): record which paths this session is holding
 	// uncommitted, and warn ONCE if a peer holds the same file in the same
 	// worktree. Fail-open — an unresolvable root, a git failure or a ledger
@@ -937,9 +987,9 @@ func cmdBeat(args []string, env Env) error {
 
 	// Drain the inbox: write first, mark delivered only after the write
 	// succeeded (at-least-once).
-	label, err := sessionLabel(st, h.SessionID)
-	if err != nil {
-		return err
+	label := ""
+	if known {
+		label = me.Label
 	}
 	msgs, err := st.Undelivered(h.SessionID, label)
 	if err != nil {
@@ -1480,6 +1530,13 @@ func cmdSessions(args []string, env Env) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	// Go's flag parser STOPS at the first non-flag, so `sessions stray --by
+	// started` would silently list in the default order with the flag never
+	// read. Same rule as the unknown key below: a listing that ignores what
+	// it was given looks exactly like one that honoured it.
+	if fs.NArg() > 0 {
+		return fmt.Errorf("sessions takes no arguments, got %s", strconv.Quote(fence.Line(fs.Arg(0), 64)))
+	}
 	// An unknown key is REFUSED rather than silently falling back to the
 	// default, for the reason an unresolvable pause target is: a listing that
 	// quietly ignores --by=start answers a question nobody asked, and looks
@@ -1512,15 +1569,15 @@ func cmdSessions(args []string, env Env) error {
 	if si, err := whoAmI(st, env, session); err == nil {
 		me = si.SessionID
 	}
+	now := nowOf(env)
 	// FITNESS, computed BEFORE anything is printed so a failed read cannot
-	// leave half a listing behind. Two facts an orchestrator needs to pick a
-	// peer, both already in the ledger and neither with any output until now:
-	// whether the gate would refuse it, and how much it is already holding.
-	notes, err := fitness(st, sessions)
+	// leave half a listing behind: whether the gate would refuse this session,
+	// how much it is already holding, and how much context it was last seen
+	// carrying — the three things an orchestrator picks on.
+	notes, err := fitness(st, sessions, now)
 	if err != nil {
 		return err
 	}
-	now := nowOf(env)
 	for _, si := range sessions {
 		// EVERY NUMBER CARRIES ITS OWN WORD, and the columns do not move
 		// between rows. The measured defect (issue #5): one unlabelled age
@@ -1598,8 +1655,12 @@ func cmdSessions(args []string, env Env) error {
 // keeps a revived session from being charged for its predecessor's
 // reservations: hello orphans those, but the comparison is free and states
 // the rule in the one place a reader will look for it.
-func fitness(st *store.Store, sessions []store.SessionInfo) (map[string]string, error) {
+func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[string]string, error) {
 	open, err := st.Claims(false)
+	if err != nil {
+		return nil, err
+	}
+	samples, err := st.ContextSamples()
 	if err != nil {
 		return nil, err
 	}
@@ -1624,11 +1685,70 @@ func fitness(st *store.Store, sessions []store.SessionInfo) (map[string]string, 
 		if n := held[si.SessionID]; n > 0 {
 			parts = append(parts, fmt.Sprintf("claims %d", n))
 		}
+		// The sample and the session row come from two queries, so a
+		// revival between them leaves a row and a sample that disagree.
+		// Comparing costs one string and drops the note rather than
+		// attributing a dead incarnation's footprint to a live one.
+		if c, ok := samples[si.SessionID]; ok && c.Incarnation == si.Incarnation {
+			parts = append(parts, contextNote(now, c))
+		}
 		if len(parts) > 0 {
 			out[si.SessionID] = "  " + strings.Join(parts, "  ")
 		}
 	}
 	return out, nil
+}
+
+// contextNote renders what a session's last turn cost it.
+//
+// IT SAYS `prompt`, NOT `context left`. The number is the size of the last
+// prompt the model was HANDED — input plus cache read plus cache write, since
+// a cached token occupies the window exactly like a fresh one — and the
+// session has been working since. Nothing here establishes remaining
+// capacity, and a word that implied it would be read as one.
+//
+// THE TURN'S OWN AGE PRINTS BESIDE IT, always, not only when it is old. Two
+// beats can read the same transcript record, and a capture that failed leaves
+// the previous observation in place; without the turn age, a number measured
+// six hours ago is indistinguishable from one measured this second, and the
+// failing handoff is silent: a peer that compacted from 90k to 20k is passed
+// over, or one that grew is handed a task it has no room for.
+//
+// THE PERCENTAGE APPEARS ONLY AGAINST A DECLARED WINDOW (see
+// EnvContextWindow). With no denominator the count still compares two peers
+// running the same model, which is the common case; with a GUESSED
+// denominator the row would print a confident lie in the direction that
+// matters — 9% for a session that is actually at 45%.
+func contextNote(now time.Time, c store.ContextSample) string {
+	var b strings.Builder
+	if c.Model != "" {
+		// Fenced although the harness, not a peer, writes this string: it is
+		// read off disk and printed into every reader's context, which is the
+		// whole of invariant 9's trigger. The exemption comment is not used
+		// here on purpose — "we believe the source is trustworthy" is the
+		// reasoning the invariant exists to stop.
+		b.WriteString(fence.Line(c.Model, 64) + " ")
+	}
+	fmt.Fprintf(&b, "prompt %s", tokens(c.Prompt))
+	if c.Window > 0 {
+		fmt.Fprintf(&b, "/%s %d%%", tokens(c.Window), c.Prompt*100/c.Window)
+	}
+	fmt.Fprintf(&b, " turn %s", age(now, c.TurnAt))
+	return b.String()
+}
+
+// tokens renders a count the way an operator reads one. Truncating and not
+// rounding: 999,999 prints as 999k rather than 1M, because a number that
+// rounds UP past a window boundary reads as over budget.
+func tokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%d.%dM", n/1_000_000, (n%1_000_000)/100_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%dk", n/1_000)
+	default:
+		return strconv.FormatInt(n, 10)
+	}
 }
 
 // ---- helpers ----

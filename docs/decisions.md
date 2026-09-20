@@ -560,6 +560,108 @@ uses the daemon's `fold` (`ToLower` + `TrimSpace`, no NFC), which is right on er
 casemapping and would mis-compare the rfc1459 bracket characters on a server configured
 for it.
 
+## D-015 — The roster is the orchestrator's view: labelled ages, fitness, and an observed context footprint
+
+2026-09-20 · issue #5, then a model-diverse design pass (Codex + a second-model critique),
+measured against this box's ledgers and transcripts
+
+**What was wrong** — `buddy sessions` printed one unlabelled age column beside the word
+`live`, and it dated the last TOOL CALL. It reads as uptime and is not: measured on a
+334-row ledger, a session that had been running 10.7 hours and had just heartbeated
+rendered as `9s`, and the three live rows understated true age by 9.4, 10.7 and 13.3
+hours. `sessions.started` was recorded on all 334 rows, 0 of them null and 0 of them
+after `last_seen` — and surfaced nowhere, in any command, so "hand the next item to the
+session that started after yours" was answerable from the table and from nothing else.
+78 of the 334 rows had `started == last_seen`: registered once and never beat again,
+indistinguishable at a glance from a session that started this instant.
+
+Two more facts were in the ledger with no output at all. `buddy pause all` leaves every
+row reading `live`, so an orchestrator hands out work and the gate DENIES the recipient's
+next mutating call with nothing having warned it — the state word lying by omission, the
+same defect class as the age column. And "what is this session holding" was answerable
+only backwards, through `buddy ls`.
+
+**What shipped** — Every number carries its own word, in fixed columns: `started 6h  seen
+5m`, with the state cell carrying its own age only when the state IS a dated event
+(`ended 3h`), because that reads correctly in English and `live 4s` is precisely the
+misreading. `--by seen|started` chooses the key; both sort DESC (a flag that changed key
+and direction together would be two changes under one name, and under DESC "the one that
+started just after mine" is the line above, exactly as adjacent), ties break on
+`session_id` because both keys are whole seconds and a script spawns four sessions in
+one, and an unknown key is REFUSED the way an unresolvable target is. A `*` gutter marks
+the caller — a gutter and not a word, since a label is peer free text and a peer labelled
+`you` must not be able to wear the marker.
+
+Trailing the id, where the old `last beat` note already lived so the fixed columns never
+move: `PAUSED` (asked of `PausedFor`, so the applicability rule stays in one function),
+`claims N` (the count, not the slugs — 128 bytes of peer text each, several per session,
+into every reader's context), and the context footprint.
+
+**The context footprint** — `beat` reads the TAIL of the session's own transcript, whose
+path the hook JSON already carries, and records one row per session: the newest assistant
+turn's token accounting, its model, and the turn's own timestamp. Never any message text:
+everything here is rendered into other sessions' context windows. Measured on this box's
+seven transcripts — files 0.6–2.3 MB, single lines up to 267 KB, and the last usage-bearing
+line beginning 2.8–11.0 KB from EOF — so the read is the last 64 KB, six times the measured
+worst case, and a record outside that window means "no new observation", never a bigger
+window. Cost, measured 2026-09-20 on a 2.3 MB transcript: **16.5 ms per beat with the
+capture against 16.4 ms without**, inside a 100 ms budget.
+
+The row says `prompt 90k turn 4s`, never "context left": the number is the last prompt the
+model was HANDED (input + cache read + cache write, because a cached token occupies the
+window exactly like a fresh one), and the turn's own age prints beside it always, because a
+peer that has since compacted from 90k to 20k is exactly the wrong session to pass over.
+
+**What it deliberately does not do** — It does not compute a percentage from the model
+name. Measured 2026-09-20: a session running Opus with the 1M-token window writes
+`"model":"claude-opus-5"`, byte for byte what the 200k variant writes. 90,499 tokens is 45%
+of one and 9% of the other, so a percentage inferred from that string is not an
+approximation but a fabrication. The denominator is declared by the operator
+(`BUDDY_CONTEXT_WINDOW=1M`) or no percentage prints. It keeps ONE row per session rather
+than a history — the routing decision needs the latest observation and its age, and an
+append-only table would be one row per tool call across 334 sessions — and that row is
+read only through a join on the CURRENT incarnation, so a superseded incarnation's
+footprint is never reported as this one's.
+
+**Cut** — A header line (nothing else in buddy prints one, it would print over an empty
+ledger, and the common case is one row quoted into chat where the header is gone). A
+stored git branch per session (the transcript has one, but it is redundant with the
+worktree in a worktree-per-branch flow and identical across sessions sharing a checkout).
+A self-declared `role` (it is a second label, and `--label reviewer-1` does it today). An
+undelivered-inbox count (beat drains the inbox every tool call, so a non-zero count marks
+the session idle at its prompt — which is the session that CAN take work, read as the one
+that cannot). `--json` (deferred until the column count forces it; the annotations are
+labelled and parseable by eye today).
+
+**What the code review changed** — A Codex pass over the implementation found three
+things worth fixing and they shipped with it. (1) `RecordContext` read the current
+incarnation itself, which is only "whoever is live now": a beat that read a transcript,
+lost its session to a bye and a revival, and then arrived would have stamped the NEW
+incarnation with the OLD one's number. The caller now reads the identity BEFORE the
+transcript and passes it, and a mismatch drops the sample. (2) The roster reads sessions
+and samples in two queries, so a revival between them could attach a sample to a
+superseded row; the sample now carries its incarnation and the renderer compares. (3)
+`os.Open` on a FIFO with no writer blocks forever — inside a 100 ms hook — so the path is
+stat-ed for a regular file first. Also: token counts outside the plausible are refused
+rather than summed into a negative prompt, an overflowing `BUDDY_CONTEXT_WINDOW` reads as
+undeclared rather than wrapping into a 384-token denominator, and a stray operand
+(`buddy sessions stray --by started`, where Go's flag parser stops at `stray` and the
+flag is never read) is refused.
+
+**Residuals** — The footprint is a last observation, not a live reading: a session that
+compacted or grew since its last beat is reported as it was, which is why the turn age
+prints unconditionally. A transcript whose last usage record sits behind a >64 KB tool
+result is never sampled at all, and reports the previous observation with its real age.
+`turn_at` is stored in whole seconds like every other timestamp here, so two turns inside
+one second can land in either order — worth one turn's tokens, and not worth a column
+that measures time differently from all the others. The scan takes the last record
+POSITIONALLY rather than the greatest timestamp; a transcript is appended to, so they
+coincide. A label longer than the 24-column field shifts every column after it on that
+row — pre-existing, shared with `ls` and `whose`, and a fix belongs in all three at once.
+And the ledger still cannot tell a session mid-turn from one idle at its prompt, which is
+the fact an orchestrator would most like next: `last_seen DESC` ranks the BUSIEST session
+first, the opposite of "who can take work".
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

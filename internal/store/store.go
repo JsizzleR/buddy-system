@@ -107,6 +107,29 @@ CREATE TABLE IF NOT EXISTS dirty_warned (
 	warned     INTEGER NOT NULL,
 	PRIMARY KEY (session_id, worktree, folded)
 );
+-- One row per session: the last thing its own transcript said about how much
+-- context it is carrying. An OBSERVATION, like dirty_paths — it reserves
+-- nothing, refuses nothing, and a session that never reports one is reported
+-- as unknown rather than as empty. No message text is ever stored here: the
+-- columns are token counts, a model id and two timestamps, because everything
+-- in this table is rendered into OTHER sessions' context windows.
+--
+-- declared_window is the operator's declaration (BUDDY_CONTEXT_WINDOW), 0 when
+-- undeclared. It is not derived from the model: measured 2026-09-20, a session
+-- running the 1M-token variant records the same model string as the 200k one,
+-- so a percentage inferred from that string would be a fabrication.
+CREATE TABLE IF NOT EXISTS session_context (
+	session_id      TEXT PRIMARY KEY,
+	incarnation     TEXT NOT NULL,
+	observed        INTEGER NOT NULL,
+	turn_at         INTEGER NOT NULL,
+	model           TEXT NOT NULL,
+	prompt          INTEGER NOT NULL,
+	cache_read      INTEGER NOT NULL,
+	cache_write     INTEGER NOT NULL,
+	output          INTEGER NOT NULL,
+	declared_window INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS dirty_scans (
 	session_id TEXT NOT NULL,
 	worktree   TEXT NOT NULL,
@@ -120,7 +143,12 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
-const schemaVersion = 1
+// 2 adds session_context. A new TABLE and not a column on sessions: the
+// script below is all IF NOT EXISTS, which creates a missing table on an old
+// ledger and cannot add a missing column to an existing one — a column would
+// need an ALTER arm of its own, for a row that is not part of a session's
+// identity and is absent for most of them.
+const schemaVersion = 2
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -1149,4 +1177,111 @@ func (u unixScan) Scan(v any) error {
 	}
 	*u.t = time.Unix(n, 0)
 	return nil
+}
+
+// ---- context samples ----
+
+// ContextSample is the last thing a session's own transcript said about how
+// much context it is carrying. internal/cli/transcript.go is where the
+// numbers come from and what they deliberately do not contain: no message
+// text of any kind, and no window size.
+type ContextSample struct {
+	Incarnation string    // the incarnation the observation belongs to
+	Observed    time.Time // when a beat read the transcript
+	TurnAt      time.Time // the turn's OWN timestamp: the age of the NUMBER
+	Model       string
+	Prompt      int64 // everything the model was handed: input + cache read + cache write
+	CacheRead   int64
+	CacheWrite  int64
+	Output      int64
+	Window      int64 // operator-DECLARED window in tokens; 0 = undeclared
+}
+
+// RecordContext stores one observation, for the incarnation that OBSERVED it.
+//
+// THE CALLER NAMES THAT INCARNATION, and it is checked here against the
+// ledger's own in the same transaction. Reading it here instead — the first
+// shape of this, and wrong — says only "whoever is live now", so a beat that
+// read a transcript, lost its session to a bye and a revival, and then
+// arrived would have stamped the NEW incarnation with the OLD one's number.
+// The caller reads the incarnation BEFORE it reads the transcript, so a
+// mismatch here means a revival happened in between and the sample is
+// dropped. A missing, ended or superseded session is a silent no-op, exactly
+// like a beat that arrives after bye.
+//
+// AN OLDER TURN NEVER REPLACES A NEWER ONE. Two beats can reach this out of
+// order, and re-reading the same tail after a failed capture would otherwise
+// re-stamp an old turn as freshly observed. The guard is on turn_at, not on
+// observed, because turn_at is the fact and observed is only when we looked.
+// Its resolution is one second, like every other timestamp in this ledger, so
+// two turns inside the same second can still land in either order — worth one
+// turn's tokens on a number whose own age is printed beside it, and not worth
+// a column that measures time differently from all the others.
+//
+// ONE ROW PER SESSION, overwritten. An append-only history would answer
+// different questions (growth curves, compaction frequency) at 334 sessions x
+// one row per tool call; the routing decision needs the latest observation
+// and its age. The row lives exactly as long as the sessions row it hangs
+// off — nothing deletes sessions, so nothing needs a sweep arm here, and an
+// ended session keeps the last thing known about it.
+func (s *Store) RecordContext(sessionID, incarnation string, c ContextSample) error {
+	if incarnation == "" {
+		return nil
+	}
+	return s.tx(func(tx *sql.Tx) error {
+		var inc string
+		err := tx.QueryRow(`SELECT incarnation FROM sessions WHERE session_id=? AND ended IS NULL`, sessionID).Scan(&inc)
+		if errors.Is(err, sql.ErrNoRows) || inc != incarnation {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO session_context
+			(session_id, incarnation, observed, turn_at, model, prompt, cache_read, cache_write, output, declared_window)
+			VALUES (?,?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(session_id) DO UPDATE SET
+				incarnation=excluded.incarnation, observed=excluded.observed, turn_at=excluded.turn_at,
+				model=excluded.model, prompt=excluded.prompt, cache_read=excluded.cache_read,
+				cache_write=excluded.cache_write, output=excluded.output,
+				declared_window=excluded.declared_window
+			WHERE excluded.incarnation<>session_context.incarnation
+				OR excluded.turn_at>=session_context.turn_at`,
+			sessionID, inc, c.Observed.Unix(), c.TurnAt.Unix(), c.Model,
+			c.Prompt, c.CacheRead, c.CacheWrite, c.Output, c.Window)
+		return err
+	})
+}
+
+// ContextSamples returns the current observation per session id, each
+// carrying the incarnation it belongs to.
+//
+// The join on incarnation is the read side of the same rule: a snapshot taken
+// by a superseded incarnation is not this session's context and must not be
+// reported as it. It is hidden rather than deleted, because a read path that
+// writes is a read path that can fail, and the next beat overwrites it anyway.
+//
+// The incarnation comes back to the CALLER as well, because this is a second
+// query: a caller that listed the sessions a moment ago holds rows that a
+// revival in between has already superseded, and the join can only make this
+// query self-consistent, never the pair of them. Compare before you print.
+func (s *Store) ContextSamples() (map[string]ContextSample, error) {
+	rows, err := s.db.Query(`SELECT c.session_id, c.incarnation, c.observed, c.turn_at, c.model,
+			c.prompt, c.cache_read, c.cache_write, c.output, c.declared_window
+		FROM session_context c JOIN sessions s ON s.session_id=c.session_id AND s.incarnation=c.incarnation`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]ContextSample{}
+	for rows.Next() {
+		var id string
+		var c ContextSample
+		if err := rows.Scan(&id, &c.Incarnation, unixScan{&c.Observed}, unixScan{&c.TurnAt}, &c.Model,
+			&c.Prompt, &c.CacheRead, &c.CacheWrite, &c.Output, &c.Window); err != nil {
+			return nil, err
+		}
+		out[id] = c
+	}
+	return out, rows.Err()
 }
