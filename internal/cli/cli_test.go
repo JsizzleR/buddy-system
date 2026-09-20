@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -737,7 +738,7 @@ func TestGateDeniesHookInputWithoutToolName(t *testing.T) {
 // The `clean` case is the control: a session that beat and died in the same
 // instant has one number, so a fix that merely shifted every ended row would
 // pass `reaped` and fail here.
-func TestSessionsAgeDatesTheEventItReports(t *testing.T) {
+func TestSessionsLabelsEveryAgeAndDatesTheEventItReports(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	t0 := f.clock
@@ -763,12 +764,15 @@ func TestSessionsAgeDatesTheEventItReports(t *testing.T) {
 	must(hook("fresh"), "beat") // inside StaleAfter of the read; stale never beats again
 	at(6 * time.Hour)
 
-	out, errw, code := f.run(t, f.repo, "", "sessions")
+	// --session names the caller, so the gutter has something to mark: four
+	// sessions registered in one worktree, which is exactly the case whoAmI
+	// refuses to guess at.
+	out, errw, code := f.run(t, f.repo, "", "sessions", "--session", "sess-fresh")
 	if code != 0 {
 		t.Fatalf("sessions: exit %d: %s", code, errw)
 	}
-	rowRE := regexp.MustCompile(`^(\S+) +(live STALE|live|ended) +(\S+) +(.*?) +\(sess-([^)]+)\)(.*)$`)
-	type row struct{ state, age, note string }
+	rowRE := regexp.MustCompile(`^([* ]) (\S+) +(live STALE|live|ended \S+) +started (\S+) +seen (\S+) +(.*?) +\(sess-([^)]+)\)$`)
+	type row struct{ mark, state, started, seen string }
 	got := map[string]row{}
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	for _, ln := range lines {
@@ -776,33 +780,132 @@ func TestSessionsAgeDatesTheEventItReports(t *testing.T) {
 		if m == nil {
 			t.Fatalf("unparseable sessions row %q\nfull output:\n%s", ln, out)
 		}
-		got[m[1]] = row{state: m[2], age: m[3], note: strings.TrimSpace(m[6])}
+		got[m[2]] = row{mark: m[1], state: m[3], started: m[4], seen: m[5]}
 	}
 
 	for _, tc := range []struct {
-		label, state, age, note, why string
+		label, mark, state, started, seen, why string
 	}{
-		{"fresh", "live", "5m", "",
-			"a live session is dated by its last beat: that beat is the only evidence it is still there"},
-		{"stale", "live STALE", "6h", "",
-			"a stale live session is dated by its last beat too — the silence is what makes it stale"},
-		{"reaped", "ended", "3h", "last beat 6h",
-			"the measured defect: silent since t0, closed at t0+3h, observed at t0+6h — 3h dead, not 6h"},
-		{"clean", "ended", "4h", "last beat 4h",
-			"beat and bye in the same instant: the numbers agree, and the note prints anyway"},
+		{"fresh", "*", "live", "6h", "5m",
+			"THE DEFECT ISSUE #5 REPORTS: six hours old, heartbeated five minutes ago, and the one " +
+				"column there used to be showed 5m — which reads as uptime and is not"},
+		{"stale", " ", "live STALE", "6h", "6h",
+			"a stale live session is still dated by its last beat — the silence is what makes it stale"},
+		{"reaped", " ", "ended 3h", "6h", "6h",
+			"silent since t0, closed at t0+3h, observed at t0+6h: 3h dead, not 6h — and the state " +
+				"word carries that age because `ended 3h` is the only one of the three that reads " +
+				"correctly in English beside its word"},
+		{"clean", " ", "ended 4h", "6h", "4h",
+			"beat and bye in the same instant: the numbers agree, and all three print anyway, " +
+				"because a reader handed one of them cannot recover the others"},
 	} {
 		g, ok := got[tc.label]
 		if !ok {
 			t.Errorf("%s: no row (%s)", tc.label, tc.why)
 			continue
 		}
-		if g.state != tc.state || g.age != tc.age || g.note != tc.note {
-			t.Errorf("%s: got state=%q age=%q note=%q, want state=%q age=%q note=%q\n  %s",
-				tc.label, g.state, g.age, g.note, tc.state, tc.age, tc.note, tc.why)
+		if g != (row{tc.mark, tc.state, tc.started, tc.seen}) {
+			t.Errorf("%s: got %+v, want mark=%q state=%q started=%q seen=%q\n  %s",
+				tc.label, g, tc.mark, tc.state, tc.started, tc.seen, tc.why)
 		}
 	}
 	if len(got) != 4 {
 		t.Errorf("got %d session rows, want 4:\n%s", len(got), out)
+	}
+	// The gutter marks ONE row. A marker that matched everything would satisfy
+	// every assertion above and tell a reader nothing.
+	if n := strings.Count(out, "\n* "); n != 0 || !strings.HasPrefix(out, "* ") {
+		t.Errorf("exactly one row (the caller's, first here) may carry the gutter mark:\n%s", out)
+	}
+}
+
+// TestSessionsByStartedIsNotLastSeenInDisguise is the ordering half of issue
+// #5. The two keys are only distinguishable when they disagree, so the fixture
+// makes them disagree: the OLDEST session is the most recently seen.
+func TestSessionsByStartedIsNotLastSeenInDisguise(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	t0 := f.clock
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	hook := func(s string) string { return hookJSON("sess-"+s, f.repo, "", "") }
+	must("", "init")
+	must(hook("first"), "hello", "--label", "first")
+	f.clock = t0.Add(time.Hour)
+	must(hook("second"), "hello", "--label", "second")
+	f.clock = t0.Add(2 * time.Hour)
+	must(hook("third"), "hello", "--label", "third")
+	f.clock = t0.Add(3 * time.Hour)
+	must(hook("first"), "beat") // the first to start is now the last to be seen
+	f.clock = t0.Add(4 * time.Hour)
+
+	labels := func(args ...string) []string {
+		t.Helper()
+		out, errw, code := f.run(t, f.repo, "", args...)
+		if code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+		var got []string
+		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			got = append(got, strings.Fields(ln)[0])
+		}
+		return got
+	}
+	if got, want := labels("sessions"), []string{"first", "third", "second"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("default order must stay newest-seen-first: got %v, want %v", got, want)
+	}
+	if got, want := labels("sessions", "--by", "started"), []string{"third", "second", "first"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("--by started must order by registration, newest first: got %v, want %v\n"+
+			"  (if this equals the default order, the key is being ignored)", got, want)
+	}
+	// An unknown key is refused, not silently defaulted — with the positive
+	// control right above it, so "it refused" cannot be confused with "the
+	// flag never reached the command".
+	if _, _, code := f.run(t, f.repo, "", "sessions", "--by", "start"); code == 0 {
+		t.Error(`--by start must be REFUSED: a listing that quietly ignores the key it was given ` +
+			`is indistinguishable from one that honoured it`)
+	}
+}
+
+// TestSessionsTieBreakIsStable pins the tiebreak. started and last_seen are
+// whole seconds, so sessions spawned by one script share one — and an order
+// that reshuffles between two reads cannot answer "the one after me", which is
+// the whole point of the started key.
+func TestSessionsTieBreakIsStable(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	must("", "init")
+	// Registered in an order that is neither the id order nor its reverse, all
+	// in the same frozen instant.
+	for _, s := range []string{"b", "c", "a"} {
+		must(hookJSON("sess-"+s, f.repo, "", ""), "hello", "--label", s)
+	}
+	for _, key := range []string{"seen", "started"} {
+		first, _, code := f.run(t, f.repo, "", "sessions", "--by", key)
+		if code != 0 {
+			t.Fatalf("sessions --by %s: exit %d", key, code)
+		}
+		second, _, _ := f.run(t, f.repo, "", "sessions", "--by", key)
+		if first != second {
+			t.Errorf("--by %s reshuffled tied rows between two reads:\n%s\n---\n%s", key, first, second)
+		}
+		var ids []string
+		for _, ln := range strings.Split(strings.TrimRight(first, "\n"), "\n") {
+			ids = append(ids, strings.Fields(ln)[0])
+		}
+		if want := []string{"a", "b", "c"}; !reflect.DeepEqual(ids, want) {
+			t.Errorf("--by %s: tied rows must fall back to session_id: got %v, want %v", key, ids, want)
+		}
 	}
 }
 

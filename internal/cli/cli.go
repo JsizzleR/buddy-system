@@ -118,7 +118,9 @@ operator      pause <target> [--note <text>]             deny the target's next 
               a TARGET is a session id, a label, an s-<id> short form, an OPEN claim slug,
               or "all". Anything else is REFUSED — never queued against a row that would
               match nothing. Peers address each other by slug, so slugs resolve too.
-              sessions              list sessions       sweep [--force]  tidy closed claims
+              sessions [--by seen|started]  list sessions, live first; every age column
+                                    is labelled and "*" marks the row you are calling from
+              sweep [--force]       tidy closed claims
 setup         init                  create the ledger for this repo
 hooks         hello · gate · beat · bye   (wired in .claude/settings; read hook JSON on stdin)
 git hook      commit-gate [--deny]  staged paths vs. other sessions' claims (pre-commit;
@@ -1469,45 +1471,94 @@ func cmdInbox(args []string, env Env) error {
 }
 
 func cmdSessions(args []string, env Env) error {
+	fs := flag.NewFlagSet("sessions", flag.ContinueOnError)
+	fs.SetOutput(env.Stderr)
+	by := fs.String("by", "seen", `sort key within the live/ended grouping: "seen" or "started"`)
+	var session string
+	sessionFlag(fs, &session)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	// An unknown key is REFUSED rather than silently falling back to the
+	// default, for the reason an unresolvable pause target is: a listing that
+	// quietly ignores --by=start answers a question nobody asked, and looks
+	// exactly like one that honoured it.
+	var order store.SessionOrder
+	switch *by {
+	case "seen":
+		order = store.ByLastSeen
+	case "started":
+		order = store.ByStarted
+	default:
+		return fmt.Errorf(`--by takes "seen" or "started", not %s`, strconv.Quote(fence.Line(*by, 64)))
+	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	sessions, err := st.Sessions()
+	sessions, err := st.Sessions(order)
 	if err != nil {
 		return err
 	}
+	// Which row is the caller's. BEST EFFORT on purpose: whoAmI refuses when
+	// several live sessions share a worktree, and a listing must not fail for
+	// the reason a claim must — nothing here reserves anything, so an
+	// unidentifiable caller costs the marker and nothing else. It is worth the
+	// two lines because "the session that started just after MINE" cannot be
+	// read off a list that does not say which row is mine.
+	me := ""
+	if si, err := whoAmI(st, env, session); err == nil {
+		me = si.SessionID
+	}
 	now := nowOf(env)
 	for _, si := range sessions {
-		// The age column dates the event the state word reports. A live
-		// session is dated by its last beat: that beat IS the evidence it is
-		// still there. An ended one must be dated by `ended`, because
-		// last_seen says when the session last ran a tool, not when it died —
-		// and Beat refuses an ended row while Bye only stamps a live one, so
-		// last_seen is necessarily the earlier of the two writes and dating
-		// an ended row by it overstates the age, never understates it.
-		state, since, note := "live", si.LastSeen, ""
+		// EVERY NUMBER CARRIES ITS OWN WORD, and the columns do not move
+		// between rows. The measured defect (issue #5): one unlabelled age
+		// column next to the word `live` reads as UPTIME and was
+		// time-since-last-tool-call, so a session ten hours old that had just
+		// heartbeated rendered as `9s`, and no output anywhere surfaced
+		// `started` — an operator instruction of the form "hand this to the
+		// session that started after yours" was unanswerable from the CLI.
+		//
+		// A header line was the alternative and was cut: nothing else in
+		// buddy prints one, it would print over an empty ledger, and the
+		// common case here is ONE ROW quoted into chat or into a peer's
+		// context, where the header is gone and the labels have to ride with
+		// the numbers.
+		//
+		// The state cell carries its own age only when the state IS a dated
+		// event. `ended 29d` reads correctly in English; `live 4s` is the
+		// misreading this fixes, so a live row's cell holds no number and the
+		// two times that every row has sit in fixed labelled columns.
+		//
+		// All three print on an ended row because they are independent facts:
+		// `ended` is when the process went away, `seen` when its work
+		// stopped, `started` when this incarnation registered. The distance
+		// between the first two is routinely wide — over the 151 ended rows
+		// in this box's two ledgers, 71 exceeded StaleAfter, median 18m,
+		// widest 5.1 days — so a reader handed one cannot recover the other.
+		state := "live"
 		switch {
 		case !si.Live():
-			// Both numbers print, because they are different facts and
-			// neither implies the other: `ended` is when the process went
-			// away, the last beat is when its work stopped, and the distance
-			// between them is how long it sat idle before it went. That
-			// distance is routinely wide — over the 151 ended rows in this
-			// box's two ledgers, 71 exceeded StaleAfter, the median was 18m
-			// and the widest 5.1 days — so a reader handed one number cannot
-			// recover the other. Unconditional on purpose: an annotation that
-			// appeared only on rows whose numbers differ would be a fact the
-			// reader has to already know to miss.
-			state, since = "ended", si.Ended
-			note = "  last beat " + age(now, si.LastSeen)
+			// Dated by `ended`, never by last_seen: Beat refuses an ended row
+			// and Bye only stamps a live one, so last_seen is necessarily the
+			// earlier write and dating the death by it overstates the age.
+			state = "ended " + age(now, si.Ended)
 		case now.Sub(si.LastSeen) > store.StaleAfter:
 			state = "live STALE"
 		}
-		fmt.Fprintf(env.Stdout, "%-24s %-12s %6s  %s  (%s)%s\n",
-			fence.Line(si.Label, 64), state, age(now, since), fence.Line(si.Worktree, 512),
-			fence.Line(si.SessionID, 128), note)
+		// The gutter marks the caller. A two-column gutter rather than a word
+		// appended to the label, because a label is peer free text up to 64
+		// bytes: a peer labelled `you` would otherwise be able to impersonate
+		// the marker, and any word in the row can be claimed by some label.
+		mark := "  "
+		if si.SessionID == me {
+			mark = "* "
+		}
+		fmt.Fprintf(env.Stdout, "%s%-24s %-11s started %-4s seen %-4s  %s  (%s)\n",
+			mark, fence.Line(si.Label, 64), state, age(now, si.Started), age(now, si.LastSeen),
+			fence.Line(si.Worktree, 512), fence.Line(si.SessionID, 128))
 	}
 	return nil
 }

@@ -1013,10 +1013,55 @@ func (s *Store) MarkDelivered(sessionID string, ids []int64) error {
 	})
 }
 
-// Sessions lists all sessions, live first, then by last_seen.
-func (s *Store) Sessions() ([]SessionInfo, error) {
-	rows, err := s.db.Query(`SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
-		FROM sessions ORDER BY (ended IS NOT NULL), last_seen DESC`)
+// SessionOrder is the key Sessions sorts on. It is a typed constant and not
+// the caller's string, for the reason Target is a type: the value reaches an
+// ORDER BY, and a column name assembled from an argument is a guard the
+// compiler cannot hold. The two queries below are written out in full rather
+// than concatenated from a fragment, so there is no spelling of this argument
+// that produces a third one.
+type SessionOrder int
+
+const (
+	// ByLastSeen dates a session by the last hook that spoke for it — "who
+	// is working now". The default: it is the question a human at a terminal
+	// is usually asking.
+	ByLastSeen SessionOrder = iota
+	// ByStarted dates it by THIS INCARNATION's registration — "in what order
+	// did these arrive". A revived session (Hello on an ended row) restarts
+	// that clock on purpose: identity here is (session_id, incarnation), and
+	// the revived one is a new session wearing an old id.
+	ByStarted
+)
+
+// Sessions lists every session, live ones first, newest of the chosen key
+// first within each group.
+//
+// BOTH KEYS SORT DESCENDING. A flag that changed the key and the direction
+// together would be two changes under one name, and it buys nothing: under
+// DESC "the session that started just after mine" is the line ABOVE mine,
+// exactly as adjacent as it would be below under ASC.
+//
+// session_id BREAKS TIES because both keys are whole seconds. Four sessions
+// spawned by one script share a second, and with no tiebreak SQLite may order
+// them differently on each call — a listing that reshuffles between two reads
+// cannot answer "the next one after me" at all, which is the question the
+// started key exists for.
+//
+// The live/ended partition survives both keys: an ended session is not a
+// candidate for anything, and interleaving 300 of them with the live rows
+// would cost the listing its first purpose to serve its second.
+func (s *Store) Sessions(order SessionOrder) ([]SessionInfo, error) {
+	const (
+		bySeen = `SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
+		FROM sessions ORDER BY (ended IS NOT NULL), last_seen DESC, session_id`
+		byStarted = `SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
+		FROM sessions ORDER BY (ended IS NOT NULL), started DESC, session_id`
+	)
+	q := bySeen
+	if order == ByStarted {
+		q = byStarted
+	}
+	rows, err := s.db.Query(q)
 	if err != nil {
 		return nil, err
 	}
@@ -1060,7 +1105,7 @@ func (s *Store) Session(sessionID string) (SessionInfo, bool, error) {
 // where the caller is now, so with other sessions live it is a correlation, not
 // an identification.
 func (s *Store) ResolveSessions(cwd string) (matching []SessionInfo, liveTotal int, err error) {
-	sessions, err := s.Sessions()
+	sessions, err := s.Sessions(ByLastSeen)
 	if err != nil {
 		return nil, 0, err
 	}
