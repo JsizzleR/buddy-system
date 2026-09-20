@@ -567,6 +567,13 @@ type ErrRefused struct {
 	Scope    string // the requested scope that overlapped ("" for slug conflicts)
 	Their    string // the conflicting scope
 	Claimant string // owner label (session label)
+	// Renewed is when the holding claim was last renewed, so the CLI can say
+	// the holder has gone quiet (issue #18). It rides the error and not just
+	// Conflict because cmdClaim rebuilds the set from this type on the refusal
+	// path — without it the dry run would annotate staleness and the refusal
+	// it forecasts would not, which is the disagreement allConflicts exists to
+	// prevent. Zero means not recorded and must never render as STALE.
+	Renewed time.Time
 	// More is the REST of the conflict set. The named fields carry the first
 	// conflict, as they always have; a four-path claim with two collisions
 	// used to report one and cost a second round trip to learn the other

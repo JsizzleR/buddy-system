@@ -179,6 +179,17 @@ ledger row entered through the CLI (D-006).
     heredoc's trailing newline is trimmed before the cap and costs nothing. The usage path
     exits NON-ZERO and always has — the field report's `rc=0` was `sh` having no pipefail.
 
+26. **A STALE claim refuses a new overlapping claim exactly as a fresh one does (D-022).**
+    `scopeConflicts` tests `state='open'` and nothing else; staleness marks and never
+    reaps (invariant 11). The ONLY things that free a scope are the holder's `release`,
+    `hello` orphaning a dead incarnation, and `sweep --force`. **`bye` does NOT** — it
+    stamps `sessions.ended` and touches no claim row (invariant 12), so a cleanly exited
+    session leaves its scopes held; that is issue #15's mechanism and is unfixed. A
+    refusal and `claim --dry-run` both annotate a quiet holder (`— STALE: holder last
+    renewed 3h ago; it still refuses`), carried on `Conflict` AND `ErrRefused` so the two
+    paths cannot disagree, and a refusal now prints the whole set even when there is only
+    one conflict.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

@@ -119,7 +119,21 @@ buddy claim api-refactor --dry-run --desc "…" --scope internal/api --scope doc
 ```
 
 It writes nothing and exits non-zero on any conflict, so a scripted caller
-cannot read "some of it was free" as "go ahead". And a holder that is finished
+cannot read "some of it was free" as "go ahead". A **stale** holder still refuses —
+staleness marks, it never reaps — and both the refusal and the dry run say so,
+because "somebody is working on this" and "somebody left" need different next
+moves and only one of them is `buddy claim` again:
+
+```
+# REFUSED: docs  (overlaps "docs" held by repo/s-82bacdd8, claim "docs-pass")
+#            — STALE: holder last renewed 3h ago; it still refuses, so ask the operator
+```
+
+A scope is freed by `buddy release`, by the holder re-registering (which
+orphans its dead incarnation's claims), or by `buddy sweep --force`, which is
+the operator's explicit act. **A session that simply exits does not free its
+claims** — `bye` records the ending and deliberately touches no claim row, so
+check `buddy ls` before letting a session go. And a holder that is finished
 with part of a claim hands back the named scopes, exactly as claimed, rather
 than saying so in prose the gate never reads:
 

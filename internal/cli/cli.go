@@ -1408,14 +1408,24 @@ func cmdClaim(args []string, env Env) error {
 		return nil
 	}
 	if err := st.Claim(si.SessionID, si.Incarnation, slug, *desc, scopes); err != nil {
-		// A refusal is whole (D-001), and it now carries the whole set: print
-		// every collision, one fenced line each, before the one-line error.
+		// A refusal is whole (D-001), and it carries the whole set: print every
+		// collision, one fenced line each, before the one-line error.
+		//
+		// EVERY refusal, not only a multi-conflict one. The first shape printed
+		// the set only when len(More) > 0, on the reasoning that a single
+		// conflict is already stated by the error line. That was true until the
+		// line acquired something the error does not carry — the holder's
+		// staleness (issue #18) — and then the ONE case that needed it most was
+		// the one that skipped it: a session blocked on a single quiet holder.
+		// Caught by a mutation control coming back red, which is the whole
+		// reason a negative test needs one.
 		var refused store.ErrRefused
-		if errors.As(err, &refused) && len(refused.More) > 0 {
+		if errors.As(err, &refused) {
 			all := append([]store.ErrRefused{refused}, refused.More...)
 			set := make([]store.Conflict, 0, len(all))
 			for _, r := range all {
-				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug, Claimant: r.Claimant})
+				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug,
+					Claimant: r.Claimant, Renewed: r.Renewed})
 			}
 			printConflicts(env, set)
 		}
@@ -1430,15 +1440,39 @@ func cmdClaim(args []string, env Env) error {
 // is peer-controlled (a scope, a slug, a label), so each is fenced and the
 // line shape is fixed: a REFUSED line can never be mistaken for a claimed one.
 func printConflicts(env Env, conflicts []store.Conflict) {
+	now := nowOf(env)
 	for _, c := range conflicts {
 		if c.Scope == "" {
-			fmt.Fprintf(env.Stdout, "REFUSED: slug %s is held by %s\n",
-				strconv.Quote(fence.Line(c.Slug, 128)), fence.Line(c.Claimant, 64))
+			fmt.Fprintf(env.Stdout, "REFUSED: slug %s is held by %s%s\n",
+				strconv.Quote(fence.Line(c.Slug, 128)), fence.Line(c.Claimant, 64), staleNote(now, c.Renewed))
 			continue
 		}
-		fmt.Fprintf(env.Stdout, "REFUSED: %s  (overlaps %s held by %s, claim %s)\n",
-			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
+		fmt.Fprintf(env.Stdout, "REFUSED: %s  (overlaps %s held by %s, claim %s)%s\n",
+			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64),
+			strconv.Quote(fence.Line(c.Slug, 128)), staleNote(now, c.Renewed))
 	}
+}
+
+// staleNote says the holder has gone quiet, and it is the ACTIONABLE half of
+// issue #18.
+//
+// The rule itself was never ambiguous: a stale claim refuses exactly like a
+// fresh one, because staleness marks and never reaps (invariant 11). What the
+// field report shows is the cost of the rule being enforced SILENTLY — a
+// session sat blocked for ~3h on a scope whose holder had stopped beating,
+// with nothing in the refusal to distinguish "somebody is working on this" from
+// "somebody left". Two other sessions measured opposite answers about the rule
+// within ten minutes and both were reading truthfully; a released claim's row
+// and a stale holder's row are what they confused.
+//
+// This never changes the VERDICT — a stale holder still refuses — it only says
+// so out loud, because escalating to the operator is the correct next move and
+// the blocked session had no way to know it was the move.
+func staleNote(now, renewed time.Time) string {
+	if renewed.IsZero() || now.Sub(renewed) <= store.StaleAfter {
+		return ""
+	}
+	return fmt.Sprintf("  — STALE: holder last renewed %s ago; it still refuses, so ask the operator", age(now, renewed))
 }
 
 func cmdRelease(args []string, env Env) error {
