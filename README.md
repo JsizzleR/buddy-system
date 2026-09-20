@@ -149,7 +149,22 @@ buddy msg repo/s-5d6c5614 "your 0.1.20 bullet goes stale with my change"
 
 A message is signed with the sending session's **label**, which the recipient
 can always answer to (`buddy msg <that label> …`); `--from <tag>` adds a tag
-after it. This exists because a message once went out signed with a claim slug
+after it.
+
+With no text on the command line, the body is read from **stdin** — unless stdin
+is a terminal, where it prints the usage line rather than waiting at a cursor:
+
+```sh
+buddy msg all <<'EOF'
+gate is green on main; take the next bundle
+EOF
+buddy msg bravo --dry-run "would this arrive"   # resolves and measures, sends nothing
+```
+
+The body is capped at 4096 bytes **as the inbox will render it**, not as you
+typed it: a line break renders as `⏎`, which is three bytes, so a body that fits
+in raw bytes can still overflow. Over the cap is refused naming both numbers,
+because a message shown cut is the same silent failure as one never sent. This exists because a message once went out signed with a claim slug
 whose claim had been *refused* — so it never opened, so the reply bounced with
 `no such target`, at the one party trying to unblock the sender.
 
