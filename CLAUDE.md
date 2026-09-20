@@ -308,6 +308,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   cap is on the RENDERED body (D-021).** `fence.Line` expands a line break to `⏎`
   at 3 bytes, so a raw-byte cap equal to the render cap still truncates. Argv wins
   when present; the one cap applies to whichever source won.
+- **A stale claim REFUSES exactly like a fresh one (D-022).** Only `release`,
+  `hello`'s orphaning of a dead incarnation, and `sweep --force` free a scope —
+  **`bye` does not**, so a cleanly exited session leaves its scopes held (issue
+  #15, unfixed). Refusals and `--dry-run` say when a holder has gone quiet, and
+  a refusal prints the whole set even for one conflict.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

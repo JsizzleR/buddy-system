@@ -4,6 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
 // Wishlist §5b and §5d, from a 14-session run: a claim naming one busy path
@@ -176,4 +179,93 @@ func TestMsgSenderIsResolvableByTheRecipient(t *testing.T) {
 			t.Fatalf("the reply must reach the original sender: %q", out)
 		}
 	})
+}
+
+// A refusal SAYS the holder has gone quiet (issue #18).
+//
+// The verdict is unchanged and must stay unchanged: a stale claim refuses
+// exactly like a fresh one (invariant 11, pinned in the store's
+// TestStaleClaimStillRefusesANewClaim). What was missing is that the blocked
+// session could not tell "somebody is working on this" from "somebody left" —
+// one sat blocked ~3h on a holder that had stopped beating. The note names
+// escalation as the next move, because it is.
+func TestRefusalSaysWhenTheHolderHasGoneQuiet(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+
+	if _, errw, code := f.run(t, f.repo, "", "claim", "held", "--session", "sess-a",
+		"--desc", "holding", "--scope", "internal/api"); code != 0 {
+		t.Fatalf("setup claim: %s", errw)
+	}
+
+	// CONTROL: a FRESH holder refuses with no stale note. Without this, a note
+	// that never renders and a note that always renders look the same.
+	out, errw, code := f.run(t, f.repo, "", "claim", "wants", "--session", "sess-b",
+		"--desc", "wants", "--scope", "internal/api")
+	if code == 0 {
+		t.Fatal("a fresh holder did not refuse")
+	}
+	if strings.Contains(out+errw, "STALE") {
+		t.Fatalf("a fresh holder was reported STALE: out %q err %q", out, errw)
+	}
+
+	f.clock = f.clock.Add(store.StaleAfter + time.Minute)
+
+	out, errw, code = f.run(t, f.repo, "", "claim", "wants", "--session", "sess-b",
+		"--desc", "wants", "--scope", "internal/api")
+	if code == 0 {
+		t.Fatal("a STALE holder must still REFUSE — staleness marks, it never reaps")
+	}
+	if !strings.Contains(out, "STALE: holder last renewed") {
+		t.Fatalf("refusal did not say the holder went quiet: out %q err %q", out, errw)
+	}
+	if !strings.Contains(out, "it still refuses") {
+		t.Fatalf("the note must not read as a takeover: %q", out)
+	}
+
+	// The DRY RUN must say the same thing. A forecast that annotates
+	// differently from the refusal it predicts is the defect D-019 exists to
+	// prevent, and the note rides ErrRefused precisely so both paths carry it.
+	dry, errw, code := f.run(t, f.repo, "", "claim", "wants", "--dry-run", "--session", "sess-b",
+		"--desc", "wants", "--scope", "internal/api")
+	if code == 0 {
+		t.Fatalf("dry run did not report the conflict: %s", errw)
+	}
+	if !strings.Contains(dry, "STALE: holder last renewed") {
+		t.Fatalf("dry run dropped the stale note the refusal carries: %q", dry)
+	}
+}
+
+// staleNote's own table, because one of its arms is not reachable through the
+// CLI: Renewed is zero only when the store could not read the holder's clock,
+// which is an error path a fixture cannot provoke. A mutation removing the
+// IsZero guard SURVIVED the end-to-end tests above, and a zero time renders as
+// "56 years ago" — an unrecorded clock reported as an abandoned holder, which
+// is the same class of confident-wrong answer this issue is about.
+func TestStaleNoteDistinguishesUnrecordedFromAbandoned(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name    string
+		renewed time.Time
+		want    bool // is a note rendered?
+	}{
+		{"unrecorded clock says nothing", time.Time{}, false},
+		{"fresh holder says nothing", now.Add(-time.Minute), false},
+		{"exactly at the threshold is not yet stale", now.Add(-store.StaleAfter), false},
+		{"one second past the threshold is stale", now.Add(-store.StaleAfter - time.Second), true},
+		{"long gone is stale", now.Add(-72 * time.Hour), true},
+		{"a clock in the FUTURE is not stale", now.Add(time.Hour), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := staleNote(now, tc.renewed)
+			if (got != "") != tc.want {
+				t.Fatalf("staleNote(%v) = %q, want rendered=%v", tc.renewed, got, tc.want)
+			}
+			if tc.want && !strings.Contains(got, "it still refuses") {
+				t.Fatalf("a stale note must not read as a takeover: %q", got)
+			}
+		})
+	}
 }

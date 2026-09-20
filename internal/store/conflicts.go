@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // The conflict SET, and the partial release. Both come from one field report
@@ -49,6 +50,10 @@ type Conflict struct {
 	Slug     string // the holding claim's slug
 	Claimant string // the holder's label
 	Session  string // the holder's session id
+	// Renewed is when the holding claim was last renewed, so a refusal can say
+	// the holder has gone quiet (issue #18). Zero means not recorded, which
+	// must never render as STALE — "unknown" and "abandoned" are different.
+	Renewed time.Time
 }
 
 // querier is what the conflict scan needs from either a *sql.Tx (inside
@@ -63,16 +68,27 @@ type querier interface {
 // ClaimConflicts both call it, so a dry run cannot disagree with the refusal
 // it predicts — the one way a dry run becomes worse than no dry run.
 func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Conflict, error) {
-	rows, err := q.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id FROM claim_scopes cs
+	// NO STALENESS TERM, and that is the rule (issue #18): state='open' is the
+	// whole test. A stale claim REFUSES exactly like a fresh one — staleness
+	// marks, it never reaps (invariant 11), and acquisition never silently
+	// takes over a scope another session believes it holds. Two sessions
+	// measured opposite answers on one afternoon because a roster row for a
+	// just-released claim looks the same as a takeover; the rule was never
+	// ambiguous, only unwritten. The holder's renewed time comes back so the
+	// refusal can SAY the holder is quiet, which is the actionable half.
+	rows, err := q.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id, c.renewed FROM claim_scopes cs
 		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open' AND c.session_id<>?`, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	type held struct{ folded, scope, slug, session string }
+	type held struct {
+		folded, scope, slug, session string
+		renewed                      time.Time
+	}
 	var theirs []held
 	for rows.Next() {
 		var h held
-		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session); err != nil {
+		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session, unixScan{&h.renewed}); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -87,7 +103,7 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Co
 		for _, h := range theirs {
 			if scopesOverlap(nf, h.folded) {
 				label, _ := s.labelOf(q, h.session)
-				out = append(out, Conflict{Scope: n, Their: h.scope, Slug: h.slug, Claimant: label, Session: h.session})
+				out = append(out, Conflict{Scope: n, Their: h.scope, Slug: h.slug, Claimant: label, Session: h.session, Renewed: h.renewed})
 			}
 		}
 	}
@@ -105,11 +121,16 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Co
 // Your own open slug is not a conflict: Claim treats that as a refresh.
 func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string) ([]Conflict, error) {
 	var out []Conflict
-	if _, owner, taken, err := openSlugOwner(q, slug); err != nil {
+	if claimID, owner, taken, err := openSlugOwner(q, slug); err != nil {
 		return nil, err
 	} else if taken && owner != sessionID {
 		label, _ := s.labelOf(q, owner)
-		out = append(out, Conflict{Slug: slug, Claimant: label, Session: owner})
+		// The slug conflict carries the holder's clock too. Without it the
+		// REFUSAL path and the DRY RUN would annotate different subsets of the
+		// same set, which is the disagreement allConflicts exists to prevent.
+		var renewed time.Time
+		_ = q.QueryRow(`SELECT renewed FROM claims WHERE claim_id=?`, claimID).Scan(unixScan{&renewed})
+		out = append(out, Conflict{Slug: slug, Claimant: label, Session: owner, Renewed: renewed})
 	}
 	sc, err := s.scopeConflicts(q, sessionID, norm)
 	if err != nil {
@@ -122,9 +143,11 @@ func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string) (
 // returned: the first conflict in the named fields, the rest in More, so
 // existing callers see what they saw and a caller that prints the set can.
 func refusedFrom(conflicts []Conflict) ErrRefused {
-	first := ErrRefused{Slug: conflicts[0].Slug, Scope: conflicts[0].Scope, Their: conflicts[0].Their, Claimant: conflicts[0].Claimant}
+	first := ErrRefused{Slug: conflicts[0].Slug, Scope: conflicts[0].Scope, Their: conflicts[0].Their,
+		Claimant: conflicts[0].Claimant, Renewed: conflicts[0].Renewed}
 	for _, c := range conflicts[1:] {
-		first.More = append(first.More, ErrRefused{Slug: c.Slug, Scope: c.Scope, Their: c.Their, Claimant: c.Claimant})
+		first.More = append(first.More, ErrRefused{Slug: c.Slug, Scope: c.Scope, Their: c.Their,
+			Claimant: c.Claimant, Renewed: c.Renewed})
 	}
 	return first
 }

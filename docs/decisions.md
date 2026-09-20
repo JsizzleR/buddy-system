@@ -978,6 +978,58 @@ that renders beside it. `stdinIsTTY` is a character-device test, so `buddy msg a
 /dev/null` is treated as a terminal and refused; that loses no message and is the same
 test `readHook` already applies, so the two verbs agree.
 
+## D-022 — A stale claim refuses exactly like a fresh one, and now says so
+
+2026-09-20 · issue #18, settled against the code and pinned by test
+
+**What was wrong** — Nothing in the behaviour. The rule was never ambiguous:
+`scopeConflicts` tests `state='open'` and nothing else, so staleness has no bearing on
+acquisition — staleness marks, it never reaps (invariant 11). It was UNWRITTEN, and on
+one afternoon two careful sessions measured OPPOSITE answers ten minutes apart. Session
+A broadcast "a stale claim does not block a new one" from a single observation of a
+roster row, then retracted it itself: the likelier explanation was the boring one, a
+holder releasing around the moment it claimed and a listing rendering a row that was
+already dead. Session B had measured the refusal twice across four scopes. Meanwhile a
+third session sat blocked ~3h while a fourth insisted the scope was free — **both
+reading truthfully, and reading different things.**
+
+**What shipped** — The rule is now written in three places a reader looks (this record,
+the charter, `CLAUDE.md`) and pinned by tests that assert it in both directions: a stale
+claim refuses, a month-old claim refuses, and the ONLY things that free a scope are the
+holder's `release`, `hello` orphaning a dead incarnation, and `sweep --force` — the
+operator's explicit act. The refusal and `claim --dry-run` now also SAY when the holder
+has gone quiet: `— STALE: holder last renewed 3h ago; it still refuses, so ask the
+operator`. The verdict is unchanged and the wording is deliberate — a blocked session
+must not read the note as permission to take over. The holder's `renewed` rides
+`Conflict` AND `ErrRefused`, because `cmdClaim` rebuilds the set from the error on the
+refusal path and a forecast that annotates differently from the refusal it predicts is
+the exact defect D-019 exists to prevent.
+
+**A REFUSAL NOW ALWAYS PRINTS THE SET.** D-019 printed it only when there was more than
+one conflict, on the reasoning that a single conflict is already stated by the error
+line. That held until the line acquired something the error does not carry — the
+holder's staleness — and then the one case that needed it most was the one that skipped
+it: a session blocked on a SINGLE quiet holder, which is precisely the 3h incident.
+Found by a mutation control coming back red, which is the entire reason a negative test
+needs one.
+
+**What this turned up on the way, and it belongs to issue #15** — `Bye` stamps
+`sessions.ended` and touches no claim row, because orphaning happens in `hello` and
+`sweep` and never inline in `bye` (invariant 12: a delayed bye from a dead incarnation
+must not orphan a live one's work). So **a session that finishes and exits cleanly
+leaves its scopes held, blocking every peer, with the holder gone.** That is the
+mechanism behind the incident in issue #15, where a coordinator verified a session's
+work was landed and its tree clean, told it to exit, and it still held two claims. The
+test for this was written expecting the opposite and was corrected to the code, not the
+other way round; the behaviour is deliberate and the gap is that nothing warns at exit.
+Not fixed here — it needs a decision about where an exit check belongs.
+
+**What it deliberately does not do** — No takeover, on any timer. A silent takeover of a
+scope another session believes it holds is worse than a refusal, and `sweep --force`
+stays the only path. No change to what `ls --all` renders: a released claim's row is
+already labelled `released`, and the field report's confusion was reading that label as
+a live hold rather than the label being absent.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

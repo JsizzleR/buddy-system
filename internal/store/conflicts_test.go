@@ -106,6 +106,15 @@ func TestClaimConflictsEnumeratesEveryHolderOfOneRequestedScope(t *testing.T) {
 	}
 	got := map[Conflict]bool{}
 	for _, c := range conflicts {
+		// The holder's clock is zeroed for this comparison ONLY: this test is
+		// about WHICH holders are enumerated, and the tuple equality is what
+		// stops a count of two from accepting the first holder twice. That the
+		// clock is carried, and that the refusal and the dry run carry the
+		// SAME one, is pinned in TestStaleClaimStillRefusesANewClaim.
+		if c.Renewed.IsZero() {
+			t.Fatal("a conflict came back with no holder clock")
+		}
+		c.Renewed = time.Time{}
 		got[c] = true
 	}
 	if !reflect.DeepEqual(got, want) {
