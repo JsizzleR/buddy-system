@@ -136,7 +136,23 @@ CREATE TABLE IF NOT EXISTS session_context (
 	cache_read      INTEGER NOT NULL,
 	cache_write     INTEGER NOT NULL,
 	output          INTEGER NOT NULL,
-	declared_window INTEGER NOT NULL DEFAULT 0
+	declared_window INTEGER NOT NULL DEFAULT 0,
+	-- The prompt-cache LIFETIME the turn wrote, as token counts per tier, raw
+	-- from the transcript's usage.cache_creation: ephemeral_5m_input_tokens
+	-- and ephemeral_1h_input_tokens. Counts and not a verdict, because the
+	-- verdict ("hot") is a function of the clock and belongs to the reader:
+	-- a cache written with the 1h tier is hot for an hour after the LAST
+	-- request that used it, and the turn's own time above is the closest
+	-- thing the ledger has to that. Both 0 means the harness recorded no
+	-- tier, and the roster then says nothing about the cache.
+	cache_5m        INTEGER NOT NULL DEFAULT 0,
+	cache_1h        INTEGER NOT NULL DEFAULT 0,
+	-- MILLISECONDS like turn_ms: the time of the record that WROTE the tier
+	-- above, which is not always the turn the prompt counts came from (a pure
+	-- cache read is the newest record; the writer is older). The tier columns
+	-- are guarded by this clock, not by turn_ms, so two samples of the same
+	-- turn cannot let older tier evidence overwrite newer.
+	tier_ms         INTEGER NOT NULL DEFAULT 0
 );
 -- Turn state. A row means the session reported itself IDLE — its Stop hook
 -- fired, the turn is over, and it is sitting at its prompt — and has run no
@@ -166,15 +182,15 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
-// 4 reshapes session_context (turn_ms, effort) by DROPPING it: every row in
-// it is an observation its session's next beat rewrites, nothing references
-// it, and the alternative is an ALTER-plus-convert arm for a cache. 3 adds
+// 5 adds cache_5m/cache_1h to session_context, again by DROPPING it (D-018:
+// it is the one table that may be, because every row is re-derived at the
+// next beat). 4 reshaped session_context (turn_ms, effort) the same way. 3 adds
 // session_idle. 2 adds session_context. A new TABLE and not a column on sessions: the
 // script below is all IF NOT EXISTS, which creates a missing table on an old
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 4
+const schemaVersion = 5
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -260,7 +276,7 @@ func migrate(db *sql.DB) error {
 	// is a record — claims, pauses, messages — and none of it may be dropped
 	// to change a column. Ordered before the script so the CREATE below
 	// rebuilds it in the new shape.
-	if ver < 4 {
+	if ver < 5 {
 		if _, err := tx.Exec(`DROP TABLE IF EXISTS session_context`); err != nil {
 			return fmt.Errorf("migrate ledger (session_context): %w", err)
 		}
@@ -1242,6 +1258,12 @@ type ContextSample struct {
 	CacheWrite  int64
 	Output      int64
 	Window      int64 // operator-DECLARED window in tokens; 0 = undeclared
+	// Cache5m and Cache1h are the tokens the turn WROTE into the prompt cache
+	// at each lifetime tier, raw from the transcript. Both zero: the harness
+	// recorded no tier and nothing about the cache is printed.
+	Cache5m int64
+	Cache1h int64
+	TierAt  time.Time // the writer's own time; zero when no tier was recorded
 }
 
 // RecordContext stores one observation, for the incarnation that OBSERVED it.
@@ -1283,18 +1305,36 @@ func (s *Store) RecordContext(sessionID, incarnation string, c ContextSample) er
 		if err != nil {
 			return err
 		}
+		// THE TIER HAS ITS OWN GUARD. The row-level rule (a newer or equal
+		// turn replaces) orders the prompt counts by the turn that produced
+		// them. The tier comes from a different record — the newest WRITER
+		// — so two samples of the SAME turn can carry different tier
+		// evidence (a writer appended between two reads of the tail), and
+		// under the row rule alone the later write wins whatever its
+		// evidence is. The CASE keeps whichever tier evidence is newer by
+		// ITS clock, and a fresh incarnation takes the new row whole.
+		tierMS := int64(0)
+		if !c.TierAt.IsZero() {
+			tierMS = c.TierAt.UnixMilli()
+		}
 		_, err = tx.Exec(`INSERT INTO session_context
-			(session_id, incarnation, observed, turn_ms, model, effort, prompt, cache_read, cache_write, output, declared_window)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?)
+			(session_id, incarnation, observed, turn_ms, model, effort, prompt, cache_read, cache_write, output, declared_window, cache_5m, cache_1h, tier_ms)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(session_id) DO UPDATE SET
 				incarnation=excluded.incarnation, observed=excluded.observed, turn_ms=excluded.turn_ms,
 				model=excluded.model, effort=excluded.effort, prompt=excluded.prompt,
 				cache_read=excluded.cache_read, cache_write=excluded.cache_write,
-				output=excluded.output, declared_window=excluded.declared_window
+				output=excluded.output, declared_window=excluded.declared_window,
+				cache_5m=CASE WHEN excluded.incarnation<>session_context.incarnation OR excluded.tier_ms>=session_context.tier_ms
+					THEN excluded.cache_5m ELSE session_context.cache_5m END,
+				cache_1h=CASE WHEN excluded.incarnation<>session_context.incarnation OR excluded.tier_ms>=session_context.tier_ms
+					THEN excluded.cache_1h ELSE session_context.cache_1h END,
+				tier_ms=CASE WHEN excluded.incarnation<>session_context.incarnation OR excluded.tier_ms>=session_context.tier_ms
+					THEN excluded.tier_ms ELSE session_context.tier_ms END
 			WHERE excluded.incarnation<>session_context.incarnation
 				OR excluded.turn_ms>=session_context.turn_ms`,
 			sessionID, inc, c.Observed.Unix(), c.TurnAt.UnixMilli(), c.Model, c.Effort,
-			c.Prompt, c.CacheRead, c.CacheWrite, c.Output, c.Window)
+			c.Prompt, c.CacheRead, c.CacheWrite, c.Output, c.Window, c.Cache5m, c.Cache1h, tierMS)
 		return err
 	})
 }
@@ -1313,7 +1353,7 @@ func (s *Store) RecordContext(sessionID, incarnation string, c ContextSample) er
 // query self-consistent, never the pair of them. Compare before you print.
 func (s *Store) ContextSamples() (map[string]ContextSample, error) {
 	rows, err := s.db.Query(`SELECT c.session_id, c.incarnation, c.observed, c.turn_ms, c.model, c.effort,
-			c.prompt, c.cache_read, c.cache_write, c.output, c.declared_window
+			c.prompt, c.cache_read, c.cache_write, c.output, c.declared_window, c.cache_5m, c.cache_1h, c.tier_ms
 		FROM session_context c JOIN sessions s ON s.session_id=c.session_id AND s.incarnation=c.incarnation`)
 	if err != nil {
 		return nil, err
@@ -1323,10 +1363,13 @@ func (s *Store) ContextSamples() (map[string]ContextSample, error) {
 	for rows.Next() {
 		var id string
 		var c ContextSample
-		var turnMS int64
+		var turnMS, tierMS int64
 		if err := rows.Scan(&id, &c.Incarnation, unixScan{&c.Observed}, &turnMS, &c.Model, &c.Effort,
-			&c.Prompt, &c.CacheRead, &c.CacheWrite, &c.Output, &c.Window); err != nil {
+			&c.Prompt, &c.CacheRead, &c.CacheWrite, &c.Output, &c.Window, &c.Cache5m, &c.Cache1h, &tierMS); err != nil {
 			return nil, err
+		}
+		if tierMS > 0 {
+			c.TierAt = time.UnixMilli(tierMS)
 		}
 		// Not unixScan: this column is milliseconds, for the reason the
 		// schema gives, and reading it as seconds would date every sample to

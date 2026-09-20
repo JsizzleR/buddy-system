@@ -300,6 +300,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   set, `claim --dry-run` forecasts it without writing, and `release <slug> --scope`
   narrows a claim by exact scopes (D-019).** Partial acquisition was cut. `msg` signs
   with the sender's label, which always resolves; `--from` is a tag after it.
+- **The roster's cache timer (`cache 1h hot 48m`) is read from the transcript's
+  `usage.cache_creation` tiers and never inferred (D-020).** Raw per-tier counts in
+  the ledger; hot/cold computed at read time against the turn's own time; a
+  both-tier turn is judged by the shorter; no tier recorded prints nothing.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

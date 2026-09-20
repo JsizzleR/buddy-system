@@ -129,9 +129,10 @@ operator      pause <target> [--note <text>]             deny the target's next 
               sessions [--by seen|started]  the roster, live first: every age column is
                                     labelled, "*" marks your row and "-" the rest, and
                                     PAUSED / idle N / claims N
-                                    / the last prompt size trail the row with what an
-                                    orchestrator picks on (BUDDY_CONTEXT_WINDOW=1M adds
-                                    the percentage; nothing else can know the window)
+                                    / the last prompt size / cache 1h hot 48m trail the
+                                    row with what an orchestrator picks on
+                                    (BUDDY_CONTEXT_WINDOW=1M adds the percentage; nothing
+                                    else can know the window)
               sweep [--force]       tidy closed claims
 setup         init                  create the ledger for this repo
 hooks         hello · gate · beat · idle · bye   (wired in .claude/settings; hook JSON on stdin)
@@ -970,6 +971,7 @@ func cmdIdle(args []string, env Env) error {
 				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Effort: u.Effort,
 				Prompt: u.Prompt, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
 				Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
+				Cache5m: u.Cache5m, Cache1h: u.Cache1h, TierAt: u.TierAt,
 			})
 		}
 	}
@@ -1072,6 +1074,7 @@ func cmdBeat(args []string, env Env) error {
 				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Effort: u.Effort,
 				Prompt: u.Prompt, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
 				Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
+				Cache5m: u.Cache5m, Cache1h: u.Cache1h, TierAt: u.TierAt,
 			})
 		}
 	}
@@ -1995,7 +1998,54 @@ func contextNote(now time.Time, c store.ContextSample) string {
 		fmt.Fprintf(&b, "/%s %d%%", tokens(c.Window), c.Prompt*100/c.Window)
 	}
 	fmt.Fprintf(&b, " turn %s", age(now, c.TurnAt))
+	if note := cacheNote(now, c); note != "" {
+		b.WriteString(" " + note)
+	}
 	return b.String()
+}
+
+// cacheNote says whether the peer's prompt cache is still HOT, and for how
+// much longer — or how long ago it went cold.
+//
+// WHY. Handing a task to a peer whose cache is warm costs a fraction of
+// handing it to one whose cache has expired: the whole prefix is re-written
+// on the next request. The API offers two lifetimes, 5 minutes and 1 hour,
+// and a session's transcript records which one each turn wrote; nothing else
+// does — the model string is the same under both — so this is the one place
+// an orchestrator can read it (operator's ask, 2026-09-20).
+//
+// EVERY NUMBER CARRIES ITS WORD (D-015): `cache 1h hot 48m` is the tier, the
+// verdict and the remaining time; `cache 1h cold 3m` the tier, the verdict
+// and how long ago it lapsed. The clock it runs on is the turn's own time,
+// which already prints beside it — the cache lifetime restarts on each
+// request that uses it, and the newest assistant record is the closest thing
+// the ledger has to the last request. It is the RESPONSE's time, so the true
+// expiry is earlier by the length of that response; a reader with a minute
+// of margin has one, a reader at the edge does not, and the remaining time
+// is printed so the edge is visible.
+//
+// BOTH TIERS WRITTEN IN ONE TURN prints `cache 1h+5m` and judges hotness by
+// the SHORTER one: the prompt is wholly hot only while every part of it is.
+// No tier recorded prints nothing, never a default — the older harness that
+// wrote no cache_creation object was not on the 5m tier, it was silent.
+func cacheNote(now time.Time, c store.ContextSample) string {
+	var label string
+	var ttl time.Duration
+	switch {
+	case c.Cache1h > 0 && c.Cache5m > 0:
+		label, ttl = "1h+5m", 5*time.Minute
+	case c.Cache1h > 0:
+		label, ttl = "1h", time.Hour
+	case c.Cache5m > 0:
+		label, ttl = "5m", 5*time.Minute
+	default:
+		return ""
+	}
+	expires := c.TurnAt.Add(ttl)
+	if now.Before(expires) {
+		return "cache " + label + " hot " + age(expires, now)
+	}
+	return "cache " + label + " cold " + age(now, expires)
 }
 
 // tokens renders a count the way an operator reads one. Truncating and not

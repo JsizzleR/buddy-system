@@ -865,6 +865,59 @@ and no longer matches D-013's exact resolution. Default labels are short and pla
 dry run's two reads can straddle a peer's write; it is a forecast, and `Claim` re-checks
 under its own lock.
 
+## D-020 — The roster says whether a peer's prompt cache is hot, from the tier its own transcript recorded
+
+2026-09-20 · operator's ask, measured against this box's transcripts the same day
+
+**What was wrong** — A handoff to a peer whose prompt cache has lapsed rewrites that
+peer's whole prefix on its next request; one whose cache is warm costs a fraction of
+that. The API offers two lifetimes, 5 minutes and 1 hour, a session is on one or the
+other (and drops from 1h to 5m under usage overage), and nothing on the roster said which
+— nor could anything infer it: the model string is identical under both.
+
+**What shipped** — Two raw columns on `session_context`, `cache_5m` and `cache_1h`: the
+tokens the turn wrote into the cache at each tier, straight from the transcript's
+`usage.cache_creation` object (`ephemeral_5m_input_tokens`, `ephemeral_1h_input_tokens`).
+Measured: 2371 usage records across this project's transcripts, every one carrying the
+object, every write on the 1h tier; one record in 2371 was a pure cache read that wrote
+nothing. The reader takes the tier from the NEWEST record that wrote anything, which is
+usually but not always the newest record — a pure read hits the cache the last writer
+built. The roster renders `cache 1h hot 48m` / `cache 1h cold 3m`: the tier, the verdict,
+and the remaining or elapsed time, so every number carries its word (D-015). The clock is
+the turn's own time, which already prints beside it: the cache lifetime restarts on each
+request that uses the cache, and the newest assistant record is the ledger's closest
+observation of the last request. Both tiers in one turn prints `cache 1h+5m` and is judged
+hot by the shorter, because the prompt is wholly hot only while every part of it is.
+Schema 5 rebuilds `session_context`, the one table a migration may drop (D-018).
+
+**What it deliberately does not do** — No default tier. An older harness records no
+`cache_creation` object, and a record without one prints nothing about the cache: it was
+not on the 5m tier, it was silent, and a default would be a claim about the session. No
+stored verdict: "hot" is a function of the clock and belongs to the reader, so the ledger
+keeps counts and the roster computes. No inference from the model or the account.
+
+**What the code review changed** — A Codex code pass found two ordering defects, both fixed
+the same day with tests watched to die under mutation. (1) The tier was chosen BEFORE the
+record's counts were validated, so a record rejected for an implausible count had already
+set the cache tier — the timer described a turn the clock beside it had discarded. Validation
+now precedes both selections. (2) The row's write guard orders by `turn_ms` alone, but the
+tier comes from a different record (the newest WRITER), so two samples of the same turn can
+carry different tier evidence and the later write won whatever it said. The tier now carries
+its own clock, `tier_ms`, and its columns are guarded by it: older tier evidence on an equal
+turn does not regress the tier, a tierless newer sample keeps the tier it cannot contradict,
+and a fresh incarnation takes the new row whole. Also pinned by test: the newest writer wins
+by timestamp and not position, a tie goes to append order, a sidechain, a malformed
+timestamp or a rejected count sets no tier, and the provenance clock travels through
+`beat` (a beat that dropped it let older evidence win on an equal turn — caught by the one
+mutation that survived the first round, and closed with an end-to-end test). Twelve
+mutations in all, every one caught.
+
+**Residuals** — The turn's timestamp is the RESPONSE's, so the true expiry is earlier by
+the length of that response — seconds to a few minutes on a long thinking turn. The
+remaining time is printed so a reader at the edge can see the edge; a reader who needs a
+margin takes one. A session in overage drops to 5m on its next request, and the row says
+so only once that request has been recorded.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

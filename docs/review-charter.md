@@ -158,6 +158,17 @@ ledger row entered through the CLI (D-006).
     a tag after it; measured on a live ledger, 1 of 111 direct messages was signed with a
     label and 104 with a claim slug, 14 of which no longer resolved.
 
+24. **The roster's `cache 1h hot 48m` / `cache 5m cold 3m` is read from the session's own
+    transcript and never inferred (D-020).** `session_context` keeps the raw per-tier
+    write counts from `usage.cache_creation` (measured 2026-09-20: 2371 records, all
+    carrying the object, all on the 1h tier, one pure read in 2371); the roster computes
+    hot/cold against the turn's own time, judges a both-tier turn by the SHORTER tier, and
+    prints nothing when no tier was recorded — an older harness was silent, not on 5m. The
+    turn time is the response's, so the true expiry is slightly earlier; the remaining time
+    is printed so the edge is visible. The tier carries its own clock (`tier_ms`, the
+    WRITER's time) and its columns are guarded by it, separately from the row's `turn_ms`
+    guard. Schema 5 rebuilds `session_context` (D-018 allows it).
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
