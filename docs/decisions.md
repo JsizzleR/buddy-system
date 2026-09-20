@@ -918,6 +918,66 @@ remaining time is printed so a reader at the edge can see the edge; a reader who
 margin takes one. A session in overage drops to 5m on its next request, and the row says
 so only once that request has been recorded.
 
+## D-021 — A message takes its body from stdin, and the cap is measured on what the recipient will see
+
+2026-09-20 · issue #14 / wishlist §13, measured on this binary the same day
+
+**What was wrong** — A broadcast was sent with a heredoc body. `msg` took its text
+from argv only and silently ignored stdin, so what ran was a usage error and the fleet
+was never told. The field report named TWO causes and only one was there: the usage
+path exits 1 and always has (`Run` returns 1 for any command error), and the `rc=0` in
+the report came from a `| tail -5`, because `sh` has no pipefail — the documented trap,
+biting something other than a check run. Measured both ways on one binary: unpiped 1,
+piped 0. The surviving cause is enough on its own, and no exit code would have fixed
+it: a caller who redirects instead of piping still has to notice its text was discarded.
+The inconsistency was inside one binary — the hook verbs read stdin through `readHook`
+while `msg` threw the same channel away without a word.
+
+**What shipped** — `msgBody`: argv when present, otherwise stdin, with the source chosen
+first and ONE cap applied after. A TTY is never read, reusing the existing `stdinIsTTY`
+that guards `readHook` for the same reason (`buddy hello` used to hang waiting for hook
+JSON that was not coming), so a human who types `buddy msg alpha` gets the usage line and
+not a cursor. A heredoc's trailing newline is trimmed BEFORE the cap, so it costs nothing;
+interior newlines are kept and fenced. An empty pipe is refused as empty rather than as a
+usage error, because "you forgot the text" is the wrong sentence for a caller who did not.
+Also `msg --dry-run`, the third ask on the issue: it resolves the target and the sender,
+prints the byte count, and sends nothing — the same idiom as `claim --dry-run` (D-019).
+
+**THE CAP IS MEASURED ON THE RENDERED BODY, not the bytes supplied.** `fence.Line`
+expands every line break to `⏎`, which is THREE bytes, so a raw-byte cap equal to the
+rendering cap does not prevent recipient-side truncation. `renderedLen` measures the body
+as the inbox will show it (a `math.MaxInt` max cannot truncate, so it measures the
+expansion alone) and the refusal names the rendered size, the cap and the difference.
+Reading from stdin is separately bounded at 64 KiB before trimming, because stdin has no
+natural end and the fence can shrink a body as well as grow it.
+
+**What it deliberately does not do** — ARGV STILL WINS when it is present, and stdin is
+then not read. Refusing that ambiguous case was considered and cut: a script that passes
+text and happens to have stdin redirected is doing nothing wrong, and breaking it to catch
+a typo trades a live failure for a hypothetical one. The residual is real and stated:
+`buddy msg all "note:" <<EOF` still drops the heredoc. No `--check` spelling: the issue
+asked for one, and `--dry-run` is what this repo already means by it.
+
+**What the code review changed** — A Codex code pass found three defects, all fixed the
+same day with tests watched to die under mutation. (1) THE CAP WAS REACHABLE AROUND: it
+checked stdin only, so a 4097-byte argv message walked past the new guard into the ledger
+and was shown cut — a guard that exists and can be stepped around is worse than none,
+because the refusal now reads as a promise. (2) THE RENDERED-LENGTH DEFECT above, with its
+exact input: `strings.Repeat("x", 4094) + "\nZ"` is 4096 bytes, renders to 4098, and the
+trailing `Z` vanished from what the recipient read while the sender was told it sent. (3)
+`--dry-run` against an ENDED target printed "this is queued against its id" from the
+shared resolver and then "nothing was queued" from the preview — one command contradicting
+itself, and the false half is the exact shape of assurance this issue is about; the
+resolver gained a quiet variant and the preview says what a real send WOULD do. The pass
+also predicted the one mutation the first tests would have survived — truncating the body
+to 64 bytes, which an assertion looking for only 64 `x`s could not see — and that case now
+asserts the whole body. Thirteen mutations over two rounds, every one caught.
+
+**Residuals** — The argv heredoc case above. The cap covers the body, not the sender tag
+that renders beside it. `stdinIsTTY` is a character-device test, so `buddy msg alpha <
+/dev/null` is treated as a terminal and refused; that loses no message and is the same
+test `readHook` already applies, so the two verbs agree.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

@@ -169,6 +169,16 @@ ledger row entered through the CLI (D-006).
     WRITER's time) and its columns are guarded by it, separately from the row's `turn_ms`
     guard. Schema 5 rebuilds `session_context` (D-018 allows it).
 
+25. **`buddy msg` takes its body from stdin when argv carries none, and the body cap is
+    measured on the RENDERED form (D-021).** A TTY is never read (`stdinIsTTY`, the same
+    guard `readHook` uses). Argv wins when present and the ONE cap applies to whichever
+    source won — checking stdin only left the guard reachable around via argv. The cap is
+    `renderedLen(body) > 4096`, not `len(body)`, because `fence.Line` expands a line break
+    to `⏎` at three bytes: `strings.Repeat("x", 4094) + "\nZ"` is 4096 raw, 4098 rendered,
+    and the `Z` was silently lost. Stdin is read to a 64 KiB bound before trimming; a
+    heredoc's trailing newline is trimmed before the cap and costs nothing. The usage path
+    exits NON-ZERO and always has — the field report's `rc=0` was `sh` having no pipefail.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

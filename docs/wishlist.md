@@ -476,6 +476,11 @@ happened to hold the claim table and contradicted the answer.
 
 ## 13. `buddy msg` ignores stdin, and the exit status that looked like the second cause was the pipe
 
+> **Status (2026-09-20, D-021):** the surviving half SHIPPED — `msg` reads its body from
+> stdin when argv carries none, never from a terminal, and the cap is measured on the
+> rendered body (a line break is `⏎`, three bytes) rather than the raw one. `msg --dry-run`
+> resolves and measures without sending. See the decision record.
+>
 > **Status (2026-09-20):** half of this item is REFUTED, and it is the half the title led
 > with. The usage path does NOT return 0. Measured on the committed binary: `buddy msg all
 > --from s-xxx` with no text exits **1** — `Run` returns 1 for any command error

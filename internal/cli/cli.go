@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -121,8 +122,10 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
               else the worktree — and that only when it names the one live session there is
 operator      pause <target> [--note <text>]             deny the target's next mutating tool
               resume <target>                            clear pause
-              msg <target> [--from <tag>] <text...>   signed with YOUR label (which the
-                                recipient can answer to); --from adds a tag after it
+              msg <target> [--from <tag>] [--dry-run] <text...>   signed with YOUR
+                                label (which the recipient can answer to); --from adds a
+                                tag after it. NO TEXT reads the body from stdin unless
+                                stdin is a terminal; --dry-run resolves and measures only
               a TARGET is a session id, a label, an s-<id> short form, an OPEN claim slug,
               or "all". Anything else is REFUSED — never queued against a row that would
               match nothing. Peers address each other by slug, so slugs resolve too.
@@ -1570,13 +1573,29 @@ func fencedErr(err error) error {
 }
 
 func resolveTarget(st *store.Store, raw string, env Env) (store.Target, error) {
-	t, err := st.ResolveTarget(raw)
+	t, err := resolveTargetQuiet(st, raw)
 	if err != nil {
-		return store.Target{}, errors.New(fence.Line(err.Error(), 512))
+		return store.Target{}, err
 	}
 	if !t.Live {
 		fmt.Fprintf(env.Stderr, "buddy: %s has ENDED — this is queued against its id and waits for it to come back\n",
 			fence.Line(t.String(), 128))
+	}
+	return t, nil
+}
+
+// resolveTargetQuiet is the resolution without the ENDED warning, for a caller
+// that is not about to write anything.
+//
+// Codex finding (P3, issue #14): `msg --dry-run` against an ended target
+// printed "this is queued against its id" and then "nothing was queued" —
+// two lines of one command contradicting each other, and the first one is the
+// kind of false assurance this whole issue is about. A preview says what WOULD
+// happen; only the write path may say what did.
+func resolveTargetQuiet(st *store.Store, raw string) (store.Target, error) {
+	t, err := st.ResolveTarget(raw)
+	if err != nil {
+		return store.Target{}, errors.New(fence.Line(err.Error(), 512))
 	}
 	return t, nil
 }
@@ -1631,32 +1650,154 @@ func cmdResume(args []string, env Env) error {
 
 func cmdMsg(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy msg <session|label|slug|all> [--from <who>] <text...>")
+		return errors.New("usage: buddy msg <session|label|slug|all> [--from <tag>] [--dry-run] <text...>")
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("msg", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	from := fs.String("from", "", "sender tag; the calling session's label is always stamped on (default: the label, or \"operator\" outside a session)")
+	dry := fs.Bool("dry-run", false, "resolve the target and measure the body, then send nothing")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	if fs.NArg() == 0 {
-		return errors.New("usage: buddy msg <session|label|slug|all> [--from <who>] <text...>")
+	body, err := msgBody(fs.Args(), env)
+	if err != nil {
+		return err
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	tgt, err := resolveTarget(st, target, env)
+	resolve := resolveTarget
+	if *dry {
+		resolve = func(st *store.Store, raw string, _ Env) (store.Target, error) {
+			return resolveTargetQuiet(st, raw)
+		}
+	}
+	tgt, err := resolve(st, target, env)
 	if err != nil {
 		return err
 	}
-	if err := st.Msg(tgt, senderFor(st, env, *from), strings.Join(fs.Args(), " ")); err != nil {
+	sender := senderFor(st, env, *from)
+	if *dry {
+		if !tgt.Live {
+			fmt.Fprintf(env.Stdout, "note: %s has ENDED — a real send would queue against its id and wait\n",
+				fence.Line(tgt.String(), 128))
+		}
+		// Issue #14's third ask: the resolved recipient and the byte count,
+		// without the send. The same shape as `claim --dry-run` (D-019) and
+		// for the same reason — the thing a caller wants to check is what the
+		// command RESOLVED, and a forecast that re-derives it differently is
+		// worse than none, so this runs the same resolution the send does and
+		// stops one line short of it.
+		fmt.Fprintf(env.Stdout, "dry run: would send %d byte(s) to %s as %s — nothing was queued\n",
+			len(body), fence.Line(tgt.String(), 128), fence.Line(sender, 64))
+		return nil
+	}
+	if err := st.Msg(tgt, sender, body); err != nil {
 		return err
 	}
 	fmt.Fprintf(env.Stdout, "queued for %s — delivered after their next tool call\n", fence.Line(tgt.String(), 128))
 	return nil
+}
+
+// maxMsgBody is the cap on a message body, and it is measured on what the
+// RECIPIENT WILL SEE — the body as fence.Line renders it — not on the bytes
+// the sender supplied. The two differ, which is the whole point.
+//
+// Codex finding (P2, issue #14). The first shape capped raw stdin bytes at the
+// same 4096 the inbox renders with. That is not the same number: fence.Line
+// expands every line break to ⏎, which is THREE bytes, so a 4096-byte body
+// carrying one newline renders at 4098 and the tail is cut. The exact input it
+// gave: strings.Repeat("x", 4094) + "\nZ" — accepted, reported as sent, and
+// the Z silently gone from what the recipient reads. A raw-byte cap equal to
+// the rendering cap does not prevent recipient-side truncation; only measuring
+// the rendered form does.
+const maxMsgBody = 4096
+
+// maxMsgRead bounds what is read from stdin BEFORE trimming and rendering.
+// Generous, because the cap that matters is the rendered one and the fence can
+// shrink a body as well as grow it (it drops non-printing runes); bounded,
+// because stdin has no natural end and a coordination tool must not be a way
+// to fill a ledger.
+const maxMsgRead = 64 << 10
+
+// renderedLen is how long the body will be once the inbox fences it. The cap
+// has to be checked against this, not len(body) — see maxMsgBody. A max of
+// MaxInt cannot truncate, so this measures the expansion alone.
+func renderedLen(body string) int {
+	return len(fence.Line(body, math.MaxInt))
+}
+
+// msgBody is the message text: argv if it is there, otherwise stdin.
+//
+// THE FAILURE (issue #14, wishlist §13): a broadcast was sent with a heredoc
+// body. `msg` took its text from argv only and silently ignored stdin, so what
+// ran was a usage error and the fleet was never told. The item recorded two
+// causes and only one of them was there — the usage path exits 1 and always
+// has; the `rc=0` came from a `| tail -5`, since `sh` has no pipefail. This is
+// the cause that was real, and no exit code would have fixed it: a caller who
+// redirects instead of piping still has to notice its text was discarded.
+//
+// The inconsistency was inside one binary. The hook verbs read stdin through
+// readHook, so `buddy gate` and `buddy beat` take their payload there while
+// `msg` threw the same channel away without a word.
+//
+// ARGV WINS when it is present, and stdin is then NOT read. Refusing the
+// ambiguous case was considered and cut: a script that passes text and happens
+// to have stdin redirected is doing nothing wrong, and breaking it to catch a
+// typo trades a live failure for a hypothetical one. The residual is stated in
+// the decision record — `msg all "note:" <<EOF` still drops the heredoc.
+//
+// THE CAP APPLIES TO BOTH SOURCES. Codex finding (P2, issue #14): the first
+// shape checked the size of stdin only, so a 4097-byte argv message walked
+// past the new guard into the ledger and was shown cut — the guard existing
+// but reachable around is worse than no guard, because the refusal now reads
+// as a promise. The source is chosen first and the one cap is applied after.
+//
+// A TTY IS NEVER READ. stdinIsTTY already guards readHook for this exact
+// reason (`buddy hello --session <id>` used to hang waiting for hook JSON that
+// was not coming); a human who types `buddy msg alpha` must get the usage line
+// back, not a cursor.
+func msgBody(args []string, env Env) (string, error) {
+	const usage = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--dry-run] <text...>\n" +
+		"       (with no text, the body is read from stdin when stdin is not a terminal)"
+	body := ""
+	switch {
+	case len(args) > 0:
+		body = strings.Join(args, " ")
+	case stdinIsTTY(env) || env.Stdin == nil:
+		return "", errors.New(usage)
+	default:
+		data, err := io.ReadAll(io.LimitReader(env.Stdin, maxMsgRead+1))
+		if err != nil {
+			return "", fmt.Errorf("read message body from stdin: %w", err)
+		}
+		if len(data) > maxMsgRead {
+			return "", fmt.Errorf("message body is over %d bytes on stdin; send a reference, not the artifact", maxMsgRead)
+		}
+		// A heredoc ends in a newline and fence.Line renders one as ⏎, so an
+		// untrimmed body shows a trailing ⏎ on every piped message. Interior
+		// newlines are kept and fenced — invariant 9 working, not damage.
+		// Trimming happens BEFORE the cap, so the cap covers what is stored:
+		// 4096 bytes plus the heredoc's own newline is not over the limit.
+		body = strings.TrimRight(string(data), "\r\n")
+	}
+	if strings.TrimSpace(body) == "" {
+		// An empty pipe is the mistake this verb is being fixed for, one step
+		// further along. Saying "nothing arrived on stdin" beats the usage
+		// line, which would read as "you forgot the text" when they did not.
+		if len(args) > 0 {
+			return "", errors.New("nothing to send: the message text is empty")
+		}
+		return "", errors.New("nothing to send: no text in the arguments and stdin was empty")
+	}
+	if n := renderedLen(body); n > maxMsgBody {
+		return "", fmt.Errorf("message body renders to %d bytes and the inbox shows %d, so %d would be cut silently"+
+			" (a line break renders as ⏎, which is 3 bytes)", n, maxMsgBody, n-maxMsgBody)
+	}
+	return body, nil
 }
 
 // senderFor is the sender field a message carries: something the RECIPIENT
