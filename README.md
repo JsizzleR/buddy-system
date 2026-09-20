@@ -250,7 +250,7 @@ What it deliberately does **not** do, so the promise stays honest:
 
 ```sh
 buddy sessions                    # the roster; --by started for arrival order
-# * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  idle 7m  claims 2  claude-opus-5/xhigh prompt 377k turn 7m
+# * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  idle 7m  claims 2  claude-opus-5/xhigh prompt 377k turn 7m cache 1h hot 53m
 # - repo/s-299a236a  live STALE   started 15d  seen 12d  /path/to/repo  (299a236a-…)  PAUSED
 # - repo/s-68a57050  ended 29d    started 36d  seen 34d  /path/to/repo  (68a57050-…)
 ```
@@ -321,6 +321,17 @@ The annotations after the id are what an orchestrator picks on:
   running the 1M-token variant writes the same model string into its transcript
   as the 200k one, and 90,499 tokens is 45% of one window and 9% of the other.
   Unset, the row prints the count and no percentage.
+
+- `cache 1h hot 48m` — which prompt-cache lifetime the session's last turn
+  wrote (the API offers 5 minutes or 1 hour) and how much of it is left; past
+  it, `cache 1h cold 3m` says how long ago it lapsed. A peer whose cache is
+  warm is cheap to hand the next task to; one whose cache has lapsed rewrites
+  its whole prefix on the next request. The tier comes from the same
+  transcript record as the counts (`usage.cache_creation`), the clock is the
+  turn's own time printed just before it, and a record that wrote both tiers
+  prints `cache 1h+5m` and is judged by the shorter one. No tier recorded
+  prints nothing — an older harness that wrote no such object was not on the
+  5-minute tier, it was silent.
 
 ### 2. Presence (the fun half)
 

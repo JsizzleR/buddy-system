@@ -1294,3 +1294,129 @@ func idleRowExists(t *testing.T, st *Store, sessionID string) bool {
 	}
 	return true
 }
+
+// The cache tiers ride the context row as raw counts and read back as they
+// were written; and a ledger from before them (schema 4) is rebuilt with the
+// columns, since session_context is the one table a migration may drop.
+func TestContextSampleCarriesCacheTiersAcrossTheMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fleet.db")
+	clk := &pinnedClock{t: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)}
+	st, err := Open(path, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Age the ledger to schema 4: the table in its old shape, the version
+	// stamped back. Recreated rather than ALTERed, because SQLite's DROP
+	// COLUMN rewrites the stored CREATE text and refuses one that carries
+	// comments — and this is the shape a real schema-4 ledger has anyway.
+	for _, q := range []string{`DROP TABLE session_context`,
+		`CREATE TABLE session_context (session_id TEXT PRIMARY KEY, incarnation TEXT NOT NULL,
+			observed INTEGER NOT NULL, turn_ms INTEGER NOT NULL, model TEXT NOT NULL,
+			effort TEXT NOT NULL DEFAULT '', prompt INTEGER NOT NULL, cache_read INTEGER NOT NULL,
+			cache_write INTEGER NOT NULL, output INTEGER NOT NULL, declared_window INTEGER NOT NULL DEFAULT 0)`,
+		`PRAGMA user_version = 4`} {
+		if _, err := st.db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	st.Close()
+	st, err = Open(path, clk.now)
+	if err != nil {
+		t.Fatalf("a schema-4 ledger must open: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	c := sample(clk.t, 90_000)
+	c.Cache5m, c.Cache1h = 12, 4_119
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatalf("recording on the migrated table: %v", err)
+	}
+	got := mustSamples(t, st)["sess-a"]
+	if got.Cache5m != 12 || got.Cache1h != 4_119 {
+		t.Fatalf("tiers must read back as written, got 5m=%d 1h=%d", got.Cache5m, got.Cache1h)
+	}
+	var ver int
+	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil || ver != schemaVersion {
+		t.Fatalf("stamp: %d (%v)", ver, err)
+	}
+}
+
+// The tier columns ride the row's ON CONFLICT update, guarded by THEIR clock.
+// Two samples of the same turn can carry different tier evidence (a writer
+// appended between two reads of the tail), and the row rule alone lets the
+// later write win whatever it says.
+func TestContextSampleTierIsGuardedByItsOwnClock(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	turn := clk.t
+	older, newer := turn.Add(-2*time.Minute), turn.Add(-time.Minute)
+
+	// A changed tier on a newer turn is taken: the update path, not the insert.
+	c := sample(turn.Add(-5*time.Minute), 1000)
+	c.Cache1h, c.TierAt = 50, turn.Add(-5*time.Minute)
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	c = sample(turn, 2000)
+	c.Cache5m, c.TierAt = 20, newer
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	got := mustSamples(t, st)["sess-a"]
+	if got.Cache5m != 20 || got.Cache1h != 0 || !got.TierAt.Equal(newer) {
+		t.Fatalf("a newer tier must replace on the update path: %+v", got)
+	}
+
+	// The SAME turn again, with OLDER tier evidence (a re-read of a tail whose
+	// newest writer was appended out of order): the prompt row is rewritten,
+	// the tier is not.
+	c = sample(turn, 2000)
+	c.Cache1h, c.TierAt = 50, older
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	got = mustSamples(t, st)["sess-a"]
+	if got.Cache5m != 20 || got.Cache1h != 0 || !got.TierAt.Equal(newer) {
+		t.Fatalf("older tier evidence on an equal turn must not regress the tier: %+v", got)
+	}
+
+	// A stale turn is refused whole, tier included.
+	c = sample(turn.Add(-time.Minute), 3000)
+	c.Cache1h, c.TierAt = 99, turn.Add(time.Minute)
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	got = mustSamples(t, st)["sess-a"]
+	if got.Prompt != 2000 || got.Cache5m != 20 || got.Cache1h != 0 {
+		t.Fatalf("a stale turn must change nothing: %+v", got)
+	}
+
+	// A sample with NO tier on a newer turn keeps the stored tier: "unrecorded"
+	// is not "gone". (A pure read reports the writer's tier anyway; this is
+	// the older-harness shape.)
+	c = sample(turn.Add(time.Minute), 4000)
+	if err := st.RecordContext(a.SessionID, a.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	got = mustSamples(t, st)["sess-a"]
+	if got.Prompt != 4000 || got.Cache5m != 20 || !got.TierAt.Equal(newer) {
+		t.Fatalf("a tierless newer sample keeps the tier it cannot contradict: %+v", got)
+	}
+
+	// A fresh incarnation takes the new row whole, tier and all, even with
+	// older tier evidence.
+	clk.advance(time.Hour)
+	if err := st.Bye("sess-a", a.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	b := hello(t, st, "sess-a", "alpha", "/wt/a")
+	c = sample(clk.t, 100)
+	c.Cache1h, c.TierAt = 7, older
+	if err := st.RecordContext("sess-a", b.Incarnation, c); err != nil {
+		t.Fatal(err)
+	}
+	got = mustSamples(t, st)["sess-a"]
+	if got.Cache1h != 7 || got.Cache5m != 0 || !got.TierAt.Equal(older) {
+		t.Fatalf("a new incarnation's row is its own: %+v", got)
+	}
+}

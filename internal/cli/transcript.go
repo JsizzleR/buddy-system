@@ -82,6 +82,29 @@ type usageSample struct {
 	CacheRead  int64
 	CacheWrite int64
 	Output     int64
+	// Cache5m and Cache1h: the tokens written into the prompt cache at each
+	// LIFETIME tier, from usage.cache_creation. This is what says whether a
+	// peer's cache is still hot — a session on the 1h tier is cheap to
+	// resume for an hour after its last request, one on the 5m tier for five
+	// minutes — and it cannot be inferred from anything else: the same model
+	// string runs under either. Measured on this box, 2026-09-20: 2371 usage
+	// records, every one carrying the object, all writes on the 1h tier.
+	//
+	// Taken from the NEWEST record that wrote anything, which is not always
+	// the newest record: a turn that only READ the cache (1 of 2371 here)
+	// reports both tiers as 0, and the tier the cache was built at is the
+	// last one that built it. Both zero after the whole window: unrecorded,
+	// and the roster says nothing about the cache. TierAt is that writer's
+	// own time — its provenance, carried separately from At because the two
+	// records can differ, and the ledger's write guard needs to order tier
+	// evidence by the tier's clock, not the prompt's (Codex code pass,
+	// 2026-09-20). Within the SAME window the tier is best-effort: a sample
+	// found in the first 64 KB with no writer in it does not escalate to look
+	// for one, because a hook's cost must not depend on how long since the
+	// session last wrote its cache.
+	Cache5m int64
+	Cache1h int64
+	TierAt  time.Time
 }
 
 // transcriptLine is the sliver of a transcript record this cares about. A
@@ -103,6 +126,13 @@ type transcriptLine struct {
 			CacheRead  int64 `json:"cache_read_input_tokens"`
 			CacheWrite int64 `json:"cache_creation_input_tokens"`
 			Output     int64 `json:"output_tokens"`
+			// The per-tier breakdown of CacheWrite. A pointer, so "the
+			// harness did not record it" stays distinct from "it wrote
+			// nothing at either tier".
+			CacheCreation *struct {
+				E5m int64 `json:"ephemeral_5m_input_tokens"`
+				E1h int64 `json:"ephemeral_1h_input_tokens"`
+			} `json:"cache_creation"`
 		} `json:"usage"`
 	} `json:"message"`
 }
@@ -157,6 +187,10 @@ func lastUsage(path string) (usageSample, bool) {
 func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
 	var best usageSample
 	found := false
+	// The newest record that WROTE a cache tier, tracked separately from the
+	// newest record: see usageSample.Cache5m.
+	var tierAt time.Time
+	var tier5m, tier1h int64
 	off := size - window
 	if off < 0 {
 		off = 0
@@ -204,9 +238,6 @@ func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
 			// a fabricated timestamp reads as the freshest possible sample.
 			continue
 		}
-		if found && at.Before(best.At) {
-			continue // an older record further down the file
-		}
 		u := rec.Message.Usage
 		// Counts outside the plausible are not a smaller problem than a
 		// missing record, they are a louder one: a negative field would print
@@ -214,10 +245,28 @@ func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
 		// prompt that then renders as a negative percentage. maxTokens is
 		// thousands of times any real context window, so nothing legitimate
 		// is refused and the addition below cannot overflow.
+		//
+		// VALIDATED BEFORE EITHER SELECTION. The first shape chose the tier
+		// first, so a record rejected here for its counts had already set the
+		// cache tier — the timer then described a turn the clock beside it
+		// had discarded (Codex code pass, 2026-09-20).
 		const maxTokens = 1 << 40
 		if u.Input < 0 || u.CacheRead < 0 || u.CacheWrite < 0 || u.Output < 0 ||
 			u.Input > maxTokens || u.CacheRead > maxTokens || u.CacheWrite > maxTokens || u.Output > maxTokens {
 			continue
+		}
+		// The tier, from the newest record that WROTE one, chosen before the
+		// prompt's own newest-record skip below: a pure read can be the newest
+		// record while an older one in the same window built the cache. A
+		// negative tier count is not a tier and the record sets none. Ties on
+		// the timestamp go to the record later in the file, which is the
+		// harness's append order.
+		if cc := u.CacheCreation; cc != nil && cc.E5m >= 0 && cc.E1h >= 0 && cc.E5m <= maxTokens && cc.E1h <= maxTokens &&
+			(cc.E5m > 0 || cc.E1h > 0) && !at.Before(tierAt) {
+			tierAt, tier5m, tier1h = at, cc.E5m, cc.E1h
+		}
+		if found && at.Before(best.At) {
+			continue // an older record further down the file
 		}
 		best, found = usageSample{
 			At:         at,
@@ -228,6 +277,9 @@ func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
 			CacheWrite: u.CacheWrite,
 			Output:     u.Output,
 		}, true
+	}
+	if found {
+		best.Cache5m, best.Cache1h, best.TierAt = tier5m, tier1h, tierAt
 	}
 	return best, found
 }
