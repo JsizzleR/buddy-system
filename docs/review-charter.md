@@ -148,7 +148,12 @@ ledger row entered through the CLI (D-006).
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
 - `pgrep`/`pkill` abort on non-ASCII patterns ("illegal byte sequence") and report BUSY as
-  FREE when they do.
+  FREE when they do. `ps | awk` has the same trap from the other side: a non-ASCII argv
+  belonging to SOME OTHER process aborts the whole scan (`towc: multibyte conversion
+  failure`), so prefix anything that reads `ps` with `LC_ALL=C`.
+- The chat daemon runs under a launchd agent with `KeepAlive`, so killing it races a
+  respawn and the loser dies on the socket lock. Restart it with `launchctl kickstart -k`,
+  not `kill`.
 - On macOS, `cp` onto an existing Mach-O invalidates its ad-hoc code signature and the
   kernel SIGKILLs the next run (exit 137). Install with `rm` then `cp`, or `go build -o`
   straight over the target. This bites hooks specifically, because every hook line ends in

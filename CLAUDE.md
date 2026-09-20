@@ -198,6 +198,20 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   up — so the query is length-checked before it reaches the wire.
 - `pgrep`/`pkill` abort on non-ASCII patterns ("illegal byte sequence") and
   report BUSY as FREE when they do. Hence the ASCII fold in `codex-review.sh`.
+- **The same locale trap bites `ps | awk`**: another process on this box has
+  non-ASCII bytes in its argv, and awk aborts the WHOLE scan with `towc:
+  multibyte conversion failure` partway through — so a pipeline that looks up
+  a pid returns nothing and whatever depended on it is skipped. `LC_ALL=C` in
+  front of anything that reads `ps` (measured 2026-09-20, killed a daemon
+  restart before it had found the daemon).
+- **The chat daemon is supervised by a launchd agent**
+  (`~/Library/LaunchAgents/com.buddy-system.buddylistd.plist`, `KeepAlive`),
+  so KILLING it starts a race you lose in the confusing direction: launchd
+  respawns it within ~10 s, and whichever instance loses the socket lock dies
+  with `another daemon is already serving`. If a hand-started copy wins, the
+  daemon is alive, unsupervised, and launchd retries against it forever.
+  Restart it with `launchctl kickstart -k gui/$UID/com.buddy-system.buddylistd`
+  — or kill the stray and let KeepAlive do it.
 - Hook latency budget is 100 ms. Measured: `gate` 20 ms, `beat` 13 ms, chat
   alert 1.2 ms warm / 5.9 ms cold.
 - Git, for anything touching hooks: `--name-only` **quotes** non-ASCII paths (use
