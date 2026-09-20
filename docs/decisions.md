@@ -1191,25 +1191,75 @@ explicit checkout-to-room binding would stop that, and that is D-024's cut. `ser
 still derives presence from the label, so a linked worktree session remains absent from the
 room even now that its reads are honest — the same root, not fixed here.
 
-## Known unfixed
+## D-025 — A `bye` is fenced by the PROCESS that registered the session, so a delayed one cannot end a live incarnation
 
-- **A delayed `bye` ends a LIVE incarnation, and the next peer's `hello` orphans its
-  claims (invariant 12 is written but not enforced).** `Store.Bye`'s fence is
-  `(incarnation=? OR ?='')` and its only caller, `cmdBye`, passes `""`, which
-  short-circuits it. It has nothing else to pass: `hookInput` carries `session_id`,
-  `cwd`, `tool_name` and `transcript_path`, and the harness gives a hook NO
-  incarnation. Reproduced end to end in `TestKnownGap_ADelayedByeEndsALiveIncarnation`,
-  which pins the wrong behaviour on purpose so a fix cannot land unnoticed. The
-  consequence is not cosmetic: `Beat` is `WHERE session_id=? AND ended IS NULL` and
-  returns nil on no match, so the wrongly-ended session's own heartbeats become silent
-  no-ops and it cannot clear the flag; `orphanEnded` runs inside every `Hello`, so a
-  peer's startup takes its scopes while it is still editing. **The obvious fix is
-  forbidden by the other half of invariant 12** — having `beat` clear `ended` is
-  exactly "a delayed beat must not resurrect an ended session" — so closing this
-  needs a decision about the invariant, not a patch. Measured frequency: 0 in 358
-  sessions on this box, so it is latent. The trigger is a session resumed under the
-  same id (`--resume` keeps it) whose previous incarnation's `SessionEnd` hook fires
-  late.
+2026-09-20 · the "Known unfixed" entry below this record until today; operator's ask; a
+Codex design pass that REJECTED the first fence with four traces, each now a test
+
+**What was wrong** — `Store.Bye`'s fence was `(incarnation=? OR ?='')` and its only
+caller passed `""`, because the SessionEnd hook payload carries `session_id`,
+`transcript_path`, `cwd` and `reason` — no incarnation. So a delayed `bye` from a dead
+incarnation ended a LIVE one under the same id (`claude --resume` keeps the id): `Beat`
+is `WHERE ended IS NULL` and returns nil on no match, so the live session's heartbeats
+became silent no-ops it could not clear, and `orphanEnded` runs inside every `Hello`, so
+the next peer's startup took its scopes while it was still editing. Two processes on one
+session id — a second `--resume` while the first still runs — had the same shape with no
+delay at all: `Hello` on a live row refreshes in place, and the first exit ended the row
+the second was using. The obvious fix, `beat` clearing `ended`, is forbidden by the other
+half of invariant 12. Measured frequency 0 in 358 sessions; latent, and closed anyway.
+
+**What shipped** — The one thing two incarnations provably do not share is the harness
+PROCESS that spawns their hooks. Measured 2026-09-20: 17 of 17 sampled hook processes had
+the `claude` process as their DIRECT parent, and `kern.procargs2` names it (exec path
+`.../bin/claude`, argv[0] `claude`). A hook-driven `hello` and every hook-driven `beat`
+register that process — pid AND kernel start time — in `session_procs`; a hook-driven
+`bye` removes its own registration and ends the session ONLY when no other registered
+process is still alive. Several registrations per session are legal and are the point:
+the second `--resume` registers a second process, and whichever exits first leaves the
+session open for the other (both orders pinned). The anchor is found BY NAME, walking up
+to 16 ancestors until one is the `claude` binary, never by depth: a `timeout` or a script
+around the hook line is walked through, and no such ancestor means NO anchor — the
+session is unbound and its bye behaves as it always did. A manual `buddy bye <id>` is
+refused by any live registration, naming the process to kill, and `--force` is the
+operator's act. The roster prints `pid N` on every bound live row, `pid N GONE` when the
+process is no longer there, and `pane herdr:w14:pA` from the environment the harness
+inherited — the handle for the operator winding a fleet down (issues #20, #22), never
+something buddy invokes.
+
+**The four ways the first draft let the defect back in**, each named by the Codex design
+pass before any code and each now a test: (1) the LATER registrant exiting first ended the
+row under the earlier, still-editing process — a single pid column cannot hold two
+processes, hence the table; (2) a "registered process is dead, so end" arm re-created the
+defect whenever the anchor was a short-lived wrapper — hence anchoring by name, which
+makes the registered process the harness itself, whose death does establish that nothing
+is being protected; (3) a hand-run `buddy hello --session X` on a live, hook-registered
+session overwrote the pid with its own and, with 0, unbound it — the refresh now keeps
+the pid and the terminal when the caller brings none; (4) a bye whose own anchor could
+not be resolved fell through to "end" — an unresolved caller now removes nothing and is
+refused like a stranger. Also measured before it was believed: `KinfoProc.P_comm` for the
+claude process is `2.1.278`, the basename of the versioned file the launcher symlink
+points at, so a name test on it would never have anchored.
+
+**What it deliberately does not do** — Nothing auto-ends or auto-reaps on `GONE`; `sweep
+--force` stays the operator's act, because a wrongly recorded anchor plus an auto-end
+would be this defect by another road. `beat` still never clears `ended`. Chat presence and
+the transcript are not consulted: a quiet live process and an exited one can share a
+last-turn timestamp. The npm-installed harness (`node`) is not matched — a hook written in
+node would anchor to itself — and stays unbound. `proc_other.go` answers "cannot say" on
+every non-darwin platform, which leaves every session there unbound: the honest degraded
+state, not a fence firing on a process it cannot name.
+
+**Overturned** — Charter GIVEN 10's "PID is diagnostic only, never authoritative": the pid
+(with its birth time) is now authoritative for exactly one decision, whether a `bye` may
+end a session. Identity is still `(session_id, incarnation)`; the pid is the proof `bye`
+carries of WHICH process is saying it, and the pid on the roster is diagnostic only.
+
+**Residuals** — A session that predates the table, or whose hello was hand-run and that
+never beats, is unbound. A registered process killed `-9` leaves its row `live STALE` with
+`pid N GONE` until the operator sweeps. The terminal handle is what the environment said
+at registration and can go stale if the operator moves the pane.
+
+## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
   TOCTOU window between verdict and write, and cannot bind a process that bypasses the

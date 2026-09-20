@@ -137,8 +137,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
     the operator's explicit act.
 12. **Identity is `(session_id, incarnation)`.** A delayed `bye` from a dead
     incarnation must not orphan a live one; a delayed `beat` must not resurrect
-    an ended session. Orphaning happens in `hello`/`sweep`, never inline in
-    `bye`.
+    an ended session. Orphaning happens in `hello`/`sweep`/`claim`, never inline
+    in `bye`. The hook payload names no incarnation, so `bye` is fenced by the
+    harness PROCESS that registered the session (`session_procs`, D-025): it
+    ends a session only when no registered process is still alive.
 13. **One folding rule: `strings.ToLower(norm.NFC.String(s))`.** Never
     `strings.EqualFold`, never a second normalization.
 14. **Scope containment is exactly** `scope == path || strings.HasPrefix(path,
@@ -231,7 +233,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **Two binaries**, so the claims ledger is never dragged behind the chat stack.
 - **Exact-path / prefix scopes.** Glob scopes and arbitrary-glob overlap math
   were explicitly cut. Do not propose them.
-- **Identity is `(session_id, incarnation)`; PID is diagnostic only.**
+- **Identity is `(session_id, incarnation)`; the pid is never identity (D-025).** It
+  is authoritative for ONE decision — whether a hook-driven `bye` may end the session —
+  found by walking up to the `claude` ancestor by exec path/argv[0] (never `p_comm`,
+  which is the version string), carried with its kernel start time, and diagnostic
+  everywhere else (`pid N` / `pid N GONE` on the roster; nothing auto-ends on GONE).
 - **IRC is the daily driver.** TOC/AIM stays behind the `Conn` seam for
   nostalgia nights. UTF-8 is native on IRC; the CP1252 conversion is a TOC-only
   concern.

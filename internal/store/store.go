@@ -36,7 +36,45 @@ CREATE TABLE IF NOT EXISTS sessions (
 	pid         INTEGER NOT NULL DEFAULT 0,
 	started     INTEGER NOT NULL,
 	last_seen   INTEGER NOT NULL,
-	ended       INTEGER
+	ended       INTEGER,
+	-- The terminal handle the session REPORTED AT REGISTRATION (a herdr pane
+	-- id, a tmux pane), read from the environment the harness inherited and
+	-- rendered as "<provider>:<id>". A handle for the OPERATOR — it is the
+	-- thing on their screen — and never something buddy invokes. Added by an
+	-- ALTER arm in migrate (schema 6): the script is IF NOT EXISTS, which
+	-- cannot add a column to a table that already exists.
+	terminal    TEXT NOT NULL DEFAULT ''
+);
+-- WHICH PROCESSES A SESSION IS REGISTERED TO. This is what fences bye.
+--
+-- THE DEFECT (D-025, "Known unfixed" until then). The SessionEnd hook carries
+-- no incarnation, so bye had only a session id, and a delayed bye from a
+-- dead incarnation ended a LIVE one under the same id (claude --resume
+-- keeps the id): its heartbeats became silent no-ops and the next peer's
+-- hello orphaned its claims while it was still editing. Two processes on one
+-- session id (a second --resume while the first still runs) had the same
+-- shape without any delay at all.
+--
+-- A session is registered to the harness PROCESS that spawned its hooks
+-- (measured 2026-09-20: the hook's parent is the claude process itself), with
+-- the process's start time as a reuse discriminator, because a bare pid is a
+-- recycled number. A bye ends the session only when NO registered process is
+-- still alive. Several rows per session are legal and are the point: the
+-- second --resume registers a second process, and whichever exits first
+-- leaves the session open for the other. Rows are wiped on revival (a new
+-- incarnation) and on the end that empties them; a dead one is pruned by the
+-- next bye that looks.
+--
+-- Only HOOK-DRIVEN hello and beat register a process. A hand-run hello has no
+-- harness ancestor (or the operator's own terminal, which lives forever and
+-- would refuse every bye), so it registers nothing and a session with no rows
+-- here is UNBOUND: its bye ends it as it always did.
+CREATE TABLE IF NOT EXISTS session_procs (
+	session_id TEXT NOT NULL,
+	pid        INTEGER NOT NULL,
+	born       INTEGER NOT NULL DEFAULT 0,
+	registered INTEGER NOT NULL,
+	PRIMARY KEY (session_id, pid)
 );
 CREATE TABLE IF NOT EXISTS claims (
 	claim_id    TEXT PRIMARY KEY,
@@ -182,6 +220,7 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 6 adds sessions.terminal (an ALTER arm — see migrate) and session_procs.
 // 5 adds cache_5m/cache_1h to session_context, again by DROPPING it (D-018:
 // it is the one table that may be, because every row is re-derived at the
 // next beat). 4 reshaped session_context (turn_ms, effort) the same way. 3 adds
@@ -190,7 +229,7 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 5
+const schemaVersion = 6
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -284,6 +323,17 @@ func migrate(db *sql.DB) error {
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("migrate ledger: %w", err)
 	}
+	// The ONE column ever added to an existing table. CREATE TABLE IF NOT
+	// EXISTS above creates a fresh ledger's sessions table with the column
+	// and does nothing to an old one, so an old ledger needs the ALTER — and
+	// only once, which is what the table_info probe is for: ALTER has no IF
+	// NOT EXISTS, and running it twice is an error that would wedge every
+	// open below version 6.
+	if ver < 6 {
+		if err := addColumnIfMissing(tx, "sessions", "terminal", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
 	if !hadRecipientTable {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO inbox_recipient (msg_id, session_id)
 			SELECT m.msg_id, s.session_id FROM inbox m JOIN sessions s
@@ -298,6 +348,32 @@ func migrate(db *sql.DB) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit ledger migration: %w", err)
+	}
+	return nil
+}
+
+// addColumnIfMissing is the ALTER arm a column on an existing table needs.
+func addColumnIfMissing(tx *sql.Tx, table, column, decl string) error {
+	rows, err := tx.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, decl)); err != nil {
+		return fmt.Errorf("migrate ledger (%s.%s): %w", table, column, err)
 	}
 	return nil
 }
@@ -372,17 +448,43 @@ type SessionInfo struct {
 	Incarnation string
 	Label       string
 	Worktree    string
-	PID         int
+	PID         int    // the harness process last registered, 0 when unbound (see session_procs)
+	Terminal    string // "<provider>:<id>" reported at registration, "" when none
 	Started     time.Time
 	LastSeen    time.Time
 	Ended       time.Time // zero if live
 }
 
+// ProcRef names a process well enough to tell a live one from a recycled
+// pid: the pid, and the process's start time as the kernel reports it (any
+// unit, compared for equality only). Born 0 means "not recorded", and a
+// caller's liveness test must then fall back to the pid alone.
+type ProcRef struct {
+	PID  int
+	Born int64
+}
+
 func (si SessionInfo) Live() bool { return si.Ended.IsZero() }
 
-// Hello registers or refreshes a session. A new session or one previously
-// ended gets a fresh incarnation; a live one is refreshed in place.
+// Hello registers or refreshes a session with no process registration and no
+// terminal handle: the shape every caller had before D-025, kept for them.
+// The pid is stored as it always was (diagnostic) and binds nothing.
 func (s *Store) Hello(sessionID, label, worktree string, pid int) (SessionInfo, error) {
+	return s.helloFrom(sessionID, label, worktree, pid, ProcRef{}, "")
+}
+
+// HelloFrom registers or refreshes a session AND registers the harness
+// process it arrived from. A new session or one previously ended gets a
+// fresh incarnation; a live one is refreshed in place.
+//
+// proc is the process the hook was spawned by (ProcRef{} when the caller
+// could not establish one, which registers nothing — see session_procs).
+// terminal is the handle the environment reported, "" for none.
+func (s *Store) HelloFrom(sessionID, label, worktree string, proc ProcRef, terminal string) (SessionInfo, error) {
+	return s.helloFrom(sessionID, label, worktree, proc.PID, proc, terminal)
+}
+
+func (s *Store) helloFrom(sessionID, label, worktree string, pid int, proc ProcRef, terminal string) (SessionInfo, error) {
 	var out SessionInfo
 	err := s.tx(func(tx *sql.Tx) error {
 		now := s.now().Unix()
@@ -395,8 +497,8 @@ func (s *Store) Hello(sessionID, label, worktree string, pid int) (SessionInfo, 
 			if label == "" {
 				label = defaultLabel(worktree, sessionID)
 			}
-			_, err = tx.Exec(`INSERT INTO sessions (session_id, incarnation, label, worktree, pid, started, last_seen)
-				VALUES (?,?,?,?,?,?,?)`, sessionID, inc, label, worktree, pid, now, now)
+			_, err = tx.Exec(`INSERT INTO sessions (session_id, incarnation, label, worktree, pid, terminal, started, last_seen)
+				VALUES (?,?,?,?,?,?,?,?)`, sessionID, inc, label, worktree, pid, terminal, now, now)
 			if err != nil {
 				return err
 			}
@@ -413,9 +515,18 @@ func (s *Store) Hello(sessionID, label, worktree string, pid int) (SessionInfo, 
 				return err
 			}
 			inc = newToken()
-			if _, err := tx.Exec(`UPDATE sessions SET incarnation=?, worktree=?, pid=?, started=?, last_seen=?, ended=NULL,
+			// The terminal is REPLACED, even by "": a revived session is a new
+			// registration, and a pane the old one sat in must not survive
+			// into one that reported none (Codex design pass, D-025).
+			if _, err := tx.Exec(`UPDATE sessions SET incarnation=?, worktree=?, pid=?, terminal=?, started=?, last_seen=?, ended=NULL,
 				label=COALESCE(NULLIF(?,''), label) WHERE session_id=?`,
-				inc, worktree, pid, now, now, label, sessionID); err != nil {
+				inc, worktree, pid, terminal, now, now, label, sessionID); err != nil {
+				return err
+			}
+			// The dead incarnation's registrations go with it. Every one of
+			// them is dead: a session is ended only once no registered
+			// process is alive (ByeFrom) or by the incarnation-fenced Bye.
+			if _, err := tx.Exec(`DELETE FROM session_procs WHERE session_id=?`, sessionID); err != nil {
 				return err
 			}
 		default:
@@ -424,23 +535,52 @@ func (s *Store) Hello(sessionID, label, worktree string, pid int) (SessionInfo, 
 			// NULLIF turns it into NULL and COALESCE falls through to the stored
 			// value. One fixed statement replaces two hand-assembled SET clauses
 			// that appended `, label=?` conditionally.
-			if _, err := tx.Exec(`UPDATE sessions SET last_seen=?, worktree=?, pid=?,
+			//
+			// The pid and the terminal are kept when the refresh brings none. A
+			// hand-run `buddy hello --session X` on a live, hook-registered
+			// session used to overwrite the pid with its own hook's; the Codex
+			// design pass named the manual refresh as one of four ways a
+			// delayed bye got back in (D-025). What actually BINDS is
+			// session_procs, which a refresh never touches; the column is the
+			// roster's "last registered process" and must not read 0 for a
+			// session that is bound.
+			if _, err := tx.Exec(`UPDATE sessions SET last_seen=?, worktree=?,
+				pid=CASE WHEN ?=0 THEN pid ELSE ? END,
+				terminal=COALESCE(NULLIF(?,''), terminal),
 				label=COALESCE(NULLIF(?,''), label) WHERE session_id=?`,
-				now, worktree, pid, label, sessionID); err != nil {
+				now, worktree, pid, pid, terminal, label, sessionID); err != nil {
 				return err
 			}
+		}
+		if err := registerProc(tx, sessionID, proc, now); err != nil {
+			return err
 		}
 		// Housekeeping every session start: claims of ended sessions become
 		// orphaned here (Bye no longer does it — see Bye).
 		if _, err := orphanEnded(tx, now); err != nil {
 			return err
 		}
-		return tx.QueryRow(`SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
+		return tx.QueryRow(`SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
 			FROM sessions WHERE session_id=?`, sessionID).Scan(
-			&out.SessionID, &out.Incarnation, &out.Label, &out.Worktree, &out.PID,
+			&out.SessionID, &out.Incarnation, &out.Label, &out.Worktree, &out.PID, &out.Terminal,
 			unixScan{&out.Started}, unixScan{&out.LastSeen}, unixScan{&out.Ended})
 	})
 	return out, err
+}
+
+// registerProc records that proc is one of the session's live processes. A
+// zero proc registers nothing. Keyed by pid: a re-registration of the same
+// pid (every beat brings one) refreshes the start time, so a recycled pid
+// that reached the same session id — a stretch, but free to handle — carries
+// the born of the process that is actually there.
+func registerProc(tx *sql.Tx, sessionID string, proc ProcRef, now int64) error {
+	if proc.PID == 0 {
+		return nil
+	}
+	_, err := tx.Exec(`INSERT INTO session_procs (session_id, pid, born, registered) VALUES (?,?,?,?)
+		ON CONFLICT(session_id, pid) DO UPDATE SET born=excluded.born, registered=excluded.registered`,
+		sessionID, proc.PID, proc.Born, now)
+	return err
 }
 
 // defaultLabel names a session that gave no --label: the worktree's basename
@@ -460,22 +600,140 @@ func defaultLabel(worktree, sessionID string) string {
 	return base + "/s-" + id
 }
 
-// Bye marks a session ended — and does NOTHING else. It deliberately does not
-// orphan claims: the SessionEnd hook cannot know its incarnation, so a delayed
-// bye racing a re-hello of the same session_id could otherwise orphan a LIVE
-// incarnation's work (Codex P1 finding). Marking ended is recoverable (the
-// next hello reopens); orphaning happens in Hello/Sweep, where it is
-// idempotent and keyed to rows still ended when they run. A non-empty
-// incarnation fences the update.
+// Bye marks a session ended — and does NOTHING to claims. It deliberately
+// does not orphan them: orphaning happens in Hello/Sweep/Claim, where it is
+// idempotent and keyed to rows still ended when they run, so a bye that is
+// wrong about WHICH incarnation it ends is recoverable (the next hello
+// reopens) where an inline orphan would not be. A non-empty incarnation
+// fences the update; "" ends whichever incarnation is live.
 //
-// One statement, so no explicit transaction: a single UPDATE is atomic on its
-// own, and the fence (ended IS NULL AND incarnation matches) is evaluated by
-// the same statement that writes. The earlier wrap in s.tx bought nothing and
-// cost a second BEGIN IMMEDIATE round-trip on the SessionEnd hook.
+// This is the incarnation-fenced end, for a caller that HAS an incarnation
+// (tests, and anything that resolved the session first). The SessionEnd hook
+// has none and goes through ByeFrom, which is fenced by the registered
+// PROCESSES instead — the fence "" here used to short-circuit, and that was
+// the delayed-bye defect (D-025). The registrations are cleared with the end:
+// an ended session has no live process by definition of this call, and a row
+// left behind would refuse the next incarnation's bye.
 func (s *Store) Bye(sessionID, incarnation string) error {
-	_, err := s.db.Exec(`UPDATE sessions SET ended=? WHERE session_id=? AND ended IS NULL AND (incarnation=? OR ?='')`,
-		s.now().Unix(), sessionID, incarnation, incarnation)
-	return err
+	return s.tx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE sessions SET ended=? WHERE session_id=? AND ended IS NULL AND (incarnation=? OR ?='')`,
+			s.now().Unix(), sessionID, incarnation, incarnation)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return nil
+		}
+		_, err = tx.Exec(`DELETE FROM session_procs WHERE session_id=?`, sessionID)
+		return err
+	})
+}
+
+// ByeResult says what ByeFrom did, and why not.
+type ByeResult struct {
+	Known    bool      // a live row existed for the session
+	Ended    bool      // it was ended
+	Blocking []ProcRef // registered processes still alive that kept it open
+	Stranger bool      // from names a process the session never registered
+}
+
+// ByeFrom ends a session ON BEHALF OF the process `from`, and refuses while
+// any OTHER registered process is still alive. This is the SessionEnd hook's
+// end, and the fence that closes the delayed-bye defect (D-025):
+//
+//   - the session's registrations are read; from's own is removed (it is
+//     exiting, that is what a bye means);
+//   - every other registration is asked `alive`; a dead one is pruned;
+//   - if any is alive and force is false, NOTHING is written and the result
+//     names them — a delayed bye from a dead incarnation, or a passenger
+//     process exiting first, leaves the live process registered and live;
+//   - otherwise the session is ended and its registrations cleared.
+//
+// A session with NO registrations is unbound and ends as it always did: a
+// hand-run hello registers nothing, an old ledger has no rows, and neither
+// may make the hook stop working. from.PID == 0 (a hand-run `buddy bye <id>`)
+// removes nothing and is refused by any live registration like a stranger,
+// which is why the manual verb carries --force.
+//
+// alive is a seam: internal/store never inspects processes. The caller
+// answers with the pid AND the recorded start time, so a recycled pid reads
+// as dead; an alive answer it cannot establish should be true, because the
+// cost of a wrong "alive" is a session that stays live until the operator
+// looks, and the cost of a wrong "dead" is this defect.
+func (s *Store) ByeFrom(sessionID string, from ProcRef, alive func(ProcRef) bool, force bool) (ByeResult, error) {
+	var res ByeResult
+	err := s.tx(func(tx *sql.Tx) error {
+		var one int
+		err := tx.QueryRow(`SELECT 1 FROM sessions WHERE session_id=? AND ended IS NULL`, sessionID).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		res.Known = true
+		rows, err := tx.Query(`SELECT pid, born FROM session_procs WHERE session_id=? ORDER BY pid`, sessionID)
+		if err != nil {
+			return err
+		}
+		var regs []ProcRef
+		for rows.Next() {
+			var p ProcRef
+			if err := rows.Scan(&p.PID, &p.Born); err != nil {
+				rows.Close()
+				return err
+			}
+			regs = append(regs, p)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		mine := false
+		for _, p := range regs {
+			if from.PID != 0 && p.PID == from.PID {
+				mine = true
+			} else if alive(p) {
+				res.Blocking = append(res.Blocking, p)
+				continue
+			}
+			if _, err := tx.Exec(`DELETE FROM session_procs WHERE session_id=? AND pid=?`, sessionID, p.PID); err != nil {
+				return err
+			}
+		}
+		res.Stranger = from.PID != 0 && !mine && len(regs) > 0
+		if len(res.Blocking) > 0 && !force {
+			return nil
+		}
+		if _, err := tx.Exec(`UPDATE sessions SET ended=? WHERE session_id=? AND ended IS NULL`, s.now().Unix(), sessionID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM session_procs WHERE session_id=?`, sessionID); err != nil {
+			return err
+		}
+		res.Ended = true
+		return nil
+	})
+	return res, err
+}
+
+// SessionProcs returns every registered process, by session id.
+func (s *Store) SessionProcs() (map[string][]ProcRef, error) {
+	rows, err := s.db.Query(`SELECT session_id, pid, born FROM session_procs ORDER BY session_id, registered, pid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]ProcRef{}
+	for rows.Next() {
+		var id string
+		var p ProcRef
+		if err := rows.Scan(&id, &p.PID, &p.Born); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], p)
+	}
+	return out, rows.Err()
 }
 
 // orphanEnded orphans open claims whose owner session is ended, stamping
@@ -499,14 +757,29 @@ func orphanEnded(tx *sql.Tx, now int64) (int, error) {
 // end of idleness are one fact, and splitting them would buy a second write
 // lock per tool call for a row that is usually not there.
 func (s *Store) Beat(sessionID, relPath string) error {
+	return s.BeatFrom(sessionID, relPath, ProcRef{})
+}
+
+// BeatFrom is Beat that also registers the process the hook arrived from
+// (see session_procs), so a session whose hello registered nothing — a
+// hand-run one, or one that predates the table — is bound by its first
+// hook-driven tool call, and a second process on the same id registers
+// itself the moment it acts. A zero proc registers nothing. The pid column
+// is filled in only when it is 0: it is the LAST registered process, and a
+// beat must not flip it between two passengers on every tool call.
+func (s *Store) BeatFrom(sessionID, relPath string, proc ProcRef) error {
 	return s.tx(func(tx *sql.Tx) error {
 		now := s.now().Unix()
-		res, err := tx.Exec(`UPDATE sessions SET last_seen=? WHERE session_id=? AND ended IS NULL`, now, sessionID)
+		res, err := tx.Exec(`UPDATE sessions SET last_seen=?, pid=CASE WHEN pid=0 THEN ? ELSE pid END
+			WHERE session_id=? AND ended IS NULL`, now, proc.PID, sessionID)
 		if err != nil {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return nil // ended, or unknown: nothing of this session's to clear
+		}
+		if err := registerProc(tx, sessionID, proc, now); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM session_idle WHERE session_id=?`, sessionID); err != nil {
 			return err
@@ -918,9 +1191,9 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 // hot paths; Sessions() stays the listing verb.
 func (s *Store) SessionByID(sessionID string) (SessionInfo, bool, error) {
 	var si SessionInfo
-	err := s.db.QueryRow(`SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
+	err := s.db.QueryRow(`SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
 		FROM sessions WHERE session_id=?`, sessionID).Scan(&si.SessionID, &si.Incarnation, &si.Label, &si.Worktree,
-		&si.PID, unixScan{&si.Started}, unixScan{&si.LastSeen}, unixScan{&si.Ended})
+		&si.PID, &si.Terminal, unixScan{&si.Started}, unixScan{&si.LastSeen}, unixScan{&si.Ended})
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionInfo{}, false, nil
 	}
@@ -1152,9 +1425,9 @@ const (
 // would cost the listing its first purpose to serve its second.
 func (s *Store) Sessions(order SessionOrder) ([]SessionInfo, error) {
 	const (
-		bySeen = `SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
+		bySeen = `SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
 		FROM sessions ORDER BY (ended IS NOT NULL), last_seen DESC, session_id`
-		byStarted = `SELECT session_id, incarnation, label, worktree, pid, started, last_seen, COALESCE(ended,0)
+		byStarted = `SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
 		FROM sessions ORDER BY (ended IS NOT NULL), started DESC, session_id`
 	)
 	q := bySeen
@@ -1169,7 +1442,7 @@ func (s *Store) Sessions(order SessionOrder) ([]SessionInfo, error) {
 	var out []SessionInfo
 	for rows.Next() {
 		var si SessionInfo
-		if err := rows.Scan(&si.SessionID, &si.Incarnation, &si.Label, &si.Worktree, &si.PID,
+		if err := rows.Scan(&si.SessionID, &si.Incarnation, &si.Label, &si.Worktree, &si.PID, &si.Terminal,
 			unixScan{&si.Started}, unixScan{&si.LastSeen}, unixScan{&si.Ended}); err != nil {
 			return nil, err
 		}
