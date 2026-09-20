@@ -77,11 +77,17 @@ binary just turns the feature off:
       "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"},
       {"type": "command",
       "command": "[ -x \"$HOME/bin/buddylist\" ] && \"$HOME/bin/buddylist\" alert 2>/dev/null; exit 0"}]}],
+    "Stop": [{"hooks": [{"type": "command",
+      "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" idle 2>/dev/null; exit 0"}]}],
     "SessionEnd": [{"hooks": [{"type": "command",
       "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" bye 2>/dev/null; exit 0"}]}]
   }
 }
 ```
+
+`Stop` is the only optional one. It marks the session idle at its prompt so the
+roster can tell "waiting for a human" from "hard at work" — without it, nothing
+ever prints `idle`, and nothing else changes.
 
 From then on, in any session:
 
@@ -204,7 +210,7 @@ What it deliberately does **not** do, so the promise stays honest:
 
 ```sh
 buddy sessions                    # the roster; --by started for arrival order
-# * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  claims 2
+# * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  idle 7m  claims 2
 #   repo/s-299a236a  live STALE   started 15d  seen 12d  /path/to/repo  (299a236a-…)  PAUSED
 #   repo/s-68a57050  ended 29d    started 36d  seen 34d  /path/to/repo  (68a57050-…)
 ```
@@ -221,6 +227,17 @@ The annotations after the id are what an orchestrator picks on:
 
 - `PAUSED` — the operator's brake is on this session. Its next mutating tool
   call will be **denied**, and without this the row just says `live`.
+- `idle 7m` — the session finished a turn that long ago and has run no tool
+  since: it is waiting for a human, not working. This is the annotation that
+  inverts the default order's meaning — `seen` ranks the session hardest at
+  work FIRST, which is the opposite of "who can take the next task".
+
+  **Absence is not evidence of busy.** `Stop` is a hook line a machine may not
+  have, so a row with no `idle` has simply not reported. And the catch worth
+  knowing before you route on it: an idle session is also the one that will
+  not *see* a `buddy msg` until its next tool call, because delivery rides the
+  heartbeat. It is the session that can take work and the one that needs a
+  human to poke it.
 - `claims N` — open claims held now. The names are in `buddy ls`; the row
   carries the count, because a slug is 128 bytes of free text and a session may
   hold several.

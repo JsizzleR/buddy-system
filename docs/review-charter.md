@@ -118,6 +118,14 @@ ledger row entered through the CLI (D-006).
     capture is silent and costs the beat nothing. Measured cost on a 2.3 MB transcript:
     16.5 ms per beat against 16.4 ms without.
 
+20. **Idle is reported; busy is never inferred (D-016).** A `Stop` hook line
+    (`buddy idle`) writes a `session_idle` row keyed to the reporting incarnation, and
+    `Beat` deletes it in its own transaction — a tool call IS a turn in progress. NO ROW
+    MEANS UNKNOWN: the hook is opt-in like every other one, so a fleet without it wired
+    reports nobody idle, and absence must never be read as "mid-turn". Only `Stop` is
+    wired; `UserPromptSubmit` was cut because the next beat clears the mark within a
+    second of the prompt.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

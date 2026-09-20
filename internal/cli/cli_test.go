@@ -1092,6 +1092,84 @@ func TestBeatRecordsContextAndTheRosterReportsIt(t *testing.T) {
 	}
 }
 
+// TestIdleIsReportedButBusyIsNotInferred covers the turn-state annotation.
+// The failing case: `last_seen DESC` puts the session that is hardest at work
+// at the TOP of the roster, which is the inverse of "who can take the next
+// task", and nothing else in the ledger could tell a session mid-turn from
+// one that finished ten minutes ago and is waiting for a human.
+func TestIdleIsReportedButBusyIsNotInferred(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	must := func(stdin string, args ...string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, stdin, args...); code != 0 {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
+	hook := func(s string) string { return hookJSON("sess-"+s, f.repo, "", "") }
+	rowOf := func(t *testing.T, label string) string {
+		t.Helper()
+		out, errw, code := f.run(t, f.repo, "", "sessions")
+		if code != 0 {
+			t.Fatalf("sessions: exit %d: %s", code, errw)
+		}
+		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			if fs := strings.Fields(ln); len(fs) > 0 && fs[0] == label {
+				return ln
+			}
+		}
+		t.Fatalf("no row for %q in:\n%s", label, out)
+		return ""
+	}
+
+	must("", "init")
+	must(hook("resting"), "hello", "--label", "resting")
+	must(hook("working"), "hello", "--label", "working")
+
+	// Nobody has reported: the roster says nothing about either, rather than
+	// calling them busy. A fleet with no Stop hook wired is not a fleet of
+	// sessions known to be mid-turn.
+	for _, l := range []string{"resting", "working"} {
+		if row := rowOf(t, l); strings.Contains(row, "idle") {
+			t.Fatalf("%s: no report yet, so no claim either way:\n  %s", l, row)
+		}
+	}
+
+	must(hook("resting"), "idle")
+	f.clock = f.clock.Add(7 * time.Minute)
+	if row, want := rowOf(t, "resting"), "idle 7m"; !strings.Contains(row, want) {
+		t.Errorf("a session that reported idle must say so, and say since when (%q):\n  %s", want, row)
+	}
+	if row := rowOf(t, "working"); strings.Contains(row, "idle") {
+		t.Errorf("negative control: an unreported session is not idle:\n  %s", row)
+	}
+
+	// A tool call IS a turn in progress, so the heartbeat clears the mark.
+	must(hook("resting"), "beat")
+	if row := rowOf(t, "resting"); strings.Contains(row, "idle") {
+		t.Errorf("a beat means it is working again — a stale idle mark is worse than none:\n  %s", row)
+	}
+
+	// And an idle mark does not outlive the session or the incarnation that
+	// made it: an ended session is not "available", and a revived one starts
+	// over.
+	must(hook("resting"), "idle")
+	must(hook("resting"), "bye")
+	if row := rowOf(t, "resting"); strings.Contains(row, "idle") {
+		t.Errorf("an ended session is not waiting for work:\n  %s", row)
+	}
+	must(hook("resting"), "hello", "--label", "resting")
+	if row := rowOf(t, "resting"); strings.Contains(row, "idle") {
+		t.Errorf("the previous incarnation's idle mark is not this one's:\n  %s", row)
+	}
+	// Positive control for the two negatives above: the mechanism still works
+	// for the revived incarnation.
+	must(hook("resting"), "idle")
+	if row := rowOf(t, "resting"); !strings.Contains(row, "idle 0s") {
+		t.Errorf("the revived incarnation can report idle itself:\n  %s", row)
+	}
+}
+
 func TestGateDeniesNFDSpelledPathInsideForeignScope(t *testing.T) {
 	boundedParallel(t)
 	// The repo root carries an accented component, spelled NFC on disk. macOS

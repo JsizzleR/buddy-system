@@ -64,6 +64,8 @@ func Run(args []string, env Env) int {
 		err = cmdBye(rest, env)
 	case "beat":
 		err = cmdBeat(rest, env)
+	case "idle":
+		err = cmdIdle(rest, env)
 	case "gate":
 		return cmdGate(rest, env)
 	case "commit-gate":
@@ -119,13 +121,13 @@ operator      pause <target> [--note <text>]             deny the target's next 
               or "all". Anything else is REFUSED — never queued against a row that would
               match nothing. Peers address each other by slug, so slugs resolve too.
               sessions [--by seen|started]  the roster, live first: every age column is
-                                    labelled, "*" marks you, and PAUSED / claims N / the
-                                    last prompt size trail the row with what an
+                                    labelled, "*" marks you, and PAUSED / idle N / claims N
+                                    / the last prompt size trail the row with what an
                                     orchestrator picks on (BUDDY_CONTEXT_WINDOW=1M adds
                                     the percentage; nothing else can know the window)
               sweep [--force]       tidy closed claims
 setup         init                  create the ledger for this repo
-hooks         hello · gate · beat · bye   (wired in .claude/settings; read hook JSON on stdin)
+hooks         hello · gate · beat · idle · bye   (wired in .claude/settings; hook JSON on stdin)
 git hook      commit-gate [--deny]  staged paths vs. other sessions' claims (pre-commit;
               install with "sh scripts/setup-clone.sh"; BUDDY_COMMIT_GATE=warn|deny|off)
 
@@ -903,6 +905,40 @@ func cmdBye(args []string, env Env) error {
 	return st.Bye(session, "")
 }
 
+// cmdIdle is the Stop hook: the turn is over and the session is waiting at
+// its prompt.
+//
+// WHY THE LEDGER NEEDED A SECOND HOOK FOR THIS. `last_seen` is the last TOOL
+// CALL, so the default roster order ranks the session that is hardest at work
+// FIRST — the exact inverse of "who can take the next task". Nothing else in
+// the ledger could tell a session mid-turn from one that finished ten minutes
+// ago and is waiting for a human: both are live, both are inside StaleAfter,
+// and the busy one looks fresher.
+//
+// It takes the same shape as every other chat-and-courtesy hook line: no
+// ledger is a silent no-op, and the caller ends its line with `exit 0`. An
+// idle mark is an OBSERVATION — it reserves nothing and refuses nothing.
+//
+// Only Stop is wired, not UserPromptSubmit. The mark is cleared by `beat`,
+// and the first tool call of the next turn arrives within a second of the
+// prompt that started it; a second hook line would buy that second and cost
+// every operator another line to install.
+func cmdIdle(args []string, env Env) error {
+	h, err := readHook(env)
+	if err != nil {
+		return fmt.Errorf("idle is a hook verb; pipe Stop JSON (%v)", err)
+	}
+	st, _, err := openRepo(h.Cwd, env)
+	if errors.Is(err, errNoLedger) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	return st.MarkIdle(h.SessionID)
+}
+
 func cmdBeat(args []string, env Env) error {
 	h, err := readHook(env)
 	if err != nil {
@@ -1664,11 +1700,17 @@ func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[
 	if err != nil {
 		return nil, err
 	}
+	idle, err := st.IdleSessions()
+	if err != nil {
+		return nil, err
+	}
+	// Keyed by (session, incarnation), not by session: the claims come from
+	// their own query, so a session that ended and re-registered between the
+	// two would otherwise have its successor's brand-new reservations counted
+	// onto the row this listing is about to print for its predecessor.
 	held := map[string]int{}
 	for _, c := range open {
-		if c.Incarnation == c.Owner.Incarnation {
-			held[c.Owner.SessionID]++
-		}
+		held[c.Owner.SessionID+"\x00"+c.Incarnation]++
 	}
 	out := make(map[string]string, len(sessions))
 	for _, si := range sessions {
@@ -1682,7 +1724,19 @@ func fitness(st *store.Store, sessions []store.SessionInfo, now time.Time) (map[
 				parts = append(parts, "PAUSED")
 			}
 		}
-		if n := held[si.SessionID]; n > 0 {
+		// IDLE PRINTS, BUSY DOES NOT. A session that has not reported is
+		// not a session known to be working: the Stop hook is a line in a
+		// settings file, and a fleet without it wired would otherwise read
+		// as uniformly mid-turn. One-sided evidence, said one-sidedly.
+		//
+		// No si.Live() here, deliberately: IdleSessions answers for LIVE
+		// sessions only, and a second liveness test in front of it would be
+		// a guard no test can arm — one that reads as load-bearing while
+		// nothing can tell whether it still works.
+		if rest, ok := idle[si.SessionID]; ok && rest.Incarnation == si.Incarnation {
+			parts = append(parts, "idle "+age(now, rest.Since))
+		}
+		if n := held[si.SessionID+"\x00"+si.Incarnation]; n > 0 {
 			parts = append(parts, fmt.Sprintf("claims %d", n))
 		}
 		// The sample and the session row come from two queries, so a

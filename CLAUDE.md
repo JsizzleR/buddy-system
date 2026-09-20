@@ -38,7 +38,7 @@ used platform.
 - `internal/store` — the SQLite ledger. Claims, sessions, controls, inbox,
   dirty paths. Transactional; WAL; `_txlock=immediate`.
 - `internal/cli` — the `buddy` verbs, the Claude Code hooks (`hello`, `gate`,
-  `beat`, `bye`), the git commit gate (`commit-gate`, `commitgate.go`), and the
+  `beat`, `idle`, `bye`), the git commit gate (`commit-gate`, `commitgate.go`), and the
   ONE place that reads a Claude Code transcript (`transcript.go`: the last
   turn's token counts for the roster, never any message text).
 - `internal/fence` — untrusted-content fencing. Every attacker-influenced value
@@ -256,11 +256,16 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **Room digests are never auto-injected into an agent's context**; only operator
   inbox messages are. Context cost is a first-class constraint here.
 - **The roster is the orchestrator's view (D-015).** Every age on a
-  `buddy sessions` row carries its own word, `PAUSED`/`claims N`/the last prompt
-  size trail the id, and the context window is DECLARED (`BUDDY_CONTEXT_WINDOW`)
-  or no percentage prints — the transcript cannot tell the 1M and 200k variants
-  apart. A header line, a stored branch, a `role` field, an undelivered-inbox
-  count and `--json` were all considered and cut; see the decision record.
+  `buddy sessions` row carries its own word, `PAUSED`/`idle N`/`claims N`/the
+  last prompt size trail the id, and the context window is DECLARED
+  (`BUDDY_CONTEXT_WINDOW`) or no percentage prints — the transcript cannot tell
+  the 1M and 200k variants apart. A header line, a stored branch, a `role`
+  field, an undelivered-inbox count and `--json` were all considered and cut;
+  see the decision record.
+- **Idle is reported; busy is never inferred (D-016).** The `Stop` hook marks a
+  session idle and `beat` clears it inside its own transaction. NO ROW MEANS
+  UNKNOWN: the hook is opt-in like every other one, so absence of `idle` must
+  never be rendered or read as "mid-turn".
 - **`pause`, `resume` and `msg` share ONE target namespace, resolved before it is
   stored**: `all`, session id, label, `s-<8hex>` short form, or an OPEN claim slug —
   most-specific-first, exact (never folded), and anything else is REFUSED rather than
