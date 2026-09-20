@@ -313,6 +313,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   **`bye` does not**, so a cleanly exited session leaves its scopes held (issue
   #15, unfixed). Refusals and `--dry-run` say when a holder has gone quiet, and
   a refusal prints the whole set even for one conflict.
+- **`whose` reports BOTH registers, claim first (D-023).** `CLAIMED BY` then
+  `DIRTY IN`, each printing `(none)` rather than being omitted — it was read as
+  "unclaimed" when it only ever meant "not dirty", and a session that has just
+  claimed a path has no dirty row at all.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

@@ -117,7 +117,9 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
               release <slug> [--scope <path> ...]    hand it back, or only the named
                                 scopes (exactly as claimed); the last scope releases it
               ls [--all]            list claims        inbox            drain my messages
-              whose <path>          who has uncommitted changes to it, so you can address them
+              whose <path>          BOTH registers: who has CLAIMED it (the one that
+                                    reserves, and the one the gate reads) and who has
+                                    uncommitted changes to it, so you can address them
               who is calling: --session <id>, else $BUDDY_SESSION, else $CLAUDE_CODE_SESSION_ID,
               else the worktree — and that only when it names the one live session there is
 operator      pause <target> [--note <text>]             deny the target's next mutating tool

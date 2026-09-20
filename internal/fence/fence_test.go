@@ -104,7 +104,30 @@ func TestFieldKeepsAValueToOneColumn(t *testing.T) {
 		{"a literal marker is escaped first",
 			"a␣b", "a\\u2423b",
 			"otherwise a value containing ␣ is indistinguishable from a space this function replaced"},
-		{"an empty value stays empty", "", "", "nothing to separate"},
+		// OVERTURNED, 2026-09-20, issue #13. This case used to expect "" with
+		// the reason "nothing to separate". That reason took the wrong reading
+		// of "separate": it is about the VALUE (nothing inside it to separate)
+		// where D-017's guarantee is about the ROW (the column must separate
+		// from its neighbour). A whitespace-splitting reader does not see a
+		// blank column; it sees the NEXT column's value in this one's position.
+		//
+		// The property comment at the bottom of this test — one value, one
+		// token, FOR ANYTHING AT ALL — was already false under the old case.
+		// (The loop below did NOT include "", so the old assertions were
+		// mutually consistent; it was the stated property they contradicted.
+		// Recorded precisely because the first draft of this change claimed the
+		// test contradicted itself, which overstates it: the overturn rests on
+		// the reachable forgery below, not on that.)
+		{"an empty value is still one token", "", "∅",
+			"a blank column is zero tokens and the next column slides into it"},
+		// And it is reachable from a NON-empty value, which is why no caller
+		// can prevent it by refusing empties: Line strips non-printing runes,
+		// so a label of one ESC — which `hello` accepts, requiring only
+		// non-empty — fences to nothing at all. (Codex finding, issue #13.)
+		{"a control-only value fences to the marker, not to nothing", "\x1b", "∅",
+			"`CLAIMED BY api-work    held 0s` otherwise reads with `held` as the label"},
+		{"a literal empty marker is escaped first", "∅", "\\u2205",
+			"otherwise a value containing ∅ is indistinguishable from one this function emitted"},
 	} {
 		if got := Field(tc.in, 128); got != tc.want {
 			t.Errorf("%s: Field(%q) = %q, want %q — %s", tc.name, tc.in, got, tc.want, tc.why)
@@ -112,7 +135,8 @@ func TestFieldKeepsAValueToOneColumn(t *testing.T) {
 	}
 	// The property the whole thing exists for, stated as the reader sees it:
 	// one value, one token, for anything at all.
-	for _, in := range []string{"a b", "a\tb", "  lots   of   space  ", "plain", "a\nb c", "a\u00a0b"} {
+	for _, in := range []string{"a b", "a\tb", "  lots   of   space  ", "plain", "a\nb c", "a\u00a0b",
+		"", "\x1b", "\x00\x01", "\u200b"} {
 		if n := len(strings.Fields(Field(in, 128))); n != 1 {
 			t.Errorf("Field(%q) = %q splits into %d fields, want 1", in, Field(in, 128), n)
 		}
@@ -124,4 +148,31 @@ func TestFieldKeepsAValueToOneColumn(t *testing.T) {
 	if got := Field(long, 128); !strings.Contains(got, strings.Repeat("y", 40)) {
 		t.Errorf("Field must keep the whole value when it fits the cap: %q", got)
 	}
+}
+
+// FuzzFieldIsOneToken states D-017's guarantee as a PROPERTY rather than a
+// table, which is the shape D-017 itself argued for. It holds for every input
+// by construction: strconv.IsPrint admits no unicode space but U+0020, Line
+// strips or collapses the rest, Field maps U+0020 to ␣, none of the inserted
+// markers contains whitespace, and an empty result becomes ∅. The table above
+// samples that; this asserts it.
+func FuzzFieldIsOneToken(f *testing.F) {
+	for _, seed := range []string{
+		"", " ", "plain", "a b", "a\tb", "a\nb c", "a b", "\x1b", "\x00\x01",
+		"​", "␣", "⏎", "∅", "␣∅⏎", "  lots   of   space  ", "\xe2\x1b\x88\x85",
+	} {
+		f.Add(seed, 128)
+	}
+	f.Fuzz(func(t *testing.T, s string, max int) {
+		if max < 0 {
+			max = 0
+		}
+		if max > 1<<16 {
+			max = 1 << 16
+		}
+		got := Field(s, max)
+		if n := len(strings.Fields(got)); n != 1 {
+			t.Fatalf("Field(%q, %d) = %q splits into %d tokens, want exactly 1", s, max, got, n)
+		}
+	})
 }

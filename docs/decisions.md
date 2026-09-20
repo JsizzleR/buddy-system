@@ -1030,7 +1030,118 @@ stays the only path. No change to what `ls --all` renders: a released claim's ro
 already labelled `released`, and the field report's confusion was reading that label as
 a live hold rather than the label being absent.
 
+## D-023 — `whose` answers with BOTH registers, and the claim comes first
+
+2026-09-20 · issue #13, two sessions measured wrong on one day
+
+**What was wrong** — `buddy whose <path>` reports who has uncommitted CHANGES to a
+path. Its NAME reads as ownership, so it was used to answer "is this claimed?" — and it
+is silent in exactly the state that matters most: a session that has claimed a path and
+not yet started editing it has no dirty row, and that is the state every session is in
+immediately after claiming. The two answers coincide often enough to look reliable and
+diverge precisely when the question is load-bearing. Measured: two sessions in one day
+read a `whose` result as "unheld" and were wrong; one decided it could write a shared
+file on that basis, and the file had been claimed by another session for hours. It
+caught the error only because a coordinator happened to hold the claim table and
+contradicted the answer. The output was honest about its limits once read; the defect
+was that nothing prompted the reader to read them.
+
+**What shipped** — Both registers, labelled, with the CLAIM first because it is the one
+that reserves anything and the one the commit gate adjudicates:
+
+```
+internal/api/server.go
+CLAIMED BY   api-work    alpha    held 2h
+             scopes: internal/api
+DIRTY IN     (none)
+```
+
+`ClaimsTouching` reports both relations and KEEPS THEM APART. `CLAIMED BY` is invariant
+14's containment exactly — a claim on `internal/api` covers `internal/api/server.go`, a
+claim on `internal/apiv2` covers nothing — and is the relation the gate adjudicates.
+`HELD UNDER` is a claim on a path INSIDE the one asked about; it reserves nothing about
+that path and says so on its own heading. Merging them would answer a question the
+reader did not ask with the authority of the one they did.
+
+**IT CONSULTS NO FILESYSTEM.** The first shape took an `asDir` flag that `whose`
+computed with `os.Stat`, and applied the held-under arm only when the directory existed
+LOCALLY. A peer claiming `internal/newpkg/foo.go` — the natural state for a package
+somebody has just reserved IN ORDER TO CREATE IT — therefore read back as
+`CLAIMED BY (none)`: this command's own defect wearing the new feature's clothes. A
+claim is declared intent and can name a path that exists nowhere yet. The dirty register
+still consults the filesystem, because git only knows files that exist; the claim
+register must not. The test for it carries no `MkdirAll` and says why.
+
+**`(none)` IS PRINTED, never omitted.** The entire defect was a silent answer read as
+"nobody has this", and an absent line and a "none" line are the two things a reader
+confuses. The same reasoning put a label on the no-holder path: its sentence is "no
+session has it recorded", which used to be the whole answer and now sits directly under
+a CLAIMED BY line, where unlabelled it reads as contradicting the claim two lines above.
+
+**What it deliberately does not do** — No rename to `buddy dirty`. The issue offered it
+as an alternative and it is worse: every existing caller, every doc and every habit
+names `whose`, and the reader who needed this answer was asking the right question of
+the right command. Reporting both is what the name always promised. Neither register
+becomes a lock: the dirty rows stay OBSERVATIONS (invariant 10) and the claim block
+changes no enforcement.
+
+**A `fence.Field` DECISION WAS OVERTURNED to ship this.** `Field("")` returned `""`, with
+the recorded reason "nothing to separate". That reason takes the wrong reading of
+"separate": it is about the VALUE (nothing inside it to separate) where D-017's guarantee
+is about the ROW (the column must separate from its neighbour). A whitespace-splitting
+reader does not see a blank column — it sees the NEXT column's value in this one's
+position, which is D-017's own failure (issue #6) arriving from the opposite side: #6 was
+a label too WIDE, this is one too NARROW. It is reachable from NON-empty values, so no
+caller can prevent it by refusing empties: `Line` strips non-printing runes, so a label of
+a single ESC — which `hello` accepts, requiring only non-empty — fences to nothing, and
+`CLAIMED BY api-work    held 0s` then reads with `held` in the label column. `Field` now
+returns `∅` for an empty result and escapes a literal `∅` first, as it already does for
+`␣` and `Line` does for `⏎`. The property now holds for EVERY input by construction, so it
+is stated as one: `FuzzFieldIsOneToken`.
+
+**What the reviews changed** — A Codex pass found two defects and predicted one surviving
+mutation. (1) `ClaimsTouching` read the matching claim ids and then materialized them in a
+SECOND query, so a refresh between the two — which keeps the claim id and REPLACES its
+scopes — could print `CLAIMED BY api-work` with `scopes: docs`, a claim reported as
+covering a path its recorded scopes do not cover; it now reads ONE snapshot and filters in
+Go, the same consistency `buddy ls` already has. (2) `ClaimInfo.Stale` reports an
+unrecorded `renewed` as stale, because a zero time is 56 years ago, so `whose` applied
+`staleNote`'s zero-clock guard too. A Fable pass then found the `os.Stat` gating above,
+the missing "still refuses" qualifier (D-022's own wording, absent from the one command
+the incident was about), a README sample still showing the one-register shape under a
+comment promising two, and a sentence in `ErrRefused.Error()` — "`claim --dry-run` lists
+the whole set" — that became false once the refusal started printing the set two lines
+above it. It also corrected the rationale recorded here: the old fence test did not
+contradict ITSELF (its loop never included `""`); the stated PROPERTY contradicted the
+case, and the overturn rests on the reachable forgery alone.
+
+**Residuals** — The claim block is capped at 20 rows like the dirty block. A path can be
+claimed by a session whose worktree is elsewhere; the claim register does not print
+worktrees, because a claim is repo-wide while a dirty row is per-worktree. `whose` does
+not mark the asker's OWN claim the way `sessions` marks its own row. `buddy claim ""` is
+still accepted — `cmdClaim` refuses only a leading `-` and `store.Claim` never validates
+the slug — so an empty slug can reach a listing; it renders as `∅` now rather than
+collapsing a column, but refusing it at intake is a separate decision.
+
 ## Known unfixed
+
+- **A delayed `bye` ends a LIVE incarnation, and the next peer's `hello` orphans its
+  claims (invariant 12 is written but not enforced).** `Store.Bye`'s fence is
+  `(incarnation=? OR ?='')` and its only caller, `cmdBye`, passes `""`, which
+  short-circuits it. It has nothing else to pass: `hookInput` carries `session_id`,
+  `cwd`, `tool_name` and `transcript_path`, and the harness gives a hook NO
+  incarnation. Reproduced end to end in `TestKnownGap_ADelayedByeEndsALiveIncarnation`,
+  which pins the wrong behaviour on purpose so a fix cannot land unnoticed. The
+  consequence is not cosmetic: `Beat` is `WHERE session_id=? AND ended IS NULL` and
+  returns nil on no match, so the wrongly-ended session's own heartbeats become silent
+  no-ops and it cannot clear the flag; `orphanEnded` runs inside every `Hello`, so a
+  peer's startup takes its scopes while it is still editing. **The obvious fix is
+  forbidden by the other half of invariant 12** — having `beat` clear `ended` is
+  exactly "a delayed beat must not resurrect an ended session" — so closing this
+  needs a decision about the invariant, not a patch. Measured frequency: 0 in 358
+  sessions on this box, so it is latent. The trigger is a session resumed under the
+  same id (`--resume` keeps it) whose previous incarnation's `SessionEnd` hook fires
+  late.
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
   TOCTOU window between verdict and write, and cannot bind a process that bypasses the

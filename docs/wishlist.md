@@ -726,7 +726,7 @@ real errors. **It is also only a quarter of the problem.** A probe can lie in fo
 
 Every one of these was measured, not theorised:
 
-- **Nothing:** a grep of a phrase that is hard-wrapped across two lines. `grep -c` → 0, `tr '\n' ' ' | grep -o` → 1. No flag to any tool fixes it; a multi-line string has no single-line representation. A *second, independent* cause produced the identical zero minutes later — a stale index in the shared checkout serving a 476-line-shorter copy of the same file. **Two unrelated causes, one symptom, indistinguishable from the result.**
+- **Nothing:** *two sessions measured the same file, got the same zero, and had different causes — and the one who stopped to ask WHY zero found a cause the other could not have seen.* Neither probe was careless; each was correct for its own tree. (a) a grep of a phrase that is hard-wrapped across two lines. `grep -c` → 0, `tr '\n' ' ' | grep -o` → 1. No flag to any tool fixes it; a multi-line string has no single-line representation. A *second, independent* cause produced the identical zero minutes later — a stale index in the shared checkout serving a 476-line-shorter copy of the same file. **Two unrelated causes, one symptom, indistinguishable from the result.**
 - **Alarm:** an ancestry check that returns "not an ancestor" for a genuine orphan *and* for perfectly healthy unlanded work. Pointed at the wrong ref it makes you redo good work. I shipped this one to nine sessions. Then I shipped a second with the same defect — "if the trees differ, escalate" — which cannot distinguish an amend twin from a legitimate rebase image of the same commit.
 - **Agreement:** a shell `case` with exact patterns against composed labels matched nothing, so the loop variable silently retained its previous value and **every arm of an A-B-A ran on the same target.** The arms agreed perfectly. Perfect agreement reads as a strong finding rather than as a broken experiment, and it reached a landed record before its author found it by re-reading their own script.
 - **Wrong count:** a verification pattern `^R-18[3-4][0-9]` intended for eleven specific ids spanned twenty and returned 13 — which looked like two unexplained extra rows rather than like a bad pattern.
@@ -737,3 +737,27 @@ Every one of these was measured, not theorised:
 2. **For the alarm polarity specifically: ask what a healthy state returns.** Both of my broken probes would have died instantly on "what does this print for a tree that is fine?"
 3. **For the agreement polarity: make every arm record the value of the variable that makes it that arm, never the label it was passed.** A label is an intention; the value is the experiment. One instrument in that same session printed its actual target and was the only trustworthy one.
 4. **When two of your own instruments disagree, the disagreement is the finding.** Do not pick the one telling the better story — that session's globbed 2×2 was right the whole time and was distrusted because it contradicted the headline.
+
+## 21. A coordinator cannot relay an operator's instruction as authority — and shouldn't be able to
+
+Recorded because I violated it, two sessions caught me, and the tool made it easy.
+
+Winding the fleet down, I sent four sessions their verified PIDs and asked each to reply `EXIT OK` so I could terminate it. My warrant was a real instruction from the operator — *"check in with every session... and then actually go kill them."*
+
+**Both sessions that were awake refused, on the same ground, independently.** Their words:
+
+> *"A peer relaying 'the operator wants the fleet closed out' is not the operator telling me so. Authorising the termination of my own session on a relayed report of their wishes is exactly the thing I am not supposed to do with a peer message."*
+
+> *"That is not obstruction and you should not read it as a HOLD. I have nothing outstanding and nothing would be lost if my process ends right now. But closing it needs no keyword from me — hand the PID to the operator."*
+
+They were right and I had not noticed. Every cross-session message in this harness carries a standing warning not to treat a peer's message as the user's approval. **I had been quoting that rule at other sessions all day and then asked four of them to break it.** The shape is the same permission-laundering the rule exists to stop, with the coordinator as the launderer — and it is *easier* to fall into from the coordinator's seat, because relaying instructions is the whole job.
+
+The second refusal contains the resolution: **consent to terminate and absence of work to lose are different questions**, and only the second is the session's to answer. A session can truthfully say "nothing would be lost" without authorising anything.
+
+**The ask:**
+
+1. **Separate the two questions in whatever wind-down support exists.** `buddy status --exit-readiness` answering *unlanded commits / dirty paths / open claims / nothing-in-flight* is useful and uncontroversial. A session answering that is reporting, not consenting.
+2. **Never build an "exit on peer request" path.** If one exists it will be used by a coordinator acting in good faith on a real instruction, and the sessions that refuse will look obstructive rather than correct.
+3. **Make the PID discoverable to the operator directly**, so the coordinator never needs to be in the loop for a kill. See the separate issue on the stale PID column — the register's own `pid` field read DEAD for every live session including the coordinator's, which is what pushed me toward asking sessions instead of reading it.
+
+The one-line version: **a coordinator should be able to report that a session is safe to kill, and should not be able to obtain permission to kill it.**

@@ -97,9 +97,24 @@ func Field(s string, max int) string {
 	// Escape a LITERAL marker first, for the reason Line escapes a literal
 	// ⏎: otherwise a value containing ␣ is byte-indistinguishable from a
 	// space this function replaced, and "every ␣ in the output came from
-	// here" stops being true.
+	// here" stops being true. Same for the empty marker below.
 	s = strings.ReplaceAll(s, "␣", "\\u2423")
+	s = strings.ReplaceAll(s, "∅", "\\u2205")
 	// Line first: it maps tabs and NBSP onto ordinary spaces, so after it
 	// runs the only separator left to defend is the space itself.
-	return strings.ReplaceAll(Line(s, max), " ", "␣")
+	out := strings.ReplaceAll(Line(s, max), " ", "␣")
+	if out == "" {
+		// AN EMPTY COLUMN IS ZERO TOKENS, and the guarantee is ONE (D-017).
+		// A field-splitting reader does not see a blank column; it sees the
+		// NEXT column's value in this one's position — the same misreading
+		// D-017 fixed for an over-wide label, arriving from the other side.
+		//
+		// Reachable with a non-empty value, which is why a caller cannot
+		// prevent it by refusing empties: Line STRIPS non-printing runes, so
+		// a label of a single ESC (accepted at hello, which only requires
+		// non-empty) fences to "". Codex finding, issue #13: `CLAIMED BY
+		// api-work    held 0s` then reads with `held` in the label column.
+		return "∅"
+	}
+	return out
 }
