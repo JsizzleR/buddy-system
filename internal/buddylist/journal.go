@@ -432,6 +432,25 @@ type RoomStat struct {
 // addressed-unread counts. An empty session means "no cursor": unread then
 // equals everything retained, which is the honest answer for a caller that
 // has never read the room, not a claim that the room is unread.
+// KnowsRoom reports whether the journal holds any row for a room. It is the
+// "has history" half of the read refusal (see Daemon.dispatch's read arm): a
+// room dropped from the configured list after accruing rows must stay
+// readable, and so must the @sent/@dm pseudo-rooms, which no config lists.
+//
+// One seek on messages_room_seq, and it runs ONLY when a read came back empty,
+// so a room with traffic never pays for it.
+func (j *Journal) KnowsRoom(room string) (bool, error) {
+	var one int
+	err := j.db.QueryRow(`SELECT 1 FROM messages WHERE room=? LIMIT 1`, room).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (j *Journal) Stat(session string, mentions []string) ([]RoomStat, error) {
 	clause, margs, err := mentionClause(mentions)
 	if err != nil {

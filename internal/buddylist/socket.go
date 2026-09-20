@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // Request is one JSON line on the control socket.
@@ -185,6 +188,54 @@ func (d *Daemon) dispatch(req Request) Response {
 		msgs, gap, err := d.cfg.Journal.Read(opts)
 		if err != nil {
 			return Response{Error: err.Error()}
+		}
+		// AN UNKNOWN ROOM MUST NOT READ AS A QUIET ONE.
+		//
+		// THE FAILURE (2026-09-07, and again): sessions were told to read a
+		// room called `lobby`, which does not exist. Journal.Read is
+		// `WHERE room=? AND seq>?`, so a wrong name returns zero rows and
+		// renders as `(no messages)` — indistinguishable from a room nobody is
+		// talking in. Measured then: a session reported "the room is empty, all
+		// traffic goes through the message hook instead" while its actual
+		// project room held thousands of messages.
+		//
+		// The digest's room name was made derived rather than hardcoded, but
+		// the derivation is still a GUESS — it is the label's project half, and
+		// a linked worktree's label names the worktree, not the checkout. So a
+		// worktree session is told to read a room that was never joined. Two
+		// independent reviews landed on the same conclusion: fix the READ, not
+		// the guess, because the guess is only one of the ways a wrong name
+		// arrives (an explicit --label, a typo, and an MCP schema that until
+		// now said `e.g. "lobby"` are the others).
+		//
+		// Note the asymmetry this closes: Say already refuses with
+		// `not joined to room %q`. Send told the truth and read did not.
+		//
+		// NOT SERVED **AND** NO HISTORY, both clauses load-bearing. A room
+		// dropped from the configured list after accruing rows stays readable;
+		// the @sent/@dm pseudo-rooms, which no config lists, stay readable; and
+		// a CONFIGURED room with no traffic yet is still a truthful
+		// `(no messages)`. Only a name this daemon has never served and has
+		// never journalled is refused.
+		//
+		// The `len(msgs) == 0` guard buys COST, not behaviour, and a mutation
+		// removing it SURVIVES: Read's WHERE begins `room=?` on the same
+		// messages table KnowsRoom queries, so any row it returns implies
+		// KnowsRoom is true and the arm below could not have fired anyway. It is
+		// an equivalent mutation, recorded rather than chased with a test that
+		// cannot exist — what the guard actually prevents is a second query on
+		// every read of a busy room.
+		if len(msgs) == 0 {
+			if served := d.servesRoom(fold(req.Room)); served == "" {
+				known, kerr := d.cfg.Journal.KnowsRoom(req.Room)
+				if kerr != nil {
+					return Response{Error: kerr.Error()}
+				}
+				if !known {
+					return Response{Error: fmt.Sprintf("room %q: this daemon does not serve it and has no history for it; it serves %s",
+						fence.Line(req.Room, 64), fence.Line(strings.Join(d.cfg.Rooms, ", "), 256))}
+				}
+			}
 		}
 		return Response{OK: true, Msgs: msgs, Gap: gap, Cursor: opts.After}
 	case "stat":

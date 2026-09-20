@@ -175,7 +175,7 @@ var mcpToolTable = []tool{
 			"type":     "object",
 			"required": []string{"room", "text"},
 			"properties": map[string]any{
-				"room": map[string]any{"type": "string", "description": "room name, e.g. \"lobby\""},
+				"room": map[string]any{"type": "string", "description": "room name, as named in your SessionStart digest (there is no \"lobby\"); an unserved name is refused, not answered empty"},
 				"text": map[string]any{"type": "string", "description": "concise message; routine cap 750 bytes"},
 				"long": map[string]any{"type": "boolean", "description": "explicitly allow a deliberate handoff up to 4096 bytes"},
 			},
@@ -188,7 +188,7 @@ var mcpToolTable = []tool{
 			"type":     "object",
 			"required": []string{"room"},
 			"properties": map[string]any{
-				"room":        map[string]any{"type": "string", "description": "room name, e.g. \"lobby\""},
+				"room":        map[string]any{"type": "string", "description": "room name, as named in your SessionStart digest (there is no \"lobby\"); an unserved name is refused, not answered empty"},
 				"after":       map[string]any{"type": "integer", "description": "return messages with seq greater than this (0 = from the retention horizon)"},
 				"before":      map[string]any{"type": "integer", "description": "return the messages just BEFORE this seq — walks backwards through history"},
 				"tail":        map[string]any{"type": "integer", "description": "return the newest N messages instead of paging forward; the fastest answer to \"what did I miss?\""},

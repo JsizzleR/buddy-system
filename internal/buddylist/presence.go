@@ -461,8 +461,15 @@ func (d *Daemon) servedRoom(label string) string {
 	if project == "" {
 		return ""
 	}
+	return d.servesRoom(project)
+}
+
+// servesRoom returns the configured room matching an already-folded name, or
+// "". Factored out of servedRoom so the READ path can ask the same question
+// the presence path has always asked — see the read arm of Daemon.dispatch.
+func (d *Daemon) servesRoom(folded string) string {
 	for _, room := range d.cfg.Rooms {
-		if fold(room) == project {
+		if fold(room) == folded {
 			return room
 		}
 	}
