@@ -310,3 +310,88 @@ func (s *Store) ReleaseScopes(sessionID, incarnation, slug string, scopes []stri
 	}
 	return remaining, nil
 }
+
+// ClaimsTouching lists the OPEN claims that bear on relPath: one whose scope
+// COVERS it (invariant 14's containment, the rule the gate adjudicates), and,
+// for a directory argument, any held UNDER it.
+//
+// THE FAILURE (issue #13). `buddy whose <path>` reports who has uncommitted
+// CHANGES to a path — dirty-worktree attribution — and its name reads as
+// ownership, so it got used to answer "is this claimed?". It is silent in
+// exactly the state that matters most: a session that has claimed a file and
+// not yet started editing it is invisible to a dirty scan, and that is the
+// state every session is in immediately after claiming. Measured: two sessions
+// in one day read a whose result as "unheld" and were wrong; one decided it
+// could write a shared file on that basis, and the file had been claimed by
+// another session for hours. It caught the error only because a coordinator
+// happened to hold the claim table and contradicted the answer.
+//
+// The two registers are reported separately and the CLAIM comes first, because
+// it is the one that reserves anything. Both are advisory, and saying which is
+// which is the whole point: coinciding often enough to look reliable is what
+// made the trap.
+// ClaimTouch is one open claim that bears on a path, and HOW it bears on it.
+// Covers is invariant 14's containment — the relation the gate adjudicates.
+// Anything else is a claim held UNDER the path, which reserves nothing about
+// the path itself and is reported because "who has anything in src/?" is a
+// real question, not because it is the same answer.
+type ClaimTouch struct {
+	Claim  ClaimInfo
+	Covers bool
+}
+
+// ClaimsTouching lists the OPEN claims that bear on relPath.
+//
+// THE FAILURE (issue #13). `buddy whose <path>` reports who has uncommitted
+// CHANGES to a path — dirty-worktree attribution — and its name reads as
+// ownership, so it got used to answer "is this claimed?". It is silent in
+// exactly the state that matters most: a session that has claimed a path and
+// not yet started editing it is invisible to a dirty scan, and that is the
+// state every session is in immediately after claiming. Measured: two sessions
+// in one day read a whose result as "unheld" and were wrong; one decided it
+// could write a shared file on that basis, and the file had been claimed by
+// another session for hours.
+//
+// NO FILESYSTEM. The first shape took an asDir flag that `whose` computed with
+// os.Stat, and applied the held-under arm only when the directory existed
+// LOCALLY. A peer claiming `internal/newpkg/foo.go` — the natural state for a
+// package somebody has just reserved in order to CREATE it — therefore read
+// back as `CLAIMED BY (none)`, which is this command's own defect wearing the
+// new feature's clothes (Fable review, issue #13). A claim is declared intent:
+// it can name a path that does not exist here, or anywhere, yet. The dirty
+// register still consults the filesystem, because git only knows files that
+// exist; the claim register must not.
+func (s *Store) ClaimsTouching(relPath string) ([]ClaimTouch, error) {
+	// ONE snapshot, then filter in Go.
+	//
+	// Codex finding (issue #13): an earlier shape scanned claim_scopes to pick
+	// claim ids, then materialized each id in a SECOND query. A claim can be
+	// refreshed or released between the two — a refresh keeps the claim id and
+	// REPLACES its scopes — so `whose internal/api/server.go` could print
+	// `CLAIMED BY api-work` with `scopes: docs`: a claim reported as covering a
+	// path whose recorded scopes do not cover it, or a released claim rendered
+	// as held. Reading every open claim once and matching against the scopes
+	// that came back with it cannot disagree with itself, and it is the same
+	// consistency `buddy ls` already has rather than a new class of read.
+	rel := fold(relPath)
+	all, err := s.claimsWhere(`WHERE c.state='open'`)
+	if err != nil {
+		return nil, err
+	}
+	var out []ClaimTouch
+	for _, c := range all {
+		covers, under := false, false
+		for _, sc := range c.Scopes {
+			folded := fold(sc)
+			if scopeCovers(folded, rel) {
+				covers = true
+			} else if scopeCovers(rel, folded) {
+				under = true
+			}
+		}
+		if covers || under {
+			out = append(out, ClaimTouch{Claim: c, Covers: covers})
+		}
+	}
+	return out, nil
+}

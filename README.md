@@ -154,8 +154,11 @@ every recipient rationally ignores it — which is exactly what happened here, t
 seven sessions at once. Delivery was never the missing piece; addressing was.
 
 ```sh
-buddy whose CHANGELOG.md
+buddy whose CHANGELOG.md           # BOTH registers: CLAIMED BY, then DIRTY IN
 # CHANGELOG.md
+# CLAIMED BY   changelog-pass           repo/s-5d6c5614          held 34m
+#              scopes: CHANGELOG.md
+# DIRTY IN
 #   repo/s-5d6c5614   live          2m  uncommitted    34m  this worktree
 #   repo/s-82bacdd8   live STALE   39h  uncommitted     2h  other worktree: /path/to/wt-2
 buddy msg repo/s-5d6c5614 "your 0.1.20 bullet goes stale with my change"

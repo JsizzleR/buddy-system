@@ -190,6 +190,24 @@ ledger row entered through the CLI (D-006).
     paths cannot disagree, and a refusal now prints the whole set even when there is only
     one conflict.
 
+27. **`buddy whose <path>` reports the claim registers first, then `DIRTY IN` (D-023).**
+    `CLAIMED BY` is invariant 14 containment and the relation the gate reads; `HELD UNDER`
+    is a claim on a path inside the one asked about and reserves nothing about it — they
+    are kept apart on purpose. The claim lookup consults NO FILESYSTEM (an `os.Stat` gate
+    made a claim under a not-yet-created directory read as `(none)`), and reads ONE
+    snapshot rather than matching ids and materializing them separately. `(none)` prints
+    explicitly rather than being omitted — the defect was a silent answer read as "nobody
+    has this" — and a stale claim is marked `STALE (still refuses)`, D-022's wording.
+    Neither register is a lock: dirty rows stay observations (invariant 10). It was NOT
+    renamed to `buddy dirty`.
+
+27a. **`fence.Field` returns `∅` for an empty result, overturning "an empty value stays
+    empty" (D-023).** A blank column is ZERO tokens and D-017 guarantees ONE, so the next
+    column slides into its position. Reachable from non-empty values, because `Line`
+    strips non-printing runes: a label of one ESC fences to nothing. A literal `∅` is
+    escaped first, as `␣` and `⏎` already are. The property holds for every input by
+    construction and is asserted as one (`FuzzFieldIsOneToken`).
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

@@ -163,3 +163,65 @@ func TestAVeryOldClaimStillRefuses(t *testing.T) {
 		t.Fatal("a month-old claim was silently taken over; only sweep --force may do that, and only by the operator")
 	}
 }
+
+// TWO stale holders, both annotated, on BOTH paths.
+//
+// Codex predicted the mutation this closes: dropping Renewed from the More
+// entries of ErrRefused. Every other test here exercises a single conflict, so
+// the first conflict's clock is the only one asserted — the dry run would
+// annotate both holders and the refusal only the first, and no test would say
+// so. That is the forecast/refusal divergence D-019 exists to prevent, arriving
+// one field further in.
+func TestEveryConflictCarriesItsOwnHolderClock(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	b := hello(t, st, "sess-b", "bravo", "/wt/b")
+	c := hello(t, st, "sess-c", "charlie", "/wt/c")
+	if err := st.Claim(a.SessionID, a.Incarnation, "pa", "a", []string{"pkg/a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Claim(b.SessionID, b.Incarnation, "pb", "b", []string{"pkg/b"}); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(3 * time.Hour) // both holders quiet
+
+	_, conflicts, err := st.ClaimConflicts(c.SessionID, c.Incarnation, "all-pkg", []string{"pkg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 2 {
+		t.Fatalf("want two holders under pkg, got %d", len(conflicts))
+	}
+	for _, cf := range conflicts {
+		if cf.Renewed.IsZero() {
+			t.Fatalf("dry run conflict %q carries no holder clock", cf.Slug)
+		}
+	}
+
+	err = st.Claim(c.SessionID, c.Incarnation, "all-pkg", "x", []string{"pkg"})
+	var refused ErrRefused
+	if !errors.As(err, &refused) {
+		t.Fatalf("want a refusal, got %v", err)
+	}
+	if len(refused.More) != 1 {
+		t.Fatalf("want both holders in the refusal, got 1+%d", len(refused.More))
+	}
+	// EVERY entry, not just the first: the More entries are what the CLI
+	// rebuilds the annotated set from.
+	if refused.Renewed.IsZero() {
+		t.Fatal("the first conflict lost its clock")
+	}
+	if refused.More[0].Renewed.IsZero() {
+		t.Fatal("a LATER conflict lost its clock, so the refusal would annotate fewer holders than the dry run forecast")
+	}
+	// And they agree with the forecast, holder by holder.
+	byslug := map[string]time.Time{}
+	for _, cf := range conflicts {
+		byslug[cf.Slug] = cf.Renewed
+	}
+	for _, r := range append([]ErrRefused{refused}, refused.More...) {
+		if want, ok := byslug[r.Slug]; !ok || !want.Equal(r.Renewed) {
+			t.Fatalf("refusal clock for %q (%v) disagrees with the forecast (%v)", r.Slug, r.Renewed, want)
+		}
+	}
+}

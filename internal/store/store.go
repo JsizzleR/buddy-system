@@ -590,7 +590,10 @@ func (e ErrRefused) Error() string {
 		msg = fmt.Sprintf("scope %q overlaps %q held by %s (slug %q)", e.Scope, e.Their, e.Claimant, e.Slug)
 	}
 	if n := len(e.More); n > 0 {
-		msg += fmt.Sprintf(" — and %d more conflict(s); `claim --dry-run` lists the whole set", n)
+		// "run --dry-run to see the set" was true until the refusal began
+		// printing the set itself (D-022): the advice now sends the reader to
+		// re-run a command for output that is already two lines above.
+		msg += fmt.Sprintf(" — and %d more conflict(s), listed above", n)
 	}
 	return msg
 }

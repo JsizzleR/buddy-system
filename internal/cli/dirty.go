@@ -441,6 +441,17 @@ func cmdWhose(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	// The CLAIM register, first and separately (issue #13). `whose` reports
+	// dirty-worktree attribution, its name reads as ownership, and it is silent
+	// in exactly the state that matters most — a session that has claimed a
+	// path and not yet edited it. Two sessions read "unheld" off this command
+	// and were wrong on the same day. The claim comes first because it is the
+	// one that reserves anything; the dirty rows stay because they answer a
+	// different and equally real question (who is EDITING this right now).
+	claimed, err := st.ClaimsTouching(rel)
+	if err != nil {
+		return err
+	}
 	now := nowOf(env)
 	here := worktreeKey(top)
 
@@ -449,10 +460,12 @@ func cmdWhose(args []string, env Env) error {
 		label += "/  (everything under it)"
 	}
 	fmt.Fprintf(env.Stdout, "%s\n", label)
+	printClaimRegister(env, claimed, now)
 	if len(holders) == 0 {
 		reportNoHolder(env, top, rel, dir)
 		return nil
 	}
+	fmt.Fprintln(env.Stdout, "DIRTY IN")
 	// Capped like the notice: the notice points the reader here, and this
 	// output lands in an agent's context as a tool result.
 	const maxRows = 20
@@ -480,8 +493,9 @@ func cmdWhose(args []string, env Env) error {
 			age(now, h.FirstSeen), where)
 	}
 	fmt.Fprint(env.Stdout, "\nadvisory: a dirty path is an observation, never a lock — nobody is blocked and\n"+
-		"no scope is reserved. `buddy msg <label> \"...\"` reaches a live session after its\n"+
-		"next tool call; `buddy claim` is what actually reserves a scope.\n")
+		"no scope is reserved by it. The CLAIMED BY block above is the register that does\n"+
+		"reserve, and the one the commit gate reads. `buddy msg <label> \"...\"` reaches a\n"+
+		"live session after its next tool call.\n")
 	for _, h := range holders {
 		if h.Owner.Live() && h.Stale(now) {
 			fmt.Fprintf(env.Stdout, "note: %s has not beaten in %s — it may be gone, and its rows name an owner\n"+
@@ -512,6 +526,12 @@ func sessionState(h store.DirtyRecord, now time.Time) string {
 // tool names it or a scan catches it, so anything dirtied before this feature
 // existed, or by a process outside the fleet, is invisible to the ledger.
 func reportNoHolder(env Env, top, rel string, dir bool) {
+	// Labelled as the DIRTY register (issue #13). These sentences say "no
+	// session has it recorded", which used to be the whole answer and now sits
+	// directly under a CLAIMED BY line — where, unlabelled, it reads as
+	// contradicting the claim printed two lines above it. Naming the register
+	// is the entire fix this issue is about: two answers that look like one.
+	fmt.Fprintln(env.Stdout, "DIRTY IN     (none)")
 	dirty, err := gitDirtyPaths(top)
 	if err != nil {
 		fmt.Fprint(env.Stdout, "  no session has recorded it — and git could not be consulted, so this is\n"+
@@ -539,4 +559,67 @@ func reportNoHolder(env Env, top, rel string, dir bool) {
 // underPrefix reports whether folded path p lies inside directory prefix.
 func underPrefix(p, prefix string) bool {
 	return strings.HasPrefix(store.Fold(p), store.Fold(prefix)+"/")
+}
+
+// printClaimRegister renders the claims bearing on the path, above the dirty
+// rows and labelled so the two registers cannot be confused (issue #13).
+// "CLAIMED BY (none)" is printed explicitly rather than omitted: the whole
+// defect was a silent answer being read as "nobody has this", and an absent
+// line and a "none" line are exactly what a reader confuses.
+func printClaimRegister(env Env, claimed []store.ClaimTouch, now time.Time) {
+	// Split by RELATION, not merged. "Covers this path" is invariant 14's
+	// containment and the relation the gate adjudicates; "held under it"
+	// reserves nothing about the path itself. Printing them under one heading
+	// would answer a question the reader did not ask with the authority of the
+	// one they did.
+	var covers, under []store.ClaimTouch
+	for _, c := range claimed {
+		if c.Covers {
+			covers = append(covers, c)
+		} else {
+			under = append(under, c)
+		}
+	}
+	printClaimRows(env, "CLAIMED BY  ", covers, now, true)
+	if len(under) > 0 {
+		fmt.Fprintln(env.Stdout, "HELD UNDER   (claims on paths inside this one — they reserve nothing about it)")
+		printClaimRows(env, "             ", under, now, false)
+	}
+}
+
+func printClaimRows(env Env, prefix string, claimed []store.ClaimTouch, now time.Time, sayNone bool) {
+	if len(claimed) == 0 {
+		if sayNone {
+			fmt.Fprintf(env.Stdout, "%s (none)\n", prefix)
+		}
+		return
+	}
+	const maxRows = 20
+	extra := 0
+	if len(claimed) > maxRows {
+		extra = len(claimed) - maxRows
+		claimed = claimed[:maxRows]
+	}
+	for _, t := range claimed {
+		c := t.Claim
+		// The SAME zero-clock guard staleNote applies (Codex finding, issue
+		// #13): ClaimInfo.Stale reports an unrecorded renewed time as stale,
+		// because a zero time is 56 years ago. "Not recorded" and "abandoned"
+		// are different answers and this command exists to stop exactly that
+		// class of confident-wrong one.
+		// D-022's wording, carried here too. `whose` is now the FIRST place a
+		// session looks to decide whether it may write, so a bare "STALE" is
+		// exactly the word a blocked session could read as permission. The
+		// refusal and the dry run both say it still refuses; so must this.
+		stale := ""
+		if !c.Renewed.IsZero() && c.Stale(now) {
+			stale = "  STALE (still refuses)"
+		}
+		fmt.Fprintf(env.Stdout, "%s %-24s %-24s held %s%s\n",
+			prefix, fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), age(now, c.Created), stale)
+		fmt.Fprintf(env.Stdout, "             scopes: %s\n", fence.Line(strings.Join(c.Scopes, ", "), 512))
+	}
+	if extra > 0 {
+		fmt.Fprintf(env.Stdout, "             ...and %d more claim(s) not shown\n", extra)
+	}
 }
