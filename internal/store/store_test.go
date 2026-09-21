@@ -140,12 +140,12 @@ func TestSweepNeverReapsOpenClaimsOfLiveSessions(t *testing.T) {
 	}
 	clk.advance(90 * 24 * time.Hour) // far past any TTL
 
-	orphaned, deleted, err := st.Sweep(24*time.Hour, 24*time.Hour, false)
+	r, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if orphaned != 0 || deleted != 0 {
-		t.Fatalf("plain sweep touched a live session's open claim: orphaned=%d deleted=%d", orphaned, deleted)
+	if r.Orphaned != 0 || r.Deleted != 0 {
+		t.Fatalf("plain sweep touched a live session's open claim: orphaned=%d deleted=%d", r.Orphaned, r.Deleted)
 	}
 	claims, _ := st.Claims(false)
 	if len(claims) != 1 || claims[0].State != "open" {
@@ -174,22 +174,21 @@ func TestSweepLifecycle(t *testing.T) {
 	}
 
 	// First sweep: bye already orphaned b's claim; released row too young to delete.
-	orphaned, deleted, err := st.Sweep(24*time.Hour, 24*time.Hour, false)
+	r, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deleted != 0 {
-		t.Fatalf("young closed rows must be kept: deleted=%d", deleted)
+	if r.Deleted != 0 {
+		t.Fatalf("young closed rows must be kept: deleted=%d", r.Deleted)
 	}
-	_ = orphaned
 
 	clk.advance(25 * time.Hour)
-	_, deleted, err = st.Sweep(24*time.Hour, 24*time.Hour, false)
+	r, err = st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deleted != 2 {
-		t.Fatalf("aged released+orphaned rows should be deleted, got %d", deleted)
+	if r.Deleted != 2 {
+		t.Fatalf("aged released+orphaned rows should be deleted, got %d", r.Deleted)
 	}
 }
 
@@ -200,23 +199,26 @@ func TestSweepForceOrphansSilentSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.advance(25 * time.Hour)
-	orphaned, _, err := st.Sweep(24*time.Hour, 24*time.Hour, true)
+	r, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if orphaned != 1 {
-		t.Fatalf("force sweep should orphan the silent session's claim, got %d", orphaned)
+	if r.Orphaned != 1 {
+		t.Fatalf("force sweep should orphan the silent session's claim, got %d", r.Orphaned)
+	}
+	if len(r.OrphanedClaims) != 1 || r.OrphanedClaims[0].Slug != "silent" || r.OrphanedClaims[0].Label != "alpha" {
+		t.Fatalf("the orphaned claim must be named with its holder: %+v", r.OrphanedClaims)
 	}
 	// But a session heard from recently is untouched even under force.
 	b := hello(t, st, "sess-b", "bravo", "/wt/b")
 	if err := st.Claim(b.SessionID, b.Incarnation, "fresh", "x", []string{"pkg2"}); err != nil {
 		t.Fatal(err)
 	}
-	orphaned, _, err = st.Sweep(24*time.Hour, 24*time.Hour, true)
+	r, err = st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{Force: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if orphaned != 0 {
+	if r.Orphaned != 0 || len(r.OrphanedClaims) != 0 {
 		t.Fatal("force sweep must not orphan a recently-seen session's claim")
 	}
 }
@@ -500,26 +502,26 @@ func TestFreshOrphanIsNotDeletedInSameSweep(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.advance(25 * time.Hour) // claim is old, but its ORPHANING is new
-	orphaned, deleted, err := st.Sweep(24*time.Hour, 24*time.Hour, false)
+	r, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if orphaned != 1 || deleted != 0 {
-		t.Fatalf("orphan and delete must not happen in one pass: orphaned=%d deleted=%d", orphaned, deleted)
+	if r.Orphaned != 1 || r.Deleted != 0 {
+		t.Fatalf("orphan and delete must not happen in one pass: orphaned=%d deleted=%d", r.Orphaned, r.Deleted)
 	}
 	clk.advance(25 * time.Hour)
-	_, deleted, _ = st.Sweep(24*time.Hour, 24*time.Hour, false)
-	if deleted != 1 {
-		t.Fatalf("aged orphan should be deleted on the later pass, got %d", deleted)
+	r, _ = st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{})
+	if r.Deleted != 1 {
+		t.Fatalf("aged orphan should be deleted on the later pass, got %d", r.Deleted)
 	}
 }
 
 func TestSweepRejectsNonPositiveTTL(t *testing.T) {
 	st, _ := openTest(t)
-	if _, _, err := st.Sweep(0, 24*time.Hour, false); err == nil {
+	if _, err := st.Sweep(0, 24*time.Hour, SweepOpts{}); err == nil {
 		t.Fatal("ttl=0 must be rejected")
 	}
-	if _, _, err := st.Sweep(24*time.Hour, -time.Hour, false); err == nil {
+	if _, err := st.Sweep(24*time.Hour, -time.Hour, SweepOpts{}); err == nil {
 		t.Fatal("negative forceAfter must be rejected")
 	}
 }
@@ -531,7 +533,7 @@ func TestSweepGCsAgedInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.advance(25 * time.Hour)
-	if _, _, err := st.Sweep(24*time.Hour, 24*time.Hour, false); err != nil {
+	if _, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{}); err != nil {
 		t.Fatal(err)
 	}
 	if msgs, _ := st.Undelivered(a.SessionID, a.Label); len(msgs) != 0 {
@@ -1418,5 +1420,69 @@ func TestContextSampleTierIsGuardedByItsOwnClock(t *testing.T) {
 	got = mustSamples(t, st)["sess-a"]
 	if got.Cache1h != 7 || got.Cache5m != 0 || !got.TierAt.Equal(older) {
 		t.Fatalf("a new incarnation's row is its own: %+v", got)
+	}
+}
+
+// A dry-run sweep is the real sweep rolled back: it must report exactly what
+// the real run then does, and the real run must still find everything there.
+// Both halves matter — a forecast that under-reports is a lie, and a forecast
+// that consumed the population is issue #23 exactly (`--dry-run` was
+// unrecognised, ran a second real sweep, and printed a plausible zero).
+func TestSweepDryRunReportsTheRealRunAndWritesNothing(t *testing.T) {
+	st, clk := openTest(t)
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	b := hello(t, st, "sess-b", "bravo", "/wt/b")
+	c := hello(t, st, "sess-c", "charlie", "/wt/c")
+	if err := st.Claim(a.SessionID, a.Incarnation, "gone", "x", []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Release(a.SessionID, a.Incarnation, "gone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Claim(b.SessionID, b.Incarnation, "held", "x", []string{"b"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Claim(c.SessionID, c.Incarnation, "left", "x", []string{"c"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Bye(c.SessionID, c.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(25 * time.Hour)
+	// gone: released 25h ago, deleted. left: owner ended, orphaned. held:
+	// owner silent 25h, orphaned only under force.
+	for _, force := range []bool{false, true} {
+		dry, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{Force: force, DryRun: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		again, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{Force: force, DryRun: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(dry, again) {
+			t.Fatalf("force=%v: a second dry run found a different population — the first one wrote:\n%+v\n%+v", force, dry, again)
+		}
+		want := SweepResult{Orphaned: 1, Deleted: 1, OrphanedClaims: []SweepOrphan{{"left", "charlie", "sess-c"}}}
+		if force {
+			want = SweepResult{Orphaned: 2, Deleted: 1, OrphanedClaims: []SweepOrphan{{"held", "bravo", "sess-b"}, {"left", "charlie", "sess-c"}}}
+		}
+		if !reflect.DeepEqual(dry, want) {
+			t.Fatalf("force=%v dry run: got %+v, want %+v", force, dry, want)
+		}
+	}
+	real, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (SweepResult{Orphaned: 2, Deleted: 1, OrphanedClaims: []SweepOrphan{{"held", "bravo", "sess-b"}, {"left", "charlie", "sess-c"}}}); !reflect.DeepEqual(real, want) {
+		t.Fatalf("the real run after two dry runs: got %+v, want %+v", real, want)
+	}
+	after, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{Force: true, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Orphaned != 0 || after.Deleted != 0 || len(after.OrphanedClaims) != 0 {
+		t.Fatalf("after the real run a dry run must find nothing: %+v", after)
 	}
 }

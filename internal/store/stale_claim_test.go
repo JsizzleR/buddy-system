@@ -118,7 +118,7 @@ func TestOnlyLeavingOpenFreesAScope(t *testing.T) {
 			act: func(t *testing.T, st *Store, clk *pinnedClock, a SessionInfo) {
 				const forceAfter = 24 * time.Hour // cli.ForceAfter, passed in
 				clk.advance(forceAfter + time.Hour)
-				if _, _, err := st.Sweep(24*time.Hour, forceAfter, true); err != nil {
+				if _, err := st.Sweep(24*time.Hour, forceAfter, SweepOpts{Force: true}); err != nil {
 					t.Fatal(err)
 				}
 			}},

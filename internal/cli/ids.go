@@ -8,7 +8,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -61,12 +60,11 @@ func cmdIDs(args []string, env Env) error {
 			return err
 		}
 		fs := flag.NewFlagSet("ids take", flag.ContinueOnError)
-		fs.SetOutput(io.Discard)
 		note := fs.String("note", "", "what the block is for")
 		var session string
 		sessionFlag(fs, &session)
-		if err := fs.Parse(args[3:]); err != nil {
-			return fencedErr(err)
+		if help, err := parseFlags(fs, args[3:], idsUsage, env); help || err != nil {
+			return err
 		}
 		if fs.NArg() > 0 {
 			// Go's parser stops at the first non-flag, so `take record 5 junk

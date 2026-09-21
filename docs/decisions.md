@@ -1596,6 +1596,58 @@ actual control rows carry control. If the claim needs a scope to exist, it shoul
 real reservation and not a broad scope invented to carry a message.
 
 
+## D-031 — Every verb answers `--help` and refuses what it does not understand; `sweep --dry-run` is the real sweep rolled back
+
+2026-09-20 · issue #23
+
+**What was wrong** — `buddy sweep --help` performed a real sweep: 47 rows deleted on the
+operator's ledger by the one flag whose universal meaning is "tell me, do not do". `sweep`
+read `args[0] == "--force"` and nothing else, so any other argument fell through to a
+normal sweep. The follow-up `sweep --dry-run` was equally unrecognised, ran a SECOND real
+sweep, and printed `0 orphaned, 0 deleted` — the plausible zero of a population the first
+run had consumed, indistinguishable from a forecast honoured. And `sweep --verbose --force`
+ran unforced, since `--force` had to be first. `ls` had the same shape (`--all` or nothing,
+everything else ignored), and `init --help` created the ledger — turning the feature ON
+for a repo whose operator was asking what init does. The common root, shared with #14: the
+argument handling reported success for input it did not understand, so a caller could not
+tell "understood and done" from "not understood and done anyway".
+
+**What shipped** — Dispatch is a table: every verb carries its usage line, and `Run`
+answers `-h`/`-help`/`--help` in first position for all of them before the verb runs —
+without a ledger, without reading stdin, exit 0, nothing else. A help flag later in the
+line is the verb's own parser's job (`parseFlags`), because only the verb knows where its
+flag region ends; the flag spellings alone count, since a bare `help` is a legal target,
+slug or message word. Every flag-parsing verb refuses an unknown flag (fenced — flag's own
+diagnostic quotes the argument verbatim) and a stray positional after the flags
+(`noStray`: Go's parser stops at the first non-flag, so the stray would also swallow every
+flag behind it). `sweep`, `ls` and `init` now parse; `claim`, `release`, `pause` and
+`inbox` refuse the stray word they used to drop. Hook verbs keep their argument semantics
+untouched beyond `--help`; their contract is the JSON on stdin.
+
+`sweep --dry-run` is `store.SweepOpts{DryRun: true}`: the WHOLE sweep runs inside its
+transaction and returns a sentinel that rolls it back. It is deliberately not a second
+computation of the same predicates. `claim --dry-run` shares its conflict math with the
+refusal for the reason this shares the sweep with itself — a forecast that re-derives the
+answer differently drifts the first time somebody edits one `WHERE` and forgets the other.
+The store test runs two dry runs, the real run, and a dry run after it, and holds all four
+to the population. Orphaning is the one act of a sweep that changes what the gate refuses,
+so both the forecast and the real run name every claim they orphan, with its holder;
+deleting released rows past ttl stays a count.
+
+**What it deliberately does not do** — No `--dry-run` on verbs that have no forecast to
+give (`ls`, `resume`, `whose`). No central "help anywhere in argv" scan, for the `msg`
+body reason above. No change to how a hook verb treats a flag it does not know: a hook
+line is operator configuration, and the failure posture there is the hook's own
+(invariant 2), not a usage error's.
+
+**Test shape** — Seeded, as the issue said it must be: `gone` released 25h ago, `left`
+whose owner said bye, `held` whose owner is silent 25h. The forecast is taken first,
+every variant runs, the forecast is taken again and must not have moved — the assertion
+that fails against the old code for `--help`, `--dry-run` and `--verbose --force` alike —
+and then the real `--force` sweep is the positive control: it does what the forecasts
+said, names both orphans, and leaves a forecast of nothing.
+
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

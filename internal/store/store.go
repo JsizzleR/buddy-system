@@ -1281,32 +1281,86 @@ func (s *Store) SessionByID(sessionID string) (SessionInfo, bool, error) {
 	return si, true, nil
 }
 
+// SweepOpts selects what a sweep does beyond its always-on work.
+type SweepOpts struct {
+	// Force also orphans open claims whose owner has been silent past
+	// forceAfter — the operator's explicit act (invariant 11).
+	Force bool
+	// DryRun performs the WHOLE sweep inside its transaction and rolls it
+	// back, so the result is exactly what a real run would have done. It is
+	// not a second computation of the same predicates: `claim --dry-run`
+	// shares its conflict math with the refusal for the reason this shares
+	// the sweep with itself — a forecast that re-derives the answer
+	// differently drifts from it the first time somebody edits one WHERE
+	// clause and forgets the other (issue #23, where `sweep --dry-run` was an
+	// unrecognised flag that ran a second real sweep and printed a count
+	// that looked exactly like a forecast). A rolled-back transaction leaves
+	// the ledger file as it was.
+	DryRun bool
+}
+
+// SweepResult is what a sweep did — or, with DryRun, would have done.
+type SweepResult struct {
+	Orphaned int
+	Deleted  int
+	// OrphanedClaims names every claim this pass moved from open to
+	// orphaned. Orphaning is the one act of a sweep that changes what the
+	// gate refuses (the scope is free the moment the row flips), so it is
+	// the one act that is named row by row; deleting released rows past ttl
+	// is bookkeeping and stays a count. Slug and label are peer text: the
+	// caller fences them.
+	OrphanedClaims []SweepOrphan
+}
+
+// SweepOrphan is one claim a sweep orphaned, with the session that held it.
+type SweepOrphan struct {
+	Slug      string
+	Label     string
+	SessionID string
+}
+
+// errDryRun is the sentinel a dry-run sweep returns from inside its
+// transaction so that tx rolls back; Sweep swallows it. It never escapes.
+var errDryRun = errors.New("dry run: rolled back")
+
 // Sweep: orphan open claims of ended sessions; delete released/orphaned rows
 // past ttl (orphaning stamps renewed, so a fresh orphan is never deleted in
-// the same pass); GC delivered-or-aged inbox rows. With force, additionally
-// orphan open claims whose owner session has been silent past forceAfter —
-// an explicit operator action: a session that only thinks/reads does not move
-// last_seen, which is why plain sweep never does this.
-func (s *Store) Sweep(ttl, forceAfter time.Duration, force bool) (orphaned, deleted int, err error) {
+// the same pass); GC delivered-or-aged inbox rows. With opts.Force,
+// additionally orphan open claims whose owner session has been silent past
+// forceAfter — an explicit operator action: a session that only thinks/reads
+// does not move last_seen, which is why plain sweep never does this. With
+// opts.DryRun, all of it is rolled back and only the report survives.
+func (s *Store) Sweep(ttl, forceAfter time.Duration, opts SweepOpts) (SweepResult, error) {
+	var r SweepResult
 	if ttl <= 0 || forceAfter <= 0 {
-		return 0, 0, fmt.Errorf("sweep ttl/forceAfter must be positive (got %v, %v)", ttl, forceAfter)
+		return r, fmt.Errorf("sweep ttl/forceAfter must be positive (got %v, %v)", ttl, forceAfter)
 	}
-	err = s.tx(func(tx *sql.Tx) error {
+	err := s.tx(func(tx *sql.Tx) error {
 		now := s.now().Unix()
+		// The open set going in. Whatever is orphaned coming out and was in
+		// it is what THIS pass orphaned — named without repeating either
+		// orphaning predicate, so a change to one cannot be missed here.
+		wasOpen, err := openClaimIDs(tx)
+		if err != nil {
+			return err
+		}
 		n, err := orphanEnded(tx, now)
 		if err != nil {
 			return err
 		}
-		orphaned += n
+		r.Orphaned += n
 
-		if force {
+		if opts.Force {
 			res, err := tx.Exec(`UPDATE claims SET state='orphaned', renewed=? WHERE state='open' AND session_id IN
 				(SELECT session_id FROM sessions WHERE ended IS NULL AND last_seen < ?)`, now, now-int64(forceAfter.Seconds()))
 			if err != nil {
 				return err
 			}
 			m, _ := res.RowsAffected()
-			orphaned += int(m)
+			r.Orphaned += int(m)
+		}
+		if r.OrphanedClaims, err = orphanedFrom(tx, wasOpen); err != nil {
+			return err
 		}
 
 		cutoff := now - int64(ttl.Seconds())
@@ -1319,7 +1373,7 @@ func (s *Store) Sweep(ttl, forceAfter time.Duration, force bool) (orphaned, dele
 			return err
 		}
 		m, _ := res.RowsAffected()
-		deleted = int(m)
+		r.Deleted = int(m)
 
 		// Inbox GC: messages past ttl are dropped with their delivery marks.
 		if _, err := tx.Exec(`DELETE FROM inbox_delivery WHERE msg_id IN
@@ -1333,9 +1387,63 @@ func (s *Store) Sweep(ttl, forceAfter time.Duration, force bool) (orphaned, dele
 		if _, err := tx.Exec(`DELETE FROM inbox WHERE created < ?`, cutoff); err != nil {
 			return err
 		}
-		return sweepDirty(tx, now, cutoff)
+		if err := sweepDirty(tx, now, cutoff); err != nil {
+			return err
+		}
+		if opts.DryRun {
+			return errDryRun
+		}
+		return nil
 	})
-	return orphaned, deleted, err
+	if errors.Is(err, errDryRun) {
+		return r, nil
+	}
+	if err != nil {
+		return SweepResult{}, err
+	}
+	return r, nil
+}
+
+// openClaimIDs is the set of claim ids in state 'open' right now.
+func openClaimIDs(tx *sql.Tx) (map[string]bool, error) {
+	rows, err := tx.Query(`SELECT claim_id FROM claims WHERE state='open'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids[id] = true
+	}
+	return ids, rows.Err()
+}
+
+// orphanedFrom names the orphaned claims whose id is in wasOpen, in slug
+// order, each with its holder's label.
+func orphanedFrom(tx *sql.Tx, wasOpen map[string]bool) ([]SweepOrphan, error) {
+	rows, err := tx.Query(`SELECT c.claim_id, c.slug, s.label, c.session_id FROM claims c
+		JOIN sessions s ON s.session_id = c.session_id
+		WHERE c.state='orphaned' ORDER BY c.slug, c.claim_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SweepOrphan
+	for rows.Next() {
+		var id string
+		var o SweepOrphan
+		if err := rows.Scan(&id, &o.Slug, &o.Label, &o.SessionID); err != nil {
+			return nil, err
+		}
+		if wasOpen[id] {
+			out = append(out, o)
+		}
+	}
+	return out, rows.Err()
 }
 
 // Pause records a pause control against a RESOLVED target. It stores the
