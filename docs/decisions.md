@@ -1381,6 +1381,57 @@ render time. Two sessions can still share a label; buddy warns and does not refu
 intake, for D-017's reason (a refusal at `hello` turns the feature off silently for that
 session).
 
+## D-028 — A watched file that changed after a session started is announced to it once, on its next tool call
+
+2026-09-20 · issue #19 / wishlist §14; Codex design pass Q5
+
+**What was wrong** — A coordinator quoted the project's conventions file to two sessions
+as current fact. The sentence it quoted had been corrected on disk at 12:48 that day; its
+copy came from a context snapshot taken before that, and a compaction had carried the
+stale copy forward. Every check it could plausibly have run said current: main had moved
+ZERO commits since its snapshot's tip, because the correction was in a commit the snapshot
+already contained — the snapshot of the FILE predated it. The corrected sentence warned
+against the very error being made. Fixing a file does not reach the copies already
+issued, and the failure is invisible from inside: nothing distinguishes "I read this an
+hour ago" from "nine hours ago and it changed twice since". Buddy is the only component
+in the workflow that knows when a session started.
+
+**What shipped** — A watch list in the ledger (`buddy authority [add|rm <path>]`, bounded
+at eight because every entry is a `Stat` on every tool call; `CLAUDE.md` is always
+watched, it being the harness's own authority file and the one the incident was about).
+Two surfaces. `status`/`who` print an `AUTHORITY` block: each watched file whose
+recorded modification time postdates the session's registration, or one line saying
+nothing has. And `beat` carries a ONE-SHOT notice into the session's context on its next
+tool call — `BUDDY: CLAUDE.md changed on disk 10m ago, AFTER this session started (2h
+ago) — the copy in your context may be stale; re-read it before quoting or acting on it.`
+— deduplicated per (session, incarnation, file, mtime in nanoseconds), so a file changed
+twice warns twice and one changed once warns once. The notice is the half that would have
+caught the incident: the coordinator never ran a status command because it did not know
+it was stale, which is the whole shape of the defect. Fail-open like the dirty notice, and
+the mark is claimed only after the hook output was written, for the same at-least-once
+reason. The list lives in the ledger and not in git config because the check runs on the
+hot path, where a git fork is 7-9 ms against a 100 ms budget and the ledger is already
+open.
+
+**What it says, exactly** — That the file on disk has a modification time later than the
+session's start. Not that the contents differ from what the session read, not that the
+session has not re-read them since, and in a linked worktree not that main has moved — the
+file there changes only when that worktree pulls. `os.Stat`, not `Lstat`, because what a
+session reads is a symlink's target. Wording is the advisory, at both surfaces (Codex).
+
+**What it deliberately does not do** — No content fingerprint: a file rewritten with the
+same mtime, or restored to an older one, is not detected, and the record says so rather
+than the code pretending otherwise; an ever-seen set of mtimes cannot satisfy that, and a
+hash per tool call is a cost this hook does not pay for a case nobody has measured. No
+`> last notice` predicate: `> started` is the fact the incident turned on, and distinct
+later mtimes already re-warn. No git consulted: the incident is precisely the case git
+could not see.
+
+**Residuals** — A session that never runs a tool after the change is not told (the same
+residual every beat-borne notice has; `status` is the pull). The mtime clock is the
+filesystem's, compared against the ledger's wall clock at registration.
+
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

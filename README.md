@@ -286,6 +286,31 @@ prompt makes no tool call: a "hold" followed by a "go" is a deadlock, and the
 send that caused it used to report plain success. No idle row prints nothing,
 which means *unknown*, never busy.
 
+### 1a″. Authority files — a long session's copy of the rules rots silently
+
+```sh
+buddy authority                       # CLAUDE.md  (always)
+buddy authority add docs/playbook.md  # at most 8; every entry is a stat per tool call
+```
+
+A session's copy of `CLAUDE.md` is a snapshot from session start, and a
+compaction carries it forward faithfully. A coordinator nine hours into a run
+quoted a sentence that had been corrected on disk seven hours earlier, and
+every check it could run said current — main had moved zero commits, because
+the correction was in a commit its snapshot already contained. Buddy knows
+when each session started, so `beat` now says, **once per change, on the next
+tool call**:
+
+```
+BUDDY: CLAUDE.md changed on disk 10m ago, AFTER this session started (2h ago) — the copy in your context may be stale; re-read it before quoting or acting on it.
+```
+
+`buddy status` carries the same as an `AUTHORITY` line. It is an advisory
+about the file on disk — its modification time is later than your start —
+and nothing more: not that the contents differ from what you read, not that
+you have not re-read it since, and in a linked worktree not that `main` has
+moved, since the file there changes only when that worktree pulls.
+
 ### 1b. The commit gate — the second line
 
 The tool-call gate only ever sees the path a tool *declares*. A file written by

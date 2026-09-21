@@ -339,6 +339,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   operator gets the `pid` and `pane` on the row instead. `hello` warns once about a
   label worn twice; `msg` says when the recipient has an outstanding idle report, and
   says nothing when it has none.
+- **Authority files are watched by mtime and announced once (D-028).** `buddy
+  authority` lists at most 8 repo-relative paths, `CLAUDE.md` always; `beat` tells a
+  session ONCE per change, on its next tool call, that a watched file changed on disk
+  AFTER it started; `status` shows the same. It is an advisory about the file on disk,
+  never a claim about the session's copy; no fingerprint, no git.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

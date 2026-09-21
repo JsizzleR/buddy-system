@@ -246,6 +246,14 @@ ledger row entered through the CLI (D-006).
     outstanding idle report on a send, only when a current-incarnation idle row exists
     (D-016: absence says nothing), worded as the observation and not a prediction.
 
+31. **Authority files are watched by mtime, announced ONCE per change on the next tool
+    call, and the wording is an advisory (D-028).** The list is in the ledger (`buddy
+    authority`, at most 8; `CLAUDE.md` always), never git config on the hot path. The
+    check is `os.Stat` mtime > session `started`; dedup key is (session, incarnation,
+    folded path, mtime ns). It says the file on disk changed after the session started —
+    not that contents differ, not that the session has not re-read them, not that main
+    moved. No fingerprint, no `> last notice`, no git.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
