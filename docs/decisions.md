@@ -1648,6 +1648,76 @@ and then the real `--force` sweep is the positive control: it does what the fore
 said, names both orphans, and leaves a forecast of nothing.
 
 
+## D-032 — A send reports what the ledger holds about its recipient, never a prediction about it
+
+2026-09-21 · issue #24, including the filer's own narrowing comment
+
+**What was wrong** — `buddy msg` printed `queued for X — delivered after their next tool
+call` for every target. That is a statement about the future, and whether it comes true
+depends on the one thing the sender cannot see: whether X ever runs another tool. Measured:
+two sends 8 s apart to two freshly-started sessions at their first prompt — one delivered in
+28 s because that session happened to run a tool, the other in 159 s because a human had to
+be asked to type in its pane — and, the same night, 25 undelivered messages across four
+sessions that had all gone away, several of them asks to release claims that were blocking a
+queue. Every one had reported `queued`. The sender read the silence as "delivered and
+ignored" and waited, when the channel was dead. The filer's follow-up narrowed it correctly:
+the idle case was already signalled (D-027) and its absence is UNKNOWN by design (D-016);
+what was left was the ENDED target, knowable at send time and printed only as a stderr aside
+behind the confident stdout line, and the brand-new session that has no idle row because it
+has never finished a turn.
+
+**What shipped** — The result line is `queued for X — <what the ledger holds about X>`. One
+arm per send, most-alarming-first, every one an observation the ledger already had: it ENDED
+N ago, and nothing reads the row unless that id helloes again — naming the open claims it
+still holds, because a plain `buddy claim` displaces an ended holder (D-026) and the message
+was probably the wrong verb; its registered harness processes are all GONE (D-025's probe,
+diagnostic here as everywhere; nothing auto-ends); it last reported idle N ago (D-027's
+wording, kept); NOT SEEN FOR N past the 30 m stale mark, with no reason offered because none
+is known; registered N ago and not seen since — the first-prompt case, said as exactly that
+and not as idle or busy; or last seen N ago. Every arm ends in the mechanism, "delivery
+waits for its next tool call", and none in a forecast. Then, on every arm, how many EARLIER messages to that target
+are still undelivered and the age of the oldest: the fact that proves a channel is not
+draining, which any of the 25 sends after the first could have reported. A broadcast counts
+its live recipients not seen past the stale mark next to the D-027 idle count — two counts,
+because an idle row says why and a stale row says only that nothing was heard. `who`'s
+`INBOX` line dates its oldest row for the same reason. The ENDED fact moved from the shared
+resolver's stderr onto the line; the dry run keeps its own note.
+
+**What it deliberately does not do** — It never says "delivered": delivery is the recipient's
+act, on its next hook, and this command has returned before it; `who <target>` is the check
+after the fact. The WORD is refused by the test, not one spelling of it: the first shape
+wrote "delivered on its next tool call" on the two quiet arms, which is the old prediction
+respelled, and the Codex code pass caught it. It does not REFUSE an ended target. That was proposed in the issue and
+declined for D-013's reason, which still holds: `hello` revives a session under its own id
+and reports the queued count, so the row is correct and durable, and a refusal would lose
+the one message a resumed session could have read — the line now says, on stdout, that
+nothing reads it until then, which is what the sender needed. It does not infer busy: a
+session with no idle row and a recent beat is "last seen 4s ago", not "working". It does not
+say "no tool call yet" for the fresh case, because the ledger keeps whole seconds and a beat
+inside the registration second is indistinguishable from none — "not seen since" is what the
+ledger knows. And it does not wake anybody (D-027).
+
+**What the code review changed** — A Codex code pass over the surfaces found the idle row
+and the process list each read TWICE inside one send — once in the case guard, once in the
+format — so a recipient beating between the reads (clearing its idle row) dereferenced nil
+before the write, and one concurrent beat aborted a message without queueing it. Every
+register is now read once. The GONE arm said "unless that id helloes again", which overstates
+it: a new process can register through a beat (D-025), so it now says only that no hook will
+come from a process that is not there. The broadcast counts were measured before the write
+and worded as "the recipients Msg just snapshotted", which a session ending in between made
+false; they are measured after the write and worded as live recipients. Three negative
+controls accepted a failed command with empty stdout and now require the send.
+
+**Test shape** — One table over ten states (the six arms, GONE over idle, a beat
+inside the registration second, exactly at and one second past the stale mark), each holding the line to its phrase, to the
+absence of the old prediction, and to the words the other states own (`idle`, `busy`,
+`STALE`, `GONE`, `ENDED`), with `who`'s INBOX count as the positive control that a send
+happened. The backlog test sends four times with the clock moving, counts an undelivered
+broadcast, then drains the inbox and holds the note to nothing. The broadcast test's control
+is a beat clearing the stale count. The dry-run test's positive control moved from the stderr
+aside to the result line. Every test was watched to fail against the old line.
+
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

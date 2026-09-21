@@ -277,6 +277,15 @@ ledger row entered through the CLI (D-006).
     computation of its predicates, and both runs name every claim they orphan. Do not propose
     a help scan across argv, or a forecast that re-derives the sweep.
 
+35. **A send reports what the ledger holds about its recipient, never a prediction (D-032).**
+    `msg` prints `queued for X — <observation>`: ENDED N ago (naming the open claims a plain
+    `buddy claim` displaces, D-026), harness process GONE, last reported idle N ago (D-027),
+    NOT SEEN past the stale mark, registered and not seen since, or last seen N ago — one
+    arm, most-alarming-first — then how many earlier messages to X are still undelivered and
+    the age of the oldest. `who` dates its INBOX line the same way. It never says "delivered",
+    never infers busy, and does not refuse an ended target (D-013: `hello` revives the id).
+    Do not propose a delivered receipt, a refusal on ENDED, or a wake.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

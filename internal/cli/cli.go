@@ -2010,13 +2010,11 @@ func cmdMsg(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	resolve := resolveTarget
-	if *dry {
-		resolve = func(st *store.Store, raw string, _ Env) (store.Target, error) {
-			return resolveTargetQuiet(st, raw)
-		}
-	}
-	tgt, err := resolve(st, target, env)
+	// Quiet on BOTH paths: the resolver's stderr aside about an ENDED target
+	// was the whole signal a real send gave, and it sat behind a confident
+	// stdout line (issue #24). The fact now leads the result line itself
+	// (sendNote), and the dry run has its own note below.
+	tgt, err := resolveTargetQuiet(st, target)
 	if err != nil {
 		return err
 	}
@@ -2036,49 +2034,165 @@ func cmdMsg(args []string, env Env) error {
 			len(body), fence.Line(tgt.String(), 128), fence.Line(sender, 64))
 		return nil
 	}
+	// A DIRECT note is measured BEFORE the write, so the backlog it reports is
+	// the EARLIER messages and never the one being sent. A BROADCAST note is
+	// measured AFTER it, because Msg snapshots the live recipients inside its
+	// own transaction and a count taken before the write could name a session
+	// that ended in between and was never a recipient (Codex code pass); the
+	// read after is still a separate query, and the wording says "live
+	// sessions", not "the snapshot". Either way it is printed after the write,
+	// so a refused write prints no line at all. "queued" is the one thing this
+	// command did; everything after the dash is what the ledger holds about
+	// whether it will be read.
+	note := ""
+	if tgt.ID != store.AllTarget {
+		note = sendNote(st, env, tgt, nowOf(env))
+	}
 	if err := st.Msg(tgt, sender, body); err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "queued for %s — delivered after their next tool call%s\n",
-		fence.Line(tgt.String(), 128), idleNote(st, tgt, nowOf(env)))
+	if tgt.ID == store.AllTarget {
+		note = sendNote(st, env, tgt, nowOf(env))
+	}
+	if note == "" {
+		fmt.Fprintf(env.Stdout, "queued for %s\n", fence.Line(tgt.String(), 128))
+	} else {
+		fmt.Fprintf(env.Stdout, "queued for %s — %s\n", fence.Line(tgt.String(), 128), note)
+	}
 	return nil
 }
 
-// idleNote says, on a send, when the recipient has reported itself idle —
-// because delivery rides the heartbeat and an idle session makes no tool
-// call, so a "hold" followed by a "go" deadlocks with both sides believing
-// the other is working (issue #12: two sessions sat idle 2h and 3h on a
-// shared resource that was free, and the coordinator's send had SUCCEEDED).
-// The ask was a signal on send, not a mechanism; this is the signal.
+// sendNote is what a send's result line says about its RECIPIENT: the
+// ledger's observation of that session, never a prediction about it.
 //
-// It prints ONLY when an idle row exists for the current incarnation, and
-// its absence says nothing: no row means UNKNOWN, never busy (D-016). The
-// wording is the observation and not a prediction — "last reported idle;
-// delivery waits for its next tool call" — because between the Stop hook
-// and the next beat the operator may already have prompted it (Codex design
-// pass). For a broadcast it counts the LIVE recipients with an outstanding
-// idle report, which is the audience Msg just snapshotted.
-func idleNote(st *store.Store, t store.Target, now time.Time) string {
-	idle, err := st.IdleSessions()
-	if err != nil || len(idle) == 0 {
+// THE FAILURE (issue #24). The line read `queued for X — delivered after
+// their next tool call` for every target. That is a statement about the
+// future, and whether it comes true depends on the one thing the sender
+// cannot see — whether X ever runs another tool. Measured: two sends 8 s
+// apart to two freshly-started sessions, one delivered in 28 s because the
+// session happened to run a tool, the other in 159 s because a human had to
+// be asked to type in its pane; and, the same night, 25 undelivered messages
+// across four sessions that had all gone away, several of them asks to
+// release claims that were blocking a queue. Every one had reported `queued`.
+// The sender read the silence as "delivered and ignored" and waited, instead
+// of concluding the channel was dead — the misreading changed what it did
+// next. The filer's own follow-up narrowed it: the idle case was already
+// signalled (D-027), and what was left was the ENDED target, which is
+// knowable at send time and was printed only as a stderr aside behind the
+// confident stdout line.
+//
+// WHAT IT SAYS, MOST-ALARMING-FIRST, ONE ARM PER SEND:
+//
+//   - ENDED (a positive bye): nothing reads the row unless that id helloes
+//     again (D-013's residual: the row is kept because Hello revives the id,
+//     and hello reports the queued count). If it still holds open claims,
+//     they are named, because the message was probably the wrong verb — a
+//     plain `buddy claim` displaces an ended holder (D-026), and the 25
+//     messages above were asks to do what the sender could have done itself.
+//   - GONE: every harness process registered to the incarnation is dead. Not
+//     ended — nothing auto-ends on GONE (D-025), and a new process can still
+//     register through a beat — but no hook is coming from a process that is
+//     not there, and the send says exactly that much.
+//   - an outstanding idle report (D-027's wording, kept): the observation is
+//     the Stop hook's own, and it says WHY the session is quiet. This was
+//     the first signal here (issue #12: two sessions sat idle 2h and 3h on a
+//     resource that was free, each believing the other was working, and
+//     the coordinator's send had SUCCEEDED); it prints only for a row of the
+//     current incarnation, and its absence is UNKNOWN, never busy (D-016).
+//   - not seen past StaleAfter: the roster's `live STALE`. Only that nothing
+//     has been heard; no reason is offered because none is known.
+//   - registered and never seen since: last_seen still equals started, so no
+//     beat has landed in a later second. This is the brand-new session at its first prompt —
+//     the case measured above — and it is reported as exactly that, not as
+//     idle and not as busy: no idle row means UNKNOWN (D-016), and "no tool
+//     call yet" is a fact about the ledger, not about the prompt.
+//   - otherwise: last seen N ago.
+//
+// Every arm ends in the MECHANISM — "delivery waits for its next tool call" —
+// and none in a forecast. The first shape wrote "delivered on its next tool
+// call" on the two quiet arms, which is the old prediction respelled (Codex
+// code pass); the test now holds the whole line to never containing the word
+// "delivered" at all, since a claim of delivery is the one thing this
+// command can never make.
+//
+// THEN THE BACKLOG. Earlier messages to the same target still undelivered,
+// with the age of the oldest, on every arm. This is the fact that proves a
+// channel is not draining: the 25 messages were sent one after another to
+// inboxes nobody was emptying, and any send after the first could have said
+// so. It counts what Undelivered counts — including a broadcast the target
+// has not drained — because that is what its next tool call would deliver.
+//
+// It never says "delivered": delivery is the recipient's act, on its next
+// hook, and this command has returned before it. `buddy who <target>` is
+// the after-the-fact check, and its INBOX line now dates the oldest row for
+// the same reason. Every failure to read a register prints nothing for that
+// register, the way the roster does — a send is not refused over a note.
+func sendNote(st *store.Store, env Env, t store.Target, now time.Time) string {
+	if t.ID == store.AllTarget {
+		return broadcastNote(st, now)
+	}
+	si, ok, err := st.SessionByID(t.ID)
+	if err != nil || !ok {
 		return ""
 	}
-	if t.ID != store.AllTarget {
-		si, ok, err := st.SessionByID(t.ID)
-		if err != nil || !ok {
-			return ""
+	// EVERY REGISTER IS READ ONCE. The first shape called idleSince and gonePIDs
+	// twice each — once in the case guard, once in the format — and a row
+	// that vanished between the reads (the recipient beats, clearing its idle
+	// row) dereferenced nil INSIDE the send, before the write: one concurrent
+	// beat aborted a message without queueing it (Codex code pass, P1). A
+	// note must never cost the send.
+	idle := idleSince(st, si)
+	gone := gonePIDs(st, env, si.SessionID)
+	var b strings.Builder
+	switch {
+	case !si.Live():
+		fmt.Fprintf(&b, "it ENDED %s ago; nothing reads this unless that session id helloes again", age(now, si.Ended))
+		if held := openSlugsOf(st, si.SessionID); len(held) > 0 {
+			fmt.Fprintf(&b, "; it still holds %d open claim(s) (%s) that a plain `buddy claim` displaces (D-026)",
+				len(held), joinCapped(held, 512))
 		}
-		if rest, ok := idle[si.SessionID]; ok && rest.Incarnation == si.Incarnation {
-			return fmt.Sprintf(" — %s last reported idle %s ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call",
-				fence.Line(t.String(), 128), age(now, rest.Since))
-		}
-		return ""
+	case len(gone) > 0:
+		// Not "unless it helloes again": a new process can register through a
+		// beat (D-025) and drain this. What the ledger knows is that no hook
+		// will come from the processes it has.
+		fmt.Fprintf(&b, "its registered harness process (pid %s) is GONE and it was last seen %s ago; no hook will come from a process that is not there",
+			strings.Join(gone, ","), age(now, si.LastSeen))
+	case idle != nil:
+		fmt.Fprintf(&b, "%s last reported idle %s ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call",
+			fence.Line(t.String(), 128), age(now, *idle))
+	case now.Sub(si.LastSeen) > store.StaleAfter:
+		fmt.Fprintf(&b, "NOT SEEN FOR %s, past the %s stale mark; delivery waits for its next tool call and nothing in the ledger says one is coming",
+			age(now, si.LastSeen), age(now, now.Add(-store.StaleAfter)))
+	// Whole seconds in the ledger, so a beat inside the registration second
+	// is indistinguishable from none — which is why this says "not seen
+	// since" and not "no tool call yet".
+	case si.LastSeen.Equal(si.Started):
+		fmt.Fprintf(&b, "registered %s ago and not seen since; delivery waits for its next tool call", age(now, si.Started))
+	default:
+		fmt.Fprintf(&b, "last seen %s ago; delivery waits for its next tool call", age(now, si.LastSeen))
 	}
+	if msgs, err := st.Undelivered(si.SessionID, si.Label); err == nil && len(msgs) > 0 {
+		fmt.Fprintf(&b, "; %d earlier message(s) to it still undelivered, the oldest %s old", len(msgs), age(now, oldestOf(msgs)))
+	}
+	return b.String()
+}
+
+// broadcastNote counts, among the sessions LIVE right after a broadcast was
+// written (its recipients, less any that ended in the same instant), the ones with an outstanding idle report (D-027) and the ones
+// not seen past the stale mark. Two counts, not one, because they are
+// different observations: an idle row says why a session is quiet, a stale
+// row says only that nothing has been heard. A session can be both and is
+// counted in both.
+func broadcastNote(st *store.Store, now time.Time) string {
 	sessions, err := st.Sessions(store.ByLastSeen)
 	if err != nil {
 		return ""
 	}
-	live, waiting := 0, 0
+	idle, err := st.IdleSessions()
+	if err != nil {
+		return ""
+	}
+	live, waiting, stale := 0, 0, 0
 	for _, si := range sessions {
 		if !si.Live() {
 			continue
@@ -2087,11 +2201,82 @@ func idleNote(st *store.Store, t store.Target, now time.Time) string {
 		if rest, ok := idle[si.SessionID]; ok && rest.Incarnation == si.Incarnation {
 			waiting++
 		}
+		if now.Sub(si.LastSeen) > store.StaleAfter {
+			stale++
+		}
 	}
-	if waiting == 0 {
-		return ""
+	var parts []string
+	if waiting > 0 {
+		parts = append(parts, fmt.Sprintf("%d of %d live recipients have an outstanding idle report and may be waiting at their prompts, where nothing is delivered", waiting, live))
 	}
-	return fmt.Sprintf(" — %d of %d recipients have an outstanding idle report and may be waiting at their prompts, where nothing is delivered", waiting, live)
+	if stale > 0 {
+		parts = append(parts, fmt.Sprintf("%d of %d live recipients not seen for over %s", stale, live, age(now, now.Add(-store.StaleAfter))))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// idleSince is the Stop-hook report for the session's CURRENT incarnation,
+// or nil: a row from an earlier incarnation is not this session's state.
+func idleSince(st *store.Store, si store.SessionInfo) *time.Time {
+	idle, err := st.IdleSessions()
+	if err != nil {
+		return nil
+	}
+	if rest, ok := idle[si.SessionID]; ok && rest.Incarnation == si.Incarnation {
+		return &rest.Since
+	}
+	return nil
+}
+
+// gonePIDs is the session's registered harness processes when NONE of them
+// is alive, as decimal strings for the note; empty when it has none
+// registered (nothing to probe) or any one is still there. All-or-nothing,
+// like the bye fence (D-025): one live registration means the session can
+// still run a hook.
+func gonePIDs(st *store.Store, env Env, sessionID string) []string {
+	procs, err := st.SessionProcs()
+	if err != nil || len(procs[sessionID]) == 0 {
+		return nil
+	}
+	var out []string
+	for _, p := range procs[sessionID] {
+		if env.procAlive(p) {
+			return nil
+		}
+		out = append(out, strconv.Itoa(p.PID))
+	}
+	return out
+}
+
+// openSlugsOf lists the open claim slugs a session holds under ANY
+// incarnation — for an ended owner every one is displaceable (D-026), so
+// the incarnation filter `who` applies to a live row would hide the ones
+// that matter here.
+func openSlugsOf(st *store.Store, sessionID string) []string {
+	open, err := st.Claims(false)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, c := range open {
+		if c.Owner.SessionID == sessionID {
+			out = append(out, c.Slug)
+		}
+	}
+	return out
+}
+
+// oldestOf is the earliest creation time among queued messages. Undelivered
+// orders by msg_id, which is creation order, but a scan is cheap and does not
+// depend on that.
+func oldestOf(msgs []store.InboxMsg) time.Time {
+	oldest := msgs[0].Created
+	for _, m := range msgs[1:] {
+		if m.Created.Before(oldest) {
+			oldest = m.Created
+		}
+	}
+	return oldest
 }
 
 // maxMsgBody is the cap on a message body, and it is measured on what the

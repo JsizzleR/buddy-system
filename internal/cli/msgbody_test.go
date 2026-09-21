@@ -265,15 +265,16 @@ func TestMsgDryRunDoesNotClaimAnEndedTargetWasQueued(t *testing.T) {
 		t.Fatalf("preview dropped the ENDED fact, which is what the sender needs: %q", out)
 	}
 
-	// POSITIVE CONTROL: a REAL send to the same ended target still warns in the
-	// old words, so the assertion above is the preview path and not a lost
+	// POSITIVE CONTROL: a REAL send to the same ended target still carries the
+	// ENDED fact — on the result line itself since issue #24, not as a stderr
+	// aside — so the assertion above is the preview path and not a lost
 	// warning.
-	_, errw, code = f.run(t, f.repo, "", "msg", "bravo", "still there?")
+	out, errw, code = f.run(t, f.repo, "", "msg", "bravo", "still there?")
 	if code != 0 {
 		t.Fatalf("control send: %s", errw)
 	}
-	if !strings.Contains(errw, "is queued against its id") {
-		t.Fatalf("the real send lost its ENDED warning: %q", errw)
+	if !strings.Contains(out, "queued for bravo — it ENDED") {
+		t.Fatalf("the real send lost its ENDED fact: out %q err %q", out, errw)
 	}
 }
 

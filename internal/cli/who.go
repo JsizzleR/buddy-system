@@ -205,7 +205,14 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "INBOX        %d undelivered\n", len(msgs))
+	// Dated by the oldest row (issue #24): "3 undelivered" for a session seen
+	// 2 s ago is a queue draining, and the same count with an oldest of 2 h is
+	// a channel nobody is reading. The count alone cannot tell them apart.
+	if len(msgs) == 0 {
+		fmt.Fprintln(env.Stdout, "INBOX        0 undelivered")
+	} else {
+		fmt.Fprintf(env.Stdout, "INBOX        %d undelivered, the oldest %s old\n", len(msgs), age(now, oldestOf(msgs)))
+	}
 
 	// AUTHORITY — watched files whose recorded modification time postdates
 	// this session's registration (D-028). Advisory: the file on disk
