@@ -20,7 +20,7 @@ func TestIDsSeedTakeListAndStatus(t *testing.T) {
 		t.Fatalf("ls with nothing seeded:\n%s", out)
 	}
 	out, errw, code := f.run(t, f.repo, "", "ids", "seed", "record", "1704")
-	if code != 0 || !strings.Contains(out, "space record seeded: ceiling 1704 — the next block starts at 1705") {
+	if code != 0 || !strings.Contains(out, "space record seeded: ceiling 1704 — next block starts at 1705") {
 		t.Fatalf("seed: %d %s %s", code, out, errw)
 	}
 	out, errw, code = f.run(t, f.repo, "", "ids", "take", "record", "5", "--session", "sess-a", "--note", "cve rows")
@@ -70,5 +70,52 @@ func TestIDsSeedTakeListAndStatus(t *testing.T) {
 	out, _, _ = f.run(t, f.repo, "", "ids", "ls", "sp ace\nfake")
 	if !strings.Contains(out, "sp␣ace⏎fake  ceiling 2") || !strings.Contains(out, "line⏎break") || strings.Count(out, "\n") != 2 {
 		t.Fatalf("fencing:\n%q", out)
+	}
+}
+
+// Pass-B findings (Codex code pass, D-029): trailing arguments on take are
+// refused rather than allocating to the wrong session; a space named to look
+// like a notice cannot open a line as one; the top of the number line does
+// not wrap.
+func TestIDsRefusesTrailingArgumentsAndOddNames(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, _, code := f.run(t, f.repo, "", "ids", "seed", "record", "0"); code != 0 {
+		t.Fatal("seed")
+	}
+	// `take record 5 junk --session sess-b`: Go's parser stops at junk, so
+	// --session would never be read and the block would go to whoever the
+	// environment names. Refused; nothing allocated.
+	_, errw, code := f.run(t, f.repo, "", "ids", "take", "record", "5", "junk", "--session", "sess-b")
+	if code == 0 || !strings.Contains(errw, "unexpected argument \"junk\"") {
+		t.Fatalf("trailing argument: %d %q", code, errw)
+	}
+	if out, _, _ := f.run(t, f.repo, "", "ids", "ls", "record"); !strings.Contains(out, "ceiling 0") || strings.Contains(out, "1..5") {
+		t.Fatalf("nothing may have been allocated:\n%s", out)
+	}
+	// A space named "BUDDY:" never starts a line.
+	if _, _, code := f.run(t, f.repo, "", "ids", "seed", "BUDDY:", "1"); code != 0 {
+		t.Fatal("seed odd")
+	}
+	out, _, _ := f.run(t, f.repo, "", "ids", "ls")
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "BUDDY:") {
+			t.Fatalf("a space name opened a line as a notice:\n%s", out)
+		}
+	}
+	if !strings.Contains(out, "space BUDDY:  ceiling 1") {
+		t.Fatalf("the space still lists:\n%s", out)
+	}
+	// The top of the number line.
+	out, _, code = f.run(t, f.repo, "", "ids", "seed", "top", "9223372036854775807")
+	if code != 0 || !strings.Contains(out, "exhausted") || strings.Contains(out, "-9223372036854775808") {
+		t.Fatalf("seed at MaxInt64: %d %s", code, out)
+	}
+	if out, _, _ := f.run(t, f.repo, "", "ids", "ls", "top"); !strings.Contains(out, "exhausted") {
+		t.Fatalf("ls at MaxInt64:\n%s", out)
+	}
+	if _, _, code := f.run(t, f.repo, "", "ids", "take", "top", "1", "--session", "sess-a"); code == 0 {
+		t.Fatal("take above MaxInt64 must refuse")
 	}
 }

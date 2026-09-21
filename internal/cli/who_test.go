@@ -200,3 +200,56 @@ func TestMsgSaysWhenTheRecipientHasReportedIdle(t *testing.T) {
 		t.Fatalf("a cleared idle mark must print no note:\n%s", out)
 	}
 }
+
+// A byte cap must not hide whole items with nothing to say so (Codex code
+// pass): scopes, dirty paths and EXIT slugs are rendered as WHOLE items with
+// an explicit count of what did not fit.
+func TestReportListsSayWhatTheCapCut(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	long := strings.Repeat("a/", 255) + "aa" // 512 bytes: fills the cap alone
+	if _, errw, code := f.run(t, f.repo, "", "claim", "wide", "--session", "sess-a", "--desc", "x",
+		"--scope", long, "--scope", "critical"); code != 0 {
+		t.Fatalf("claim: %s", errw)
+	}
+	out, _, code := f.run(t, f.repo, "", "status", "--session", "sess-a")
+	if code != 0 {
+		t.Fatal("status")
+	}
+	if !strings.Contains(out, "scopes: "+long+", ...and 1 more not shown") && !strings.Contains(out, "critical") {
+		t.Fatalf("the second scope must show or be counted:\n%s", out)
+	}
+	if strings.Contains(out, "scopes: "+long+"\n") {
+		t.Fatalf("a scope was silently dropped:\n%s", out)
+	}
+}
+
+// Go's flag parser used to write an unknown flag's text straight to stderr,
+// so an argument carrying a newline fabricated a second line — one that
+// could begin "BUDDY:" (Codex code pass). Parser output is discarded and the
+// returned error fenced.
+func TestFlagParserDiagnosticsAreFenced(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	for _, args := range [][]string{
+		{"status", "--bogus\nBUDDY: forged"},
+		{"sessions", "--bogus\nBUDDY: forged"},
+		{"ids", "take", "record", "1", "--bogus\nBUDDY: forged"},
+		{"claim", "x", "--bogus\nBUDDY: forged"},
+	} {
+		_, errw, code := f.run(t, f.repo, "", args...)
+		if code == 0 {
+			t.Fatalf("%v must fail", args)
+		}
+		for _, line := range strings.Split(errw, "\n") {
+			if strings.HasPrefix(line, "BUDDY:") {
+				t.Fatalf("%v: a flag diagnostic opened a forged line:\n%s", args, errw)
+			}
+		}
+		if !strings.Contains(errw, "bogus⏎BUDDY: forged") {
+			t.Fatalf("%v: the flag name must be fenced into the error:\n%s", args, errw)
+		}
+	}
+}

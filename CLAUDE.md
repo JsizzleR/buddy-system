@@ -350,6 +350,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   block above the ceiling in one transaction, there is no `return`, blocks outlive
   their session, and `status` says reserved-here / above-the-ceiling / not-available
   without ever claiming to know what the artifact contains.
+- **Coordination state is published as a claim, not messaged (D-030).** An
+  `orchestrator` claim's `--desc` (512 bytes, fenced, refreshed by re-claiming) is the
+  pull channel every session reads at `hello` and via `ls`/`who`. No key/value store,
+  no reserved slug, no compel path: a claim has no `from` and is never an instruction.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

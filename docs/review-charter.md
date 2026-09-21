@@ -262,6 +262,13 @@ ledger row entered through the CLI (D-006).
     ceiling ("unreserved in this register", not "free"), at-or-below and unreserved ("not
     available for allocation", never "a hole").
 
+33. **Coordination state is published as a claim's `--desc`, never a message, and there is
+    no key/value store and no compel path (D-030).** The digest already injects every live
+    claim into every session and re-claiming refreshes the description; the convention is
+    an `orchestrator` claim (nothing reserved) carrying a bounded summary or a pointer. A
+    claim has no `from` and is never read as an instruction; `pause` and `msg` remain the
+    only control rows. Do not propose a store, a reserved slug, or auto-injection.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

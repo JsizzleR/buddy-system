@@ -51,6 +51,10 @@ against a shared counter ("may I spend a slot?") cannot.*
 
 ## 2. A session's OS processes are invisible to buddy
 
+> **Status (2026-09-20, D-025):** the roster now prints `pid N` — the `claude` process the
+> session's hooks were spawned by — and `pane herdr:…` from the environment; `buddy who
+> <any name>` returns the rest. What a session is RUNNING (`buddy run`) is not tracked.
+
 **What happened:** a session found two `check-residuals` processes it did not start,
 traced their parents to a `claude` pid, and **could not map that pid to a buddy
 slug**. It correctly refused to name a peer on an inference and escalated to me. I
@@ -66,6 +70,10 @@ with the roster showing `running: check-all.sh (pid 16087, 12m)`. The sessions
 converged on announcing slug+pid in chat by hand; that is the feature asking to exist.
 
 ## 2b. A session has at least three names, and none derives from the others
+
+> **Status (2026-09-20, D-027):** `buddy who <id|label|s-id|slug>` takes any of the four
+> and prints the rest, with every register; `hello` warns when a `--label` is worn twice.
+> The harness roster name is not captured (the hooks do not receive it).
 
 **What happened:** a session was addressed in the room as `repo-4d` (from its buddy
 id `s-4d601a31`), appeared in the harness roster as `repo-e7`, and held a claim
@@ -91,6 +99,10 @@ Without that, the only reliable cross-register map lives in the coordinator's he
 and the coordinator is the party least able to verify it.
 
 ## 3. Identifier allocation — this caused a real collision
+
+> **Status (2026-09-20, D-029):** `buddy ids seed|take|ls|status`. Seeded with the measured
+> high-water mark, contiguous above the ceiling, nothing reissued, no `return`, and a
+> status that never claims to know the artifact. The alloc verbs above are its shape.
 
 The repo allocates decision numbers (`D-nnn`) and residual-row ids (`R-nnnn`) from
 shared append-only ledgers. I allocated blocks centrally to prevent collisions.
@@ -364,7 +376,8 @@ useful and I routed on them. Missing:
   the old "age column is last_seen" guidance is superseded would save a re-derivation.
 - **`buddy msg` to an idle session** won't arrive until its next tool call. That is
   documented, but it means the sessions most able to take work are the least reachable.
-  The roster should mark "message queued, undelivered".
+  The roster should mark "message queued, undelivered". *(2026-09-20, D-027: `msg` now
+  says so on the send, and `who` shows the undelivered count.)*
 - **Message size**: the 750-byte routine budget is right for status, but an
   orchestrator's rulings are genuinely long. Every substantive coordination message in
   this run went out-of-band via the harness instead of through buddy, which means the
@@ -525,6 +538,10 @@ to it was not. A wishlist item that names a mechanism is a hypothesis until some
 it, and the cost of running this one was a single command with the pipe removed.
 
 ## 14. A long-running session's copy of the standing rules rots, and nothing says so
+
+> **Status (2026-09-20, D-028):** `buddy authority [add|rm]` (CLAUDE.md always); `beat`
+> announces a change ONCE on the next tool call; `status` carries an AUTHORITY line. An
+> mtime advisory, worded as one.
 
 This is the one I would most want fixed, and it is not strictly buddy's job — but buddy is
 the only thing in the workflow that knows a session has been alive for nine hours.
@@ -739,6 +756,10 @@ Every one of these was measured, not theorised:
 4. **When two of your own instruments disagree, the disagreement is the finding.** Do not pick the one telling the better story — that session's globbed 2×2 was right the whole time and was distrusted because it contradicted the headline.
 
 ## 21. A coordinator cannot relay an operator's instruction as authority — and shouldn't be able to
+
+> **Status (2026-09-20, D-027):** `buddy status` / `buddy who` answer the reportable question
+> (claims held, dirty paths, inbox, and what ending now would leave) and grant nothing; the
+> pid and pane are on the roster for the operator; no exit verb exists or will.
 
 Recorded because I violated it, two sessions caught me, and the tool made it easy.
 
