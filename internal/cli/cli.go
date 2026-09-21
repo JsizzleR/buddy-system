@@ -1443,7 +1443,7 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) int {
 		}
 		// permissionDecisionReason is shown to the model on every deny, so it
 		// is a context-injection sink like the digest above.
-		deny(env, fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s. Coordinate or claim different scopes; the operator can `buddy release` or `buddy sweep --force` a dead claim.",
+		deny(env, fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s. Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
 			fence.Line(loc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512),
 			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix))
 	}
@@ -1492,11 +1492,26 @@ func cmdClaim(args []string, env Env) error {
 		// round trip instead of one per collision. Non-zero exit when anything
 		// is refused, so a scripted caller cannot read "some of it was free" as
 		// "go ahead".
-		free, conflicts, err := st.ClaimConflicts(si.SessionID, si.Incarnation, slug, scopes)
+		free, conflicts, displaced, err := st.ClaimConflicts(si.SessionID, si.Incarnation, slug, scopes)
 		if err != nil {
 			return fencedErr(err)
 		}
 		printConflicts(env, conflicts)
+		// What a real claim would DISPLACE: open claims of holders that have
+		// said bye, which Claim orphans on its way in (D-026). Said apart
+		// from `would claim`, because "free once the ended holder is cleaned
+		// up" and "nobody holds this" are different facts and a forecast that
+		// merged them reads as the second.
+		for _, d := range displaced {
+			if d.Scope == "" {
+				fmt.Fprintf(env.Stdout, "note: slug %s is held by ENDED session %s; a real claim frees it\n",
+					strconv.Quote(fence.Line(d.Slug, 128)), fence.Line(d.Claimant, 64))
+				continue
+			}
+			fmt.Fprintf(env.Stdout, "note: %s is held by ENDED session %s (claim %s, scope %s); a real claim frees it\n",
+				fence.Line(d.Scope, 512), fence.Line(d.Claimant, 64), strconv.Quote(fence.Line(d.Slug, 128)),
+				strconv.Quote(fence.Line(d.Their, 512)))
+		}
 		if len(free) > 0 {
 			fmt.Fprintf(env.Stdout, "would claim: %s\n", fence.Line(strings.Join(free, ", "), 512))
 		}

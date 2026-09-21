@@ -1259,6 +1259,64 @@ never beats, is unbound. A registered process killed `-9` leaves its row `live S
 `pid N GONE` until the operator sweeps. The terminal handle is what the environment said
 at registration and can go stale if the operator moves the pane.
 
+## D-026 — A session that has said `bye` cannot block a peer's claim: `claim` orphans ended owners first
+
+2026-09-20 · issue #15, the mechanism D-022 turned up and left; Codex design pass Q3
+
+**What was wrong** — `bye` stamps `sessions.ended` and touches no claim row (invariant
+12), and orphaning of an ended session's claims ran only in `hello` and `sweep`. So a
+session that finished, was verified clean and landed, and exited on request still held
+its scopes, and a peer with green work was REFUSED on them — by a holder that had said
+goodbye — until some other session happened to start or an operator ran `sweep`. That is
+issue #15's incident: the coordinator's release check looked at unlanded work and never at
+held claims, and the claims outlived the session with nobody to release them. D-022 wrote
+the rule down ("a scope is freed by release, hello, or sweep --force — bye does not") and
+pinned it by a test written expecting the opposite; the rule was honest and the gap was
+real.
+
+**What shipped** — `Claim` runs `orphanEnded` FIRST, inside its own transaction, before
+the conflict scan: the same idempotent statement `hello` and `sweep` run, keyed to rows
+still ended when it runs, so it is invariant 12's "orphaning happens in hello/sweep, never
+inline in bye" with one more of the former. The conflict computation (`scopeConflicts`
+and the slug arm of `allConflicts`) now EXCLUDES claims whose owner has `ended IS NOT
+NULL`, so `claim --dry-run` — which cannot write — forecasts what the real claim will do,
+and the two cannot disagree. The dry run says which ended holders it would displace
+(`note: internal/api is held by ended session alpha (claim api-work); a real claim frees
+it`), because "acquirable after cleanup" and "currently unreserved" are different facts and
+a forecast that merged them would be read as the second. The PreToolUse gate's deny text
+now names the plain `buddy sweep` as the remedy for a holder that has said bye, alongside
+`release` and `sweep --force` for one that went silent.
+
+**What it deliberately does not do** — The gate (`OwnerOf`) and the commit gate still
+read `state='open'` and nothing else: they are the hot path, denying is the safe
+direction, and D-012's "open, not live" stands — an ended owner's claim denies an edit
+until any session's `hello`, `claim` or `sweep` orphans it, and the deny says which
+command does that. This is a coherent disagreement, not a defect: the dry run forecasts a
+transaction that has not happened. `bye` still touches no claim row. Nothing here reaps a
+LIVE session's claims on any timer: a session that went silent without `bye` still
+refuses exactly as D-022 says, because `ended` is the only evidence consulted and it is
+positive evidence — now made trustworthy by D-025, which is why B was not shipped before A.
+
+**Overturned** — Charter GIVEN 26's "the ONLY things that free a scope are release,
+hello's orphaning and sweep --force": a peer's `claim` frees the scopes of a session that
+has said `bye`, and `scopeConflicts` tests `state='open' AND owner not ended`. Staleness
+still has no bearing on acquisition.
+
+**Evidence** — The D-022 table case "the holder says bye and exits" flips from
+`wantFreed: false` to `true`, watched to fail first against the old code. New tests pin
+that the ended holder's row is ORPHANED and not left open beside the new claim (two open
+rows over one scope is what the gate would then adjudicate against the new holder), that
+the dry run reports the displacement and its `would claim` line, that `OwnerOf` after the
+claim names the new holder to a third session and nobody to the holder itself, and that a
+LIVE stale holder still refuses. Mutations: dropping the orphan call (two open rows),
+dropping the exclusion from the scan (dry run refuses what the claim grants), and
+dropping the dry-run note — each killed by its test.
+
+**Residuals** — Between the `bye` and the next `hello`/`claim`/`sweep`, the gate denies
+edits under the ended session's scopes to anyone who has not claimed them; the deny names
+the remedy. `whose` and `ls` show the ended owner's claim as `open` with an `ended`
+owner until then.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

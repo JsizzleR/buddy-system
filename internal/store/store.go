@@ -897,6 +897,21 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 			return fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
 		}
 
+		// A HOLDER THAT HAS SAID BYE CANNOT REFUSE (D-026, issue #15). The
+		// same idempotent orphaning hello and sweep run, here first, in this
+		// transaction: a session that finished, exited cleanly and still held
+		// two scopes blocked a peer with green work for hours, until some
+		// other session happened to start. This is invariant 12's "orphaning
+		// happens in hello/sweep, never inline in bye" with one more of the
+		// former; `ended` is positive evidence and bye still touches no claim
+		// row. The conflict scan below excludes ended owners for the dry
+		// run's sake, so this is what keeps an ended holder's row from being
+		// left OPEN beside the new claim — two open rows over one scope,
+		// which the gate would then adjudicate against the new holder.
+		if _, err := orphanEnded(tx, now); err != nil {
+			return err
+		}
+
 		// Somebody else's slug, and overlap with any OTHER session's open
 		// scopes, as ONE set (conflicts.go): the refusal names every collision
 		// and not just the first, and it is the same computation the dry run

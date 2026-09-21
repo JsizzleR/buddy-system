@@ -24,7 +24,7 @@ func TestClaimConflictsReportsTheWholeSetAndWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	free, conflicts, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "mine", []string{"internal/router/proxy.go", "Docs/a.md", "pkg"})
+	free, conflicts, _, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "mine", []string{"internal/router/proxy.go", "Docs/a.md", "pkg"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestClaimConflictsEnumeratesEveryHolderOfOneRequestedScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One requested prefix, two holders under it: both are reported, by both paths.
-	_, conflicts, err := st.ClaimConflicts(c.SessionID, c.Incarnation, "all-pkg", []string{"pkg"})
+	_, conflicts, _, err := st.ClaimConflicts(c.SessionID, c.Incarnation, "all-pkg", []string{"pkg"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestClaimConflictsEnumeratesEveryHolderOfOneRequestedScope(t *testing.T) {
 	}
 	// Slug AND scope collide: the forecast and the refusal agree on the whole
 	// set, slug first. (The slug check used to return before the scope scan.)
-	_, conflicts, err = st.ClaimConflicts(c.SessionID, c.Incarnation, "pa", []string{"pkg/a/x.go"})
+	_, conflicts, _, err = st.ClaimConflicts(c.SessionID, c.Incarnation, "pa", []string{"pkg/a/x.go"})
 	if err != nil || len(conflicts) != 2 || conflicts[0].Scope != "" || conflicts[1].Scope != "pkg/a/x.go" {
 		t.Fatalf("slug+scope forecast: %+v %v", conflicts, err)
 	}
@@ -149,7 +149,7 @@ func TestClaimConflictsRefusesAnEndedSessionUnderItsOwnIncarnation(t *testing.T)
 	}
 	// Correct incarnation, ended session: refused. M8 proved the incarnation
 	// predicate is load-bearing; this proves `ended IS NULL` is too.
-	if _, _, err := st.ClaimConflicts(a.SessionID, a.Incarnation, "x", []string{"pkg"}); err == nil {
+	if _, _, _, err := st.ClaimConflicts(a.SessionID, a.Incarnation, "x", []string{"pkg"}); err == nil {
 		t.Fatal("an ended session must not be forecast free")
 	}
 }
@@ -207,7 +207,7 @@ func TestClaimConflictsSlugAndLivenessArePartOfTheSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Somebody else's slug is a conflict with no scope.
-	free, conflicts, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "router", []string{"pkg"})
+	free, conflicts, _, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "router", []string{"pkg"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,18 +218,18 @@ func TestClaimConflictsSlugAndLivenessArePartOfTheSet(t *testing.T) {
 		t.Fatalf("free: %v", free)
 	}
 	// Your own slug is a refresh, not a conflict.
-	_, conflicts, err = st.ClaimConflicts(a.SessionID, a.Incarnation, "router", []string{"internal/router", "docs"})
+	_, conflicts, _, err = st.ClaimConflicts(a.SessionID, a.Incarnation, "router", []string{"internal/router", "docs"})
 	if err != nil || len(conflicts) != 0 {
 		t.Fatalf("own slug/scopes must not conflict: %v %+v", err, conflicts)
 	}
 	// A session the ledger does not know cannot dry-run either: the answer
 	// would be "free" for a claim it could never take.
-	if _, _, err := st.ClaimConflicts("nobody", "inc", "x", []string{"pkg"}); err == nil {
+	if _, _, _, err := st.ClaimConflicts("nobody", "inc", "x", []string{"pkg"}); err == nil {
 		t.Fatal("unknown session must be refused, not told its scopes are free")
 	}
 	// A superseded incarnation is refused too: the write would be, and a
 	// forecast of "free" for it is a false one.
-	if _, _, err := st.ClaimConflicts(b.SessionID, "stale-inc", "x", []string{"pkg"}); err == nil {
+	if _, _, _, err := st.ClaimConflicts(b.SessionID, "stale-inc", "x", []string{"pkg"}); err == nil {
 		t.Fatal("stale incarnation must be refused, not forecast free")
 	}
 }

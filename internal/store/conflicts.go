@@ -68,16 +68,32 @@ type querier interface {
 // ClaimConflicts both call it, so a dry run cannot disagree with the refusal
 // it predicts — the one way a dry run becomes worse than no dry run.
 func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Conflict, error) {
-	// NO STALENESS TERM, and that is the rule (issue #18): state='open' is the
-	// whole test. A stale claim REFUSES exactly like a fresh one — staleness
-	// marks, it never reaps (invariant 11), and acquisition never silently
-	// takes over a scope another session believes it holds. Two sessions
-	// measured opposite answers on one afternoon because a roster row for a
-	// just-released claim looks the same as a takeover; the rule was never
-	// ambiguous, only unwritten. The holder's renewed time comes back so the
-	// refusal can SAY the holder is quiet, which is the actionable half.
+	// NO STALENESS TERM, and that is the rule (issue #18): a stale claim
+	// REFUSES exactly like a fresh one — staleness marks, it never reaps
+	// (invariant 11), and acquisition never silently takes over a scope
+	// another session believes it holds. Two sessions measured opposite
+	// answers on one afternoon because a roster row for a just-released claim
+	// looks the same as a takeover; the rule was never ambiguous, only
+	// unwritten. The holder's renewed time comes back so the refusal can SAY
+	// the holder is quiet, which is the actionable half.
+	//
+	// ONE TERM BESIDES state='open': the owner has not said BYE (D-026, issue
+	// #15). Claim orphans ended owners' claims in its own transaction before
+	// it scans, so an ended owner's row is never a conflict there; the dry
+	// run cannot write, and this is what keeps its forecast the same
+	// computation as the refusal it predicts. `ended` is POSITIVE evidence —
+	// the session said so — which is the one thing staleness is not, and it
+	// is trustworthy only since D-025 made a bye unable to end a live
+	// incarnation; that is why this shipped after it and not before.
+	//
+	// LEFT JOIN, so a claim whose session row is somehow missing still
+	// refuses: nothing would ever orphan it, and an inner join would make it
+	// vanish from the scan while the gate keeps enforcing it (Codex design
+	// pass, D-026). Nothing deletes a sessions row today; the join is what
+	// makes that a fact this code does not depend on.
 	rows, err := q.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id, c.renewed FROM claim_scopes cs
-		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open' AND c.session_id<>?`, sessionID)
+		JOIN claims c ON c.claim_id=cs.claim_id LEFT JOIN sessions ses ON ses.session_id=c.session_id
+		WHERE c.state='open' AND c.session_id<>? AND ses.ended IS NULL`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +139,7 @@ func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string) (
 	var out []Conflict
 	if claimID, owner, taken, err := openSlugOwner(q, slug); err != nil {
 		return nil, err
-	} else if taken && owner != sessionID {
+	} else if taken && owner != sessionID && !sessionEnded(q, owner) {
 		label, _ := s.labelOf(q, owner)
 		// The slug conflict carries the holder's clock too. Without it the
 		// REFUSAL path and the DRY RUN would annotate different subsets of the
@@ -137,6 +153,63 @@ func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string) (
 		return nil, err
 	}
 	return append(out, sc...), nil
+}
+
+// sessionEnded reports whether the session has said bye. An unknown session
+// reads as NOT ended: a claim whose owner row is missing is a dangling row
+// nothing will orphan, and it must keep refusing rather than vanish from the
+// scan (Codex design pass, D-026).
+func sessionEnded(q rowQuerier, sessionID string) bool {
+	var ended sql.NullInt64
+	if err := q.QueryRow(`SELECT ended FROM sessions WHERE session_id=?`, sessionID).Scan(&ended); err != nil {
+		return false
+	}
+	return ended.Valid
+}
+
+// endedOverlaps lists the open claims of ENDED owners that the requested
+// scopes or slug would displace: what Claim's orphanEnded is about to free.
+// Only the dry run asks, because only the dry run has to SAY it — "acquirable
+// once the ended holder is cleaned up" and "nobody holds this" are different
+// facts, and a forecast that printed `would claim` for both would be read as
+// the second (Codex design pass, D-026).
+func (s *Store) endedOverlaps(q querier, sessionID, slug string, norm []string) ([]Conflict, error) {
+	var out []Conflict
+	if _, owner, taken, err := openSlugOwner(q, slug); err != nil {
+		return nil, err
+	} else if taken && owner != sessionID && sessionEnded(q, owner) {
+		label, _ := s.labelOf(q, owner)
+		out = append(out, Conflict{Slug: slug, Claimant: label, Session: owner})
+	}
+	rows, err := q.Query(`SELECT cs.scope, cs.folded, c.slug, c.session_id FROM claim_scopes cs
+		JOIN claims c ON c.claim_id=cs.claim_id JOIN sessions ses ON ses.session_id=c.session_id
+		WHERE c.state='open' AND c.session_id<>? AND ses.ended IS NOT NULL`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	type held struct{ scope, folded, slug, session string }
+	var theirs []held
+	for rows.Next() {
+		var h held
+		if err := rows.Scan(&h.scope, &h.folded, &h.slug, &h.session); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		theirs = append(theirs, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, n := range norm {
+		nf := fold(n)
+		for _, h := range theirs {
+			if scopesOverlap(nf, h.folded) {
+				label, _ := s.labelOf(q, h.session)
+				out = append(out, Conflict{Scope: n, Their: h.scope, Slug: h.slug, Claimant: label, Session: h.session})
+			}
+		}
+	}
+	return out, nil
 }
 
 // refusedFrom turns a non-empty conflict set into the error Claim has always
@@ -168,29 +241,38 @@ func refusedFrom(conflicts []Conflict) ErrRefused {
 // INCARNATION is checked for the same reason Claim checks it — a caller that
 // resolved itself before a bye and a hello would otherwise be forecast "free"
 // and then refused at the write (Codex code pass, 2026-09-20).
-func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []string) (free []string, conflicts []Conflict, err error) {
+//
+// displaced is what a real claim would ORPHAN on its way in: open claims of
+// owners that have said bye, which Claim frees before it scans (D-026). They
+// are reported apart from the free set and apart from the conflicts because
+// they are neither.
+func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []string) (free []string, conflicts, displaced []Conflict, err error) {
 	if len(scopes) == 0 {
-		return nil, nil, errors.New("a claim needs at least one --scope")
+		return nil, nil, nil, errors.New("a claim needs at least one --scope")
 	}
 	norm := make([]string, 0, len(scopes))
 	for _, sc := range scopes {
 		n, err := NormalizeScope(sc)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		norm = append(norm, n)
 	}
 	var live int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id=? AND incarnation=? AND ended IS NULL`,
 		sessionID, incarnation).Scan(&live); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if live == 0 {
-		return nil, nil, fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
+		return nil, nil, nil, fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
 	}
 	conflicts, err = s.allConflicts(s.db, sessionID, slug, norm)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	displaced, err = s.endedOverlaps(s.db, sessionID, slug, norm)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	busy := map[string]bool{}
 	for _, c := range conflicts {
@@ -203,7 +285,7 @@ func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []str
 			free = append(free, n)
 		}
 	}
-	return free, conflicts, nil
+	return free, conflicts, displaced, nil
 }
 
 // ErrScopeNotHeld says a partial release named a scope the claim does not hold

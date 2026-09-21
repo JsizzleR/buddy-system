@@ -182,16 +182,20 @@ ledger row entered through the CLI (D-006).
     heredoc's trailing newline is trimmed before the cap and costs nothing. The usage path
     exits NON-ZERO and always has — the field report's `rc=0` was `sh` having no pipefail.
 
-26. **A STALE claim refuses a new overlapping claim exactly as a fresh one does (D-022).**
-    `scopeConflicts` tests `state='open'` and nothing else; staleness marks and never
-    reaps (invariant 11). The ONLY things that free a scope are the holder's `release`,
-    `hello` orphaning a dead incarnation, and `sweep --force`. **`bye` does NOT** — it
-    stamps `sessions.ended` and touches no claim row (invariant 12), so a cleanly exited
-    session leaves its scopes held; that is issue #15's mechanism and is unfixed. A
-    refusal and `claim --dry-run` both annotate a quiet holder (`— STALE: holder last
-    renewed 3h ago; it still refuses`), carried on `Conflict` AND `ErrRefused` so the two
-    paths cannot disagree, and a refusal now prints the whole set even when there is only
-    one conflict.
+26. **A STALE claim refuses a new overlapping claim exactly as a fresh one does (D-022),
+    and a holder that has SAID BYE does not (D-026).** `scopeConflicts` tests
+    `state='open'` and `owner not ended` — staleness has no bearing, positive `ended`
+    does. What frees a scope: the holder's `release`, orphaning of an ended owner (which
+    runs in `hello`, `sweep` AND, since D-026, first inside `claim`'s own transaction),
+    and `sweep --force`. **`bye` itself still touches no claim row** (invariant 12). The
+    dry run excludes ended owners by the same predicate so it forecasts the claim, and
+    prints a `note:` line for each ended holder it would displace — "acquirable after
+    cleanup" is not "unreserved". The PreToolUse gate and the commit gate still read
+    `state='open'` alone (hot path, deny is the safe direction); the deny names the plain
+    `buddy sweep` as the remedy for a holder that has said bye. A refusal and the dry run
+    both annotate a quiet holder (`— STALE: holder last renewed 3h ago; it still refuses`),
+    carried on `Conflict` AND `ErrRefused` so the two paths cannot disagree, and a
+    refusal prints the whole set even when there is only one conflict.
 
 27. **`buddy whose <path>` reports the claim registers first, then `DIRTY IN` (D-023).**
     `CLAIMED BY` is invariant 14 containment and the relation the gate reads; `HELD UNDER`
