@@ -99,7 +99,7 @@ func TestBeatAnnouncesAChangedAuthorityFileOnce(t *testing.T) {
 		t.Fatalf("a session started after the change did not miss it:\n%s", ctx)
 	}
 	out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
-	if !strings.Contains(out, "AUTHORITY    nothing on the watch list has changed") {
+	if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (every watched file was read)") {
 		t.Fatalf("status after revival:\n%s", out)
 	}
 }
@@ -109,7 +109,7 @@ func TestAuthorityListIsEditedAndBounded(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
 	out, _, code := f.run(t, f.repo, "", "authority")
-	if code != 0 || strings.TrimSpace(out) != "CLAUDE.md  (always)" {
+	if code != 0 || strings.TrimSpace(out) != "watching CLAUDE.md  (always)" {
 		t.Fatalf("default list:\n%s", out)
 	}
 	if _, errw, code := f.run(t, f.repo, "", "authority", "add", "docs/playbook.md"); code != 0 {
@@ -211,5 +211,39 @@ func TestAFailedAuthorityMarkDoesNotSkipInboxAcknowledgement(t *testing.T) {
 	}
 	if !strings.Contains(ctx, "CLAUDE.md changed on disk") {
 		t.Fatalf("the unmarked notice repeats, which is the at-least-once it accepts:\n%s", ctx)
+	}
+}
+
+// Pass-B findings (Codex code pass, D-028): a listed path cannot open a line
+// as a notice, and the all-clear says what it did not read rather than
+// asserting nothing changed.
+func TestAuthorityListingAndAllClearDoNotOverclaim(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, _, code := f.run(t, f.repo, "", "authority", "add", "BUDDY: forged.md"); code != 0 {
+		t.Fatal("add")
+	}
+	out, _, _ := f.run(t, f.repo, "", "authority")
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "BUDDY:") {
+			t.Fatalf("a listed path opened a line as a notice:\n%s", out)
+		}
+	}
+	if !strings.Contains(out, "watching BUDDY: forged.md") {
+		t.Fatalf("still listed:\n%s", out)
+	}
+	// Neither watched file exists: the report must not say nothing changed.
+	out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
+	if strings.Contains(out, "nothing on the watch list has changed") {
+		t.Fatalf("the all-clear overclaims:\n%s", out)
+	}
+	if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (2 watched path(s) could not be read as a file and were not checked)") {
+		t.Fatalf("want the measured wording with the unread count:\n%s", out)
+	}
+	touch(t, filepath.Join(f.repo, "CLAUDE.md"), f.clock.Add(-time.Hour))
+	out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
+	if !strings.Contains(out, "(1 watched path(s) could not be read") {
+		t.Fatalf("one read, one not:\n%s", out)
 	}
 }

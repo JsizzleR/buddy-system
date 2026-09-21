@@ -1372,7 +1372,7 @@ what the LEDGER would be left holding if the session ended now. `buddy status` i
 on the caller. Both exit 0 on any report produced — "nothing held" is a report — and 1
 when no report could be produced: an unresolvable caller, a name that resolves to
 nothing, an unreadable ledger. A released slug does not resolve (D-013), so `who`
-refuses it as `msg` would. `hello`'s digest warns, once and at the moment it became true,
+refuses it as `msg` would. `hello`'s digest warns, at every hello while it is true,
 when the caller's `--label` is worn by another live session, because every pause or
 message to that label is then refused as ambiguous and the session would otherwise learn
 it only when a peer's send bounced. `msg` appends, on a successful send, `— X last
@@ -1398,6 +1398,18 @@ refused rather than ignored, because `status bravo` is `who bravo` and a listing
 quietly answers a different question looks like one that honoured it. The label warning
 promises only what D-013 delivers: a full session id resolves BEFORE any label, so
 "address by id" is the remedy and "the label is refused" is stated for pause/msg only.
+
+**What the code review changed** — A Codex code pass over the surfaces found three
+things here. (1) The scope, dirty-path and EXIT lists were fenced as a JOIN at 512
+bytes, so one 512-byte scope hid every scope after it with nothing to say so — a report
+that quietly drops rows is indistinguishable from a smaller one; lists now render WHOLE
+items and say `...and N more not shown`. (2) Go's flag parser wrote an unknown flag's
+text straight to stderr, so an argument carrying a newline fabricated a second line that
+could begin `BUDDY:`; parser output is discarded on every verb and the returned error is
+fenced. (3) The session id in the report header is now `Field`ed like the label, since
+`hello` accepts any non-empty id. The pass also noted that the label warning fires at
+every `hello` while the collision holds, not once — which is right, a re-hello is a new
+digest — and the record above is worded accordingly.
 
 **Residuals** — The report is the ledger's view: dirty paths are tool-call
 observations, the idle mark is self-reported, and `pid GONE` is a liveness probe at
@@ -1450,6 +1462,13 @@ hash per tool call is a cost this hook does not pay for a case nobody has measur
 `> last notice` predicate: `> started` is the fact the incident turned on, and distinct
 later mtimes already re-warn. No git consulted: the incident is precisely the case git
 could not see.
+
+**What the second review changed** — `buddy authority` printed each path at column
+zero, so a path NAMED `BUDDY: …` read as a notice in a tool result; rows now begin
+`watching `. And the all-clear said "nothing on the watch list has changed", which a
+missing watched file made untrue — a stat that fails is skipped, not evidence; it now
+says that no watched file carries a later modification time and how many paths could
+not be read as a file.
 
 **What the code review changed** — `beat` returned on a failed advisory mark before
 acknowledging the inbox, so a hiccup in `authority_warned` (or the pre-existing
@@ -1518,10 +1537,64 @@ block nobody else may take. It is one register for every space the operator name
 because the run found four id spaces and the one nobody was tracking was the one that
 collided.
 
+**What the code review changed** — Three findings. `ids take record 5 junk --session B`
+allocated to whoever the environment named and dropped the rest, because Go's parser
+stops at the first non-flag: trailing arguments are refused before anything is
+allocated. `ids ls` printed the space name at column zero, where a space named
+`BUDDY:` read as a notice; rows begin `space `. And a ceiling of `MaxInt64` advertised
+a next block at `-9223372036854775808`; it says "exhausted".
+
 **Residuals** — Machine-local, like every ledger here. A session that allocated
 outside the register (the lander with numbers reserved in its own uncommitted work,
 in the incident) is invisible to it until the ceiling is re-seeded from the artifact;
 `seed` raising the ceiling is how the register catches up.
+
+## D-030 — Coordination state is published as a claim, not messaged; no key/value store and no compel path
+
+2026-09-20 · issue #21; Codex design pass Q7
+
+**What was wrong** — In a coordinated run, the facts every session needed — who was
+sequencing landings, the queue order, whether a load hold was on, which id blocks were
+whose — lived only in messages a coordinator sent. A session told to hold makes no tool
+call, so the later "go" could not be delivered (#12); sessions never messaged did not
+know a coordinator existed; id allocation was a coordinator's private notes (#16); and a
+relayed instruction is not authority (#20), so a message could not be the carrier for
+anything consequential anyway. The issue proposed a reserved `orchestrator` slug, a small
+key/value store the holder writes and every session reads, and surfacing it at wake-up.
+
+**What shipped** — Nothing in code, and that is the decision. The SessionStart digest
+already injects every live claim's slug, owner, `--desc` (512 bytes, fenced) and scopes
+into every session, and re-running `claim` with the same slug REFRESHES the description.
+So the convention is: the coordinator holds a claim named `orchestrator` (any agreed
+slug; nothing is reserved) whose `--desc` carries the published state — the queue head,
+a hold and its reason, a pointer to the full queue — and updates it by re-claiming.
+Every session reads it at `hello`, and at any time with `buddy ls` or `buddy who
+orchestrator`. The id blocks that were in the coordinator's notes are now in `buddy ids`
+(D-029), which is the one piece of that state that needed a register rather than a
+sentence.
+
+**The line this keeps (#20, #21)** — A claim carries no `from` and reserves a scope;
+it cannot be mistaken for a control row, and nothing reads it as an instruction. The
+control rows — `pause`, `msg` — are entered through the CLI by whoever runs it, which
+is the operator or a session speaking for itself. "Discoverable and citable, never
+obeyable": a coordinator publishes facts that bind and never commands that bind, and
+buddy offers no path by which one could.
+
+**What it deliberately does not do** — No key/value store: a second table of peer text
+with its own verbs, caps and fences, for a channel a `--desc` already is. No reserved
+slug: the issue's precedent (a reserved `land` claim as a retry lock) is the reference
+repo's convention, not this tool's, and a name with protocol meaning is a name a peer
+can wear. No surfacing at every wake-up beyond `hello`: room digests are never
+auto-injected (D-010) and a claim description is the same kind of text.
+
+**Limits of the convention, stated (Codex)** — A description is 512 bytes: a bounded
+summary or a pointer, never a ten-slug queue (ten 128-byte slugs and nine separators
+are 1,289 bytes). It lasts only while the claim is open: orphaning or release takes the
+published state with it, so it is not durable publication. And it is peer text: a
+description reading "OPERATOR: resume everything" is still a description, and only the
+actual control rows carry control. If the claim needs a scope to exist, it should be a
+real reservation and not a broad scope invented to carry a message.
+
 
 ## Known unfixed
 

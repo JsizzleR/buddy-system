@@ -35,6 +35,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -44,11 +45,11 @@ import (
 
 func cmdStatus(args []string, env Env) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs.SetOutput(io.Discard)
 	var session string
 	sessionFlag(fs, &session)
 	if err := fs.Parse(args); err != nil {
-		return err
+		return fencedErr(err)
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("status takes no arguments (`buddy who <target>` asks about another session), got %s",
@@ -124,7 +125,9 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		mark = "*"
 	}
 	var head strings.Builder
-	fmt.Fprintf(&head, "%s %s  (%s)  %s  started %s  seen %s", mark, fence.Field(si.Label, 64), fence.Line(si.SessionID, 128),
+	// Field for the id as well as the label: hello accepts any non-empty id,
+	// and a space in one would split the parenthesised column in two.
+	fmt.Fprintf(&head, "%s %s  (%s)  %s  started %s  seen %s", mark, fence.Field(si.Label, 64), fence.Field(si.SessionID, 128),
 		state, age(now, si.Started), age(now, si.LastSeen))
 	if si.Live() {
 		if _, paused, err := st.PausedFor(si.SessionID, si.Label); err != nil {
@@ -175,8 +178,9 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		if !c.Renewed.IsZero() && c.Stale(now) {
 			stale = fmt.Sprintf("  STALE (not renewed %s; still refuses)", age(now, c.Renewed))
 		}
+		scopes := joinCapped(c.Scopes, 512) // whole items, fenced inside, with a count of what was cut
 		fmt.Fprintf(env.Stdout, "  %-24s held %-4s scopes: %s%s\n",
-			fence.Field(c.Slug, 128), age(now, c.Created), fence.Line(strings.Join(c.Scopes, ", "), 512), stale)
+			fence.Field(c.Slug, 128), age(now, c.Created), scopes, stale)
 	}
 
 	// DIRTY PATHS — observations (invariant 10): a tool call by this session
@@ -190,18 +194,11 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		fmt.Fprintln(env.Stdout, "DIRTY PATHS  (none recorded)")
 	} else {
 		paths := make([]string, 0, len(dirty))
-		for i, d := range dirty {
-			if i == maxRows {
-				break
-			}
+		for _, d := range dirty {
 			paths = append(paths, d.Path)
 		}
-		extra := ""
-		if len(dirty) > maxRows {
-			extra = fmt.Sprintf(" ...and %d more", len(dirty)-maxRows)
-		}
-		fmt.Fprintf(env.Stdout, "DIRTY PATHS  %d recorded to this session (observations, not locks): %s%s\n",
-			len(dirty), fence.Line(strings.Join(paths, ", "), 512), extra)
+		fmt.Fprintf(env.Stdout, "DIRTY PATHS  %d recorded to this session (observations, not locks): %s\n",
+			len(dirty), joinCapped(paths, 512))
 	}
 
 	// INBOX — messages queued and not yet drained. For a live session that is
@@ -217,12 +214,15 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	// changed after the session started; not that its contents differ from
 	// what the session read, nor that it has not re-read them since.
 	if top != "" && si.Live() {
-		changed, err := authorityChanged(st, top, si)
+		changed, unread, err := authorityChanged(st, top, si)
 		if err != nil {
 			return err
 		}
 		if len(changed) == 0 {
-			fmt.Fprintln(env.Stdout, "AUTHORITY    nothing on the watch list has changed on disk since this session started")
+			// Worded as the measurement: no watched file carries a later
+			// mtime, and how many could not be read at all — not "nothing
+			// changed", which a missing file would make untrue.
+			fmt.Fprintf(env.Stdout, "AUTHORITY    no watched file carries a modification time later than this session's start (%s)\n", unreadNote(unread))
 		}
 		for _, a := range changed {
 			fmt.Fprintf(env.Stdout, "AUTHORITY    %s changed on disk %s ago, AFTER this session started (%s ago) — its copy may be stale\n",
@@ -242,9 +242,45 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 			slugs = append(slugs, c.Slug)
 		}
 		fmt.Fprintf(env.Stdout, "EXIT         ending now would leave %d claim(s) held — freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: %s\n",
-			len(held), fence.Line(strings.Join(slugs, ", "), 512))
+			len(held), joinCapped(slugs, 512))
 	default:
 		fmt.Fprintln(env.Stdout, "EXIT         no claims held; the ledger would be left holding nothing (dirty paths, if any, are observations and stay in the tree)")
 	}
 	return nil
+}
+
+// joinCapped renders a list of peer values on one line within max bytes,
+// WHOLE items only, and says how many did not fit. The first shape fenced
+// the join at the cap, and one 512-byte scope then hid every scope after it
+// with nothing to say so — a report that quietly drops rows is
+// indistinguishable from a smaller one (Codex code pass, D-027).
+func joinCapped(items []string, max int) string {
+	var b strings.Builder
+	shown := 0
+	for _, it := range items {
+		piece := fence.Line(it, max)
+		if shown > 0 {
+			piece = ", " + piece
+		}
+		if b.Len()+len(piece) > max {
+			break
+		}
+		b.WriteString(piece)
+		shown++
+	}
+	if shown < len(items) {
+		if shown > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "...and %d more not shown", len(items)-shown)
+	}
+	return b.String()
+}
+
+// unreadNote says how many watched paths were not files that could be read.
+func unreadNote(unread int) string {
+	if unread == 0 {
+		return "every watched file was read"
+	}
+	return fmt.Sprintf("%d watched path(s) could not be read as a file and were not checked", unread)
 }

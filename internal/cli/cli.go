@@ -1527,7 +1527,7 @@ func cmdClaim(args []string, env Env) error {
 	}
 	slug := args[0]
 	fs := flag.NewFlagSet("claim", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs.SetOutput(io.Discard)
 	desc := fs.String("desc", "", "what this claim covers")
 	var session string
 	sessionFlag(fs, &session)
@@ -1535,7 +1535,7 @@ func cmdClaim(args []string, env Env) error {
 	fs.Var(&scopes, "scope", "repo-relative path or dir prefix (repeatable)")
 	dry := fs.Bool("dry-run", false, "report the conflict set and what would be taken; write nothing")
 	if err := fs.Parse(args[1:]); err != nil {
-		return err
+		return fencedErr(err)
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -1656,13 +1656,13 @@ func cmdRelease(args []string, env Env) error {
 	}
 	slug := args[0]
 	fs := flag.NewFlagSet("release", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs.SetOutput(io.Discard)
 	var session string
 	sessionFlag(fs, &session)
 	var scopes multiFlag
 	fs.Var(&scopes, "scope", "release only this held scope, exactly as claimed (repeatable); the last one releases the claim")
 	if err := fs.Parse(args[1:]); err != nil {
-		return err
+		return fencedErr(err)
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -1815,10 +1815,10 @@ func cmdPause(args []string, env Env) error {
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("pause", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs.SetOutput(io.Discard)
 	note := fs.String("note", "", "why (shown to the session)")
 	if err := fs.Parse(args[1:]); err != nil {
-		return err
+		return fencedErr(err)
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -1863,11 +1863,11 @@ func cmdMsg(args []string, env Env) error {
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("msg", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs.SetOutput(io.Discard)
 	from := fs.String("from", "", "sender tag; the calling session's label is always stamped on (default: the label, or \"operator\" outside a session)")
 	dry := fs.Bool("dry-run", false, "resolve the target and measure the body, then send nothing")
 	if err := fs.Parse(args[1:]); err != nil {
-		return err
+		return fencedErr(err)
 	}
 	body, err := msgBody(fs.Args(), env)
 	if err != nil {
@@ -2114,11 +2114,11 @@ func senderFor(st *store.Store, env Env, from string) string {
 
 func cmdInbox(args []string, env Env) error {
 	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs.SetOutput(io.Discard)
 	var session string
 	sessionFlag(fs, &session)
 	if err := fs.Parse(args); err != nil {
-		return err
+		return fencedErr(err)
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -2149,12 +2149,12 @@ func cmdInbox(args []string, env Env) error {
 
 func cmdSessions(args []string, env Env) error {
 	fs := flag.NewFlagSet("sessions", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs.SetOutput(io.Discard)
 	by := fs.String("by", "seen", `sort key within the live/ended grouping: "seen" or "started"`)
 	var session string
 	sessionFlag(fs, &session)
 	if err := fs.Parse(args); err != nil {
-		return err
+		return fencedErr(err)
 	}
 	// Go's flag parser STOPS at the first non-flag, so `sessions stray --by
 	// started` would silently list in the default order with the flag never

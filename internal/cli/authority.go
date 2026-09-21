@@ -66,22 +66,26 @@ type authorityFile struct {
 // "no such file" is not "changed". os.Stat follows symlinks, because what a
 // session reads is the target (Codex: Lstat would report an unchanged link
 // over a changed target).
-func authorityChanged(st *store.Store, top string, si store.SessionInfo) ([]authorityFile, error) {
+//
+// unread counts the watched paths that could not be stat-ed as a file — a
+// missing file, a directory — so the all-clear can say what it did not
+// look at rather than assert that nothing changed (Codex code pass).
+func authorityChanged(st *store.Store, top string, si store.SessionInfo) (changed []authorityFile, unread int, err error) {
 	paths, err := watchList(st)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	var out []authorityFile
 	for _, p := range paths {
 		fi, err := os.Stat(filepath.Join(top, filepath.FromSlash(p)))
 		if err != nil || fi.IsDir() {
+			unread++
 			continue
 		}
 		if fi.ModTime().After(si.Started) {
-			out = append(out, authorityFile{Path: p, ModTime: fi.ModTime()})
+			changed = append(changed, authorityFile{Path: p, ModTime: fi.ModTime()})
 		}
 	}
-	return out, nil
+	return changed, unread, nil
 }
 
 // watchList is the configured list with CLAUDE.md always first.
@@ -107,7 +111,7 @@ func watchList(st *store.Store) ([]string, error) {
 // reason the dirty warn's is (a lost write must cost nothing permanently).
 func authorityNotice(st *store.Store, top string, si store.SessionInfo, now time.Time) (string, func() error) {
 	nothing := func() error { return nil }
-	changed, err := authorityChanged(st, top, si)
+	changed, _, err := authorityChanged(st, top, si)
 	if err != nil || len(changed) == 0 {
 		return "", nothing
 	}
@@ -154,7 +158,9 @@ func cmdAuthority(args []string, env Env) error {
 			if store.SamePath(p, alwaysWatched) {
 				note = "  (always)"
 			}
-			fmt.Fprintf(env.Stdout, "%s%s\n", fence.Line(p, 512), note)
+			// "watching " in front: a path NAMED "BUDDY: …" at column zero
+			// would read as a notice in a tool result (Codex code pass).
+			fmt.Fprintf(env.Stdout, "watching %s%s\n", fence.Line(p, 512), note)
 		}
 		return nil
 	case len(args) == 2 && args[0] == "add":

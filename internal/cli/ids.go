@@ -8,6 +8,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"math"
 	"strconv"
 	"strings"
 
@@ -44,7 +46,7 @@ func cmdIDs(args []string, env Env) error {
 			return fencedErr(err)
 		}
 		if created {
-			fmt.Fprintf(env.Stdout, "space %s seeded: ceiling %d — the next block starts at %d\n", fence.Field(args[1], 64), n, n+1)
+			fmt.Fprintf(env.Stdout, "space %s seeded: ceiling %d — %s\n", fence.Field(args[1], 64), n, nextBlock(n))
 		} else {
 			fmt.Fprintf(env.Stdout, "space %s ceiling raised %d -> %d\n", fence.Field(args[1], 64), prev, n)
 		}
@@ -59,12 +61,19 @@ func cmdIDs(args []string, env Env) error {
 			return err
 		}
 		fs := flag.NewFlagSet("ids take", flag.ContinueOnError)
-		fs.SetOutput(env.Stderr)
+		fs.SetOutput(io.Discard)
 		note := fs.String("note", "", "what the block is for")
 		var session string
 		sessionFlag(fs, &session)
 		if err := fs.Parse(args[3:]); err != nil {
-			return err
+			return fencedErr(err)
+		}
+		if fs.NArg() > 0 {
+			// Go's parser stops at the first non-flag, so `take record 5 junk
+			// --session B` would allocate to whoever the environment names and
+			// drop the rest: a block recorded to the wrong session is the
+			// duplicate this register exists to prevent (Codex code pass).
+			return fmt.Errorf("ids take: unexpected argument %s (count, then flags)", strconv.Quote(fence.Line(fs.Arg(0), 64)))
 		}
 		si, err := whoAmI(st, env, session)
 		if err != nil {
@@ -101,7 +110,9 @@ func cmdIDs(args []string, env Env) error {
 			// The ceiling is the fact every allocation rests on, so it prints
 			// beside its blocks and not on a separate screen. Every value is
 			// peer text: the space name, the label and the note.
-			fmt.Fprintf(env.Stdout, "%s  ceiling %d  (next block starts at %d)\n", fence.Field(sp.Space, 64), sp.Ceiling, sp.Ceiling+1)
+			// "space " in front, so a space NAMED "BUDDY:" cannot open a line
+			// that reads as a notice in a tool result (Codex code pass).
+			fmt.Fprintf(env.Stdout, "space %s  ceiling %d  (%s)\n", fence.Field(sp.Space, 64), sp.Ceiling, nextBlock(sp.Ceiling))
 			for _, b := range blocks {
 				if b.Space != sp.Space {
 					continue
@@ -151,6 +162,17 @@ func cmdIDs(args []string, env Env) error {
 	default:
 		return errors.New(idsUsage)
 	}
+}
+
+// nextBlock says where the next allocation would start, and says
+// "exhausted" at the top of the number line instead of wrapping to a
+// negative number (Codex code pass: a ceiling of MaxInt64 advertised a next
+// block at -9223372036854775808).
+func nextBlock(ceiling int64) string {
+	if ceiling == math.MaxInt64 {
+		return "exhausted: nothing above the ceiling"
+	}
+	return fmt.Sprintf("next block starts at %d", ceiling+1)
 }
 
 func noteSuffix(note string) string {

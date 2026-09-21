@@ -165,6 +165,15 @@ Releasing the last scope releases the claim. Releasing `pkg/sub` from a claim
 that holds `pkg` is refused: prefix scopes have no subtraction, and the only
 other answer would be `pkg` still held with success reported.
 
+**Publishing coordination state.** A coordinator that has facts every session
+needs — the landing queue, a hold, who is sequencing — puts them where a
+session reads at wake-up rather than in a message it may never drain: a claim
+named `orchestrator` whose `--desc` carries a bounded summary or a pointer,
+refreshed by re-claiming with the same slug. Every session sees every live
+claim in its `hello` digest and in `buddy ls`. A claim has no `from` and is
+never an instruction; `pause` and `msg` remain the only control rows, and
+there is no path by which a peer's published state becomes a command.
+
 ### 1a. Addressing — whose is this uncommitted hunk?
 
 A claim is *declared intent* over a scope. It cannot answer a different and very
