@@ -100,7 +100,7 @@ func TestIDBlocksSurviveTheirSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	clk.advance(72 * 3600 * 1e9)
-	if _, _, err := st.Sweep(24*3600*1e9, 24*3600*1e9, true); err != nil {
+	if _, err := st.Sweep(24*3600*1e9, 24*3600*1e9, SweepOpts{Force: true}); err != nil {
 		t.Fatal(err)
 	}
 	v, b, _, err := st.IDStatus("record", 11)

@@ -269,6 +269,14 @@ ledger row entered through the CLI (D-006).
     claim has no `from` and is never read as an instruction; `pause` and `msg` remain the
     only control rows. Do not propose a store, a reserved slug, or auto-injection.
 
+34. **Every verb answers `--help` in first position before it runs, and refuses an argument it
+    does not understand (D-031).** Dispatch is a table carrying each verb's usage line; the
+    flag spellings alone count as help (a bare `help` is a legal target or message word); an
+    unknown flag or a stray positional after the flags is a fenced refusal, never ignored.
+    `sweep --dry-run` is the real sweep rolled back inside its transaction, not a second
+    computation of its predicates, and both runs name every claim they orphan. Do not propose
+    a help scan across argv, or a forecast that re-derives the sweep.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

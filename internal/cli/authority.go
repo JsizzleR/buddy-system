@@ -141,7 +141,7 @@ func authorityNotice(st *store.Store, top string, si store.SessionInfo, now time
 
 // cmdAuthority: `buddy authority` lists, `add <path>` and `rm <path>` edit.
 func cmdAuthority(args []string, env Env) error {
-	const usage = "usage: buddy authority [add <path> | rm <path>]   (repo-relative; CLAUDE.md is always watched)"
+	const usage = usageAuthority
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err

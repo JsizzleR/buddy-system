@@ -70,71 +70,125 @@ func (e Env) procAlive(p store.ProcRef) bool {
 	return procAlive(p)
 }
 
+// verb is one row of the command table: the verb's usage line and what runs
+// it. The table exists so that `--help` is a property of EVERY verb, answered
+// in one place before the verb runs, rather than of the verbs whose author
+// remembered it. Issue #23: `buddy sweep --help` performed a real sweep,
+// because sweep read `args[0] == "--force"` and nothing else — and `sweep
+// --dry-run`, equally unrecognised, ran a SECOND real sweep and printed the
+// plausible zero of a population the first had consumed. Accept-and-ignore
+// reports success for input it did not understand, so the caller cannot tell
+// "understood and done" from "not understood and done anyway"; every verb's
+// argument contract is written down here and refused when it is not met.
+type verb struct {
+	usage string
+	run   func(args []string, env Env) int
+}
+
+// errVerb adapts the error-returning verbs to the table: a refusal is printed
+// as "buddy <verb>: <err>" and exits 1, which is what Run always did.
+func errVerb(name string, fn func([]string, Env) error) func([]string, Env) int {
+	return func(args []string, env Env) int {
+		if err := fn(args, env); err != nil {
+			fmt.Fprintf(env.Stderr, "buddy %s: %v\n", name, err)
+			return 1
+		}
+		return 0
+	}
+}
+
+var verbs = map[string]verb{
+	"init":        {usageInit, errVerb("init", cmdInit)},
+	"hello":       {usageHello, errVerb("hello", cmdHello)},
+	"bye":         {usageBye, errVerb("bye", cmdBye)},
+	"beat":        {usageBeat, errVerb("beat", cmdBeat)},
+	"idle":        {usageIdle, errVerb("idle", cmdIdle)},
+	"busy":        {usageBusy, errVerb("busy", cmdBusy)},
+	"gate":        {usageGate, cmdGate},
+	"commit-gate": {usageCommitGate, cmdCommitGate},
+	"claim":       {usageClaim, errVerb("claim", cmdClaim)},
+	"release":     {usageRelease, errVerb("release", cmdRelease)},
+	"ls":          {usageLs, errVerb("ls", cmdLs)},
+	"sweep":       {usageSweep, errVerb("sweep", cmdSweep)},
+	"pause":       {usagePause, errVerb("pause", cmdPause)},
+	"resume":      {usageResume, errVerb("resume", cmdResume)},
+	"msg":         {usageMsg, errVerb("msg", cmdMsg)},
+	"inbox":       {usageInbox, errVerb("inbox", cmdInbox)},
+	"sessions":    {usageSessions, errVerb("sessions", cmdSessions)},
+	"whose":       {usageWhose, errVerb("whose", cmdWhose)},
+	"status":      {usageStatus, errVerb("status", cmdStatus)},
+	"who":         {usageWho, errVerb("who", cmdWho)},
+	"authority":   {usageAuthority, errVerb("authority", cmdAuthority)},
+	"ids":         {idsUsage, errVerb("ids", cmdIDs)},
+}
+
 func Run(args []string, env Env) int {
 	if len(args) == 0 {
 		usage(env.Stderr)
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
-	var err error
 	switch cmd {
-	case "init":
-		err = cmdInit(rest, env)
-	case "hello":
-		err = cmdHello(rest, env)
-	case "bye":
-		err = cmdBye(rest, env)
-	case "beat":
-		err = cmdBeat(rest, env)
-	case "idle":
-		err = cmdIdle(rest, env)
-	case "busy":
-		err = cmdBusy(rest, env)
-	case "gate":
-		return cmdGate(rest, env)
-	case "commit-gate":
-		return cmdCommitGate(rest, env)
-	case "claim":
-		err = cmdClaim(rest, env)
-	case "release":
-		err = cmdRelease(rest, env)
-	case "ls":
-		err = cmdLs(rest, env)
-	case "sweep":
-		err = cmdSweep(rest, env)
-	case "pause":
-		err = cmdPause(rest, env)
-	case "resume":
-		err = cmdResume(rest, env)
-	case "msg":
-		err = cmdMsg(rest, env)
-	case "inbox":
-		err = cmdInbox(rest, env)
-	case "sessions":
-		err = cmdSessions(rest, env)
-	case "whose":
-		err = cmdWhose(rest, env)
-	case "status":
-		err = cmdStatus(rest, env)
-	case "who":
-		err = cmdWho(rest, env)
-	case "authority":
-		err = cmdAuthority(rest, env)
-	case "ids":
-		err = cmdIDs(rest, env)
 	case "help", "-h", "--help":
 		usage(env.Stdout)
 		return 0
-	default:
+	}
+	v, ok := verbs[cmd]
+	if !ok {
 		fmt.Fprintf(env.Stderr, "buddy: unknown command %q\n", cmd)
 		usage(env.Stderr)
 		return 2
 	}
-	if err != nil {
-		fmt.Fprintf(env.Stderr, "buddy %s: %v\n", cmd, err)
-		return 1
+	if len(rest) > 0 && isHelp(rest[0]) {
+		// Answered BEFORE the verb runs, so it holds for a hook verb that
+		// would otherwise read stdin, for a verb that mutates, and without a
+		// ledger. A help flag later in the line is the verb's own parser's
+		// job (parseFlags), because only the verb knows where its flag
+		// region ends.
+		fmt.Fprintln(env.Stdout, v.usage)
+		return 0
 	}
-	return 0
+	return v.run(rest, env)
+}
+
+// isHelp reports whether an argument asks for the verb's usage instead of its
+// work. Only the flag spellings count: a bare "help" is a legal target, slug
+// or message word, and a verb that mistook it would refuse or misdeliver.
+func isHelp(a string) bool { return a == "-h" || a == "-help" || a == "--help" }
+
+// parseFlags is fs.Parse with the two answers a verb owes for what it did not
+// ask for. -h/--help in the flag region prints the usage line on stdout and
+// reports help=true — the caller returns nil: exit 0, nothing touched (Run
+// answers it in first position; this covers `sweep --force --help` and
+// `claim x --help`). Every other parse error, which includes an unknown flag,
+// is the refusal, with the usage line under it: flag's own diagnostic quotes
+// the offending argument VERBATIM and an argument may carry a newline, so it
+// is fenced first (commitgate.go found this). An unknown
+// flag is never accepted-and-ignored, because the output of the run that
+// follows looks exactly like the output of the run the caller asked for.
+func parseFlags(fs *flag.FlagSet, args []string, usage string, env Env) (help bool, err error) {
+	fs.SetOutput(io.Discard)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(env.Stdout, usage)
+			return true, nil
+		}
+		return false, fmt.Errorf("%s\n  %s", fence.Line(err.Error(), 256), usage)
+	}
+	return false, nil
+}
+
+// noStray refuses a positional left after the flags. Go's parser STOPS at the
+// first non-flag, so `sweep stray --force` would otherwise run an unforced
+// sweep with the flag never read, and `claim x --scope a b` would drop b
+// with nothing said — the shape of quiet wrong-target this CLI must not have
+// (sessions, status and commit-gate each found it separately).
+func noStray(verb string, fs *flag.FlagSet, usage string) error {
+	if fs.NArg() > 0 {
+		return fmt.Errorf("%s takes no further arguments, got %s — flags after it would be IGNORED\n  %s", verb,
+			strconv.Quote(fence.Line(fs.Arg(0), 64)), usage)
+	}
+	return nil
 }
 
 func usage(w io.Writer) {
@@ -173,7 +227,8 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     row with what an orchestrator picks on
                                     (BUDDY_CONTEXT_WINDOW=1M adds the percentage; nothing
                                     else can know the window)
-              sweep [--force]       tidy closed claims
+              sweep [--force] [--dry-run]   tidy closed claims; --dry-run says what a real
+                                    run would orphan and delete, and writes nothing
               ids seed|take|ls|status     the identifier register: seed a space with the
                                     artifact's measured high-water mark, take a block
                                     above the ceiling (never reissued, no return verb),
@@ -183,6 +238,8 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     call (CLAUDE.md always; the copy in a long session's
                                     context is a snapshot, and nothing else says it rotted)
 setup         init                  create the ledger for this repo
+every verb answers --help (or -h) with its usage line and does nothing else; an argument a
+verb does not know is REFUSED, never ignored (sweep --help used to sweep)
 hooks         hello · gate · beat · idle · bye   (wired in .claude/settings; hook JSON on stdin)
               busy   OPTIONAL, on UserPromptSubmit: only a turn that runs no tool at all
                      needs it — every other turn's first beat retracts the idle mark
@@ -195,6 +252,34 @@ observations of the working tree: announced is not locked, and nothing they repo
 edit. They exist so that a message about a file can be ADDRESSED to someone.
 `)
 }
+
+// One usage line per verb: what `buddy <verb> --help` prints and what a
+// usage refusal says. Each begins "usage: buddy <verb>", and a test holds the
+// table to that, so a verb cannot be added with the wrong line or none.
+const (
+	usageInit       = "usage: buddy init   (create the ledger for this repo; takes no arguments)"
+	usageHello      = "usage: buddy hello [--session <id>] [--label <text>]   (SessionStart hook; hook JSON on stdin)"
+	usageBye        = "usage: buddy bye <session> [--force]  (or pipe SessionEnd hook JSON)"
+	usageBeat       = "usage: buddy beat   (PostToolUse hook; hook JSON on stdin)"
+	usageIdle       = "usage: buddy idle   (Stop hook; hook JSON on stdin)"
+	usageBusy       = "usage: buddy busy   (UserPromptSubmit hook, optional; hook JSON on stdin)"
+	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
+	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
+	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--dry-run] [--session <id>]"
+	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--session <id>]"
+	usageLs         = "usage: buddy ls [--all]"
+	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
+		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
+	usagePause     = "usage: buddy pause <session|label|slug|all> [--note <text>]"
+	usageResume    = "usage: buddy resume <session|label|slug|all>"
+	usageMsg       = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--dry-run] <text...>"
+	usageInbox     = "usage: buddy inbox [--session <id>]"
+	usageSessions  = "usage: buddy sessions [--by seen|started] [--session <id>]"
+	usageWhose     = "usage: buddy whose <path>"
+	usageStatus    = "usage: buddy status [--session <id>]"
+	usageWho       = "usage: buddy who <session|label|s-id|slug>  (any name a session answers to; prints the rest)"
+	usageAuthority = "usage: buddy authority [add <path> | rm <path>]   (repo-relative; CLAUDE.md is always watched)"
+)
 
 // ---- hook input ----
 
@@ -814,6 +899,11 @@ func ChatIdentity(cwd, sessionID string) (id, label string, slugs []string) {
 // ---- commands ----
 
 func cmdInit(args []string, env Env) error {
+	if len(args) > 0 {
+		// `init --help` used to create the ledger — turning the feature ON
+		// for a repo whose operator was asking what init does.
+		return fmt.Errorf("init takes no arguments, got %s\n%s", strconv.Quote(fence.Line(args[0], 64)), usageInit)
+	}
 	rc, err := resolveRepo(env.Cwd)
 	if err != nil {
 		return err
@@ -1008,7 +1098,7 @@ func cmdBye(args []string, env Env) error {
 			case a == "--force":
 				force = true
 			case strings.HasPrefix(a, "-"):
-				return fmt.Errorf("usage: buddy bye <session> [--force]  (or pipe SessionEnd hook JSON)")
+				return errors.New(usageBye)
 			case session == "":
 				session = a
 			default:
@@ -1523,19 +1613,21 @@ func deny(env Env, reason string) {
 
 func cmdClaim(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...]")
+		return errors.New(usageClaim)
 	}
 	slug := args[0]
 	fs := flag.NewFlagSet("claim", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	desc := fs.String("desc", "", "what this claim covers")
 	var session string
 	sessionFlag(fs, &session)
 	var scopes multiFlag
 	fs.Var(&scopes, "scope", "repo-relative path or dir prefix (repeatable)")
 	dry := fs.Bool("dry-run", false, "report the conflict set and what would be taken; write nothing")
-	if err := fs.Parse(args[1:]); err != nil {
-		return fencedErr(err)
+	if help, err := parseFlags(fs, args[1:], usageClaim, env); help || err != nil {
+		return err
+	}
+	if err := noStray("claim", fs, usageClaim); err != nil {
+		return err
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -1652,17 +1744,19 @@ func staleNote(now, renewed time.Time) string {
 
 func cmdRelease(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy release <slug> [--scope <path> ...] [--session <id>]")
+		return errors.New(usageRelease)
 	}
 	slug := args[0]
 	fs := flag.NewFlagSet("release", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	var session string
 	sessionFlag(fs, &session)
 	var scopes multiFlag
 	fs.Var(&scopes, "scope", "release only this held scope, exactly as claimed (repeatable); the last one releases the claim")
-	if err := fs.Parse(args[1:]); err != nil {
-		return fencedErr(err)
+	if help, err := parseFlags(fs, args[1:], usageRelease, env); help || err != nil {
+		return err
+	}
+	if err := noStray("release", fs, usageRelease); err != nil {
+		return err
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -1699,13 +1793,20 @@ func cmdRelease(args []string, env Env) error {
 }
 
 func cmdLs(args []string, env Env) error {
-	all := len(args) > 0 && args[0] == "--all"
+	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
+	all := fs.Bool("all", false, "include released and orphaned claims")
+	if help, err := parseFlags(fs, args, usageLs, env); help || err != nil {
+		return err
+	}
+	if err := noStray("ls", fs, usageLs); err != nil {
+		return err
+	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	claims, err := st.Claims(all)
+	claims, err := st.Claims(*all)
 	if err != nil {
 		return err
 	}
@@ -1731,19 +1832,49 @@ func cmdLs(args []string, env Env) error {
 	return nil
 }
 
+// cmdSweep. Every argument is parsed, an unknown one is refused, and the
+// forecast is a real flag: before this, `sweep --help` swept (47 rows on the
+// operator's ledger, issue #23), `sweep --dry-run` swept AGAIN and printed a
+// zero that read as a forecast honoured, and `sweep --verbose --force` ran
+// unforced because --force had to be args[0]. The dry run is the store's own
+// sweep rolled back (store.SweepOpts), so it cannot drift from the real one.
 func cmdSweep(args []string, env Env) error {
-	force := len(args) > 0 && args[0] == "--force"
+	fs := flag.NewFlagSet("sweep", flag.ContinueOnError)
+	force := fs.Bool("force", false, "also orphan open claims of sessions silent longer than ForceAfter")
+	dry := fs.Bool("dry-run", false, "report what a real run would orphan and delete; write nothing")
+	if help, err := parseFlags(fs, args, usageSweep, env); help || err != nil {
+		return err
+	}
+	if err := noStray("sweep", fs, usageSweep); err != nil {
+		return err
+	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	orphaned, deleted, err := st.Sweep(SweepTTL, ForceAfter, force)
+	r, err := st.Sweep(SweepTTL, ForceAfter, store.SweepOpts{Force: *force, DryRun: *dry})
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "sweep: %d orphaned, %d deleted (open claims of live sessions are never touched", orphaned, deleted)
-	if !force {
+	// Orphaning is the one act here that frees a scope the gate was refusing
+	// for, so it is named claim by claim — under --force especially, where
+	// the operator is displacing a holder that has merely gone quiet. Slug
+	// and label are peer text and land in a tool result (invariant 9).
+	verb := "orphaned"
+	if *dry {
+		verb = "would orphan"
+	}
+	for _, o := range r.OrphanedClaims {
+		fmt.Fprintf(env.Stdout, "  %s %s held by %s (%s)\n", verb, fence.Field(o.Slug, 128), fence.Field(o.Label, 64),
+			fence.Line(o.SessionID, 64))
+	}
+	if *dry {
+		fmt.Fprintf(env.Stdout, "sweep --dry-run: would orphan %d, would delete %d (nothing written; open claims of live sessions are never touched", r.Orphaned, r.Deleted)
+	} else {
+		fmt.Fprintf(env.Stdout, "sweep: %d orphaned, %d deleted (open claims of live sessions are never touched", r.Orphaned, r.Deleted)
+	}
+	if !*force {
 		fmt.Fprint(env.Stdout, "; --force orphans claims of sessions silent >24h")
 	}
 	fmt.Fprintln(env.Stdout, ")")
@@ -1811,14 +1942,16 @@ func resolveTargetQuiet(st *store.Store, raw string) (store.Target, error) {
 
 func cmdPause(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy pause <session|label|slug|all> [--note <text>]")
+		return errors.New(usagePause)
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("pause", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	note := fs.String("note", "", "why (shown to the session)")
-	if err := fs.Parse(args[1:]); err != nil {
-		return fencedErr(err)
+	if help, err := parseFlags(fs, args[1:], usagePause, env); help || err != nil {
+		return err
+	}
+	if err := noStray("pause", fs, usagePause); err != nil {
+		return err
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -1837,8 +1970,8 @@ func cmdPause(args []string, env Env) error {
 }
 
 func cmdResume(args []string, env Env) error {
-	if len(args) != 1 {
-		return errors.New("usage: buddy resume <session|label|slug|all>")
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
+		return errors.New(usageResume)
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -1859,15 +1992,14 @@ func cmdResume(args []string, env Env) error {
 
 func cmdMsg(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy msg <session|label|slug|all> [--from <tag>] [--dry-run] <text...>")
+		return errors.New(usageMsg)
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("msg", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	from := fs.String("from", "", "sender tag; the calling session's label is always stamped on (default: the label, or \"operator\" outside a session)")
 	dry := fs.Bool("dry-run", false, "resolve the target and measure the body, then send nothing")
-	if err := fs.Parse(args[1:]); err != nil {
-		return fencedErr(err)
+	if help, err := parseFlags(fs, args[1:], usageMsg, env); help || err != nil {
+		return err
 	}
 	body, err := msgBody(fs.Args(), env)
 	if err != nil {
@@ -2021,8 +2153,7 @@ func renderedLen(body string) int {
 // was not coming); a human who types `buddy msg alpha` must get the usage line
 // back, not a cursor.
 func msgBody(args []string, env Env) (string, error) {
-	const usage = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--dry-run] <text...>\n" +
-		"       (with no text, the body is read from stdin when stdin is not a terminal)"
+	const usage = usageMsg + "\n       (with no text, the body is read from stdin when stdin is not a terminal)"
 	body := ""
 	switch {
 	case len(args) > 0:
@@ -2114,11 +2245,15 @@ func senderFor(st *store.Store, env Env, from string) string {
 
 func cmdInbox(args []string, env Env) error {
 	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	var session string
 	sessionFlag(fs, &session)
-	if err := fs.Parse(args); err != nil {
-		return fencedErr(err)
+	if help, err := parseFlags(fs, args, usageInbox, env); help || err != nil {
+		return err
+	}
+	// inbox DRAINS: a message it prints is marked delivered. A stray word
+	// used to drain anyway.
+	if err := noStray("inbox", fs, usageInbox); err != nil {
+		return err
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -2149,12 +2284,11 @@ func cmdInbox(args []string, env Env) error {
 
 func cmdSessions(args []string, env Env) error {
 	fs := flag.NewFlagSet("sessions", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	by := fs.String("by", "seen", `sort key within the live/ended grouping: "seen" or "started"`)
 	var session string
 	sessionFlag(fs, &session)
-	if err := fs.Parse(args); err != nil {
-		return fencedErr(err)
+	if help, err := parseFlags(fs, args, usageSessions, env); help || err != nil {
+		return err
 	}
 	// Go's flag parser STOPS at the first non-flag, so `sessions stray --by
 	// started` would silently list in the default order with the flag never

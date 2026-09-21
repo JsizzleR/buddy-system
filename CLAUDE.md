@@ -354,6 +354,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `orchestrator` claim's `--desc` (512 bytes, fenced, refreshed by re-claiming) is the
   pull channel every session reads at `hello` and via `ls`/`who`. No key/value store,
   no reserved slug, no compel path: a claim has no `from` and is never an instruction.
+- **Every verb answers `--help` before it runs, and refuses what it does not understand
+  (D-031).** Dispatch is a table carrying each verb's usage line; `-h`/`-help`/`--help` in
+  first position is answered by `Run` for all of them, without a ledger or stdin. An unknown
+  flag or a stray positional after the flags is a fenced refusal, never accepted-and-ignored
+  (`sweep --help` used to sweep; `sweep --dry-run` swept again and printed a plausible
+  zero). `sweep --dry-run` is the real sweep rolled back inside its transaction, and both
+  runs name every claim they orphan. Hook verbs keep their argument semantics beyond `--help`.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

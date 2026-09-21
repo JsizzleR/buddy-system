@@ -246,6 +246,7 @@ And for the operator:
 buddy pause session-2 --note "hold off — deciding the design first"
 buddy msg all "CI is red, check before pushing"   # current live fleet only; expires after 24h
 buddy resume session-2
+buddy sweep --dry-run             # what a sweep would orphan and delete, by name; writes nothing
 buddy sweep                       # tidies released/orphaned claims; never reaps live ones
 ```
 

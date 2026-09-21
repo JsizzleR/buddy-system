@@ -35,7 +35,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 
@@ -45,11 +44,10 @@ import (
 
 func cmdStatus(args []string, env Env) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
 	var session string
 	sessionFlag(fs, &session)
-	if err := fs.Parse(args); err != nil {
-		return fencedErr(err)
+	if help, err := parseFlags(fs, args, usageStatus, env); help || err != nil {
+		return err
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("status takes no arguments (`buddy who <target>` asks about another session), got %s",
@@ -69,7 +67,7 @@ func cmdStatus(args []string, env Env) error {
 
 func cmdWho(args []string, env Env) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy who <session|label|s-id|slug>  (any name a session answers to; prints the rest)")
+		return errors.New(usageWho)
 	}
 	st, rc, err := mustLedger(env.Cwd, env)
 	if err != nil {

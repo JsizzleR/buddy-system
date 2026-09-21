@@ -404,7 +404,7 @@ func shellArg(v string) string {
 
 func cmdWhose(args []string, env Env) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
-		return errors.New("usage: buddy whose <path>")
+		return errors.New(usageWhose)
 	}
 	st, rc, err := mustLedger(env.Cwd, env)
 	if err != nil {

@@ -312,7 +312,7 @@ func TestSweepNeverDeletesAnAttributionOnATimer(t *testing.T) {
 
 	// A week later -- far past the 24h claims TTL that sweeps everything else.
 	clk.advance(7 * 24 * time.Hour)
-	if _, _, err := st.Sweep(24*time.Hour, 24*time.Hour, false); err != nil {
+	if _, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustHolders(t, st, "CHANGELOG.md"); len(got) != 1 {
@@ -353,14 +353,14 @@ func TestAnAttributionIsBoundedAtTheLongHorizon(t *testing.T) {
 	}
 
 	clk.advance(DirtyKeepAfterEnd - time.Hour)
-	if _, _, err := st.Sweep(24*time.Hour, 24*time.Hour, false); err != nil {
+	if _, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustHolders(t, st, "CHANGELOG.md"); len(got) != 1 {
 		t.Fatal("inside the horizon the attribution must survive")
 	}
 	clk.advance(2 * time.Hour)
-	if _, _, err := st.Sweep(24*time.Hour, 24*time.Hour, false); err != nil {
+	if _, err := st.Sweep(24*time.Hour, 24*time.Hour, SweepOpts{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustHolders(t, st, "CHANGELOG.md"); len(got) != 0 {
