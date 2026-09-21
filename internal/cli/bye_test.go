@@ -355,3 +355,18 @@ func TestTerminalHandleIsRecordedFromTheHookEnvironment(t *testing.T) {
 		t.Fatalf("the pane column must be one token:\n%s", roster)
 	}
 }
+
+// A second positional is refused, not dropped: `bye a b` ending a with
+// nothing said about b is the quiet wrong-target shape (Codex code pass).
+func TestManualByeRefusesASecondSession(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	_, errw, code := f.run(t, f.repo, "", "bye", "sess-a", "sess-b")
+	if code == 0 || !strings.Contains(errw, "one session") {
+		t.Fatalf("want a refusal: %d %q", code, errw)
+	}
+	if roster, _, _ := f.run(t, f.repo, "", "sessions"); strings.Contains(rowFor(roster, "alpha"), "ended") {
+		t.Fatal("a refused bye must end nothing")
+	}
+}

@@ -120,6 +120,8 @@ func Run(args []string, env Env) int {
 		err = cmdWho(rest, env)
 	case "authority":
 		err = cmdAuthority(rest, env)
+	case "ids":
+		err = cmdIDs(rest, env)
 	case "help", "-h", "--help":
 		usage(env.Stdout)
 		return 0
@@ -172,6 +174,10 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     (BUDDY_CONTEXT_WINDOW=1M adds the percentage; nothing
                                     else can know the window)
               sweep [--force]       tidy closed claims
+              ids seed|take|ls|status     the identifier register: seed a space with the
+                                    artifact's measured high-water mark, take a block
+                                    above the ceiling (never reissued, no return verb),
+                                    and ask what is reserved HERE — it never reads prose
               authority [add|rm <path>]   the files whose on-disk change after a session
                                     started is announced to it ONCE, on its next tool
                                     call (CLAUDE.md always; the copy in a long session's
@@ -1005,6 +1011,11 @@ func cmdBye(args []string, env Env) error {
 				return fmt.Errorf("usage: buddy bye <session> [--force]  (or pipe SessionEnd hook JSON)")
 			case session == "":
 				session = a
+			default:
+				// A second positional is not silently dropped: `bye a b`
+				// ending only a, with nothing said about b, is exactly the
+				// shape of quiet wrong-target this verb must not have.
+				return fmt.Errorf("bye takes one session, got %s and %s", fence.Line(session, 128), fence.Line(a, 128))
 			}
 		}
 	}
@@ -1292,12 +1303,15 @@ func cmdBeat(args []string, env Env) error {
 	// reason: a lost write must cost nothing permanently. The one-shot notice
 	// used to be marked while it was being COMPOSED, so a failed write silenced
 	// it forever while the messages beside it were correctly redelivered.
-	if err := commitWarn(); err != nil {
-		return err
-	}
-	if err := commitAuth(); err != nil {
-		return err
-	}
+	//
+	// AND THEIR FAILURE COSTS NOTHING ELSE. These are advisory bookkeeping;
+	// the inbox acknowledgement below is the heartbeat's contract. The first
+	// shape returned on a failed mark and skipped MarkDelivered, so a hiccup
+	// in the authority table re-delivered every message beside the notice
+	// (Codex code pass, D-028). The worst a lost mark can do is repeat its
+	// own notice once, which is the at-least-once the marks already accept.
+	_ = commitWarn()
+	_ = commitAuth()
 	if len(ids) == 0 {
 		return nil // no empty write transaction on a notice-only beat
 	}

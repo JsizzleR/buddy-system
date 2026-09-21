@@ -311,6 +311,35 @@ and nothing more: not that the contents differ from what you read, not that
 you have not re-read it since, and in a linked worktree not that `main` has
 moved, since the file there changes only when that worktree pulls.
 
+### 1a‴. The identifier register — `buddy ids`
+
+```sh
+buddy ids seed record 1704            # the artifact's MEASURED high-water mark; raise, never lower
+buddy ids take record 5 --note "cve"  # took record 1705..1709 for repo/s-16c16a94
+buddy ids ls                          # record  ceiling 1709  (next block starts at 1710)
+buddy ids status record 1706          # RESERVED here by … / above the ceiling / not available
+```
+
+A repo that allocates decision numbers or row ids from append-only prose
+files has a register that must be **parsed** to know what is taken, and in
+one run that produced four false occupancy reports in a day: ids returned as
+unused that were drafted in a document, an id "filed" that reached no file,
+and a probe that read a range endpoint in a sentence as a taken number. A
+duplicate is not a merge conflict — the driver appends both, silently.
+
+So this register does the one thing prose cannot: `take` is one transaction
+handing out the next contiguous block **above the ceiling**, recorded to the
+session that took it. It **must be seeded** with the artifact's measured
+high-water mark first, because it does not read the artifact and will not
+guess the ceiling is zero. There is **no `return` verb**: a returned id is a
+claim about intent, and the register cannot see a draft or a citation in
+unlanded code — take from the ceiling, ids are free. Blocks outlive their
+session. And `status` answers only in the three registers it actually holds:
+reserved here (by whom, which block), above the ceiling ("unreserved in this
+register", which is not "free"), or at-or-below and in no block ("not
+available for allocation" — whether the artifact uses it, only reading the
+artifact as a record can say).
+
 ### 1b. The commit gate — the second line
 
 The tool-call gate only ever sees the path a tool *declares*. A file written by

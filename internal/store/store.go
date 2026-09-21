@@ -230,6 +230,29 @@ CREATE TABLE IF NOT EXISTS authority_warned (
 	warned      INTEGER NOT NULL,
 	PRIMARY KEY (session_id, incarnation, folded, mtime_ns)
 );
+-- THE IDENTIFIER REGISTER (D-029, issue #16): per space a CEILING, the
+-- highest id known used or reserved, and the blocks handed out above it.
+-- The register never parses prose to know what is taken, never reissues,
+-- and does not know the artifact: a space must be SEEDED with a measured
+-- high-water mark before anything is taken. Blocks outlive their session —
+-- a reservation is a fact about the number line, not about a session's
+-- life — so nothing here is swept or orphaned.
+CREATE TABLE IF NOT EXISTS id_spaces (
+	space   TEXT PRIMARY KEY,
+	ceiling INTEGER NOT NULL,
+	created INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS id_blocks (
+	block_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+	space       TEXT NOT NULL,
+	lo          INTEGER NOT NULL,
+	hi          INTEGER NOT NULL,
+	session_id  TEXT NOT NULL,
+	incarnation TEXT NOT NULL,
+	label       TEXT NOT NULL,
+	note        TEXT NOT NULL,
+	taken       INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS dirty_scans (
 	session_id TEXT NOT NULL,
 	worktree   TEXT NOT NULL,
@@ -243,6 +266,7 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 8 adds id_spaces and id_blocks (D-029).
 // 7 adds authority and authority_warned (D-028).
 // 6 adds sessions.terminal (an ALTER arm — see migrate) and session_procs.
 // 5 adds cache_5m/cache_1h to session_context, again by DROPPING it (D-018:
@@ -253,12 +277,17 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 7
+const schemaVersion = 8
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
 	db  *sql.DB
 	now func() time.Time
+	// betweenReads is a TEST SEAM: called by ClaimConflicts between its
+	// conflict scan and its displacement scan, so a test can land a peer's
+	// write there and prove the two scans see one snapshot. nil in
+	// production.
+	betweenReads func()
 }
 
 // Open opens (creating if needed) the ledger at dbPath. now==nil uses the wall clock.
@@ -668,10 +697,20 @@ type ByeResult struct {
 //   - the session's registrations are read; from's own is removed (it is
 //     exiting, that is what a bye means);
 //   - every other registration is asked `alive`; a dead one is pruned;
-//   - if any is alive and force is false, NOTHING is written and the result
-//     names them — a delayed bye from a dead incarnation, or a passenger
-//     process exiting first, leaves the live process registered and live;
+//   - if any is alive and force is false, the session is NOT ended and the
+//     result names them — a delayed bye from a dead incarnation, or a
+//     passenger process exiting first, leaves the live process registered
+//     and live (the caller's own row and the pruned dead ones ARE gone: that
+//     is the bookkeeping, and it commits);
 //   - otherwise the session is ended and its registrations cleared.
+//
+// "MINE" IS PID AND BIRTH TIME, not pid alone (Codex code pass, D-025). A
+// hook that captured its anchor, stalled, and outlived its parent could
+// see that pid recycled and re-registered by a replacement process; on pid
+// alone the old bye would recognise the replacement's row as its own,
+// delete it without ever asking `alive`, and end the session under a live
+// process — the defect by yet another road. A recorded birth time that
+// differs is a different process, and the caller is then a stranger.
 //
 // A session with NO registrations is unbound and ends as it always did: a
 // hand-run hello registers nothing, an old ledger has no rows, and neither
@@ -715,7 +754,7 @@ func (s *Store) ByeFrom(sessionID string, from ProcRef, alive func(ProcRef) bool
 		}
 		mine := false
 		for _, p := range regs {
-			if from.PID != 0 && p.PID == from.PID {
+			if from.PID != 0 && p.PID == from.PID && (from.Born == 0 || p.Born == 0 || p.Born == from.Born) {
 				mine = true
 			} else if alive(p) {
 				res.Blocking = append(res.Blocking, p)

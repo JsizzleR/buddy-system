@@ -4,6 +4,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 
 	"golang.org/x/sys/unix"
 )
@@ -22,9 +23,21 @@ import (
 // A pid that does not exist draws EIO from kern.proc.pid and EINVAL from
 // procargs2 (measured); either is "not ok". The start time is the process's
 // own, in microseconds — compared for equality only, never as a clock.
+//
+// procGone is the set of errors that mean "no such process" and nothing
+// else; any other error from the kernel is "cannot say", which procAlive
+// must read as ALIVE (its failure direction), not as dead (Codex code
+// pass: an indeterminate lookup pruning a live registration is the
+// defect). EIO is what this kernel returns for an absent pid — measured,
+// not ESRCH — so it is in the set by measurement.
+func procGone(err error) bool {
+	return errors.Is(err, unix.ESRCH) || errors.Is(err, unix.EIO) || errors.Is(err, unix.ENOENT)
+}
+
 func procInfo(pid int) (ppid int, names []string, born int64, ok bool) {
 	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
+		lastProcErr = err
 		return 0, nil, 0, false
 	}
 	born = kp.Proc.P_starttime.Sec*1_000_000 + int64(kp.Proc.P_starttime.Usec)
@@ -34,9 +47,10 @@ func procInfo(pid int) (ppid int, names []string, born int64, ok bool) {
 	}
 	if len(names) == 0 {
 		// procargs2 is refused for a process this user may not inspect;
-		// kern.proc.pid still answers. P_comm is a last resort and, for the
-		// reason above, will not match the harness — which leaves the walk to
-		// continue past this process, never to anchor to it wrongly.
+		// kern.proc.pid still answers. P_comm is a last resort: for the
+		// launcher it is the version string and will not match, so the walk
+		// continues past such a process; a binary exec'd under its own name
+		// would match here as it would by exec path.
 		comm := kp.Proc.P_comm[:]
 		if i := bytes.IndexByte(comm, 0); i >= 0 {
 			comm = comm[:i]

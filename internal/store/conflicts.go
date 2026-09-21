@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -229,12 +230,16 @@ func refusedFrom(conflicts []Conflict) ErrRefused {
 // WITHOUT taking anything: the requested scopes that overlap nothing, and
 // every conflict, computed by the same code path as the refusal.
 //
-// It runs outside a transaction, on autocommit reads, deliberately: the
-// ledger opens with _txlock=immediate, so a transaction here would take the
-// WRITE lock for a read-only answer (the same cost Open once paid on every
-// gate, see Open). The price is that the slug check and the scope scan are two
-// reads that a peer's claim can land between — a dry run is a forecast, and
-// the real Claim re-checks everything under its own lock.
+// It runs inside ONE READ SNAPSHOT — `BEGIN DEFERRED` on a dedicated
+// connection, which in WAL mode reads a consistent snapshot without taking
+// the write lock — and not inside s.tx, because the ledger opens with
+// _txlock=immediate and a transaction there would take the WRITE lock for a
+// read-only answer (the same cost Open once paid on every gate, see Open).
+// The first shape ran three autocommit reads and could assemble a result no
+// single ledger state ever had: a peer's bye landing between the conflict
+// scan and the displacement scan reported the same claim as BOTH blocking
+// and displaced (Codex code pass, D-026). A forecast may be stale by the
+// time it is read; it must not contradict itself.
 //
 // An unknown, ended or superseded session is refused, not told its scopes are
 // free: the forecast is for a claim that session could never take. The
@@ -258,19 +263,25 @@ func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []str
 		}
 		norm = append(norm, n)
 	}
-	var live int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id=? AND incarnation=? AND ended IS NULL`,
-		sessionID, incarnation).Scan(&live); err != nil {
-		return nil, nil, nil, err
-	}
-	if live == 0 {
-		return nil, nil, nil, fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
-	}
-	conflicts, err = s.allConflicts(s.db, sessionID, slug, norm)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	displaced, err = s.endedOverlaps(s.db, sessionID, slug, norm)
+	err = s.readSnapshot(func(q querier) error {
+		var live int
+		if err := q.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id=? AND incarnation=? AND ended IS NULL`,
+			sessionID, incarnation).Scan(&live); err != nil {
+			return err
+		}
+		if live == 0 {
+			return fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
+		}
+		conflicts, err = s.allConflicts(q, sessionID, slug, norm)
+		if err != nil {
+			return err
+		}
+		if s.betweenReads != nil {
+			s.betweenReads()
+		}
+		displaced, err = s.endedOverlaps(q, sessionID, slug, norm)
+		return err
+	})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -286,6 +297,39 @@ func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []str
 		}
 	}
 	return free, conflicts, displaced, nil
+}
+
+// connQuerier adapts a *sql.Conn to the querier the scans take.
+type connQuerier struct{ c *sql.Conn }
+
+func (q connQuerier) QueryRow(query string, args ...any) *sql.Row {
+	return q.c.QueryRowContext(context.Background(), query, args...)
+}
+
+func (q connQuerier) Query(query string, args ...any) (*sql.Rows, error) {
+	return q.c.QueryContext(context.Background(), query, args...)
+}
+
+// readSnapshot runs fn against one consistent read of the ledger. BEGIN
+// DEFERRED, issued by hand on a dedicated connection, is a READ transaction
+// in WAL mode: it pins a snapshot, blocks no writer and is blocked by none.
+// database/sql's Begin cannot do this here, because the DSN's
+// _txlock=immediate makes every driver-level BEGIN take the write lock.
+func (s *Store) readSnapshot(fn func(q querier) error) error {
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN DEFERRED`); err != nil {
+		return err
+	}
+	// A read transaction has nothing to roll back, but ending it releases
+	// the snapshot; COMMIT and ROLLBACK are equivalent here and COMMIT is
+	// what a reader expects to see.
+	defer conn.ExecContext(ctx, `COMMIT`)
+	return fn(connQuerier{conn})
 }
 
 // ErrScopeNotHeld says a partial release named a scope the claim does not hold
