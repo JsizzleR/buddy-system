@@ -62,7 +62,7 @@ func TestStaleClaimStillRefusesANewClaim(t *testing.T) {
 
 	// The dry run must forecast the SAME thing, clock included: a forecast that
 	// disagrees with the refusal it predicts is worse than no forecast (D-019).
-	free, conflicts, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "wants", []string{"internal/api"})
+	free, conflicts, _, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "wants", []string{"internal/api"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,19 +75,20 @@ func TestStaleClaimStillRefusesANewClaim(t *testing.T) {
 }
 
 // The other direction, and the one the field report actually confused: what
-// frees a scope is the claim leaving the OPEN state, and only four things do
-// that. A released claim's row lingers in `ls --all` labelled "released", and
-// reading that row as a live hold is how "a stale claim does not block" got
-// believed.
+// frees a scope is the claim leaving the OPEN state. A released claim's row
+// lingers in `ls --all` labelled "released", and reading that row as a live
+// hold is how "a stale claim does not block" got believed.
 //
-// THE BYE CASE IS THE ONE WORTH READING, and it was written here expecting the
-// opposite. A clean exit does NOT free a claim: Bye stamps sessions.ended and
-// touches no claim row, because orphaning happens in hello and sweep and never
-// inline in bye (invariant 12) — a delayed bye from a dead incarnation must not
-// orphan a live one's work. So a session that finishes and exits leaves its
-// scopes held, blocking every peer, with the holder gone. That is exactly the
-// incident in issue #15: a coordinator verified a session's work was landed and
-// its tree clean, told it to exit, and it still held two claims.
+// THE BYE CASE HAS CHANGED SIDES ONCE, and the history is the point. Under
+// D-022 it was pinned `wantFreed: false`: Bye stamps sessions.ended and
+// touches no claim row (invariant 12), orphaning ran only in hello and sweep,
+// and so a session that finished and exited left its scopes held, blocking
+// every peer, with the holder gone — issue #15's incident, where a coordinator
+// verified a session's work was landed, told it to exit, and it still held two
+// claims. D-026 made Claim run the same orphaning first, so a peer's claim now
+// frees the scopes of a holder that has SAID BYE. Bye itself still touches no
+// claim row, and `ended` is positive evidence — which is what a silent holder
+// (the next test) never provides.
 func TestOnlyLeavingOpenFreesAScope(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -100,7 +101,7 @@ func TestOnlyLeavingOpenFreesAScope(t *testing.T) {
 					t.Fatal(err)
 				}
 			}},
-		{name: "the holder says bye and exits", wantFreed: false,
+		{name: "the holder says bye and exits", wantFreed: true,
 			act: func(t *testing.T, st *Store, clk *pinnedClock, a SessionInfo) {
 				if err := st.Bye(a.SessionID, a.Incarnation); err != nil {
 					t.Fatal(err)
@@ -143,7 +144,7 @@ func TestOnlyLeavingOpenFreesAScope(t *testing.T) {
 			case tc.wantFreed && err != nil:
 				t.Fatalf("scope was not freed by %q: %v", tc.name, err)
 			case !tc.wantFreed && err == nil:
-				t.Fatalf("scope was freed by %q, but only release, hello's orphaning and sweep --force may free one", tc.name)
+				t.Fatalf("scope was freed by %q, but only release, orphaning of an ended owner (hello/claim/sweep) and sweep --force may free one", tc.name)
 			}
 		})
 	}
@@ -185,7 +186,7 @@ func TestEveryConflictCarriesItsOwnHolderClock(t *testing.T) {
 	}
 	clk.advance(3 * time.Hour) // both holders quiet
 
-	_, conflicts, err := st.ClaimConflicts(c.SessionID, c.Incarnation, "all-pkg", []string{"pkg"})
+	_, conflicts, _, err := st.ClaimConflicts(c.SessionID, c.Incarnation, "all-pkg", []string{"pkg"})
 	if err != nil {
 		t.Fatal(err)
 	}

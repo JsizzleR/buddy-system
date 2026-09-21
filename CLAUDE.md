@@ -314,11 +314,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   cap is on the RENDERED body (D-021).** `fence.Line` expands a line break to `⏎`
   at 3 bytes, so a raw-byte cap equal to the render cap still truncates. Argv wins
   when present; the one cap applies to whichever source won.
-- **A stale claim REFUSES exactly like a fresh one (D-022).** Only `release`,
-  `hello`'s orphaning of a dead incarnation, and `sweep --force` free a scope —
-  **`bye` does not**, so a cleanly exited session leaves its scopes held (issue
-  #15, unfixed). Refusals and `--dry-run` say when a holder has gone quiet, and
-  a refusal prints the whole set even for one conflict.
+- **A stale claim REFUSES exactly like a fresh one (D-022); a holder that has SAID
+  BYE does not (D-026).** `release`, orphaning of an ended owner (`hello`, `sweep`,
+  and first inside `claim`'s own transaction), and `sweep --force` free a scope.
+  **`bye` itself still touches no claim row.** The dry run excludes ended owners by
+  the same predicate and prints a `note:` for each it would displace; the gates still
+  read `state='open'` alone and the deny names the plain `sweep`. Refusals and
+  `--dry-run` say when a holder has gone quiet, and a refusal prints the whole set
+  even for one conflict.
 - **`whose` reports BOTH registers, claim first (D-023).** `CLAIMED BY` then
   `DIRTY IN`, each printing `(none)` rather than being omitted — it was read as
   "unclaimed" when it only ever meant "not dirty", and a session that has just

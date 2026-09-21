@@ -138,13 +138,24 @@ moves and only one of them is `buddy claim` again:
 #            — STALE: holder last renewed 3h ago; it still refuses, so ask the operator
 ```
 
-A scope is freed by `buddy release`, by the holder re-registering (which
-orphans its dead incarnation's claims), or by `buddy sweep --force`, which is
-the operator's explicit act. **A session that simply exits does not free its
-claims** — `bye` records the ending and deliberately touches no claim row, so
-check `buddy ls` before letting a session go. And a holder that is finished
-with part of a claim hands back the named scopes, exactly as claimed, rather
-than saying so in prose the gate never reads:
+A scope is freed by `buddy release`, by orphaning of a holder that has **said
+`bye`** — which runs at any session's `hello`, at a plain `buddy sweep`, and
+first inside every `buddy claim` — or by `buddy sweep --force`, the operator's
+act for a holder that went silent without saying so. `bye` itself records the
+ending and deliberately touches no claim row, so `buddy ls` still shows an
+exited session's claims as `open` until something orphans them, and the
+PreToolUse gate still denies an unclaimed edit under them until then (the deny
+says which command frees them). A `claim --dry-run` says what it would
+displace:
+
+```
+# note: internal/api is held by ENDED session repo/s-82bacdd8 (claim "api-work", scope "internal/api"); a real claim frees it
+# would claim: internal/api
+```
+
+And a holder that is finished with part of a claim hands back the named
+scopes, exactly as claimed, rather than saying so in prose the gate never
+reads:
 
 ```sh
 buddy release api-refactor --scope docs     # still held: internal/api, cmd
