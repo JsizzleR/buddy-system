@@ -114,6 +114,10 @@ func Run(args []string, env Env) int {
 		err = cmdSessions(rest, env)
 	case "whose":
 		err = cmdWhose(rest, env)
+	case "status":
+		err = cmdStatus(rest, env)
+	case "who":
+		err = cmdWho(rest, env)
 	case "help", "-h", "--help":
 		usage(env.Stdout)
 		return 0
@@ -141,6 +145,12 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
               whose <path>          BOTH registers: who has CLAIMED it (the one that
                                     reserves, and the one the gate reads) and who has
                                     uncommitted changes to it, so you can address them
+              status                everything the ledger holds about YOU: claims held,
+                                    dirty paths, inbox, process, pane, and what ending
+                                    now would leave held (a report — it grants nothing)
+              who <target>          the same report for ANY name a session answers to
+                                    (id, label, s-<id>, an open claim slug): the
+                                    cross-reference, since a session has four names
               who is calling: --session <id>, else $BUDDY_SESSION, else $CLAUDE_CODE_SESSION_ID,
               else the worktree — and that only when it names the one live session there is
 operator      pause <target> [--note <text>]             deny the target's next mutating tool
@@ -870,6 +880,24 @@ func cmdHello(args []string, env Env) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n",
 		fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
+	// A LABEL WORN TWICE (issue #17). Default labels are unique by
+	// construction (<worktree-base>/s-<8hex>), so only a hand-chosen --label
+	// collides — and when it does, every pause or msg addressed to it is
+	// refused as ambiguous (D-013), which the session finds out only when a
+	// peer's send bounces. Said here, once, at the moment it became true.
+	// The remedy is the full session id, which resolves before any label.
+	if all, err := st.Sessions(store.ByLastSeen); err == nil {
+		twins := 0
+		for _, o := range all {
+			if o.Live() && o.Label == si.Label && o.SessionID != si.SessionID {
+				twins++
+			}
+		}
+		if twins > 0 {
+			fmt.Fprintf(&b, "BUDDY: WARNING your label %s is also worn by %d other live session(s); a pause or msg addressed to that label is REFUSED as ambiguous — have peers address you by full session id\n",
+				strconv.Quote(fence.Line(si.Label, 64)), twins)
+		}
+	}
 	if note, paused, _ := st.PausedFor(si.SessionID, si.Label); paused {
 		fmt.Fprintf(&b, "BUDDY: you are PAUSED: %s\n", fence.Line(note, 512))
 	}
@@ -1846,8 +1874,59 @@ func cmdMsg(args []string, env Env) error {
 	if err := st.Msg(tgt, sender, body); err != nil {
 		return err
 	}
-	fmt.Fprintf(env.Stdout, "queued for %s — delivered after their next tool call\n", fence.Line(tgt.String(), 128))
+	fmt.Fprintf(env.Stdout, "queued for %s — delivered after their next tool call%s\n",
+		fence.Line(tgt.String(), 128), idleNote(st, tgt, nowOf(env)))
 	return nil
+}
+
+// idleNote says, on a send, when the recipient has reported itself idle —
+// because delivery rides the heartbeat and an idle session makes no tool
+// call, so a "hold" followed by a "go" deadlocks with both sides believing
+// the other is working (issue #12: two sessions sat idle 2h and 3h on a
+// shared resource that was free, and the coordinator's send had SUCCEEDED).
+// The ask was a signal on send, not a mechanism; this is the signal.
+//
+// It prints ONLY when an idle row exists for the current incarnation, and
+// its absence says nothing: no row means UNKNOWN, never busy (D-016). The
+// wording is the observation and not a prediction — "last reported idle;
+// delivery waits for its next tool call" — because between the Stop hook
+// and the next beat the operator may already have prompted it (Codex design
+// pass). For a broadcast it counts the LIVE recipients with an outstanding
+// idle report, which is the audience Msg just snapshotted.
+func idleNote(st *store.Store, t store.Target, now time.Time) string {
+	idle, err := st.IdleSessions()
+	if err != nil || len(idle) == 0 {
+		return ""
+	}
+	if t.ID != store.AllTarget {
+		si, ok, err := st.SessionByID(t.ID)
+		if err != nil || !ok {
+			return ""
+		}
+		if rest, ok := idle[si.SessionID]; ok && rest.Incarnation == si.Incarnation {
+			return fmt.Sprintf(" — %s last reported idle %s ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call",
+				fence.Line(t.String(), 128), age(now, rest.Since))
+		}
+		return ""
+	}
+	sessions, err := st.Sessions(store.ByLastSeen)
+	if err != nil {
+		return ""
+	}
+	live, waiting := 0, 0
+	for _, si := range sessions {
+		if !si.Live() {
+			continue
+		}
+		live++
+		if rest, ok := idle[si.SessionID]; ok && rest.Incarnation == si.Incarnation {
+			waiting++
+		}
+	}
+	if waiting == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" — %d of %d recipients have an outstanding idle report and may be waiting at their prompts, where nothing is delivered", waiting, live)
 }
 
 // maxMsgBody is the cap on a message body, and it is measured on what the

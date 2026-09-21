@@ -332,6 +332,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   The SessionStart room name is DERIVED from the label — `path.Base(worktree)`
   while the ledger is in the git COMMON dir — so it is wrong in a linked
   worktree, and the digest says so rather than asserting it.
+- **`status` and `who <target>` REPORT and grant nothing (D-027).** Every register the
+  ledger holds about one session, resolved through the same target namespace as
+  `msg`, and an `EXIT` line describing what the ledger would be left holding — never
+  permission. No `exit` verb, no exit-on-peer-request path, ever (issue #20): the
+  operator gets the `pid` and `pane` on the row instead. `hello` warns once about a
+  label worn twice; `msg` says when the recipient has an outstanding idle report, and
+  says nothing when it has none.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

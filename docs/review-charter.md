@@ -235,6 +235,17 @@ ledger row entered through the CLI (D-006).
     any bye as before, a manual `bye` needs `--force` past a live registration, nothing
     auto-ends on `GONE`, and non-darwin platforms record no anchor.
 
+30. **`buddy status` / `buddy who <target>` REPORT and grant nothing (D-027).** One
+    renderer, every register the ledger holds about one session (roster row, claims held
+    with scopes, dirty paths as observations, inbox, pid, pane) and an EXIT line that
+    describes what the LEDGER would be left holding — never permission, never proof that
+    killing is safe. `who` resolves through `ResolveTarget` (id, label, `s-<8hex>`, OPEN
+    slug). Exit 0 for any report produced, 1 when none could be. There is NO `exit` verb
+    and no exit-on-peer-request path, and none will be built (issue #20). `hello` warns
+    once when a `--label` is worn by another live session; `msg` appends the recipient's
+    outstanding idle report on a send, only when a current-incarnation idle row exists
+    (D-016: absence says nothing), worded as the observation and not a prediction.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

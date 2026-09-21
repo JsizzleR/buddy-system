@@ -250,6 +250,42 @@ the *target* repo's ledger) and fails closed when the ledger is unreadable, but
 it cannot bind processes that bypass the harness. It is a seatbelt for agents,
 not a sandbox against them.
 
+### 1a′. One session, every register — `status` and `who`
+
+```sh
+buddy status                      # everything the ledger holds about YOU
+buddy who <id|label|s-id|slug>    # the same report for any name a session answers to
+# * repo/s-16c16a94  (16c16a94-…)  live  started 3h  seen 2m  idle 2m  pid 30479  pane herdr:w14:pA
+# CLAIMS HELD  2
+#   api-work                 held 2h   scopes: internal/api
+#   docs-pass                held 20m  scopes: docs   STALE (not renewed 40m; still refuses)
+# DIRTY PATHS  3 recorded to this session (observations, not locks): internal/api/x.go, …
+# INBOX        1 undelivered
+# EXIT         ending now would leave 2 claim(s) held — freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: api-work, docs-pass
+```
+
+A session has four names — its id, its label, the `s-<8hex>` short form, and
+whatever claim slug peers address it by — and until this nothing took one and
+returned the rest. `who` resolves any of them exactly as `msg` and `pause` do
+(an open slug resolves; a released one does not) and prints the whole record.
+The `EXIT` line is a **description of what the ledger would be left holding**.
+It is not permission and it is not proof that killing the session is safe:
+a coordinator can report that a session is safe to release and cannot obtain
+consent to end it — there is no `buddy exit`, and there will not be one,
+because it would be used in good faith on a relayed instruction and the
+sessions that correctly refuse would look obstructive. The operator ends a
+session with the `pid` or the `pane` on the row.
+
+Two smaller courtesies ride the same change. `hello` warns, once, when your
+`--label` is already worn by another live session — every `pause` or `msg` to
+that label is refused as ambiguous, and you would otherwise learn it when a
+peer's send bounced. And `msg` says when its recipient has an outstanding idle
+report (`— bravo last reported idle 2h ago; … delivery waits for its next tool
+call`), because delivery rides the heartbeat and a session waiting at its
+prompt makes no tool call: a "hold" followed by a "go" is a deadlock, and the
+send that caused it used to report plain success. No idle row prints nothing,
+which means *unknown*, never busy.
+
 ### 1b. The commit gate — the second line
 
 The tool-call gate only ever sees the path a tool *declares*. A file written by

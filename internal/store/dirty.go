@@ -322,6 +322,13 @@ func (s *Store) DirtyHolders(relPath string, asDir bool) ([]DirtyRecord, error) 
 	return s.dirtyWhere(`WHERE d.folded=?`, fold(relPath))
 }
 
+// DirtyPathsOf returns every path recorded to ONE session, across its
+// worktrees: the "what am I holding uncommitted" half of `buddy status`
+// (D-027). Observations, like every row in this table.
+func (s *Store) DirtyPathsOf(sessionID string) ([]DirtyRecord, error) {
+	return s.dirtyWhere(`WHERE d.session_id=?`, sessionID)
+}
+
 func (s *Store) dirtyWhere(where string, args ...any) ([]DirtyRecord, error) {
 	rows, err := s.db.Query(`SELECT d.path, d.worktree, d.first_seen, d.last_seen,
 			ses.session_id, ses.incarnation, ses.label, ses.worktree, ses.pid, ses.started, ses.last_seen, COALESCE(ses.ended,0)
