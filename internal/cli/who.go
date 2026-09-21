@@ -54,7 +54,7 @@ func cmdStatus(args []string, env Env) error {
 		return fmt.Errorf("status takes no arguments (`buddy who <target>` asks about another session), got %s",
 			strconv.Quote(fence.Line(fs.Arg(0), 64)))
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -63,14 +63,14 @@ func cmdStatus(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	return sessionReport(env, st, si, true)
+	return sessionReport(env, st, rc.top, si, true)
 }
 
 func cmdWho(args []string, env Env) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return errors.New("usage: buddy who <session|label|s-id|slug>  (any name a session answers to; prints the rest)")
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -99,14 +99,14 @@ func cmdWho(args []string, env Env) error {
 	if t.Via == "slug" {
 		fmt.Fprintf(env.Stdout, "%s is claim %s, held by:\n", fence.Line(args[0], 128), strconv.Quote(fence.Line(t.Slug, 128)))
 	}
-	return sessionReport(env, st, si, me)
+	return sessionReport(env, st, rc.top, si, me)
 }
 
 // sessionReport renders every register the ledger holds about one session.
 // Every value is peer text and fenced; every list is capped like `whose`'s,
 // with the total stated when the cap bites, because a report that quietly
 // drops rows is indistinguishable from a smaller one.
-func sessionReport(env Env, st *store.Store, si store.SessionInfo, me bool) error {
+func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, me bool) error {
 	now := nowOf(env)
 	const maxRows = 20
 
@@ -211,6 +211,24 @@ func sessionReport(env Env, st *store.Store, si store.SessionInfo, me bool) erro
 		return err
 	}
 	fmt.Fprintf(env.Stdout, "INBOX        %d undelivered\n", len(msgs))
+
+	// AUTHORITY — watched files whose recorded modification time postdates
+	// this session's registration (D-028). Advisory: the file on disk
+	// changed after the session started; not that its contents differ from
+	// what the session read, nor that it has not re-read them since.
+	if top != "" && si.Live() {
+		changed, err := authorityChanged(st, top, si)
+		if err != nil {
+			return err
+		}
+		if len(changed) == 0 {
+			fmt.Fprintln(env.Stdout, "AUTHORITY    nothing on the watch list has changed on disk since this session started")
+		}
+		for _, a := range changed {
+			fmt.Fprintf(env.Stdout, "AUTHORITY    %s changed on disk %s ago, AFTER this session started (%s ago) — its copy may be stale\n",
+				fence.Line(a.Path, 512), age(now, a.ModTime), age(now, si.Started))
+		}
+	}
 
 	// EXIT — what the LEDGER would be left holding. A description of
 	// consequences, never permission: nothing here says a session may be

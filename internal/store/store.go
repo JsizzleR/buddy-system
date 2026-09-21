@@ -207,6 +207,29 @@ CREATE TABLE IF NOT EXISTS session_idle (
 	incarnation TEXT NOT NULL,
 	since       INTEGER NOT NULL
 );
+-- THE AUTHORITY WATCH LIST and its one-shot marks (D-028, issue #19). A
+-- session's copy of the standing rules is a snapshot from session start;
+-- these say which files are worth a Stat on every tool call, and which
+-- (session, incarnation, file, mtime) has already been told. CLAUDE.md is
+-- watched whether or not it is listed. The list lives here and not in git
+-- config because the check runs on the beat hook, where a git fork is 7-9 ms
+-- against a 100 ms budget and the ledger is already open.
+CREATE TABLE IF NOT EXISTS authority (
+	path   TEXT NOT NULL,
+	folded TEXT NOT NULL PRIMARY KEY,
+	added  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS authority_warned (
+	session_id  TEXT NOT NULL,
+	incarnation TEXT NOT NULL,
+	folded      TEXT NOT NULL,
+	-- NANOSECONDS: the file's mtime as the dedup key, so two writes in one
+	-- second are two changes. A file restored to an OLDER mtime, or rewritten
+	-- with the same one, is not detected — the advisory says so.
+	mtime_ns    INTEGER NOT NULL,
+	warned      INTEGER NOT NULL,
+	PRIMARY KEY (session_id, incarnation, folded, mtime_ns)
+);
 CREATE TABLE IF NOT EXISTS dirty_scans (
 	session_id TEXT NOT NULL,
 	worktree   TEXT NOT NULL,
@@ -220,6 +243,7 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 7 adds authority and authority_warned (D-028).
 // 6 adds sessions.terminal (an ALTER arm — see migrate) and session_procs.
 // 5 adds cache_5m/cache_1h to session_context, again by DROPPING it (D-018:
 // it is the one table that may be, because every row is re-derived at the
@@ -229,7 +253,7 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 6
+const schemaVersion = 7
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
