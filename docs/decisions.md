@@ -1317,6 +1317,70 @@ edits under the ended session's scopes to anyone who has not claimed them; the d
 the remedy. `whose` and `ls` show the ended owner's claim as `open` with an `ended`
 owner until then.
 
+## D-027 — One session, every register, one screen: `status` and `who`; a report that grants nothing
+
+2026-09-20 · issues #12, #15, #17, #20 and #22 from one orchestrated run; Codex design
+pass Q4, Q6, Q9
+
+**What was wrong** — Four failures with one shape: a fact the ledger held and no command
+that put it in front of the person who needed it. (#15) A coordinator released a session
+after checking its work was landed and its tree clean, and it still held two claims —
+the release check looked at git and never at the ledger, because "what does this session
+hold" was answerable only backwards, through `ls`, or as a count on the roster. (#17)
+Two live sessions wore one roster name and rulings were attributed to the bare name all
+afternoon; a send to a claim slug bounced; a session credited a finding to a third
+session because a path read like a name: four identifiers for one actor and no command
+that took any one and returned the rest. (#20, #22) Winding the fleet down, the
+coordinator could not find a live pid for any session — the harness roster's column read
+DEAD for every one — so it asked sessions to CONSENT to being killed, and they correctly
+refused: a peer relaying an operator's wish is not the operator. The reportable question
+— what would ending this session leave behind — had no verb. (#12) A `msg` to a session
+that had reported idle succeeded silently and was never read, because delivery rides the
+heartbeat and a session waiting at its prompt makes no tool call; two sessions sat idle
+2h and 3h on a resource that was free, with both sides believing the other was working.
+
+**What shipped** — `buddy who <target>` takes any name a session answers to — id,
+label, `s-<8hex>`, an OPEN claim slug, through the same `ResolveTarget` that `pause` and
+`msg` use — and prints the rest, plus every register: the roster row (state, ages,
+`PAUSED`, `idle`, `pid`, `pane`), `CLAIMS HELD` with scopes and staleness, `DIRTY PATHS`
+recorded to it (labelled observations), `INBOX` undelivered, and an `EXIT` line saying
+what the LEDGER would be left holding if the session ended now. `buddy status` is `who`
+on the caller. Both exit 0 on any report produced — "nothing held" is a report — and 1
+when no report could be produced: an unresolvable caller, a name that resolves to
+nothing, an unreadable ledger. A released slug does not resolve (D-013), so `who`
+refuses it as `msg` would. `hello`'s digest warns, once and at the moment it became true,
+when the caller's `--label` is worn by another live session, because every pause or
+message to that label is then refused as ambiguous and the session would otherwise learn
+it only when a peer's send bounced. `msg` appends, on a successful send, `— X last
+reported idle 2h ago; … delivery waits for its next tool call`, and on a broadcast the
+count of live recipients with an outstanding idle report.
+
+**The line this draws (#20)** — The EXIT line is a description of consequences. It is
+never permission, never proof that killing is safe, and nothing it could print would
+make ending a session anyone's to do but the operator's. There is no `exit` verb and no
+"exit on peer request" path, and none will be built: it would be used in good faith by a
+coordinator acting on a real instruction, and the sessions that correctly refuse would
+look obstructive rather than right. What the operator gets instead is the `pid` and the
+`pane` on the row (D-025), so a coordinator is never in the loop for a kill.
+
+**What it deliberately does not do** — The idle note prints only when an idle row
+exists for the current incarnation; its absence says nothing, because no row means
+UNKNOWN and never busy (D-016). Its wording is the observation and not a prediction —
+between the Stop hook and the next beat the operator may already have prompted the
+session (Codex). No way to WAKE a session: that is harness-level, and a peer must not be
+handed a way to inject a prompt into another session's terminal, which arrives there as
+the OPERATOR's turn — the exact laundering #20 is about. `status` takes no argument,
+refused rather than ignored, because `status bravo` is `who bravo` and a listing that
+quietly answers a different question looks like one that honoured it. The label warning
+promises only what D-013 delivers: a full session id resolves BEFORE any label, so
+"address by id" is the remedy and "the label is refused" is stated for pause/msg only.
+
+**Residuals** — The report is the ledger's view: dirty paths are tool-call
+observations, the idle mark is self-reported, and `pid GONE` is a liveness probe at
+render time. Two sessions can still share a label; buddy warns and does not refuse at
+intake, for D-017's reason (a refusal at `hello` turns the feature off silently for that
+session).
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
