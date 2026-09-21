@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -171,5 +172,44 @@ func TestAuthorityNoticeFencesThePath(t *testing.T) {
 	// sits inside the real line rather than starting one of its own.
 	if strings.Count(ctx, "\n") != 1 || !strings.HasPrefix(ctx, "BUDDY: docs/x⏎BUDDY: fake.md changed on disk") {
 		t.Fatalf("path must be fenced:\n%q", ctx)
+	}
+}
+
+// An advisory mark that fails must not cost the inbox its acknowledgement
+// (Codex code pass, D-028): the message is delivered once, and the notice
+// repeats — the at-least-once its own mark already accepts.
+func TestAFailedAuthorityMarkDoesNotSkipInboxAcknowledgement(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	touch(t, filepath.Join(f.repo, "CLAUDE.md"), f.clock.Add(time.Hour))
+	f.clock = f.clock.Add(2 * time.Hour)
+	if _, errw, code := f.run(t, f.wtB, "", "msg", "alpha", "--from", "bravo", "ping"); code != 0 {
+		t.Fatal(errw)
+	}
+	// The mark's INSERT fails; the pending SELECT still works.
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(f.repo, ".git", "buddy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TRIGGER no_marks BEFORE INSERT ON authority_warned BEGIN SELECT RAISE(ABORT, 'planted'); END`); err != nil {
+		t.Fatal(err)
+	}
+	out, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
+	if code != 0 {
+		t.Fatalf("a failed advisory mark must not fail the beat: %s", errw)
+	}
+	ctx := additionalContext(t, out)
+	if !strings.Contains(ctx, "CLAUDE.md changed on disk") || !strings.Contains(ctx, "[bravo] ping") {
+		t.Fatalf("both the notice and the message:\n%s", ctx)
+	}
+	out, _, _ = f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
+	ctx = additionalContext(t, out)
+	if strings.Contains(ctx, "[bravo] ping") {
+		t.Fatalf("the message must have been acknowledged despite the failed mark:\n%s", ctx)
+	}
+	if !strings.Contains(ctx, "CLAUDE.md changed on disk") {
+		t.Fatalf("the unmarked notice repeats, which is the at-least-once it accepts:\n%s", ctx)
 	}
 }

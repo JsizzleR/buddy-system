@@ -344,6 +344,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   session ONCE per change, on its next tool call, that a watched file changed on disk
   AFTER it started; `status` shows the same. It is an advisory about the file on disk,
   never a claim about the session's copy; no fingerprint, no git.
+- **The id register never parses prose and never reissues (D-029).** `buddy ids`:
+  a space is SEEDED with a measured high-water mark before anything is taken (refused
+  otherwise; the ceiling is raised, never lowered), `take` hands out the next contiguous
+  block above the ceiling in one transaction, there is no `return`, blocks outlive
+  their session, and `status` says reserved-here / above-the-ceiling / not-available
+  without ever claiming to know what the artifact contains.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

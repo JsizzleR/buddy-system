@@ -1,7 +1,9 @@
 package store
 
 import (
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 // D-026: a holder that has said bye cannot refuse a peer's claim. Claim runs
@@ -110,5 +112,45 @@ func TestADanglingClaimStillRefuses(t *testing.T) {
 	}
 	if _, conflicts, _, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "wants", []string{"internal/api"}); err != nil || len(conflicts) != 1 {
 		t.Fatalf("dry run must see it too: %v %d", err, len(conflicts))
+	}
+}
+
+// The dry run's scans read ONE snapshot: a peer's bye landing between the
+// conflict scan and the displacement scan must not produce a result that
+// reports the same claim as both blocking and displaced (Codex code pass,
+// D-026). The seam lands the bye exactly there, through a second handle on
+// the same ledger file.
+func TestDryRunScansReadOneSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fleet.db")
+	clk := &pinnedClock{t: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)}
+	st, err := Open(path, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	peer, err := Open(path, clk.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+	a := hello(t, st, "sess-a", "alpha", "/wt/a")
+	b := hello(t, st, "sess-b", "bravo", "/wt/b")
+	if err := st.Claim(a.SessionID, a.Incarnation, "work", "x", []string{"src"}); err != nil {
+		t.Fatal(err)
+	}
+	st.betweenReads = func() {
+		if err := peer.Bye(a.SessionID, a.Incarnation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	free, conflicts, displaced, err := st.ClaimConflicts(b.SessionID, b.Incarnation, "work", []string{"src"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Either a consistent "alpha is live and blocks" (the snapshot predates
+	// the bye) or a consistent "alpha has ended and is displaced" — never
+	// both. The snapshot is taken before the bye, so it is the former.
+	if len(conflicts) != 2 || len(displaced) != 0 || len(free) != 0 {
+		t.Fatalf("scans disagreed with each other: conflicts=%d displaced=%d free=%v", len(conflicts), len(displaced), free)
 	}
 }

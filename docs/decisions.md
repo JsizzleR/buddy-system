@@ -1254,6 +1254,20 @@ state, not a fence firing on a process it cannot name.
 end a session. Identity is still `(session_id, incarnation)`; the pid is the proof `bye`
 carries of WHICH process is saying it, and the pid on the roster is diagnostic only.
 
+**What the code review changed** — A Codex code pass over the implementation found one
+confirmed hole and one wording. (1) "Mine" was pid alone: a hook that captured its
+anchor, stalled, and outlived its parent could see that pid recycled and re-registered by
+a replacement process, and the old bye would then recognise the replacement's row as its
+own, delete it without ever asking `alive`, and end the session under a live process —
+the defect by yet another road. "Mine" is now pid AND birth time (either side
+unrecorded still matches), pinned by a test where `{42, born 100}` says bye over a
+registered `{42, born 200}` and is refused as a stranger. (2) `procAlive` read EVERY
+kernel error as "dead"; only the "no such process" errnos do now (`EIO` by measurement
+on this kernel, `ESRCH`, `ENOENT`), and any other answer is "cannot say", which is alive.
+Also: a manual `bye a b` silently ended `a` and dropped `b`; it refuses. The comment
+claiming a refused bye writes nothing was wrong — the caller's own row and the pruned
+dead ones are deleted and commit — and says so now.
+
 **Residuals** — A session that predates the table, or whose hello was hand-run and that
 never beats, is unbound. A registered process killed `-9` leaves its row `live STALE` with
 `pid N GONE` until the operator sweeps. The terminal handle is what the environment said
@@ -1311,6 +1325,16 @@ claim names the new holder to a third session and nobody to the holder itself, a
 LIVE stale holder still refuses. Mutations: dropping the orphan call (two open rows),
 dropping the exclusion from the scan (dry run refuses what the claim grants), and
 dropping the dry-run note — each killed by its test.
+
+**What the code review changed** — The dry run ran three autocommit reads and could
+assemble a result no single ledger state ever had: a peer's `bye` landing between the
+conflict scan and the displacement scan reported the same claim as BOTH blocking and
+displaced (Codex code pass). The three reads now run inside ONE read snapshot — `BEGIN
+DEFERRED` issued by hand on a dedicated connection, which in WAL mode pins a snapshot
+without taking the write lock that D-019 refused to pay — and a test seam lands a peer's
+bye exactly between the scans through a second handle on the same file, proving the
+scans agree. A forecast may be stale by the time it is read; it must not contradict
+itself.
 
 **Residuals** — Between the `bye` and the next `hello`/`claim`/`sweep`, the gate denies
 edits under the ended session's scopes to anyone who has not claimed them; the deny names
@@ -1427,10 +1451,77 @@ hash per tool call is a cost this hook does not pay for a case nobody has measur
 later mtimes already re-warn. No git consulted: the incident is precisely the case git
 could not see.
 
+**What the code review changed** — `beat` returned on a failed advisory mark before
+acknowledging the inbox, so a hiccup in `authority_warned` (or the pre-existing
+`dirty_warned`) after a successful write re-delivered every message printed beside the
+notice (Codex code pass). Both advisory marks are now best-effort: the worst a lost mark
+can do is repeat its own notice once, which is the at-least-once it already accepts, and
+the inbox acknowledgement is the heartbeat's contract. Pinned by a planted trigger that
+aborts the mark's INSERT: the message is acknowledged, the notice repeats.
+
 **Residuals** — A session that never runs a tool after the change is not told (the same
 residual every beat-borne notice has; `status` is the pull). The mtime clock is the
 filesystem's, compared against the ledger's wall clock at registration.
 
+
+## D-029 — An identifier register that never parses prose: seeded, contiguous above the ceiling, nothing reissued
+
+2026-09-20 · issue #16 / wishlist §3 and §17; Codex design pass Q8 (build it, with a
+mandatory seed and honest status strings)
+
+**What was wrong** — The reference repo allocates decision numbers, row ids and bundle
+ids from append-only PROSE ledgers, and sessions took max()+1 of what they could see. In
+one day: two sessions collided on a bundle id, caught only because a merge driver
+refused; a session returned four ids as unused that it had drafted as rows in its own
+working document; a session said "filed as <id>" having written to no record file, and a
+peer nearly struck its own row as a duplicate over one verb; and the coordinator's own
+probe reported an id TAKEN off a raw substring count whose single hit was a range
+endpoint in a sentence. Four false occupancy reports, every one made from something
+other than a row-shaped read of a register. The eight states an id can be in look
+identical to a grep, and a duplicate is not a merge conflict — the driver appends both,
+silently. The run's own rules: a substring count is not an occupancy test, and never
+reissue a returned id — take from the ceiling.
+
+**What shipped** — `buddy ids`: per space, a CEILING (the highest id known used or
+reserved) and the blocks handed out above it, each recorded to the session that took
+it with its label and a note. `seed <space> <n>` declares the artifact's measured
+high-water mark, creating the space or RAISING the ceiling, and refuses to lower it —
+a lower number asserts that reserved blocks are free, which is the reissue this exists
+to prevent. `take <space> <count>` is one immediate transaction: the next contiguous
+block above the ceiling, and the ceiling moves; refused for an unseeded space (naming
+the seed command), a non-positive count, and overflow. `ls` prints each space's ceiling
+beside its blocks. `status <space> <n>` answers in exactly three registers: RESERVED
+here (by whom, which block, when); above the ceiling — UNRESERVED IN THIS REGISTER,
+which is not "free", the artifact may already use it; at or below the ceiling and in no
+block — NOT AVAILABLE for allocation, and whether the artifact uses it this register
+cannot say. There is NO `return` verb.
+
+**Why the seed is mandatory** — Without it, a repository already carrying ids 1-100
+would receive a block starting at 1 (Codex). Seeding is the operator's assertion about
+the artifact; the register's promise is uniqueness among cooperating writers on this
+machine's ledger above that assertion, and nothing more.
+
+**Why the status strings are worded as they are** — After `seed decisions 100`, an
+existing prose entry D-42 has no block; calling it "a hole" would claim knowledge of
+the document that only reading the document as a RECORD (anchored, field-shaped) can
+give, which is the prose-parsing the register exists to end. "Not available for
+allocation" is the fact the register holds; "unreserved in this register" above the
+ceiling is likewise the fact and not "free".
+
+**What it deliberately does not do** — No reissue and no return: a returned id is a
+claim about intent, and the register cannot see a draft in a document or a citation in
+unlanded code; ids are free, holes are not worth mining. No knowledge of the artifact:
+it does not read record files, does not grep, and does not claim to. Blocks survive
+session end, orphaning and sweep — a reservation is a fact about the number line, not
+about a session's life, and a block taken by a session that has since gone is still a
+block nobody else may take. It is one register for every space the operator names,
+because the run found four id spaces and the one nobody was tracking was the one that
+collided.
+
+**Residuals** — Machine-local, like every ledger here. A session that allocated
+outside the register (the lander with numbers reserved in its own uncommitted work,
+in the incident) is invisible to it until the ceiling is re-seeded from the artifact;
+`seed` raising the ceiling is how the register catches up.
 
 ## Known unfixed
 

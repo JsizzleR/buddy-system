@@ -254,6 +254,14 @@ ledger row entered through the CLI (D-006).
     not that contents differ, not that the session has not re-read them, not that main
     moved. No fingerprint, no `> last notice`, no git.
 
+32. **The id register never parses prose, never reissues, and does not know the artifact
+    (D-029).** `buddy ids seed <space> <n>` is mandatory before `take` (create or RAISE the
+    ceiling, never lower); `take` is one transaction handing out the next contiguous block
+    above the ceiling; there is no `return` verb; blocks outlive their session and are
+    never swept. `status` answers in three registers only — reserved here, above the
+    ceiling ("unreserved in this register", not "free"), at-or-below and unreserved ("not
+    available for allocation", never "a hole").
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

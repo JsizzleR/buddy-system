@@ -11,3 +11,7 @@ package cli
 func procInfo(pid int) (ppid int, names []string, born int64, ok bool) {
 	return 0, nil, 0, false
 }
+
+// procGone: this platform cannot say, so nothing is ever "gone" here — a
+// registration it cannot inspect reads as alive, the safe direction.
+func procGone(err error) bool { return false }

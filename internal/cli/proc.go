@@ -56,6 +56,11 @@ const maxAnchorHops = 16
 // answer. Implemented in proc_darwin.go; proc_other.go answers false for
 // everything, which leaves every session on that platform unbound.
 
+// lastProcErr is the error the most recent procInfo drew from the kernel,
+// for procAlive to classify through procGone. Not concurrent: hooks are
+// single-threaded and the roster reads pids one at a time.
+var lastProcErr error
+
 // anchorProc finds the harness process this hook was spawned by, or reports
 // that there is none.
 func anchorProc() (store.ProcRef, bool) {
@@ -87,7 +92,9 @@ func procAlive(p store.ProcRef) bool {
 	}
 	_, _, born, ok := procInfo(p.PID)
 	if !ok {
-		return false
+		// Dead only when the kernel said "no such process"; any other
+		// answer is "cannot say", and cannot-say is alive.
+		return !procGone(lastProcErr)
 	}
 	return p.Born == 0 || born == 0 || born == p.Born
 }

@@ -212,3 +212,32 @@ func TestMigrationAddsTerminalColumnToAnOldLedger(t *testing.T) {
 		t.Fatalf("the migrated table must take a terminal: %v", err)
 	}
 }
+
+// A recycled pid is a different process. The old bye must not recognise the
+// replacement's registration as its own (Codex code pass, D-025): "mine" is
+// pid AND birth time, and on pid alone the replacement's row was deleted
+// without ever asking `alive`, ending the session under a live process.
+func TestByeFromDoesNotMistakeARecycledPidForItsOwn(t *testing.T) {
+	st, _ := openTest(t)
+	if _, err := st.HelloFrom("sess-a", "alpha", "/wt/a", ProcRef{PID: 42, Born: 100}, ""); err != nil {
+		t.Fatal(err)
+	}
+	// 42 died and was recycled; the replacement registers through its beat.
+	if err := st.BeatFrom("sess-a", "", ProcRef{PID: 42, Born: 200}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := st.ByeFrom("sess-a", ProcRef{PID: 42, Born: 100}, aliveSet(map[int]int64{42: 200}), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Ended || !res.Stranger || !reflect.DeepEqual(res.Blocking, []ProcRef{{42, 200}}) {
+		t.Fatalf("the old process's bye must be a stranger's: %+v", res)
+	}
+	if procs, _ := st.SessionProcs(); !reflect.DeepEqual(procs["sess-a"], []ProcRef{{42, 200}}) {
+		t.Fatalf("the replacement's registration must survive: %v", procs["sess-a"])
+	}
+	// The replacement's own bye, born and all, ends it.
+	if res, _ := st.ByeFrom("sess-a", ProcRef{PID: 42, Born: 200}, aliveSet(map[int]int64{42: 200}), false); !res.Ended {
+		t.Fatalf("the replacement's bye: %+v", res)
+	}
+}
