@@ -289,12 +289,21 @@ session with the `pid` or the `pane` on the row.
 Two smaller courtesies ride the same change. `hello` warns, once, when your
 `--label` is already worn by another live session — every `pause` or `msg` to
 that label is refused as ambiguous, and you would otherwise learn it when a
-peer's send bounced. And `msg` says when its recipient has an outstanding idle
-report (`— bravo last reported idle 2h ago; … delivery waits for its next tool
-call`), because delivery rides the heartbeat and a session waiting at its
-prompt makes no tool call: a "hold" followed by a "go" is a deadlock, and the
-send that caused it used to report plain success. No idle row prints nothing,
-which means *unknown*, never busy.
+peer's send bounced. And `msg` reports what the ledger holds about its
+recipient, never a prediction: the line used to read `queued for X — delivered
+after their next tool call` for every target, and 25 messages to four sessions
+that had gone away all reported that (issue #24, D-032). Now one observation
+leads it, most-alarming-first — `it ENDED 2h ago; nothing reads this unless that session
+id helloes again` (naming the open claims a plain `buddy claim` displaces),
+`its registered harness process (pid N) is GONE`, `bravo last reported idle 2h
+ago; … delivery waits for its next tool call`, `NOT SEEN FOR 2h, past the 30m
+stale mark`, `registered 30s ago and not seen since`, or `last seen 4s ago` —
+and then how many earlier messages to it are still undelivered, with the age
+of the oldest, which is the fact that proves a channel is not draining. It
+never says *delivered*, because delivery is the recipient's act on its next
+tool call; `buddy who <target>` is the check afterwards, and its `INBOX` line
+dates the oldest undelivered row. No idle row and a recent beat is `last seen
+4s ago`, never *busy*.
 
 ### 1a″. Authority files — a long session's copy of the rules rots silently
 

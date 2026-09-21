@@ -189,7 +189,7 @@ func TestMsgSaysWhenTheRecipientHasReportedIdle(t *testing.T) {
 		t.Fatalf("want the idle note on a direct message:\n%s", out)
 	}
 	out, _, code = f.run(t, f.repo, "", "msg", "all", "go everyone")
-	if code != 0 || !strings.Contains(out, "1 of 2 recipients have an outstanding idle report") {
+	if code != 0 || !strings.Contains(out, "1 of 2 live recipients have an outstanding idle report") {
 		t.Fatalf("want the idle count on a broadcast:\n%s", out)
 	}
 	// The recipient's next tool call clears the mark, and the note with it.

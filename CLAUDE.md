@@ -361,6 +361,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   (`sweep --help` used to sweep; `sweep --dry-run` swept again and printed a plausible
   zero). `sweep --dry-run` is the real sweep rolled back inside its transaction, and both
   runs name every claim they orphan. Hook verbs keep their argument semantics beyond `--help`.
+- **A send reports what the ledger holds about its recipient, never a prediction (D-032).**
+  `msg` prints `queued for X — <observation>`, one arm most-alarming-first: ENDED (naming the
+  open claims a plain `claim` displaces), harness process GONE, last reported idle, NOT SEEN
+  past the stale mark, registered and not seen since, or last seen N ago — then how many
+  earlier messages to X are still undelivered and the age of the oldest. It never says
+  "delivered", never infers busy, and does not refuse an ended target (`hello` revives the
+  id). `who` dates its INBOX line the same way.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
