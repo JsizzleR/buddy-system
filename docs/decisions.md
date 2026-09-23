@@ -1964,6 +1964,59 @@ did, and then died.
 - A `wait check` whose close fails after its verdict was written says the verdict again at the
   next check, and says nothing about the failed close, by design.
 
+## D-034 — `hello` drains the inbox into the SessionStart digest, inside the context cap
+
+2026-09-23 · issue #25, the half of it that needs no settled decision moved
+
+**What was wrong** — `hello` counted the queued messages and delivered none of them: `BUDDY: N
+queued message(s); they will arrive after your next tool call.` The digest it printed was
+already going into the session's context, so the one hook that fires before a session's first
+prompt knew about the work and withheld it. The measured case (issue #25): an operator opened
+six sessions to hand them work, and every assignment needed a human to type into that pane,
+because a session at its first prompt runs no tool and so drains nothing. The same holds for
+`resume`, `clear` and `compact`, which run SessionStart too.
+
+**What shipped** — A hook-driven `hello` renders the inbox after every other digest line with
+beat's header, fence and write-then-mark (`boundDrain`, `inboxLine` and `writeInbox`, now
+shared by both), and marks delivered only after the write succeeded. Bounded twice: by one
+beat's 20 messages / 8 KiB, and by the room the digest leaves under `helloBudget` (9,000 bytes
+for the whole digest). Oldest first, stopping at the first message that does not fit rather
+than skipping ahead, so order holds. Whatever is not shown is counted — `BUDDY: N queued
+message(s) not shown here; they will arrive after your next tool call.` — and stays
+undelivered.
+
+**Why the second bound** — Claude Code documents a 10,000-character cap on hook output
+injected into context; past it the model gets a ~2 KB preview and a file path. That is
+documented, NOT measured on this box. Before this change the digest was a few lines plus the
+claims list. A beat's worth of messages on top of a long claims list crosses the cap, and the
+preview would hide the claims along with the messages. The claims are the part of the digest a
+session must not miss, so messages get the leftover room and no more. The count is in bytes,
+never fewer than characters.
+
+**What it deliberately does not do**
+- A hand-run `hello` (`--session`, no hook JSON) drains nothing and keeps the count. Its
+  output goes to whoever ran it, usually the operator's terminal, and a message marked
+  delivered there would never reach the session. Same rule as the process and pane
+  registration (D-025).
+- It does not wake a session already at its prompt. That is the other half of #25 and still
+  meets D-027 ("no way to WAKE a session"). Moving it needs evidence of how a host
+  session-to-session send is attributed on the receiving side: the operator's turn or a
+  marked peer message. #25's own measurement could not tell those apart.
+
+**Test shape** — `hello_drain_test.go`: delivered once (a beat after it brings nothing); a
+hand-run hello counts and marks nothing, then beat delivers; 25 messages show 20, count 5, and
+the next beat brings exactly those 5; a body's newline stays inside its line; a failed write
+marks nothing; six 500-byte claims plus two 3,000-byte messages give a digest under the budget
+with all six claims, exactly one message and a count of one. Mutated six ways (drain off,
+drain on a hand run, write error ignored, budget removed, beat bound removed, fence removed),
+and each mutation failed exactly the test written for it.
+
+**Residuals** —
+- beat's own drain has the byte bound and not the context cap: 8 KiB of body plus notices
+  approaches 10,000 characters without passing it. Unchanged here.
+- The claims list is unbounded and could cross the cap on its own, before any message is
+  added. That predates this change.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

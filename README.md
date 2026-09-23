@@ -446,7 +446,11 @@ The annotations after the id are what an orchestrator picks on:
   knowing before you route on it: an idle session is also the one that will
   not *see* a `buddy msg` until its next tool call, because delivery rides the
   heartbeat. It is the session that can take work and the one that needs a
-  human to poke it.
+  human to poke it. A session that has not STARTED yet is the exception:
+  `hello` drains the inbox into its SessionStart digest (D-034), so work
+  queued for a session before it starts, resumes or compacts arrives with its
+  first prompt, bounded to fit the digest; anything that did not fit is
+  counted and arrives on the session's next tool call.
 - `claims N` — open claims held now. The names are in `buddy ls`; the row
   carries the count, because a slug is 128 bytes of free text and a session may
   hold several.

@@ -313,6 +313,19 @@ ledger row entered through the CLI (D-006).
     propose a buddy-side timer, pane injection, a headless `--resume` ping, a Stop hook that
     refuses to end the turn, inferring a wait from a refusal or idleness, or a stored verdict.
 
+37. **`hello` drains the inbox into the SessionStart digest, inside the context cap (D-034).**
+    Only a hook-driven `hello` drains; a hand-run one (`--session`, no hook JSON) prints the
+    count and marks nothing, because its output reaches whoever ran it and not the session. It
+    uses beat's header, `fence.Line` and write-then-mark, and it is bounded twice: by one beat's
+    20 messages / 8 KiB, and by the room the rest of the digest leaves under `helloBudget` (9,000
+    bytes for the whole digest). Claude Code documents a 10,000-character cap on hook output
+    injected into context, with a preview and a file path past it (documented, not measured),
+    and an over-cap digest would hide the claims list. Oldest first, stopping at the first
+    message that does not fit; the rest are counted (`N queued message(s) not shown here`) and
+    stay queued. It does not wake a session already at its prompt; that is still D-027's "no".
+    Do not propose dropping either bound, a drain on a hand-run hello, or skipping past a
+    message that does not fit.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
