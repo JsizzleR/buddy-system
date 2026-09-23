@@ -351,6 +351,11 @@ ledger row entered through the CLI (D-006).
 - Peers address each other by **claim slug**, not by session id or label. A `mentions_me`
   filter built from id and label scored 0 matches on 2313 live messages (D-009) — this is
   the one place the chat half reads the claims half.
+- `/clear` **ends the session and starts a NEW session id in the same harness process** (same
+  pid and pane; the old row goes to `ended`). `/compact` and `claude --resume` keep the id.
+  An id that never took a turn has no transcript and cannot be resumed (`No conversation
+  found`). Anything keyed by session id (inbox, wait) does not cross a `/clear` (D-034,
+  measured 2026-09-23).
 
 ## Git facts relevant to hooks (measured on git 2.50.1)
 

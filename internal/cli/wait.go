@@ -627,8 +627,9 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, f
 
 // waitHelloLines is what hello's digest says about a wait, if anything.
 //
-// The same incarnation (a /clear or /compact start, or a second process on a
-// live id): the wait is still this session's, so it is restated with its
+// The same incarnation (a /compact start, or a second process on a live id;
+// NOT a /clear, which mints a new session id and so finds no wait here at all,
+// measured in D-034): the wait is still this session's, so it is restated with its
 // verdict, and the scheduled check is questioned rather than assumed. The
 // harness documents scheduled tasks as session-only and not written to disk;
 // whether one survives a given kind of start was NOT measured (D-033,

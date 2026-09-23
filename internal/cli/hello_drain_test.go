@@ -51,7 +51,8 @@ func TestHelloDrainsTheInbox(t *testing.T) {
 		t.Fatalf("control: want 1 queued before hello, got %d", n)
 	}
 
-	// SessionStart again (resume, clear, compact): the message rides the digest.
+	// SessionStart again under the same id (resume, compact; a /clear mints a
+	// new id, measured in D-034): the message rides the digest.
 	out, errw, code := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "hello", "--label", "bravo")
 	if code != 0 {
 		t.Fatal(errw)
