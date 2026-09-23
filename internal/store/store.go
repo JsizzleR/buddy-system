@@ -259,6 +259,43 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 	scanned    INTEGER NOT NULL,
 	PRIMARY KEY (session_id, worktree)
 );
+-- THE WAIT REGISTER (D-033, issue #26): what a session has DECLARED it is
+-- waiting on, so that its own scheduled check can keep its prompt cache warm
+-- and its inbox draining while it is parked. One row per session, open while
+-- cleared IS NULL; re-declaring replaces it. It reserves nothing and refuses
+-- nothing — no gate or claim reads it (invariant 10). internal/store/wait.go
+-- carries the why.
+--
+-- No verdict column: LANDED and EXPIRED are computed from the clock and the
+-- claims table at read time (D-020's rule). reason records what CLOSED the
+-- row; told is beat's one-shot LANDED mark, set only after the write.
+CREATE TABLE IF NOT EXISTS session_waits (
+	session_id  TEXT PRIMARY KEY,
+	incarnation TEXT NOT NULL,
+	-- The declaration's own identity. Not since: whole seconds cannot tell a
+	-- wait from its replacement declared in the same second (Codex design pass).
+	decl        TEXT NOT NULL,
+	since       INTEGER NOT NULL,
+	deadline    INTEGER NOT NULL,
+	note        TEXT NOT NULL,
+	last_check  INTEGER NOT NULL DEFAULT 0,
+	checks      INTEGER NOT NULL DEFAULT 0,
+	told        INTEGER NOT NULL DEFAULT 0,
+	cleared     INTEGER,
+	reason      TEXT CHECK (reason IS NULL OR reason IN ('landed','expired','cleared','ended'))
+);
+-- The claims a declaration waits on, resolved ONCE to claim ids (D-013). The
+-- slug is kept as declared for display only; landing is judged on the id.
+CREATE TABLE IF NOT EXISTS session_wait_targets (
+	decl        TEXT NOT NULL,
+	session_id  TEXT NOT NULL,
+	incarnation TEXT NOT NULL,
+	ord         INTEGER NOT NULL,
+	claim_id    TEXT NOT NULL,
+	slug        TEXT NOT NULL,
+	PRIMARY KEY (decl, claim_id)
+);
+CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(session_id);
 `
 
 // schemaVersion is stamped into PRAGMA user_version once the schema above and
@@ -266,6 +303,7 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 9 adds session_waits and session_wait_targets (D-033).
 // 8 adds id_spaces and id_blocks (D-029).
 // 7 adds authority and authority_warned (D-028).
 // 6 adds sessions.terminal (an ALTER arm — see migrate) and session_procs.
@@ -277,7 +315,7 @@ CREATE TABLE IF NOT EXISTS dirty_scans (
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 8
+const schemaVersion = 9
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -609,8 +647,9 @@ func (s *Store) helloFrom(sessionID, label, worktree string, pid int, proc ProcR
 			return err
 		}
 		// Housekeeping every session start: claims of ended sessions become
-		// orphaned here (Bye no longer does it — see Bye).
-		if _, err := orphanEnded(tx, now); err != nil {
+		// orphaned here (Bye no longer does it — see Bye), and their waits
+		// are closed as ended with them.
+		if err := cleanupEnded(tx, now); err != nil {
 			return err
 		}
 		return tx.QueryRow(`SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
@@ -971,7 +1010,7 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 		// run's sake, so this is what keeps an ended holder's row from being
 		// left OPEN beside the new claim — two open rows over one scope,
 		// which the gate would then adjudicate against the new holder.
-		if _, err := orphanEnded(tx, now); err != nil {
+		if err := cleanupEnded(tx, now); err != nil {
 			return err
 		}
 
@@ -1071,17 +1110,34 @@ func (s *Store) labelOf(q rowQuerier, sessionID string) (string, error) {
 // the only path that mints a new one (Hello over an ended session) orphans the
 // old incarnation's open claims in the same transaction.
 func (s *Store) Release(sessionID, incarnation, slug string) error {
-	return s.tx(func(tx *sql.Tx) error {
-		res, err := tx.Exec(`UPDATE claims SET state='released', renewed=? WHERE slug=? AND session_id=? AND incarnation=? AND state='open'`,
-			s.now().Unix(), slug, sessionID, incarnation)
+	_, err := s.ReleaseID(sessionID, incarnation, slug)
+	return err
+}
+
+// ReleaseID is Release that also returns the id of the claim it released,
+// read inside the release's own transaction. `release` names the sessions
+// that declared a wait on the claim it closed (D-033), and an id looked up
+// BEFORE the release could name a different claim than the one released —
+// another process of the same session releasing and re-taking the slug in
+// between (Codex code pass).
+func (s *Store) ReleaseID(sessionID, incarnation, slug string) (string, error) {
+	var claimID string
+	err := s.tx(func(tx *sql.Tx) error {
+		err := tx.QueryRow(`SELECT claim_id FROM claims WHERE slug=? AND session_id=? AND incarnation=? AND state='open'`,
+			slug, sessionID, incarnation).Scan(&claimID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return s.whyNotReleased(tx, sessionID, slug)
+		}
 		if err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return s.whyNotReleased(tx, sessionID, slug)
-		}
-		return nil
+		_, err = tx.Exec(`UPDATE claims SET state='released', renewed=? WHERE claim_id=?`, s.now().Unix(), claimID)
+		return err
 	})
+	if err != nil {
+		return "", err
+	}
+	return claimID, nil
 }
 
 // ErrNoRelease says why a release did nothing.
@@ -1349,6 +1405,12 @@ func (s *Store) Sweep(ttl, forceAfter time.Duration, opts SweepOpts) (SweepResul
 			return err
 		}
 		r.Orphaned += n
+		// Waits of ended sessions close with their claims (D-033). A LIVE
+		// session's wait is never closed here, --force or not: it is not a
+		// reservation, and it expires by its own deadline.
+		if err := clearEndedWaits(tx, now); err != nil {
+			return err
+		}
 
 		if opts.Force {
 			res, err := tx.Exec(`UPDATE claims SET state='orphaned', renewed=? WHERE state='open' AND session_id IN

@@ -115,6 +115,7 @@ if [ "$run_hermetic" = 1 ]; then
   sh scripts/check-pre-push.sh
   sh scripts/check-fence.sh
   sh scripts/check-charter.sh
+  sh scripts/check-wait.sh
 fi
 
 if [ "$run_live" = 1 ]; then

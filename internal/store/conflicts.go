@@ -356,19 +356,27 @@ func (e ErrScopeNotHeld) Error() string {
 // two of the three you asked for" is the partial-acquisition shape from the
 // other side.
 func (s *Store) ReleaseScopes(sessionID, incarnation, slug string, scopes []string) (remaining []string, err error) {
+	_, remaining, err = s.ReleaseScopesID(sessionID, incarnation, slug, scopes)
+	return remaining, err
+}
+
+// ReleaseScopesID is ReleaseScopes that also returns the id of the claim it
+// narrowed, read inside its own transaction — for the reason ReleaseID
+// gives: the caller names the waiters of the claim that CLOSED (D-033).
+func (s *Store) ReleaseScopesID(sessionID, incarnation, slug string, scopes []string) (releasedID string, remaining []string, err error) {
 	if len(scopes) == 0 {
-		return nil, errors.New("release --scope needs at least one scope; `release <slug>` alone releases the whole claim")
+		return "", nil, errors.New("release --scope needs at least one scope; `release <slug>` alone releases the whole claim")
 	}
 	norm := make([]string, 0, len(scopes))
 	for _, sc := range scopes {
 		n, err := NormalizeScope(sc)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		norm = append(norm, n)
 	}
+	var claimID string
 	err = s.tx(func(tx *sql.Tx) error {
-		var claimID string
 		err := tx.QueryRow(`SELECT claim_id FROM claims WHERE slug=? AND session_id=? AND incarnation=? AND state='open'`,
 			slug, sessionID, incarnation).Scan(&claimID)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -432,9 +440,9 @@ func (s *Store) ReleaseScopes(sessionID, incarnation, slug string, scopes []stri
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return remaining, nil
+	return claimID, remaining, nil
 }
 
 // ClaimsTouching lists the OPEN claims that bear on relPath: one whose scope

@@ -508,6 +508,105 @@ The annotations after the id are what an orchestrator picks on:
   prints `cache 1h+5m` and is judged by the shorter one. No tier recorded
   prints nothing — an older harness that wrote no such object was not on the
   5-minute tier, it was silent.
+- `waiting 1h12m` — the session has **declared** a wait (`buddy wait`, below),
+  dated by the declaration. It does not reset when the session's keep-alive
+  pings, though `idle` does: a scheduled turn runs both the `UserPromptSubmit`
+  and the `Stop` hook (measured), so `idle` is the truth about the last turn
+  and `waiting` is the number to read. `waiting 1h12m LANDED` / `EXPIRED` means
+  the clock and the claims say the wait is over and the session has not
+  checked yet.
+
+### 1c′. Waiting without going cold — `buddy wait`
+
+```sh
+buddy wait --on api-work --until 3h --note "then: rebase, run check.sh"
+# WAITING on claim "api-work" (held by repo/s-4856919d, seen 3m ago) — deadline in 3h0m; note: then: rebase, run check.sh
+# keep-alive: cache 1h tier (last written 2m ago). Arm it in THIS session: /loop buddy wait check — each check is one tool call …
+/loop buddy wait check               # typed in the WAITING session: its own scheduler, self-paced
+# STILL WAITING on claim "api-work" (held by …, seen 3m ago) — 1h12m so far, deadline in 1h48m; next check in 50m (3000s from now)
+# last observed request 50m ago read 398k, wrote 1k (mostly read from the cache)
+# … and once the holder runs `buddy release api-work`:
+# LANDED: claim "api-work" released 20m ago — the wait is over after 2h1m; stop the /loop that runs this check (schedule no further check)
+# note: then: rebase, run check.sh
+buddy wait ls                        # every open wait, oldest first     buddy wait clear   # withdraw yours
+```
+
+A session parked waiting for a peer — a claim to be released, a serialized
+hour-long test tier, a review slot — runs no turn, and every prompt-cache
+entry here is written on the **1-hour tier**. Past the hour its next request
+re-writes the whole prefix at twice the base input rate. Measured over 14
+days of this box's transcripts: 187 requests after a gap over an hour re-wrote
+54M tokens, 108 of them under four hours. A cache **read** costs a tenth of
+base and restarts the hour, so one cheap request inside each hour is all it
+takes; and because that request is a tool call, `beat` drains the parked
+session's inbox as well, which nothing else was doing.
+
+**The trigger is the session's own.** `buddy wait` records what the session
+is waiting on (open claims of other sessions, resolved once to their claim
+ids; no `--on` is a plain timer), until when, and a note to itself. The
+session then arms its **own** harness scheduler with `/loop buddy wait check`.
+Buddy never wakes, schedules or types into anything. The **zero-code form**
+of this feature is the operator typing that same `/loop` line into a parked
+pane by hand. Each check prints one verdict — `STILL WAITING` (with when the
+next is due), `LANDED` (with the note), `EXPIRED`, or `NO WAIT` — and every
+verdict that ends the wait says to stop the loop. `beat` also says `LANDED`
+once on the session's next tool call, so a session that never armed a timer
+learns anyway. A refused `claim` prints the `buddy wait --on …` line that would
+wait for it; it never registers one.
+
+**Self-paced is the recommended form; `/loop 30m buddy wait check` is the
+fallback.** The check paces from itself: `next check in 50m`, or less when the
+deadline is sooner. It does not pace from the ledger's cache clock, which lags
+one request, because a check runs before its own `beat` records it; a formula
+built on that clock pinged twice per period. Fifty minutes, not fifty-eight,
+because the scheduler times the wake from the scheduling call and fires up to
+58 s late (measured: it rounds up to the next minute). Scheduled firings
+measured warm at up to 3,602 s after the previous request and cold at 3,633 s
+and beyond. The harness's own tool text says any delay up to an hour wakes
+warm; measured, 9 of 11 one-hour wakes came back cold. The fixed form can't
+express a uniform 50-minute cron period, so it pings every 30 minutes: two
+reads an hour instead of 1.2, and correct.
+
+**What a keep-alive costs,** per hour of waiting, at list multipliers (1h write
+2× base, read 0.1×, Fable 5.1 read 0.025×), for a 400k-token prefix. No verb
+prints a dollar figure; pricing is external and changes:
+
+| | Opus 5 | Fable 5.1 |
+| --- | --- | --- |
+| One cold re-write | $4.00 | $8.00 |
+| One warm ping | $0.20 | $0.10 |
+| Keep-alive per hour (1.2 pings) | $0.24 | $0.12 |
+| Break-even wait length | ~16 h | ~66 h |
+| Saved on a 65-minute wait | 95% | 99% |
+| Saved on a 4-hour wait | 80% | 95% |
+
+Hence a **required deadline**: default 3h, ceiling 12h (refused above it).
+The question that matters is whether the session will be resumed at all, and
+the declaration is that knowledge written down by the one party that has it.
+No open wait means no ping. A session on the **5-minute tier** gets no
+keep-alive: keeping a five-minute entry warm costs 1.5× base per hour against
+a 1.25× re-write. The wait is still recorded, and the declaration and the
+check both say why.
+
+What it deliberately is not:
+
+- **Not a reservation.** A wait reserves nothing and refuses nothing. No gate
+  or claim reads it, and a waiter has no more standing on the scope it waits
+  for than anyone else. `release` names the sessions waiting on a claim, and
+  `who` shows `WAITING` for a waiter and `WAITED ON` for a holder, as
+  information only.
+- **Not inferred.** A refused claim, an idle report and silence are not waits.
+  No row means the session has not said.
+- **Not a check anyone else can run.** `wait check` speaks only for the
+  session in `$CLAUDE_CODE_SESSION_ID`: it records a keep-alive and can clear a
+  LANDED verdict, and neither is true of a check typed in another shell.
+  `buddy who <target>` and `buddy wait ls` look from outside without touching
+  anything.
+- **Not durable across a restart.** The harness keeps scheduled tasks for the
+  session only, not on disk. `hello` restates an open wait and asks the
+  session to re-arm the loop only if it finds none scheduled. After a `bye` and
+  a resume, `hello` names the earlier run's wait as ended and prints the line
+  that would declare it again.
 
 ### 2. Presence (the fun half)
 

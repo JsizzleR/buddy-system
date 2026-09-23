@@ -1,6 +1,11 @@
 # Keeping a waiting session's prompt cache warm
 
-Status: proposal for review; nothing here is implemented, installed or wired.
+Status: IMPLEMENTED as D-033 (2026-09-23; `docs/decisions.md` is the record). Two
+things below changed in implementation, both on measurement: the next check is paced
+from the check itself, not from `tier clock + 1h − now − 8m` (a check runs before its
+own beat, so the ledger's clock lags one request and that formula pinged twice a
+period); and `wait check` orphans ended holders first, as `claim` does. The rest
+of this document is the proposal as approved.
 Date: 2026-09-23. Source baseline: `a254f45`.
 Scope: planning only. A design for one increment, the measurements that must
 precede it, and what was considered and cut.

@@ -1718,6 +1718,252 @@ is a beat clearing the stale count. The dry-run test's positive control moved fr
 aside to the result line. Every test was watched to fail against the old line.
 
 
+## D-033 — A declared wait, and a check the session's own scheduler runs, keep a parked session's cache warm
+
+2026-09-23 · issue #26; `docs/KEEPALIVE-PLAN.md` (de441b3) is the spec; five measurements
+taken before any code; a Codex design pass and a Fable design pass before the code, a Codex
+code pass after it
+
+**What was wrong** — A session in a multi-session run parks itself waiting for something
+another session is doing (a claim to be released, a serialized ~60-minute test tier, a review
+slot) and runs no turn while it waits. Every prompt-cache entry on this box is written on the
+1-hour tier (D-020), so a session that waits past the hour comes back cold and its next request
+re-writes the whole prefix at twice the base input rate. Over 14 days of this box's transcripts:
+187 requests after a gap over an hour re-wrote 54.3M tokens; 108 of them came under four hours,
+about $378 at list rates against $28 kept warm. A cache read costs a tenth of base and restarts
+the hour, and nothing asked the parked session to make one. The same parking starves the inbox:
+a session that runs no tool drains nothing (field notes §5c).
+
+**Measured before any code** (transcript token counts and timestamps, never content):
+
+1. *Positive control.* 22 historical `scheduled_task_fire` records over 30 days: every firing
+   whose first request came 3,602 s or less after the previous request READ the cache (9 of 9;
+   gaps 265-3,602 s; cache writes of 40-530 tokens on 83k-760k prefixes). Two fresh one-shot
+   firings in this session (gaps 147 s, 237 s): warm.
+2. *Negative control.* Every firing 3,633-3,660 s after the previous request re-wrote it: 9 of 9
+   cold, writes of 60k-743k, reads of 21-30k (the shared system and tool prefix alone). The
+   edge on this account lies between 3,602 and 3,633 s, response to response.
+3. *Fire-time accuracy.* A self-paced wake (`/loop` with no interval, the harness's
+   ScheduleWakeup) fired +0 to +58 s after the delay it was handed, over 14 wakes, consistent
+   with rounding UP to the next whole minute. So a 3,600 s wake lands at 3,600-3,660 s, and 9
+   of 11 such wakes with no turn in between came back COLD. The harness's own tool text says
+   every delay up to 3,600 s "wakes up with your conversation context still cached"; measured,
+   false at 3,600. One-shot cron fired +0.4-0.6 s late (4 of 4). The recurring cron behind
+   `/loop 30m` was NOT measured (no historical firing; see 5); the harness documents up to 10%
+   of the period late, at most 15 minutes, so at most 33 minutes for 30.
+4. *Which hooks a scheduled turn runs.* Both. Two one-shot fires in this session: the idle row
+   `Stop` wrote at the end of the previous turn was gone at the fired turn's FIRST tool call
+   with no beat in between, which only `busy` (UserPromptSubmit) can do; and the fired turn's
+   own `stop_hook_summary` lists `buddy idle` (22 ms). So every keep-alive ping resets the
+   roster's `idle`, and the wait's own age has to be printed separately.
+5. *Survival across `--resume`.* NOT measured. Driving a subject session (typing `/loop` into a
+   detached terminal) was refused twice by the harness's permission classifier, and it was not
+   worked around. The CronCreate schema says "Session-only. Jobs live only in this Claude
+   session — nothing is written to disk, and the job is gone when Claude exits"; `durable` "has
+   no effect". The `hello` wording rests on that, and is conditional.
+
+**The plan's pacing formula was wrong, found while taking measurement 4.** The plan paced the
+next check from the ledger's cache clock: `tier clock + 1h - now - 8m`. But a check runs BETWEEN
+its own PreToolUse gate and its own PostToolUse beat, and only beat and Stop's idle write the
+context observation. So during a check the ledger's newest observation is the PREVIOUS request.
+At the second of the two fires the ledger said 06:17:03 while the request running the check was
+at 06:21:03. In a steady loop that observation is the previous ping, fifty minutes old: the
+formula prints about 2m, the ping after it prints about 50m, and the loop pays two pings a
+period. The plan's claim that an operator prompt mid-wait "resets the cadence for free" has the
+same flaw. By the time any check runs, the request that ran it has already touched the cache, so
+the ledger clock can only mis-pace the next ping.
+What shipped paces from the check itself: `next = min(50m, deadline - now)`, floored at the
+scheduler's minute, printed with its seconds (`next check in 50m (3000s from now)`), because the
+self-paced form hands a number to the scheduler. It is safe by construction as well as by
+measurement (Fable design pass). Every request after the check touches the cache later still:
+the one that reads its result, the one that makes the scheduling call, the one after that call's
+result. The scheduler also times the wake from the scheduling call, so the gap to the next ping
+is the delay plus the wake's lateness: 3,000 + 58 = 3,058 s against a measured warm edge of
+3,602 s. The ledger observation is still used, for two things only: the TIER (1h, 5m, or both,
+judged by the shorter as D-020 does), and whether the last OBSERVED request read the prefix or
+re-wrote it. Both lag one request, and the line says so ("the last observed request 50m ago").
+
+**What shipped** — Schema 9: `session_waits`, one row per session keyed to the declaring
+incarnation, with its own declaration id (`decl`), `since`, a required `deadline`, a fenced
+`note`, `last_check`/`checks`, the one-shot `told` mark, and `cleared`/`reason`
+(landed|expired|cleared|ended). Alongside it `session_wait_targets`: the awaited claims,
+resolved ONCE at declaration to claim ids and keyed to the declaration. No verdict is stored.
+`Wait.Verdict` computes LANDED (at least one target and every target claim closed or gone),
+else EXPIRED (at or past the deadline), else pending, and every surface renders that one
+function. LANDED beats EXPIRED; a wait with no target is a timer that never lands.
+
+Verbs, in the dispatch table with their usage line (D-031):
+- `buddy wait [--on <slug>]... [--until <dur>] [--note <text>]` prints the declaration, the
+  keep-alive line (the tier, and the exact `/loop buddy wait check` to arm, or NONE with the
+  reason on the 5m tier) and what it replaced.
+- `buddy wait check` prints one verdict line, the note on its own line for LANDED and EXPIRED,
+  and the observation line: STILL WAITING with the next check, LANDED, EXPIRED, or NO WAIT.
+  Every verdict that ends the wait says to stop the loop.
+- `buddy wait clear`; `buddy wait ls` (every open wait, oldest first, rows begin `wait `).
+
+Refused before any write, each with a positive control beside it in the tests:
+- a slug naming no open claim (saying whether it closed, and when, or never existed);
+- the caller's own claim;
+- a claim whose holder has said bye (nothing will release it; a plain `claim` displaces it,
+  D-026);
+- `--until` outside 1m..12h;
+- a note whose RENDERED length is over 512 (D-021's arithmetic);
+- a positional slug (`did you mean --on`);
+- an unknown flag.
+
+A refused re-declaration leaves the existing wait untouched.
+
+Views:
+- The roster trailer `waiting 1h12m`, dated by the declaration, with `LANDED`/`EXPIRED` when
+  that is the verdict and no check has closed it.
+- `status`/`who`: `WAITING` (verdict, last check, the observed request, the note) or
+  `none declared`; on a holder's report, `WAITED ON`.
+- `release` names the sessions waiting on the claim it closed.
+- A refused `claim` and its `--dry-run` print `to be told when it frees: buddy wait --on …`
+  (shell-quoted), which suggests and never registers.
+- `beat` says LANDED once per declaration, marked after the write like D-028.
+- `hello` restates this incarnation's wait and asks the session to re-arm only if it finds no
+  loop scheduled; after a revival it names the predecessor's still-in-deadline wait as the
+  earlier run's, with the line that declares it again.
+- `msg` to a waiter adds what it declared and when it last checked, after D-032's arm.
+- Done-check `scripts/check-wait.sh`, from `check.sh`.
+
+Cost on the hot path, measured: `beat` against a ledger holding an open wait took a median of
+12.8 ms (p90 14.1 ms) against 13.1 ms (p90 14.4 ms) for the previous binary, over 80 beats
+each, alternated. The wait notice is one indexed read, well inside the 100 ms budget.
+
+**`wait check` is the harness's own session's act.** It takes its identity from
+`$CLAUDE_CODE_SESSION_ID` alone, refuses without it, refuses a disagreeing `$BUDDY_SESSION`, and
+has no `--session`. Its meaning (a request was just made on this cache, `last_check` is the
+keep-alive's heartbeat, a LANDED verdict is handed to the session that waited) is true only
+there. A check typed in another shell would stamp a keep-alive that never happened, and could
+clear a waiter's LANDED before the waiter saw it (Fable). `who` and `wait ls` look from outside
+without touching anything.
+
+**What it deliberately does not do** —
+- No new hook line.
+- Nothing wakes, schedules or types into a pane. The operator typing `/loop buddy wait check`
+  into a parked pane by hand is the zero-code form.
+- Chat is not involved.
+- A wait reserves nothing and refuses nothing (invariant 10): no gate or claim reads it, and a
+  test claims a freed scope over a declared waiter.
+- A live session's wait is never closed early, not even by `sweep --force`; it expires by its
+  deadline (invariant 11).
+- Waits are never inferred from a refusal, from idleness or from chat.
+- No session targets, no `--on inbox`, no git-ref targets (the plan's recommendations, taken).
+- No dollar figure in any verb's output; the README carries the cost table.
+
+**Extended** — Two settled texts move, said here rather than assumed:
+- Invariant 12 and charter GIVEN 26 listed hello, sweep and claim as where ended holders are
+  orphaned. `wait check` now runs the same `orphanEnded` first, inside its own transaction
+  (Fable). Without it, a holder's bye with no hello, claim or sweep after it left the waiter at
+  STILL WAITING through every check and then EXPIRED "with the claim still open" while the
+  ledger had known all along. It is the same idempotent statement D-026 put in `claim`, and
+  `bye` still touches nothing. `wait` itself REFUSES a claim whose holder has said bye instead
+  (see the code review below).
+- Charter GIVEN 20's "only Stop is wired; UserPromptSubmit was cut" was already stale (the
+  optional `busy` verb closed issue #10), and measurement 4 shows it running on scheduled turns.
+
+**What the design passes changed** — Codex (design):
+- The declaration got its own identity. `since` is whole seconds, so a beat that composed a
+  LANDED notice about one wait could have marked a replacement declared in the same second,
+  whose own landing would then never be announced; `told` is keyed by `decl`, and the targets
+  are too.
+- Every view renders ONE verdict function; the roster had said EXPIRED while `who` still said
+  WAITING.
+- A check from an incarnation that has said bye is refused.
+- COLD is the counts and not a diagnosis. A request that wrote more than it read was mostly not
+  served from cache, which a lapsed cache, a changed prefix and a huge new tool result all
+  produce.
+- `release` promises no notice: beat announces a wait only when EVERY target has closed.
+- The tier is dated by the record that wrote it.
+- Pre-existing, and fixed here: `idle` read the transcript BEFORE the session's identity, so a
+  Stop that sampled incarnation I's turn and then found a revived J stamped J with I's
+  footprint. The sample is now fenced by the turn's time, as MarkIdle already was.
+
+Fable (design) confirmed the lag argument in code and replaced its hedge with a construction
+proof. It added the harness-only check, the LANDED note when the awaited slug is open again
+under a new claim, orphaning inside the wait's own transactions, and exact pacing tests seeded
+with a fifty-minute-old observation.
+
+**What the code review changed** — Two Codex code passes, the store half and the CLI half,
+each finding reproduced by a test that failed first.
+
+Store:
+- The declaration orphaned ended holders first, like `claim`. A declaration REFUSED for other
+  reasons rolls back, though, so a wait on a bye'd holder's claim was refused with "already
+  orphaned (0s ago)" over a claim that was still open. `wait` now refuses such a target by
+  saying the holder has said bye and that a plain `claim` displaces it (D-026); only `wait check`
+  orphans, and a test holds the claim open after the refusal.
+- The check closed a finished wait inside its own transaction, so a check whose output never
+  arrived lost its LANDED for good: beat reads only open rows. `WaitCheck` now only evaluates
+  and records. The CLI writes the verdict in ONE write and then closes it with
+  `CloseWait(decl)`, D-028's mark-after-write. A lost close costs one repeat, and the close is
+  silent so a check stays within three lines.
+- The target join is on the session as well as the declaration id. A planted collision proves
+  it; a real one is a 2⁻⁶⁴ event.
+
+CLI:
+- A generated `buddy wait --on …` printed the FENCED slug (`'api⏎work'`), which names a
+  different claim. Commands now carry only slugs that survive the fence unchanged, and count the
+  rest.
+- `wait --session B` from session A's shell said "Arm it in THIS session". It now names the
+  session that must arm the loop.
+- `hello`'s re-arm line ignored the verdict and the tier. A wait that is over is taken with one
+  check, and off the hour tier nothing is re-armed.
+- The COLD WRITE line still diagnosed a keep-alive miss; it now names both causes and says the
+  counts cannot tell them apart. `read 0, wrote 0` printed "served from cache"; it now prints
+  "nothing read from the cache".
+- `who` printed `none declared` when the register could not be read; it now fails like every
+  other register there.
+- The deadline cap rounded to the NEAREST minute, so 20m29s left scheduled a check 29 s before
+  the deadline. It now rounds up, and the one-minute floor became unreachable and was deleted.
+- `release` read the claim id before releasing, which could name another claim's waiters; it
+  now takes the id from the release's own transaction (`ReleaseID`, `ReleaseScopesID`).
+
+**Test shape** — Store: a refusal table where each case has an existing wait that must survive
+and a control that must be accepted and must report what it replaced; the verdict across two
+targets, one then both released; a timer at one second before its deadline and exactly at it;
+LANDED past the deadline; check → LANDED → NO WAIT; the same-second replacement; bye then check;
+each cleanup entry point on its own, with `sweep --dry-run` as the rollback control; revival; a
+bye'd holder landing at the next check; a re-claimed slug; a swept claim row; a waiter with no
+standing. CLI: the whole round trip with every line held to its text; pacing exact against an
+observation fifty minutes old, three times; the deadline cap and the minute floor (20 s left
+rounds to zero, so the floor is load-bearing); the three tiers; COLD at one token either side of
+write = read; the harness-only refusals; every declaration refusal writing no row, each beside
+its control; `--help` in three positions; the refused-claim suggestion, shell-quoted; one verdict
+across roster, `who`, `wait ls`; `msg`'s ordering; `hello` both ways and past the deadline;
+peer text that tries to open a line as LANDED or BUDDY; a failing sink and a planted failing
+mark, and one test per code-review finding. 59 mutations over three rounds; every one that
+still applies is killed. The survivors along the way each changed something:
+- Hello's explicit revival clear was EQUIVALENT to `clearEndedWaits`' incarnation arm. The
+  duplicate was deleted, and the arm got its own mutation, which died.
+- A COLD criterion loosened to ten times passed, because the test's cold case was nineteen
+  times. Cases one token either side of write = read now kill it.
+- The views' incarnation comparison was a guard no test could arm, because cleanup always closes
+  a predecessor's row first. A planted stale-incarnation row now arms it.
+- The session arm of the target join is armed only by a planted declaration-id collision.
+Three mutants that did not compile (each left a variable unused) were respelled so that they
+did, and then died.
+
+**Residuals** —
+- The observation lags one request, so a drop from the 1h to the 5m tier (usage overage) costs
+  one wasted ping before a check says to stop, and a COLD WRITE at check N is about check N-1.
+- The shared system prefix reads warm even on a cold restart, so a session under about 60k can
+  re-write without tripping COLD, which is the cheap direction.
+- A LANDED verdict reaches a parked session at its next check, up to fifty minutes late. `beat`
+  says it at once only if the session happens to run a tool.
+- Measurement 5 and the recurring-cron lateness were not taken. The `hello` line is conditional,
+  and the fixed form's 30-minute period leaves 27 minutes of margin against the documented 3.
+- `idle`'s context sample on a scheduled turn did not advance to that turn's final record in
+  measurement 4 (it kept beat's), where the typed turn before it did. The cause is not
+  established.
+- The new `idle` fence compares a millisecond turn time against a whole-second `started`, so a
+  predecessor's turn and a revival inside the SAME second still pass it. MarkIdle next door has
+  the same comparison and the same residual (Codex code pass, question 9).
+- A `wait check` whose close fails after its verdict was written says the verdict again at the
+  next check, and says nothing about the failed close, by design.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
