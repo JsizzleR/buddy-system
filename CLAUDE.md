@@ -215,6 +215,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   daemon is alive, unsupervised, and launchd retries against it forever.
   Restart it with `launchctl kickstart -k gui/$UID/com.buddy-system.buddylistd`
   — or kill the stray and let KeepAlive do it.
+- **`/clear` mints a NEW session id in the same process** (same pid and pane; the old
+  row goes `ended`). `/compact` and `--resume` keep the id. So nothing keyed by
+  session id (inbox, wait) crosses a `/clear`, and a message queued to the old id is
+  stranded. An id that never took a turn has no transcript and cannot be resumed
+  (measured 2026-09-23, D-034).
 - Hook latency budget is 100 ms. Measured: `gate` 20 ms, `beat` 13 ms, chat
   alert 1.2 ms warm / 5.9 ms cold.
 - **The prompt cache and the harness scheduler, measured 2026-09-23 (D-033).** A

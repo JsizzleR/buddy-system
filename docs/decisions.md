@@ -1974,7 +1974,9 @@ already going into the session's context, so the one hook that fires before a se
 prompt knew about the work and withheld it. The measured case (issue #25): an operator opened
 six sessions to hand them work, and every assignment needed a human to type into that pane,
 because a session at its first prompt runs no tool and so drains nothing. The same holds for
-`resume`, `clear` and `compact`, which run SessionStart too.
+`resume` and `compact`, which run SessionStart again under the SAME session id. `clear` runs
+SessionStart too, but under a NEW id (measured below), so it has nothing of the old id's to
+drain.
 
 **What shipped** — A hook-driven `hello` renders the inbox after every other digest line with
 beat's header, fence and write-then-mark (`boundDrain`, `inboxLine` and `writeInbox`, now
@@ -2011,7 +2013,33 @@ with all six claims, exactly one message and a count of one. Mutated six ways (d
 drain on a hand run, write error ignored, budget removed, beat bound removed, fence removed),
 and each mutation failed exactly the test written for it.
 
+**Measured on the live harness (2026-09-23, two sessions, the installed binary at 7aed0a4)** —
+- `compact`: the id stayed the same (`s-2e377b69`, same `started`), the queued message came
+  in the `SessionStart:compact` digest inside the fence, and `who` showed 0 undelivered.
+- `resume` of an ENDED id (`/exit`, then `msg` printed the ENDED arm, then `claude --resume`):
+  the message came in the `SessionStart:resume` digest, the row went back to live under a new
+  pid, and a message the compact had already delivered did not come again.
+- The cap: 25 queued, then a compact showed m01–m20 plus the `5 queued message(s) not shown
+  here` line, `who` showed 5 undelivered, and the next tool call's beat brought m21–m25 in
+  order.
+- An empty inbox: the digest is unchanged, with no count line and no block.
+- `clear` **ends the session and starts a new id in the same harness process**: `cb9b1e1b`
+  went to `2e377b69`, same pid 77414, same pane, and the old row went to `ended`. A message
+  queued to the old id stays undelivered under an ended session while the pane that should
+  have read it keeps running. That id had taken no turn, so Claude Code wrote no transcript,
+  and `claude --resume` answers `No conversation found`. The message can never be read, even
+  though the ENDED arm says it would be if the id said hello again.
+
 **Residuals** —
+- A message queued before a `/clear` is stranded under the ended id (measured above). `msg`
+  resolves its target to a session id when it is sent, and a label is `s-<8hex>` of that id,
+  so nothing addressed before the clear can reach the session after it. One fix would be for
+  `hello` with `source=clear` to adopt the inbox of the session it just ended in the same
+  registered harness process. That would be a second decision made on `session_procs`, which
+  D-025 trusts for exactly one, so it needs its own record. Not done here, and low priority:
+  the operator starts a new session rather than running `/clear`.
+- The same holds for a wait (D-033): `WaitOf` is keyed by session id, so a wait declared before
+  a `/clear` is neither restated nor offered back to the new id. It is dropped without a word.
 - beat's own drain has the byte bound and not the context cap: 8 KiB of body plus notices
   approaches 10,000 characters without passing it. Unchanged here.
 - The claims list is unbounded and could cross the cap on its own, before any message is
