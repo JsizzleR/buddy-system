@@ -389,6 +389,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `$CLAUDE_CODE_SESSION_ID`. No keep-alive on the 5m tier. A wait reserves and refuses
   nothing, is never inferred (a refused claim only SUGGESTS `buddy wait --on`), and
   nothing wakes, schedules or types into a pane.
+- **`hello` drains the inbox into the SessionStart digest (D-034, #25)** — hook-driven
+  only (a hand-run hello counts and marks nothing), beat's fence and write-then-mark,
+  bounded by beat's 20 / 8 KiB AND by the room the digest leaves under 9,000 bytes,
+  because Claude Code replaces hook output past 10,000 characters with a preview
+  (documented, not measured) and that would hide the claims list. The remainder is
+  counted and left queued. Waking a session ALREADY at its prompt is still D-027's "no".
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
