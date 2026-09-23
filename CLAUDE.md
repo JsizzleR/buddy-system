@@ -137,10 +137,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
     the operator's explicit act.
 12. **Identity is `(session_id, incarnation)`.** A delayed `bye` from a dead
     incarnation must not orphan a live one; a delayed `beat` must not resurrect
-    an ended session. Orphaning happens in `hello`/`sweep`/`claim`, never inline
-    in `bye`. The hook payload names no incarnation, so `bye` is fenced by the
-    harness PROCESS that registered the session (`session_procs`, D-025): it
-    ends a session only when no registered process is still alive.
+    an ended session. Orphaning happens in `hello`/`sweep`/`claim` (and, the same
+    statement, `wait check` — D-033), never inline in `bye`. The hook
+    payload names no incarnation, so `bye` is fenced by the harness PROCESS that
+    registered the session (`session_procs`, D-025): it ends a session only when
+    no registered process is still alive.
 13. **One folding rule: `strings.ToLower(norm.NFC.String(s))`.** Never
     `strings.EqualFold`, never a second normalization.
 14. **Scope containment is exactly** `scope == path || strings.HasPrefix(path,
@@ -216,6 +217,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   — or kill the stray and let KeepAlive do it.
 - Hook latency budget is 100 ms. Measured: `gate` 20 ms, `beat` 13 ms, chat
   alert 1.2 ms warm / 5.9 ms cold.
+- **The prompt cache and the harness scheduler, measured 2026-09-23 (D-033).** A
+  request up to 3,602 s after the previous one read the cache; 3,633 s and
+  later re-wrote it. A self-paced `/loop` wake (ScheduleWakeup) rounds UP to the
+  next minute and fires 0-58 s late, so the tool's own "any delay up to 3600
+  wakes warm" is false: 9 of 11 one-hour wakes came back cold. A scheduled turn
+  runs BOTH `UserPromptSubmit` and `Stop`, so a keep-alive ping resets `idle`.
+  Scheduled tasks are session-only (not on disk); surviving `--resume` was not
+  measured.
 - Git, for anything touching hooks: `--name-only` **quotes** non-ASCII paths (use
   `-z`); rename detection reports only the destination (`--no-renames` gives
   both); `diff.relative=true` in a user config silently makes output
@@ -368,6 +377,18 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   earlier messages to X are still undelivered and the age of the oldest. It never says
   "delivered", never infers busy, and does not refuse an ended target (`hello` revives the
   id). `who` dates its INBOX line the same way.
+- **A parked session keeps its cache warm by DECLARING a wait and arming its OWN
+  scheduler (D-033).** `buddy wait --on <slug>... [--until 3h] [--note]` (ceiling
+  12h; targets resolved once to claim ids; one row per session with its own
+  declaration id) and `/loop buddy wait check` in that session: one tool call, one
+  verdict (STILL WAITING / LANDED / EXPIRED / NO WAIT), paced from the check itself —
+  `next check in 50m` — NEVER from the ledger's cache clock, which lags one request
+  because a check runs before its own beat. The verdict is computed at read time by
+  one function every view renders (roster `waiting 1h12m`, `who` WAITING/WAITED ON,
+  `release`, `msg`, `hello`, beat's one-shot LANDED). `wait check` speaks only for
+  `$CLAUDE_CODE_SESSION_ID`. No keep-alive on the 5m tier. A wait reserves and refuses
+  nothing, is never inferred (a refused claim only SUGGESTS `buddy wait --on`), and
+  nothing wakes, schedules or types into a pane.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

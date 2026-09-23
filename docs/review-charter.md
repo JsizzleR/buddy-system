@@ -126,8 +126,9 @@ ledger row entered through the CLI (D-006).
     `Beat` deletes it in its own transaction — a tool call IS a turn in progress. NO ROW
     MEANS UNKNOWN: the hook is opt-in like every other one, so a fleet without it wired
     reports nobody idle, and absence must never be read as "mid-turn". Only `Stop` is
-    wired; `UserPromptSubmit` was cut because the next beat clears the mark within a
-    second of the prompt.
+    wired by default; the optional `busy` verb on `UserPromptSubmit` retracts the mark for a
+    turn that runs no tool (issue #10), and measured on 2026-09-23 BOTH hooks run on a
+    scheduled (`/loop`) turn, so a keep-alive ping resets `idle` (D-033).
 
 21. **A column is ONE token (D-017).** Peer text in a fixed-width column goes through
     `fence.Field`, which renders spaces as `␣` exactly as `fence.Line` renders line
@@ -186,8 +187,8 @@ ledger row entered through the CLI (D-006).
     and a holder that has SAID BYE does not (D-026).** `scopeConflicts` tests
     `state='open'` and `owner not ended` — staleness has no bearing, positive `ended`
     does. What frees a scope: the holder's `release`, orphaning of an ended owner (which
-    runs in `hello`, `sweep` AND, since D-026, first inside `claim`'s own transaction),
-    and `sweep --force`. **`bye` itself still touches no claim row** (invariant 12). The
+    runs in `hello`, `sweep` AND, since D-026, first inside `claim`'s own transaction —
+    and since D-033 inside `wait check`'s, the same statement), and `sweep --force`. **`bye` itself still touches no claim row** (invariant 12). The
     dry run excludes ended owners by the same predicate so it forecasts the claim, and
     prints a `note:` line for each ended holder it would displace — "acquirable after
     cleanup" is not "unreserved". The PreToolUse gate and the commit gate still read
@@ -285,6 +286,32 @@ ledger row entered through the CLI (D-006).
     the age of the oldest. `who` dates its INBOX line the same way. It never says "delivered",
     never infers busy, and does not refuse an ended target (D-013: `hello` revives the id).
     Do not propose a delivered receipt, a refusal on ENDED, or a wake.
+
+36. **A parked session keeps its cache warm by DECLARING a wait and arming its OWN scheduler
+    (D-033).** `buddy wait [--on <slug>]... [--until <dur>] [--note]` records one row per session:
+    the awaited claims resolved ONCE to claim ids, a required deadline (default 3h, ceiling
+    12h), and its own declaration id. `buddy wait check` is one tool call run by the session's
+    own `/loop`. Its request refreshes the cache, its beat drains the inbox, and it prints one
+    verdict: STILL WAITING with `next check in 50m (3000s from now)`, LANDED, EXPIRED, or NO WAIT.
+    LANDED means every target is closed; EXPIRED means past the deadline; LANDED beats EXPIRED; a
+    wait with no target is a timer that never lands. All are computed from the clock and the
+    claims table at read time by ONE function every view renders. Nothing is stored but what an
+    act did (`reason`) and beat's one-shot `told`, keyed by the declaration and marked after the
+    write.
+    **Pacing is from the check itself, not the ledger's cache clock.** A check runs before its own
+    beat, so the ledger's newest observation is the previous request; pacing from it pinged twice
+    a period. Measured: warm at <= 3,602 s, cold at >= 3,633 s; self-paced wakes fire 0-58 s late
+    (they round up to the minute); 9 of 11 one-hour wakes were cold. The observation is used only
+    for the tier (no keep-alive on 5m or both tiers) and for the lagged read/COLD WRITE counts line.
+    `wait check` speaks ONLY for `$CLAUDE_CODE_SESSION_ID` (no `--session`). `wait check`
+    orphans ended holders first, as `claim` does; `wait` REFUSES a claim whose holder said bye
+    (a refused declaration rolls back, so it must not explain itself with an orphaning). A
+    check closes a finished wait only AFTER its verdict is written, and a generated `buddy wait
+    --on` command names only slugs that survive the fence unchanged.
+    A wait reserves nothing and refuses nothing, is never inferred, and is never closed early for
+    a live session. No new hook line, no wake, no chat, no dollar figures in any output. Do not
+    propose a buddy-side timer, pane injection, a headless `--resume` ping, a Stop hook that
+    refuses to end the turn, inferring a wait from a refusal or idleness, or a stored verdict.
 
 ## Environment facts (measured, do not re-derive)
 

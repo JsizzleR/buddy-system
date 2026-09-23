@@ -214,6 +214,50 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		fmt.Fprintf(env.Stdout, "INBOX        %d undelivered, the oldest %s old\n", len(msgs), age(now, oldestOf(msgs)))
 	}
 
+	// WAITING — what this session has declared it is waiting on (D-033), with
+	// the one Verdict every view renders, when its keep-alive last checked in,
+	// and the ledger's newest observation of its requests. "none declared"
+	// and never "not waiting": no row means the session has not said (D-016).
+	// A register that could not be READ fails the report, like every other
+	// register here: "none declared" over an error would be an assertion of
+	// absence the ledger never made (Codex code pass).
+	w, ok, err := openWaitOf(st, si)
+	if err != nil {
+		return err
+	}
+	if ok {
+		c, observed := sampleOf(st, si)
+		fmt.Fprintf(env.Stdout, "WAITING      on %s — declared %s ago, %s, %s; %s%s\n",
+			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), deadlinePhrase(now, w), lastCheckPhrase(now, w),
+			observedRequest(now, c, observed), notePhrase(w))
+	} else {
+		fmt.Fprintln(env.Stdout, "WAITING      none declared")
+	}
+	// WAITED ON — the other end (field notes §9's `blocked-on`): the sessions
+	// that declared a wait on a claim this one holds. Information; nothing
+	// here obliges the holder to anything.
+	if len(held) > 0 {
+		var waiting []store.Wait
+		seen := map[string]bool{}
+		for _, c := range held {
+			ws, err := waitersOn(st, c.ClaimID)
+			if err != nil {
+				return err
+			}
+			for _, w := range ws {
+				if !seen[w.SessionID] {
+					seen[w.SessionID] = true
+					waiting = append(waiting, w)
+				}
+			}
+		}
+		if len(waiting) == 0 {
+			fmt.Fprintln(env.Stdout, "WAITED ON    by no declared wait")
+		} else {
+			fmt.Fprintf(env.Stdout, "WAITED ON    by %d session(s): %s\n", len(waiting), waitersPhrase(st, waiting, now))
+		}
+	}
+
 	// AUTHORITY — watched files whose recorded modification time postdates
 	// this session's registration (D-028). Advisory: the file on disk
 	// changed after the session started; not that its contents differ from
