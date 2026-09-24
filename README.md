@@ -62,6 +62,12 @@ buddy init    # creates buddy.db in the repo's git COMMON directory
               # worktree of the checkout, invisible to git
 ```
 
+The ledger carries its schema version. A `buddy` older than the one that last
+migrated it refuses to open it, naming both versions, and so the gate DENIES
+mutating tools until the binary is rebuilt (D-037). The version never moves
+down: rebuild the stale binary, and check that every hook line points at the
+same one.
+
 Wire the hooks into the repo's `.claude/settings.local.json` (machine-local;
 `settings.json` if you want them shared). Every hook is guarded so a missing
 binary just turns the feature off:

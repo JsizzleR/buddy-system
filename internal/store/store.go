@@ -352,6 +352,10 @@ func Open(dbPath string, now func() time.Time) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("inspect ledger schema version: %w", err)
 	}
+	if ver > schemaVersion {
+		db.Close()
+		return nil, newerLedger(dbPath, ver)
+	}
 	if ver < schemaVersion {
 		if err := migrate(db); err != nil {
 			db.Close()
@@ -359,6 +363,27 @@ func Open(dbPath string, now func() time.Time) (*Store, error) {
 		}
 	}
 	return &Store{db: db, now: now}, nil
+}
+
+// ErrLedgerNewer is Open's refusal of a ledger stamped with a schema version
+// ABOVE the one this binary was built with (issue #29).
+//
+// Open used to migrate only upward and accept anything else, so a stale
+// binary — an old ~/bin/buddy, a build from another worktree, a hook pointing
+// at an old path — opened a ledger a newer binary had migrated and used it as
+// if it were its own shape. A query against a reshaped table fails loudly,
+// but a write to a table whose MEANING changed while its columns did not
+// succeeds, wrongly, and nothing says so.
+//
+// An error, not a read-only mode: to every caller this is "ledger exists but
+// cannot be read", which the gate already DENIES (invariant 3). It must never
+// collapse into "no ledger", the silent-allow arm. The fix is on the binary's
+// side, never the ledger's: nothing migrates DOWN.
+var ErrLedgerNewer = errors.New("ledger schema is newer than this buddy binary")
+
+func newerLedger(dbPath string, ver int) error {
+	return fmt.Errorf("%w: %s is at schema version %d and this binary understands up to %d; rebuild and reinstall buddy from a current checkout (hooks run whichever binary their line names)",
+		ErrLedgerNewer, dbPath, ver, schemaVersion)
 }
 
 // migrate brings a ledger below schemaVersion up to it, in ONE transaction:
@@ -383,7 +408,13 @@ func migrate(db *sql.DB) error {
 	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil {
 		return fmt.Errorf("inspect ledger schema version: %w", err)
 	}
-	if ver >= schemaVersion {
+	// Re-checked under the lock: a newer binary can have migrated between
+	// Open's unlocked read and this BEGIN, and returning nil here would hand
+	// back a Store on a shape this binary does not know.
+	if ver > schemaVersion {
+		return newerLedger("the ledger", ver)
+	}
+	if ver == schemaVersion {
 		return nil
 	}
 	// Detect the one migration that needs data backfill before the schema
