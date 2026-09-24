@@ -47,6 +47,9 @@ type Env struct {
 	// runs under a claude process of its own.
 	Anchor    func() (store.ProcRef, bool)
 	ProcAlive func(store.ProcRef) bool
+	// SockDir is where the harness's per-process message sockets live (wake.go);
+	// "" means the real one. A seam for the reason Anchor is one.
+	SockDir string
 }
 
 func (e Env) getenv(k string) string {
@@ -2260,20 +2263,28 @@ func cmdMsg(args []string, env Env) error {
 	// command did; everything after the dash is what the ledger holds about
 	// whether it will be read.
 	note := ""
+	var rcpt recipient
 	if tgt.ID != store.AllTarget {
-		note = sendNote(st, env, tgt, nowOf(env))
+		// ONE observation of the recipient serves the result line AND the
+		// wake line (D-039), so the two cannot describe two states of it and
+		// the process register is probed once per send.
+		rcpt = observe(st, env, tgt)
+		note = sendNote(st, rcpt, tgt, nowOf(env))
 	}
 	if err := st.Msg(tgt, sender, body); err != nil {
 		return err
 	}
 	if tgt.ID == store.AllTarget {
-		note = sendNote(st, env, tgt, nowOf(env))
+		note = sendNote(st, rcpt, tgt, nowOf(env))
 	}
 	if note == "" {
 		fmt.Fprintf(env.Stdout, "queued for %s\n", fence.Line(tgt.String(), 128))
 	} else {
 		fmt.Fprintf(env.Stdout, "queued for %s — %s\n", fence.Line(tgt.String(), 128), note)
 	}
+	// The harness's own channel to a session at its prompt (D-039): named,
+	// never used — buddy wakes nothing.
+	fmt.Fprint(env.Stdout, wakeLine(env, rcpt, nowOf(env)))
 	return nil
 }
 
@@ -2342,22 +2353,14 @@ func cmdMsg(args []string, env Env) error {
 // the after-the-fact check, and its INBOX line now dates the oldest row for
 // the same reason. Every failure to read a register prints nothing for that
 // register, the way the roster does — a send is not refused over a note.
-func sendNote(st *store.Store, env Env, t store.Target, now time.Time) string {
+func sendNote(st *store.Store, r recipient, t store.Target, now time.Time) string {
 	if t.ID == store.AllTarget {
 		return broadcastNote(st, now)
 	}
-	si, ok, err := st.SessionByID(t.ID)
-	if err != nil || !ok {
+	if !r.ok {
 		return ""
 	}
-	// EVERY REGISTER IS READ ONCE. The first shape called idleSince and gonePIDs
-	// twice each — once in the case guard, once in the format — and a row
-	// that vanished between the reads (the recipient beats, clearing its idle
-	// row) dereferenced nil INSIDE the send, before the write: one concurrent
-	// beat aborted a message without queueing it (Codex code pass, P1). A
-	// note must never cost the send.
-	idle := idleSince(st, si)
-	gone := gonePIDs(st, env, si.SessionID)
+	si, idle, gone := r.si, r.idle, r.gone
 	var b strings.Builder
 	switch {
 	case !si.Live():
@@ -2448,24 +2451,49 @@ func idleSince(st *store.Store, si store.SessionInfo) *time.Time {
 	return nil
 }
 
-// gonePIDs is the session's registered harness processes when NONE of them
-// is alive, as decimal strings for the note; empty when it has none
-// registered (nothing to probe) or any one is still there. All-or-nothing,
-// like the bye fence (D-025): one live registration means the session can
-// still run a hook.
-func gonePIDs(st *store.Store, env Env, sessionID string) []string {
+// recipient is everything a send says about its target, read ONCE.
+//
+// EVERY REGISTER IS READ ONCE. The first shape called idleSince and gonePIDs
+// twice each — once in the case guard, once in the format — and a row that
+// vanished between the reads (the recipient beats, clearing its idle row)
+// dereferenced nil INSIDE the send, before the write: one concurrent beat
+// aborted a message without queueing it (Codex code pass, P1). A note must
+// never cost the send. The wake line (D-039) reads this same observation,
+// for the same reason: a second probe could name a process the first found
+// dead.
+type recipient struct {
+	ok    bool
+	si    store.SessionInfo
+	idle  *time.Time
+	alive []store.ProcRef // registered harness processes that answered the probe
+	gone  []string        // the registered pids when NONE is alive; empty otherwise
+}
+
+// observe reads the target's row, its idle report and its process register,
+// probing each registered process exactly once. A register that cannot be
+// read is reported as absent, the way the roster does.
+func observe(st *store.Store, env Env, t store.Target) recipient {
+	si, ok, err := st.SessionByID(t.ID)
+	if err != nil || !ok {
+		return recipient{}
+	}
+	r := recipient{ok: true, si: si, idle: idleSince(st, si)}
 	procs, err := st.SessionProcs()
-	if err != nil || len(procs[sessionID]) == 0 {
-		return nil
+	if err != nil {
+		return r
 	}
-	var out []string
-	for _, p := range procs[sessionID] {
+	var dead []string
+	for _, p := range procs[si.SessionID] {
 		if env.procAlive(p) {
-			return nil
+			r.alive = append(r.alive, p)
+		} else {
+			dead = append(dead, strconv.Itoa(p.PID))
 		}
-		out = append(out, strconv.Itoa(p.PID))
 	}
-	return out
+	if len(r.alive) == 0 {
+		r.gone = dead
+	}
+	return r
 }
 
 // openSlugsOf lists the open claim slugs a session holds under ANY

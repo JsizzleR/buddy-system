@@ -16,12 +16,13 @@ func (f *fixture) runStdin(t *testing.T, cwd string, stdin io.Reader, args ...st
 	t.Helper()
 	var out, errw bytes.Buffer
 	code = Run(args, Env{
-		Stdin:  stdin,
-		Stdout: &out,
-		Stderr: &errw,
-		Cwd:    cwd,
-		Now:    func() time.Time { return f.clock },
-		Getenv: func(k string) string { return f.env[k] },
+		Stdin:   stdin,
+		Stdout:  &out,
+		Stderr:  &errw,
+		Cwd:     cwd,
+		Now:     func() time.Time { return f.clock },
+		Getenv:  func(k string) string { return f.env[k] },
+		SockDir: f.sockDir,
 	})
 	return out.String(), errw.String(), code
 }
