@@ -423,6 +423,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   runs beat's drain (bound, fence, write-then-mark) as one `UserPromptSubmit` document, and
   prints nothing when nothing is queued. Inbox only; beat's notices stay on the tool call. It
   wakes nothing. Whatever is typed into a resting session now carries its mail in.
+- **`msg`'s wake address rides its result line (D-041, #32).** One send, one line: an
+  orchestrator reading `msg … | head -1` lost the second-line address and an idle lane sat
+  unwoken. Never move it back to its own line.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

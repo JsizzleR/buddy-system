@@ -382,6 +382,11 @@ ledger row entered through the CLI (D-006).
     run `buddy inbox`. It wakes nothing. Do not propose moving beat's notices onto the prompt,
     or claiming a SendMessage wake fires UserPromptSubmit (unmeasured).
 
+44. **`msg`'s wake address rides its result line (D-041).** One send answers on ONE line. The
+    D-039 address used to be a second line, and an orchestrator that read `msg … | head -1`
+    (measured, 2026-09-24) lost it, so an idle lane sat unwoken until the operator typed into
+    it. Do not propose moving the address back onto a line of its own.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

@@ -136,17 +136,23 @@ func TestMsgNamesTheWakeAddressOfAQuietRecipient(t *testing.T) {
 			if code != 0 || !strings.HasPrefix(out, "queued for ") {
 				t.Fatalf("control: the send itself must succeed: %s %s", out, errw)
 			}
+			// ONE line either way (D-041): a sender reading `| head -1`
+			// dropped the address when it was a second line, and an idle lane
+			// sat unwoken.
+			if n := strings.Count(out, "\n"); n != 1 || !strings.HasSuffix(out, "\n") {
+				t.Fatalf("msg must answer on exactly one line, got %d:\n%s", n, out)
+			}
 			has := strings.Contains(out, "to wake it now:")
 			if has != tc.wake {
-				t.Fatalf("wake line present=%v, want %v:\n%s", has, tc.wake, out)
+				t.Fatalf("wake address present=%v, want %v:\n%s", has, tc.wake, out)
 			}
 			if !tc.wake {
 				return
 			}
-			want := `to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") +
+			want := `; to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") +
 				`" with the text "buddy mail is queued for you: run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way` + "\n"
 			if !strings.HasSuffix(out, want) {
-				t.Fatalf("want the wake line last:\n%s\nin:\n%s", want, out)
+				t.Fatalf("want the wake address to end the result line:\n%s\nin:\n%s", want, out)
 			}
 			// The wake carries no content: the message stays in the ledger.
 			if strings.Contains(want, body) || strings.Count(out, body) != 0 {

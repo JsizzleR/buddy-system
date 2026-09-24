@@ -2302,7 +2302,7 @@ func cmdMsg(args []string, env Env) error {
 	var rcpt recipient
 	if tgt.ID != store.AllTarget {
 		// ONE observation of the recipient serves the result line AND the
-		// wake line (D-039), so the two cannot describe two states of it and
+		// wake clause (D-039, D-041), so the two cannot describe two states of it and
 		// the process register is probed once per send.
 		rcpt = observe(st, env, tgt)
 		note = sendNote(st, rcpt, tgt, nowOf(env))
@@ -2313,14 +2313,17 @@ func cmdMsg(args []string, env Env) error {
 	if tgt.ID == store.AllTarget {
 		note = sendNote(st, rcpt, tgt, nowOf(env))
 	}
-	if note == "" {
-		fmt.Fprintf(env.Stdout, "queued for %s\n", fence.Line(tgt.String(), 128))
-	} else {
-		fmt.Fprintf(env.Stdout, "queued for %s — %s\n", fence.Line(tgt.String(), 128), note)
+	line := "queued for " + fence.Line(tgt.String(), 128)
+	if note != "" {
+		line += " — " + note
 	}
 	// The harness's own channel to a session at its prompt (D-039): named,
-	// never used — buddy wakes nothing.
-	fmt.Fprint(env.Stdout, wakeLine(env, rcpt, nowOf(env)))
+	// never used — buddy wakes nothing. On the SAME line (D-041), because a
+	// sender reading `| head -1` dropped it when it was the second.
+	if wake := wakeClause(env, rcpt, nowOf(env)); wake != "" {
+		line += "; " + wake
+	}
+	fmt.Fprintln(env.Stdout, line)
 	return nil
 }
 
@@ -2494,7 +2497,7 @@ func idleSince(st *store.Store, si store.SessionInfo) *time.Time {
 // vanished between the reads (the recipient beats, clearing its idle row)
 // dereferenced nil INSIDE the send, before the write: one concurrent beat
 // aborted a message without queueing it (Codex code pass, P1). A note must
-// never cost the send. The wake line (D-039) reads this same observation,
+// never cost the send. The wake clause (D-039, D-041) reads this same observation,
 // for the same reason: a second probe could name a process the first found
 // dead.
 type recipient struct {

@@ -321,13 +321,15 @@ dates the oldest undelivered row. No idle row and a recent beat is `last seen
 
 **Waking a session at its prompt (D-039).** A quiet recipient (an idle
 report, not seen past the stale mark, or registered and not seen since) gets
-one more line when the ledger knows exactly one live harness process for it
-and that process's message socket exists:
+the harness wake address appended to its result line when the ledger knows
+exactly one live harness process for it and that process's message socket
+exists. It goes on the same line (D-041) because a sender that read
+`msg … | head -1` lost it when it was a second line, and an idle lane stayed
+unwoken:
 
 ```sh
 buddy msg bravo "take the router bundle"
-# queued for bravo — bravo last reported idle 10m ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call
-# to wake it now: SendMessage to "uds:/tmp/cc-socks/21180.sock" with the text "buddy mail is queued for you: run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); …
+# queued for bravo — bravo last reported idle 10m ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call; to wake it now: SendMessage to "uds:/tmp/cc-socks/21180.sock" with the text "buddy mail is queued for you: run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); …
 ```
 
 `buddy` wakes nothing. It is a binary, and it cannot call the harness's
