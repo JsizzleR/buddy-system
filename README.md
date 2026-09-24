@@ -373,6 +373,37 @@ session runs `buddy inbox`. Measured on two sessions opened for the purpose:
 A recipient in a different permission mode holds the wake for its user. The
 queued copy is there either way.
 
+**Correcting a message (D-043).** Every send prints its id (`; message #12`),
+and every delivered line starts with one. A sender corrects its own earlier
+message with `--supersedes`:
+
+```sh
+buddy msg all --supersedes 12 "grep -c counts LINES; use grep -o | wc -l"
+# queued for all — …; message #13; corrects #12, which 4 of 9 addressed session(s) have a recorded delivery of
+```
+
+The correction goes to exactly #12's audience: the same session, or the same
+broadcast snapshot. Nothing is withheld. A session that has not drained #12
+yet gets both, linked, and the links sit between the id and the
+peer-controlled `[sender]`, so no message text can forge them:
+
+```
+  #12 SUPERSEDED by #13 (below) — [orchestrator] count with grep -c
+  #13 CORRECTS #12 (above) — [orchestrator] grep -c counts LINES; use grep -o | wc -l
+```
+
+A session that already had #12 is told `CORRECTS #12 (reached you 20m ago)`.
+`buddy sent 13` lists every addressed session with its standing on #13 and on
+#12: `delivery recorded 3m ago`, `queued`, or `expired undelivered`. Those are
+the only words. A recorded delivery means a hook wrote the message into that
+session's context, never that it was read. `buddy sent` with no id lists your
+last ten sends.
+
+Only the sending session can correct a message; the operator at a bare
+terminal can correct only messages sent with no session. A message whose
+sender is unknown cannot be corrected by anyone. That covers every message sent
+before D-043, and any send from a session id that did not resolve.
+
 ### 1a″. Authority files — a long session's copy of the rules rots silently
 
 ```sh

@@ -112,7 +112,14 @@ CREATE TABLE IF NOT EXISTS inbox (
 	target  TEXT NOT NULL,
 	sender  TEXT NOT NULL,
 	body    TEXT NOT NULL,
-	created INTEGER NOT NULL
+	created INTEGER NOT NULL,
+	-- D-043. sender_session is the SENDING session, for ownership of a
+	-- correction: '' is the operator at a bare terminal, NULL is unknown
+	-- (every row sent before the column, and a send whose session could not
+	-- be resolved); never --from. supersedes is the msg_id this one
+	-- corrects, 0 for none.
+	sender_session TEXT,
+	supersedes     INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS inbox_delivery (
 	msg_id     INTEGER NOT NULL,
@@ -316,6 +323,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 12 adds inbox.sender_session and inbox.supersedes (D-043), ALTER arms.
 // 11 adds claims.shared (D-042), the second ALTER arm — see migrate.
 // 10 adds session_base (D-038).
 // 9 adds session_waits and session_wait_targets (D-033).
@@ -330,7 +338,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 11
+const schemaVersion = 12
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -476,6 +484,30 @@ func migrate(db *sql.DB) error {
 	if ver < 11 {
 		if err := addColumnIfMissing(tx, "claims", "shared", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 			return err
+		}
+	}
+	// D-043. sender_session is added NULLABLE with no default, so every
+	// message sent before it reads as owner UNKNOWN. A default of '' would
+	// have made them the operator's, and a bare terminal could then correct a
+	// message some session sent (Codex design pass, D-043).
+	if ver < 12 {
+		if err := addColumnIfMissing(tx, "inbox", "sender_session", "TEXT"); err != nil {
+			return err
+		}
+		if err := addColumnIfMissing(tx, "inbox", "supersedes", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+		// Here and not in the schema script: that script runs BEFORE these
+		// ALTERs, and an index on a column an old ledger does not have yet
+		// would fail the whole migration. Partial, because nearly every row
+		// corrects nothing, and every drain asks "what corrects this one?".
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS inbox_supersedes ON inbox(supersedes) WHERE supersedes<>0`); err != nil {
+			return fmt.Errorf("migrate ledger (inbox_supersedes): %w", err)
+		}
+		// `buddy sent` with no id lists one sender's newest; off the hook
+		// path, but a scan of every message ever sent to print "none" is not.
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS inbox_sender ON inbox(sender_session, msg_id)`); err != nil {
+			return fmt.Errorf("migrate ledger (inbox_sender): %w", err)
 		}
 	}
 	if !hadRecipientTable {
@@ -1653,44 +1685,42 @@ func (s *Store) PausedFor(sessionID, label string) (string, bool, error) {
 // for a session that has been idle for days.
 const BroadcastKeep = 24 * time.Hour
 
-// Msg queues a message against a RESOLVED target, storing the canonical
-// session id so Undelivered's (session_id, label) match finds it. A broadcast snapshots
-// its live recipients in the same transaction as the message, so a later
-// session can never inherit stale fleet context.
+// Msg queues a message against a RESOLVED target, sent by the operator (no
+// session), correcting nothing. It is Send with the zero options; the CLI's
+// send goes through Send with the sending session named.
 func (s *Store) Msg(t Target, from, body string) error {
-	if err := t.check(); err != nil {
-		return err
-	}
-	return s.tx(func(tx *sql.Tx) error {
-		res, err := tx.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES (?,?,?,?)`,
-			t.ID, from, body, s.now().Unix())
-		if err != nil || t.ID != AllTarget {
-			return err
-		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(`INSERT INTO inbox_recipient (msg_id, session_id)
-			SELECT ?, session_id FROM sessions WHERE ended IS NULL`, id)
-		return err
-	})
+	_, err := s.Send(t, from, body, SendOpts{SenderKnown: true})
+	return err
 }
 
-// InboxMsg is one queued message.
+// InboxMsg is one queued message, with its correction links (D-043) as they
+// stand for the session it is being delivered to.
 type InboxMsg struct {
 	ID      int64
 	From    string
 	Body    string
 	Created time.Time
+	// Supersedes is the message this one corrects (0 = none), and
+	// SupersededBy every later message that corrects this one, ascending.
+	Supersedes   int64
+	SupersededBy []int64
+	// For a correction: whether the recipient's copy of the original has a
+	// recorded delivery (and when), or expired undelivered.
+	OrigDelivered time.Time
+	OrigExpired   bool
 }
 
 // Undelivered returns messages addressed to the session (by id or label), plus
 // unexpired broadcasts whose recipient snapshot contains it, not yet marked
 // delivered, oldest first.
 func (s *Store) Undelivered(sessionID, label string) ([]InboxMsg, error) {
-	rows, err := s.db.Query(`SELECT m.msg_id, m.sender, m.body, m.created FROM inbox m
-			WHERE (m.target IN (?, ?) OR (m.target='all' AND m.created>=? AND EXISTS
+	// `m.target<>'all'` on the direct arm: nothing reserves the label "all",
+	// and a session wearing it matched EVERY broadcast here, past both the
+	// recipient snapshot and the 24h keep. That predates D-043, but a
+	// correction's audience guarantee rests on the snapshot being the only
+	// way into a broadcast (Codex code pass, D-043).
+	rows, err := s.db.Query(`SELECT m.msg_id, m.sender, m.body, m.created, m.supersedes FROM inbox m
+			WHERE ((m.target<>'all' AND m.target IN (?, ?)) OR (m.target='all' AND m.created>=? AND EXISTS
 				(SELECT 1 FROM inbox_recipient r WHERE r.msg_id=m.msg_id AND r.session_id=?)))
 			AND NOT EXISTS (SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=?)
 			ORDER BY m.msg_id`, sessionID, label, s.now().Add(-BroadcastKeep).Unix(), sessionID, sessionID)
@@ -1701,12 +1731,16 @@ func (s *Store) Undelivered(sessionID, label string) ([]InboxMsg, error) {
 	var out []InboxMsg
 	for rows.Next() {
 		var m InboxMsg
-		if err := rows.Scan(&m.ID, &m.From, &m.Body, unixScan{&m.Created}); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.Body, unixScan{&m.Created}, &m.Supersedes); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return out, s.links(sessionID, out)
 }
 
 // MarkDelivered records delivery of msgs to the session. Called only after

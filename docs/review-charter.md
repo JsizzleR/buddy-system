@@ -396,6 +396,15 @@ ledger row entered through the CLI (D-006).
     is stated rather than solved. Do not propose an open-door shared hold, a standing owner that
     yields to nobody, or per-scope modes.
 
+46. **A correction names what it corrects, goes to the original's audience, and withholds
+    nothing (D-043).** `msg --supersedes N`: only the sending SESSION that sent N (recorded
+    `sender_session`; `''` = operator, NULL = unknown and uncorrectable) may correct it, and
+    only to N's own target or broadcast snapshot. Both messages are delivered; the links sit
+    between `#id` and `[sender]`, so no text can forge one. `buddy sent` reports "delivery
+    recorded" / "queued" / "expired undelivered" per addressed session. This deliberately
+    revises D-032's no-"delivered" rule, for a report of an OBSERVED delivery row. Do not
+    propose withholding, retraction, read receipts, or ownership by label or `--from`.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

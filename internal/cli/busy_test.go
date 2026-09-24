@@ -140,7 +140,7 @@ func TestBusyDrainIsBounded(t *testing.T) {
 		}
 	}
 	ctx := additionalContext(t, f.busyB(t))
-	if got := strings.Count(ctx, "\n  ["); got != 20 {
+	if got := strings.Count(ctx, "\n  #"); got != 20 {
 		t.Errorf("busy delivered %d messages in one prompt, want beat's bound of 20", got)
 	}
 	if n := f.undeliveredTo(t, "sess-b", "bravo"); n != 5 {
