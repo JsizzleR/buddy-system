@@ -1013,31 +1013,9 @@ func cmdHello(args []string, env Env) error {
 	if note, paused, _ := st.PausedFor(si.SessionID, si.Label); paused {
 		fmt.Fprintf(&b, "BUDDY: you are PAUSED: %s\n", fence.Line(note, 512))
 	}
-	if len(claims) == 0 {
-		b.WriteString("BUDDY: no live claims.\n")
-	} else {
-		b.WriteString("BUDDY live claims (do not touch scopes held by other sessions):\n")
-		for _, c := range claims {
-			mark := ""
-			if c.Stale(now) {
-				mark = " [STALE]"
-			}
-			owner := c.Owner.Label
-			if c.Owner.SessionID == si.SessionID {
-				owner = "YOU"
-			}
-			// Every value here is pusher-controlled — a slug, a --desc and a
-			// scope are all free text with no validation, and NormalizeScope
-			// permits a newline (path.Clean("a\nb") is "a\nb"). This block is
-			// injected into EVERY session's context at SessionStart, so an
-			// unfenced newline fabricates a line that reads as buddy's own.
-			// Pre-existing; the notice next door already fenced for exactly
-			// this and the digest did not.
-			fmt.Fprintf(&b, "  - %s (%s)%s: %s — scopes: %s\n",
-				fence.Line(c.Slug, 128), fence.Line(owner, 64), mark,
-				fence.Line(c.Desc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512))
-		}
-	}
+	// The lines after the claims are rendered FIRST, so the claims list knows
+	// how much of the budget they leave it (D-036).
+	var tail strings.Builder
 	// NAME THE ROOM THAT EXISTS, DERIVED — NEVER A HARDCODED EXAMPLE.
 	//
 	// This line said "chat_read lobby for the room" and went into EVERY
@@ -1067,12 +1045,19 @@ func cmdHello(args []string, env Env) error {
 	// produced. The daemon now REFUSES a room it does not serve and has no
 	// history for, so a wrong name is an error naming the rooms that exist, and
 	// an empty read means a quiet room and nothing else.
-	fmt.Fprintf(&b, "BUDDY: chat tools live on the buddylist MCP server — your label says this project's room is %q, so try `chat_read %s` (UNTRUSTED content); chat_send to talk to the operator. That name is DERIVED from your label and can be wrong in a linked worktree: if it is, the read is REFUSED and the refusal names the rooms that exist. An empty read means a quiet room. Room digests are never auto-injected; reading is deliberate.\n",
+	fmt.Fprintf(&tail, "BUDDY: chat tools live on the buddylist MCP server — your label says this project's room is %q, so try `chat_read %s` (UNTRUSTED content); chat_send to talk to the operator. That name is DERIVED from your label and can be wrong in a linked worktree: if it is, the read is REFUSED and the refusal names the rooms that exist. An empty read means a quiet room. Room digests are never auto-injected; reading is deliberate.\n",
 		fence.Line(room, 64), fence.Line(room, 64))
 	// A declared wait (D-033): this incarnation's, restated with its verdict
 	// and the keep-alive questioned; or a predecessor's that ended with its
 	// run, named as the earlier run's with the line that declares it again.
-	b.WriteString(waitHelloLines(st, si, now))
+	tail.WriteString(waitHelloLines(st, si, now))
+	if len(claims) == 0 {
+		b.WriteString("BUDDY: no live claims.\n")
+	} else {
+		b.WriteString("BUDDY live claims (do not touch scopes held by other sessions):\n")
+		writeHelloClaims(&b, claims, si, now, helloBudget-b.Len()-tail.Len())
+	}
+	b.WriteString(tail.String())
 	// DRAIN THE INBOX HERE TOO (issue #25, D-034). This line used to say
 	// "N queued message(s); they will arrive after your next tool call" and
 	// deliver nothing — so a session spun up in order to be handed work sat at
@@ -1508,6 +1493,97 @@ func writeInbox(b *strings.Builder, msgs []store.InboxMsg) []int64 {
 // session must not miss. So messages get the room the digest leaves and no
 // more. Counted in BYTES, which is never fewer than characters, with margin.
 const helloBudget = 9000
+
+// writeHelloClaims renders the digest's claims list inside room bytes
+// (D-036, issue #30).
+//
+// D-034 capped the digest at helloBudget to protect this list, "the part a
+// session must not miss", and then bounded only the messages after it. The
+// list itself was unbounded: one line per open claim at up to ~1.2 KB (slug
+// 128, owner 64, desc 512, scopes 512, all fenced), so about eight claims
+// with full-length descs crossed the 10,000-character hook cap with no
+// message at all, and every session started with a truncated preview in
+// place of the list — D-034's failure reached by another road.
+//
+// Which claims when they do not all fit: the session's OWN first (it may not
+// know what it holds after a resume or compact), then everyone else's oldest
+// first, stopping at the first that does not fit, never skipping ahead. The
+// issue asked for the `orchestrator` claim first too; that was cut, because
+// D-030 reserves no slug ("a name with protocol meaning is a name a peer can
+// wear") and ranking by one would reserve it by the back door. A coordinator
+// claims early, so oldest-first carries it in the ordinary case, and `buddy
+// who <slug>` reads it at any time. The shown lines keep the ledger's order,
+// so a list that fits reads exactly as it always did.
+//
+// What is not shown is counted, with how many are the session's own, and the
+// line says the rest refuse all the same: the gate reads the ledger, not
+// this digest.
+func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.SessionInfo, now time.Time, room int) {
+	const remainderLine = 160 // the "not shown here" line below, generously
+	lines := make([]string, len(claims))
+	var order []int
+	for i, c := range claims {
+		mark := ""
+		if c.Stale(now) {
+			mark = " [STALE]"
+		}
+		owner := c.Owner.Label
+		if c.Owner.SessionID == si.SessionID {
+			owner = "YOU"
+			order = append(order, i)
+		}
+		// Every value here is pusher-controlled — a slug, a --desc and a
+		// scope are all free text with no validation, and NormalizeScope
+		// permits a newline (path.Clean("a\nb") is "a\nb"). This block is
+		// injected into EVERY session's context at SessionStart, so an
+		// unfenced newline fabricates a line that reads as buddy's own.
+		lines[i] = fmt.Sprintf("  - %s (%s)%s: %s — scopes: %s\n",
+			fence.Line(c.Slug, 128), fence.Line(owner, 64), mark,
+			fence.Line(c.Desc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512))
+	}
+	for i, c := range claims {
+		if c.Owner.SessionID != si.SessionID {
+			order = append(order, i)
+		}
+	}
+	// A list that fits whole may use every byte of its room; only one that
+	// does not holds back room for the line that counts the rest.
+	total := 0
+	for _, ln := range lines {
+		total += len(ln)
+	}
+	if total > room {
+		room -= remainderLine
+	}
+	shown := make([]bool, len(claims))
+	used := 0
+	for _, i := range order {
+		if used+len(lines[i]) > room {
+			break
+		}
+		used += len(lines[i])
+		shown[i] = true
+	}
+	hidden, mine := 0, 0
+	for i, c := range claims {
+		if shown[i] {
+			b.WriteString(lines[i])
+			continue
+		}
+		hidden++
+		if c.Owner.SessionID == si.SessionID {
+			mine++
+		}
+	}
+	if hidden == 0 {
+		return
+	}
+	yours := ""
+	if mine > 0 {
+		yours = fmt.Sprintf(", %d of them YOURS", mine)
+	}
+	fmt.Fprintf(b, "BUDDY: %d more live claim(s) not shown here%s (the digest is capped); `buddy ls` lists every one, and they refuse exactly like the ones shown.\n", hidden, yours)
+}
 
 // sessionLabel resolves the label a hook's session answers to. "" for a
 // session the ledger has never seen (a hook that fires before hello); the

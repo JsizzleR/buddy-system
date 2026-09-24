@@ -337,6 +337,15 @@ ledger row entered through the CLI (D-006).
     propose a `slot` verb, a capacity column, or a job-lifetime binding without that
     measurement.
 
+39. **The SessionStart claims list fits the digest budget, ahead of messages (D-036).** The
+    lines after the list are rendered first and the list gets the rest of `helloBudget`. A list
+    that fits prints whole, in ledger order. One that does not shows the session's own claims,
+    then others oldest first, stopping at the first that does not fit (never skipping ahead),
+    and counts the rest (`N more live claim(s) not shown here, K of them YOURS`). Messages take
+    what the list leaves. No slug is ranked (D-030 reserves none, so no `orchestrator`
+    priority), and the gate reads the ledger, so a hidden claim refuses like a shown one. Do
+    not propose ranking by slug or a hidden-claims tier without its own bound.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
