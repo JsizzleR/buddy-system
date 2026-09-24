@@ -2370,14 +2370,38 @@ conditions all held: `s-ea41a261` was idle, pid 68315 was its one live registere
 `/tmp/cc-socks/68315.sock` existed. The orchestrator ran `buddy msg … 2>&1 | head -1`, and the
 wake address is `msg`'s second line. It then trusted the harness peer listing, which showed the
 session as `busy` because of its background poll, over buddy's `idle 3m`. It sent a SendMessage
-to a guessed peer name, and that message never reached `s-ea41a261`. The wake line's position is
-left for a separate decision.
+to a guessed peer name, and that message never reached `s-ea41a261`. Fixed in D-041.
 
 **Test shape** — `busy_test.go`: delivered with the prompt under the right event name and marked
 delivered (and the next beat does not repeat it); an empty inbox prints nothing, with a positive
 control that the same hook prints once something is queued; a body's newline is fenced; a failed
 write marks nothing and the next beat delivers the message; 25 queued messages deliver 20 and
 leave 5 queued.
+
+## D-041 — `msg`'s wake address rides the result line
+
+2026-09-24 · issue #32, found in D-040's trace
+
+**What was wrong** — D-039 printed the wake address as a SECOND line after `queued for X — …`.
+At 04:05:00Z on the bastle ledger, every D-039 condition held for `s-ea41a261`: it was idle,
+pid 68315 was its one live registered process, and `/tmp/cc-socks/68315.sock` existed. So the
+line was printed. But the orchestrator ran `buddy msg … 2>&1 | head -1`, which is the ordinary
+way an agent keeps output short, and the address was cut. It then trusted the harness peer
+listing, which showed the lane as `busy` while its background poll ran, over buddy's
+`idle 3m`. It sent a SendMessage to a guessed peer NAME, and that never arrived. The lane sat
+until the operator happened to type into it.
+
+**The rule** — a send answers on exactly ONE line. The wake address is appended to the result
+line as `; to wake it now: …`, with the same text, conditions and single observation as D-039.
+One line survives `head -1`, `tail -1` and a grep for the recipient.
+
+**What it does not do** — the address text and conditions are unchanged. No wake for a
+broadcast. No claim about how the harness peer listing computes `busy`: this trace saw it say
+`busy` for a session at its prompt with a background task running, and nothing more.
+
+**Test shape** — `wake_test.go`: every case, with or without the address, asserts that the output
+is exactly one newline-terminated line, and the address cases assert the line ends with
+`; to wake it now: …`. Mutated back to a second line, the test fails.
 
 ## Known unfixed
 

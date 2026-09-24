@@ -76,10 +76,19 @@ func (e Env) sockDir() string {
 	return defaultSockDir
 }
 
-// wakeLine is the line `msg` prints after its result line when the recipient
-// is quiet and reachable through the harness channel; "" otherwise. It reads
-// the send's one observation and probes nothing itself.
-func wakeLine(env Env, r recipient, now time.Time) string {
+// wakeClause is what `msg` appends to its result line when the recipient is
+// quiet and reachable through the harness channel; "" otherwise. It reads the
+// send's one observation and probes nothing itself.
+//
+// ON THE RESULT LINE, NOT BELOW IT (D-041, issue #32). It used to be a second
+// line. Measured on the bastle ledger, 2026-09-24: an orchestrator ran
+// `buddy msg … 2>&1 | head -1`, which is the ordinary way an agent keeps a
+// command's output short. The address was printed, all three conditions below
+// held, and the idle lane it named sat unwoken until the operator happened to
+// type into its pane. The orchestrator then guessed a harness peer NAME, and
+// that send never arrived. One line survives head -1, tail -1 and a grep for
+// the recipient.
+func wakeClause(env Env, r recipient, now time.Time) string {
 	// No liveness test of its own, deliberately: bye deletes an ended
 	// session's registered processes, so an ended target already fails the
 	// one-live-process condition below, and a second test in front of it
@@ -96,6 +105,6 @@ func wakeLine(env Env, r recipient, now time.Time) string {
 	if fi, err := os.Stat(sock); err != nil || fi.Mode()&os.ModeSocket == 0 {
 		return ""
 	}
-	return fmt.Sprintf("to wake it now: SendMessage to %q with the text %q — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way\n",
+	return fmt.Sprintf("to wake it now: SendMessage to %q with the text %q — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way",
 		"uds:"+sock, wakeText)
 }
