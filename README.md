@@ -111,9 +111,12 @@ names the process; `--force` is the operator's act.
 a human" from "hard at work"; without it nothing ever prints `idle`, and
 nothing else changes. `busy` retracts that mark when a new turn starts — which
 matters only for a turn that runs **no tool at all**, because every other
-turn's first heartbeat retracts it anyway. Wire `Stop` and skip `busy` if you
-want one line instead of two; the cost is that a text-only answer reads as
-`idle` while it is being written.
+turn's first heartbeat retracts it anyway. `busy` also drains the inbox into
+the prompt that opens the turn (D-040), so mail queued to a session waiting at
+its prompt arrives with whatever is typed into it next, and not only on the
+turn's first tool call. Wire `Stop` and skip `busy` if you want one line
+instead of two. The cost: a text-only answer reads as `idle` while it is being
+written, and never sees mail queued while the session was at rest.
 
 From then on, in any session:
 
@@ -480,9 +483,10 @@ The annotations after the id are what an orchestrator picks on:
   **Absence is not evidence of busy.** `Stop` is a hook line a machine may not
   have, so a row with no `idle` has simply not reported. And the catch worth
   knowing before you route on it: an idle session is also the one that will
-  not *see* a `buddy msg` until its next tool call, because delivery rides the
-  heartbeat. It is the session that can take work and the one that needs a
-  poke, which `msg` now names the address for (D-039, below). A session that
+  not *see* a `buddy msg` until something opens its next turn: the prompt that
+  opens it carries the mail in through `busy` (D-040), and failing that its
+  next tool call does. It is the session that can take work and the one that
+  needs a poke, which `msg` now names the address for (D-039, below). A session that
   has not STARTED yet is the exception:
   `hello` drains the inbox into its SessionStart digest (D-034), so work
   queued for a session before it starts, resumes or compacts arrives with its

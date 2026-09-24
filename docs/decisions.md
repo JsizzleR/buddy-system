@@ -2335,6 +2335,50 @@ one-live-process condition. The guard was removed as one no test can arm, and th
 holds the rule. The first probe mutation (`a && a`) survived for the wrong reason: it
 short-circuits on "dead", and rewritten as `a || a` it fails the probe-once test.
 
+## D-040 — `busy` drains the inbox into the prompt that opens a turn
+
+2026-09-24 · issue #31
+
+**What was wrong** — Only two hooks delivered the inbox: `beat` on a tool call and `hello` at
+SessionStart. `busy` (UserPromptSubmit, D-016) only cleared the idle mark. A prompt typed into a
+session at rest therefore opened a turn with no mail in it. The mail arrived only if the model
+happened to run a tool, and a text-only answer never saw it.
+
+**Measured (bastle ledger, 2026-09-24)** — `s-ea41a261` went idle at 04:01:28Z with a
+background poll running that would not finish for hours. At 04:05:00Z the orchestrator queued an
+approval to it (inbox row 1175). At 04:05:41Z the operator typed `ok` into its pane, only because
+they knew mail was waiting. The session's first move was `buddy inbox`, the row was marked
+delivered at 04:05:44Z, and only then did the work start. Without the keystroke, the approval
+would have waited for the poll.
+
+**The rule** — `busy` runs beat's drain: `Undelivered` → `boundDrain` (20 messages / 8 KiB) →
+`writeInbox` (the same fence), emitted as ONE hook document with
+`hookSpecificOutput.hookEventName: "UserPromptSubmit"` and `additionalContext`. It writes first
+and marks delivered only after the write succeeds, so a lost write is redelivered by the next
+drain. Nothing queued means nothing is printed. It carries only the inbox. Beat's dirty,
+authority and landed-wait notices belong to the tool call that observes them, and that call
+follows.
+
+**What it does not do**
+- It wakes nothing. Somebody still has to type into the pane, or a peer has to send the D-039
+  wake. The change is that whatever opens the turn now carries the mail.
+- It does not claim that a harness SendMessage wake fires `UserPromptSubmit`. That was not
+  measured. The wake's text says "run buddy inbox", so that path already works either way.
+
+**Found in the same trace, not fixed here** — the wake did not happen at 04:05, although D-039's
+conditions all held: `s-ea41a261` was idle, pid 68315 was its one live registered process, and
+`/tmp/cc-socks/68315.sock` existed. The orchestrator ran `buddy msg … 2>&1 | head -1`, and the
+wake address is `msg`'s second line. It then trusted the harness peer listing, which showed the
+session as `busy` because of its background poll, over buddy's `idle 3m`. It sent a SendMessage
+to a guessed peer name, and that message never reached `s-ea41a261`. The wake line's position is
+left for a separate decision.
+
+**Test shape** — `busy_test.go`: delivered with the prompt under the right event name and marked
+delivered (and the next beat does not repeat it); an empty inbox prints nothing, with a positive
+control that the same hook prints once something is queued; a body's newline is fenced; a failed
+write marks nothing and the next beat delivers the message; 25 queued messages deliver 20 and
+leave 5 queued.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

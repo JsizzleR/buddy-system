@@ -419,6 +419,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   wrapper. For a quiet target with one live registered pid whose `/tmp/cc-socks/<pid>.sock`
   exists, `msg` prints the address and the fixed text "run buddy inbox". The body stays in the
   ledger. One observation per send.
+- **`busy` drains the inbox into the prompt that opens a turn (D-040, #31).** UserPromptSubmit
+  runs beat's drain (bound, fence, write-then-mark) as one `UserPromptSubmit` document, and
+  prints nothing when nothing is queued. Inbox only; beat's notices stay on the tool call. It
+  wakes nothing. Whatever is typed into a resting session now carries its mail in.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

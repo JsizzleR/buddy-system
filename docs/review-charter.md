@@ -374,6 +374,14 @@ ledger row entered through the CLI (D-006).
     name mapping. Do not propose buddy calling the harness, carrying the body in the wake, or
     deriving the address from anything but a live, birth-time-checked registered pid.
 
+43. **`busy` drains the inbox into the prompt that opens a turn (D-040).** UserPromptSubmit
+    runs beat's drain (the same bound, fence, and order of write first, mark after) as ONE
+    `hookEventName: "UserPromptSubmit"` document. It prints nothing when nothing is queued, and
+    it carries only the inbox. Measured: an operator's `ok` into an idle lane opened a turn
+    without the approval queued for it, and the lane saw the approval only because it chose to
+    run `buddy inbox`. It wakes nothing. Do not propose moving beat's notices onto the prompt,
+    or claiming a SendMessage wake fires UserPromptSubmit (unmeasured).
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
