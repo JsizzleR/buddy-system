@@ -438,6 +438,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   "dubious ownership" (a stray `git init` in root-owned `/private/tmp`, measured 2026-09-24)
   denied every write under `/tmp` fleet-wide. The gate now checks the nearest `.git` (via
   `gitdir:`/`commondir`) for `buddy.db` without git; only "does not exist" allows.
+- **A message says what kind of claim it carries (D-045, #36).** `msg --lead | --measured
+  "<scope>" | --relay <source>` renders `declared …` between `#id` and `[sender]`: the sender's
+  claim, never buddy's check. The note is fenced then quoted, and capped on rendered bytes. The
+  drain bound counts rendered lines. `--relay` does not structure the relayed figure's scope.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

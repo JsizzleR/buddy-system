@@ -412,6 +412,14 @@ ledger row entered through the CLI (D-006).
     unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny. Measured: an empty `git init`
     in `/private/tmp` denied every write under `/tmp` fleet-wide via "dubious ownership".
 
+48. **A message says what kind of claim it carries, as the SENDER's declaration (D-045).**
+    `msg --lead | --measured "<scope>" | --relay <source>`, at most one, rendered between `#id`
+    and `[sender]` as `declared …` on the row itself. The note is fenced and then quoted, must
+    show once rendered, and is capped on its rendered bytes. No flag renders as before. The drain
+    bound counts rendered lines. It verifies nothing and confers no authority. Open limit:
+    `--relay` does not carry the relayed figure's scope as a field. Do not propose a mandatory
+    kind, a kind inferred from the body, or combined kinds.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
