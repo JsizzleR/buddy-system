@@ -346,6 +346,12 @@ ledger row entered through the CLI (D-006).
     priority), and the gate reads the ledger, so a hidden claim refuses like a shown one. Do
     not propose ranking by slug or a hidden-claims tier without its own bound.
 
+40. **`Open` refuses a ledger stamped newer than the binary (D-037).** `user_version >
+    schemaVersion` is `ErrLedgerNewer` in `Open` and in `migrate`'s locked re-check, naming
+    both versions and the fix. It is "exists but unreadable", so the gate DENIES (invariant 3),
+    never "no ledger". Nothing migrates down, and no read-only open or `doctor` verb until one
+    is needed.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

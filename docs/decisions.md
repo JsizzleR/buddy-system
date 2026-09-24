@@ -2155,6 +2155,38 @@ fits. That sweep exists because the first mutation run showed it: ignoring the t
 every fixed-length test. Mutated six ways (no bound, no own-first, skip ahead, no YOURS count,
 own claims hoisted in the rendering, room computed without the tail), and each failed a test.
 
+## D-037 — `Open` refuses a ledger stamped newer than the binary
+
+2026-09-23 · issue #29
+
+**What was wrong** — `store.Open` migrated only upward (`if ver < schemaVersion`) and accepted
+anything else. A stale binary (an old `~/bin/buddy`, a build from another worktree, a hook line
+naming an old path) opened a ledger a newer binary had migrated and used it as its own shape. A
+query against a reshaped table fails loudly, and the gate fails closed on it. A write to a
+table whose MEANING changed while its columns did not succeeds, wrongly, and nothing says so.
+Low priority, not absent: hooks spawn one installed binary per call, so a mixed fleet needs the
+operator to have installed two.
+
+**What shipped** — `Open` returns `ErrLedgerNewer` when `PRAGMA user_version > schemaVersion`,
+naming the path, both versions, and the fix (rebuild and reinstall buddy; check the hook
+lines). `migrate`'s locked re-check refuses the same way: a newer binary can migrate between
+Open's unlocked read and the BEGIN, and the old `ver >= schemaVersion → nil` would then have
+handed back a Store on the newer shape. The refused open touches nothing; nothing migrates
+down.
+
+**Why an error and not a read-only mode** — To every caller this is "ledger exists but cannot
+be read", which the gate already DENIES (invariant 3). It must never collapse into "no ledger",
+the silent-allow arm. A read-only path or a `doctor` verb waits until one is needed.
+
+**Test shape** — `internal/store/version_test.go`: a ledger at `schemaVersion` opens (the
+control), and at `schemaVersion+1` it is refused with `ErrLedgerNewer`, the refusal names both
+versions and the fix, and the stamp is unchanged. `migrate` on a newer stamp refuses, and at
+the current stamp it is a no-op. `internal/cli/version_test.go`: an unclaimed Edit is allowed
+at the binary's version (the control) and DENIED at +1, and the deny names the cause and the
+fix. Mutated: removing Open's check fails the store test, and at the gate the edit is ALLOWED
+silently, which is the collapse invariant 3 forbids. Removing migrate's check fails its own
+test.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

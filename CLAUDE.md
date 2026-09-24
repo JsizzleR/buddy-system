@@ -407,6 +407,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **The SessionStart claims list fits the budget, ahead of messages (D-036, #30).** Own
   claims first, then oldest first, stop at the first misfit, count the rest. No slug is
   ranked; the gate reads the ledger, so a hidden claim refuses like a shown one.
+- **An older binary refuses a newer ledger (D-037, #29).** `user_version > schemaVersion` is
+  `ErrLedgerNewer` (Open and migrate's re-check) → the gate DENIES. Never migrate down.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
