@@ -2628,6 +2628,48 @@ Two survived the first run, and both were test gaps:
   indexed query each, plus two for a correction. A session's queue is the bound; an index makes
   each query cheap.
 
+## D-044 — A repository git refuses, with no ledger in it, is feature-off, not unreadable
+
+2026-09-24 · issue #35
+
+**What was wrong** — At 03:01 something ran `git init` in `/private/tmp`, creating an empty
+repository owned by the operator inside a root-owned directory. Git then refused every path under
+`/tmp` (`detected dubious ownership`, exit 128). `resolveRepo` treats every refusal except "not
+a git repository" as ambiguous, which is right for git missing, a deleted cwd or EACCES. So the
+gate denied every Edit and Write under `/tmp`, in every session, scratchpads included, for a
+repository with no commits and no ledger. Invariant 3 says "never `buddy init`ed" is feature
+OFF; git's refusal only hid that it applied.
+
+**The rule** — When git exits with an error, a `.git` exists above the path, and the message is
+not "not a git repository", `ledgerProvablyAbsent` looks for the ledger WITHOUT git:
+- It takes the nearest `.git` entry, which is where git's discovery stops. For the `.git`
+  FILE a linked worktree or submodule uses, it follows the `gitdir:` line, then that
+  directory's `commondir`, so a linked worktree finds its main checkout's ledger.
+- It then `Lstat`s `buddy.db` there.
+- Only a positive "does not exist" returns feature-off. A present ledger, an unreadable path,
+  an unparsable or oversized `.git` file, a symlinked `.git`, or `GIT_DIR`/`GIT_COMMON_DIR` in
+  the environment (git is then not using the nearest `.git`) all keep the deny.
+
+**What it does not do** — It does not open a refused repository's ledger (that still denies,
+as unreadable), does not add `safe.directory`, and does not touch discovery when git itself
+fails to run.
+
+**Test shape** — `discovery_test.go`. Git's refusal is reproduced with
+`core.repositoryformatversion = 99`, which exits 128 without "not a git repository". The cases:
+- a refused repository with no ledger (allowed) and with one (denied, "ledger is
+  unavailable");
+- a linked worktree of it with no ledger (allowed) and with the ledger in the COMMON dir
+  (denied);
+- an unparsable `.git` file (denied, with a positive control that git refuses it);
+- the function under `GIT_DIR`, asked directly with a positive control first, because through
+  the gate `GIT_DIR` also redirects the home repo's discovery and would deny for the wrong
+  reason.
+
+Five mutations were run: the fallback removed, the ledger check ignored, `commondir` ignored,
+an unparsable pointer accepted, and `GIT_DIR` ignored. Each failed a test.
+
+The stray `/private/tmp/.git` was removed with the operator's approval.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

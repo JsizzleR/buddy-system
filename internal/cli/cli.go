@@ -516,6 +516,17 @@ func resolveRepo(dir string) (repoContext, error) {
 			if strings.Contains(string(ee.Stderr), "not a git repository") || !hasGitAncestor(dir) {
 				return repoContext{}, errNoLedger
 			}
+			// Git REFUSED a repository it found, and a refused repository
+			// with no ledger in it is one that was never `buddy init`ed,
+			// which is feature-off, not unreadable (invariant 3). Measured
+			// 2026-09-24: something ran `git init` in /private/tmp, git
+			// then refused every path under /tmp as "dubious ownership"
+			// (root owns /tmp, the operator owns .git), and this arm denied
+			// every Edit and Write under /tmp in every session, scratchpads
+			// included, for a repository with no commits and no ledger.
+			if ledgerProvablyAbsent(dir) {
+				return repoContext{}, errNoLedger
+			}
 		}
 		return repoContext{}, fmt.Errorf("repo discovery failed: %w", err)
 	}
@@ -542,6 +553,92 @@ func hasGitAncestor(dir string) bool {
 		}
 		dir = parent
 	}
+}
+
+// ledgerProvablyAbsent reports whether the git directory git would have used
+// for dir holds NO ledger, established without git: the nearest .git entry,
+// followed (for the file a linked worktree or a submodule uses) through its
+// `gitdir:` line and that directory's `commondir`, then an Lstat that answers
+// "does not exist". Only that positive answer returns true. An unreadable
+// path, an unparsable pointer, a symlinked .git, or a ledger that IS there
+// all return false, and the caller keeps denying. So does GIT_DIR or
+// GIT_COMMON_DIR in the environment, because then git is not using the
+// nearest .git at all.
+func ledgerProvablyAbsent(dir string) bool {
+	if os.Getenv("GIT_DIR") != "" || os.Getenv("GIT_COMMON_DIR") != "" {
+		return false
+	}
+	entry, ok := nearestGitEntry(dir)
+	if !ok {
+		return false
+	}
+	common, ok := commonDirOf(entry)
+	if !ok {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(common, ledgerName))
+	return errors.Is(err, os.ErrNotExist)
+}
+
+// nearestGitEntry is the first .git entry at or above dir: the one git's
+// discovery stops at.
+func nearestGitEntry(dir string) (string, bool) {
+	dir = filepath.Clean(dir)
+	for {
+		p := filepath.Join(dir, ".git")
+		if _, err := os.Lstat(p); err == nil {
+			return p, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+// commonDirOf resolves a .git entry to its common git directory, where the
+// ledger lives (a linked worktree shares its main checkout's).
+func commonDirOf(entry string) (string, bool) {
+	fi, err := os.Lstat(entry)
+	if err != nil {
+		return "", false
+	}
+	gitdir := entry
+	switch {
+	case fi.IsDir():
+	case fi.Mode().IsRegular() && fi.Size() <= 4096:
+		b, err := os.ReadFile(entry)
+		if err != nil {
+			return "", false
+		}
+		line := strings.TrimRight(string(b), "\r\n")
+		rest, ok := strings.CutPrefix(line, "gitdir: ")
+		if !ok || rest == "" || strings.ContainsAny(rest, "\n") {
+			return "", false
+		}
+		if !filepath.IsAbs(rest) {
+			rest = filepath.Join(filepath.Dir(entry), rest)
+		}
+		gitdir = rest
+	default:
+		return "", false
+	}
+	b, err := os.ReadFile(filepath.Join(gitdir, "commondir"))
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return gitdir, true
+	case err != nil:
+		return "", false
+	}
+	common := strings.TrimRight(string(b), "\r\n")
+	if common == "" || strings.ContainsAny(common, "\n") {
+		return "", false
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(gitdir, common)
+	}
+	return common, true
 }
 
 // openLedgerAt opens the ledger named by rc. errNoLedger means the repo exists

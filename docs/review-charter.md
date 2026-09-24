@@ -405,6 +405,13 @@ ledger row entered through the CLI (D-006).
     revises D-032's no-"delivered" rule, for a report of an OBSERVED delivery row. Do not
     propose withholding, retraction, read receipts, or ownership by label or `--from`.
 
+47. **A repository git refuses, with no ledger in it, is feature-off (D-044).** On a git
+    refusal (not "not a git repository") with a `.git` above the path, the nearest `.git`
+    (through `gitdir:` and `commondir` for a linked worktree) is checked for `buddy.db` without
+    git. Only a positive "does not exist" allows. A present ledger, an unreadable path, an
+    unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny. Measured: an empty `git init`
+    in `/private/tmp` denied every write under `/tmp` fleet-wide via "dubious ownership".
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
