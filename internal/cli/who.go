@@ -199,6 +199,21 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 			len(dirty), joinCapped(paths, 512))
 	}
 
+	// BASE (D-038) — the commit this session's tree was on when its last
+	// reported turn ended, and where that stands against main NOW. Printed
+	// as "(none recorded)" rather than omitted (D-023): absent means the Stop
+	// hook has not reported, not that the tree is current.
+	bases, err := st.Bases()
+	if err != nil {
+		return err
+	}
+	if b, ok := bases[si.SessionID]; ok && b.Incarnation == si.Incarnation {
+		fmt.Fprintf(env.Stdout, "BASE         %s — an observation at the end of its last reported turn\n",
+			strings.TrimPrefix(newBaseReader(env.Cwd).note(now, b), "base "))
+	} else {
+		fmt.Fprintln(env.Stdout, "BASE         (none recorded — the Stop hook records it at the end of each turn)")
+	}
+
 	// INBOX — messages queued and not yet drained. For a live session that is
 	// idle this is the count that will not move until it is prompted (#12).
 	msgs, err := st.Undelivered(si.SessionID, si.Label)

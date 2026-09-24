@@ -207,6 +207,18 @@ CREATE TABLE IF NOT EXISTS session_idle (
 	incarnation TEXT NOT NULL,
 	since       INTEGER NOT NULL
 );
+-- THE COMMIT A SESSION'S TREE WAS ON at the end of its last reported turn
+-- (D-038, issue #28): git rev-parse HEAD in the Stop hook's cwd. An
+-- OBSERVATION with an age (invariant 10), never a refusal. The lag behind
+-- main is NOT stored: main moves without this session doing anything, so
+-- "3 behind" is computed by the reader against main as it is when read.
+-- turn_ms orders two samples as session_context's does.
+CREATE TABLE IF NOT EXISTS session_base (
+	session_id  TEXT PRIMARY KEY,
+	incarnation TEXT NOT NULL,
+	sha         TEXT NOT NULL,
+	turn_ms     INTEGER NOT NULL
+);
 -- THE AUTHORITY WATCH LIST and its one-shot marks (D-028, issue #19). A
 -- session's copy of the standing rules is a snapshot from session start;
 -- these say which files are worth a Stat on every tool call, and which
@@ -303,6 +315,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 10 adds session_base (D-038).
 // 9 adds session_waits and session_wait_targets (D-033).
 // 8 adds id_spaces and id_blocks (D-029).
 // 7 adds authority and authority_warned (D-028).
@@ -315,7 +328,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 9
+const schemaVersion = 10
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -1938,6 +1951,66 @@ func (s *Store) ContextSamples() (map[string]ContextSample, error) {
 		// the year 57000.
 		c.TurnAt = time.UnixMilli(turnMS)
 		out[id] = c
+	}
+	return out, rows.Err()
+}
+
+// Base is the commit a session's tree was on when its last reported turn
+// ended (D-038).
+type Base struct {
+	Incarnation string
+	SHA         string
+	TurnAt      time.Time
+}
+
+// RecordBase stores a session's HEAD as the Stop hook saw it, fenced like
+// RecordContext: only the current incarnation of a live session, and only a
+// turn at least as new as the one already recorded, so a delayed Stop cannot
+// roll the base back to a tree the session has since left.
+func (s *Store) RecordBase(sessionID, incarnation, sha string, turnAt time.Time) error {
+	if incarnation == "" || sha == "" {
+		return nil
+	}
+	return s.tx(func(tx *sql.Tx) error {
+		var inc string
+		err := tx.QueryRow(`SELECT incarnation FROM sessions WHERE session_id=? AND ended IS NULL`, sessionID).Scan(&inc)
+		if errors.Is(err, sql.ErrNoRows) || inc != incarnation {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO session_base (session_id, incarnation, sha, turn_ms) VALUES (?,?,?,?)
+			ON CONFLICT(session_id) DO UPDATE SET
+				incarnation=excluded.incarnation, sha=excluded.sha, turn_ms=excluded.turn_ms
+			WHERE excluded.incarnation<>session_base.incarnation
+				OR excluded.turn_ms>=session_base.turn_ms`,
+			sessionID, incarnation, sha, turnAt.UnixMilli())
+		return err
+	})
+}
+
+// Bases returns each session's recorded base, joined on incarnation for the
+// reason ContextSamples is: a predecessor's tree is not this session's.
+// The incarnation comes back so a caller holding an earlier session list
+// can compare before printing.
+func (s *Store) Bases() (map[string]Base, error) {
+	rows, err := s.db.Query(`SELECT b.session_id, b.incarnation, b.sha, b.turn_ms FROM session_base b
+		JOIN sessions s ON s.session_id=b.session_id AND s.incarnation=b.incarnation`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]Base{}
+	for rows.Next() {
+		var id string
+		var b Base
+		var turnMS int64
+		if err := rows.Scan(&id, &b.Incarnation, &b.SHA, &turnMS); err != nil {
+			return nil, err
+		}
+		b.TurnAt = time.UnixMilli(turnMS)
+		out[id] = b
 	}
 	return out, rows.Err()
 }
