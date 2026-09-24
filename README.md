@@ -169,8 +169,12 @@ other answer would be `pkg` still held with success reported.
 needs — the landing queue, a hold, who is sequencing — puts them where a
 session reads at wake-up rather than in a message it may never drain: a claim
 named `orchestrator` whose `--desc` carries a bounded summary or a pointer,
-refreshed by re-claiming with the same slug. Every session sees every live
-claim in its `hello` digest and in `buddy ls`. A claim has no `from` and is
+refreshed by re-claiming with the same slug. Every session sees the live
+claims in its `hello` digest and every one in `buddy ls`. The digest is capped
+(D-036): past the room it has, it shows the session's own claims first and
+then everyone else's oldest first, and counts the rest. No slug is ranked
+above that, so a coordinator that claims first is the one the cap keeps. A
+claim has no `from` and is
 never an instruction; `pause` and `msg` remain the only control rows, and
 there is no path by which a peer's published state becomes a command.
 
@@ -449,8 +453,9 @@ The annotations after the id are what an orchestrator picks on:
   human to poke it. A session that has not STARTED yet is the exception:
   `hello` drains the inbox into its SessionStart digest (D-034), so work
   queued for a session before it starts, resumes or compacts arrives with its
-  first prompt, bounded to fit the digest; anything that did not fit is
-  counted and arrives on the session's next tool call.
+  first prompt, bounded to fit the digest after the claims list, which comes
+  first; anything that did not fit is counted and arrives on the session's
+  next tool call.
 - `claims N` — open claims held now. The names are in `buddy ls`; the row
   carries the count, because a slug is 128 bytes of free text and a session may
   hold several.

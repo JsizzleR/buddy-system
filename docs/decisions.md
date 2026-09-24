@@ -2107,6 +2107,54 @@ seven ways (fold removed; `/` dropped from the prefix match; requested side pref
 held; held side only; the line removed from the real claim; removed from the dry run; dedupe
 removed), and each mutation failed exactly the cases written for it.
 
+## D-036 — The SessionStart claims list fits the digest budget, ahead of messages
+
+2026-09-23 · issue #30
+
+**What was wrong** — D-034 capped the SessionStart digest at `helloBudget` (9,000 bytes)
+because Claude Code documents a 10,000-character cap on injected hook output, past which the
+model gets a ~2 KB preview and a file path (documented, not measured). The budget existed to
+protect the claims list, and was then applied only to the inbox messages after it. The list
+was written unbounded: one line per open claim carrying a fenced slug (128), owner (64), desc
+(512) and scopes (512), up to ~1.2 KB each. About eight claims at full length crossed the cap
+with no message at all, and every session would start with a preview where the list should be.
+No incident; confirmed in source.
+
+**What shipped** — `writeHelloClaims` (`internal/cli/cli.go`). The lines after the list (the
+room line and the wait lines) are rendered first, so the list's room is the budget minus
+everything around it. A list that fits prints whole, in the ledger's order, unchanged. One that
+does not fit picks the session's OWN claims first, then everyone else's oldest first, and stops
+at the first that does not fit rather than skipping ahead to a shorter one. It holds back room
+for one line: `` BUDDY: N more live claim(s) not shown here, K of them YOURS (the digest is
+capped); `buddy ls` lists every one, and they refuse exactly like the ones shown. `` The
+"YOURS" clause prints only when K > 0. Shown lines keep the ledger's order. The inbox drain
+then takes what is left, as before, so claims come ahead of messages.
+
+**Why own first** — After a resume or compact, a session's own claims are the part of the list
+it may not otherwise remember holding, and a claim it forgot is one it never releases.
+
+**What it deliberately does not do**
+- **No `orchestrator` priority.** The issue asked for the `orchestrator` claim first. D-030
+  reserves no slug ("a name with protocol meaning is a name a peer can wear"), and ranking by
+  one would reserve it by the back door. A coordinator claims early, so oldest-first carries
+  it in the ordinary case, and `buddy who <slug>` reads it at any time.
+- No compact second tier (slug-only lines for the hidden claims): at 100 claims that is
+  itself over the cap, and it would need its own bound.
+- The gate is unchanged. It reads the ledger, not the digest, so a hidden claim refuses exactly
+  like a shown one, and the count line says so.
+
+**Test shape** — `hello_drain_test.go`: twelve ~1.2 KB peer claims, the session's own created
+last, a small claim after them, and a 3,000-byte message. The digest stays under budget, the
+peer claims shown are a prefix of creation order, the own claim is shown, the small claim is
+NOT (no skipping ahead), the count is exact, the room line survives, and the message is counted
+and stays queued. Twelve of the session's own claims give the `K of them YOURS` count. A short
+list prints whole in creation order with no count line (the control). And a sweep of desc
+lengths 0–512 in steps of 16 keeps every digest under budget, with a control that at least one
+length cut the list: a fixed line length can land where a room computed without the tail still
+fits. That sweep exists because the first mutation run showed it: ignoring the tail survived
+every fixed-length test. Mutated six ways (no bound, no own-first, skip ahead, no YOURS count,
+own claims hoisted in the rendering, room computed without the tail), and each failed a test.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

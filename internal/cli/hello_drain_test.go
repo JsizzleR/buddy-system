@@ -213,3 +213,157 @@ func TestHelloDrainFitsTheDigestUnderTheCap(t *testing.T) {
 		t.Fatalf("want the unshown message still queued, got %d", n)
 	}
 }
+
+// D-036 (issue #30): the claims list itself fits the budget. D-034 capped the
+// digest to protect this list and then bounded only the messages after it;
+// about eight claims at full field length crossed the 10,000-character hook
+// cap with no message at all.
+
+// bigClaims opens n claims for a session with every rendered field near its
+// fence cap (~1.2 KB per digest line), a second apart so the ledger's
+// creation order is the order they were made.
+func (f *fixture) bigClaims(t *testing.T, sid, cwd, prefix string, n int) {
+	t.Helper()
+	desc := strings.Repeat("d", 500)
+	for i := range n {
+		slug := fmt.Sprintf("%s-%02d-%s", prefix, i, strings.Repeat("s", 100))
+		scope := fmt.Sprintf("%s/p%02d/%s", prefix, i, strings.Repeat("x", 480))
+		f.clock = f.clock.Add(time.Second)
+		if _, errw, code := f.run(t, cwd, "", "claim", slug, "--session", sid, "--desc", desc, "--scope", scope); code != 0 {
+			t.Fatal(errw)
+		}
+	}
+}
+
+func helloB(t *testing.T, f *fixture) string {
+	t.Helper()
+	out, errw, code := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "hello", "--label", "bravo")
+	if code != 0 {
+		t.Fatal(errw)
+	}
+	return out
+}
+
+func TestHelloClaimsListFitsTheBudget(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	f.bigClaims(t, "sess-a", f.repo, "peer", 12) // ~14 KB of claims, oldest first
+	f.bigClaims(t, "sess-b", f.wtB, "mine", 1)   // the NEWEST claim, and bravo's own
+	// A small claim last: it would fit in the leftover room, so showing it
+	// would mean skipping ahead past the first claim that did not.
+	f.clock = f.clock.Add(time.Second)
+	if _, errw, code := f.run(t, f.repo, "", "claim", "tiny", "--session", "sess-a", "--desc", "t", "--scope", "tiny"); code != 0 {
+		t.Fatal(errw)
+	}
+	// Bigger than any room a cut list can leave (under one claim line plus the
+	// remainder reserve), so it can only ride the digest by displacing a claim.
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", strings.Repeat("m", 3000)); code != 0 {
+		t.Fatal(errw)
+	}
+	out := helloB(t, f)
+	if len(out) > helloBudget {
+		t.Fatalf("digest is %d bytes, over the %d budget:\n%s", len(out), helloBudget, out)
+	}
+	// Positive control: the list is there and was cut, not switched off.
+	shown := 0
+	for i := range 12 {
+		if strings.Contains(out, fmt.Sprintf("  - peer-%02d-", i)) {
+			if shown != i {
+				t.Fatalf("peer-%02d shown after a gap: oldest first, stopping at the first that does not fit:\n%s", i, out)
+			}
+			shown++
+		}
+	}
+	if shown == 0 || shown == 12 {
+		t.Fatalf("want some but not all 12 peer claims, got %d:\n%s", shown, out)
+	}
+	// Its own claim is shown although it is the newest.
+	if !strings.Contains(out, "  - mine-00-") || !strings.Contains(out, "(YOU)") {
+		t.Fatalf("the session's own claim must be shown first:\n%s", out)
+	}
+	if strings.Contains(out, "  - tiny (") {
+		t.Fatalf("a later claim was shown past one that did not fit:\n%s", out)
+	}
+	if want := fmt.Sprintf("BUDDY: %d more live claim(s) not shown here (the digest is capped); `buddy ls` lists every one", 13-shown); !strings.Contains(out, want) {
+		t.Fatalf("want %q:\n%s", want, out)
+	}
+	// What follows the list is not squeezed out by it.
+	if !strings.Contains(out, "BUDDY: chat tools live on the buddylist MCP server") {
+		t.Fatalf("the room line must survive a long list:\n%s", out)
+	}
+	// The claims come ahead of messages: the message is counted and stays queued.
+	if !strings.Contains(out, "BUDDY: 1 queued message(s) not shown here") || f.undeliveredTo(t, "sess-b", "bravo") != 1 {
+		t.Fatalf("a message must not displace claims; it stays queued:\n%s", out)
+	}
+}
+
+// A session whose OWN claims overflow is told how many of the hidden are its own.
+func TestHelloCountsHiddenOwnClaims(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	f.bigClaims(t, "sess-b", f.wtB, "mine", 12)
+	out := helloB(t, f)
+	if len(out) > helloBudget {
+		t.Fatalf("digest is %d bytes, over the %d budget", len(out), helloBudget)
+	}
+	shown := strings.Count(out, "  - mine-")
+	if shown == 0 || shown == 12 {
+		t.Fatalf("want some but not all 12, got %d:\n%s", shown, out)
+	}
+	if want := fmt.Sprintf("BUDDY: %d more live claim(s) not shown here, %d of them YOURS", 12-shown, 12-shown); !strings.Contains(out, want) {
+		t.Fatalf("want %q:\n%s", want, out)
+	}
+}
+
+// Control: a list that fits is printed whole, in the ledger's order, with no
+// remainder line — own claims are not hoisted when nothing is cut.
+func TestHelloShortClaimsListIsUnchanged(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	f.bigClaims(t, "sess-a", f.repo, "peer", 2)
+	f.bigClaims(t, "sess-b", f.wtB, "mine", 1)
+	f.bigClaims(t, "sess-a", f.repo, "late", 1)
+	out := helloB(t, f)
+	p0, p1 := strings.Index(out, "  - peer-00-"), strings.Index(out, "  - peer-01-")
+	m, l := strings.Index(out, "  - mine-00-"), strings.Index(out, "  - late-00-")
+	if p0 < 0 || !(p0 < p1 && p1 < m && m < l) {
+		t.Fatalf("want all four in creation order:\n%s", out)
+	}
+	if strings.Contains(out, "more live claim(s) not shown here") {
+		t.Fatalf("nothing was cut, so nothing may be counted:\n%s", out)
+	}
+}
+
+// The list's room is what the lines AFTER it leave, not the whole budget. A
+// fixed line length can land on a granularity that hides a room computed
+// without them, so sweep the length: re-claiming a slug refreshes its desc
+// (D-030), and at some length one more claim fits only if the tail is ignored.
+func TestHelloDigestStaysUnderBudgetAtEveryClaimLength(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	cut := 0
+	for n := 0; n <= 512; n += 16 {
+		desc := strings.Repeat("d", n)
+		for i := range 12 {
+			slug := fmt.Sprintf("peer-%02d-%s", i, strings.Repeat("s", 100))
+			scope := fmt.Sprintf("peer/p%02d/%s", i, strings.Repeat("x", 480))
+			if _, errw, code := f.run(t, f.repo, "", "claim", slug, "--session", "sess-a", "--desc", desc, "--scope", scope); code != 0 {
+				t.Fatal(errw)
+			}
+		}
+		out := helloB(t, f)
+		if len(out) > helloBudget {
+			t.Fatalf("desc %d: digest is %d bytes, over the %d budget", n, len(out), helloBudget)
+		}
+		if strings.Contains(out, "more live claim(s) not shown here") {
+			cut++
+		}
+	}
+	if cut == 0 {
+		t.Fatal("control: no length in the sweep cut the list, so nothing here tested the bound")
+	}
+}
