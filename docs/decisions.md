@@ -2187,6 +2187,77 @@ fix. Mutated: removing Open's check fails the store test, and at the gate the ed
 silently, which is the collapse invariant 3 forbids. Removing migrate's check fails its own
 test.
 
+## D-038 — The Stop hook records each session's base; the views print where it stands against main now
+
+2026-09-23 · issue #28
+
+**What was wrong** — Nothing said what commit a session's tree was on. Measured (field notes
+§6): a session reported the shared status file at 1999/2000 lines and it went out as a fleet
+emergency, with an archive roll assigned. `main` was at 1736. The session's worktree was three
+landings behind, before a roll that removed 363 lines. Its number was true about its tree and
+meaningless about main. §16: main was amended twice and a peer rebased silently onto an
+orphaned commit, caught only by a hand-run `git merge-base --is-ancestor`. With N sessions on
+N worktrees at N bases, "how stale am I?" is the unstated assumption in every report.
+
+**What shipped**
+- **Recording.** `idle` (the Stop hook, once per turn) runs `git rev-parse --verify -q
+  HEAD^{commit}` in the hook's cwd and stores the full object name in `session_base`
+  (schema 10). It uses the same fence as the context footprint: current incarnation of a live
+  session only, a turn no older than the one recorded, and a turn that ended before this
+  incarnation started is refused. A HEAD that cannot be read records nothing, and the previous
+  base keeps its own age. Not on `beat`, which forks no git by design. Measured on this box:
+  the sample costs 9.1 ms median (10.6 ms p90) in the Stop hook.
+- **Reading.** The roster (live rows) and `who` print `base 079dd6a7 (2 ahead, 3 behind main,
+  12m ago)`, or `on main`, `3 behind main`, `2 ahead of main`. The lag is computed when the
+  view is read, with `git rev-list --left-right --count <sha>...<main>`, one call per distinct
+  base per listing (12.8 ms median). Main moves without the session doing anything, so a
+  stored lag would be stale in the direction that matters. `main` is the local branch, and
+  `master` is the fallback. With neither, the view says `no main branch to compare`. A base
+  this repo cannot place says `not in this repo's history`. `who` prints `BASE (none recorded
+  …)` instead of omitting the line (D-023).
+- **Validation.** Only a full lower-case hex object name (40 or 64) is stored or reaches git's
+  argv on the read side, so nothing that parses as an option or a revision expression gets in.
+- **Environment.** Git runs with the dirty scan's clean environment. This is a background read,
+  so an inherited `GIT_DIR` or `GIT_INDEX_FILE` must not re-point it.
+
+**Changed from the issue: no `NOT ON MAIN`.** The issue proposed flagging a base that is not
+an ancestor of main. In a fleet that commits on worktree branches and lands them, that is
+every session with unlanded work, and a flag that fires on every busy session gets read past.
+Both counts print instead. `ahead` alone is unlanded work on current main. `ahead` and
+`behind` together is a tree that needs a rebase before its numbers mean anything about main.
+That is also how the §16 orphaned base shows, and an ancestor test cannot tell that case from
+unlanded work either.
+
+**What it deliberately does not do**
+- It refuses nothing. It is an observation with an age (invariant 10), and D-028's advisory
+  wording is the model.
+- No stored branch (D-015 cut that). A HEAD sha plus its lag is a different fact.
+- No alert when main moves non-fast-forward, and no claim-time warning on an old base. Each is a
+  second decision now that the column exists.
+- No row for a session without the Stop hook wired. No row means not reported, never
+  "current".
+
+**Schema 10 and D-037** — This is the first schema bump since D-037, so an older binary now
+refuses the ledger once a new one has opened it, and the gate denies. That is the intended
+failure: rebuild every `buddy` the hook lines name.
+
+**Test shape** — `internal/store/base_test.go`: a live session's base reads back; an older turn
+does not roll it back; a newer one replaces it; a revived id hides the predecessor's base; a
+late write from the predecessor is dropped both before and after the successor records its
+own; a schema-9 ledger gains the table and keeps its rows. `internal/cli/base_test.go`, on a
+real repo with a linked worktree: no row before any Stop, and `who` says none is recorded;
+after the real `idle` hook, `on main`; main lands three commits and the SAME stored base reads
+`3 behind`; two commits in the worktree and a later turn read `2 ahead, 3 behind`; `who`
+prints the same; a session that never ran the Stop hook has no base (the control); renaming
+main away reads `no main branch to compare`, and to `master` compares against it. `isSHA` is
+tested against an upper-case name, short and long names, a flag and a revision suffix. Mutated
+nine ways (no record in `idle`, no turn guard, no incarnation fence, no join, ahead and behind
+swapped, no `master` fallback, no BASE line in `who`, any character accepted, any length
+accepted), and each failed a test. The late write after the successor's row was added
+because reading the test showed the fence mutation could survive without it: while the
+successor has no row, the join alone hides a predecessor's write. That was predicted, not
+observed. The first version of that mutation did not compile.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

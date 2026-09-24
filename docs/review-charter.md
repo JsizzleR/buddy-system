@@ -352,6 +352,16 @@ ledger row entered through the CLI (D-006).
     never "no ledger". Nothing migrates down, and no read-only open or `doctor` verb until one
     is needed.
 
+41. **The Stop hook records each session's base; the views print where it stands against main
+    now (D-038).** `idle` stores `HEAD` (a full hex object name only) in `session_base`
+    (schema 10) under the context footprint's fence: incarnation, newer-or-equal turn. Never on
+    `beat`. The roster (live rows) and `who` print `base <sha8> (N ahead, M behind main, age)`.
+    The lag is computed at read time against local `main`, else `master`, one `rev-list` per
+    distinct base. An observation that refuses nothing. There is no `NOT ON MAIN` flag: an
+    ancestor test fires on every session with unlanded work, and the two counts carry the
+    orphaned-base case. Do not propose storing the lag, sampling on `beat`, or a flag that
+    fires on unlanded work.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

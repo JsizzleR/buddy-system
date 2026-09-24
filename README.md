@@ -280,6 +280,7 @@ buddy who <id|label|s-id|slug>    # the same report for any name a session answe
 #   api-work                 held 2h   scopes: internal/api
 #   docs-pass                held 20m  scopes: docs   STALE (not renewed 40m; still refuses)
 # DIRTY PATHS  3 recorded to this session (observations, not locks): internal/api/x.go, …
+# BASE         079dd6a7 (3 behind main, 12m ago) — an observation at the end of its last reported turn
 # INBOX        1 undelivered
 # EXIT         ending now would leave 2 claim(s) held — freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: api-work, docs-pass
 ```
@@ -530,6 +531,19 @@ The annotations after the id are what an orchestrator picks on:
   and `waiting` is the number to read. `waiting 1h12m LANDED` / `EXPIRED` means
   the clock and the claims say the wait is over and the session has not
   checked yet.
+- `base 079dd6a7 (2 ahead, 3 behind main, 12m ago)` — the commit the
+  session's tree was on when its last reported turn ended (the `Stop` hook
+  reads `HEAD`), and where that commit stands against the local `main` (else
+  `master`) **now**. The lag is computed when the roster is read, because
+  main moves without the session doing anything. `on main`, `3 behind main`
+  and `2 ahead of main` are the other shapes. Measured case (issue #28): a
+  session three landings behind reported a shared file at 1999/2000 lines
+  while main was at 1736, and it went out as a fleet emergency. `ahead`
+  alone is unlanded work. `ahead` and `behind` together is a tree to rebase
+  before its numbers mean anything about main, and that is also how a base
+  that main has since amended away shows. An observation with an age, like
+  the rest of the row: it refuses nothing, and a session without the `Stop`
+  hook wired prints none (D-038).
 
 ### 1c′. Waiting without going cold — `buddy wait`
 

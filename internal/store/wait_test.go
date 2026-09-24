@@ -622,8 +622,8 @@ func TestSchema9MigratesAnOlderLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ver int
-	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil || ver != schemaVersion || schemaVersion != 9 {
-		t.Fatalf("want user_version stamped %d (=9), got %d (err=%v)", schemaVersion, ver, err)
+	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil || ver != schemaVersion || schemaVersion < 9 {
+		t.Fatalf("want user_version stamped %d (>=9), got %d (err=%v)", schemaVersion, ver, err)
 	}
 	if _, _, err := st.DeclareWait(a.SessionID, a.Incarnation, nil, time.Hour, ""); err != nil {
 		t.Fatalf("the migrated ledger must accept a wait: %v", err)

@@ -409,6 +409,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   ranked; the gate reads the ledger, so a hidden claim refuses like a shown one.
 - **An older binary refuses a newer ledger (D-037, #29).** `user_version > schemaVersion` is
   `ErrLedgerNewer` (Open and migrate's re-check) → the gate DENIES. Never migrate down.
+- **A session's base is observed at Stop and its lag computed at read (D-038, #28).**
+  `idle` records HEAD (schema 10); the roster and `who` print `base <sha8> (N ahead, M behind
+  main, age)` against local main/master as it is when read. Never on `beat`, never stored
+  lag, no `NOT ON MAIN` flag, refuses nothing.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

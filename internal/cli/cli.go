@@ -1248,6 +1248,14 @@ func cmdIdle(args []string, env Env) error {
 				Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
 				Cache5m: u.Cache5m, Cache1h: u.Cache1h, TierAt: u.TierAt,
 			})
+			// THE BASE (D-038): the commit this session's tree was on as the
+			// turn ended, under the same fence as the footprint. Here and not
+			// on beat, which forks no git by design. Best effort: a HEAD that
+			// cannot be read records nothing, and the previous base keeps its
+			// own age.
+			if sha := headOf(h.Cwd); sha != "" {
+				_ = st.RecordBase(h.SessionID, si.Incarnation, sha, u.At)
+			}
 		}
 	}
 	return st.MarkIdle(h.SessionID, at)
@@ -2844,6 +2852,13 @@ func fitness(st *store.Store, env Env, sessions []store.SessionInfo, now time.Ti
 	for _, w := range openWaits {
 		waits[w.SessionID] = w
 	}
+	bases, err := st.Bases()
+	if err != nil {
+		return nil, err
+	}
+	// Resolved only when some live row has a base, so a fleet without the
+	// Stop hook wired costs no git fork per listing.
+	var br *baseReader
 	// Keyed by (session, incarnation), not by session: the claims come from
 	// their own query, so a session that ended and re-registered between the
 	// two would otherwise have its successor's brand-new reservations counted
@@ -2912,6 +2927,15 @@ func fitness(st *store.Store, env Env, sessions []store.SessionInfo, now time.Ti
 		// attributing a dead incarnation's footprint to a live one.
 		if c, ok := samples[si.SessionID]; ok && c.Incarnation == si.Incarnation {
 			parts = append(parts, contextNote(now, c))
+		}
+		// THE BASE (D-038), live rows only: where a tree that has ended
+		// stood is nobody's next question, and each distinct base costs a
+		// git call.
+		if b, ok := bases[si.SessionID]; ok && b.Incarnation == si.Incarnation && si.Live() {
+			if br == nil {
+				br = newBaseReader(env.Cwd)
+			}
+			parts = append(parts, br.note(now, b))
 		}
 		if len(parts) > 0 {
 			out[si.SessionID] = "  " + strings.Join(parts, "  ")
