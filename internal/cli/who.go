@@ -177,8 +177,8 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 			stale = fmt.Sprintf("  STALE (not renewed %s; still refuses)", age(now, c.Renewed))
 		}
 		scopes := joinCapped(c.Scopes, 512) // whole items, fenced inside, with a count of what was cut
-		fmt.Fprintf(env.Stdout, "  %-24s held %-4s scopes: %s%s\n",
-			fence.Field(c.Slug, 128), age(now, c.Created), scopes, stale)
+		fmt.Fprintf(env.Stdout, "  %-24s held %-4s %sscopes: %s%s\n",
+			fence.Field(c.Slug, 128), age(now, c.Created), sharedWord(c.Shared), scopes, stale)
 	}
 
 	// DIRTY PATHS — observations (invariant 10): a tool call by this session

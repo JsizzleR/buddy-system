@@ -617,7 +617,7 @@ func printClaimRows(env Env, prefix string, claimed []store.ClaimTouch, now time
 		}
 		fmt.Fprintf(env.Stdout, "%s %-24s %-24s held %s%s\n",
 			prefix, fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), age(now, c.Created), stale)
-		fmt.Fprintf(env.Stdout, "             scopes: %s\n", fence.Line(strings.Join(c.Scopes, ", "), 512))
+		fmt.Fprintf(env.Stdout, "             %sscopes: %s\n", sharedWord(c.Shared), fence.Line(strings.Join(c.Scopes, ", "), 512))
 	}
 	if extra > 0 {
 		fmt.Fprintf(env.Stdout, "             ...and %d more claim(s) not shown\n", extra)

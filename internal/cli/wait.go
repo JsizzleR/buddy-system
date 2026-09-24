@@ -754,7 +754,7 @@ func waitersPhrase(st *store.Store, waits []store.Wait, now time.Time) string {
 //
 // A register with counted capacity was cut until a counted resource is
 // measured contended; a capacity-1 claim is the whole mechanism here.
-const slotPrefix = ".buddy/slot"
+const slotPrefix = store.SlotPrefix // one spelling: claimScopes refuses --shared on it (D-042)
 
 // isSlot reports whether a scope lies under the slot prefix, by invariant
 // 14's containment on invariant 13's fold — the same comparison the conflict

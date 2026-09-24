@@ -55,6 +55,10 @@ type Conflict struct {
 	// the holder has gone quiet (issue #18). Zero means not recorded, which
 	// must never render as STALE — "unknown" and "abandoned" are different.
 	Renewed time.Time
+	// Shared is the HOLDER's mode (D-042). A shared holder refuses only an
+	// exclusive request, so the refusal can say that --shared would clear
+	// this one scope conflict (and never that it would clear a slug one).
+	Shared bool
 }
 
 // querier is what the conflict scan needs from either a *sql.Tx (inside
@@ -68,7 +72,12 @@ type querier interface {
 // that overlaps, against every OTHER session's open claims. Claim and
 // ClaimConflicts both call it, so a dry run cannot disagree with the refusal
 // it predicts — the one way a dry run becomes worse than no dry run.
-func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Conflict, error) {
+//
+// ONE MODE TERM (D-042): an overlap is a conflict unless BOTH sides are
+// shared. Shared against exclusive refuses in both directions, which is what
+// keeps "an exclusive claim is the only claim on its paths" true across
+// sessions, and what OwnerOf's reading of a shared hold relies on.
+func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, shared bool) ([]Conflict, error) {
 	// NO STALENESS TERM, and that is the rule (issue #18): a stale claim
 	// REFUSES exactly like a fresh one — staleness marks, it never reaps
 	// (invariant 11), and acquisition never silently takes over a scope
@@ -92,7 +101,7 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Co
 	// vanish from the scan while the gate keeps enforcing it (Codex design
 	// pass, D-026). Nothing deletes a sessions row today; the join is what
 	// makes that a fact this code does not depend on.
-	rows, err := q.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id, c.renewed FROM claim_scopes cs
+	rows, err := q.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id, c.renewed, c.shared FROM claim_scopes cs
 		JOIN claims c ON c.claim_id=cs.claim_id LEFT JOIN sessions ses ON ses.session_id=c.session_id
 		WHERE c.state='open' AND c.session_id<>? AND ses.ended IS NULL`, sessionID)
 	if err != nil {
@@ -101,11 +110,12 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Co
 	type held struct {
 		folded, scope, slug, session string
 		renewed                      time.Time
+		shared                       bool
 	}
 	var theirs []held
 	for rows.Next() {
 		var h held
-		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session, unixScan{&h.renewed}); err != nil {
+		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session, unixScan{&h.renewed}, &h.shared); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -118,9 +128,10 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Co
 	for _, n := range norm {
 		nf := fold(n)
 		for _, h := range theirs {
-			if scopesOverlap(nf, h.folded) {
+			if scopesOverlap(nf, h.folded) && !(shared && h.shared) {
 				label, _ := s.labelOf(q, h.session)
-				out = append(out, Conflict{Scope: n, Their: h.scope, Slug: h.slug, Claimant: label, Session: h.session, Renewed: h.renewed})
+				out = append(out, Conflict{Scope: n, Their: h.scope, Slug: h.slug, Claimant: label, Session: h.session,
+					Renewed: h.renewed, Shared: h.shared})
 			}
 		}
 	}
@@ -136,7 +147,7 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string) ([]Co
 // two conflicts and refused with one (Codex code pass, 2026-09-20).
 //
 // Your own open slug is not a conflict: Claim treats that as a refresh.
-func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string) ([]Conflict, error) {
+func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string, shared bool) ([]Conflict, error) {
 	var out []Conflict
 	if claimID, owner, taken, err := openSlugOwner(q, slug); err != nil {
 		return nil, err
@@ -145,11 +156,13 @@ func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string) (
 		// The slug conflict carries the holder's clock too. Without it the
 		// REFUSAL path and the DRY RUN would annotate different subsets of the
 		// same set, which is the disagreement allConflicts exists to prevent.
+		// A slug is ONE holder whatever the modes: Shared is left false on a
+		// slug conflict, because --shared would not clear it.
 		var renewed time.Time
 		_ = q.QueryRow(`SELECT renewed FROM claims WHERE claim_id=?`, claimID).Scan(unixScan{&renewed})
 		out = append(out, Conflict{Slug: slug, Claimant: label, Session: owner, Renewed: renewed})
 	}
-	sc, err := s.scopeConflicts(q, sessionID, norm)
+	sc, err := s.scopeConflicts(q, sessionID, norm, shared)
 	if err != nil {
 		return nil, err
 	}
@@ -218,10 +231,10 @@ func (s *Store) endedOverlaps(q querier, sessionID, slug string, norm []string) 
 // existing callers see what they saw and a caller that prints the set can.
 func refusedFrom(conflicts []Conflict) ErrRefused {
 	first := ErrRefused{Slug: conflicts[0].Slug, Scope: conflicts[0].Scope, Their: conflicts[0].Their,
-		Claimant: conflicts[0].Claimant, Renewed: conflicts[0].Renewed}
+		Claimant: conflicts[0].Claimant, Renewed: conflicts[0].Renewed, Shared: conflicts[0].Shared}
 	for _, c := range conflicts[1:] {
 		first.More = append(first.More, ErrRefused{Slug: c.Slug, Scope: c.Scope, Their: c.Their,
-			Claimant: c.Claimant, Renewed: c.Renewed})
+			Claimant: c.Claimant, Renewed: c.Renewed, Shared: c.Shared})
 	}
 	return first
 }
@@ -252,16 +265,15 @@ func refusedFrom(conflicts []Conflict) ErrRefused {
 // are reported apart from the free set and apart from the conflicts because
 // they are neither.
 func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []string) (free []string, conflicts, displaced []Conflict, err error) {
-	if len(scopes) == 0 {
-		return nil, nil, nil, errors.New("a claim needs at least one --scope")
-	}
-	norm := make([]string, 0, len(scopes))
-	for _, sc := range scopes {
-		n, err := NormalizeScope(sc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		norm = append(norm, n)
+	return s.ClaimConflictsMode(sessionID, incarnation, slug, scopes, false)
+}
+
+// ClaimConflictsMode is ClaimConflicts for a request of the named mode
+// (D-042): the forecast of ClaimMode, by the same computation.
+func (s *Store) ClaimConflictsMode(sessionID, incarnation, slug string, scopes []string, shared bool) (free []string, conflicts, displaced []Conflict, err error) {
+	norm, err := claimScopes(scopes, shared)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	err = s.readSnapshot(func(q querier) error {
 		var live int
@@ -272,7 +284,7 @@ func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []str
 		if live == 0 {
 			return fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
 		}
-		conflicts, err = s.allConflicts(q, sessionID, slug, norm)
+		conflicts, err = s.allConflicts(q, sessionID, slug, norm, shared)
 		if err != nil {
 			return err
 		}
@@ -528,4 +540,33 @@ func (s *Store) ClaimsTouching(relPath string) ([]ClaimTouch, error) {
 		}
 	}
 	return out, nil
+}
+
+// SlotPrefix is the reserved home of resource slots (D-035): a claim on
+// `.buddy/slot/<name>` reserves a capacity-1 resource rather than a file.
+const SlotPrefix = ".buddy/slot"
+
+// claimScopes normalizes a request's scopes, and refuses a SHARED request
+// that reaches a slot (D-042). A slot is capacity 1; two shared claims over
+// one would each believe they held a resource that is reserved for nobody.
+// OVERLAP, not containment: `--shared --scope .buddy` covers every slot
+// without lying under the prefix (Codex design pass, D-042). Here and not in
+// the CLI, because ClaimMode and its forecast are the one door a claim
+// comes through.
+func claimScopes(scopes []string, shared bool) ([]string, error) {
+	if len(scopes) == 0 {
+		return nil, errors.New("a claim needs at least one --scope")
+	}
+	norm := make([]string, 0, len(scopes))
+	for _, sc := range scopes {
+		n, err := NormalizeScope(sc)
+		if err != nil {
+			return nil, err
+		}
+		if shared && scopesOverlap(fold(n), SlotPrefix) {
+			return nil, fmt.Errorf("scope %q reaches the resource slots under %s, and a slot is capacity 1; claim it without --shared", n, SlotPrefix)
+		}
+		norm = append(norm, n)
+	}
+	return norm, nil
 }
