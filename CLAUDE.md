@@ -434,6 +434,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   and every drained line (`#N …`). `msg --supersedes N` is allowed only from N's sending session
   (NULL owner = nobody), only to N's audience; nothing is withheld, and links sit before
   `[sender]`. `buddy sent [id]` reports recorded delivery / queued / expired, never "read".
+- **A repository git refuses, with no ledger in it, is feature-off (D-044, #35).** Git's
+  "dubious ownership" (a stray `git init` in root-owned `/private/tmp`, measured 2026-09-24)
+  denied every write under `/tmp` fleet-wide. The gate now checks the nearest `.git` (via
+  `gitdir:`/`commondir`) for `buddy.db` without git; only "does not exist" allows.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
