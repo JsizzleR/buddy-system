@@ -316,6 +316,31 @@ tool call; `buddy who <target>` is the check afterwards, and its `INBOX` line
 dates the oldest undelivered row. No idle row and a recent beat is `last seen
 4s ago`, never *busy*.
 
+**Waking a session at its prompt (D-039).** A quiet recipient (an idle
+report, not seen past the stale mark, or registered and not seen since) gets
+one more line when the ledger knows exactly one live harness process for it
+and that process's message socket exists:
+
+```sh
+buddy msg bravo "take the router bundle"
+# queued for bravo — bravo last reported idle 10m ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call
+# to wake it now: SendMessage to "uds:/tmp/cc-socks/21180.sock" with the text "buddy mail is queued for you: run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); …
+```
+
+`buddy` wakes nothing. It is a binary, and it cannot call the harness's
+SendMessage tool or type into a pane. The sending *agent* decides whether to
+use its own SendMessage, under its own permission rules. The wake carries no
+content: the message stays in the ledger, fenced, and arrives when the woken
+session runs `buddy inbox`. Measured on two sessions opened for the purpose:
+- It wakes an idle session with no keystroke.
+- It arrives marked as another session's message, with the sender's pid
+  verified by the host, and never as the operator's turn.
+- A body cannot forge the wrapper: the harness escapes the tag.
+- It drained a queued buddy message end to end.
+
+A recipient in a different permission mode holds the wake for its user. The
+queued copy is there either way.
+
 ### 1a″. Authority files — a long session's copy of the rules rots silently
 
 ```sh
@@ -457,7 +482,8 @@ The annotations after the id are what an orchestrator picks on:
   knowing before you route on it: an idle session is also the one that will
   not *see* a `buddy msg` until its next tool call, because delivery rides the
   heartbeat. It is the session that can take work and the one that needs a
-  human to poke it. A session that has not STARTED yet is the exception:
+  poke, which `msg` now names the address for (D-039, below). A session that
+  has not STARTED yet is the exception:
   `hello` drains the inbox into its SessionStart digest (D-034), so work
   queued for a session before it starts, resumes or compacts arrives with its
   first prompt, bounded to fit the digest after the claims list, which comes

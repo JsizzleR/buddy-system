@@ -98,6 +98,10 @@ type fixture struct {
 	// every older test was written against.
 	proc  store.ProcRef
 	alive map[int]int64
+	// sockDir stands in for the harness's socket directory (wake.go), EMPTY
+	// of sockets by default for the reason env is: the real one on this box
+	// holds the developer's own sessions.
+	sockDir string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -133,7 +137,7 @@ func newFixtureNamed(t *testing.T, name string) *fixture {
 	wtB := filepath.Join(dir, "wtB")
 	git("worktree", "add", "-q", wtB)
 	return &fixture{repo: repo, wtB: wtB, clock: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC),
-		env: map[string]string{}, alive: map[int]int64{}}
+		env: map[string]string{}, alive: map[int]int64{}, sockDir: filepath.Join(dir, "socks")}
 }
 
 // run executes a buddy command with stdin JSON (may be empty) from cwd.
@@ -152,6 +156,7 @@ func (f *fixture) run(t *testing.T, cwd, stdin string, args ...string) (stdout, 
 			born, ok := f.alive[p.PID]
 			return ok && (p.Born == 0 || born == 0 || born == p.Born)
 		},
+		SockDir: f.sockDir,
 	})
 	return out.String(), errw.String(), code
 }

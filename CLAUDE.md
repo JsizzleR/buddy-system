@@ -399,7 +399,7 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   bounded by beat's 20 / 8 KiB AND by the room the digest leaves under 9,000 bytes,
   because Claude Code replaces hook output past 10,000 characters with a preview
   (documented, not measured) and that would hide the claims list. The remainder is
-  counted and left queued. Waking a session ALREADY at its prompt is still D-027's "no".
+  counted and left queued. Waking a session ALREADY at its prompt: see D-039.
 - **A resource slot is a claim on `.buddy/slot/<name>` (D-035, #27).** Capacity 1, nothing
   built: the claim refuses, `release` frees, `wait --on` queues, `who` counts. The prefix
   only adds a fenced `SLOT:` line to a refusal and a dry run. No gate reads it, no new scope
@@ -413,6 +413,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `idle` records HEAD (schema 10); the roster and `who` print `base <sha8> (N ahead, M behind
   main, age)` against local main/master as it is when read. Never on `beat`, never stored
   lag, no `NOT ON MAIN` flag, refuses nothing.
+- **`msg` names the harness wake address; buddy wakes nothing (D-039, #25).** Measured: a
+  harness SendMessage wakes an idle session as a MARKED PEER message (host-verified sender
+  pid, "not typed by your user"), never the operator's turn, and the host escapes a forged
+  wrapper. For a quiet target with one live registered pid whose `/tmp/cc-socks/<pid>.sock`
+  exists, `msg` prints the address and the fixed text "run buddy inbox". The body stays in the
+  ledger. One observation per send.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

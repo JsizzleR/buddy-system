@@ -362,6 +362,18 @@ ledger row entered through the CLI (D-006).
     orphaned-base case. Do not propose storing the lag, sampling on `beat`, or a flag that
     fires on unlanded work.
 
+42. **`msg` names the harness's wake address for a quiet recipient; buddy still wakes nothing
+    (D-039).** Measured: a harness SendMessage wakes an idle session and is recorded as a
+    marked peer message (`isMeta`, `origin.kind="peer"`, host-verified sender pid, plus a "not
+    typed by your user" note), never as the operator's turn. A body cannot forge the wrapper,
+    because the host escapes the tag. For a quiet target (idle, stale, or registered and not
+    seen since) with exactly one live registered process whose `/tmp/cc-socks/<pid>.sock`
+    exists as a socket, `msg` prints `SendMessage to "uds:…"` with the fixed text "buddy mail is
+    queued for you: run buddy inbox". The body stays in the ledger. One observation serves the
+    result line and the wake line. No send from buddy, no pane injection, no broadcast wake, no
+    name mapping. Do not propose buddy calling the harness, carrying the body in the wake, or
+    deriving the address from anything but a live, birth-time-checked registered pid.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

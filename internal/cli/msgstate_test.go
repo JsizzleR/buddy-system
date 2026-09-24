@@ -388,6 +388,7 @@ func TestMsgProbesTheProcessRegisterOncePerSend(t *testing.T) {
 			probes++
 			return probes > 1
 		},
+		SockDir: f.sockDir,
 	})
 	if code != 0 {
 		t.Fatalf("send failed: %s", errw.String())
