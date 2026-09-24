@@ -426,6 +426,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **`msg`'s wake address rides its result line (D-041, #32).** One send, one line: an
   orchestrator reading `msg … | head -1` lost the second-line address and an idle lane sat
   unwoken. Never move it back to its own line.
+- **A SHARED claim may overlap other shared claims and nothing else (D-042, #33).** `claim
+  --shared`: shared/exclusive refuse both ways, a slug is one holder, the gate still wants a
+  covering claim of your own (claim-first) and returns an exclusive blocker first, a refresh
+  takes the mode given, and `.buddy/slot` refuses `--shared`. Not "append-only": paths, not diffs.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

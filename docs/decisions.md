@@ -2403,6 +2403,106 @@ broadcast. No claim about how the harness peer listing computes `busy`: this tra
 is exactly one newline-terminated line, and the address cases assert the line ends with
 `; to wake it now: …`. Mutated back to a second line, the test fails.
 
+## D-042 — A SHARED claim may overlap other shared claims, and nothing else
+
+2026-09-24 · issue #33, wishlist §7
+
+**What was wrong** — The repo under coordination requires mechanism rules to land in one playbook
+file. Twice in two landings in the 2026-09-20 fleet run, that file was claimed mid-item by an
+unrelated session. Both landing sessions correctly declined to contest a live claim, filed "this
+rule has no home", and shipped `DURABLE: none`. Two rules were orphaned with no owner. The
+contention on that file is always append-only, and a claim was either exclusive or nothing.
+
+**The rule**
+- `claim --shared` stores `claims.shared` (schema 11, an ALTER arm; every older claim reads
+  exclusive, which is what it was taken as). The mode belongs to the claim, not to each scope.
+- The conflict scan (`scopeConflicts`, shared by the claim and its dry run) has ONE mode term: an
+  overlap conflicts unless BOTH sides are shared. Shared and exclusive refuse each other in both
+  directions. A slug is still one holder, and a slug conflict never reads as one `--shared`
+  would clear.
+- The gate (`OwnerOf`, read by the edit gate and the commit gate) returns an exclusive blocker in
+  preference to a shared one. A path under only shared claims of others is held unless the caller
+  holds its own claim COVERING the path. A shared claim is an invitation to claim alongside, not
+  an open door, so the ledger still records everyone who edits. The caller's claim counts in
+  either mode, because across sessions an exclusive claim cannot overlap a shared one, and a
+  "must be shared" test would be a guard no reachable state arms.
+- A refresh takes the mode it is given: re-claiming without `--shared` makes the claim exclusive,
+  and a peer sharing the path refuses that.
+- `--shared` is refused on any scope that OVERLAPS `.buddy/slot` (D-035's capacity-1 slots),
+  `.buddy` included. The check is in `claimScopes`, the one door both the claim and its forecast
+  come through.
+- Every listing marks a shared claim with the fixed word `SHARED` before its fenced scopes: `ls`,
+  the SessionStart digest, `who`/`status`, `whose`, the commit-gate report, the refusal and dry
+  run (`held SHARED by`), and the gate deny. That deny names `--shared --scope`. A refusal with
+  shared holders in its set prints one `SHARED:` line saying `--shared` clears THOSE conflicts,
+  and how many others would still refuse.
+
+**Codex design pass (before code)**, and what each finding became:
+- The first draft's "`--shared` would coexist" was false for a slug collision. It now says the
+  note covers scope conflicts only, and a slug conflict carries `Shared=false`.
+- A shared scope of `.buddy` covers every slot without lying under the prefix, so the check is
+  overlap, not containment.
+- A shared hold must never hide an exclusive blocker. `OwnerOf` prefers the exclusive one, and a
+  planted state proves it.
+- A claim on `rules/section` must not admit an edit to `rules`. The caller's claim has to cover
+  the path.
+- A wait stays bound to the claim CLOSING (D-033). A change to shared is not LANDED; `who`
+  shows `SHARED`, and the waiter can reassess.
+
+**What it does not do**
+- It does not verify "append-only". The gate sees a tool call naming a path, never a diff, which
+  is why the word is "shared". Two holders that read version V and write V+A and V+B can lose A's
+  section. The deny, the refusal note and the README all say so.
+- No `--standing` owner that "yields to nobody" (the other half of §7's ask). A standing
+  exclusive owner is exactly the holder that orphaned the two rules, and a coordinator-assigned
+  owner is D-030's orchestrator claim.
+- No per-scope mode inside one claim (take two claims), no counted capacity (D-035), and no change
+  to staleness (D-022: a stale shared claim still refuses an exclusive request), ended owners
+  (D-026), sweep or orphaning.
+
+**Test shape** — `store/shared_test.go`:
+- The conflict matrix, run through the claim AND the forecast: eight cases including parent and
+  child, and the folded spelling.
+- A slug is not shared, with a distinct-slug control.
+- OwnerOf with an unjoined caller, a non-covering own claim (child to sibling, child to parent),
+  joined callers, and an unidentified caller.
+- The exclusive preference, on a planted state with a positive control before the plant.
+- A refresh changing mode in both directions.
+- Slots: six scopes, the forecast agreeing, and an exclusive control on each.
+- Migration from a v10 ledger.
+
+`cli/shared_test.go` runs the same rule through claim, refusal, dry run, gate and `ls`, with an
+exclusive-hold control that must print no SHARED word anywhere.
+
+Seventeen mutations were run:
+- the mode term dropped, or turned into "either side shared";
+- the holder's mode dropped from the conflict, the refusal, or the CLI's rebuild of it;
+- `OwnerOf` returning a shared holder first, letting the caller's own claim override an exclusive
+  blocker, or counting an own claim that does not cover the path;
+- the refresh or the insert dropping the mode;
+- the slot check removed, or reduced to containment;
+- the listing dropping the mode;
+- the SHARED note removed from the refusal or from the dry run;
+- the shared deny removed;
+- the `--shared` flag ignored.
+
+Each failed a test. `shared-first` first SURVIVED: the planted exclusive-preference test asked
+only on behalf of a JOINED caller, whose own claim masked the bug. An unjoined caller facing both
+kinds of holder was then added, and the mutation fails it.
+
+**Codex code pass**
+- No defect in the `OwnerOf` scan, including an unidentified caller (`excludeSession == ""`
+  cannot join) and a caller whose own claim is released.
+- Two findings were declined, with reasons:
+  - A slug-only refusal does not print the holder as SHARED. A slug is one holder whatever its
+    mode, so the mode says nothing about that refusal. Printing SHARED there would invite a
+    `--shared` retry that cannot succeed, which is the same false advice the design pass removed.
+  - A v10 binary that opened the ledger BEFORE the migration can run a refresh AFTER it. Its
+    UPDATE does not write `shared`, so a `shared=1` claim stays shared while it prints "claimed".
+    This is the same window every schema bump has had: D-037 checks the version at open and at
+    migrate, not in each transaction. It lasts milliseconds, only during an install, and is
+    recorded rather than fixed.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

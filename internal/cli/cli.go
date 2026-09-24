@@ -201,6 +201,9 @@ func usage(w io.Writer) {
 agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a bundle
                     --dry-run   list every conflict (REFUSED lines) and what would be
                                 taken; writes nothing; exits non-zero on any conflict
+                    --shared    other --shared claims may overlap it (a playbook every
+                                lane appends to); exclusive ones still refuse, both
+                                ways, and re-claiming without it makes it exclusive
               release <slug> [--scope <path> ...]    hand it back, or only the named
                                 scopes (exactly as claimed); the last scope releases it
               ls [--all]            list claims        inbox            drain my messages
@@ -276,7 +279,7 @@ const (
 	usageBusy       = "usage: buddy busy   (UserPromptSubmit hook, optional; hook JSON on stdin)"
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
-	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--dry-run] [--session <id>]"
+	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--dry-run] [--session <id>]"
 	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--session <id>]"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
@@ -1584,9 +1587,9 @@ func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.Ses
 		// permits a newline (path.Clean("a\nb") is "a\nb"). This block is
 		// injected into EVERY session's context at SessionStart, so an
 		// unfenced newline fabricates a line that reads as buddy's own.
-		lines[i] = fmt.Sprintf("  - %s (%s)%s: %s — scopes: %s\n",
+		lines[i] = fmt.Sprintf("  - %s (%s)%s: %s — %sscopes: %s\n",
 			fence.Line(c.Slug, 128), fence.Line(owner, 64), mark,
-			fence.Line(c.Desc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512))
+			fence.Line(c.Desc, 512), sharedWord(c.Shared), fence.Line(strings.Join(c.Scopes, ", "), 512))
 	}
 	for i, c := range claims {
 		if c.Owner.SessionID != si.SessionID {
@@ -1816,6 +1819,15 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) int {
 			loc = fmt.Sprintf("%s (in %s)", rel, where)
 			suffix = " — in the TARGET repo's buddy ledger"
 		}
+		// A SHARED hold refuses only a session that has not joined it (D-042),
+		// so its deny names the one move that clears it, and the residual the
+		// word "shared" does not remove.
+		if c.Shared {
+			deny(env, fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. A shared claim admits edits from any session holding its own claim covering the path: buddy claim <your-slug> --shared --scope <path>. Two holders that read the same version and both write can still lose one edit.",
+				fence.Line(loc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512),
+				fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix))
+			return 0
+		}
 		// permissionDecisionReason is shown to the model on every deny, so it
 		// is a context-injection sink like the digest above.
 		deny(env, fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s. Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
@@ -1847,6 +1859,7 @@ func cmdClaim(args []string, env Env) error {
 	var scopes multiFlag
 	fs.Var(&scopes, "scope", "repo-relative path or dir prefix (repeatable)")
 	dry := fs.Bool("dry-run", false, "report the conflict set and what would be taken; write nothing")
+	shared := fs.Bool("shared", false, "other --shared claims may overlap this one (D-042)")
 	if help, err := parseFlags(fs, args[1:], usageClaim, env); help || err != nil {
 		return err
 	}
@@ -1869,11 +1882,12 @@ func cmdClaim(args []string, env Env) error {
 		// round trip instead of one per collision. Non-zero exit when anything
 		// is refused, so a scripted caller cannot read "some of it was free" as
 		// "go ahead".
-		free, conflicts, displaced, err := st.ClaimConflicts(si.SessionID, si.Incarnation, slug, scopes)
+		free, conflicts, displaced, err := st.ClaimConflictsMode(si.SessionID, si.Incarnation, slug, scopes, *shared)
 		if err != nil {
 			return fencedErr(err)
 		}
 		printConflicts(env, conflicts)
+		fmt.Fprint(env.Stdout, sharedNote(conflicts))
 		fmt.Fprint(env.Stdout, slotNote(conflicts))
 		fmt.Fprint(env.Stdout, waitSuggestion(conflicts))
 		// What a real claim would DISPLACE: open claims of holders that have
@@ -1900,7 +1914,7 @@ func cmdClaim(args []string, env Env) error {
 		fmt.Fprintln(env.Stdout, "dry run: no conflicts; nothing was taken")
 		return nil
 	}
-	if err := st.Claim(si.SessionID, si.Incarnation, slug, *desc, scopes); err != nil {
+	if err := st.ClaimMode(si.SessionID, si.Incarnation, slug, *desc, scopes, *shared); err != nil {
 		// A refusal is whole (D-001), and it carries the whole set: print every
 		// collision, one fenced line each, before the one-line error.
 		//
@@ -1918,9 +1932,10 @@ func cmdClaim(args []string, env Env) error {
 			set := make([]store.Conflict, 0, len(all))
 			for _, r := range all {
 				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug,
-					Claimant: r.Claimant, Renewed: r.Renewed})
+					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared})
 			}
 			printConflicts(env, set)
+			fmt.Fprint(env.Stdout, sharedNote(set))
 			fmt.Fprint(env.Stdout, slotNote(set))
 			// The command that would declare a wait on every claim in the
 			// way (D-033). Suggested, never registered: a refusal is a fact
@@ -1929,9 +1944,45 @@ func cmdClaim(args []string, env Env) error {
 		}
 		return fencedErr(err)
 	}
-	fmt.Fprintf(env.Stdout, "claimed %s for %s — scopes: %s\n",
-		strconv.Quote(fence.Line(slug, 128)), fence.Line(si.Label, 64), fence.Line(strings.Join(scopes, ", "), 512))
+	fmt.Fprintf(env.Stdout, "claimed %s for %s — %sscopes: %s\n",
+		strconv.Quote(fence.Line(slug, 128)), fence.Line(si.Label, 64), sharedWord(*shared),
+		fence.Line(strings.Join(scopes, ", "), 512))
 	return nil
+}
+
+// sharedWord is the fixed token every claim listing puts before a SHARED
+// claim's scopes (D-042). Buddy's own word, never peer text, and it sits in
+// front of the fenced scopes, so no scope can spell it or hide it.
+func sharedWord(shared bool) string {
+	if shared {
+		return "SHARED "
+	}
+	return ""
+}
+
+// sharedNote is the line a refusal prints when some of what is in the way is
+// held SHARED (D-042): those holders refused only because this request was
+// exclusive. It says --shared would clear THOSE conflicts and no others — a
+// slug held by anybody, or an exclusive holder, still refuses — because the
+// first draft's "--shared would coexist" was false for a slug collision
+// (Codex design pass, D-042).
+func sharedNote(conflicts []store.Conflict) string {
+	n, other := 0, 0
+	for _, c := range conflicts {
+		if c.Shared {
+			n++
+		} else {
+			other++
+		}
+	}
+	switch {
+	case n == 0:
+		return ""
+	case other == 0:
+		return fmt.Sprintf("SHARED: the %d conflict(s) above are held --shared, so claiming --shared would clear them; two holders that read the same version and both write can still lose one edit\n", n)
+	default:
+		return fmt.Sprintf("SHARED: %d of the conflict(s) above are held --shared, and claiming --shared would clear only those; the other %d would still refuse\n", n, other)
+	}
 }
 
 // printConflicts renders a conflict set one line per collision. Every value
@@ -1945,8 +1996,8 @@ func printConflicts(env Env, conflicts []store.Conflict) {
 				strconv.Quote(fence.Line(c.Slug, 128)), fence.Line(c.Claimant, 64), staleNote(now, c.Renewed))
 			continue
 		}
-		fmt.Fprintf(env.Stdout, "REFUSED: %s  (overlaps %s held by %s, claim %s)%s\n",
-			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64),
+		fmt.Fprintf(env.Stdout, "REFUSED: %s  (overlaps %s held %sby %s, claim %s)%s\n",
+			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), sharedWord(c.Shared), fence.Line(c.Claimant, 64),
 			strconv.Quote(fence.Line(c.Slug, 128)), staleNote(now, c.Renewed))
 	}
 }
@@ -2079,9 +2130,9 @@ func cmdLs(args []string, env Env) error {
 		// digest fenced these for exactly this reason; ls did not, so a label
 		// with a newline fabricated a claim row in every other session's
 		// listing (invariant 9).
-		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s — %s\n",
+		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s%s — %s\n",
 			fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), state, age(now, c.Renewed),
-			fence.Line(strings.Join(c.Scopes, ","), 512), fence.Line(c.Desc, 512))
+			sharedWord(c.Shared), fence.Line(strings.Join(c.Scopes, ","), 512), fence.Line(c.Desc, 512))
 	}
 	return nil
 }

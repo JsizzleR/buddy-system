@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS claims (
 	descr       TEXT NOT NULL,
 	created     INTEGER NOT NULL,
 	renewed     INTEGER NOT NULL,
-	state       TEXT NOT NULL CHECK (state IN ('open','released','orphaned'))
+	state       TEXT NOT NULL CHECK (state IN ('open','released','orphaned')),
+	shared      INTEGER NOT NULL DEFAULT 0 -- D-042: overlaps other SHARED claims; never an exclusive one
 );
 CREATE UNIQUE INDEX IF NOT EXISTS claims_open_slug ON claims(slug) WHERE state='open';
 CREATE TABLE IF NOT EXISTS claim_scopes (
@@ -315,6 +316,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 11 adds claims.shared (D-042), the second ALTER arm — see migrate.
 // 10 adds session_base (D-038).
 // 9 adds session_waits and session_wait_targets (D-033).
 // 8 adds id_spaces and id_blocks (D-029).
@@ -328,7 +330,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 10
+const schemaVersion = 11
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -458,7 +460,7 @@ func migrate(db *sql.DB) error {
 	if _, err := tx.Exec(schema); err != nil {
 		return fmt.Errorf("migrate ledger: %w", err)
 	}
-	// The ONE column ever added to an existing table. CREATE TABLE IF NOT
+	// The first column ever added to an existing table. CREATE TABLE IF NOT
 	// EXISTS above creates a fresh ledger's sessions table with the column
 	// and does nothing to an old one, so an old ledger needs the ALTER — and
 	// only once, which is what the table_info probe is for: ALTER has no IF
@@ -466,6 +468,13 @@ func migrate(db *sql.DB) error {
 	// open below version 6.
 	if ver < 6 {
 		if err := addColumnIfMissing(tx, "sessions", "terminal", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	// And the second (D-042). Every existing claim was taken exclusive, which
+	// is what the default says, so no row changes meaning on the way up.
+	if ver < 11 {
+		if err := addColumnIfMissing(tx, "claims", "shared", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 			return err
 		}
 	}
@@ -973,6 +982,10 @@ type ClaimInfo struct {
 	Created     time.Time
 	Renewed     time.Time
 	Owner       SessionInfo
+	// Shared marks a claim other SHARED claims may overlap (D-042). Every
+	// listing prints it, because a reader deciding whether to contest a path
+	// needs to know the holder invited company.
+	Shared bool
 }
 
 // Stale reports whether an open claim has gone unrenewed past StaleAfter.
@@ -993,6 +1006,9 @@ type ErrRefused struct {
 	// it forecasts would not, which is the disagreement allConflicts exists to
 	// prevent. Zero means not recorded and must never render as STALE.
 	Renewed time.Time
+	// Shared is the HOLDER's mode (D-042): a scope held shared refused this
+	// request only because the request was exclusive, and the refusal says so.
+	Shared bool
 	// More is the REST of the conflict set. The named fields carry the first
 	// conflict, as they always have; a four-path claim with two collisions
 	// used to report one and cost a second round trip to learn the other
@@ -1006,7 +1022,11 @@ func (e ErrRefused) Error() string {
 	if e.Scope == "" {
 		msg = fmt.Sprintf("slug %q is already claimed by %s", e.Slug, e.Claimant)
 	} else {
-		msg = fmt.Sprintf("scope %q overlaps %q held by %s (slug %q)", e.Scope, e.Their, e.Claimant, e.Slug)
+		held := "held"
+		if e.Shared {
+			held = "held SHARED" // D-042: this holder refused only an exclusive request
+		}
+		msg = fmt.Sprintf("scope %q overlaps %q %s by %s (slug %q)", e.Scope, e.Their, held, e.Claimant, e.Slug)
 	}
 	if n := len(e.More); n > 0 {
 		// "run --dry-run to see the set" was true until the refusal began
@@ -1018,18 +1038,19 @@ func (e ErrRefused) Error() string {
 }
 
 // Claim takes (or, for the same session re-claiming its own slug, refreshes)
-// a claim. All scopes land atomically or not at all.
+// an EXCLUSIVE claim. All scopes land atomically or not at all.
 func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string) error {
-	if len(scopes) == 0 {
-		return errors.New("a claim needs at least one --scope")
-	}
-	norm := make([]string, 0, len(scopes))
-	for _, sc := range scopes {
-		n, err := NormalizeScope(sc)
-		if err != nil {
-			return err
-		}
-		norm = append(norm, n)
+	return s.ClaimMode(sessionID, incarnation, slug, desc, scopes, false)
+}
+
+// ClaimMode is Claim with the mode named (D-042). A SHARED claim may overlap
+// other shared claims and nothing else; an exclusive one overlaps nothing.
+// A refresh takes the mode it is given, so re-claiming a shared slug without
+// --shared makes it exclusive again, and is refused if a peer shares it.
+func (s *Store) ClaimMode(sessionID, incarnation, slug, desc string, scopes []string, shared bool) error {
+	norm, err := claimScopes(scopes, shared)
+	if err != nil {
+		return err
 	}
 	return s.tx(func(tx *sql.Tx) error {
 		now := s.now().Unix()
@@ -1066,7 +1087,7 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 		// scope AS CLAIMED, because that is what `buddy ls` prints and what the
 		// peer typed — an operator told they overlap "src/api" went looking for
 		// a claim on "Src/API" and found no such line.
-		conflicts, err := s.allConflicts(tx, sessionID, slug, norm)
+		conflicts, err := s.allConflicts(tx, sessionID, slug, norm, shared)
 		if err != nil {
 			return err
 		}
@@ -1080,8 +1101,8 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 		}
 
 		if ownID != "" { // refresh own claim
-			if _, err := tx.Exec(`UPDATE claims SET descr=?, renewed=?, incarnation=? WHERE claim_id=?`,
-				desc, now, incarnation, ownID); err != nil {
+			if _, err := tx.Exec(`UPDATE claims SET descr=?, renewed=?, incarnation=?, shared=? WHERE claim_id=?`,
+				desc, now, incarnation, shared, ownID); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`DELETE FROM claim_scopes WHERE claim_id=?`, ownID); err != nil {
@@ -1091,8 +1112,8 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 		}
 
 		id := newToken()
-		if _, err := tx.Exec(`INSERT INTO claims (claim_id, session_id, incarnation, slug, descr, created, renewed, state)
-			VALUES (?,?,?,?,?,?,?,'open')`, id, sessionID, incarnation, slug, desc, now, now); err != nil {
+		if _, err := tx.Exec(`INSERT INTO claims (claim_id, session_id, incarnation, slug, descr, created, renewed, state, shared)
+			VALUES (?,?,?,?,?,?,?,'open',?)`, id, sessionID, incarnation, slug, desc, now, now, shared); err != nil {
 			return err
 		}
 		return insertScopes(tx, id, norm)
@@ -1283,7 +1304,7 @@ func (s *Store) Claims(includeClosed bool) ([]ClaimInfo, error) {
 // within a claim, as the per-claim query sorted them — listings and the
 // commit gate's output are compared by eye and by tests.
 func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
-	rows, err := s.db.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed,
+	rows, err := s.db.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed, c.shared,
 			ses.session_id, ses.incarnation, ses.label, ses.worktree, ses.pid, ses.started, ses.last_seen, COALESCE(ses.ended,0)
 		FROM claims c JOIN sessions ses ON ses.session_id=c.session_id `+where+` ORDER BY c.created`, args...)
 	if err != nil {
@@ -1293,7 +1314,7 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 	var out []ClaimInfo
 	for rows.Next() {
 		var c ClaimInfo
-		if err := rows.Scan(&c.ClaimID, &c.Incarnation, &c.Slug, &c.Desc, &c.State, unixScan{&c.Created}, unixScan{&c.Renewed},
+		if err := rows.Scan(&c.ClaimID, &c.Incarnation, &c.Slug, &c.Desc, &c.State, unixScan{&c.Created}, unixScan{&c.Renewed}, &c.Shared,
 			&c.Owner.SessionID, &c.Owner.Incarnation, &c.Owner.Label, &c.Owner.Worktree, &c.Owner.PID,
 			unixScan{&c.Owner.Started}, unixScan{&c.Owner.LastSeen}, unixScan{&c.Owner.Ended}); err != nil {
 			return nil, err
@@ -1330,30 +1351,55 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 	return out, nil
 }
 
-// OwnerOf returns the open claim of ANOTHER session covering relPath, if any.
-// This runs on the gate hot path (every mutating tool call), so it scans one
-// scopes query instead of materializing every claim with its owner (the old
-// 1+N shape), and loads the single matching claim only on a hit.
+// OwnerOf returns the open claim of ANOTHER session that stops relPath being
+// edited, if any. This runs on the gate hot path (every mutating tool call),
+// so it scans one scopes query instead of materializing every claim with its
+// owner (the old 1+N shape), and loads the single matching claim only on a hit.
+//
+// SHARED CLAIMS (D-042). A path under another session's EXCLUSIVE claim is
+// held, as it always was, and an exclusive holder is returned in preference
+// to a shared one, so a shared hold can never hide an exclusive blocker. A
+// path under only SHARED claims of others is held unless the caller holds a
+// claim of its own covering the path: a shared claim is an invitation to
+// claim alongside, not an open door, so the ledger still records everyone
+// editing. The caller's own claim counts in either mode because an exclusive
+// one cannot overlap a peer's shared one across sessions (the conflict scan
+// refuses it both ways); requiring "shared" here would be a guard no reachable
+// state arms. It must COVER the path: a claim on rules/section does not
+// admit an edit to rules itself.
 func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error) {
 	rel := fold(relPath)
-	rows, err := s.db.Query(`SELECT cs.folded, cs.claim_id FROM claim_scopes cs
-		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open' AND c.session_id<>?`, excludeSession)
+	rows, err := s.db.Query(`SELECT cs.folded, cs.claim_id, c.session_id, c.shared FROM claim_scopes cs
+		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open'`)
 	if err != nil {
 		return ClaimInfo{}, false, err
 	}
 	defer rows.Close()
-	claimID := ""
+	exclusive, shared, mine := "", "", false
 	for rows.Next() {
-		var folded, id string
-		if err := rows.Scan(&folded, &id); err != nil {
+		var folded, id, owner string
+		var sh bool
+		if err := rows.Scan(&folded, &id, &owner, &sh); err != nil {
 			return ClaimInfo{}, false, err
 		}
-		if claimID == "" && scopeCovers(folded, rel) {
-			claimID = id
+		if !scopeCovers(folded, rel) {
+			continue
+		}
+		switch {
+		case owner == excludeSession && excludeSession != "":
+			mine = true
+		case !sh && exclusive == "":
+			exclusive = id
+		case sh && shared == "":
+			shared = id
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return ClaimInfo{}, false, err
+	}
+	claimID := exclusive
+	if claimID == "" && !mine {
+		claimID = shared
 	}
 	if claimID == "" {
 		return ClaimInfo{}, false, nil

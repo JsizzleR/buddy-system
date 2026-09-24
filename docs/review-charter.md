@@ -387,6 +387,15 @@ ledger row entered through the CLI (D-006).
     (measured, 2026-09-24) lost it, so an idle lane sat unwoken until the operator typed into
     it. Do not propose moving the address back onto a line of its own.
 
+45. **A SHARED claim may overlap other shared claims, and nothing else (D-042).** One mode term
+    in the one conflict scan: an overlap conflicts unless both sides are shared. The gate returns
+    an exclusive blocker first, and admits an edit under only shared holds when the caller has
+    its own claim covering the path (claim-first). A refresh takes the mode it is given.
+    `--shared` is refused on any scope overlapping `.buddy/slot`. "Shared" is not "append-only":
+    the gate sees paths, not diffs, and a concurrent read-modify-write can lose an edit, which
+    is stated rather than solved. Do not propose an open-door shared hold, a standing owner that
+    yields to nobody, or per-scope modes.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

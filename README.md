@@ -174,6 +174,33 @@ Releasing the last scope releases the claim. Releasing `pkg/sub` from a claim
 that holds `pkg` is refused: prefix scopes have no subtraction, and the only
 other answer would be `pkg` still held with success reported.
 
+**Shared claims (D-042).** A file that every lane appends to (a playbook, a
+decision log) gets a claim other lanes can join instead of queueing behind:
+
+```sh
+buddy claim playbook-a --shared --desc "append the retry rule" --scope docs/playbook.md
+buddy claim playbook-b --shared --desc "append the cache rule" --scope docs/playbook.md   # admitted
+buddy claim rewrite --scope docs/playbook.md
+# REFUSED: docs/playbook.md  (overlaps "docs/playbook.md" held SHARED by repo/s-5d6c5614, claim "playbook-a")
+# SHARED: the 2 conflict(s) above are held --shared, so claiming --shared would clear them; …
+```
+
+The rules:
+- Two shared claims may overlap.
+- A shared claim and an exclusive one refuse each other, in both directions.
+- A slug is still one holder.
+- The gate still wants a claim first: an edit under someone's shared claim is
+  denied until you hold a claim of your own covering the path.
+- Re-claiming without `--shared` makes the claim exclusive again.
+- `--shared` is refused on anything that reaches `.buddy/slot` (a slot is
+  capacity 1), including `.buddy` itself.
+
+What "shared" does **not** mean is "append-only": the gate sees a path, never
+a diff. Two holders that read the same version and both write can lose one
+edit, so re-read before you write. This only works if the file is claimed
+`--shared` from the start. One lane holding it exclusively still blocks
+every other lane, which is how the two rules in wishlist §7 lost their home.
+
 **Publishing coordination state.** A coordinator that has facts every session
 needs — the landing queue, a hold, who is sequencing — puts them where a
 session reads at wake-up rather than in a message it may never drain: a claim
