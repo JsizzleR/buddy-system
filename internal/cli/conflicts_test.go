@@ -156,11 +156,12 @@ func TestMsgSenderIsResolvableByTheRecipient(t *testing.T) {
 	}
 	// And the stamp is a target the recipient can answer to — recovered from
 	// the RENDERED line, not typed from knowledge of the fixture: the label is
-	// everything between "[" and the first " (" or "]".
+	// everything between the first "[" and the first " (" or "]". The line
+	// opens with the message's #id since D-043.
 	var addr string
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "] two") {
-			addr = strings.TrimPrefix(line[:strings.Index(line, "]")], "[")
+			addr = line[strings.Index(line, "[")+1 : strings.Index(line, "]")]
 			if i := strings.Index(addr, " ("); i >= 0 {
 				addr = addr[:i]
 			}

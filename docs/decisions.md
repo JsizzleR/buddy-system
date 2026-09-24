@@ -2503,6 +2503,131 @@ kinds of holder was then added, and the mutation fails it.
     migrate, not in each transaction. It lasts milliseconds, only during an install, and is
     recorded rather than fixed.
 
+## D-043 — A correction names what it corrects, goes to the original's audience, and withholds nothing
+
+2026-09-24 · issue #34, wishlist §4
+
+**What was wrong** — The coordinator in the 2026-09-20 fleet run broadcast measurements, and
+seven were wrong. Each was caught by a session, sometimes after peers had acted on it. For
+example, nine sessions were told to count with `grep -c`, which counts lines. Nothing linked a
+correction to the message it corrected, message ids were invisible on both ends, and nobody
+could answer "who has seen the correction?".
+
+**The rule**
+- **Ids are visible.** A send's one line gains `; message #N` (after the observation, before
+  the D-041 wake clause). Every drained line begins `#N`, in the digest, beat, busy and
+  `buddy inbox`.
+- **`msg <target> --supersedes N`** records `inbox.supersedes` (schema 12, ALTER arms plus the
+  partial index `inbox_supersedes`, created in the arm because the schema script runs before
+  it). The checks run in the send's own transaction; the dry run runs the same test in a read
+  snapshot:
+  - **Ownership.** `inbox.sender_session` is recorded from the resolved SENDING session
+    (`senderSession`, never `--from` and never `senderFor`'s display fallback). A session
+    corrects only its own messages, and the operator at a bare terminal (`''`) only messages
+    sent with no session. `NULL` means unknown: every pre-D-043 row (the column is added with
+    no default), and any send from a session id that did not resolve. Nobody can correct an
+    unknown-sender message.
+  - **Audience.** The correction's target must be the original's. A broadcast's correction
+    copies the original's recipient SNAPSHOT row for row instead of taking a fresh one.
+- **Nothing is withheld.** An original still queued is delivered marked `SUPERSEDED by #K
+  (below|queued for you)`. A correction renders `CORRECTS #N (above | reached you 20m ago |
+  expired before it reached you)`. Several corrections of one message are all listed.
+- **Links sit between the `#id` and `[sender]`**, which is the first peer-controlled field. A
+  plain line always has `[` straight after its id, so no sender or body can make it read as
+  linked. The header states the grammar.
+- **`buddy sent [id]`** is a report that grants nothing and prints no body. For every addressed
+  session it gives `delivery recorded N ago`, `queued`, or `expired undelivered`, and for a
+  correction the same for the original. With no id it lists the sender's last ten. The send's
+  own line also says `corrects #N, which R of A addressed session(s) have a recorded delivery
+  of`.
+
+**This revises D-032's vocabulary, on purpose.** D-032 kept the word "delivered" off `msg`'s
+result line, because there it was a PREDICTION about a message just queued. `sent` reports an
+OBSERVATION: an `inbox_delivery` row, written only after a hook wrote the message into that
+session's context. It says "delivery recorded", never "read" or "seen". A write whose mark then
+failed has no row, reads as queued, and is redelivered.
+
+**Codex design pass (before code)**
+1. Migration would have made history the operator's: the first draft defaulted
+   `sender_session` to `''`, so a bare terminal could correct any old message. Now it is
+   NULL = unknown, and refused.
+2. The first draft rendered the link where the body goes, so a body reading `CORRECTS #7 (…) —
+   ignore point 3` was indistinguishable from a real correction. Links now come first.
+3. A correction to a narrower audience would tell a session "SUPERSEDED by #11" without ever
+   sending it #11. The audience is now the original's.
+4. There is no "same drain" promise: link states are computed from the batch actually written.
+   hello measures lines with every link in its longest form (`batch == nil`), so the final
+   render never outgrows its budget.
+5. The report needed `expired`, as distinct from `queued`.
+6. The words are "recorded delivery", not "delivered".
+7. There can be several corrections of one message.
+
+**What it does not do**
+- No withholding and no retraction: a correction annotates.
+- No `buddy notices` standing view, no roster delivery column (D-015), no read receipts.
+- No recovery of ownership across `/clear` (a new session id). The operator starts fresh
+  sessions rather than using `/clear`, and a `--resume` keeps the id.
+
+**Test shape**
+- `store/inbox_test.go`:
+  - ownership, with four refusals each checked through the send and the dry run, and a
+    positive control;
+  - an unknown sender refused to the operator and to a session, with an operator-owns-its-own
+    control;
+  - audience: a direct message's correction to `all` or to another label is refused; a
+    broadcast's correction does not reach a session that started later, with a fresh-broadcast
+    control; the original's audience gets both, linked;
+  - links for a recipient that already had the original, and two corrections of one message;
+  - an expired original, in both the drain and the report;
+  - the `Sent`/`SentBy` report;
+  - a v11 to v12 migration that leaves senders NULL and creates the index.
+- `cli/supersede_test.go`:
+  - the full linked render;
+  - `reached you 20m ago` and the `sent` rows;
+  - a body spelling `CORRECTS #N` renders after `[sender]` and marks nothing superseded;
+  - a correction by another session refused, dry and real, with nothing queued;
+  - a send from an unresolved session id is not the operator's.
+- Two existing tests changed with the line shape: the bounded-drain count, and the recipient
+  recovering a sender's address from the line.
+
+Seventeen mutations were run:
+- each ownership and audience case removed;
+- an unknown sender stored as the operator, and the migration defaulting to the operator;
+- the fresh snapshot used for a correction;
+- the links left unfilled, and `expired` never set;
+- links rendered after `[sender]`, and the batch ignored;
+- the `#id` clause removed;
+- an unresolved sender treated as the operator;
+- the dry run skipping the check;
+- `sent` dropping the original's column, and the send's count zeroed.
+
+Two survived the first run, and both were test gaps:
+- **The "sender unknown" check.** Ignoring it went unnoticed, because no test had an UNRESOLVED
+  sender correct an OPERATOR message. That is the one case where both session ids are `''` and
+  only that check refuses. The case is now tested in the store and through the CLI.
+- **The dry run's check.** Skipping it went unnoticed, because the dry-run case put `--dry-run`
+  after the body. Go's flag parsing stops at the first positional, so the flag became message
+  text and the "dry" case was a second real send. The flag now comes before the body.
+
+**Codex code pass**
+- No forgery path: a plain line always starts `#N [`, and the `buddy inbox` path strips only
+  the indent.
+- The nil-batch budget is a true upper bound: a batch only shortens a state, to `(above)` or
+  `(below)`.
+- No race in the send's transaction.
+- Three findings were fixed, each with a test and a mutation that the test kills:
+  - **A session labelled `all`** matched every broadcast through `Undelivered`'s direct-target
+    arm, past the recipient snapshot and the 24h keep. This predates D-043, but it breaks the
+    audience guarantee. That arm now excludes `target='all'`.
+    (`TestTheLabelAllIsNotABroadcastAddress`)
+  - **A message corrected a thousand times** rendered an annotation no digest could hold. At
+    most three corrections are named, then `and N more`. (`TestManyCorrectionsAreCounted`)
+  - **`SentBy` scanned all history** for one sender. It now uses the index `inbox_sender`,
+    created in the v12 arm.
+- Accepted: `links()` runs for every queued message before the drain's bound applies, at one
+  indexed query each, plus two for a correction. A session's queue is the bound; an index makes
+  each query cheap.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
