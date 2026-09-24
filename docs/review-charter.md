@@ -326,6 +326,17 @@ ledger row entered through the CLI (D-006).
     Do not propose dropping either bound, a drain on a hand-run hello, or skipping past a
     message that does not fit.
 
+38. **A resource slot is a claim on `.buddy/slot/<name>` (D-035).** For a capacity-1 shared
+    resource (the test box, a serialized tier, `main` during a land), a claim on a path under
+    the reserved `.buddy/slot` prefix IS the reservation: exclusive, freed by `release`,
+    queued on by `wait --on`, counted by `who`. No file exists there. A scope is a slot by
+    invariant 14's containment on invariant 13's fold. The only code is presentation: a
+    refused claim and a `--dry-run` print one fenced `SLOT:` line before the wait suggestion.
+    No gate reads the prefix, no new scope kind, no counted capacity until a counted resource
+    is measured contended, and a holder that says `bye` still stops refusing (D-026). Do not
+    propose a `slot` verb, a capacity column, or a job-lifetime binding without that
+    measurement.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

@@ -381,6 +381,71 @@ func TestRefusedClaimSuggestsAWaitAndRegistersNothing(t *testing.T) {
 	}
 }
 
+// A refusal under the reserved slot prefix says it refused a RESOURCE, not a
+// file (D-035, issue #27), in the real claim and the dry run alike, on either
+// side of the conflict and under the ledger's fold. Every case is refused, so
+// a case that prints no SLOT line is the positive control that the refusal
+// path ran and chose not to say it: a lookalike prefix must not count, and
+// an ordinary file collision must not either.
+func TestARefusedSlotSaysItIsAResource(t *testing.T) {
+	boundedParallel(t)
+	const one = " is a shared resource, not a file — do not start the job it guards until it frees; buddy who <slug> counts who else is waiting\n"
+	cases := []struct {
+		name string
+		held []string
+		req  []string
+		want string // "" = refused with no SLOT line
+	}{
+		{"same slot", []string{".buddy/slot/box"}, []string{".buddy/slot/box"}, "SLOT: .buddy/slot/box" + one},
+		{"only the fold makes it a slot", []string{".BUDDY/slot/box"}, []string{".buddy/SLOT/box"}, "SLOT: .BUDDY/slot/box" + one},
+		{"held parent contains the slot", []string{".buddy"}, []string{".buddy/slot/box"}, "SLOT: .buddy/slot/box" + one},
+		{"requesting every slot", []string{".buddy/slot/box"}, []string{".buddy/slot"}, "SLOT: .buddy/slot/box" + one},
+		{"one slot reached twice is named once", []string{".buddy/slot/box"}, []string{".buddy/slot/box", ".buddy/slot"}, "SLOT: .buddy/slot/box" + one},
+		{"two slots, one line", []string{".buddy/slot/box", ".buddy/slot/main"}, []string{".buddy/slot/box", ".buddy/slot/main"},
+			"SLOT: .buddy/slot/box, .buddy/slot/main are shared resources, not files — do not start the jobs they guard until they free; buddy who <slug> counts who else is waiting\n"},
+		{"lookalike prefix", []string{".buddy/slots/box"}, []string{".buddy/slots/box"}, ""},
+		{"prefix without the separator", []string{".buddy/slotbox"}, []string{".buddy/slotbox"}, ""},
+		{"an ordinary file", []string{"docs/y.md"}, []string{"docs/y.md"}, ""},
+	}
+	flags := func(verb, slug string, scopes []string, extra ...string) []string {
+		a := []string{verb, slug, "--desc", "x"}
+		for _, s := range scopes {
+			a = append(a, "--scope", s)
+		}
+		return append(a, extra...)
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWaitFx(t)
+			w.ok(t, "sess-b", flags("claim", "box", tc.held)...)
+			for _, dry := range []bool{false, true} {
+				args := flags("claim", "mine", tc.req)
+				if dry {
+					args = append(args, "--dry-run")
+				}
+				out, _, code := w.as(t, "sess-a", args...)
+				if code == 0 || !strings.Contains(out, "REFUSED: ") {
+					t.Fatalf("control (dry=%v): the claim must be refused:\n%s", dry, out)
+				}
+				wait := strings.Index(out, "to be told when it frees: buddy wait --on box\n")
+				if wait < 0 {
+					t.Fatalf("control (dry=%v): the wait suggestion must still print:\n%s", dry, out)
+				}
+				slot := strings.Index(out, "SLOT: ")
+				if tc.want == "" {
+					if slot >= 0 {
+						t.Fatalf("dry=%v: not a slot, but said one:\n%s", dry, out)
+					}
+					continue
+				}
+				if !strings.Contains(out, tc.want) || strings.Count(out, "SLOT: ") != 1 || slot > wait {
+					t.Fatalf("dry=%v: want exactly one %q before the wait line:\n%s", dry, tc.want, out)
+				}
+			}
+		})
+	}
+}
+
 func rosterRow(t *testing.T, w *waitFx, label string) string {
 	t.Helper()
 	out := w.ok(t, "sess-a", "sessions")

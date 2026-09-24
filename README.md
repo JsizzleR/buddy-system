@@ -612,6 +612,55 @@ What it deliberately is not:
   a resume, `hello` names the earlier run's wait as ended and prints the line
   that would declare it again.
 
+### 1c″. Resource slots — a claim on `.buddy/slot/<name>`
+
+```sh
+buddy claim box --desc "check-all pid 16087 since 14:02" --scope .buddy/slot/box
+# … run the suite …
+buddy release box
+```
+
+```sh
+# a second session, meanwhile:
+buddy claim mine --desc "check-all" --scope .buddy/slot/box
+# REFUSED: .buddy/slot/box  (overlaps ".buddy/slot/box" held by repo/s-4856919d, claim "box")
+# SLOT: .buddy/slot/box is a shared resource, not a file — do not start the job it guards until it frees; buddy who <slug> counts who else is waiting
+# to be told when it frees: buddy wait --on box
+```
+
+Claims reserve paths, and some of what sessions contend for is not a path:
+the local test box (one `check-all` at a time), a serialized hour-long tier,
+`main` during a land. When the protocol for those lived in chat ("ask before
+you start", "tell me when you're off"), it had no state. Three sessions were
+each told, correctly, that their run could overlap the tier, and the sum was
+four suites against a serialized 60-minute tier with timing legs. Nobody
+authorized that load, and only the coordinator could see it (issue #27).
+
+A claim on a path under `.buddy/slot/` is the reservation. Nothing new was
+built for it: scopes are never checked against the filesystem, so no file
+exists there or needs to. The claim is exclusive and names its holder. A quiet
+holder still refuses and the refusal says so (D-022). `release` frees it.
+`buddy wait --on box` queues on it with a `LANDED` verdict when it frees, and
+`buddy who box` prints `WAITED ON by N session(s)`, which is the queue. Every
+session's SessionStart digest lists the holder, and re-claiming refreshes the
+`--desc`. The reserved prefix only adds the `SLOT:` line to a refusal and a
+dry run, so a refused session does not treat the refusal as a file collision
+it can work around.
+
+What to know before relying on it:
+
+- **Hold the slot in the session that runs the job, and release it when the
+  job ends.** A holder that says `bye` stops refusing (D-026). The ledger
+  records sessions, not jobs, so a job still running after its session ended
+  is unguarded from that moment.
+- **Capacity is 1.** A counted resource (a 4-slot review API) has no verb that
+  hands out a free one of N. That waits until a fleet run shows one contended.
+- Scopes still contain by prefix. A claim on `.buddy` or `.buddy/slot` takes
+  every slot at once. `.buddy/slots/x` is not a slot.
+- Cooperative, like every claim. A session that runs the suite without
+  claiming is not stopped. The claim makes the holder visible and the
+  collision refusable, and that is all it does.
+
 ### 2. Presence (the fun half)
 
 Run an [ergo] IRC server — a single Go binary. Make the loopback binding
