@@ -1277,6 +1277,18 @@ func cmdIdle(args []string, env Env) error {
 // and should cost nothing to an operator who does not want another line in
 // their settings. Retracting is the safe direction — the worst a missing
 // `busy` can do is what happens today.
+//
+// AND IT DRAINS THE INBOX (issue #31). A prompt typed into a session at rest is
+// the one moment its mail can ride in without a tool call. The busy hook used
+// to only clear the idle mark, so the turn opened with nothing in context and
+// the mail arrived only if the model happened to run a tool. Measured: an
+// operator typed "ok" into an idle lane BECAUSE they knew an approval was
+// queued. The lane saw it only after it chose to run `buddy inbox`, and a
+// text-only answer would never have seen it. This is beat's drain, not a
+// second one: same bound, same fence, and the same order of write first,
+// mark after. It carries only the inbox. The notices beat also carries
+// (dirty, authority, a landed wait) belong to the tool call that observes
+// them, and that call follows.
 func cmdBusy(args []string, env Env) error {
 	h, err := readHook(env)
 	if err != nil {
@@ -1290,7 +1302,39 @@ func cmdBusy(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	return st.ClearIdle(h.SessionID)
+	if err := st.ClearIdle(h.SessionID); err != nil {
+		return err
+	}
+	label := ""
+	if me, known, err := st.SessionByID(h.SessionID); err != nil {
+		return err
+	} else if known {
+		label = me.Label
+	}
+	msgs, err := st.Undelivered(h.SessionID, label)
+	if err != nil || len(msgs) == 0 {
+		return err
+	}
+	var b strings.Builder
+	ids := writeInbox(&b, boundDrain(msgs))
+	if err := writeHookContext(env, "UserPromptSubmit", b.String()); err != nil {
+		return err // write failed → nothing marked → the next drain delivers it
+	}
+	return st.MarkDelivered(h.SessionID, ids)
+}
+
+// writeHookContext emits text as the ONE hook JSON document an event may
+// write, as additionalContext under the event's own name.
+func writeHookContext(env Env, event, text string) error {
+	enc, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName":     event,
+		"additionalContext": text,
+	}})
+	if err != nil {
+		return err
+	}
+	_, err = env.Stdout.Write(append(enc, '\n'))
+	return err
 }
 
 func cmdBeat(args []string, env Env) error {
@@ -1419,15 +1463,7 @@ func cmdBeat(args []string, env Env) error {
 	b.WriteString(auth)
 	b.WriteString(landed)
 	ids := writeInbox(&b, boundDrain(msgs))
-	out := map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName":     "PostToolUse",
-		"additionalContext": b.String(),
-	}}
-	enc, err := json.Marshal(out)
-	if err != nil {
-		return err
-	}
-	if _, err := env.Stdout.Write(append(enc, '\n')); err != nil {
+	if err := writeHookContext(env, "PostToolUse", b.String()); err != nil {
 		return err // write failed → nothing marked → redelivered next beat
 	}
 	// Both marks are claimed only after the write succeeded, for the same
