@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // CORRECTIONS (D-043, issue #34, wishlist §4). A coordinator broadcast seven
@@ -39,6 +42,57 @@ type SendOpts struct {
 	SenderKnown   bool
 	// Supersedes is the message this one corrects; 0 = none.
 	Supersedes int64
+	// Kind is what the sender declares the body to be (D-045): KindLead,
+	// KindMeasured (KindNote = what was counted, over what) or KindRelay
+	// (KindNote = the source). "" declares nothing. The CLI validates; the
+	// store refuses an unknown kind so no other door can write one.
+	Kind, KindNote string
+}
+
+// The declared kinds (D-045), and their notes' caps in RENDERED bytes.
+const (
+	KindLead     = "lead"
+	KindMeasured = "measured"
+	KindRelay    = "relay"
+
+	MaxMeasuredScope = 128
+	MaxRelaySource   = 64
+)
+
+// ErrBadKind is a declaration the ledger will not record, naming why.
+type ErrBadKind struct{ Reason string }
+
+func (e ErrBadKind) Error() string { return e.Reason }
+
+// ValidateKind is THE rule for a declaration, for every door a message comes
+// through: the CLI calls it to explain a refusal, and Send calls it so a caller
+// that skips the CLI cannot record one either. A note must SHOW once rendered,
+// because fence.Line strips control bytes and `\x1b` would read as MEASURED "".
+// Its cap is on the rendered bytes, as D-021 caps a body, because a raw cap
+// lets the render truncate silently (Codex design and code passes, D-045).
+func ValidateKind(kind, note string) error {
+	limit := 0
+	switch kind {
+	case "", KindLead:
+		if note != "" {
+			return ErrBadKind{fmt.Sprintf("kind %q takes no note", kind)}
+		}
+		return nil
+	case KindMeasured:
+		limit = MaxMeasuredScope
+	case KindRelay:
+		limit = MaxRelaySource
+	default:
+		return ErrBadKind{fmt.Sprintf("unknown kind %q", kind)}
+	}
+	shown := fence.Line(note, 1<<20)
+	switch {
+	case strings.TrimSpace(shown) == "":
+		return ErrBadKind{fmt.Sprintf("--%s needs a value that shows once rendered (got %q)", kind, note)}
+	case len(shown) > limit:
+		return ErrBadKind{fmt.Sprintf("--%s renders to %d bytes and the line shows %d; shorten it", kind, len(shown), limit)}
+	}
+	return nil
 }
 
 // ErrNotCorrectable is a refused --supersedes, naming why.
@@ -58,6 +112,9 @@ func (s *Store) Send(t Target, from, body string, o SendOpts) (int64, error) {
 	if err := t.check(); err != nil {
 		return 0, err
 	}
+	if err := ValidateKind(o.Kind, o.KindNote); err != nil {
+		return 0, err
+	}
 	var id int64
 	err := s.tx(func(tx *sql.Tx) error {
 		if o.Supersedes != 0 {
@@ -69,8 +126,8 @@ func (s *Store) Send(t Target, from, body string, o SendOpts) (int64, error) {
 		if o.SenderKnown {
 			sender = o.SenderSession
 		}
-		res, err := tx.Exec(`INSERT INTO inbox (target, sender, body, created, sender_session, supersedes) VALUES (?,?,?,?,?,?)`,
-			t.ID, from, body, s.now().Unix(), sender, o.Supersedes)
+		res, err := tx.Exec(`INSERT INTO inbox (target, sender, body, created, sender_session, supersedes, kind, kind_note) VALUES (?,?,?,?,?,?,?,?)`,
+			t.ID, from, body, s.now().Unix(), sender, o.Supersedes, o.Kind, o.KindNote)
 		if err != nil {
 			return err
 		}
@@ -219,6 +276,8 @@ type SentInfo struct {
 	SupersededBy  []int64
 	OwnerKnown    bool
 	SenderSession string
+	Kind          string
+	KindNote      string
 	Recipients    []SentRecipient
 }
 
@@ -227,8 +286,8 @@ type SentInfo struct {
 func (s *Store) Sent(id int64) (SentInfo, bool, error) {
 	var si SentInfo
 	var owner sql.NullString
-	err := s.db.QueryRow(`SELECT msg_id, target, sender, created, supersedes, sender_session FROM inbox WHERE msg_id=?`, id).
-		Scan(&si.ID, &si.Target, &si.Sender, unixScan{&si.Created}, &si.Supersedes, &owner)
+	err := s.db.QueryRow(`SELECT msg_id, target, sender, created, supersedes, sender_session, kind, kind_note FROM inbox WHERE msg_id=?`, id).
+		Scan(&si.ID, &si.Target, &si.Sender, unixScan{&si.Created}, &si.Supersedes, &owner, &si.Kind, &si.KindNote)
 	if errors.Is(err, sql.ErrNoRows) {
 		return si, false, nil
 	}

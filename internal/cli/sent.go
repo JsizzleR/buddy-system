@@ -94,6 +94,9 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool) {
 	head := fmt.Sprintf("#%d to %s from %s, %s ago — %d of %d with a recorded delivery",
 		si.ID, fence.Line(to, 64), fence.Line(si.Sender, 64), age(now, si.Created),
 		deliveredCount(si), len(si.Recipients))
+	if d := declaredKind(si.Kind, si.KindNote); d != "" {
+		head += "; " + d
+	}
 	if si.Supersedes != 0 {
 		head += fmt.Sprintf("; corrects #%d", si.Supersedes)
 	}

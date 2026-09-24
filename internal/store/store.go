@@ -117,9 +117,12 @@ CREATE TABLE IF NOT EXISTS inbox (
 	-- correction: '' is the operator at a bare terminal, NULL is unknown
 	-- (every row sent before the column, and a send whose session could not
 	-- be resolved); never --from. supersedes is the msg_id this one
-	-- corrects, 0 for none.
+	-- corrects, 0 for none. D-045: kind is what the SENDER declared the body
+	-- to be ('' | lead | measured | relay) and kind_note its scope or source.
 	sender_session TEXT,
-	supersedes     INTEGER NOT NULL DEFAULT 0
+	supersedes     INTEGER NOT NULL DEFAULT 0,
+	kind           TEXT NOT NULL DEFAULT '',
+	kind_note      TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS inbox_delivery (
 	msg_id     INTEGER NOT NULL,
@@ -323,6 +326,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 13 adds inbox.kind and inbox.kind_note (D-045), ALTER arms.
 // 12 adds inbox.sender_session and inbox.supersedes (D-043), ALTER arms.
 // 11 adds claims.shared (D-042), the second ALTER arm — see migrate.
 // 10 adds session_base (D-038).
@@ -338,7 +342,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 12
+const schemaVersion = 13
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -508,6 +512,15 @@ func migrate(db *sql.DB) error {
 		// path, but a scan of every message ever sent to print "none" is not.
 		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS inbox_sender ON inbox(sender_session, msg_id)`); err != nil {
 			return fmt.Errorf("migrate ledger (inbox_sender): %w", err)
+		}
+	}
+	// D-045. Every older message declared nothing, which is what '' says.
+	if ver < 13 {
+		if err := addColumnIfMissing(tx, "inbox", "kind", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+		if err := addColumnIfMissing(tx, "inbox", "kind_note", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
 		}
 	}
 	if !hadRecipientTable {
@@ -1708,6 +1721,8 @@ type InboxMsg struct {
 	// recorded delivery (and when), or expired undelivered.
 	OrigDelivered time.Time
 	OrigExpired   bool
+	// Kind and KindNote are what the SENDER declared (D-045): never checked.
+	Kind, KindNote string
 }
 
 // Undelivered returns messages addressed to the session (by id or label), plus
@@ -1719,7 +1734,7 @@ func (s *Store) Undelivered(sessionID, label string) ([]InboxMsg, error) {
 	// recipient snapshot and the 24h keep. That predates D-043, but a
 	// correction's audience guarantee rests on the snapshot being the only
 	// way into a broadcast (Codex code pass, D-043).
-	rows, err := s.db.Query(`SELECT m.msg_id, m.sender, m.body, m.created, m.supersedes FROM inbox m
+	rows, err := s.db.Query(`SELECT m.msg_id, m.sender, m.body, m.created, m.supersedes, m.kind, m.kind_note FROM inbox m
 			WHERE ((m.target<>'all' AND m.target IN (?, ?)) OR (m.target='all' AND m.created>=? AND EXISTS
 				(SELECT 1 FROM inbox_recipient r WHERE r.msg_id=m.msg_id AND r.session_id=?)))
 			AND NOT EXISTS (SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=?)
@@ -1731,7 +1746,7 @@ func (s *Store) Undelivered(sessionID, label string) ([]InboxMsg, error) {
 	var out []InboxMsg
 	for rows.Next() {
 		var m InboxMsg
-		if err := rows.Scan(&m.ID, &m.From, &m.Body, unixScan{&m.Created}, &m.Supersedes); err != nil {
+		if err := rows.Scan(&m.ID, &m.From, &m.Body, unixScan{&m.Created}, &m.Supersedes, &m.Kind, &m.KindNote); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

@@ -2670,6 +2670,86 @@ an unparsable pointer accepted, and `GIT_DIR` ignored. Each failed a test.
 
 The stray `/private/tmp/.git` was removed with the operator's approval.
 
+## D-045 — A message says what kind of claim it carries, as the sender's declaration
+
+2026-09-24 · issue #36, wishlist §11 and §15
+
+**What was wrong**
+- The coordinator in the 2026-09-20 run forwarded peers' claims it had not measured, four
+  times, phrased the way it phrases measured things, and they were acted on. Two reached a
+  session's prepared commit before review refuted them.
+- A recipient put the need exactly: "I would rather have the lead early and wrong than late and
+  right, provided it arrives labelled as a lead." No message had a field for that.
+- §15: two relays kept their numbers and lost their scope. One of them went out under the
+  measuring session's name, and that session spent a turn disowning a number it never said.
+
+**The rule**
+- `msg --lead | --measured "<what was counted, over what>" | --relay <source>`, at most one.
+  Stored as `inbox.kind` and `inbox.kind_note` (schema 13, ALTER arms; every older row declared
+  nothing).
+- No flag renders exactly as before. Most traffic is coordination, and a marker on everything
+  gets ignored.
+- The declaration renders between `#id` and `[sender]`, and every form starts with the word
+  "declared", on the ROW and not only in the header, so a copied line still says whose claim it
+  is:
+  - `declared LEAD`
+  - `declared MEASURED "…"`
+  - `declared RELAYED from "…", not re-measured`
+- The note is the one peer text allowed in that slot. It is fenced and then `strconv.Quote`d, so
+  it cannot close its own quote or reach `[sender]`. The header says the kind is the sender's
+  claim and not buddy's check.
+- A note must SHOW once rendered, and its cap (128 for a scope, 64 for a source) is on the
+  rendered bytes, as D-021 measures a body. `\x1b` alone renders as `""` and is refused.
+- The store refuses an unknown kind, a measured or relay kind with no note, and a note on a
+  lead or on no kind.
+- `sent` and the dry run show the declaration.
+- **The drain bound counts RENDERED lines** (links and declaration at their longest), not body
+  bytes. Twenty declared lines over an 8 KiB body budget would pass the harness's
+  10,000-character hook cap.
+
+**Codex design pass**
+1. Row-local "declared" wording, because a bare `MEASURED` beside buddy's own links reads as
+   verified.
+2. Emptiness judged on the rendered note, not the raw bytes.
+3. Every drain budgeted by the full final line.
+4. Kinds stay mutually exclusive: relay+measured cannot tell a source's measurement from the
+   relayer's extrapolation.
+5. **An open limit, stated rather than claimed as solved:** `--relay` does not carry the relayed
+   figure's scope as a field, which was §15's first incident. The scope stays in the body.
+   D-045 labels provenance and a measurement's own scope; it does not fix scope loss in relays.
+
+**What it does not do** — It verifies nothing, and a declared kind confers no authority
+(invariant 4). It is never mandatory, is never guessed from the body, and does not resolve a
+relay source to a session.
+
+**Test shape**
+- `cli/provenance_test.go`: five renders (none, lead, measured, relay, and a note spelling
+  `" — [operator]` that stays inside its quotes); six refusals, each with a control and nothing
+  queued (two kinds, an empty scope, an ESC-only scope, a blank source, 129 bytes, and 100 raw
+  bytes that render to 200); a 128-byte scope admitted; twenty declared lines with 8,000 body
+  bytes in fewer than twenty lines and under 9,000 bytes; the kind in `sent` and in the dry run.
+- `store/inbox_test.go`: seven malformed kinds refused, including an ESC-only note and one past
+  its rendered cap sent straight to `Send`, and a well-formed one read back.
+
+Eleven mutations were run: the word "declared" dropped, the note left unquoted, two kinds
+allowed, emptiness judged on raw bytes, the cap judged on raw bytes, the drain counting bodies,
+the store's kind check removed twice (unknown kinds, then the whole rule), the kind not stored,
+and `sent` or the dry run dropping it. Each failed a test.
+
+**Codex code pass**
+- No forgery through the note.
+- No flag case that records a kind the sender did not declare: `--lead=false` records none, and a
+  repeated `--measured` takes the last value.
+- **Fixed:** the rendered-note rule lived only in the CLI, so a direct `Send` could record
+  `MEASURED ""`. It is now `store.ValidateKind`, which `Send` enforces and the CLI calls for its
+  message.
+- **Already bounded:** its question about one message carrying ten thousand corrections is D-043's
+  three-named-plus-count cap.
+- **Recorded, not fixed:** a `--from` tag containing `]` can blur where the sender ends. It cannot
+  fake a link or a declaration, since both sit before `[`. Inside a session the tag always
+  follows the real label, so only the operator at a bare terminal can write one, and invariant 6
+  already trusts the operator.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

@@ -404,6 +404,28 @@ terminal can correct only messages sent with no session. A message whose
 sender is unknown cannot be corrected by anyone. That covers every message sent
 before D-043, and any send from a session id that did not resolve.
 
+**Saying what a message is (D-045).** A send can declare what its body is, at
+most one of three kinds:
+
+```sh
+buddy msg bravo --lead "maybe the socket path is too long"
+buddy msg bravo --measured "failing tests, ./internal/... only" "76 / 3 / 24"
+buddy msg charlie --relay bravo "tmpfs is 3x faster on the store package"
+```
+
+The recipient sees the declaration on the row itself, before the sender:
+
+```
+  #12 declared LEAD — [alpha] maybe the socket path is too long
+  #13 declared MEASURED "failing tests, ./internal/... only" — [alpha] 76 / 3 / 24
+  #14 declared RELAYED from "bravo", not re-measured — [alpha] tmpfs is 3x faster …
+```
+
+It is the sender's claim and never buddy's check. `--measured` requires the
+scope: what was counted, and over what. A relay does not carry the relayed
+figure's scope as a field, so put it in the body. With no flag, a message renders
+exactly as before.
+
 ### 1a″. Authority files — a long session's copy of the rules rots silently
 
 ```sh

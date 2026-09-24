@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -275,5 +276,35 @@ func TestTheLabelAllIsNotABroadcastAddress(t *testing.T) {
 	// Control: alpha, in the snapshot, gets it.
 	if msgs, _ := st.Undelivered(a.SessionID, "alpha"); len(msgs) != 1 || msgs[0].ID != id {
 		t.Fatalf("control: the snapshot's member gets the broadcast: %+v", msgs)
+	}
+}
+
+// The store refuses a kind no CLI door would write (D-045).
+func TestSendRefusesAMalformedKind(t *testing.T) {
+	st, _ := openTest(t)
+	hello(t, st, "sess-b", "bravo", "/wt/b")
+	bravo := mustResolve(t, st, "bravo")
+	for _, o := range []SendOpts{
+		{SenderKnown: true, Kind: "verified"},
+		{SenderKnown: true, Kind: KindMeasured},
+		{SenderKnown: true, Kind: KindRelay},
+		{SenderKnown: true, Kind: KindLead, KindNote: "x"},
+		{SenderKnown: true, Kind: "", KindNote: "x"},
+		// A caller that skips the CLI cannot record what the CLI refuses: a
+		// note that renders empty, or one past its rendered cap.
+		{SenderKnown: true, Kind: KindMeasured, KindNote: "\x1b"},
+		{SenderKnown: true, Kind: KindRelay, KindNote: strings.Repeat("a\n", 30)},
+	} {
+		if _, err := st.Send(bravo, "x", "b", o); err == nil {
+			t.Fatalf("kind %q note %q must be refused", o.Kind, o.KindNote)
+		}
+	}
+	id, err := st.Send(bravo, "x", "b", SendOpts{SenderKnown: true, Kind: KindMeasured, KindNote: "rows"})
+	if err != nil {
+		t.Fatalf("control: a well-formed kind is written: %v", err)
+	}
+	msgs, _ := st.Undelivered("sess-b", "bravo")
+	if len(msgs) != 1 || msgs[0].ID != id || msgs[0].Kind != KindMeasured || msgs[0].KindNote != "rows" {
+		t.Fatalf("the kind must read back: %+v", msgs)
 	}
 }
