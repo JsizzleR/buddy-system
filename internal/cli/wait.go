@@ -741,6 +741,68 @@ func waitersPhrase(st *store.Store, waits []store.Wait, now time.Time) string {
 	return strings.Join(parts, ", ")
 }
 
+// slotPrefix is the reserved home of resource slots (D-035, issue #27): a
+// claim on `.buddy/slot/<name>` reserves a shared resource — the test box,
+// a serialized tier, `main` during a land — rather than a file. Nothing is
+// built for it: NormalizeScope consults no filesystem, a claim is already
+// exclusive, `release` frees it, `wait --on` queues on it and `who` counts
+// the queue. The prefix NAMES the convention, and a refusal under it says
+// what kind of thing was refused. The measured failure it answers was a slot
+// protocol that lived in chat ("ask before you start") and so had no state:
+// four suites ran against a serialized hour-long tier, assembled out of four
+// individually correct permissions.
+//
+// A register with counted capacity was cut until a counted resource is
+// measured contended; a capacity-1 claim is the whole mechanism here.
+const slotPrefix = ".buddy/slot"
+
+// isSlot reports whether a scope lies under the slot prefix, by invariant
+// 14's containment on invariant 13's fold — the same comparison the conflict
+// scan makes, so `.Buddy/Slot/box` is a slot exactly when it collides with
+// `.buddy/slot/box`, and `.buddy/slots/x` is not one.
+func isSlot(scope string) bool {
+	f := store.Fold(scope)
+	return f == slotPrefix || strings.HasPrefix(f, slotPrefix+"/")
+}
+
+// slotNote is the line a refusal prints when what is in the way is a resource
+// slot: without it the refusal reads like a file collision, and the refused
+// session's natural next move — go ahead, it is only a path — is exactly the
+// overlapping run the slot exists to prevent. Either side of a conflict can
+// be the slot (a held `.buddy` contains every slot; a requested `.buddy/slot`
+// asks for all of them), and the held side is named when both are.
+func slotNote(conflicts []store.Conflict) string {
+	seen := map[string]bool{}
+	var slots []string
+	for _, c := range conflicts {
+		s := ""
+		switch {
+		case c.Scope == "":
+			continue
+		case isSlot(c.Their):
+			s = c.Their
+		case isSlot(c.Scope):
+			s = c.Scope
+		default:
+			continue
+		}
+		if !seen[store.Fold(s)] {
+			seen[store.Fold(s)] = true
+			slots = append(slots, s)
+		}
+	}
+	switch len(slots) {
+	case 0:
+		return ""
+	case 1:
+		return "SLOT: " + fence.Line(slots[0], 512) +
+			" is a shared resource, not a file — do not start the job it guards until it frees; buddy who <slug> counts who else is waiting\n"
+	default:
+		return "SLOT: " + fence.Line(strings.Join(slots, ", "), 512) +
+			" are shared resources, not files — do not start the jobs they guard until they free; buddy who <slug> counts who else is waiting\n"
+	}
+}
+
 // waitSuggestion is the line a refused claim prints after its REFUSED lines:
 // the command that would declare a wait on every claim in the way. It
 // SUGGESTS and never registers — a refusal is a fact about a claim, not

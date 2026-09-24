@@ -2045,6 +2045,68 @@ and each mutation failed exactly the test written for it.
 - The claims list is unbounded and could cross the cap on its own, before any message is
   added. That predates this change.
 
+## D-035 — A resource slot is a claim on `.buddy/slot/<name>`; the prefix is named, not built
+
+2026-09-23 · issue #27
+
+**What was wrong** — Claims reserve paths, and nothing reserved a shared RESOURCE: the local
+test box (one `check-all` at a time), a serialized hour-long tier, `main` during a land. The
+slot protocol lived in chat ("ask before you start", "announce when you start", "tell me when
+you're off"), so it had no state, no history, and no way to see the holder without asking.
+Measured in the 2026-09-20 fleet run: three sessions were each told, individually and
+correctly, that a grep-bound doc gate may overlap a tier. The sum was four concurrent suites
+against a serialized ~60-minute tier with timing legs, a load nobody authorized, assembled out
+of per-session permissions, and only the coordinator could see it.
+
+**What already existed** — For a capacity-1 resource, a claim on a sentinel path does the whole
+job. `NormalizeScope` consults no filesystem, so `--scope .buddy/slot/box` is legal and no file
+ever needs to exist. The claim is exclusive and a refusal names the holder and its staleness
+(D-022). `release` frees it, `wait --on` (D-033) queues on it with a LANDED verdict, `who`
+prints `WAITED ON by N session(s)` (the queue depth), and the SessionStart digest shows the
+holder to every session (D-030).
+
+**What shipped** — The convention, named:
+- `.buddy/slot` is the reserved prefix (`slotPrefix`, `internal/cli/wait.go`). A scope is a
+  slot when it lies under the prefix by invariant 14's containment on invariant 13's fold,
+  which is the comparison the conflict scan itself makes. `.Buddy/Slot/box` is a slot because
+  it collides with `.buddy/slot/box`; `.buddy/slots/x` and `.buddy/slotx` are not.
+- A refused claim and a `--dry-run` print one `SLOT:` line, before the `buddy wait --on`
+  suggestion, naming every distinct slot in the conflict set (fenced): a shared resource, not
+  a file; do not start the job it guards until it frees; `buddy who <slug>` counts who else is
+  waiting. Either side of a conflict can be the slot (a held `.buddy` contains every slot; a
+  requested `.buddy/slot` asks for all of them), and the held side is named when both are.
+- A README recipe (§1c″).
+
+**Why a line and not a verb** — Everything the resource needs already refuses, frees, queues
+and shows. What was missing was that a refusal on a sentinel path read like a file collision,
+and the natural next move after one (go ahead, it is only a path) is exactly the overlapping
+run the slot exists to prevent.
+
+**What it deliberately does not do**
+- **No counted capacity.** The review API has 4 slots, and no contention on it has been
+  measured. A `slot` verb with capacity, and its own record, waits until a fleet run shows a
+  counted resource contended.
+- **No new scope kind.** The sentinel is a path. Exact-path/prefix scopes are unchanged, and no
+  gate reads the prefix. The SLOT line is presentation on the refusal path only.
+- **No change to D-026.** A holder that says `bye` stops refusing, so a job still running after
+  its session ended is unguarded from that moment. The ledger records sessions, not jobs. The
+  README says to hold the slot in the session that runs the job. This case is predicted, not
+  measured. A crashed holder's claim goes stale and still refuses, which is the right
+  direction.
+- No fairness, ETA expiry, queueing beyond `wait`, or machine-wide authority across independent
+  repos. The measured run was worktrees of one checkout, which share one ledger.
+
+**Test shape** — `TestARefusedSlotSaysItIsAResource`, table-driven, every case refused, and the
+real claim and the dry run both checked: the same slot; a slot recognizable only after the fold
+(`.BUDDY/slot/box` against `.buddy/SLOT/box`); a held parent containing the slot; a request for
+every slot (names the held one); one slot reached by two requested scopes (named once); two
+slots on one plural line; and three negative cases that are refused and print no SLOT line
+(`.buddy/slots/box`, `.buddy/slotbox`, an ordinary file). The refusal and the wait suggestion
+are asserted in every case, so "no SLOT line" is never "the refusal path never ran". Mutated
+seven ways (fold removed; `/` dropped from the prefix match; requested side preferred over
+held; held side only; the line removed from the real claim; removed from the dry run; dedupe
+removed), and each mutation failed exactly the cases written for it.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

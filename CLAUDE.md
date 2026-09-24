@@ -400,6 +400,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   because Claude Code replaces hook output past 10,000 characters with a preview
   (documented, not measured) and that would hide the claims list. The remainder is
   counted and left queued. Waking a session ALREADY at its prompt is still D-027's "no".
+- **A resource slot is a claim on `.buddy/slot/<name>` (D-035, #27).** Capacity 1, nothing
+  built: the claim refuses, `release` frees, `wait --on` queues, `who` counts. The prefix
+  only adds a fenced `SLOT:` line to a refusal and a dry run. No gate reads it, no new scope
+  kind, and counted capacity waits until a counted resource is measured contended.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

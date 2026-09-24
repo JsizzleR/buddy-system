@@ -1751,6 +1751,7 @@ func cmdClaim(args []string, env Env) error {
 			return fencedErr(err)
 		}
 		printConflicts(env, conflicts)
+		fmt.Fprint(env.Stdout, slotNote(conflicts))
 		fmt.Fprint(env.Stdout, waitSuggestion(conflicts))
 		// What a real claim would DISPLACE: open claims of holders that have
 		// said bye, which Claim orphans on its way in (D-026). Said apart
@@ -1797,6 +1798,7 @@ func cmdClaim(args []string, env Env) error {
 					Claimant: r.Claimant, Renewed: r.Renewed})
 			}
 			printConflicts(env, set)
+			fmt.Fprint(env.Stdout, slotNote(set))
 			// The command that would declare a wait on every claim in the
 			// way (D-033). Suggested, never registered: a refusal is a fact
 			// about a claim, not about what this session means to do next.
