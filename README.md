@@ -53,6 +53,19 @@ replaces the file, so the command above is safe; `cp new ~/bin/buddylist` is
 not. It matters because the hook lines end in `exit 0`: a killed binary is
 indistinguishable from a binary that had nothing to say.
 
+**The skill.** A session finds out what `buddy` can do in two places. The
+SessionStart digest points at `buddy --help`. A user-level skill explains how
+the verbs fit together: claim, refusal, wait, messages. Install the skill with:
+
+```sh
+mkdir -p ~/.claude/skills/buddy
+cp skills/buddy/SKILL.md ~/.claude/skills/buddy/SKILL.md
+```
+
+Copy it again after an upgrade. A test checks every verb and flag it names
+against `--help`, so the copy in the repo stays accurate. The installed copy is
+only as current as your last copy.
+
 ### 1. Claims (the safety half — start here)
 
 ```sh

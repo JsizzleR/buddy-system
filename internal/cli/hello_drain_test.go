@@ -345,7 +345,13 @@ func TestHelloDigestStaysUnderBudgetAtEveryClaimLength(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	cut := 0
+	// A message too big to ride the digest, so every run also prints the line
+	// that counts it. The claims list once left no room for that line, and
+	// the digest came out over budget only when a message was queued.
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", strings.Repeat("m", 3000)); code != 0 {
+		t.Fatal(errw)
+	}
+	cut, counted := 0, 0
 	for n := 0; n <= 512; n += 16 {
 		desc := strings.Repeat("d", n)
 		for i := range 12 {
@@ -362,8 +368,49 @@ func TestHelloDigestStaysUnderBudgetAtEveryClaimLength(t *testing.T) {
 		if strings.Contains(out, "more live claim(s) not shown here") {
 			cut++
 		}
+		if strings.Contains(out, "queued message(s) not shown here") {
+			counted++
+		}
 	}
 	if cut == 0 {
 		t.Fatal("control: no length in the sweep cut the list, so nothing here tested the bound")
+	}
+	if counted == 0 {
+		t.Fatal("control: no run printed the queued-message count, so nothing here tested its room")
+	}
+}
+
+// The claims list's reserve for its own "not shown here" line was a constant
+// 160, and the line is 155 bytes plus the digits of both counts: with 100 of
+// the caller's own claims hidden it is 161, and a list filled to one byte
+// short of its reserve came out over its room. For every room large enough
+// to hold the remainder line at all, the list must fit it.
+func TestHelloClaimsRemainderFitsItsReserve(t *testing.T) {
+	now := time.Now()
+	me := store.SessionInfo{SessionID: "me", Label: "me/s-00000000"}
+	var claims []store.ClaimInfo
+	for i := range 120 {
+		claims = append(claims, store.ClaimInfo{Slug: fmt.Sprintf("c%03d", i), Desc: "d",
+			State: "open", Scopes: []string{"x"}, Renewed: now, Owner: me})
+	}
+	floor := len(helloClaimsRemainder(len(claims), len(claims)))
+	cut := 0
+	for room := floor; room <= floor+4000; room++ {
+		var b strings.Builder
+		writeHelloClaims(&b, claims, me, now, room)
+		if b.Len() > room {
+			t.Fatalf("room %d: wrote %d bytes:\n%s", room, b.Len(), b.String())
+		}
+		if strings.Contains(b.String(), "of them YOURS") {
+			cut++
+		}
+	}
+	// Positive control: the sweep did reach lists that were cut, with the
+	// three-digit YOURS count that outgrew the old constant.
+	if cut == 0 {
+		t.Fatal("control: no room in the sweep cut the list")
+	}
+	if !strings.Contains(helloClaimsRemainder(100, 100), "100 of them YOURS") || len(helloClaimsRemainder(100, 100)) <= 160 {
+		t.Fatal("control: the three-digit line no longer outgrows the old 160-byte constant; this test proves nothing")
 	}
 }

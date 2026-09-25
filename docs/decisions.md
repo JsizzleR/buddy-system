@@ -2750,6 +2750,79 @@ and `sent` or the dry run dropping it. Each failed a test.
   follows the real label, so only the operator at a bare terminal can write one, and invariant 6
   already trusts the operator.
 
+## D-046 — A session learns the verbs from the digest and a skill, not from the chat server
+
+2026-09-25
+
+**What was wrong**
+- Sessions were not using the features shipped in D-033 to D-045 (`wait`, `claim --shared`
+  and `--dry-run`, `msg --lead/--measured/--relay`, `--supersedes`, `sent`, `ids`). Nothing in
+  a session's context named them. The SessionStart digest named one verb, `claim`. The
+  buddylist MCP server lists chat tools only and sends no `instructions`. `buddy --help` was
+  complete, but a session saw it only if it thought to run it.
+- Some verbs announce themselves when they are needed: a refused claim suggests `wait --on`,
+  and beat names a changed authority file. The ones above have no such moment.
+
+**The rule**
+- `hello` prints one fixed line, `helloHelpLine`, after the identity line. It points at
+  `buddy --help` and names the verbs and flags a session would not otherwise learn about.
+  It costs about 360 bytes of the 9,000-byte budget at every start.
+- `skills/buddy/SKILL.md` is a user-level skill, installed by copying it to
+  `~/.claude/skills/buddy/`. It explains how the verbs fit together: claim, dry-run and
+  shared; what to do on a refusal (wait and arm your own loop, message the holder, or narrow);
+  roster and `who`/`whose`; message kinds, corrections and `sent`; slots, `ids`, the
+  orchestrator claim, and authority notices. Until a session uses it, it costs only its
+  one-line description.
+- Every `buddy <verb> [subcommand] --flag` either one names is read back against that verb's
+  usage line in the dispatch table (`checkNamedVerbs`). A renamed flag fails a test instead of
+  teaching every session a refusal.
+
+**Found on the way: the digest could exceed its budget (D-036's bound)**
+- The line counting undelivered messages is written after the claims list, and the list's room
+  never reserved it. The spare bytes hid this. With a long claims list and a message too big to
+  ride the digest, it measured 9,004 of 9,000 with the new line removed and 9,025 with it in.
+  The list now reserves `helloInboxCountLine` (128 bytes) whenever mail is queued.
+- The claims list's own remainder line had a fixed reserve of 160 bytes. The line is 155 bytes
+  plus the digits of both counts, so it outgrows that once 100 of the caller's own claims are
+  hidden (Codex, arithmetic; the test measured 193 bytes written into a 192-byte room). The
+  reserve is now the line's own worst case, rendered by the same function that writes it.
+
+**Considered and cut**
+- The MCP `instructions` field. It belongs to the chat half, which is absent whenever the daemon
+  is down, and claims must work with chat entirely absent (invariant 1).
+- The full verb list in the digest. Every session pays for it at every start, and a copy in
+  context goes stale the way a long session's CLAUDE.md does.
+- Pointing at the skill from the digest. On a machine without the skill installed, that line
+  would send the session looking for something that is not there. A skill surfaces itself.
+
+**Codex code pass**
+- The skill overstated nine things; all were corrected: an exclusive vs. shared hold; an
+  unclaimed edit being "invisible" (the dirty register observes it, and does not prove
+  authorship); the cache kept warm on the 5-minute tier; delivery in one drain; the authority
+  notice as proof of staleness; the room name as certain; "the gate is the only thing that
+  refuses"; and an orchestrator scope suggestion that would refuse a `.buddy` claim.
+- "Park on a peer, never poll" would lead a cold reader to arm no check. The line now says to
+  arm your own `/loop buddy wait check`.
+- The checker accepted three kinds of drift, each now a test case: a prefix of a subcommand
+  (`ids see`), an uppercase subcommand, and a flag with no left boundary (`--co--shared`).
+
+**Open limit** — A verb whose subcommands are all deleted from its usage line stops having
+the word after it checked, because the checker then reads that word as a value (a slug). That
+is a rewrite of the verb, and the verb's own tests see it.
+
+**Test shape**
+- `cli/discover_help_test.go`: the digest carries the line; the line and the skill name only
+  what `--help` answers, each with a minimum count read; seven drift shapes refused, one
+  usage-side rename refused, and three good shapes accepted.
+- `cli/hello_drain_test.go`: the claim-length sweep now queues a 3,000-byte message and requires
+  the count line at least once; the remainder line fits its reserve for every room from its
+  floor to floor+4000, with a three-digit YOURS count.
+
+Seven mutations were run: removing the inbox reserve (with and without the new line), dropping
+the line, `--dryrun` in the line, `--supersede` in the skill, and restoring the 160 constant.
+Each failed a test. The first real run also failed on a `--desc` span credited to `ids`,
+which was a real error in the skill.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

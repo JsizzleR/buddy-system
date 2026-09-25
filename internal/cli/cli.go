@@ -1105,6 +1105,7 @@ func cmdHello(args []string, env Env) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n",
 		fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
+	b.WriteString(helloHelpLine)
 	// A LABEL WORN TWICE (issue #17). Default labels are unique by
 	// construction (<worktree-base>/s-<8hex>), so only a hand-chosen --label
 	// collides — and when it does, every pause or msg addressed to it is
@@ -1164,11 +1165,22 @@ func cmdHello(args []string, env Env) error {
 	// and the keep-alive questioned; or a predecessor's that ended with its
 	// run, named as the earlier run's with the line that declares it again.
 	tail.WriteString(waitHelloLines(st, si, now))
+	// Read before the claims list, because the list must leave room for the
+	// line that counts undelivered messages. That line is written after
+	// everything else, whether or not any message fits, and the list's room
+	// used to be computed without it: a digest with a long claims list and a
+	// message too big to ride it came out over helloBudget. The spare bytes
+	// hid it until this digest grew a line (measured: 9,025 of 9,000).
+	msgs, _ := st.Undelivered(si.SessionID, si.Label)
+	inboxReserve := 0
+	if len(msgs) > 0 {
+		inboxReserve = helloInboxCountLine
+	}
 	if len(claims) == 0 {
 		b.WriteString("BUDDY: no live claims.\n")
 	} else {
 		b.WriteString("BUDDY live claims (do not touch scopes held by other sessions):\n")
-		writeHelloClaims(&b, claims, si, now, helloBudget-b.Len()-tail.Len())
+		writeHelloClaims(&b, claims, si, now, helloBudget-b.Len()-tail.Len()-inboxReserve)
 	}
 	b.WriteString(tail.String())
 	// DRAIN THE INBOX HERE TOO (issue #25, D-034). This line used to say
@@ -1189,11 +1201,10 @@ func cmdHello(args []string, env Env) error {
 	// is named with a count and left for the next drain. Same fence, same
 	// header, same write-then-mark as beat.
 	var ids []int64
-	if msgs, _ := st.Undelivered(si.SessionID, si.Label); len(msgs) > 0 {
+	if len(msgs) > 0 {
 		var shown []store.InboxMsg
 		if hookDriven {
-			const remainderLine = 128 // the "not shown here" line below, generously
-			room := helloBudget - b.Len() - len(inboxHeader) - remainderLine
+			room := helloBudget - b.Len() - len(inboxHeader) - helloInboxCountLine
 			for _, m := range boundDrain(msgs, now) {
 				if room -= len(inboxLine(m, nil, now)); room < 0 {
 					break
@@ -1740,6 +1751,34 @@ func writeInbox(b *strings.Builder, msgs []store.InboxMsg, now time.Time) []int6
 // more. Counted in BYTES, which is never fewer than characters, with margin.
 const helloBudget = 9000
 
+// helloInboxCountLine is the room held back for the "N queued message(s) not
+// shown here" line, generously: the claims list reserves it, and so does the
+// drain, since either can be what leaves no room for it.
+const helloInboxCountLine = 128
+
+// helloHelpLine points every session at `buddy --help`, and names the verbs
+// and flags nothing else in its context would ever show it.
+//
+// The digest named exactly one verb, `claim`. Everything added since (wait,
+// claim --shared/--dry-run, msg --lead/--measured/--relay, --supersedes,
+// sent, ids) was complete in `buddy --help` and reached a session only if it
+// thought to ask — and a feature a session never hears of is not adopted.
+// Some verbs announce themselves when they are needed (a refused claim
+// suggests `wait --on`; beat names a changed authority file); the ones listed
+// here have no such moment, so this line is the only one they get.
+//
+// Considered and cut: the MCP server's `instructions` field. It is the chat
+// half — absent when the daemon is down — and claims must work with chat
+// entirely absent (invariant 1). The full verb list was cut too: every
+// session pays for this line at every start, and a list copied into the
+// digest rots exactly the way a long session's copy of CLAUDE.md does. The
+// user-level skill (skills/buddy) carries the how-it-fits-together.
+//
+// Every `buddy <verb> --flag` it names is checked against that verb's usage
+// line (TestHelloHelpLineNamesOnlyWhatHelpAnswers), so a renamed flag fails a
+// test rather than teaching every session a refusal.
+const helloHelpLine = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim --dry-run` (forecast a refusal) `--shared` (lanes co-hold a file); `buddy wait --on <slug>` (declare a wait on a peer, then arm your own `/loop buddy wait check`); `buddy msg --measured|--lead|--relay` (what a claim rests on) `--supersedes <id>` (correct one); `buddy sent`; `buddy ids take`.\n"
+
 // writeHelloClaims renders the digest's claims list inside room bytes
 // (D-036, issue #30).
 //
@@ -1765,7 +1804,11 @@ const helloBudget = 9000
 // line says the rest refuse all the same: the gate reads the ledger, not
 // this digest.
 func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.SessionInfo, now time.Time, room int) {
-	const remainderLine = 160 // the "not shown here" line below, generously
+	// The room held back for the "not shown here" line is that line's own
+	// worst case, rendered: hidden and mine can be no larger than the list.
+	// It was a constant 160, which the line outgrows once 100 claims of the
+	// caller's own are hidden (155 bytes plus the digits of both counts).
+	remainderLine := len(helloClaimsRemainder(len(claims), len(claims)))
 	lines := make([]string, len(claims))
 	var order []int
 	for i, c := range claims {
@@ -1824,11 +1867,18 @@ func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.Ses
 	if hidden == 0 {
 		return
 	}
+	b.WriteString(helloClaimsRemainder(hidden, mine))
+}
+
+// helloClaimsRemainder is the line that counts the claims a capped digest
+// left out. One function renders it and measures its reserve, so the two
+// cannot drift apart.
+func helloClaimsRemainder(hidden, mine int) string {
 	yours := ""
 	if mine > 0 {
 		yours = fmt.Sprintf(", %d of them YOURS", mine)
 	}
-	fmt.Fprintf(b, "BUDDY: %d more live claim(s) not shown here%s (the digest is capped); `buddy ls` lists every one, and they refuse exactly like the ones shown.\n", hidden, yours)
+	return fmt.Sprintf("BUDDY: %d more live claim(s) not shown here%s (the digest is capped); `buddy ls` lists every one, and they refuse exactly like the ones shown.\n", hidden, yours)
 }
 
 // sessionLabel resolves the label a hook's session answers to. "" for a
