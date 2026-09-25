@@ -420,6 +420,14 @@ ledger row entered through the CLI (D-006).
     `--relay` does not carry the relayed figure's scope as a field. Do not propose a mandatory
     kind, a kind inferred from the body, or combined kinds.
 
+49. **A session learns the verbs from the digest and a skill, never the chat server (D-046).**
+    `hello` prints one fixed line pointing at `buddy --help` and naming the easy-to-miss verbs.
+    `skills/buddy/SKILL.md` (user-level, copied into `~/.claude/skills/`) says how they fit.
+    A test checks every verb and flag either one names against the usage table. The claims list
+    reserves the queued-message count line and its own remainder at their rendered worst case.
+    Do not propose the MCP `instructions` field (chat can be absent) or a full verb list in the
+    digest (every start pays for it).
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

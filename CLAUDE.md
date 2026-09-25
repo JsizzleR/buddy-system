@@ -50,6 +50,8 @@ used platform.
   (numerics, charset, framing) stay in the wire package; anything the daemon
   needs crosses as a `buddylist`-level type (e.g. `ErrNickInUse`).
 - `.githooks/pre-commit` — the commit-time claim gate.
+- `skills/buddy/SKILL.md` — the user-level skill; install by copying to
+  `~/.claude/skills/buddy/`. Every verb and flag it names is checked against `--help`.
 - `docs/`, `scripts/` — as above.
 
 State locations: ledger at `<git-common-dir>/buddy.db` (the **common** dir, so
@@ -442,6 +444,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   "<scope>" | --relay <source>` renders `declared …` between `#id` and `[sender]`: the sender's
   claim, never buddy's check. The note is fenced then quoted, and capped on rendered bytes. The
   drain bound counts rendered lines. `--relay` does not structure the relayed figure's scope.
+- **A session learns the verbs from the digest and a skill (D-046).** `hello` prints one
+  fixed line pointing at `buddy --help` and naming the easy-to-miss verbs.
+  `skills/buddy/SKILL.md` (copied to `~/.claude/skills/buddy/`) says how they fit. A test
+  reads every `buddy <verb> --flag` in both against the usage table, so a renamed flag fails
+  there. Not the MCP `instructions` field: chat can be absent.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
