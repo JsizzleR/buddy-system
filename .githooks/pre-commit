@@ -19,8 +19,11 @@
 # the index and the ledger and nothing else — no formatter, no build, no test.
 # A tree-wide check here would block on another session's half-written file.
 #
-# ENABLE:  sh scripts/setup-clone.sh      (sets core.hooksPath; git will not
-#                                          let a repo configure that for itself)
+# ENABLE:  sh scripts/setup-clone.sh      (THIS checkout: sets core.hooksPath;
+#                                          git will not let a repo configure
+#                                          that for itself)
+#          any other repo: symlink this file into
+#            "$(git rev-parse --git-path hooks)/pre-commit"   (README step 4)
 # KNOBS:   BUDDY_COMMIT_GATE=warn|deny|off   posture, default warn
 #          BUDDY_COMMIT_GATE_SKIP=1          skip entirely, this once
 # BYPASS:  git commit --no-verify            skips this and every other commit
