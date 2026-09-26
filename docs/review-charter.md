@@ -434,6 +434,23 @@ ledger row entered through the CLI (D-006).
     to print whole is not printed as a command. The deliberate views still list every target.
     Do not propose a cap on `wait --on` targets for this; the bound is on the rendering.
 
+51. **A base that carries a commit main DROPPED says so, found by main's reflog (D-048).** Dropped
+    means reachable from a former tip of main (the reflog walk plus the files backend's old
+    column) and not from the current tip, which is read AFTER the reflog. Only a base's commits
+    ahead of main are checked, so healthy unlanded work never prints it. Read side only (roster
+    and `who`); silence means no drop the reflog records. Do not propose the ancestor test
+    (every busy session fails it) or a notice on `beat` (it forks no git).
+
+52. **One long run closes out several sessions on existing primitives (D-049).** One integrator
+    holds `.buddy/slot/<run>` and `.buddy/slot/main` from forming to landing. Riders declare
+    `wait --on <run> --ready <commit>` (the rider's word, resolved to a commit, never checked for
+    ancestry, because the integrator rebases). `who <run>` lists READY and not-ready riders with
+    ages and notes. `release --outcome pass|fail|aborted [--note]` rides every waiter's LANDED, and
+    a rider is told when a release carried no outcome or the claim was orphaned. Membership is the
+    integrator's `--desc`. Do not propose a batch table, a hold timer, OVERDUE, auto-eject, or
+    "first GO wins"; all were designed and cut by Codex and Fable passes. The skill must teach
+    every verb and flag in the usage table, or exempt it with a reason (a hermetic test).
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

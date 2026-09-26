@@ -130,6 +130,27 @@ $out"
 done
 buddy wait ls | grep -qF 'on a timer' || fail "QA-5: --help changed the open wait"
 
+# QA-6 (D-049): one long run. bravo integrates on a slot; alpha rides, READY
+# at its HEAD; `who` lists it; a malformed outcome releases nothing (the
+# control is that who still resolves the open claim after it); the reported
+# outcome reaches the rider's LANDED.
+as sess-b claim herm --desc "FORMING" --scope .buddy/slot/herm --scope .buddy/slot/main >/dev/null || fail "QA-6: integrator claim"
+head=$(git -C "$REPO" rev-parse HEAD)
+out=$(as sess-a wait --on herm --ready HEAD) || fail "QA-6: the rider's declaration was refused"
+echo "$out" | head -1 | grep -qF "you declared your work ready at $(echo "$head" | cut -c1-8)" || fail "QA-6: declaration line
+$out"
+out=$(buddy who herm) || fail "QA-6: who herm"
+echo "$out" | grep -qF 'WAITED ON    by 1 session(s), 1 READY, 0 not:' || fail "QA-6: who must list the rider
+$out"
+out=$(as sess-b release herm --outcome maybe 2>&1) && rc=0 || rc=$?
+[ "$rc" -ne 0 ] || fail "QA-6: an outcome off the list must be refused
+$out"
+buddy who herm >/dev/null 2>&1 || fail "QA-6: a refused release must leave herm open"
+as sess-b release herm --outcome pass --note "landed $head" >/dev/null || fail "QA-6: release with outcome"
+out=$(as sess-a wait check) || fail "QA-6: the rider's check"
+echo "$out" | head -1 | grep -qF "outcome PASS \"landed $head\"" || fail "QA-6: LANDED must carry the outcome
+$out"
+
 echo "check-wait: GREEN (QA-1 ceiling refused + control, QA-2 unknown/own slug refused, QA-3 declare ->"
 echo "  STILL WAITING -> release names waiter -> beat LANDED once -> LANDED + note -> NO WAIT,"
-echo "  QA-4 no harness id refused, QA-5 --help writes nothing)"
+echo "  QA-4 no harness id refused, QA-5 --help writes nothing, QA-6 ready rider -> who -> outcome on LANDED)"

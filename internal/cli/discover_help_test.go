@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -30,6 +31,23 @@ var (
 // subcommands (its usage spells `buddy <verb> <word>`), so a slug in an
 // example is not mistaken for one.
 func checkNamedVerbs(text string, usageOf func(string) (string, bool)) (errs []string, checked int) {
+	return checkNamedVerbsInto(text, usageOf, nil)
+}
+
+// checkNamedVerbsInto is checkNamedVerbs recording, when taught is non-nil,
+// every verb, subcommand and flag the text names and the usage table answers:
+// taught[verb][""] for the verb, taught[verb][name] for the rest. The
+// coverage gate reads it in the other direction (usage table → text).
+func checkNamedVerbsInto(text string, usageOf func(string) (string, bool), taught map[string]map[string]bool) (errs []string, checked int) {
+	mark := func(verb, name string) {
+		if taught == nil {
+			return
+		}
+		if taught[verb] == nil {
+			taught[verb] = map[string]bool{}
+		}
+		taught[verb][name] = true
+	}
 	last := ""
 	for _, m := range backtickSpan.FindAllStringSubmatch(text, -1) {
 		span := quotedSpan.ReplaceAllString(m[1], "")
@@ -48,6 +66,7 @@ func checkNamedVerbs(text string, usageOf func(string) (string, bool)) (errs []s
 				continue
 			}
 			checked++
+			mark(last, "")
 			toks = toks[1:]
 		case strings.HasPrefix(span, "--"):
 			if last == "" {
@@ -76,12 +95,16 @@ func checkNamedVerbs(text string, usageOf func(string) (string, bool)) (errs []s
 					// left bound --shared matched a renamed --co--shared.
 					if !regexp.MustCompile(`(^|[^\w-])` + regexp.QuoteMeta(name) + `($|[^\w-])`).MatchString(usage) {
 						errs = append(errs, fmt.Sprintf("`%s`: buddy %s --help does not name %s", m[1], last, name))
+					} else {
+						mark(last, name)
 					}
 					checked++
 				case j == 0 && subcommands && regexp.MustCompile(`^[A-Za-z]+$`).MatchString(name):
 					// Whole word: `ids see` is a prefix of `ids seed`.
 					if !regexp.MustCompile(`buddy ` + regexp.QuoteMeta(last) + ` ` + regexp.QuoteMeta(name) + `(\s|$)`).MatchString(usage) {
 						errs = append(errs, fmt.Sprintf("`%s`: buddy %s has no subcommand %q", m[1], last, name))
+					} else {
+						mark(last, name)
 					}
 					checked++
 				}
@@ -166,6 +189,130 @@ func TestCheckNamedVerbsRefusesDrift(t *testing.T) {
 	} {
 		if errs, _ := checkNamedVerbs(good, helpUsage); len(errs) != 0 {
 			t.Errorf("%s: refused: %v", good, errs)
+		}
+	}
+}
+
+// THE OTHER DIRECTION, a standing gate: every verb, subcommand and flag in
+// the usage table is TAUGHT by the skill, or is on the list below with the
+// reason it is not. The check above catches a flag the skill names and the
+// table lost; nothing caught a feature the table gained and the skill never
+// mentioned, and the skill is where a session in another repo learns how the
+// verbs fit (D-046). A new verb or flag fails here until it is taught or
+// exempted on purpose — the decision is forced, never forgotten.
+//
+// skillExempt[verb] = reason exempts a whole verb; skillExempt["verb --flag"]
+// or ["verb sub"] one name. Every entry needs a reason a reader can check.
+var skillExempt = map[string]string{
+	"init":        "setup, run once per checkout by the operator (README, setup-clone.sh)",
+	"hello":       "a hook; the session never types it (README's hook wiring)",
+	"bye":         "a hook; the session never types it (README's hook wiring)",
+	"beat":        "a hook; the session never types it (README's hook wiring)",
+	"idle":        "a hook; the session never types it (README's hook wiring)",
+	"busy":        "a hook; the session never types it (README's hook wiring)",
+	"gate":        "a hook; the session never types it (README's hook wiring)",
+	"commit-gate": "the git pre-commit hook runs it (setup-clone.sh)",
+	"pause":       "the operator's brake; a session is told it is paused, it never pauses a peer",
+	"resume":      "the operator's brake; a session is told it is paused, it never pauses a peer",
+	"authority":   "the operator curates the watched files; a session only sees the notice, which the skill explains",
+}
+
+// skillExemptFlag exempts a flag on EVERY verb that has it.
+var skillExemptFlag = map[string]string{
+	"--help":    "every verb answers it, and the skill says so once",
+	"--session": "the harness names the caller ($CLAUDE_CODE_SESSION_ID); a session never needs to",
+}
+
+var (
+	usageFlag = regexp.MustCompile(`(^|[^\w-])(--[a-z][a-z-]*)`)
+)
+
+// untaught lists what the usage table offers and the taught map lacks.
+func untaught(taught map[string]map[string]bool) []string {
+	var missing []string
+	for name, vb := range verbs {
+		if _, ok := skillExempt[name]; ok {
+			continue
+		}
+		if !taught[name][""] {
+			missing = append(missing, "buddy "+name)
+			continue
+		}
+		seen := map[string]bool{}
+		for _, m := range usageFlag.FindAllStringSubmatch(vb.usage, -1) {
+			f := m[2]
+			if seen[f] {
+				continue
+			}
+			seen[f] = true
+			if _, ok := skillExemptFlag[f]; ok {
+				continue
+			}
+			if _, ok := skillExempt[name+" "+f]; ok {
+				continue
+			}
+			if !taught[name][f] {
+				missing = append(missing, "buddy "+name+" "+f)
+			}
+		}
+		for _, m := range regexp.MustCompile(`buddy `+regexp.QuoteMeta(name)+` ([a-z]+)`).FindAllStringSubmatch(vb.usage, -1) {
+			sub := m[1]
+			if seen[sub] {
+				continue
+			}
+			seen[sub] = true
+			if _, ok := skillExempt[name+" "+sub]; ok {
+				continue
+			}
+			if !taught[name][sub] {
+				missing = append(missing, "buddy "+name+" "+sub)
+			}
+		}
+	}
+	return missing
+}
+
+func TestSkillTeachesEveryVerbAndFlag(t *testing.T) {
+	body, err := os.ReadFile("../../skills/buddy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taught := map[string]map[string]bool{}
+	checkNamedVerbsInto(string(body), helpUsage, taught)
+	for _, m := range untaught(taught) {
+		t.Errorf("%s is in the usage table and the skill never teaches it: add it to skills/buddy/SKILL.md "+
+			"in a backticked `buddy <verb> --flag` (then recopy it to ~/.claude/skills/buddy/), or exempt it in skillExempt WITH a reason", m)
+	}
+	// The exemptions must name things that exist, or a renamed verb would
+	// sit exempt forever while its new name went untaught.
+	for k := range skillExempt {
+		v, name, _ := strings.Cut(k, " ")
+		u, ok := helpUsage(v)
+		if !ok || (name != "" && !strings.Contains(u, name)) {
+			t.Errorf("skillExempt[%q] names nothing in the usage table", k)
+		}
+	}
+}
+
+// The positive control: the gate fires on a flag the skill drops, a verb the
+// skill drops, and a subcommand the skill drops — each cut from the REAL skill,
+// so a parser that read nothing would fail here rather than pass above.
+func TestSkillCoverageGateFires(t *testing.T) {
+	body, err := os.ReadFile("../../skills/buddy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cut := range []struct{ from, want string }{
+		{"--ready", "buddy wait --ready"},
+		{"--outcome", "buddy release --outcome"},
+		{"buddy sent", "buddy sent"},
+		{"wait check", "buddy wait check"},
+	} {
+		text := strings.ReplaceAll(string(body), cut.from, "REMOVED")
+		taught := map[string]map[string]bool{}
+		checkNamedVerbsInto(text, helpUsage, taught)
+		if !slices.Contains(untaught(taught), cut.want) {
+			t.Errorf("with every %q cut from the skill, the gate did not report %q", cut.from, cut.want)
 		}
 	}
 }

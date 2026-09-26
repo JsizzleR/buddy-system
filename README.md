@@ -55,16 +55,19 @@ indistinguishable from a binary that had nothing to say.
 
 **The skill.** A session finds out what `buddy` can do in two places. The
 SessionStart digest points at `buddy --help`. A user-level skill explains how
-the verbs fit together: claim, refusal, wait, messages. Install the skill with:
+the verbs fit together: claim, refusal, wait, messages, one long run for
+several sessions. The skill ships in this repo at `skills/buddy/SKILL.md`, and
+`sh scripts/setup-clone.sh` installs it (or run `sh scripts/install-skill.sh`
+alone). It is safe to re-run after every pull: an identical copy is left alone,
+and a different one is kept as `SKILL.md.bak` before it is replaced.
 
-```sh
-mkdir -p ~/.claude/skills/buddy
-cp skills/buddy/SKILL.md ~/.claude/skills/buddy/SKILL.md
-```
-
-Copy it again after an upgrade. A test checks every verb and flag it names
-against `--help`, so the copy in the repo stays accurate. The installed copy is
-only as current as your last copy.
+Two tests in the hermetic tier keep the repo's copy honest, in both directions.
+Every verb and flag the skill names must exist in `--help`
+(`TestSkillNamesOnlyWhatHelpAnswers`). Every verb, subcommand and flag in the
+usage table must be TAUGHT by the skill, or exempted in the test with a
+written reason (`TestSkillTeachesEveryVerbAndFlag`). A feature therefore cannot
+ship with the skill left silent about it. The installed copy is only as current
+as your last install.
 
 ### 1. Claims (the safety half — start here)
 
@@ -665,10 +668,17 @@ The annotations after the id are what an orchestrator picks on:
   session three landings behind reported a shared file at 1999/2000 lines
   while main was at 1736, and it went out as a fleet emergency. `ahead`
   alone is unlanded work. `ahead` and `behind` together is a tree to rebase
-  before its numbers mean anything about main, and that is also how a base
-  that main has since amended away shows. An observation with an age, like
-  the rest of the row: it refuses nothing, and a session without the `Stop`
-  hook wired prints none (D-038).
+  before its numbers mean anything about main. An observation with an age,
+  like the rest of the row: it refuses nothing, and a session without the
+  `Stop` hook wired prints none (D-038).
+- `…; carries 1 commit main DROPPED: 8ace1954` — the base is built on a commit
+  main once had and has since rewritten away (an amend, a reset, a rebase of
+  main). Main's reflog is the evidence: a commit reachable from a former tip
+  and not from the current one was dropped. A healthy worktree branch never
+  prints this, because its unlanded commits were never on main. Measured case
+  (field notes §16): a peer rebased silently onto a commit main had amended
+  away twice. When the reflog is off or has expired, nothing prints, so no
+  tail means no drop is recorded, not that main was never rewritten (D-048).
 
 ### 1c′. Waiting without going cold — `buddy wait`
 
@@ -810,6 +820,90 @@ What to know before relying on it:
 - Cooperative, like every claim. A session that runs the suite without
   claiming is not stopped. The claim makes the holder visible and the
   collision refusable, and that is all it does.
+
+### 1c‴. One long run closes out several sessions — `wait --ready`, `release --outcome`
+
+A slot takes turns. When the guarded job is a 65-minute hermetic tier, taking
+turns is the expensive answer: five sessions that each finish within the same
+half hour pay five tiers. The cheap answer is one run with everybody's work in
+it — "I'm done in 10, hold the run for me" — and until now that protocol lived
+in chat: READY messages to an integrator, a roster in the integrator's head,
+and a pass/fail announcement that a session parked on its `/loop` never saw.
+
+The run is still a claim, held by ONE integrator from forming to landing, on
+the tier's slot AND on `main`. A cheap landing that would invalidate the
+tested tree is then refused and queues instead of going in mid-run —
+**provided every lander claims `.buddy/slot/main` before it fast-forwards or
+pushes main**, which is the convention; a slot is only a claim, and a session
+that lands without claiming it is not stopped (D-035):
+
+```sh
+# the integrator
+buddy claim herm --desc "FORMING on 3f2e1d0c — join: buddy wait --on herm --ready HEAD" \
+  --scope .buddy/slot/herm --scope .buddy/slot/main
+
+# a rider that is not done yet: an ordinary wait, its ETA in its own words
+buddy wait --on herm --note "done in 10" --until 4h
+# … and when it is (a hold plus a 65-minute tier can outlast the default 3h)
+buddy wait --on herm --ready HEAD --until 4h   # re-declaring replaces the wait
+
+# the integrator, deciding when to go
+buddy who herm
+# WAITED ON    by 3 session(s), 2 READY, 1 not:
+#   charlie                  READY at c0ffee12 (declared 13m ago, seen 1m ago)
+#   bravo                    READY at 8ace1954 (declared 1m ago, seen 20s ago)
+#   delta                    not ready (declared 25m ago, seen 22m ago) — note "done in 15"
+
+# GO is the integrator refreshing its own claim (the id is kept; the waits stand)
+buddy claim herm --desc "RUNNING pinned 9f1e2a44 since 14:07 — in: charlie bravo; joining now = NEXT run" \
+  --scope .buddy/slot/herm --scope .buddy/slot/main
+# … build ONE tree: rebase every READY commit onto main in the integrator's
+#     worktree; its sha is the pinned sha. Run the tier on exactly that tree;
+#     green: fast-forward main to it …
+buddy release herm --outcome pass --note "landed 7d3a0b1c; charlie bravo in; delta NEXT"
+```
+
+Every rider's next `buddy wait check`, and its next tool call's one-shot
+notice, then reads:
+
+```
+LANDED: claim "herm" released 0s ago, outcome PASS "landed 7d3a0b1c; charlie bravo in; delta NEXT" — the wait is over after 58m; …
+```
+
+What each piece is, and is not:
+
+- **`--ready <commit>`** (HEAD, a branch, a sha) records the full object name
+  the rider declares its work ready at. It must name a commit git can find,
+  and it is otherwise the rider's word: nothing checks it against the tested
+  tree, because the integrator rebases every rider and an ancestry test would
+  fail every correctly integrated item. It needs `--on`.
+- **`who <slot>`** lists only the waiters' names until one declares `--ready`;
+  from then on it prints one line per waiter: READY first, each with its commit, how long ago it
+  declared and was last seen, and its note in its own words. "not ready" means
+  "declared nothing ready". An ETA is a note and never turns into OVERDUE:
+  the `idle` and `seen` ages are the observations.
+- **`release --outcome pass|fail|aborted [--note …]`** records the
+  integrator's report on the claim in the release's own transaction, and
+  every waiter's LANDED carries it. A release is only "the reservation
+  ended": a rider whose LANDED came with no outcome is told so, and one whose
+  run's claim was ORPHANED (its integrator ended) is told that too. The note
+  needs an outcome, and an outcome cannot ride a `--scope` narrowing.
+- **Who is in** is the integrator's own `--desc`, refreshed at GO. By
+  convention, a rider that joins while it says RUNNING rides the NEXT run.
+  Buddy keeps no batch table, no hold timer and no eject: a rider that goes
+  quiet is shown quiet, and whether to go without it is the integrator's call.
+- **A red run** is reported as `--outcome fail` with the attribution in the
+  note, or kept open with a refreshed `--desc` ("RED, ejecting bravo, one more
+  tier") and released when it is decided. Never release a run with no outcome.
+- **A rider after LANDED.** PASS naming it: its work is on main — release its
+  own claims and do NOT run the tier. FAIL naming it: fix, commit, and
+  re-declare `--ready HEAD` for the next run. Committed more after `--ready`?
+  Re-declare; a RUNNING tree is pinned, so the new commit rides the next run.
+  `buddy wait clear` leaves.
+- **Nobody is integrating yet** (`wait --on herm` refused: no such claim):
+  form it with the integrator's claim above, or ask.
+- Slots are per checkout: sessions in different repositories do not see each
+  other's `herm`.
 
 ### 2. Presence (the fun half)
 

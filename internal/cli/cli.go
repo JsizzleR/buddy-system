@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -207,6 +208,10 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
                                 ways, and re-claiming without it makes it exclusive
               release <slug> [--scope <path> ...]    hand it back, or only the named
                                 scopes (exactly as claimed); the last scope releases it
+                    --outcome pass|fail|aborted [--note <text>]   what became of the job
+                                the claim guarded (a long run, a land), carried on
+                                every waiter's LANDED; a release alone says only that
+                                the reservation ended
               ls [--all]            list claims        inbox            drain my messages
               whose <path>          BOTH registers: who has CLAIMED it (the one that
                                     reserves, and the one the gate reads) and who has
@@ -256,6 +261,10 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     keeps the 1h prompt cache warm and drains the inbox,
                                     and says STILL WAITING / LANDED / EXPIRED / NO WAIT.
                                     wait clear · wait ls.  A wait reserves nothing.
+                                    --ready HEAD|<commit>: your work is in on the run the
+                                    awaited claim guards, ready at that commit (one long
+                                    run closing out several sessions; who <slug> lists
+                                    who is READY)
               authority [add|rm <path>]   the files whose on-disk change after a session
                                     started is announced to it ONCE, on its next tool
                                     call (CLAUDE.md always; the copy in a long session's
@@ -289,7 +298,7 @@ const (
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
 	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--dry-run] [--session <id>]"
-	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--session <id>]"
+	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--session <id>]"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
@@ -1583,7 +1592,7 @@ func cmdBeat(args []string, env Env) error {
 	b.WriteString(warn)
 	b.WriteString(auth)
 	b.WriteString(landed)
-	ids := writeInbox(&b, boundDrain(msgs, nowOf(env)), nowOf(env))
+	ids := writeInbox(&b, beatDrain(msgs, b.Len(), nowOf(env)), nowOf(env))
 	if err := writeHookContext(env, "PostToolUse", b.String()); err != nil {
 		return err // write failed → nothing marked → redelivered next beat
 	}
@@ -1605,6 +1614,27 @@ func cmdBeat(args []string, env Env) error {
 		return nil // no empty write transaction on a notice-only beat
 	}
 	return st.MarkDelivered(h.SessionID, ids)
+}
+
+// beatDrain is boundDrain inside the room beat's notices leave under
+// helloBudget, the way hello's digest bounds its own drain: oldest first,
+// stopping at the first message that does not fit, never skipping ahead. The
+// notices (dirty, authority, a LANDED line of up to maxHookWaitLine) were
+// written ahead of a drain bounded only by its own 8 KiB, and the sum crossed
+// the harness's 10,000-character cap, past which the model gets a preview
+// and the messages beside it are marked delivered unread (Codex code pass,
+// D-049, which also grew the LANDED line by a rider's caveat). What does not
+// fit stays queued for the next drain, which carries no one-shot notice.
+func beatDrain(msgs []store.InboxMsg, notices int, now time.Time) []store.InboxMsg {
+	room := helloBudget - notices - len(inboxHeader)
+	var shown []store.InboxMsg
+	for _, m := range boundDrain(msgs, now) {
+		if room -= len(inboxLine(m, nil, now)); room < 0 {
+			break
+		}
+		shown = append(shown, m)
+	}
+	return shown
 }
 
 // boundDrain bounds one drain, because context is a budget: at most 20
@@ -2280,11 +2310,28 @@ func cmdRelease(args []string, env Env) error {
 	sessionFlag(fs, &session)
 	var scopes multiFlag
 	fs.Var(&scopes, "scope", "release only this held scope, exactly as claimed (repeatable); the last one releases the claim")
+	outcome := fs.String("outcome", "", "what became of the job the claim guarded: pass, fail or aborted (D-049)")
+	note := fs.String("note", "", "with --outcome: one line for the waiters (the tested commit, who was in, who is next)")
 	if help, err := parseFlags(fs, args[1:], usageRelease, env); help || err != nil {
 		return err
 	}
 	if err := noStray("release", fs, usageRelease); err != nil {
 		return err
+	}
+	// D-049. Refused before the ledger is opened, so a malformed report never
+	// releases anything: a release that went through with its outcome dropped
+	// would tell every rider "released" and nothing else.
+	switch {
+	case *outcome != "" && !slices.Contains(store.Outcomes, *outcome):
+		return fmt.Errorf("--outcome %s is not one of %s; nothing was released\n  %s",
+			strconv.Quote(fence.Line(*outcome, 32)), strings.Join(store.Outcomes, ", "), usageRelease)
+	case *note != "" && *outcome == "":
+		return fmt.Errorf("--note rides an --outcome (pass, fail or aborted), and none was given; nothing was released\n  %s", usageRelease)
+	case *outcome != "" && len(scopes) > 0:
+		return fmt.Errorf("--outcome reports on the job the whole claim guarded, and --scope narrows the claim without ending it; release the claim whole to report; nothing was released\n  %s", usageRelease)
+	case renderedLen(*note) > maxOutcomeNote:
+		return fmt.Errorf("--note renders to %d bytes and the cap is %d; nothing was released (a line break renders as ⏎, which is 3 bytes)",
+			renderedLen(*note), maxOutcomeNote)
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -2316,11 +2363,15 @@ func cmdRelease(args []string, env Env) error {
 			fence.Line(strings.Join(scopes, ", "), 512), strconv.Quote(fence.Line(slug, 128)), fence.Line(strings.Join(remaining, ", "), 512))
 		return nil
 	}
-	claimID, err := st.ReleaseID(si.SessionID, si.Incarnation, slug)
+	claimID, err := st.ReleaseOutcome(si.SessionID, si.Incarnation, slug, *outcome, *note)
 	if err != nil {
 		return fencedErr(err)
 	}
-	fmt.Fprintf(env.Stdout, "released %s%s\n", strconv.Quote(fence.Line(slug, 128)), releasedWaitersNote(st, claimID, env))
+	reported := ""
+	if *outcome != "" {
+		reported = " — outcome " + outcomePhrase(*outcome, *note) + " recorded for its waiters"
+	}
+	fmt.Fprintf(env.Stdout, "released %s%s%s\n", strconv.Quote(fence.Line(slug, 128)), reported, releasedWaitersNote(st, claimID, env))
 	return nil
 }
 

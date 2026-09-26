@@ -82,6 +82,12 @@ git config core.hooksPath .githooks
 chmod +x "$ROOT/.githooks/"* 2>/dev/null || true
 echo "setup-clone: core.hooksPath = .githooks"
 
+# The user-level skill (skills/buddy/SKILL.md) is how a session in ANY repo
+# learns how the verbs fit; it is loaded from ~/.claude/skills, so a copy that
+# is not refreshed teaches last release's verbs. Before the binary check's
+# early exit below: the skill is useful whether or not buddy is built yet.
+sh "$ROOT/scripts/install-skill.sh"
+
 if [ -z "$BUDDY" ]; then
 	# Loud HERE and silent in the hook, on purpose: this is the moment somebody
 	# is watching, whereas a hook that complains on every commit gets removed.

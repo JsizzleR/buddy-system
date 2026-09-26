@@ -606,6 +606,11 @@ provenance over discipline.
 
 ## 16. A rewritten shared branch is invisible to the coordination layer
 
+> **Status (2026-09-26, D-048):** the roster and `who` append `carries N commit(s) main
+> DROPPED` to a base built on history main rewrote away, found from main's reflog. That
+> check stays silent on healthy unlanded work, which an ancestor test does not. No notice
+> reaches the session that rewrote main at the moment it does so.
+
 **Measured, and it invalidated a peer's work in flight.** A session committed to the shared `main`,
 then amended that commit twice. `git reflog` records it plainly — `commit (amend)` at 13:45:51 and
 13:46:30 — but nothing else does. Two orphaned commits were left behind with **the same parent and

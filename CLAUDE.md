@@ -50,8 +50,13 @@ used platform.
   (numerics, charset, framing) stay in the wire package; anything the daemon
   needs crosses as a `buddylist`-level type (e.g. `ErrNickInUse`).
 - `.githooks/pre-commit` — the commit-time claim gate.
-- `skills/buddy/SKILL.md` — the user-level skill; install by copying to
-  `~/.claude/skills/buddy/`. Every verb and flag it names is checked against `--help`.
+- `skills/buddy/SKILL.md` — the user-level skill, SHIPPED here and installed to
+  `~/.claude/skills/buddy/` by `setup-clone.sh` / `scripts/install-skill.sh`.
+  **Standing rule: a change that adds or renames a verb, subcommand or flag
+  updates the skill in the same commit.** The hermetic tier enforces it both ways:
+  every name the skill teaches must exist (`TestSkillNamesOnlyWhatHelpAnswers`),
+  and every name in the usage table must be taught or exempted with a reason
+  (`TestSkillTeachesEveryVerbAndFlag`). Re-run `sh scripts/install-skill.sh` after.
 - `docs/`, `scripts/` — as above.
 
 State locations: ledger at `<git-common-dir>/buddy.db` (the **common** dir, so
@@ -62,7 +67,8 @@ journal at `~/.buddylist/journal.db`.
 
 ```sh
 sh scripts/check.sh [all|hermetic|live]   # default all
-sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (see below)
+sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (see below); also installs the skill
+sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy/SKILL.md after a pull
 sh scripts/get-oscar.sh                   # build the pinned AIM-compatible server into .cache/
 sh scripts/run-local.sh                   # bring up the local TOC stack + daemon for a trial
 scripts/cost-report.sh                    # 7-day context-cost baseline (counts and byte lengths only)
@@ -415,6 +421,17 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `idle` records HEAD (schema 10); the roster and `who` print `base <sha8> (N ahead, M behind
   main, age)` against local main/master as it is when read. Never on `beat`, never stored
   lag, no `NOT ON MAIN` flag, refuses nothing.
+- **A base that carries a commit main DROPPED says so, found by main's reflog (D-048).**
+  Dropped = reachable from a former reflog tip of main, not from the current one; flagged only
+  among the base's commits AHEAD of main, so healthy unlanded work never prints it (§20's
+  "what does a healthy tree print?"). Read side only; silence is "no drop the reflog records".
+- **One long run closes out several sessions, on existing primitives (D-049).** An
+  integrator holds `.buddy/slot/<run>` + `.buddy/slot/main` from forming to landing;
+  riders `wait --on <run> --ready <commit>` (the rider's word, never an ancestry check —
+  the integrator rebases); `who <run>` lists READY/not with ages and notes; `release
+  --outcome pass|fail|aborted [--note]` rides every waiter's LANDED, and a rider whose
+  LANDED carries no outcome (or an ORPHANED claim) is told so. No batch table, no hold
+  timer, no OVERDUE, no eject (schema 14).
 - **`msg` names the harness wake address; buddy wakes nothing (D-039, #25).** Measured: a
   harness SendMessage wakes an idle session as a MARKED PEER message (host-verified sender
   pid, "not typed by your user"), never the operator's turn, and the host escapes a forged
