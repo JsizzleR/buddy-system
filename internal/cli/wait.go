@@ -71,6 +71,20 @@ const (
 	// bytes, and a raw-byte cap equal to the render cap still truncates
 	// (D-021's finding, the same arithmetic).
 	maxWaitNote = 512
+	// hookTargetsRoom bounds the awaited claims where a wait rides HOOK
+	// output (hello's digest, beat's LANDED notice), and hookFlagsRoom the
+	// `--on` flags of hello's re-declaration. Every target used to be
+	// rendered whole there: forty claims with 128-byte slugs made the wait
+	// lines larger than the whole digest (helloBudget), which crowded the
+	// claims list out of it, and hook output past 10,000 characters is
+	// replaced by a preview. The views a session runs deliberately (`status`,
+	// `who`, `wait ls`, `wait check`) still list every target.
+	hookTargetsRoom = 1024
+	hookFlagsRoom   = 1024
+	// maxHookWaitLine is the longest wait line either hook can print: the
+	// fixed words, both rooms, a note at its cap, and the advice. Measured
+	// against the worst slugs by TestAWaitOnManyClaimsStaysInsideTheHooksBudgets.
+	maxHookWaitLine = 3072
 )
 
 func cmdWait(args []string, env Env) error {
@@ -363,6 +377,37 @@ func reopenedPhrase(now time.Time, t store.WaitTarget) string {
 	return fmt.Sprintf(" (the slug is open again: a new claim by %s, taken %s ago)", fence.Line(t.ReopenedBy, 64), span(now.Sub(t.ReopenedAt)))
 }
 
+// targetsWithin is targetsPhrase inside room bytes, for hook output. The
+// targets are taken in order and the list stops at the first that does not
+// fit, never skipping ahead to a shorter one (D-036's rule for the claims
+// list); the rest are counted, with where to read them. The room held back
+// for that count is its own worst case, rendered.
+func targetsWithin(now time.Time, ts []store.WaitTarget, room int, where string) string {
+	full := targetsPhrase(now, ts)
+	if len(full) <= room {
+		return full
+	}
+	rest := func(n int) string { return fmt.Sprintf("; and %d more claim(s) — %s", n, where) }
+	room -= len(rest(len(ts)))
+	var b strings.Builder
+	shown := 0
+	for _, t := range ts {
+		p := targetPhrase(now, t)
+		if shown > 0 {
+			p = "; " + p
+		}
+		if b.Len()+len(p) > room {
+			break
+		}
+		b.WriteString(p)
+		shown++
+	}
+	if shown == 0 {
+		return fmt.Sprintf("%d claims, too long to list here — %s", len(ts), where)
+	}
+	return b.String() + rest(len(ts)-shown)
+}
+
 func targetsPhrase(now time.Time, ts []store.WaitTarget) string {
 	if len(ts) == 0 {
 		return "a timer (no claim named: it never lands, it expires)"
@@ -621,7 +666,7 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, f
 		return "", nothing
 	}
 	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s. `buddy wait check` clears it; then stop the /loop that runs it.\n",
-		targetsPhrase(now, w.Targets), notePhrase(w))
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), notePhrase(w))
 	return line, func() error { return st.MarkWaitTold(me.SessionID, w.Decl) }
 }
 
@@ -647,7 +692,7 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time) string
 	}
 	if w.IsOpen() && w.Incarnation == si.Incarnation {
 		head := fmt.Sprintf("BUDDY: you are WAITING on %s — declared %s ago, %s%s.",
-			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), deadlinePhrase(now, w), notePhrase(w))
+			targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), span(now.Sub(w.Since)), deadlinePhrase(now, w), notePhrase(w))
 		// The advice follows the verdict and the tier, as the declaration's
 		// does (Codex code pass): a wait that is over needs one check to take
 		// its verdict, not a loop, and on a tier where a keep-alive does not
@@ -669,8 +714,10 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time) string
 	if left < time.Minute {
 		left = time.Minute
 	}
+	// The earlier run's wait is closed, so `status` no longer shows it; the
+	// claims it named that are still open are in `buddy ls`.
 	head := fmt.Sprintf("BUDDY: an earlier run of this session id was WAITING on %s (declared %s ago, deadline in %s); that wait ended with it.",
-		targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)))
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy ls` lists the open ones"), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)))
 	open := openTargets(w.Targets)
 	if len(w.Targets) > 0 && len(open) == 0 {
 		return head + " Its claims have all closed since: nothing is left to wait for.\n"
@@ -682,6 +729,11 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time) string
 	flags, unpastable := onFlags(slugs)
 	if len(open) > 0 && unpastable == len(open) {
 		return head + " Its open claims' slugs cannot be pasted back as printed; `buddy ls` lists them.\n"
+	}
+	// Never a command cut short: pasted, it would wait on fewer claims than
+	// the earlier wait named, and nothing on the line would say which.
+	if len(flags) > hookFlagsRoom {
+		return head + fmt.Sprintf(" Its %d open claims are too many to write here as one command; `buddy ls` lists them.\n", len(open))
 	}
 	arm := ""
 	if _, pays, _ := cacheTier(sampleOf(st, si)); pays {
