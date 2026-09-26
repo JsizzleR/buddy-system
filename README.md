@@ -38,6 +38,28 @@ Requires Go 1.26+ and `git`. Developed and used on macOS; the claims half should
 
 ```sh
 git clone https://github.com/JsizzleR/buddy-system && cd buddy-system
+sh scripts/install.sh
+```
+
+**`scripts/install.sh` is also the upgrade: re-run it after every pull.** It
+does the following, each step checked before the next:
+- builds `buddy` and `buddylist` into `~/bin` (`BUDDY_BIN_DIR`), and rebuilds
+  every other copy the machine actually runs: the program the
+  `com.buddy-system.buddylistd` launchd agent names, and the checkout's own
+  `bin/` copies;
+- runs each built binary once, so a SIGKILLed build fails here rather than
+  silently in a hook;
+- installs the skill;
+- restarts the chat daemon with `launchctl kickstart -k`;
+- wires this checkout (`setup-clone.sh`);
+- reports which Claude Code hooks are wired in `~/.claude/settings.json`,
+  without ever editing that file.
+
+A schema bump is why this matters. An older `buddy` refuses a newer ledger,
+and the gate then denies every write (D-037), so a copy nobody remembered
+becomes a copy that denies. By hand, the build is:
+
+```sh
 mkdir -p ~/bin
 go build -o ~/bin/buddy ./cmd/buddy
 go build -o ~/bin/buddylist ./cmd/buddylist

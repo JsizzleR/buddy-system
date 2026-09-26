@@ -67,6 +67,7 @@ journal at `~/.buddylist/journal.db`.
 
 ```sh
 sh scripts/check.sh [all|hermetic|live]   # default all
+sh scripts/install.sh                     # INSTALL/UPGRADE this machine; re-run after every pull (see below)
 sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (see below); also installs the skill
 sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy/SKILL.md after a pull
 sh scripts/get-oscar.sh                   # build the pinned AIM-compatible server into .cache/
@@ -79,6 +80,14 @@ sh scripts/codex-review.sh <prompt-file> <out-file>
   `-race`, and the per-feature done-checks; needs only the toolchain and git.
   That is what CI and a fresh clone run. `live` drives the real pinned server
   binary. `all` is the default and runs both.
+- **`install.sh` is the one upgrade path — standing rule: run it after landing
+  anything under `cmd/`, `internal/` or `skills/`.** It rebuilds EVERY buddy
+  binary the machine runs, found by where it is run from: `~/bin` for the hooks
+  and MCP, the launchd daemon's program (the plist names the checkout's `bin/`,
+  not `~/bin`), and `bin/` copies. It verifies each by running it, installs the
+  skill, `kickstart -k`s the daemon, runs setup-clone, and reports hook wiring
+  without editing settings. A schema bump makes a forgotten copy a DENY (D-037).
+  `check-install.sh` gates it hermetically.
 - **`setup-clone.sh` is not automatic and cannot be.** Git refuses to let a
   repository set its own `core.hooksPath` — correctly, since that names a
   directory of programs git will execute. So an **uninstalled hook is the
