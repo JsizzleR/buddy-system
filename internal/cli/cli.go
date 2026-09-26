@@ -289,7 +289,7 @@ edit. They exist so that a message about a file can be ADDRESSED to someone.
 // usage refusal says. Each begins "usage: buddy <verb>", and a test holds the
 // table to that, so a verb cannot be added with the wrong line or none.
 const (
-	usageInit       = "usage: buddy init   (create the ledger for this repo; takes no arguments)"
+	usageInit       = "usage: buddy init   (create the ledger for this repo, and say whether its main languages have a language server; takes no arguments)"
 	usageHello      = "usage: buddy hello [--session <id>] [--label <text>]   (SessionStart hook; hook JSON on stdin)"
 	usageBye        = "usage: buddy bye <session> [--force]  (or pipe SessionEnd hook JSON)"
 	usageBeat       = "usage: buddy beat   (PostToolUse hook; hook JSON on stdin)"
@@ -1045,6 +1045,8 @@ func cmdInit(args []string, env Env) error {
 	}
 	st.Close()
 	fmt.Fprintf(env.Stdout, "ledger ready: %s\n", fence.Line(p, 512))
+	// After the ledger, and never an error: init's job is done (codemap.go).
+	reportLanguageServers(env.Stdout, rc.top, env)
 	return nil
 }
 

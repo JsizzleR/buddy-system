@@ -14,6 +14,20 @@ file there reserves nothing.
 `buddy --help` lists every verb, and `buddy <verb> --help` gives one verb's
 usage. Both are current; this page is the order to use the verbs in.
 
+## Mapping the code
+
+If you have an LSP tool, reach for it before grep. Go to definition, find
+references and document symbols each answer in one call what grep then
+`sed -n` takes several round trips to. Find references also sizes a claim: the
+files a change touches are the scopes to claim.
+
+No LSP tool, and the repo is mostly Go, Python, TypeScript/JavaScript, Rust,
+C/C++, Swift or Ruby? Tell the operator, once. `buddy init` run in this repo
+prints what is missing and the command that fixes it (where the repo already
+has a ledger, which it does if you see BUDDY lines, it changes nothing else).
+Do not install it yourself: that changes the operator's machine and settings.
+An open session gets the tool after `/reload-plugins`; a new one gets it at start.
+
 ## Before you edit
 
 1. `buddy claim <slug> --desc "<what and why>" --scope <path> [--scope ...]`.
