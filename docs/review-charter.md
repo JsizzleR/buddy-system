@@ -458,6 +458,17 @@ ledger row entered through the CLI (D-006).
     status is the install's. Do not propose editing `~/.claude/settings.json` from it, or `cp`
     for the binaries.
 
+54. **`buddy init` says whether this repo's main languages have a language server (D-051).** Per
+    language that is at least 10% of tracked source: the server on PATH (absolute entries,
+    executable by the caller) and `<plugin>@claude-plugins-official` enabled in user, project and
+    local settings, merged per full id. It prints `configured`, or `NOT CONFIGURED` with a fix
+    line that fixes it (PATH steps included, `--scope` named, `/reload-plugins` or a restart).
+    Advisory: it never fails init, never blocks (FIFO settings, a git wrapper holding the pipe),
+    never prints before "ledger ready", never runs in a hook, installs and edits nothing.
+    `scripts/startup-report.sh` measures the window to the first edit, counts only. Do not
+    propose a SessionStart line, auto-install, `claude plugin list`, a committed code map, or
+    counting untracked files.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
