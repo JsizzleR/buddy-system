@@ -20,13 +20,23 @@
 # MultiEdit or NotebookEdit tool call on a file INSIDE the repo — a note written
 # to a scratchpad is not the session starting work, and the first draft of this
 # report, counting it, put this very session's "first edit" at 1.8 minutes, on
-# a Codex prompt file. "Inside" is either spelling of the root — the path the
-# harness was started in (its transcripts' directory is named from it) and the
-# resolved one (a symlinked parent; /var is /private/var on macOS) — and never
-# a path through a `..` segment (a `.` segment is fine: it stays put). `min`
-# is wall-clock between the two, so
-# it is an UPPER bound: it includes the operator's own turns and any time the
-# session sat waiting. The tool columns count calls made in that window, and
+# a Codex prompt file. "Inside" is under ANY worktree of the repo, by either
+# spelling — the path as the harness or git names it, and resolved (a
+# symlinked parent; /var is /private/var on macOS) — and never through a `..`
+# segment (a `.` segment is fine: it stays put). Every worktree, because the
+# operator's sessions start in the main checkout and edit linked worktrees
+# beside it: the first cut counted the main root alone, and its first real run
+# reported 29 sessions of one repo, 0 reaching an edit, over two days in which
+# they made hundreds. Registered worktrees were not enough either (3 of 29):
+# the workflow removes a worktree once its work lands, and git forgets it. So
+# a directory BESIDE the repo named `<repo>-<anything>` counts too — when it
+# no longer exists (a removed worktree), or when it does and git says it shares
+# this repo's common dir; an existing sibling that is another repo, or no repo,
+# does not. A file directly beside the repo (`<repo>-notes.md`) never does.
+# Transcripts are read from every registered worktree's directory as well: a
+# session started IN a worktree is filed under it. `min` is
+# wall-clock between the two ends, so it is an UPPER bound: it includes the
+# operator's own turns and any time the session sat waiting. The tool columns count calls made in that window, and
 # `KB` is the bytes those calls returned. A session that never edited has no
 # window and is counted, not listed.
 #
@@ -40,15 +50,17 @@
 # (isCompactSummary) is never the typed prompt. "Last N days" is transcripts
 # MODIFIED in that window, so a session resumed today reports its original
 # startup. A repo path over 200 characters is not found: the harness shortens
-# and hashes those directory names.
+# and hashes those directory names. A worktree not named `<repo>-…` and since
+# REMOVED is gone from `git worktree list`, so an edit made in it cannot be told
+# from one made anywhere else, and its session counts as "no edit"; a session
+# STARTED in a removed worktree is not found at all.
 #
 # KNOBS
 #   BUDDY_COST_DAYS      look back this many days (default 7; cost-report's knob)
 #   CLAUDE_PROJECTS_DIR  where transcripts live (default ~/.claude/projects;
 #                        cost-report's knob). The repo's own directory in it is
 #                        its absolute path with every character outside
-#                        [A-Za-z0-9] turned into '-'. A linked worktree is a
-#                        different directory, so name it as the argument.
+#                        [A-Za-z0-9] turned into '-', one per worktree.
 set -eu
 
 days=${BUDDY_COST_DAYS:-7}
@@ -65,19 +77,58 @@ dir=${1:-$PWD}
 # symlinks, and a repo under a symlinked parent would then find no transcripts.
 cdup=$(git -C "$dir" rev-parse --show-cdup 2>/dev/null) || cdup=
 top=$(CDPATH= cd -- "$dir/${cdup:-.}" && pwd -L)
-real=$(CDPATH= cd -- "$top" && pwd -P)
 projects=${CLAUDE_PROJECTS_DIR:-"$HOME/.claude/projects"}
+parent=$(dirname -- "$top")
+base=$(basename -- "$top")
+rparent=$(CDPATH= cd -- "$parent" && pwd -P)
+common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
+# Every worktree root: as git lists it (resolved), resolved again, and mapped
+# back through the repo's own parent as the operator spells it — git lists
+# /private/var where the harness, started in /var, named its directory from
+# /var. Plus $top. Newline-separated; a root containing a newline is not
+# supported.
+roots=$(
+	{
+		printf '%s\n' "$top"
+		git -C "$top" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p'
+	} | while IFS= read -r r; do
+		[ -n "$r" ] || continue
+		printf '%s\n' "$r"
+		(CDPATH= cd -- "$r" 2>/dev/null && pwd -P) || true
+		# An `if`, not `case`: a pattern's lone `)` inside $(...) breaks sh's parse.
+		rest=${r#"$rparent"/}
+		if [ "$rest" != "$r" ]; then printf '%s\n' "$parent/$rest"; fi
+	done | awk 'NF && !seen[$0]++'
+)
+nwt=$(git -C "$top" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)
+# Siblings named `<repo>-…` that exist and are NOT this repo's worktrees: the
+# one case the sibling rule must not claim.
+excl=$(
+	for d in "$parent/$base"-*; do
+		[ -d "$d" ] || continue
+		c=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || c=
+		[ -n "$common" ] && [ "$c" = "$common" ] && continue
+		printf '%s\n' "$d"
+		(CDPATH= cd -- "$d" && pwd -P) || true
+	done | awk 'NF && !seen[$0]++'
+)
 # The harness replaces every UTF-16 code unit outside [A-Za-z0-9] with '-'
 # (`replace(/[^a-zA-Z0-9]/g, "-")`, read in its binary, D-051). jq, not
 # `LC_ALL=C sed`: sed in the C locale works on bytes, and turns the two bytes
 # of an é into two hyphens where the harness writes one (Codex). jq works on
 # code points, so a character outside the BMP (two UTF-16 units: an emoji) is
 # given its two hyphens first.
-proj="$projects/$(jq -rn --arg p "$top" '$p | gsub("[\\x{10000}-\\x{10FFFF}]"; "--") | gsub("[^A-Za-z0-9]"; "-")')"
+encode() { jq -rn --arg p "$1" '$p | gsub("[\\x{10000}-\\x{10FFFF}]"; "--") | gsub("[^A-Za-z0-9]"; "-")'; }
+proj="$projects/$(encode "$top")"
+projs=$(printf '%s\n' "$roots" | while IFS= read -r r; do
+	d="$projects/$(encode "$r")"
+	[ -d "$d" ] && printf '%s\n' "$d"
+done | awk '!seen[$0]++')
 
-echo "Startup report: $top, last $days day(s)"
+echo "Startup report: $top and its $((nwt > 1 ? nwt - 1 : 0)) linked worktree(s), last $days day(s)"
+echo "An edit counts under any worktree, or under a removed sibling named $base-*."
 echo "From each session's first typed prompt to its first edit. Counts and bytes only."
-if [ ! -d "$proj" ]; then
+if [ -z "$projs" ]; then
 	echo "no transcripts: $proj does not exist"
 	exit 0
 fi
@@ -103,7 +154,11 @@ def kind: if . == "Read" then "read"
   elif . == "Agent" or . == "Task" then "agent"
   else "other" end;
 def size: if type == "string" then utf8bytelength else (tojson | utf8bytelength) end;
-def inrepo: (startswith($top + "/") or startswith($real + "/")) and (test("/\\.\\.(/|$)") | not);
+def under($r): startswith($r + "/");
+def sibling: . as $p | any($sibs[]; . as $s | $p | startswith($s) and ($p | ltrimstr($s) | contains("/")))
+  and (any($excl[]; . as $x | $p | under($x)) | not);
+def inrepo: . as $p | ($p | test("/\\.\\.(/|$)") | not)
+  and (any($roots[]; . as $r | $p | under($r)) or ($p | sibling));
 reduce (inputs | select(.isSidechain != true and .isMeta != true and .isCompactSummary != true)) as $e (
   {t0: null, t1: null, n: {read: 0, search: 0, bash: 0, lsp: 0, agent: 0, other: 0}, bytes: 0};
   ($e.message.content // null) as $c
@@ -129,10 +184,17 @@ reduce (inputs | select(.isSidechain != true and .isMeta != true and .isCompactS
 rows=$(mktemp) || exit 1
 trap 'rm -f "$rows"' EXIT INT TERM
 # -mtime is whole days, which is the grain BUDDY_COST_DAYS is in.
-find "$proj" -maxdepth 1 -name '*.jsonl' -mtime "-$days" | while IFS= read -r f; do
+tojson() { jq -R 'select(length > 0)' | jq -s .; }
+rootsjson=$(printf '%s\n' "$roots" | tojson)
+sibsjson=$(printf '%s\n' "$parent/$base-" "$rparent/$base-" | awk '!seen[$0]++' | tojson)
+excljson=$(printf '%s\n' "$excl" | tojson)
+printf '%s\n' "$projs" | while IFS= read -r d; do
+	find "$d" -maxdepth 1 -name '*.jsonl' -mtime "-$days"
+done | while IFS= read -r f; do
 	# A transcript jq cannot parse is skipped, not fatal: one bad line from a
 	# crashed session must not blank the whole report.
-	jq -n -r --arg top "$top" --arg real "$real" "$prog" "$f" 2>/dev/null || true
+	jq -n -r --argjson roots "$rootsjson" --argjson sibs "$sibsjson" --argjson excl "$excljson" \
+		"$prog" "$f" 2>/dev/null || true
 done | sort -n >"$rows"
 
 LC_ALL=C awk -F'\t' '
