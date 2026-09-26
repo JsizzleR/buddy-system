@@ -118,6 +118,7 @@ if [ "$run_hermetic" = 1 ]; then
   sh scripts/check-wait.sh
   sh scripts/check-skill.sh
   sh scripts/check-install.sh
+  sh scripts/check-startup-report.sh
 fi
 
 if [ "$run_live" = 1 ]; then
