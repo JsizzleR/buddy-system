@@ -3064,6 +3064,56 @@ blob, and removing the peel is what fails.
 
 All of it is now in the skill and the README.
 
+## D-050 — One install/upgrade script rebuilds every binary the machine runs
+
+2026-09-26 · operator request, right after D-049's schema bump
+
+**What was wrong** — An upgrade touched four places by hand, and the one forgotten was the one
+nobody could see. Measured on the developer's machine, immediately after D-049 was installed:
+- The hooks' `~/bin/buddy` and `~/bin/buddylist` had been rebuilt, and the skill had been copied.
+- The chat daemon was still running a `buddylist` built six days earlier. The launchd plist
+  names the checkout's `bin/buddylist`, not `~/bin`, and no script built that path.
+- The skill copy had been a release behind the day before.
+
+After a schema bump, a stale `buddy` is a DENY (D-037), so "which copies exist" is a safety
+question.
+
+**What shipped** — `scripts/install.sh`, re-run after every pull. Each step is verified before
+the next:
+1. `go build -o` of both binaries into `BUDDY_BIN_DIR` (`~/bin`), plus every other copy found by
+   where it is RUN from: the program `com.buddy-system.buddylistd`'s plist names, and the
+   checkout's `bin/` copies. Never `cp`, because of the ad-hoc signature trap.
+2. Each built binary is run once and must name itself (`buddy help`, and bare `buddylist`,
+   whose usage exit is 2). A 137 is reported as a SIGKILL, never silently accepted as it would
+   be in a hook.
+3. `install-skill.sh`.
+4. `launchctl kickstart -k` of the daemon, waiting up to ten seconds for `state = running`.
+5. `setup-clone.sh` for this checkout.
+6. A report of which of the eight hook lines `~/.claude/settings.json` wires. It never edits
+   that file.
+
+Every sub-step's exit status is the install's. The first draft piped the sub-scripts through
+`sed`, and `sh` has no pipefail.
+
+**Test shape** — `check-install.sh` (hermetic) redirects every destination into a temp dir and
+switches off the daemon, setup-clone and the repo's `bin/`:
+- A fresh install builds, runs and installs the skill, and reports EXACTLY the two hooks the
+  fixture leaves unwired.
+- A re-run is idempotent.
+- An all-wired fixture reports all eight (the control).
+- A directory where a binary goes fails loud, and never prints `done`.
+- A failing skill step fails the install.
+
+The two `buddylist` probe exits were each found by the check failing, not by reading: the missing
+`help` verb, and the exit status that `| head` had hidden. `install.sh` was mutated four ways:
+- The sub-step status swallowed, the hook report always "wired", and the directory check removed
+  each fail the check.
+- Removing the check that each binary names itself SURVIVES, as predicted. No fixture can make
+  `go build` emit a different program, so it is kept as a belt behind `buddy help`'s
+  `commit-gate` check.
+- The first spelling of the hook-report mutation did not apply (a perl escape), and was
+  re-spelled until it did.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

@@ -451,6 +451,13 @@ ledger row entered through the CLI (D-006).
     "first GO wins"; all were designed and cut by Codex and Fable passes. The skill must teach
     every verb and flag in the usage table, or exempt it with a reason (a hermetic test).
 
+53. **`scripts/install.sh` is the one install and upgrade path (D-050).** It rebuilds every buddy
+    binary the machine runs, found by where it is run from (`~/bin`, the launchd daemon's plist
+    program, the checkout's `bin/`), runs each once, installs the skill, `kickstart -k`s the
+    daemon, runs setup-clone, and REPORTS hook wiring without editing settings. Every sub-step's
+    status is the install's. Do not propose editing `~/.claude/settings.json` from it, or `cp`
+    for the binaries.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
