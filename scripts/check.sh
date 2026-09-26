@@ -113,6 +113,7 @@ if [ "$run_hermetic" = 1 ]; then
   # a feature nothing gates.
   sh scripts/check-commit-gate.sh
   sh scripts/check-pre-push.sh
+  sh scripts/check-local-hooks.sh
   sh scripts/check-fence.sh
   sh scripts/check-charter.sh
   sh scripts/check-wait.sh

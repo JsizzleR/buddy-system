@@ -13,12 +13,25 @@
 # ceremony. The claim gate warns because a peer's claimed scope may legitimately
 # be in your commit; a red suite is never legitimate.
 #
-# KNOBS:  BUDDY_PREPUSH_SKIP=1     skip entirely, this once
+# LOCAL:  <git-common-dir>/hooks.local/pre-push, if executable, runs first with
+#         the same stdin and arguments; its failure blocks the push
+# KNOBS:  BUDDY_PREPUSH_SKIP=1     skip the hermetic tier, this once
 #         BUDDY_PREPUSH_CHECK=...  the command to run (the done-check stubs this,
 #                                  which is also what keeps the suite from
 #                                  running itself when it exercises this hook)
 # BYPASS: git push --no-verify
 set -eu
+
+# Git hands the ref list on stdin once, and both readers below need it.
+INPUT=$(cat)
+
+# A MACHINE'S OWN CHECKS, kept out of the repo (see pre-commit).
+# `|| true`: under set -e a failed substitution in an assignment would exit.
+COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null || true)
+LOCAL_HOOK=${COMMON_DIR:+$COMMON_DIR/hooks.local/pre-push}
+if [ -n "$LOCAL_HOOK" ] && [ -x "$LOCAL_HOOK" ]; then
+	printf '%s\n' "$INPUT" | "$LOCAL_HOOK" "$@" || exit $?
+fi
 
 if [ "${BUDDY_PREPUSH_SKIP:-}" = "1" ]; then
 	exit 0
@@ -41,7 +54,9 @@ while read -r _lref lsha _rref _rsha; do
 	"$ZERO") continue ;;
 	*) pushing=1 ;;
 	esac
-done
+done <<REFS
+$INPUT
+REFS
 if [ "$pushing" = "0" ]; then
 	exit 0
 fi

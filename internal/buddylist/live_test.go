@@ -249,14 +249,14 @@ func TestLiveEndToEnd(t *testing.T) {
 		}
 	}
 
-	peer, peerRoom := newPeer("dana")
-	if err := peer.ChatSend(peerRoom, "hello from dana"); err != nil {
+	peer, peerRoom := newPeer("ana")
+	if err := peer.ChatSend(peerRoom, "hello from ana"); err != nil {
 		t.Fatal(err)
 	}
-	resp := readUntil("hello from dana")
+	resp := readUntil("hello from ana")
 	found := false
 	for _, m := range resp.Msgs {
-		if m.Body == "hello from dana" && m.Sender == "dana" && m.Kind == "chat" && m.Room == "lobby" {
+		if m.Body == "hello from ana" && m.Sender == "ana" && m.Kind == "chat" && m.Room == "lobby" {
 			found = true
 		}
 	}
@@ -304,7 +304,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	}
 	preDrop := false
 	for _, m := range resp.Msgs {
-		if m.Body == "hello from dana" {
+		if m.Body == "hello from ana" {
 			preDrop = true
 		}
 	}
