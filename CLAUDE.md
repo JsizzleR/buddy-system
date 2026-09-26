@@ -74,6 +74,7 @@ sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy/SKILL
 sh scripts/get-oscar.sh                   # build the pinned AIM-compatible server into .cache/
 sh scripts/run-local.sh                   # bring up the local TOC stack + daemon for a trial
 scripts/cost-report.sh                    # 7-day context-cost baseline (counts and byte lengths only)
+sh scripts/startup-report.sh [repo]       # minutes and tool calls before each session's first edit (counts only)
 sh scripts/codex-review.sh <prompt-file> <out-file>
 ```
 
@@ -479,6 +480,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **A wait rides hook output inside a bound (D-047).** hello and beat's LANDED notice list
   awaited claims within 1,024 bytes, in order, and count the rest with the view that lists
   them. A re-declaration too long to print whole is never printed as a command cut short.
+- **`buddy init` says whether this repo's main languages have a language server (D-051).**
+  Server on PATH (absolute entries only) and `<plugin>@claude-plugins-official` enabled in the
+  layered settings, merged per full id; `configured`, never "ready", else a fix line that fixes
+  it. Advisory: never fails or blocks init, never runs in a hook, installs and edits nothing.
+  The skill says to use the LSP tool before grep. `scripts/startup-report.sh` is the
+  before/after instrument, counts only.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

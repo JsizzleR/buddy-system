@@ -112,6 +112,13 @@ That creates `buddy.db` in the repo's git **common** directory
 shares it, and git never sees it. A repo without one is untouched: every hook
 is a silent no-op there.
 
+`init` also says, for each main language in the repo, whether a Claude Code
+session there gets a language server: the plugin that lets it look up
+definitions and references in one call instead of mapping the code by grep.
+When one is missing, it prints the command that fixes it. Re-running
+`buddy init` is safe, so it doubles as the re-check
+([details](docs/USAGE.md#language-servers--what-buddy-init-reports)).
+
 ### 3. Hook wiring
 
 Add these to `~/.claude/settings.json` (every repo; the ones never `buddy

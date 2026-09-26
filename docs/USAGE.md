@@ -28,6 +28,7 @@ answer.
 - [The identifier register — `buddy ids`](#the-identifier-register--buddy-ids)
 - [The commit gate in detail](#the-commit-gate-in-detail)
 - [Chat internals](#chat-internals)
+- [Language servers — what `buddy init` reports](#language-servers--what-buddy-init-reports)
 - [Measuring context cost](#measuring-context-cost)
 
 ## Hooks in detail
@@ -927,6 +928,40 @@ check that breaks must cost a diagnosis, never the message.
   message, spoof-resistant. Prompt injection through a chat room is assumed,
   not hoped away.
 
+## Language servers — what `buddy init` reports
+
+A Claude Code session with a language server looks up a definition, its
+references or a file's symbols in one call. Without one it maps the code by
+grep, one round trip at a time, and several sessions in parallel each pay that
+again. The servers come as plugins in the official marketplace. `buddy init`
+prints one line for each language that is at least 10% of the repo's tracked
+source:
+
+```
+language server: go (97 files) — configured: gopls on PATH, gopls-lsp enabled in settings
+language server: python (141 files) — NOT CONFIGURED: pyright-langserver not on PATH; pyright-lsp not enabled
+  fix: npm install -g pyright && claude plugin install pyright-lsp@claude-plugins-official, then run /reload-plugins in open sessions
+```
+
+- **The server** is looked up on `init`'s own PATH, absolute entries only.
+  Claude Code starts it by name from the PATH of the shell `claude` was
+  started from, so run `init` from that shell. `go install` puts `gopls` in
+  `GOBIN`, else the first `GOPATH` entry's `bin`, else `~/go/bin`. When that
+  directory is not on PATH, the fix says to put it there and to start `claude`
+  again: a running session never sees a new PATH.
+- **The plugin** must be enabled as `<name>@claude-plugins-official` in user
+  (or `$CLAUDE_CONFIG_DIR`), project or local settings, the later file winning
+  per full id. Managed settings, `--settings` and `--add-dir` are not read. A
+  `false` in some file gets a fix naming that file's `--scope`.
+- **"Configured"** means the settings and PATH say so. Only the session can see
+  whether the plugin actually loaded: the skill tells it to check its own tool
+  list and, if the tool is missing, to tell you once.
+- **Covered:** Go, Python, TypeScript/JavaScript, Rust, C/C++, Swift, Ruby. Any
+  other language prints nothing rather than something half right.
+- It never changes `init`'s exit status, never blocks, never runs in a hook,
+  and never installs anything or edits your settings. Re-running `buddy init`
+  in a repo that already has a ledger changes nothing else.
+
 ## Measuring context cost
 
 For a privacy-preserving seven-day baseline (counts and byte lengths only):
@@ -942,3 +977,17 @@ BUDDY_LEDGER="$common/buddy.db" scripts/cost-report.sh
 
 Set `BUDDY_COST_DAYS` to change the window. The report never prints messages,
 prompts, or tool results.
+
+For how long sessions spend before their first edit, which is the number a
+language server is meant to move:
+
+```sh
+sh scripts/startup-report.sh                 # this checkout
+sh scripts/startup-report.sh /path/to/repo
+```
+
+One row per session, from its first typed prompt to its first Edit or Write of
+a file in the repo, with its tool calls by kind and the bytes they returned.
+The minutes are an upper bound, since they include your own turns. The `lsp`
+line says whether sessions use the tool at all. It takes the same
+`BUDDY_COST_DAYS` knob, and prints counts and bytes only.

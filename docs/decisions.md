@@ -3114,6 +3114,79 @@ The two `buddylist` probe exits were each found by the check failing, not by rea
 - The first spelling of the hook-report mutation did not apply (a perl escape), and was
   re-spelled until it did.
 
+## D-051 — `buddy init` says whether a session here will get a language server
+
+2026-09-26 · operator request: "sessions spend a long time mapping the code on startup"
+
+**What was wrong** — A fresh session maps the code by grep and `sed -n`, one round trip at a
+time. `scripts/startup-report.sh`, 30 days to 2026-09-26: 14 sessions here reached an edit, after
+a median 22 minutes (an upper bound: it includes the operator's turns) and 29 tool calls returning
+89 KB; 0 of 518 calls were LSP; by hand, 277 of the Bash commands named `internal/cli/cli.go`.
+Claude Code answers "where is X defined, who calls it" in one call through a language-server
+plugin, and none was installed. Setting one up hit a trap on the first try: `go install` put
+`gopls` in `~/go/bin`, which PATH did not name. The plugin would have been enabled with nothing to
+run (the harness starts a server "by name from the user's PATH"), and sessions would have gone
+back to grep with nothing on screen to say so.
+
+**What shipped** —
+- `buddy init` (so `setup-clone.sh` and `install.sh`) prints one `language server:` line per
+  language that is at least 10% of the repo's recognised TRACKED source files: whether the server
+  is on PATH (absolute entries only, executable by the caller), whether
+  `<plugin>@claude-plugins-official` is enabled in user (or `$CLAUDE_CONFIG_DIR`), project and
+  local settings (merged per full id, as the harness merges them), and `configured` or
+  `NOT CONFIGURED` plus a fix line that, followed, fixes it: a server found where `go install` put
+  it, or an install that would land there, carries the PATH step; a plugin some file says `false`
+  to gets `claude plugin enable --scope <that file's scope>`; the line ends in `/reload-plugins`,
+  or in a restart of claude when PATH must change. "Configured", never "ready": settings are the
+  harness's first stage, and only the session sees the last. Seven languages: Go, Python,
+  TypeScript/JavaScript, Rust, C/C++, Swift, Ruby; any other prints nothing.
+- It never changes init's exit status and never blocks: settings are opened non-blocking, must be
+  regular files, and are capped at 1 MiB; the file listing is streamed under a 10 s budget that
+  closes the pipe itself. Managed settings, `--settings` and `--add-dir` are not read.
+- The skill has "Mapping the code": reach for the LSP tool before grep; find references sizes a
+  claim; with no LSP tool, tell the operator once (`buddy init` names the fix), never install it.
+- `scripts/startup-report.sh [repo]`: from a session's first typed prompt to its first edit of a
+  repo file, counts and bytes only; its `lsp` line is the before/after measure.
+
+**Cut** — a SessionStart digest line (every session pays, forever); installing servers or
+enabling plugins (edits the machine and settings, which install.sh never does, D-050); `claude
+plugin list --json` (the claims binary would fork the harness CLI); a committed code map (stale
+under parallel edits); whole-repo packs; splitting `cli.go` for onboarding's sake; Serena until an
+LSP is measured insufficient; `--others` in the file count (an un-ignored virtualenv would be
+walked and counted as what the repo is written in).
+
+**Reviews** — four passes, every finding reproduced by a test that failed first or confirmed by a
+mutation that a test killed:
+- Codex (xhigh), 8 findings, 7 fixed: a FIFO settings file hung init forever; plugin ids keyed by
+  name, so another marketplace's `false` disabled the official one; "ready" overstated; any x bit
+  counted a mode-0001 file executable; `..` paths and a symlinked root fooled the report's in-repo
+  test; C-locale sed encoded é as two hyphens; byte counting was untested. Declined: honouring
+  the empty PATH entry. Kept, documented: prompts beginning with `<` are skipped.
+- Fable, harness semantics (docs and the installed binary): confirmed the settings layers, PATH
+  lookup, the `LSP` tool and its operations, per-UTF-16-unit directory naming and the transcript
+  flags; REFUTED "a plugin needs a new session" (`/reload-plugins` activates it); named
+  `<pasted_content` as a typed prompt that begins with `<`.
+- Fable, adversarial, ~45 inputs: init always exited 0, printed "ledger ready" first, created the
+  ledger, never hung (1 s on a 1,000,000-file index). Fixed: relative PATH entries and a relative
+  GOBIN were honoured against init's cwd.
+- Codex (max) and Sonnet, second pass (8879ce4): the off-PATH `go install` fix ended in
+  `/reload-plugins` with the PATH problem in a note below it; a `git` wrapper whose child held
+  stdout outlived the listing budget (blocked 10 s in the test, 0.8 s after); `/./` segments were
+  rejected with `..`; the check asserted neither medians nor row order, and no fixture called
+  Grep, Glob, Task or Agent.
+
+**Test shape** — `internal/cli/codemap_test.go` runs `init` in a real temp repo against a fake
+server on a fixture PATH and fixture settings files; every NOT CONFIGURED row has its configured
+control. It covers the precedence cases (including another marketplace's id), scope-named fixes,
+FIFO / directory / bad-JSON settings, tracked-only counting with a staged control, cwd-relative
+PATH and GOBIN (`t.Chdir`), and the git-wrapper timeout (a shim that backgrounds a sleep).
+`scripts/check-startup-report.sh` (hermetic; needs jq, says NOT RUN without it) finds the
+transcript directory for a repo path with a dot, an é and an emoji (the name written by hand from
+the harness's rule), and checks the window's two ends, sidechains, calls after the edit, every
+tool-kind column, bytes over string and array results, even and odd medians, row order, the age
+window with a control, and that no marker text from the fixture is ever printed. The resolved-root
+case bites only where the two spellings differ (macOS `/var`); on Linux CI it passes vacuously.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
