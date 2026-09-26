@@ -988,6 +988,10 @@ sh scripts/startup-report.sh /path/to/repo
 
 One row per session, from its first typed prompt to its first Edit or Write of
 a file in the repo, with its tool calls by kind and the bytes they returned.
+"In the repo" means under any of its worktrees, or under a sibling directory
+named `<repo>-…` that has since been removed, because a worktree-per-task
+workflow deletes the worktree once its work lands. Sessions started inside a
+linked worktree are included too.
 The minutes are an upper bound, since they include your own turns. The `lsp`
 line says whether sessions use the tool at all. It takes the same
 `BUDDY_COST_DAYS` knob, and prints counts and bytes only.

@@ -3146,7 +3146,12 @@ back to grep with nothing on screen to say so.
 - The skill has "Mapping the code": reach for the LSP tool before grep; find references sizes a
   claim; with no LSP tool, tell the operator once (`buddy init` names the fix), never install it.
 - `scripts/startup-report.sh [repo]`: from a session's first typed prompt to its first edit of a
-  repo file, counts and bytes only; its `lsp` line is the before/after measure.
+  repo file, counts and bytes only; its `lsp` line is the before/after measure. "A repo file" is
+  under any worktree, or under a removed sibling named `<repo>-…` (an existing one only when git
+  says it shares the common dir), and transcripts are read from every registered worktree's
+  directory: its first real run, on a repo whose sessions start in the main checkout and edit
+  worktrees beside it that are removed once landed, reported 0 of 29 sessions reaching an edit
+  (3 counting registered worktrees alone; 22 with the sibling rule).
 
 **Cut** — a SessionStart digest line (every session pays, forever); installing servers or
 enabling plugins (edits the machine and settings, which install.sh never does, D-050); `claude
