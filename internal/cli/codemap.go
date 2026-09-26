@@ -111,10 +111,13 @@ const (
 	// not a Python repo, and a warning about it is one the operator learns to
 	// skip — along with the warning that mattered.
 	lsMinSharePct = 10
-	lsListBudget  = 10 * time.Second // init is interactive, not a hook
 	// A settings file is a few KB; one larger than this is not read whole.
 	lsSettingsCap = 1 << 20
 )
+
+// lsListBudget bounds the file listing: init is interactive, not a hook. A
+// variable so a test can shorten it.
+var lsListBudget = 10 * time.Second
 
 // reportLanguageServers writes init's language-server lines. It returns
 // nothing: a report it cannot complete says so and stops, and init goes on.
@@ -163,7 +166,6 @@ func languageLine(ls languageServer, n int, path string, plugins map[string]plug
 	}
 
 	var bad, good, fix []string
-	var note string
 	if serverOK {
 		good = append(good, ls.server+" on PATH")
 	} else {
@@ -177,8 +179,11 @@ func languageLine(ls languageServer, n int, path string, plugins map[string]plug
 			fix = append(fix, fmt.Sprintf("put %s on PATH (%s is there)", fence.Line(dir, 512), ls.server))
 		default:
 			fix = append(fix, ls.install)
+			// Following the fix must fix it: an install that lands off PATH
+			// takes the PATH step with it (Codex second pass — the first cut
+			// said so in a note below a fix that ended in /reload-plugins).
 			if dir != "" && !pathNames(path, dir) {
-				note = fmt.Sprintf("  note: go install puts %s in %s, which is not on PATH\n", ls.server, fence.Line(dir, 512))
+				fix = append(fix, fmt.Sprintf("put %s on PATH (go install puts %s there)", fence.Line(dir, 512), ls.server))
 			}
 		}
 	}
@@ -209,7 +214,7 @@ func languageLine(ls languageServer, n int, path string, plugins map[string]plug
 			then = ", then start claude again from a shell whose PATH has it"
 		}
 	}
-	return line + "\n  fix: " + joinSteps(fix) + then + "\n" + note
+	return line + "\n  fix: " + joinSteps(fix) + then + "\n"
 }
 
 // joinSteps chains commands with && and puts a prose step ("put X on PATH")
@@ -257,6 +262,12 @@ func sourceCounts(top string) (map[int]int, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	// The context kills git, not what git forked: a wrapper whose child holds
+	// stdout keeps the pipe open, and the Scanner below would wait for that
+	// child however long it runs (Codex second pass; reproduced with a shim
+	// that backgrounds a sleep). So the budget closes the pipe itself.
+	stop := context.AfterFunc(ctx, func() { out.Close() })
+	defer stop()
 	sc := bufio.NewScanner(out)
 	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
 	sc.Split(func(data []byte, atEOF bool) (int, []byte, error) {
@@ -285,7 +296,13 @@ func sourceCounts(top string) (map[int]int, error) {
 		io.Copy(io.Discard, out) // let git finish rather than die on a closed pipe
 	}
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("listing took longer than %v", lsListBudget)
+		}
 		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("listing took longer than %v", lsListBudget)
 	}
 	return counts, scanErr
 }

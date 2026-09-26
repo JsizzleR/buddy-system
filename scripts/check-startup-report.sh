@@ -76,10 +76,16 @@ cat >"$proj/b.jsonl" <<'EOF'
 {"type":"user","timestamp":"2026-09-26T11:00:00.000Z","message":{"content":"look around"}}
 {"type":"assistant","timestamp":"2026-09-26T11:01:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Bash","input":{"command":"ls"}}]}}
 EOF
-# E: the first prompt is pasted text; an in-repo edit three minutes later.
+# E: the first prompt is pasted text; a Read, a Grep and a Glob (search), a
+# Task and an Agent (agent) — the two columns no other session exercises, so a
+# broken mapping there cannot read as a correct zero (Sonnet, second pass) —
+# then an in-repo edit spelled through a `.` segment (in the repo all the
+# same) three and a half minutes in. Every median stays off a rounding tie.
 cat >"$proj/e.jsonl" <<EOF
 {"type":"user","timestamp":"2026-09-26T12:00:00.000Z","message":{"content":"<pasted_content id=\"1\">a stack trace</pasted_content> fix this"}}
-{"type":"assistant","timestamp":"2026-09-26T12:03:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Edit","input":{"file_path":"$repo/a.go"}}]}}
+{"type":"assistant","timestamp":"2026-09-26T12:01:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Read","input":{"file_path":"$repo/a.go"}},{"type":"tool_use","id":"1g","name":"Grep","input":{"pattern":"x"}},{"type":"tool_use","id":"1l","name":"Glob","input":{"pattern":"*.go"}}]}}
+{"type":"assistant","timestamp":"2026-09-26T12:02:00.000Z","message":{"content":[{"type":"tool_use","id":"1t","name":"Task","input":{}},{"type":"tool_use","id":"1a","name":"Agent","input":{}}]}}
+{"type":"assistant","timestamp":"2026-09-26T12:03:30.000Z","message":{"content":[{"type":"tool_use","id":"2","name":"Edit","input":{"file_path":"$repo/./a.go"}}]}}
 EOF
 # C: not JSON at all.
 printf 'not json\n' >"$proj/c.jsonl"
@@ -98,13 +104,18 @@ $out"
 printf '%s\n' "$out" | grep -q '^2026-09-26 10:00  *12\.5  *1  *0  *1  *1  *0  *2  *4$' ||
 	fail "session A's row is wrong or missing:
 $out"
-printf '%s\n' "$out" | grep -q '^2026-09-26 12:00  *3\.0  *0  *0  *0  *0  *0  *0  *0$' ||
+printf '%s\n' "$out" | grep -q '^2026-09-26 12:00  *3\.5  *1  *2  *0  *0  *2  *0  *0$' ||
 	fail "the pasted-prompt session's row is wrong or missing:
 $out"
 printf '%s\n' "$out" | grep -q '^2 session(s) reached an edit, 1 did not\.$' ||
 	fail "want two edited sessions and one without (the unparseable and the old one left out):
 $out"
-printf '%s\n' "$out" | grep -q '^lsp: 1 of 5 calls in the window (20%)$' ||
+# Medians over an EVEN count (A and E): (3.5 + 12.5) / 2, (5 + 5) / 2, and
+# (0 + 5040/1024) / 2 = 2.46 KB. The widened run below checks an ODD count.
+printf '%s\n' "$out" | grep -q '^median: 8\.0 min, 5 tool calls, 2 KB returned before the first edit$' ||
+	fail "the median line is wrong (even count):
+$out"
+printf '%s\n' "$out" | grep -q '^lsp: 1 of 10 calls in the window (10%)$' ||
 	fail "the lsp line is wrong:
 $out"
 if printf '%s\n' "$out" | grep -q '2026-08-01'; then
@@ -117,6 +128,14 @@ widened=$(BUDDY_COST_DAYS=36500 CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/
 printf '%s\n' "$widened" | grep -q '^2026-08-01 10:00  *12\.5 ' ||
 	fail "the control failed: a 36500-day window did not list the old transcript:
 $widened"
+# ODD count (D, A, E): the middle values, 12.5 min, 5 calls, 4.92 KB.
+printf '%s\n' "$widened" | grep -q '^median: 12\.5 min, 5 tool calls, 5 KB returned before the first edit$' ||
+	fail "the median line is wrong (odd count):
+$widened"
+# Oldest first: the rows are sorted by start, not by file name or find order.
+order=$(printf '%s\n' "$widened" | grep '^20[0-9][0-9]-' | cut -c1-16 | tr '\n' '|')
+[ "$order" = "2026-08-01 10:00|2026-09-26 10:00|2026-09-26 12:00|" ] ||
+	fail "rows are not oldest first: $order"
 
 # Privacy, with its control: the markers ARE in the fixture.
 grep -q MARKER_OUTPUT "$proj/a.jsonl" || fail "the privacy control failed: the fixture lost its markers"

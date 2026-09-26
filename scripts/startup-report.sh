@@ -23,7 +23,8 @@
 # a Codex prompt file. "Inside" is either spelling of the root — the path the
 # harness was started in (its transcripts' directory is named from it) and the
 # resolved one (a symlinked parent; /var is /private/var on macOS) — and never
-# a path through a `..` segment. `min` is wall-clock between the two, so
+# a path through a `..` segment (a `.` segment is fine: it stays put). `min`
+# is wall-clock between the two, so
 # it is an UPPER bound: it includes the operator's own turns and any time the
 # session sat waiting. The tool columns count calls made in that window, and
 # `KB` is the bytes those calls returned. A session that never edited has no
@@ -102,7 +103,7 @@ def kind: if . == "Read" then "read"
   elif . == "Agent" or . == "Task" then "agent"
   else "other" end;
 def size: if type == "string" then utf8bytelength else (tojson | utf8bytelength) end;
-def inrepo: (startswith($top + "/") or startswith($real + "/")) and (test("/\\.\\.?(/|$)") | not);
+def inrepo: (startswith($top + "/") or startswith($real + "/")) and (test("/\\.\\.(/|$)") | not);
 reduce (inputs | select(.isSidechain != true and .isMeta != true and .isCompactSummary != true)) as $e (
   {t0: null, t1: null, n: {read: 0, search: 0, bash: 0, lsp: 0, agent: 0, other: 0}, bytes: 0};
   ($e.message.content // null) as $c

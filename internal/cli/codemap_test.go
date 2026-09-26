@@ -123,10 +123,13 @@ func TestInitReportsLanguageServers(t *testing.T) {
 			setup: func(t *testing.T, f *fixture, home, bin string) {
 				writeSettings(t, filepath.Join(home, ".claude", "settings.json"), gopls)
 			},
+			// Following the fix must fix it (Codex second pass): an install
+			// that lands off PATH needs the PATH step IN the fix, and a new
+			// PATH needs a new claude, not /reload-plugins.
 			want: []string{
-				"  fix: go install golang.org/x/tools/gopls@latest, then run /reload-plugins in open sessions",
-				"  note: go install puts gopls in HOME/go/bin, which is not on PATH",
+				"  fix: go install golang.org/x/tools/gopls@latest; put HOME/go/bin on PATH (go install puts gopls there), then start claude again from a shell whose PATH has it",
 			},
+			deny: []string{"reload-plugins", "note:"},
 		},
 		{
 			name:  "GOBIN on PATH: no note",
@@ -448,5 +451,50 @@ func TestInitCountsTrackedFilesOnly(t *testing.T) {
 	out, _, _ = f.run(t, f.repo, "", "init")
 	if !strings.Contains(out, "python (50 files)") {
 		t.Fatalf("control: staged files were not counted:\n%s", out)
+	}
+}
+
+// TestInitReportTimeoutClosesThePipe: a `git` that forks a child holding
+// stdout and then waits (a wrapper, a shim) outlives the context: the kill
+// reaches the wrapper, the child keeps the pipe open, and a Scanner reading
+// it never returns (Codex second pass). The listing budget must bound init
+// all the same. The fake git forwards everything but ls-files to the real one.
+func TestInitReportTimeoutClosesThePipe(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	f := newFixture(t)
+	codeMapRepo(t, f, map[string]int{".go": 1})
+	shim := t.TempDir()
+	script := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = ls-files ] && { sleep 20 & wait; exit 0; }; done\nexec " + realGit + " \"$@\"\n"
+	fakeServer(t, shim, "git", 0o755)
+	if err := os.WriteFile(filepath.Join(shim, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shim+string(os.PathListSeparator)+os.Getenv("PATH"))
+	defer func(d time.Duration) { lsListBudget = d }(lsListBudget)
+	lsListBudget = 500 * time.Millisecond
+
+	type result struct {
+		out  string
+		code int
+	}
+	done := make(chan result, 1)
+	start := time.Now()
+	go func() {
+		out, _, code := f.run(t, f.repo, "", "init")
+		done <- result{out, code}
+	}()
+	select {
+	case r := <-done:
+		if r.code != 0 || !strings.HasPrefix(r.out, "ledger ready: ") || !strings.Contains(r.out, "could not list this repo's files") {
+			t.Fatalf("exit %d; want the ledger and a listing failure:\n%s", r.code, r.out)
+		}
+		if el := time.Since(start); el > 8*time.Second {
+			t.Fatalf("init took %v against a 500ms listing budget", el)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("init blocked on a pipe the listing budget should have closed")
 	}
 }
