@@ -52,8 +52,9 @@ import (
 	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
-const usageWait = "usage: buddy wait [--on <slug>]... [--until <dur>] [--note <text>] [--session <id>]   declare what you wait on\n" +
-	"                (default --until 3h, ceiling 12h; no --on is a timer that expires and never lands)\n" +
+const usageWait = "usage: buddy wait [--on <slug>]... [--until <dur>] [--note <text>] [--ready <commit>] [--session <id>]   declare what you wait on\n" +
+	"                (default --until 3h, ceiling 12h; no --on is a timer that expires and never lands;\n" +
+	"                 --ready HEAD|<commit>: count your work in on the run the claim guards, ready at that commit)\n" +
 	"       buddy wait check    one verdict — STILL WAITING / LANDED / EXPIRED / NO WAIT — run by THIS session's\n" +
 	"                           own model, armed with: /loop buddy wait check\n" +
 	"       buddy wait clear [--session <id>]   withdraw the wait (its next check says NO WAIT)\n" +
@@ -71,6 +72,9 @@ const (
 	// bytes, and a raw-byte cap equal to the render cap still truncates
 	// (D-021's finding, the same arithmetic).
 	maxWaitNote = 512
+	// maxOutcomeNote caps release's --note on the rendered form, as
+	// maxWaitNote does a wait's (D-049).
+	maxOutcomeNote = 512
 	// hookTargetsRoom bounds the awaited claims where a wait rides HOOK
 	// output (hello's digest, beat's LANDED notice), and hookFlagsRoom the
 	// `--on` flags of hello's re-declaration. Every target used to be
@@ -107,6 +111,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 	fs.Var(&on, "on", "an OPEN claim slug of another session to wait on (repeatable; resolved once, to that claim)")
 	until := fs.Duration("until", waitDefault, "how long to wait before the wait expires (1m..12h)")
 	note := fs.String("note", "", "what you mean to do when it lands (shown back to you, fenced)")
+	ready := fs.String("ready", "", "HEAD or a commit: your work is ready at it, for the run the awaited claim guards (D-049)")
 	var session string
 	sessionFlag(fs, &session)
 	if help, err := parseFlags(fs, args, usageWait, env); help || err != nil {
@@ -137,7 +142,13 @@ func cmdWaitDeclare(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	w, replaced, err := st.DeclareWait(si.SessionID, si.Incarnation, on, *until, *note)
+	var readySHA string
+	if *ready != "" {
+		if readySHA, err = readyCommit(env.Cwd, *ready); err != nil {
+			return err
+		}
+	}
+	w, replaced, err := st.DeclareWaitReady(si.SessionID, si.Incarnation, on, *until, *note, readySHA)
 	if err != nil {
 		return fencedErr(err)
 	}
@@ -150,7 +161,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 	if env.getenv(EnvClaudeSession) != si.SessionID {
 		where = "session " + fence.Line(si.Label, 64) + " (a check speaks only for the session whose harness runs it)"
 	}
-	fmt.Fprintf(env.Stdout, "WAITING on %s — deadline in %s%s\n", targetsPhrase(now, w.Targets), span(w.Deadline.Sub(now)), notePhrase(w))
+	fmt.Fprintf(env.Stdout, "WAITING on %s — deadline in %s%s%s\n", targetsPhrase(now, w.Targets), span(w.Deadline.Sub(now)), readyPhrase(w), notePhrase(w))
 	fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where))
 	if replaced != nil {
 		fmt.Fprintf(env.Stdout, "replaced your open wait on %s (declared %s ago)\n", targetsPhrase(now, replaced.Targets), span(now.Sub(replaced.Since)))
@@ -222,6 +233,9 @@ func cmdWaitCheck(args []string, env Env) error {
 		fmt.Fprintf(&b, "NO WAIT: nothing is registered for this session%s — %s\n", last, stop)
 	case r.Verdict == store.WaitLanded:
 		fmt.Fprintf(&b, "LANDED: %s — the wait is over after %s; %s\n", targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), stop)
+		if c := riderCaveat(w); c != "" {
+			b.WriteString(c + "\n")
+		}
 		if w.Note != "" {
 			fmt.Fprintf(&b, "note: %s\n", fence.Line(w.Note, maxWaitNote))
 		}
@@ -364,8 +378,64 @@ func targetPhrase(now time.Time, t store.WaitTarget) string {
 	case t.State == "":
 		return name + " closed (its row has since been swept)" + reopenedPhrase(now, t)
 	default:
-		return fmt.Sprintf("%s %s %s ago%s", name, t.State, span(now.Sub(t.Closed)), reopenedPhrase(now, t))
+		reported := ""
+		if t.Outcome != "" {
+			reported = ", outcome " + outcomePhrase(t.Outcome, t.OutcomeNote)
+		}
+		return fmt.Sprintf("%s %s %s ago%s%s", name, t.State, span(now.Sub(t.Closed)), reported, reopenedPhrase(now, t))
 	}
+}
+
+// outcomePhrase is a holder's reported outcome as every view renders it (D-049):
+// the word upper-cased, and its note fenced and quoted on this one line. It is
+// the HOLDER's report — "reported" is in the sentences around it, never "passed"
+// in buddy's own voice.
+func outcomePhrase(outcome, note string) string {
+	p := strings.ToUpper(outcome)
+	if note != "" {
+		p += " " + strconv.Quote(fence.Line(note, maxOutcomeNote))
+	}
+	return p
+}
+
+// readyPhrase is the waiter's own READY declaration, as its own views show it.
+func readyPhrase(w store.Wait) string {
+	if w.ReadySHA == "" {
+		return ""
+	}
+	return "; you declared your work ready at " + shortSHA(w.ReadySHA)
+}
+
+func shortSHA(sha string) string {
+	if len(sha) < 8 {
+		return fence.Line(sha, 16)
+	}
+	return sha[:8]
+}
+
+// riderCaveat is what a LANDED says to a waiter that declared --ready when a
+// released claim carries no outcome: the release ended the reservation, and
+// nothing said the run it guarded happened, let alone passed. An integrator
+// that aborted before running anything releases too (Codex design pass, D-049),
+// so LANDED alone must not read as "your work went through".
+func riderCaveat(w store.Wait) string {
+	if w.ReadySHA == "" {
+		return ""
+	}
+	for _, t := range w.Targets {
+		if t.State == "" {
+			// sweep deletes closed rows past their ttl, and the outcome went
+			// with the row (Codex code pass): say it is gone, never nothing.
+			return "That claim's row has since been swept, so whatever outcome its release reported is no longer on record — ask its holder."
+		}
+		if t.State == "released" && t.Outcome == "" {
+			return "No outcome was reported with that release: it says the claim closed, not that a run with your work passed — ask its holder."
+		}
+		if t.State == "orphaned" {
+			return "That claim was ORPHANED, not released: its holder ended without reporting, so nothing says the run with your work happened."
+		}
+	}
+	return ""
 }
 
 // reopenedPhrase names a different claim open now under the awaited slug
@@ -665,8 +735,12 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, f
 	if err != nil || !ok || w.Told || w.Verdict(now) != store.WaitLanded {
 		return "", nothing
 	}
-	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s. `buddy wait check` clears it; then stop the /loop that runs it.\n",
-		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), notePhrase(w))
+	caveat := riderCaveat(w)
+	if caveat != "" {
+		caveat = " " + caveat
+	}
+	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s. `buddy wait check` clears it; then stop the /loop that runs it.%s\n",
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), notePhrase(w), caveat)
 	return line, func() error { return st.MarkWaitTold(me.SessionID, w.Decl) }
 }
 
@@ -791,6 +865,68 @@ func waitersPhrase(st *store.Store, waits []store.Wait, now time.Time) string {
 		parts = append(parts, p)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// ridersLines is WAITED ON's long form when any waiter declared --ready
+// (D-049): one line per waiter, READY first, so the holder of a batched run
+// reads who is in and who is not without a chat round. Every value is the
+// waiter's own declaration or an observation with its age — "not ready" is
+// "declared nothing ready", and the note is the waiter's own words about when
+// (a prediction the ledger stores, never renders as state: no OVERDUE, Fable
+// design pass). Labels are Field'ed and notes fenced, one waiter per line.
+func ridersLines(st *store.Store, waits []store.Wait, now time.Time) (summary string, lines []string) {
+	seen := map[string]store.SessionInfo{}
+	if sessions, err := st.Sessions(store.ByLastSeen); err == nil {
+		for _, si := range sessions {
+			seen[si.SessionID] = si
+		}
+	}
+	var ready, not []string
+	for _, w := range waits {
+		si := seen[w.SessionID]
+		obs := fmt.Sprintf("declared %s ago, seen %s ago", span(now.Sub(w.Since)), age(now, si.LastSeen))
+		if w.Verdict(now) == store.WaitExpired {
+			obs += fmt.Sprintf(", its deadline passed %s ago", span(now.Sub(w.Deadline)))
+		}
+		note := ""
+		if w.Note != "" {
+			note = " — note " + strconv.Quote(fence.Line(w.Note, maxWaitNote))
+		}
+		if w.ReadySHA != "" {
+			ready = append(ready, fmt.Sprintf("  %-24s READY at %s (%s)%s", fence.Field(si.Label, 64), shortSHA(w.ReadySHA), obs, note))
+		} else {
+			not = append(not, fmt.Sprintf("  %-24s not ready (%s)%s", fence.Field(si.Label, 64), obs, note))
+		}
+	}
+	return fmt.Sprintf("%d READY, %d not", len(ready), len(not)), append(ready, not...)
+}
+
+// readyCommit resolves --ready to a full object name in the caller's tree:
+// HEAD, a branch, a sha. Refused when git cannot name a commit by it — a
+// declaration of readiness at a commit that does not exist would hand the
+// integrator nothing (D-049). Anything that begins with "-" is refused before
+// it reaches git's argv.
+func readyCommit(dir, rev string) (string, error) {
+	if strings.HasPrefix(rev, "-") {
+		return "", fmt.Errorf("--ready %s: a commit, not an option; nothing was recorded", strconv.Quote(fence.Line(rev, 64)))
+	}
+	// Two steps, never `rev^{commit}` in one (Codex code pass): appended
+	// to a path revision, the suffix becomes part of the PATH — with a
+	// tracked file literally named `x^{commit}`, `HEAD:x` + `^{commit}`
+	// resolves to that file's blob, and a blob would be recorded as the
+	// commit a rider is ready at. The revision is resolved to an object name
+	// first, and only a full name is then peeled to a commit.
+	nope := fmt.Errorf("--ready %s names no commit here (git rev-parse --verify found none); nothing was recorded",
+		strconv.Quote(fence.Line(rev, 64)))
+	obj, err := baseGit(dir, "rev-parse", "--verify", "-q", rev)
+	if err != nil || !isSHA(obj) {
+		return "", nope
+	}
+	out, err := baseGit(dir, "rev-parse", "--verify", "-q", obj+"^{commit}")
+	if err != nil || !isSHA(out) {
+		return "", nope
+	}
+	return out, nil
 }
 
 // slotPrefix is the reserved home of resource slots (D-035, issue #27): a

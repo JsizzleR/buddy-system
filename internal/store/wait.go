@@ -87,6 +87,11 @@ type WaitTarget struct {
 	Reopened   bool
 	ReopenedBy string
 	ReopenedAt time.Time
+	// Outcome is what the holder reported when it released the claim
+	// (D-049): "pass", "fail", "aborted", or "" when it reported nothing or
+	// has not released. OutcomeNote is peer text: the caller fences it.
+	Outcome     string
+	OutcomeNote string
 }
 
 // IsOpen reports whether the awaited claim is still open. A row that is gone
@@ -106,6 +111,7 @@ type Wait struct {
 	Told        bool      // beat has announced this declaration's landing
 	Cleared     time.Time // zero while open
 	Reason      string    // "landed", "expired", "cleared", "ended" once cleared
+	ReadySHA    string    // D-049: the commit the waiter declared its work ready at, or ""
 	Targets     []WaitTarget
 }
 
@@ -193,6 +199,19 @@ func (e ErrWaitRefused) Error() string {
 // orphaned (0s ago)" over a claim still open; Codex code pass). Duplicate
 // slugs collapse to one target.
 func (s *Store) DeclareWait(sessionID, incarnation string, slugs []string, until time.Duration, note string) (Wait, *Wait, error) {
+	return s.DeclareWaitReady(sessionID, incarnation, slugs, until, note, "")
+}
+
+// DeclareWaitReady is DeclareWait that also records readySHA, the commit the
+// waiter declares its work ready at (D-049): a rider on a batched run saying
+// "count my work in, it is at this commit". It is the waiter's declaration and
+// nothing checks it against any tree — the integrator rebases every rider, so
+// an ancestry test would fail every correctly integrated item (Codex and Fable
+// design passes). A timer has nobody to hand readiness to, so it is refused.
+func (s *Store) DeclareWaitReady(sessionID, incarnation string, slugs []string, until time.Duration, note, readySHA string) (Wait, *Wait, error) {
+	if readySHA != "" && len(slugs) == 0 {
+		return Wait{}, nil, ErrWaitRefused{Why: "--ready says whose run your work is ready for, so it needs --on <slug>: a timer has nobody to hand it to; nothing was recorded"}
+	}
 	if until < WaitFloor {
 		return Wait{}, nil, ErrWaitRefused{Why: fmt.Sprintf("--until %s is under the %s floor: the harness schedules nothing sooner than a minute", until, WaitFloor)}
 	}
@@ -251,11 +270,12 @@ func (s *Store) DeclareWait(sessionID, incarnation string, slugs []string, until
 			return err
 		}
 		decl := newToken()
-		if _, err := tx.Exec(`INSERT INTO session_waits (session_id, incarnation, decl, since, deadline, note, last_check, checks, told, cleared, reason)
-			VALUES (?,?,?,?,?,?,0,0,0,NULL,NULL)
+		if _, err := tx.Exec(`INSERT INTO session_waits (session_id, incarnation, decl, since, deadline, note, last_check, checks, told, cleared, reason, ready_sha)
+			VALUES (?,?,?,?,?,?,0,0,0,NULL,NULL,?)
 			ON CONFLICT(session_id) DO UPDATE SET incarnation=excluded.incarnation, decl=excluded.decl, since=excluded.since,
-				deadline=excluded.deadline, note=excluded.note, last_check=0, checks=0, told=0, cleared=NULL, reason=NULL`,
-			sessionID, incarnation, decl, now.Unix(), now.Add(until).Unix(), note); err != nil {
+				deadline=excluded.deadline, note=excluded.note, last_check=0, checks=0, told=0, cleared=NULL, reason=NULL,
+				ready_sha=excluded.ready_sha`,
+			sessionID, incarnation, decl, now.Unix(), now.Add(until).Unix(), note, readySHA); err != nil {
 			return err
 		}
 		for i, t := range targets {
@@ -487,8 +507,9 @@ func cleanupEnded(tx *sql.Tx, now int64) error {
 // closed rows past its ttl) and a target must survive that as "closed".
 func waitsWhere(q querier, where string, args ...any) ([]Wait, error) {
 	rows, err := q.Query(`SELECT w.session_id, w.incarnation, w.decl, w.since, w.deadline, w.note, w.last_check, w.checks, w.told,
-			COALESCE(w.cleared,0), COALESCE(w.reason,''),
+			COALESCE(w.cleared,0), COALESCE(w.reason,''), w.ready_sha,
 			COALESCE(t.claim_id,''), COALESCE(t.slug,''), COALESCE(c.state,''), COALESCE(c.renewed,0),
+			COALESCE(c.outcome,''), COALESCE(c.outcome_note,''),
 			COALESCE(h.session_id,''), COALESCE(h.incarnation,''), COALESCE(h.label,''), COALESCE(h.worktree,''),
 			COALESCE(h.started,0), COALESCE(h.last_seen,0), COALESCE(h.ended,0),
 			COALESCE(r.claim_id,''), COALESCE(rh.label,''), COALESCE(r.created,0)
@@ -512,8 +533,8 @@ func waitsWhere(q querier, where string, args ...any) ([]Wait, error) {
 		var renewed int64
 		var reopenedID string
 		if err := rows.Scan(&w.SessionID, &w.Incarnation, &w.Decl, unixScan{&w.Since}, unixScan{&w.Deadline}, &w.Note,
-			unixScan{&w.LastCheck}, &w.Checks, &told, unixScan{&w.Cleared}, &w.Reason,
-			&t.ClaimID, &t.Slug, &t.State, &renewed,
+			unixScan{&w.LastCheck}, &w.Checks, &told, unixScan{&w.Cleared}, &w.Reason, &w.ReadySHA,
+			&t.ClaimID, &t.Slug, &t.State, &renewed, &t.Outcome, &t.OutcomeNote,
 			&t.Holder.SessionID, &t.Holder.Incarnation, &t.Holder.Label, &t.Holder.Worktree,
 			unixScan{&t.Holder.Started}, unixScan{&t.Holder.LastSeen}, unixScan{&t.Holder.Ended},
 			&reopenedID, &t.ReopenedBy, unixScan{&t.ReopenedAt}); err != nil {

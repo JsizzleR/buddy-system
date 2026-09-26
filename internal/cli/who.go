@@ -242,9 +242,9 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	}
 	if ok {
 		c, observed := sampleOf(st, si)
-		fmt.Fprintf(env.Stdout, "WAITING      on %s — declared %s ago, %s, %s; %s%s\n",
+		fmt.Fprintf(env.Stdout, "WAITING      on %s — declared %s ago, %s, %s; %s%s%s\n",
 			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), deadlinePhrase(now, w), lastCheckPhrase(now, w),
-			observedRequest(now, c, observed), notePhrase(w))
+			observedRequest(now, c, observed), readyPhrase(w), notePhrase(w))
 	} else {
 		fmt.Fprintln(env.Stdout, "WAITING      none declared")
 	}
@@ -266,9 +266,21 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 				}
 			}
 		}
-		if len(waiting) == 0 {
+		riders := false
+		for _, w := range waiting {
+			riders = riders || w.ReadySHA != ""
+		}
+		switch {
+		case len(waiting) == 0:
 			fmt.Fprintln(env.Stdout, "WAITED ON    by no declared wait")
-		} else {
+		case riders:
+			// A batched run forming (D-049): the holder reads who is in.
+			summary, lines := ridersLines(st, waiting, now)
+			fmt.Fprintf(env.Stdout, "WAITED ON    by %d session(s), %s:\n", len(waiting), summary)
+			for _, ln := range lines {
+				fmt.Fprintln(env.Stdout, ln)
+			}
+		default:
 			fmt.Fprintf(env.Stdout, "WAITED ON    by %d session(s): %s\n", len(waiting), waitersPhrase(st, waiting, now))
 		}
 	}

@@ -39,13 +39,18 @@ func commitN(t *testing.T, dir, name string, n int) {
 // fixture clock — the only path that records a base.
 func stopB(t *testing.T, f *fixture) {
 	t.Helper()
-	tr := filepath.Join(t.TempDir(), "bravo.jsonl")
+	stopIn(t, f, "sess-b", f.wtB)
+}
+
+func stopIn(t *testing.T, f *fixture, session, cwd string) {
+	t.Helper()
+	tr := filepath.Join(t.TempDir(), session+".jsonl")
 	line := turnLineTTL(f.clock.UTC().Format("2006-01-02T15:04:05.000Z"), 2, 1000, 10, 0, 10)
 	if err := os.WriteFile(tr, []byte(line+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in, _ := json.Marshal(map[string]any{"session_id": "sess-b", "cwd": f.wtB, "transcript_path": tr})
-	if _, errw, code := f.run(t, f.wtB, string(in), "idle"); code != 0 {
+	in, _ := json.Marshal(map[string]any{"session_id": session, "cwd": cwd, "transcript_path": tr})
+	if _, errw, code := f.run(t, cwd, string(in), "idle"); code != 0 {
 		t.Fatalf("idle: %s", errw)
 	}
 }
@@ -126,6 +131,157 @@ func TestTheRosterSaysWhereASessionsBaseStandsAgainstMain(t *testing.T) {
 	gitIn(t, f.repo, "branch", "-M", "master")
 	if row := rowOf(t, f, "bravo"); !strings.Contains(row, "base "+head2+" (2 ahead, 3 behind master, ") {
 		t.Fatalf("master is the fallback:\n%s", row)
+	}
+}
+
+// Field notes §16: main was amended after a peer had rebased onto it, and
+// the peer's tree was silently built on a commit main no longer reaches. The
+// discriminator is main's reflog, and the test that matters is §20's "what
+// does a HEALTHY tree print?": charlie has unlanded work on an older base and
+// reads exactly the same counts as bravo — 2 ahead, 1 behind — and only
+// bravo carries a commit main dropped.
+func TestABaseCarryingACommitMainDroppedSaysSo(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	gitIn(t, f.repo, "branch", "-M", "main")
+	wtC := filepath.Join(filepath.Dir(f.wtB), "wtC")
+	gitIn(t, f.repo, "worktree", "add", "-q", wtC)
+	if _, errw, code := f.run(t, wtC, hookJSON("sess-c", wtC, "", ""), "hello", "--label", "charlie"); code != 0 {
+		t.Fatalf("hello c: %s", errw)
+	}
+	stop := func() {
+		t.Helper()
+		f.clock = f.clock.Add(1e9)
+		stopIn(t, f, "sess-b", f.wtB)
+		stopIn(t, f, "sess-c", wtC)
+	}
+
+	// charlie: two commits of its own, forked before anything landed.
+	commitN(t, wtC, "cwork", 2)
+	// main lands X; bravo rebases onto it and commits once.
+	commitN(t, f.repo, "landed", 1)
+	x := gitIn(t, f.repo, "rev-parse", "HEAD")
+	gitIn(t, f.wtB, "reset", "-q", "--hard", "main")
+	commitN(t, f.wtB, "bwork", 1)
+	stop()
+	// Control: nothing was rewritten yet, so neither row may say DROPPED.
+	for _, who := range []string{"bravo", "charlie"} {
+		if row := rowOf(t, f, who); strings.Contains(row, "DROPPED") {
+			t.Fatalf("main was never rewritten:\n%s", row)
+		}
+	}
+
+	// The §16 move: main amends X. bravo's tree is unchanged.
+	gitIn(t, f.repo, "commit", "-q", "--amend", "-m", "landed, amended")
+	row := rowOf(t, f, "bravo")
+	if !strings.Contains(row, "(2 ahead, 1 behind main, ") ||
+		!strings.Contains(row, "ago; carries 1 commit main DROPPED: "+x[:8]+")") {
+		t.Fatalf("bravo is built on the commit main amended away:\n%s", row)
+	}
+	if w := whoOf(t, f, "bravo"); !strings.Contains(w, "carries 1 commit main DROPPED: "+x[:8]) {
+		t.Fatalf("who prints the same drop:\n%s", w)
+	}
+	// The healthy tree: the same counts, and no drop.
+	if row := rowOf(t, f, "charlie"); !strings.Contains(row, "(2 ahead, 1 behind main, ") || strings.Contains(row, "DROPPED") {
+		t.Fatalf("charlie's unlanded work is not a drop:\n%s", row)
+	}
+
+	// bravo rebuilds on current main: the note clears, though the reflog
+	// still remembers X.
+	gitIn(t, f.wtB, "reset", "-q", "--hard", "main")
+	commitN(t, f.wtB, "bwork2", 1)
+	stop()
+	if row := rowOf(t, f, "bravo"); !strings.Contains(row, "(1 ahead of main, ") || strings.Contains(row, "DROPPED") {
+		t.Fatalf("a base rebuilt on current main carries no drop:\n%s", row)
+	}
+
+	// A reset rather than an amend, dropping two: main lands Y1 and Y2 in ONE
+	// fast-forward (so Y1 was never main's tip and is in no reflog entry —
+	// the walk back from Y2 is what finds it), bravo builds on Y2, and main
+	// is reset back past both and lands Z.
+	gitIn(t, f.repo, "checkout", "-q", "-b", "side")
+	commitN(t, f.repo, "y", 2)
+	gitIn(t, f.repo, "checkout", "-q", "main")
+	gitIn(t, f.repo, "merge", "-q", "--ff-only", "side")
+	y2 := gitIn(t, f.repo, "rev-parse", "HEAD")
+	gitIn(t, f.wtB, "reset", "-q", "--hard", "main")
+	commitN(t, f.wtB, "bwork3", 1)
+	stop()
+	y1 := gitIn(t, f.repo, "rev-parse", "HEAD~1")
+	gitIn(t, f.repo, "reset", "-q", "--hard", "HEAD~2")
+	// Reset only, nothing landed after it: bravo is AHEAD and not behind at
+	// all, and still carries the drop (Codex: a gate on "ahead AND behind"
+	// survived the test without this state).
+	if row := rowOf(t, f, "bravo"); !strings.Contains(row, "(3 ahead of main, ") ||
+		!strings.Contains(row, "; carries 2 commits main DROPPED, incl. ") {
+		t.Fatalf("a reset alone leaves bravo ahead and carrying the drop:\n%s", row)
+	}
+	commitN(t, f.repo, "z", 1)
+	// The named commit is an example, not a ranking: rev-list's date order
+	// does not define "newest" across a merge (Codex).
+	row = rowOf(t, f, "bravo")
+	if !strings.Contains(row, "; carries 2 commits main DROPPED, incl. "+y2[:8]+")") &&
+		!strings.Contains(row, "; carries 2 commits main DROPPED, incl. "+y1[:8]+")") {
+		t.Fatalf("bravo carries both commits the reset dropped:\n%s", row)
+	}
+	if row := rowOf(t, f, "charlie"); strings.Contains(row, "DROPPED") {
+		t.Fatalf("charlie still carries nothing main dropped:\n%s", row)
+	}
+}
+
+// Codex, D-048: `rev-list --walk-reflogs` emits each entry's NEW value only.
+// With every earlier entry expired, a reset leaves one entry old=X new=A, and
+// the walk alone names only A — the dropped X is invisible to it while the
+// entry recording it is still on disk. The files backend's log is read too.
+func TestADropSurvivesTheReflogExpiringBeforeIt(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	gitIn(t, f.repo, "branch", "-M", "main")
+	commitN(t, f.repo, "landed", 1)
+	x := gitIn(t, f.repo, "rev-parse", "HEAD")
+	gitIn(t, f.wtB, "reset", "-q", "--hard", "main")
+	stopB(t, f)
+	gitIn(t, f.repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "refs/heads/main")
+	gitIn(t, f.repo, "reset", "-q", "--hard", "HEAD~1")
+	a := gitIn(t, f.repo, "rev-parse", "HEAD")
+	// Control: the scenario is the one described — the walk names A alone.
+	if walk := gitIn(t, f.repo, "rev-list", "--walk-reflogs", "refs/heads/main"); walk != a {
+		t.Fatalf("the walk should name only the reset's new value %s, got:\n%s", a[:8], walk)
+	}
+	if row := rowOf(t, f, "bravo"); !strings.Contains(row, "(1 ahead of main, ") ||
+		!strings.Contains(row, "; carries 1 commit main DROPPED: "+x[:8]+")") {
+		t.Fatalf("the reset's old value is still on disk and names the drop:\n%s", row)
+	}
+}
+
+// Codex, D-048: a landing between reading main's tip and reading its reflog
+// made a fast-forward read as a drop. The reflog is read first; the seam
+// lands bravo's commit onto main at exactly that moment. Not parallel: the
+// seam is a package variable, and the parallel tests are paused while this
+// one runs.
+func TestAFastForwardDuringTheReadIsNotADrop(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	gitIn(t, f.repo, "branch", "-M", "main")
+	commitN(t, f.wtB, "bwork", 1)
+	b := gitIn(t, f.wtB, "rev-parse", "HEAD")
+	stopB(t, f)
+	fired := false
+	afterReflogRead = func(dir string) {
+		if !fired {
+			fired = true
+			gitIn(t, f.repo, "merge", "-q", "--ff-only", b)
+		}
+	}
+	t.Cleanup(func() { afterReflogRead = func(string) {} })
+	row := rowOf(t, f, "bravo")
+	if !fired {
+		t.Fatal("the seam never fired, so the race was not exercised")
+	}
+	if !strings.Contains(row, "(on main, ") || strings.Contains(row, "DROPPED") {
+		t.Fatalf("main only moved forward onto bravo's base:\n%s", row)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -85,7 +86,13 @@ CREATE TABLE IF NOT EXISTS claims (
 	created     INTEGER NOT NULL,
 	renewed     INTEGER NOT NULL,
 	state       TEXT NOT NULL CHECK (state IN ('open','released','orphaned')),
-	shared      INTEGER NOT NULL DEFAULT 0 -- D-042: overlaps other SHARED claims; never an exclusive one
+	shared      INTEGER NOT NULL DEFAULT 0, -- D-042: overlaps other SHARED claims; never an exclusive one
+	-- D-049: what the holder REPORTED when it released: 'pass', 'fail',
+	-- 'aborted', or '' (nothing reported, and every release before it). A
+	-- release means the reservation ended and nothing more; this is the
+	-- holder's own word about the job the claim guarded, never buddy's check.
+	outcome      TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('','pass','fail','aborted')),
+	outcome_note TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS claims_open_slug ON claims(slug) WHERE state='open';
 CREATE TABLE IF NOT EXISTS claim_scopes (
@@ -305,7 +312,11 @@ CREATE TABLE IF NOT EXISTS session_waits (
 	checks      INTEGER NOT NULL DEFAULT 0,
 	told        INTEGER NOT NULL DEFAULT 0,
 	cleared     INTEGER,
-	reason      TEXT CHECK (reason IS NULL OR reason IN ('landed','expired','cleared','ended'))
+	reason      TEXT CHECK (reason IS NULL OR reason IN ('landed','expired','cleared','ended')),
+	-- D-049: the commit the waiter declared its work READY at, full object
+	-- name, or '' (not declared ready). The waiter's declaration, never
+	-- checked against any tree.
+	ready_sha   TEXT NOT NULL DEFAULT ''
 );
 -- The claims a declaration waits on, resolved ONCE to claim ids (D-013). The
 -- slug is kept as declared for display only; landing is judged on the id.
@@ -326,6 +337,8 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 14 adds claims.outcome, claims.outcome_note and session_waits.ready_sha
+// (D-049), ALTER arms.
 // 13 adds inbox.kind and inbox.kind_note (D-045), ALTER arms.
 // 12 adds inbox.sender_session and inbox.supersedes (D-043), ALTER arms.
 // 11 adds claims.shared (D-042), the second ALTER arm — see migrate.
@@ -342,7 +355,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 13
+const schemaVersion = 14
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -520,6 +533,20 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if err := addColumnIfMissing(tx, "inbox", "kind_note", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	// D-049. Every earlier release reported nothing and every earlier wait
+	// declared nothing ready, which is what '' says. The CHECK rides the
+	// column: ALTER TABLE ADD COLUMN accepts one whose default satisfies it.
+	if ver < 14 {
+		if err := addColumnIfMissing(tx, "claims", "outcome", "TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('','pass','fail','aborted'))"); err != nil {
+			return err
+		}
+		if err := addColumnIfMissing(tx, "claims", "outcome_note", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+		if err := addColumnIfMissing(tx, "session_waits", "ready_sha", "TEXT NOT NULL DEFAULT ''"); err != nil {
 			return err
 		}
 	}
@@ -1231,6 +1258,26 @@ func (s *Store) Release(sessionID, incarnation, slug string) error {
 // another process of the same session releasing and re-taking the slug in
 // between (Codex code pass).
 func (s *Store) ReleaseID(sessionID, incarnation, slug string) (string, error) {
+	return s.ReleaseOutcome(sessionID, incarnation, slug, "", "")
+}
+
+// Outcomes a holder may report when it releases (D-049). The claim guarded a
+// job — a long test tier, a land — and the waiters on it want to know what
+// became of the job, which the release alone cannot say: an integrator that
+// aborted before running anything releases too (Codex design pass).
+var Outcomes = []string{"pass", "fail", "aborted"}
+
+// ReleaseOutcome is ReleaseID recording, in the same transaction, what the
+// holder reports about the job the claim guarded. outcome is "" or one of
+// Outcomes; note is only meaningful with an outcome and is peer text to every
+// reader.
+func (s *Store) ReleaseOutcome(sessionID, incarnation, slug, outcome, note string) (string, error) {
+	if outcome == "" && note != "" {
+		return "", errors.New("an outcome note needs an outcome")
+	}
+	if outcome != "" && !slices.Contains(Outcomes, outcome) {
+		return "", fmt.Errorf("outcome %q is not one of %s", outcome, strings.Join(Outcomes, ", "))
+	}
 	var claimID string
 	err := s.tx(func(tx *sql.Tx) error {
 		err := tx.QueryRow(`SELECT claim_id FROM claims WHERE slug=? AND session_id=? AND incarnation=? AND state='open'`,
@@ -1241,7 +1288,8 @@ func (s *Store) ReleaseID(sessionID, incarnation, slug string) (string, error) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(`UPDATE claims SET state='released', renewed=? WHERE claim_id=?`, s.now().Unix(), claimID)
+		_, err = tx.Exec(`UPDATE claims SET state='released', renewed=?, outcome=?, outcome_note=? WHERE claim_id=?`,
+			s.now().Unix(), outcome, note, claimID)
 		return err
 	})
 	if err != nil {

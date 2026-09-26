@@ -2866,6 +2866,204 @@ partial command, and points at `buddy ls`. Each has a control that the wait line
 Four mutations were run: each hook site reverted to the full list, and the flags room disabled.
 Each failed a test.
 
+## D-048 — A base that carries a commit main dropped says so, found by main's reflog
+
+2026-09-26 · field notes §16, the alert D-038 left as a second decision
+
+**What was wrong** — Field notes §16, measured: a session committed to the shared `main` and
+amended that commit twice. A peer had already rebased onto the first version. The rebase
+succeeded without a conflict onto a commit main no longer reached, and it was caught only by a
+hand-run `git merge-base --is-ancestor`. The cheap check a careful person runs (same parent,
+same subject) says "same commit". D-038's base column shows the case as `N ahead, M behind`,
+which is also what every healthy session with unlanded work on an older base shows. So the
+column recorded the orphaned base and could not tell anyone about it.
+
+**Why not the ancestor test** — "Base is not an ancestor of main" is the alarm polarity of
+field notes §20. It fires on every session with unlanded work, and D-038 cut it for exactly that
+reason. The question to ask of any probe here is what a HEALTHY tree prints.
+
+**The discriminator** — main's own reflog. Every tip main has had is in it. A commit that main
+once reached and the current tip does not is a commit main DROPPED. The dropped set is the
+reflog's tips walked back to where they rejoin current main (`rev-list --walk-reflogs
+refs/heads/<main>`, then `rev-list --stdin ^<tip>`). A base carries a drop when one of its
+commits ahead of main is in that set. A worktree branch's unlanded commits were never reachable
+from main, so they are never in it. The healthy tree prints nothing new.
+
+**What shipped** — The same note both views already print gains a tail:
+`base 3f2e1d0c (2 ahead, 1 behind main, 12m ago; carries 1 commit main DROPPED: 8ace1954)`,
+or `carries N commits main DROPPED, newest <sha8>`. `rev-list --walk-reflogs` is plumbing, so
+no user `log.*` setting adds lines to what is parsed. Tips go to `rev-list` on stdin, not argv,
+because a long-lived main's reflog can hold thousands.
+
+**Cost** — Read side only, the roster and `who`. No hook path runs it. It adds one reflog walk
+per listing, 21.8 ms median (29.3 ms p90) measured on this repo's 40-entry reflog. The per-base
+walk runs only when the dropped set is non-empty AND that base is ahead of main.
+
+**What it deliberately does not do**
+- It refuses nothing, and it is an observation with an age (invariant 10), like the rest of
+  the note.
+- It says nothing when the reflog is off (`core.logAllRefUpdates=false`) or expired. gc keeps
+  unreachable reflog entries for 30 days by default. So silence means "no drop the reflog still
+  records", never "main was not rewritten". The ancestor test would say more and be wrong more
+  often.
+- No push notice to the session that rewrote main, and none to the peer on `beat`. `beat`
+  forks no git by design, and a notice at the rewrite needs a git hook (`reference-transaction`),
+  which is a separate decision.
+
+**Test shape** — `cli/base_test.go`, on a real repo with two linked worktrees. charlie has two
+commits of its own on the original base. bravo rebases onto a newly landed X and commits.
+Control: before any rewrite, neither row says DROPPED. main amends X. bravo's row and `who`
+say `carries 1 commit main DROPPED: <X>`. charlie reads the same `2 ahead, 1 behind main` and
+says nothing, which is the healthy-tree test. bravo rebuilds on current main and the note clears
+while the reflog still remembers X. Then main lands Y1 and Y2 in ONE fast-forward, so Y1 was
+never a reflog tip. bravo builds on Y2, and main is reset back past both. bravo carries 2, and
+the newest named is Y2. Mutated five ways, and each failed the test: no reflog read, tips
+without the walk back, no note rendered, the plural arm unreachable, and every ahead commit
+counted as dropped. The walk-back mutation survived until the fast-forward landing was added.
+Its first spelling (`--no-walk` beside `^tip`) was a no-op, because git ignores `--no-walk` when
+a range is given.
+
+## D-049 — One long run closes out several sessions: `wait --ready`, `release --outcome`
+
+2026-09-26 · operator request; Codex and Fable design passes
+
+**What was wrong** — The fleet's hermetic tier takes about 65 minutes. The operator's words:
+"a way for multiple sessions at the same time to all understand how best to work together to do
+just ONE herm tier check to close them all out — if someone's like 'I'm done in 10', we wait."
+They also said plainly that a mutex was not the ask. A slot (D-035) makes the runs take turns,
+and five sessions finishing inside one half hour still pay five tiers. Field practice elsewhere,
+run by hand: riders send `READY <branch> <sha>` messages in chat, and one integrator replays them
+in a published order, pins a sha once, runs the tier and fast-forwards main. The roster lived in
+the integrator's head, the cutoff in chat, and the pass/fail announcement never reached a session
+parked on its `/loop`. The measured failures there were land-side: cheap landings invalidated a
+~50-minute tier three times to land one change, and a tier graded a tree main never received.
+The estimate was one batched tier at about 50 minutes against about 300 serial (arithmetic, not
+measured).
+
+**The design passes, and what each changed.** The first candidate had `batch join/go`, a HOLD/GO
+verdict, `--hold-max`, OVERDUE, a run table and an ancestry check.
+- **Fable:** cut all of it. `--hold-max` is a timer buddy would own, which D-033 cut by name.
+  GO-after-cutoff "names who is left behind", which is an auto-eject. `--ready-in` rendered as
+  OVERDUE turns a prediction into state beside `idle`, which already observes the same thing.
+  The ancestry check fails every correctly integrated rider, because the integrator REBASES
+  every rider. "First GO wins" picks the runner by timing, not by who built the integration
+  worktree. Its counter-proposal needed no new verbs: `wait --ready` plus a release note.
+- **Codex:** a release cannot mean RAN. An integrator that fails to build the worktree and
+  releases would tell every rider "RAN" when zero tests ran. So PASS/FAIL/ABORTED is an explicit,
+  separate fact. The slot must also hold MAIN through the tier and the land, because otherwise a
+  lander moves main and the green result cannot fast-forward. It preferred a batch register with
+  a frozen membership and a fixed cutoff.
+- **Where they agreed, which shipped:** a designated integrator, a claim on main, no ancestry
+  test, an ETA that is advisory only, and an outcome that is reported rather than inferred.
+- **Where they split, what the operator chose:** Fable's no-new-verbs shape plus Codex's explicit
+  outcome. Membership is the integrator's own `--desc`. No batch table, no hold timer.
+
+**What shipped (schema 14)**
+- **`wait --on <run> --ready HEAD|<commit>`** stores the full object name in
+  `session_waits.ready_sha`. It must resolve (`rev-parse --verify <rev>^{commit}` in the caller's
+  cwd, anything starting with `-` refused), it needs `--on`, and it is otherwise the rider's word.
+  Re-declaring replaces the wait, as every declaration does.
+- **`who <run>`** switches WAITED ON to one line per waiter as soon as any waiter declared ready:
+  `N READY, M not`, READY first, each with its commit, declaration age, last-seen age, deadline
+  if passed, and its note quoted. "not ready" means "declared nothing ready". The short form is
+  unchanged when nobody declared.
+- **`release <slug> --outcome pass|fail|aborted [--note …]`** writes `claims.outcome` and
+  `outcome_note` in the release's own transaction. The column carries a CHECK. `--note` needs an
+  outcome, an outcome cannot ride a `--scope` narrowing, and every malformed report is refused
+  before the ledger opens, so it releases nothing.
+- **Every waiter's LANDED** (`wait check`, beat's one-shot notice) renders the released target as
+  `released 2m ago, outcome PASS "<note>"`. A waiter that declared `--ready` also gets one caveat
+  line when a released target carries NO outcome ("it says the claim closed, not that a run with
+  your work passed"), and a different one when the target was ORPHANED (its integrator ended).
+  A plain waiter hears nothing extra.
+- **The protocol** lives in the README (§1c‴) and the skill: the integrator claims
+  `.buddy/slot/<run>` and `.buddy/slot/main` with a FORMING `--desc`, refreshes it at GO (a
+  refresh keeps the claim id, so the waits stand), pins, runs, lands and releases with the
+  outcome.
+
+**What it deliberately does not do** — No batch or attempt table, no frozen manifest (the `--desc`
+is the manifest), no hold cutoff, no OVERDUE, no eject, no ancestry check of `--ready`, no
+attribution engine for a red run. Nothing wakes or schedules anyone. A wait still reserves and
+refuses nothing. Slots are per checkout, so repositories with separate ledgers do not see each
+other's run.
+
+**Skill rule, alongside** — The operator asked that the skill be updated for this and that keeping
+it updated be a standing, gated rule. `TestSkillTeachesEveryVerbAndFlag` is the reverse of D-046's
+check: every verb, subcommand and flag in the usage table is taught by `skills/buddy/SKILL.md`
+or exempted in the test with a written reason. The hooks, `init`, and the operator's `pause`,
+`resume` and `authority` are exempt, and so are `--help` and `--session` everywhere. Its first
+run found ten names the skill had never taught, all predating this change: `ls`, `sweep --dry-run`,
+`sessions --by`, `msg --from` and `--dry-run`, `ids ls`, `ids status` and `ids take --note`, and
+`wait clear` and `wait ls`. `TestSkillCoverageGateFires` cuts `--ready`, `--outcome`,
+`buddy sent` and `wait check` out of the real skill, and each must be reported.
+`scripts/install-skill.sh`, run by `setup-clone.sh`, refreshes the user-level copy and keeps a
+differing one as `.bak`. `check-skill.sh` gates it into a temp dir. Measured the same day: the
+installed copy on the developer's machine was a release behind the repo.
+
+**Test shape** — `cli/batch_test.go`, three sessions on real worktrees:
+- Control: no rider declared, so the short form. Then a rider declares ready and the other only
+  a note, and `who` lists both, READY first. Refusals leave the waits as they were: an
+  unresolvable commit, `--ready` with no `--on`, and an option as the commit.
+- Three malformed releases each leave the claim open. PASS with a note reaches the one-shot
+  notice and the check.
+- A release with no outcome gives the rider the caveat and the plain waiter none (the control).
+  An integrator's bye gives the rider the ORPHANED caveat.
+- `store/batch_test.go`: the round trip, the column CHECK with its control, and a schema-13 →
+  14 migration.
+
+The migration fixture rebuilds `claims` and `session_waits` from schema 13's EXACT CREATE text.
+The first fixture used DROP COLUMN, and SQLite's text edit turned v13's trailing `--` line comment
+into "incomplete input". The trailing comment is exactly what a real v13 ledger's ALTER ADD must
+survive, so the fixture keeps it. `check-wait.sh` QA-6 drives the same round trip through the
+built binary. Thirteen mutations each failed a test:
+- the outcome not rendered;
+- no caveat, a caveat for every waiter, and no ORPHANED caveat;
+- "not ready" listed first;
+- the outcome not stored, and the ready commit not stored;
+- the timer refusal removed, the `--scope` refusal removed, and the CLI outcome check removed;
+- the riders view never chosen;
+- the migration arm skipped;
+- the CLI discarding the resolved commit.
+
+The first mutation run reported all thirteen killed over a FAILING baseline (the migration
+fixture). The script now prints the baseline, and the run was repeated green.
+
+**Codex code pass (fix first, five findings, all taken)**
+1. **Beat could pass the harness's hook cap, and this predates D-049.** Beat wrote its notices
+   ahead of an inbox drain bounded only by its own 8 KiB, so a LANDED line up to
+   `maxHookWaitLine` plus a full drain could exceed 10,000 characters. Every message beside it
+   was then marked delivered unread. The drain now takes the room the notices leave under
+   `helloBudget` (`beatDrain`), the way hello's digest already did.
+2. **`--ready` could record a blob.** `HEAD:x` resolved in one step as `HEAD:x^{commit}` can
+   name a tracked FILE called `x^{commit}`. The revision is now resolved first and the full name
+   peeled second.
+3. **A swept claim took its outcome with it.** A rider now gets a caveat that the outcome is no
+   longer on record, instead of silence.
+4. and 5. **install-skill.sh:** it now refuses a symlinked or non-regular destination, and takes
+   an mkdir lock, because two concurrent refreshes had backed up each other's copies.
+
+Each fix has a test, and each test was watched to fail on its mutation. The first spellings of
+two of them passed over their mutations:
+- 3,000-byte messages never filled the drain to its edge, so the budget test passed without the
+  fix.
+- Asserting "row has since been swept" matched the target's own text, not the caveat.
+
+Reverting `--ready` to the one-step resolve SURVIVES, as predicted: the peel alone refuses a
+blob, and removing the peel is what fails.
+
+**Fable review of the skill as an agent would act on it.** It found several gaps:
+- A rider told "claim again" after LANDED would re-run a PASSed tier.
+- "Pin the sha" was undefined.
+- Main is only guarded if landers claim `.buddy/slot/main`, which is a convention and was
+  written as a guarantee.
+- `who` shows notes only once someone is READY.
+- The no-outcome caveat reaches `--ready` riders only.
+- There was no guidance for a red run, for a rider after FAIL, for work that changes after
+  `--ready`, for leaving, or for a 3h default deadline that a hold plus a 65-minute tier can
+  outlast.
+
+All of it is now in the skill and the README.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

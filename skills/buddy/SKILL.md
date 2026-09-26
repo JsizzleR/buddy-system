@@ -25,6 +25,7 @@ usage. Both are current; this page is the order to use the verbs in.
    claims overlap each other and nothing else.
 4. When you finish, run `buddy release <slug>`. Use `buddy release <slug> --scope <path>` to
    hand back part of a claim early.
+5. `buddy ls` lists the open claims (`buddy ls --all` adds the closed ones).
 
 The gate denies an edit to a path inside another session's EXCLUSIVE claim.
 Inside a SHARED claim, it denies the edit until you hold a covering shared
@@ -41,20 +42,63 @@ The refusal names every holder and says whether they have gone quiet. Choose one
   arm your own `/loop buddy wait check`. Buddy wakes nothing: without that
   loop, the wait is only a declaration. Each check is a single tool call that
   drains your inbox and says STILL WAITING / LANDED / EXPIRED / NO WAIT. On a
-  1-hour cache tier, it also keeps your prompt cache warm. It does not keep
-  a 5-minute cache warm. When it says LANDED, stop the loop and claim again.
+  1-hour cache tier, it also keeps your prompt cache warm. When it says LANDED, stop the loop and claim again.
+  `buddy wait clear` withdraws your wait; `buddy wait ls` lists everyone's.
 - **Ask the holder:** `buddy msg <slug> "<request>"`. Peers answer to their
   claim slugs.
 - **Narrow your scope** to what nobody holds.
 
 A stale claim refuses exactly like a fresh one. If its holder has ended (said
-bye), your own `buddy claim` or a plain `buddy sweep` frees it. If the holder
+bye), your own `buddy claim` or a plain `buddy sweep` frees it
+(`buddy sweep --dry-run` says what a sweep would free, and writes nothing). If the holder
 only went silent, only the operator frees it, with `buddy release` or
 `buddy sweep --force`. Never do that yourself.
 
+## One long run for several sessions
+
+When the expensive thing is a run (a 65-minute test tier, a land), do not take
+turns on it: put everyone's work in ONE run. One session integrates; the rest ride.
+Landing on main is itself a slot: claim `.buddy/slot/main` before you fast-forward
+or push main, and release it after — that is what stops a landing mid-run.
+
+- **Integrator:** hold the run from forming to landing, on its slot AND on main:
+  `buddy claim herm --desc "FORMING — join: buddy wait --on herm --ready HEAD" --scope .buddy/slot/herm --scope .buddy/slot/main`.
+  Once any rider is READY, `buddy who herm` lists each on its own line: READY at a
+  commit, or not ready with its note (before that, only names). Decide when to go.
+  Build ONE tree: rebase every READY commit onto main in your worktree; its sha is
+  the pinned sha. Claim `herm` again with a description naming that sha and who is
+  in (re-claiming keeps the claim, so the waits stand). Run the tier on exactly
+  that tree; green: fast-forward main to it. Then always report, never a bare release:
+  `buddy release herm --outcome pass --note "<landed sha; who was in; who is next>"`,
+  or `--outcome fail` / `--outcome aborted` with what failed and who is out. A red
+  run you will retry: keep the claim, re-claim with "RED — ejecting X, one more
+  tier", run again, then release with the outcome.
+- **Rider, not done yet:** `buddy wait --on herm --note "done in 10" --until 4h`.
+  Your ETA is your own words; nothing turns it into OVERDUE. The default 3h can
+  run out during a hold plus a 65-minute tier: EXPIRED with herm still open means
+  declare again.
+- **Rider, ready:** `buddy wait --on herm --ready HEAD --until 4h` (or a commit), then
+  arm `/loop buddy wait check`, and do NOT run the tier yourself. Committed more?
+  Declare again; if the run's description already says RUNNING, the new commit
+  rides the next run (the running tree is pinned). `buddy wait clear` leaves.
+- **Your LANDED** carries the integrator's outcome. PASS naming you: your work is
+  on main — release your own claims and stop; "claim again" is for a wait on a
+  file, not on a run. FAIL naming you: fix, commit, declare `--ready HEAD` for the
+  next run; not named, ask the integrator. Because you declared `--ready`, you are
+  also told when a release came with NO outcome, or the claim was ORPHANED (its
+  integrator ended): either way nothing says your work went in — ask.
+- **Refused because no claim `herm` exists?** Nobody is integrating: form it
+  yourself with the integrator's claim, or ask. By convention, joining while the
+  description says RUNNING puts you on the NEXT run. Buddy keeps no timer and
+  ejects nobody: a quiet rider is shown quiet, and going without it is the
+  integrator's call.
+
 ## Finding out who is who
 
-- `buddy sessions` shows the roster: idle, paused, claims, context size, and wait state.
+- `buddy sessions` shows the roster: idle, paused, claims, context size, and wait
+  state (`buddy sessions --by started` orders it by start instead of last seen). Its `base` column says where a session's tree stands against main;
+  `carries N commit(s) main DROPPED` means main was rewritten (an amend, a reset)
+  under that tree — rebase onto current main before trusting its numbers.
 - `buddy who <target>` is everything the ledger holds about one session. A
   target is a session id, a label, an `s-<8hex>` short form, or an open claim slug.
 - `buddy whose <path>` shows who CLAIMED it, and which sessions' tool calls
@@ -67,7 +111,10 @@ only went silent, only the operator frees it, with `buddy release` or
 - `buddy msg <target> "<text>"` queues a message for the recipient. It arrives
   in bounded batches with their tool calls and prompts, so a long queue can
   take more than one. The result line reports what the ledger knows about the
-  recipient (idle, gone, ended) and gives the message's `#id`.
+  recipient (idle, gone, ended) and gives the message's `#id`. It is signed
+  with your label; `buddy msg <target> --from <tag>` adds a tag after it, and
+  `buddy msg <target> --dry-run` resolves the target and measures the body
+  without sending.
 - **Say what a claim rests on:** `--measured "<what, over what>"` for a number
   you measured, `--lead` for a hunch worth checking, `--relay <source>` for
   someone else's figure. The recipient sees it labelled `declared`. Buddy does
@@ -84,11 +131,14 @@ enforces, and no message can stand in for it.
 
 ## Other verbs
 
-- **A resource only one session may use at a time** (a port, the live test leg):
-  claim `.buddy/slot/<name>`. It refuses, waits, and releases like any claim.
+- **A resource only one session may use at a time** (a port, the live test leg,
+  main during a land): claim `.buddy/slot/<name>`. It refuses, waits, and
+  releases like any claim.
 - **Numbering things every session mints** (decision records, issue-like ids):
   the operator seeds the space with `buddy ids seed <space> <n>`. You take a
-  block with `buddy ids take <space> <count>`. Ids are never reissued, and there is no return.
+  block with `buddy ids take <space> <count> --note "<what for>"`. Ids are never
+  reissued, and there is no return. `buddy ids ls` shows who holds which
+  numbers; `buddy ids status <space> <n>` says whether one is reserved here.
 - **Coordination notes** for every session go in the description of a claim
   named orchestrator: `buddy claim orchestrator --desc "<note>" --scope <path>`
   (see the README's "Publishing coordination state").
