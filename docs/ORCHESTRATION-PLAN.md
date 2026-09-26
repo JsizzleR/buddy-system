@@ -1,6 +1,15 @@
 # Guided orchestration plan
 
-Status: draft for Fable design review. Implementation has not started.
+Status: NOT IMPLEMENTED AS WRITTEN (updated 2026-09-26). None of the commands
+proposed below (`help orchestrate`, `doctor`, `inspect`, `task`, `orchestrate`)
+exist. The [review](ORCHESTRATION-REVIEW.md) asked for changes, and parts of the
+need were then met by smaller decisions in [decisions.md](decisions.md): one
+session's whole record in `status` and `who` (D-027), `--help` on every verb
+(D-031) and the `buddy` skill (D-046), resource slots (D-035), and one long run
+that closes out several sessions (D-049). The tracked-work lifecycle
+(increment 2) was not built. Kept as the record of what was proposed.
+
+Original status: draft for Fable design review. Implementation had not started.
 
 Date: 2026-09-20. Source baseline: `00ca292`.
 

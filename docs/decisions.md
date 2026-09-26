@@ -530,8 +530,8 @@ store-and-forward was considered and cut: the nightly DM is decoration, the dura
 channel is elsewhere, and a refusal a script can see is what makes that split honest.
 
 **The measurement that mattered, and it bit before it was believed** — ergo 2.19.1 answers
-`ISON jsizl` with `303 me jsizl` — the name list as an ordinary parameter, no colon —
-but `ISON jsizl SmarterChild` with `303 me :jsizl SmarterChild`. Reading only the trailing
+`ISON alice` with `303 me alice` — the name list as an ordinary parameter, no colon —
+but `ISON alice SmarterChild` with `303 me :alice SmarterChild`. Reading only the trailing
 parameter passed every hermetic test, which had been written against the multi-name shape,
 and then reported nobody online for the SINGLE-name query a DM actually makes: it would
 have refused every DM on the machine. Caught by driving the real server, not by the suite;
@@ -2344,7 +2344,7 @@ SessionStart. `busy` (UserPromptSubmit, D-016) only cleared the idle mark. A pro
 session at rest therefore opened a turn with no mail in it. The mail arrived only if the model
 happened to run a tool, and a text-only answer never saw it.
 
-**Measured (bastle ledger, 2026-09-24)** — `s-ea41a261` went idle at 04:01:28Z with a
+**Measured (a field run's ledger, 2026-09-24)** — `s-ea41a261` went idle at 04:01:28Z with a
 background poll running that would not finish for hours. At 04:05:00Z the orchestrator queued an
 approval to it (inbox row 1175). At 04:05:41Z the operator typed `ok` into its pane, only because
 they knew mail was waiting. The session's first move was `buddy inbox`, the row was marked
@@ -2383,7 +2383,7 @@ leave 5 queued.
 2026-09-24 · issue #32, found in D-040's trace
 
 **What was wrong** — D-039 printed the wake address as a SECOND line after `queued for X — …`.
-At 04:05:00Z on the bastle ledger, every D-039 condition held for `s-ea41a261`: it was idle,
+At 04:05:00Z on that field run's ledger, every D-039 condition held for `s-ea41a261`: it was idle,
 pid 68315 was its one live registered process, and `/tmp/cc-socks/68315.sock` existed. So the
 line was printed. But the orchestrator ran `buddy msg … 2>&1 | head -1`, which is the ordinary
 way an agent keeps output short, and the address was cut. It then trusted the harness peer

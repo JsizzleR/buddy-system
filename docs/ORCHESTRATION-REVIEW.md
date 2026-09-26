@@ -1,5 +1,9 @@
 # Guided orchestration plan — design review
 
+> **Status (updated 2026-09-26):** the plan reviewed here was not implemented as
+> written. See the status note at the top of
+> [ORCHESTRATION-PLAN.md](ORCHESTRATION-PLAN.md) for what shipped instead.
+
 Reviewer: Fable (session buddy-system/s-5d0a0229), with adversarial Codex
 passes (gpt-6-astra, xhigh) over the review itself. Date: 2026-09-20.
 Reviewed: `docs/ORCHESTRATION-PLAN.md` at source baseline `00ca292`, and
@@ -521,8 +525,8 @@ the items that do, and what they change here:
   consult — is this plan's thesis for `task show` and `doctor`, stated from
   the field.
 
-Housekeeping: the wishlist names the reference repository by name throughout,
-which this project's standing rule says not to do in this repo.
+Housekeeping: the wishlist named the project it was measured on throughout,
+which this project's standing rule says not to do here. (Since removed.)
 
 ## Unresolved for the author
 

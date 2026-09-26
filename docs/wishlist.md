@@ -1,5 +1,13 @@
 # Buddy wishlist — field notes from a 14-session orchestrated run
 
+> **Status (updated 2026-09-26):** these are problem reports, not feature
+> descriptions, kept as written. Most have since been answered by an entry in
+> [decisions.md](decisions.md), for example §1 resource slots (D-035), §3 the
+> identifier register (D-029), §4 corrections (D-043), §6 a session's base
+> (D-038), §7 shared claims (D-042), §11 message provenance (D-045), §12
+> `whose` (D-023), §13 stdin bodies (D-021), §14 authority files (D-028) and
+> §16 a rewritten main (D-048). [USAGE.md](USAGE.md) describes what exists now.
+
 **Source:** one orchestrated run on a reference repo, 2026-09-20. One orchestrator
 (no item of its own) coordinating up to 14 concurrent sessions over ~4 hours, against
 a repo with a serialized ~60-minute test tier, a shared remote grader, a 4-slot

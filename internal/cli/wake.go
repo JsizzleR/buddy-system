@@ -81,7 +81,7 @@ func (e Env) sockDir() string {
 // send's one observation and probes nothing itself.
 //
 // ON THE RESULT LINE, NOT BELOW IT (D-041, issue #32). It used to be a second
-// line. Measured on the bastle ledger, 2026-09-24: an orchestrator ran
+// line. Measured on a field run's ledger, 2026-09-24: an orchestrator ran
 // `buddy msg … 2>&1 | head -1`, which is the ordinary way an agent keeps a
 // command's output short. The address was printed, all three conditions below
 // held, and the idle lane it named sat unwoken until the operator happened to

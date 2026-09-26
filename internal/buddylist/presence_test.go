@@ -270,13 +270,13 @@ func TestPresenceJoinsTheProjectRoomAndWearsTheClaim(t *testing.T) {
 // joining one would put a session in a room its operator is not watching.
 func TestPresenceSkipsLabelsWithNoServedRoom(t *testing.T) {
 	h := startPresence(t)
-	h.d.presence.note("sess-x", "jayclark.ai/s-11111111", []string{"site-copy"})
+	h.d.presence.note("sess-x", "example.org/s-11111111", []string{"site-copy"})
 	h.d.presence.note("sess-y", "harbor/s-22222222", nil)
 	waitFor(t, "the served session to join", func() bool {
 		return recordedHas(h.script.conn("harbor-s-22222222"), "join harbor")
 	})
 	for _, n := range h.script.names() {
-		if strings.HasPrefix(n, "jayclark") {
+		if strings.HasPrefix(n, "example") {
 			t.Fatalf("unserved project was dialed: %v", h.script.names())
 		}
 	}
@@ -668,7 +668,7 @@ func TestNickForDerivesALegalName(t *testing.T) {
 	cases := []struct{ label, want string }{
 		{"harbor/s-e284b102", "harbor-s-e284b102"},
 		{"buddy-system/s-03bf0f5c", "buddy-system-s-03bf0f5c"},
-		{"jayclark.ai/s-11111111", "jayclark-ai-s-11111111"},
+		{"example.org/s-11111111", "example-org-s-11111111"},
 		{"weird name!/s-1", "weird-name-s-1"},
 		{"//s-1", "s-1"},
 		{"", ""},

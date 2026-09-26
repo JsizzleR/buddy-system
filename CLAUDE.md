@@ -23,6 +23,7 @@ used platform.
 ## Read this first
 
 - `README.md` — what the thing does, hook wiring, quick start, cost controls.
+  The per-feature reference is `docs/USAGE.md`; `docs/README.md` indexes the rest.
 - `docs/DESIGN.md` — rationale, and the assumptions that got **refuted** by
   measurement. Read the refutations before proposing anything in that area.
 - `docs/review-charter.md` — the GIVENs prepended to every Codex review:
