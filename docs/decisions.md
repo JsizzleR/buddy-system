@@ -2823,6 +2823,49 @@ the line, `--dryrun` in the line, `--supersede` in the skill, and restoring the 
 Each failed a test. The first real run also failed on a `--desc` span credited to `ids`,
 which was a real error in the skill.
 
+## D-047 — A wait rides hook output inside a bound, and never as a command cut short
+
+2026-09-25 · the open limit from D-046's Codex pass
+
+**What was wrong**
+- hello's digest restates a session's wait (D-033), and beat's one-shot LANDED notice names
+  what landed. Both rendered EVERY awaited claim at full length.
+- Measured with a reproduction test: a wait on 40 claims with 128-byte slugs made the digest
+  11,254 bytes for this incarnation's wait and 21,535 for a predecessor's. The predecessor's
+  "To wait again: buddy wait --on …" repeats every slug, shell-quoted. Both are over
+  helloBudget (9,000) and over the harness's 10,000-character hook cap, past which the whole
+  output is replaced by a preview. The wait lines are subtracted from the claims list's room,
+  so they crowded the claims out of the digest first.
+
+**The rule**
+- At the hook sites only, the targets go through `targetsWithin(…, hookTargetsRoom = 1024, where)`.
+  The targets are taken in order, stopping at the first that does not fit (D-036's rule, never
+  skipping ahead), then `; and N more claim(s) — <where>`, with room reserved for that tail at
+  its worst case.
+- `where` names a view that lists them: `buddy status` for this incarnation's wait and for
+  LANDED (the wait is still open there), and `buddy ls` for a predecessor's (its wait is closed,
+  so `status` says none declared).
+- A predecessor's re-declaration whose `--on` flags exceed `hookFlagsRoom` (1024) is not printed
+  as a command at all. Pasted, a command cut short would wait on fewer claims than the earlier
+  wait, and nothing on the line would say which.
+- The views a session runs deliberately (`status`, `who`, `wait ls`, `wait check`, msg's waiter
+  note, `wait`'s own output) still list every target. They are a command's own output, not
+  injected by a hook.
+
+**Codex code pass** — No defect. Its arithmetic for the worst case, a 128-byte slug of `"` and
+`\` quoted to 258 bytes, is 1,636 bytes for the LANDED line, `1,764 + 2S` for this incarnation's
+line with a 512-byte note, and `2,338 + 3S` for the predecessor's (S being the widest `span`).
+All are under the 3,072-byte test ceiling (`maxHookWaitLine`). It asked for the test to use the
+true 128-byte cap and a note at its cap, and both now do.
+
+**Test shape** — `cli/wait_test.go`: 40 claims with 128-byte slugs of `"'\`, and a 512-byte
+note. This incarnation's digest stays under budget, still shows a claim, points at
+`buddy status`, and has every wait line under the ceiling. After every claim is released, the
+LANDED line is also under the ceiling. The predecessor's digest stays under budget, prints no
+partial command, and points at `buddy ls`. Each has a control that the wait line is present.
+Four mutations were run: each hook site reverted to the full list, and the flags room disabled.
+Each failed a test.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -818,5 +819,122 @@ func TestIdleDoesNotStampARevivedIncarnationWithItsPredecessorsTurn(t *testing.T
 	}
 	if out, _, _ := f.run(t, f.repo, "", "sessions"); !strings.Contains(out, "prompt 90k") {
 		t.Fatalf("control: J's own turn is recorded:\n%s", out)
+	}
+}
+
+// A wait on many claims rides hello's digest and beat's LANDED notice, and
+// both are hook output with a cap (hello's helloBudget; the harness replaces
+// anything past 10,000 characters with a preview). Every target used to be
+// rendered at full length: forty claims with 128-byte slugs made the wait
+// lines alone larger than the whole digest, which crowded the claims list out
+// of it and pushed the digest past its budget. The slugs here are the worst
+// case the renderers have: quotes and backslashes double under strconv.Quote,
+// and an apostrophe becomes four bytes under shellQuote.
+func TestAWaitOnManyClaimsStaysInsideTheHooksBudgets(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	const n = 40
+	slugs := make([]string, n)
+	for i := range n {
+		slugs[i] = fmt.Sprintf("w%02d-", i) + strings.Repeat(`"'\`, 41) + `"` // 128 bytes, the cap
+		if _, errw, code := f.run(t, f.repo, "", "claim", slugs[i], "--session", "sess-a", "--desc", "d", "--scope", fmt.Sprintf("w/%02d", i)); code != 0 {
+			t.Fatal(errw)
+		}
+	}
+	// A note at its cap, the other long piece of the same-incarnation line.
+	args := []string{"wait", "--session", "sess-b", "--until", "3h", "--note", strings.Repeat("n", maxWaitNote)}
+	for _, s := range slugs {
+		args = append(args, "--on", s)
+	}
+	if _, errw, code := f.run(t, f.wtB, "", args...); code != 0 {
+		t.Fatal(errw)
+	}
+
+	// This incarnation's wait, restated at SessionStart.
+	out := helloB(t, f)
+	if len(out) > helloBudget {
+		t.Fatalf("digest is %d bytes, over the %d budget", len(out), helloBudget)
+	}
+	if !strings.Contains(out, "BUDDY: you are WAITING on ") {
+		t.Fatalf("control: the wait is restated:\n%s", out)
+	}
+	waitLinesWithin(t, out)
+	if !strings.Contains(out, "  - w00-") {
+		t.Fatalf("the wait crowded every claim out of the digest:\n%s", out)
+	}
+	if !strings.Contains(out, "`buddy status` lists every one") {
+		t.Fatalf("a cut target list must say where the rest are:\n%s", out)
+	}
+
+	// Every awaited claim closes: beat's one-shot LANDED notice.
+	for _, s := range slugs {
+		if _, errw, code := f.run(t, f.repo, "", "release", s, "--session", "sess-a"); code != 0 {
+			t.Fatal(errw)
+		}
+	}
+	notice := f.beatB(t)
+	if !strings.Contains(notice, "your wait LANDED") {
+		t.Fatalf("control: beat announces the landing:\n%s", notice)
+	}
+	waitLinesWithin(t, notice)
+}
+
+// A predecessor's wait is restated with the command that declares it again.
+// A command cut short would wait on fewer claims than it names as the
+// earlier wait, so a list too long to paste whole is not written as one.
+func TestAPredecessorsWaitOnManyClaimsIsNotACommandCutShort(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	const n = 40
+	args := []string{"wait", "--session", "sess-b", "--until", "3h"}
+	for i := range n {
+		slug := fmt.Sprintf("p%02d-", i) + strings.Repeat(`"'\`, 41) + `"`
+		if _, errw, code := f.run(t, f.repo, "", "claim", slug, "--session", "sess-a", "--desc", "d", "--scope", fmt.Sprintf("p/%02d", i)); code != 0 {
+			t.Fatal(errw)
+		}
+		args = append(args, "--on", slug)
+	}
+	if _, errw, code := f.run(t, f.wtB, "", args...); code != 0 {
+		t.Fatal(errw)
+	}
+	if _, errw, code := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "bye"); code != 0 {
+		t.Fatal(errw)
+	}
+	f.clock = f.clock.Add(time.Minute)
+	out := helloB(t, f)
+	if len(out) > helloBudget {
+		t.Fatalf("digest is %d bytes, over the %d budget", len(out), helloBudget)
+	}
+	if !strings.Contains(out, "BUDDY: an earlier run of this session id was WAITING on ") {
+		t.Fatalf("control: the predecessor's wait is named:\n%s", out)
+	}
+	waitLinesWithin(t, out)
+	if !strings.Contains(out, "too many to write here as one command; `buddy ls` lists them") {
+		t.Fatalf("the refusal to print a partial command must say where the claims are:\n%s", out)
+	}
+	if strings.Contains(out, "To wait again: buddy wait") {
+		t.Fatalf("a partial re-declaration was printed as a command:\n%s", out)
+	}
+	if !strings.Contains(out, "  - p00-") {
+		t.Fatalf("the wait crowded every claim out of the digest:\n%s", out)
+	}
+}
+
+// waitLinesWithin fails when a hook line about a wait is over maxHookWaitLine.
+func waitLinesWithin(t *testing.T, out string) {
+	t.Helper()
+	seen := 0
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, "WAITING on") || strings.Contains(ln, "your wait LANDED") {
+			seen++
+			if len(ln) > maxHookWaitLine {
+				t.Fatalf("a wait line is %d bytes, over %d:\n%s", len(ln), maxHookWaitLine, ln)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatalf("control: no wait line to measure:\n%s", out)
 	}
 }

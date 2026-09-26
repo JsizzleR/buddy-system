@@ -449,6 +449,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `skills/buddy/SKILL.md` (copied to `~/.claude/skills/buddy/`) says how they fit. A test
   reads every `buddy <verb> --flag` in both against the usage table, so a renamed flag fails
   there. Not the MCP `instructions` field: chat can be absent.
+- **A wait rides hook output inside a bound (D-047).** hello and beat's LANDED notice list
+  awaited claims within 1,024 bytes, in order, and count the rest with the view that lists
+  them. A re-declaration too long to print whole is never printed as a command cut short.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

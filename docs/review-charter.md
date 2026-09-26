@@ -428,6 +428,12 @@ ledger row entered through the CLI (D-006).
     Do not propose the MCP `instructions` field (chat can be absent) or a full verb list in the
     digest (every start pays for it).
 
+50. **A wait rides hook output inside a bound (D-047).** hello and beat's LANDED notice render the
+    awaited claims through `targetsWithin` (1,024 bytes, in order, stopping at the first misfit,
+    the rest counted with `buddy status` or `buddy ls`). A predecessor's re-declaration too long
+    to print whole is not printed as a command. The deliberate views still list every target.
+    Do not propose a cap on `wait --on` targets for this; the bound is on the rendering.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
