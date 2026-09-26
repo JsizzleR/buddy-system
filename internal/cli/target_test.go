@@ -128,7 +128,7 @@ func TestMsgBySlugAndShortIDReachTheOwner(t *testing.T) {
 		{"short id", "s-1111aaaa", "by short id"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, errw, code := f.run(t, f.repo, "", "msg", tc.target, "--from", "jay", tc.body); code != 0 {
+			if _, errw, code := f.run(t, f.repo, "", "msg", tc.target, "--from", "ana", tc.body); code != 0 {
 				t.Fatalf("msg %s: %s", tc.target, errw)
 			}
 			out, _, code := f.run(t, f.repo, hookJSON(idA, f.repo, "Edit", ""), "beat")
@@ -147,7 +147,7 @@ func TestMsgRefusesATargetThatNamesNothing(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
 
-	out, errw, code := f.run(t, f.repo, "", "msg", "no-such-slug", "--from", "jay", "hello?")
+	out, errw, code := f.run(t, f.repo, "", "msg", "no-such-slug", "--from", "ana", "hello?")
 	if code == 0 {
 		t.Fatalf("msg to an unresolvable target must fail, got code=0 out=%q", out)
 	}
@@ -164,7 +164,7 @@ func TestMsgRefusesATargetThatNamesNothing(t *testing.T) {
 	if strings.Contains(drain, "hello?") {
 		t.Fatalf("a refused message must not be delivered to anyone: %q", drain)
 	}
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", "control body"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", "control body"); code != 0 {
 		t.Fatalf("control: msg bravo must succeed, got %s", errw)
 	}
 	drain, _, _ = f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "Edit", ""), "beat")
@@ -180,7 +180,7 @@ func TestAllStaysReserved(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
 
-	if _, errw, code := f.run(t, f.repo, "", "msg", "all", "--from", "jay", "fleet wide"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "all", "--from", "ana", "fleet wide"); code != 0 {
 		t.Fatalf("msg all: %s", errw)
 	}
 	drain, _, _ := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "Edit", ""), "beat")
@@ -227,7 +227,7 @@ func TestResolvedTargetIsFencedInOutput(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"msg", []string{"msg", "router-work", "--from", "jay", "hi"}},
+		{"msg", []string{"msg", "router-work", "--from", "ana", "hi"}},
 		{"pause", []string{"pause", "router-work", "--note", "hold"}},
 		{"resume", []string{"resume", "router-work"}},
 	} {

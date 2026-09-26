@@ -564,7 +564,7 @@ func TestNoticeAndMessagesShareOneDocument(t *testing.T) {
 	f := newFixture(t)
 	f.twoSessionsIn(t, f.repo)
 	f.edit(t, f.repo, "sess-a", "CHANGELOG.md", "alpha\n")
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", "ping"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", "ping"); code != 0 {
 		t.Fatal(errw)
 	}
 
@@ -581,7 +581,7 @@ func TestNoticeAndMessagesShareOneDocument(t *testing.T) {
 		t.Fatalf("beat output must be hook JSON: %q", out)
 	}
 	ctx := v.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(ctx, "DIRTY-PATH NOTICE") || !strings.Contains(ctx, "[jay] ping") {
+	if !strings.Contains(ctx, "DIRTY-PATH NOTICE") || !strings.Contains(ctx, "[ana] ping") {
 		t.Fatalf("both the notice and the queued message must survive being merged:\n%s", ctx)
 	}
 }

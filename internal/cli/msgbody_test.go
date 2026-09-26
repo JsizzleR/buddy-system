@@ -54,7 +54,7 @@ func TestMsgReadsTheBodyFromStdin(t *testing.T) {
 	f.initAndHello(t)
 
 	// The incident's shape: a target, a --from, and the text on stdin.
-	out, errw, code := f.run(t, f.repo, "hold until the gate is green\n", "msg", "bravo", "--from", "jay")
+	out, errw, code := f.run(t, f.repo, "hold until the gate is green\n", "msg", "bravo", "--from", "ana")
 	if code != 0 {
 		t.Fatalf("stdin body refused: %s %s", out, errw)
 	}
@@ -199,7 +199,7 @@ func TestMsgUsageErrorExitsNonZero(t *testing.T) {
 	f.initAndHello(t)
 
 	// A terminal with no argv text is the usage path.
-	_, errw, code := f.runStdin(t, f.repo, charDevice(t), "msg", "bravo", "--from", "jay")
+	_, errw, code := f.runStdin(t, f.repo, charDevice(t), "msg", "bravo", "--from", "ana")
 	if code == 0 {
 		t.Fatalf("usage error exited 0; that is the failure the field report inferred and it must stay false: %q", errw)
 	}

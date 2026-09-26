@@ -387,8 +387,8 @@ var presenceTimeout = 3 * time.Second
 //
 // ISON is the right question here and the only one asked: it is a lookup with
 // a definite answer, unlike waiting out the ABSENCE of an error numeric after
-// a send. Measured against ergo 2.19.1: `ISON jsizl nobody-here-12345
-// SmarterChild` answers `303 :jsizl SmarterChild` — present names listed,
+// a send. Measured against ergo 2.19.1: `ISON alice nobody-here-12345
+// SmarterChild` answers `303 :alice SmarterChild` — present names listed,
 // absent ones simply omitted.
 //
 // One query at a time (see the asking lock), and a query that goes unanswered
@@ -691,8 +691,8 @@ func (c *Client) handle(m ircMsg, raw string) []tocwire.Event {
 	case "303": // RPL_ISON: <me> [:]<nick> <nick> ... — present names only.
 		// The list is everything after the client identifier, and it does NOT
 		// always arrive as a trailing parameter: measured on ergo 2.19.1,
-		// `ISON jsizl` answers `303 me jsizl` — one name needs no colon —
-		// while `ISON jsizl SmarterChild` answers `303 me :jsizl
+		// `ISON alice` answers `303 me alice` — one name needs no colon —
+		// while `ISON alice SmarterChild` answers `303 me :alice
 		// SmarterChild`. Reading only the trailing form made every
 		// single-name query, which is exactly what a DM asks, report that
 		// nobody was online.

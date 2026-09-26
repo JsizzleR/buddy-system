@@ -297,9 +297,9 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 	}
 
 	// Inbound: a peer talks in the room → journaled under the room name.
-	c.push(t, tocwire.ChatIn{RoomID: "7", From: "jay", Text: "hello fleet"})
+	c.push(t, tocwire.ChatIn{RoomID: "7", From: "ana", Text: "hello fleet"})
 	msgs := h.waitJournal(t, "lobby", func(m []Msg) bool { return len(m) >= 1 })
-	if msgs[0].Sender != "jay" || msgs[0].Body != "hello fleet" || msgs[0].Kind != "chat" {
+	if msgs[0].Sender != "ana" || msgs[0].Body != "hello fleet" || msgs[0].Kind != "chat" {
 		t.Fatalf("bad journal row: %+v", msgs[0])
 	}
 
@@ -319,8 +319,8 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 
 	// DM out. The recipient has to actually be there now: an absent one is
 	// refused rather than reported as sent (TestDMRefusesAnAbsentRecipient).
-	c.setOnline("jay")
-	if _, err := h.call(t, Request{Op: "dm", To: "jay", From: "alpha", Text: "psst"}); err != nil {
+	c.setOnline("ana")
+	if _, err := h.call(t, Request{Op: "dm", To: "ana", From: "alpha", Text: "psst"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -343,14 +343,14 @@ func TestDMRefusesAnAbsentRecipient(t *testing.T) {
 	}{
 		{
 			name:  "present recipient is sent to",
-			setup: func(c *fakeConn) { c.setOnline("jay") },
-			to:    "jay",
+			setup: func(c *fakeConn) { c.setOnline("ana") },
+			to:    "ana",
 		},
 		{
 			name:    "absent recipient is refused, naming them",
 			setup:   func(c *fakeConn) { c.setOnline("someone-else") },
-			to:      "jay",
-			wantErr: "jay is not on the chat server",
+			to:      "ana",
+			wantErr: "ana is not on the chat server",
 		},
 		{
 			// The answer has to be about the RECIPIENT. A check that only
@@ -361,25 +361,25 @@ func TestDMRefusesAnAbsentRecipient(t *testing.T) {
 				c.setOnline("someone-else")
 				c.presenceRaw = true
 			},
-			to:      "jay",
-			wantErr: "jay is not on the chat server",
+			to:      "ana",
+			wantErr: "ana is not on the chat server",
 		},
 		{
 			name:  "the server's spelling of the nick still counts",
-			setup: func(c *fakeConn) { c.setOnline("Jay") },
-			to:    "jay",
+			setup: func(c *fakeConn) { c.setOnline("Ana") },
+			to:    "ana",
 		},
 		{
 			// tocwire's answer: no synchronous presence query exists there.
 			name:  "a backend that cannot answer sends anyway",
 			setup: func(c *fakeConn) { c.presenceUnknown = true },
-			to:    "jay",
+			to:    "ana",
 		},
 		{
 			// A broken probe must cost a diagnosis, never the message.
 			name:  "a failing probe sends anyway",
 			setup: func(c *fakeConn) { c.presenceErr = errors.New("probe exploded") },
-			to:    "jay",
+			to:    "ana",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -432,7 +432,7 @@ func TestReconnectRejoinsAndJournalSurvives(t *testing.T) {
 	c1 := newFakeConn()
 	h.conns <- c1
 	waitJoined(t, c1, "lobby")
-	c1.push(t, tocwire.ChatIn{RoomID: "7", From: "jay", Text: "before the drop"})
+	c1.push(t, tocwire.ChatIn{RoomID: "7", From: "ana", Text: "before the drop"})
 	h.waitJournal(t, "lobby", func(m []Msg) bool { return len(m) >= 1 })
 
 	c1.die(errors.New("server went away"))
@@ -534,7 +534,7 @@ func TestOversizeBodyTruncatedInJournal(t *testing.T) {
 	h.conns <- c
 	waitJoined(t, c, "lobby")
 	huge := strings.Repeat("x", maxBody+1000)
-	c.push(t, tocwire.ChatIn{RoomID: "7", From: "jay", Text: huge})
+	c.push(t, tocwire.ChatIn{RoomID: "7", From: "ana", Text: huge})
 	msgs := h.waitJournal(t, "lobby", func(m []Msg) bool { return len(m) >= 1 })
 	if len(msgs[0].Body) > maxBody+32 || !strings.HasSuffix(msgs[0].Body, "…[truncated]") {
 		t.Fatalf("hostile-size body must be truncated, got len=%d", len(msgs[0].Body))

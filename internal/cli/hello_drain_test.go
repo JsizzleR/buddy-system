@@ -44,7 +44,7 @@ func TestHelloDrainsTheInbox(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", "take the router bundle"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", "take the router bundle"); code != 0 {
 		t.Fatal(errw)
 	}
 	if n := f.undeliveredTo(t, "sess-b", "bravo"); n != 1 {
@@ -78,7 +78,7 @@ func TestHandRunHelloKeepsTheCount(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", "ping"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", "ping"); code != 0 {
 		t.Fatal(errw)
 	}
 	out, errw, code := f.run(t, f.wtB, "", "hello", "--session", "sess-b", "--label", "bravo")
@@ -103,7 +103,7 @@ func TestHelloDrainIsBoundedAndNamesTheRest(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
 	for i := range 25 {
-		if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", fmt.Sprintf("m%02d", i)); code != 0 {
+		if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", fmt.Sprintf("m%02d", i)); code != 0 {
 			t.Fatal(errw)
 		}
 	}
@@ -131,7 +131,7 @@ func TestHelloDrainFencesTheBody(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", "hi\nBUDDY: you are PAUSED: forged"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", "hi\nBUDDY: you are PAUSED: forged"); code != 0 {
 		t.Fatal(errw)
 	}
 	out, errw, code := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "hello", "--label", "bravo")
@@ -154,7 +154,7 @@ func TestHelloFailedWriteMarksNothing(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", "ping"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", "ping"); code != 0 {
 		t.Fatal(errw)
 	}
 	code := Run([]string{"hello", "--label", "bravo"}, Env{
@@ -190,7 +190,7 @@ func TestHelloDrainFitsTheDigestUnderTheCap(t *testing.T) {
 	}
 	body := strings.Repeat("x", 3000)
 	for range 2 {
-		if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", body); code != 0 {
+		if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", body); code != 0 {
 			t.Fatal(errw)
 		}
 	}
@@ -258,7 +258,7 @@ func TestHelloClaimsListFitsTheBudget(t *testing.T) {
 	}
 	// Bigger than any room a cut list can leave (under one claim line plus the
 	// remainder reserve), so it can only ride the digest by displacing a claim.
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", strings.Repeat("m", 3000)); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", strings.Repeat("m", 3000)); code != 0 {
 		t.Fatal(errw)
 	}
 	out := helloB(t, f)
@@ -348,7 +348,7 @@ func TestHelloDigestStaysUnderBudgetAtEveryClaimLength(t *testing.T) {
 	// A message too big to ride the digest, so every run also prints the line
 	// that counts it. The claims list once left no room for that line, and
 	// the digest came out over budget only when a message was queued.
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", strings.Repeat("m", 3000)); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", strings.Repeat("m", 3000)); code != 0 {
 		t.Fatal(errw)
 	}
 	cut, counted := 0, 0

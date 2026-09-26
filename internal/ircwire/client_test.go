@@ -444,9 +444,9 @@ func wantPresence(t *testing.T, res <-chan presenceResult) presenceResult {
 }
 
 // ISON is the presence question, and its answer lists only who is there —
-// in EITHER of two shapes. Measured against ergo 2.19.1: `ISON jsizl` answers
-// `303 me jsizl` (one name, so no trailing colon is needed) while `ISON jsizl
-// SmarterChild` answers `303 me :jsizl SmarterChild`. Reading only the
+// in EITHER of two shapes. Measured against ergo 2.19.1: `ISON alice` answers
+// `303 me alice` (one name, so no trailing colon is needed) while `ISON alice
+// SmarterChild` answers `303 me :alice SmarterChild`. Reading only the
 // trailing form passed every hermetic test written against the two-name shape
 // and then reported NOBODY online for the one-name query a DM actually makes.
 func TestPresenceAnswersFromISON(t *testing.T) {
@@ -459,17 +459,17 @@ func TestPresenceAnswersFromISON(t *testing.T) {
 	}{
 		{
 			name:  "one name comes back as a plain parameter",
-			ask:   []string{"jay"},
-			query: "ISON jay",
-			reply: ":buddy.local 303 SmarterChild jay",
-			want:  []string{"jay"},
+			ask:   []string{"ana"},
+			query: "ISON ana",
+			reply: ":buddy.local 303 SmarterChild ana",
+			want:  []string{"ana"},
 		},
 		{
 			name:  "several names come back as a trailing list",
-			ask:   []string{"jay", "ghost", "kim"},
-			query: "ISON jay ghost kim",
-			reply: ":buddy.local 303 SmarterChild :Jay kim",
-			want:  []string{"Jay", "kim"}, // the server's spelling, untouched
+			ask:   []string{"ana", "ghost", "kim"},
+			query: "ISON ana ghost kim",
+			reply: ":buddy.local 303 SmarterChild :Ana kim",
+			want:  []string{"Ana", "kim"}, // the server's spelling, untouched
 		},
 		{
 			name:  "nobody online is an empty answer, not a missing one",
@@ -512,7 +512,7 @@ func TestPresenceUnknownWhenServerRefusesISON(t *testing.T) {
 	f := newFakeServer(t)
 	c := dialOK(t, f)
 
-	res := presenceCall(c, "jay")
+	res := presenceCall(c, "ana")
 	f.readLine()
 	f.send(":buddy.local 421 SmarterChild ISON :Unknown command")
 
@@ -542,7 +542,7 @@ func TestPresenceWakesOnConnectionDeath(t *testing.T) {
 	f := newFakeServer(t)
 	c := dialOK(t, f)
 
-	res := presenceCall(c, "jay")
+	res := presenceCall(c, "ana")
 	f.readLine()
 	f.conn.Close()
 
@@ -605,8 +605,8 @@ func TestUnansweredQueryPausesPresenceUntilTheOwedReplyArrives(t *testing.T) {
 	// synchronisation: the read loop handles lines in order, so its event
 	// cannot arrive before the 303 has been dealt with.
 	f.send(":buddy.local 303 SmarterChild :alpha",
-		":jay!u@h PRIVMSG SmarterChild :the reply has been consumed")
-	if ev := wantEvent(t, c); ev != (tocwire.IMIn{From: "jay", Text: "the reply has been consumed"}) {
+		":ana!u@h PRIVMSG SmarterChild :the reply has been consumed")
+	if ev := wantEvent(t, c); ev != (tocwire.IMIn{From: "ana", Text: "the reply has been consumed"}) {
 		t.Fatalf("unexpected event: %#v", ev)
 	}
 
@@ -642,12 +642,12 @@ func TestASecondReplyDoesNotWedgeTheReadLoop(t *testing.T) {
 	f.send(":buddy.local 303 SmarterChild :alpha",
 		":buddy.local 303 SmarterChild :stranger", // more than was asked for
 		":buddy.local 303 SmarterChild :another",
-		":jay!u@h PRIVMSG SmarterChild :still reading")
+		":ana!u@h PRIVMSG SmarterChild :still reading")
 
 	if r := wantPresence(t, res); !r.ok || len(r.online) != 1 || r.online[0] != "alpha" {
 		t.Fatalf("caller got the wrong answer: %#v", r)
 	}
-	if ev := wantEvent(t, c); ev != (tocwire.IMIn{From: "jay", Text: "still reading"}) {
+	if ev := wantEvent(t, c); ev != (tocwire.IMIn{From: "ana", Text: "still reading"}) {
 		t.Fatalf("the read loop stopped after the extra reply: %#v", ev)
 	}
 }
@@ -920,7 +920,7 @@ func TestNothingOutlivesTheReadLoop(t *testing.T) {
 		c := dialOK(t, f)
 		endReadLoop(t, f, c)
 
-		r := wantPresence(t, presenceCall(c, "jay"))
+		r := wantPresence(t, presenceCall(c, "ana"))
 		if r.err == nil || r.ok {
 			t.Fatalf("a Presence on a dead connection must fail at once: %#v", r)
 		}

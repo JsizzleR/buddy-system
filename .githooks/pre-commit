@@ -25,10 +25,21 @@
 #          any other repo: symlink this file into
 #            "$(git rev-parse --git-path hooks)/pre-commit"   (README step 4)
 # KNOBS:   BUDDY_COMMIT_GATE=warn|deny|off   posture, default warn
-#          BUDDY_COMMIT_GATE_SKIP=1          skip entirely, this once
+#          BUDDY_COMMIT_GATE_SKIP=1          skip the claim gate, this once
 # BYPASS:  git commit --no-verify            skips this and every other commit
 #                                            hook for that one commit
+# LOCAL:   <git-common-dir>/hooks.local/pre-commit, if executable, runs first
 set -eu
+
+# A MACHINE'S OWN CHECKS, kept out of the repo. The common dir is shared by
+# every worktree and never tracked, so one local hook covers all of them.
+# Absent is the normal case. Present, its failure is this hook's.
+# `|| true`: under set -e a failed substitution in an assignment would exit.
+COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null || true)
+LOCAL_HOOK=${COMMON_DIR:+$COMMON_DIR/hooks.local/pre-commit}
+if [ -n "$LOCAL_HOOK" ] && [ -x "$LOCAL_HOOK" ]; then
+	"$LOCAL_HOOK" "$@" || exit $?
+fi
 
 if [ "${BUDDY_COMMIT_GATE_SKIP:-}" = "1" ]; then
 	exit 0

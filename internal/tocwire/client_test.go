@@ -263,13 +263,13 @@ func TestParseEvent(t *testing.T) {
 		},
 		{
 			name: "chat in with colons in text",
-			raw:  "CHAT_IN:3:jay:F:deploy at 12:30: ok?",
-			want: ChatIn{RoomID: "3", From: "jay", Whisper: false, Text: "deploy at 12:30: ok?"},
+			raw:  "CHAT_IN:3:ana:F:deploy at 12:30: ok?",
+			want: ChatIn{RoomID: "3", From: "ana", Whisper: false, Text: "deploy at 12:30: ok?"},
 		},
 		{
 			name: "chat in whisper flag with raw escapes in text",
-			raw:  `CHAT_IN:3:jay:T:brace \{x\} and \"q\"`,
-			want: ChatIn{RoomID: "3", From: "jay", Whisper: true, Text: `brace \{x\} and \"q\"`},
+			raw:  `CHAT_IN:3:ana:T:brace \{x\} and \"q\"`,
+			want: ChatIn{RoomID: "3", From: "ana", Whisper: true, Text: `brace \{x\} and \"q\"`},
 		},
 		{
 			name: "im in with colons in text",
@@ -278,23 +278,23 @@ func TestParseEvent(t *testing.T) {
 		},
 		{
 			name: "im in auto",
-			raw:  "IM_IN:jay:T:away",
-			want: IMIn{From: "jay", Auto: true, Text: "away"},
+			raw:  "IM_IN:ana:T:away",
+			want: IMIn{From: "ana", Auto: true, Text: "away"},
 		},
 		{
 			name: "update buddy online keeps raw",
-			raw:  "UPDATE_BUDDY:jay:T:0:1755000000:0: O ",
-			want: UpdateBuddy{Raw: "UPDATE_BUDDY:jay:T:0:1755000000:0: O ", Name: "jay", Online: true},
+			raw:  "UPDATE_BUDDY:ana:T:0:1755000000:0: O ",
+			want: UpdateBuddy{Raw: "UPDATE_BUDDY:ana:T:0:1755000000:0: O ", Name: "ana", Online: true},
 		},
 		{
 			name: "update buddy departed",
-			raw:  "UPDATE_BUDDY:jay:F:0:0:0:   ",
-			want: UpdateBuddy{Raw: "UPDATE_BUDDY:jay:F:0:0:0:   ", Name: "jay", Online: false},
+			raw:  "UPDATE_BUDDY:ana:F:0:0:0:   ",
+			want: UpdateBuddy{Raw: "UPDATE_BUDDY:ana:F:0:0:0:   ", Name: "ana", Online: false},
 		},
 		{
 			name: "chat update buddy arrivals",
-			raw:  "CHAT_UPDATE_BUDDY:3:T:jay:chatd:nightly",
-			want: ChatUpdateBuddy{RoomID: "3", Present: true, Names: []string{"jay", "chatd", "nightly"}},
+			raw:  "CHAT_UPDATE_BUDDY:3:T:ana:chatd:nightly",
+			want: ChatUpdateBuddy{RoomID: "3", Present: true, Names: []string{"ana", "chatd", "nightly"}},
 		},
 		{
 			name: "chat update buddy departure no names",
@@ -318,13 +318,13 @@ func TestParseEvent(t *testing.T) {
 		},
 		{
 			name: "similar verb is not a prefix match",
-			raw:  "IM_IN2:jay:F:F:hello",
-			want: Unknown{Raw: "IM_IN2:jay:F:F:hello"},
+			raw:  "IM_IN2:ana:F:F:hello",
+			want: Unknown{Raw: "IM_IN2:ana:F:F:hello"},
 		},
 		{
 			name: "malformed known verb",
-			raw:  "CHAT_IN:3:jay",
-			want: Unknown{Raw: "CHAT_IN:3:jay"},
+			raw:  "CHAT_IN:3:ana",
+			want: Unknown{Raw: "CHAT_IN:3:ana"},
 		},
 		{
 			name: "bare word",
@@ -350,13 +350,13 @@ func TestEventsDelivered(t *testing.T) {
 
 	lines := []string{
 		"CHAT_JOIN:3:lobby",
-		"CHAT_IN:3:jay:F:deploy at 12:30: ok?",
+		"CHAT_IN:3:ana:F:deploy at 12:30: ok?",
 		"IM_IN:nightly:F:state=GREEN",
 		"NICK:chatd",
 	}
 	want := []Event{
 		ChatJoin{RoomID: "3", Room: "lobby"},
-		ChatIn{RoomID: "3", From: "jay", Whisper: false, Text: "deploy at 12:30: ok?"},
+		ChatIn{RoomID: "3", From: "ana", Whisper: false, Text: "deploy at 12:30: ok?"},
 		IMIn{From: "nightly", Auto: false, Text: "state=GREEN"},
 		Unknown{Raw: "NICK:chatd"},
 	}
@@ -438,8 +438,8 @@ func TestSendsEscapedAndQuoted(t *testing.T) {
 		},
 		{
 			name: "im escapes and quotes text",
-			send: func() error { return client.IM("jay", `poke [now] "please"`) },
-			want: `toc_send_im jay "poke \[now\] \"please\""`,
+			send: func() error { return client.IM("ana", `poke [now] "please"`) },
+			want: `toc_send_im ana "poke \[now\] \"please\""`,
 		},
 		{
 			name: "set away quotes text",
@@ -453,8 +453,8 @@ func TestSendsEscapedAndQuoted(t *testing.T) {
 		},
 		{
 			name: "add buddies space separated",
-			send: func() error { return client.AddBuddies("jay", "nightly") },
-			want: "toc_add_buddy jay nightly",
+			send: func() error { return client.AddBuddies("ana", "nightly") },
+			want: "toc_add_buddy ana nightly",
 		},
 	}
 	for _, st := range steps {
@@ -534,7 +534,7 @@ func TestCloseWithUndeliveredEvent(t *testing.T) {
 		t.Fatal("timed out waiting for first event")
 	}
 	// ...then park it on a delivery nobody consumes.
-	if err := srvFC.SendDataFrame([]byte("IM_IN:jay:F:unread")); err != nil {
+	if err := srvFC.SendDataFrame([]byte("IM_IN:ana:F:unread")); err != nil {
 		t.Fatalf("server send: %v", err)
 	}
 	time.Sleep(20 * time.Millisecond) // best effort to reach the blocked-delivery interleaving
@@ -557,7 +557,7 @@ func TestSendAfterClose(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := client.IM("jay", "late"); !errors.Is(err, ErrClosed) {
+	if err := client.IM("ana", "late"); !errors.Is(err, ErrClosed) {
 		t.Errorf("IM after Close = %v, want ErrClosed", err)
 	}
 }

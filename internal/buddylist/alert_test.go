@@ -225,7 +225,7 @@ func TestAddressedSkipsTheOutboxAndNonMessageRows(t *testing.T) {
 
 func TestAddressedCoversDirectMessages(t *testing.T) {
 	j := testJournal(t)
-	seq, err := j.Append("@dm", "jsizl", "im", "@"+testSlug+" call me")
+	seq, err := j.Append("@dm", "alice", "im", "@"+testSlug+" call me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +558,7 @@ func TestAddressedReportsEveryRoomWithItsOwnCountAndAcksOnePerRoom(t *testing.T)
 	peerSays(t, j, "lobby", "[harbor/s-other] @"+testSlug+" two")
 	peerSays(t, j, "lobby", "[harbor/s-other] @"+testSlug+" three")
 	quiet := peerSays(t, j, "ops", "[harbor/s-other] nothing here for anybody")
-	if _, err := j.Append("@dm", "jsizl", "im", "@"+testSlug+" four"); err != nil {
+	if _, err := j.Append("@dm", "alice", "im", "@"+testSlug+" four"); err != nil {
 		t.Fatal(err)
 	}
 

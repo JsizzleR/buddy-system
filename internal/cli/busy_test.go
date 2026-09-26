@@ -160,7 +160,7 @@ func TestBusyDeliversALabelAddressedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES ('bravo','jay','legacy by label',?)`, f.clock.Unix()); err != nil {
+	if _, err := db.Exec(`INSERT INTO inbox (target, sender, body, created) VALUES ('bravo','ana','legacy by label',?)`, f.clock.Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if n := f.undeliveredTo(t, "sess-b", "bravo"); n != 1 {

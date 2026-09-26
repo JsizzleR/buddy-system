@@ -337,7 +337,7 @@ func TestBeatDrainsInboxAtLeastOnce(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "jay", "check", "the", "nightly"); code != 0 {
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", "check", "the", "nightly"); code != 0 {
 		t.Fatal(errw)
 	}
 
@@ -359,7 +359,7 @@ func TestBeatDrainsInboxAtLeastOnce(t *testing.T) {
 	if code != 0 {
 		t.Fatal("healthy beat failed")
 	}
-	if !strings.Contains(out, "check the nightly") || !strings.Contains(out, "[jay]") {
+	if !strings.Contains(out, "check the nightly") || !strings.Contains(out, "[ana]") {
 		t.Fatalf("undelivered message must survive a failed sink and arrive next beat: %q", out)
 	}
 	if !strings.Contains(out, "untrusted") {

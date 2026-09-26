@@ -215,7 +215,7 @@ func TestMsgBySlugIsDeliverableToTheOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Msg(tgt, "jay", "release the router please"); err != nil {
+	if err := st.Msg(tgt, "ana", "release the router please"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -348,7 +348,7 @@ func TestUnresolvedTargetIsRefusedAtTheWriteBoundary(t *testing.T) {
 			if err := st.Pause(tc.tgt, "hold"); err == nil {
 				t.Error("Pause accepted an unresolved Target")
 			}
-			if err := st.Msg(tc.tgt, "jay", "hi"); err == nil {
+			if err := st.Msg(tc.tgt, "ana", "hi"); err == nil {
 				t.Error("Msg accepted an unresolved Target")
 			}
 			if _, err := st.Resume(tc.tgt); err == nil {
