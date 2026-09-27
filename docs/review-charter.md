@@ -473,6 +473,19 @@ ledger row entered through the CLI (D-006).
     propose a SessionStart line, auto-install, `claude plugin list`, a committed code map, or
     counting untracked files.
 
+55. **A test binary that outlives its `go test` is ended from outside (D-053, #43).**
+    `internal/testguard.Arm()` opens `internal/cli`'s TestMain: an in-process `Getppid` poll
+    exits a healthy orphan with 3 in about a second; a watchdog process (the same binary
+    re-exec'd, pipe EOF for the target's exit, pid + kernel start time for identity) ends one
+    still orphaned three polls later, or at twice `-test.timeout`, with a symbolized `sample`
+    to `$TMPDIR`, SIGQUIT, then SIGKILL, and reports on stderr LAST (it may be the dead pipe).
+    MEASURED: the timeout panic exits fine on a dead stderr; a stop-the-world waiting on an
+    unpreemptible goroutine reproduces #43 and runs no Go code at all (so no in-process wall
+    can fire); Go drops SIGXCPU and darwin sent no SIGKILL at the hard RLIMIT_CPU; `go test`
+    binaries have no symbol table. Do not propose RLIMIT_CPU, an in-process AfterFunc wall,
+    or `SetTraceback("crash")` (it would SIGABRT every panicking test). The cause of #43's
+    wedge is not known; the watchdog's sample is what will name it.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

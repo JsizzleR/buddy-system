@@ -3233,6 +3233,105 @@ an idle session with its socket carry the wake (on bravo's row, and on the list 
 count); delivered-then-idle-again, a dead process and a missing socket carry none, on either
 view.
 
+## D-053 — A test binary that outlives its `go test` is ended from outside, and leaves a sample
+
+2026-09-27 · issue #43
+
+**What was wrong** — An `internal/cli` test binary was found reparented to launchd, spinning
+70–86% of a core for 44 minutes against its own `-test.timeout=10m`, twice in one day on a box
+at load 16–18. Nobody noticed until somebody read `ps`, and its load slowed every other
+session's timing-sensitive tests. The issue's leading candidate was that the timeout panic
+blocks writing to a dead stderr.
+
+**What was measured** (go1.26.4, darwin/arm64), and what it refuted:
+- An ordinary orphan dies by itself: killed `go test` mid-run, and cli.test (fd 1 and 2 on a
+  pipe whose reader was gone) died about 40 s later, of SIGPIPE on its first `os.File` write.
+  (The first attempt at this measurement matched the LINKER with `pgrep -f cli.test`, whose argv
+  names the output file, and reported every child "gone at once". Match the test binary's
+  parent, not a name.)
+- **Refuted: the timeout panic does not hang on a dead stderr.** Orphaned toys blocked in
+  `Sleep`, and in a preemptible spin, each exited at their 5 s timeout. From source (a Fable pass over GOROOT): the fatal
+  panic prints through the runtime's raw write, drops EPIPE (darwin's `sigfwdgo` ignores the
+  kernel SIGPIPE), then `exit(2)`.
+- So 44 minutes past the timeout means testing's alarm goroutine never ran: the scheduler was
+  stopped. A stop-the-world waiting on a goroutine that cannot be preempted (reproduced with
+  `GODEBUG=asyncpreemptoff=1`, a call-free loop, and `runtime.GC()`) gives exactly the #43
+  shape: orphaned, ppid 1, ~81% of a core, alive at 3× its timeout. The CAUSE in cli.test is
+  still unknown; this reproduces the class.
+- **Refuted: RLIMIT_CPU as the wall.** The kernel sends SIGXCPU at the soft limit (a spinning
+  `sh` died of it in 2 s), but the Go runtime handles and drops SIGXCPU, and exceeding the hard
+  limit sent no SIGKILL: soft 3 s / hard 6 s, still spinning 30 s later.
+- A signal from ANOTHER process ends the wedge: SIGQUIT in 1 s, SIGTERM at once. At the default
+  traceback level SIGQUIT's dump shows only the thread it landed on (an idle M), not the spinner.
+- `go test` binaries carry no symbol table, so `sample` prints `???` for every Go frame. The
+  pclntab survives stripping; `debug/gosym` over it named the spinning frame, function and line,
+  from `sample`'s load-address offsets.
+
+**What shipped** — `internal/testguard`, and `testguard.Arm()` as the first statement of
+`internal/cli`'s `TestMain`:
+- **In-process poll**: `os.Getppid()` every second; exit 3 when it differs from the value at
+  Arm (not "equals 1", so a binary launchd started is never an orphan). The cheap exit for an
+  orphan whose scheduler is healthy — about a second instead of up to the whole timeout. It
+  cannot run in the wedge.
+- **Watchdog**: the same test binary re-executed in a mode that never runs a test, holding the
+  read end of a pipe whose write end only the target holds, so EOF tells it at once that the
+  target is gone and it exits. It fires when the target is still orphaned three polls after the
+  in-process guard should have ended it (so: wedged), or has run twice its `-test.timeout`
+  (`-timeout 0`, or one so long that doubling overflows, means no wall). Then: `sample` to
+  `$TMPDIR/buddy-testguard-<pid>-<unix>.sample.txt`, symbolized in place from its own
+  executable's pclntab; SIGQUIT; SIGKILL five seconds later if that did not end it; and only
+  then one stderr line saying what it did. Every step runs only while the pipe is open AND the
+  pid still carries the kernel start time read when the watchdog began (D-025's identity), so
+  nothing but the target is sampled or signalled. A watchdog that cannot start is one stderr
+  line, and the tests run anyway.
+- **A deliberate policy, not a detector**: a test binary whose parent goes away is ended even
+  if it was healthy — a `go test -c` binary backgrounded from a shell that then exits, or run
+  under a detaching `-exec` wrapper. Nobody is left to read its result.
+
+**Review** — Codex code pass. Its P1 was real and reproduced before it was fixed: in #43's shape
+the watchdog inherits the same dead stderr, and it announced itself BEFORE signalling, so its
+first write killed it with SIGPIPE and the wedged target lived on. The legs had given the
+throwaway parent `/dev/null` and could not see it. Now the wedged-orphan leg gives it a stderr
+pipe whose reader dies with it (red at 45 s before the fix), and the watchdog reports last.
+Catching SIGPIPE as well was built and cut: with the report last, that mutant left every leg
+green, so it was a second fix nothing tested. Also taken: the pipe is not identity (a child between fork and exec holds the
+write end for that instant, and check-then-signal has a window), so the start time is; the
+target's pid is passed, not read from `Getppid` after the fact; the doubled-timeout overflow;
+`sample` cancelled when the target exits; the test's own cleanup kills only a helper it
+identified; the wall leg's helper timeout raised from 2 s to 10 s so a loaded box's startup
+cannot fire testing's alarm before the wedge. Kept at 5 s against its advice: the plain-orphan
+bound, which the issue asked for; measured exits are 0.87–0.92 s.
+
+**Cut** — an in-process `time.AfterFunc(2*timeout, os.Exit)`, which the issue proposed: with a
+healthy scheduler it duplicates testing's alarm, and in the wedge it cannot fire. RLIMIT_CPU, as
+measured above. `debug.SetTraceback("crash")` so SIGQUIT would dump every thread: it would also
+turn every ordinary panicking test in the package into a SIGABRT. Diagnosing the wedge itself:
+no live occurrence has been sampled yet, and the watchdog's sample is what will name it.
+Only `internal/cli` is armed; it is the only package with a TestMain and the one #43 caught.
+
+**Test shape** — `internal/testguard`: every leg runs the test binary itself as a helper under a
+parent the leg can kill.
+`TestOrphanExitsWithinFiveSeconds`: a sleeping helper under a throwaway `sh`; control first (three
+polls with the parent alive and nothing fires; the watchdog is alive after the helper's two GCs);
+kill the parent; the helper is gone within 5 s with the guard's mark `3`, and the watchdog follows.
+`TestWatchdogEndsAWedgedOrphan`: the M3 wedge under a throwaway parent; gone within 45 s; NO mark
+(the control that the wedge was real — a healthy helper exits through the guard); one sample,
+naming `testguard.spinForever testguard_test.go:`.
+`TestWatchdogWallEndsAWedgeUnderALiveParent`: the wedge at `-test.timeout=2s` as the leg's own
+child; ended by the wall with SIGQUIT on stderr, `test timed out` absent (testing's alarm never
+fired), and the sample names the spin.
+Mutants, each watched red:
+- drop the in-process poll → the plain-orphan leg: ended at 4.96 s by the WATCHDOG, no mark (the
+  mark assertion, not the 5 s bound, is what catches it);
+- drop the watchdog's orphan arm → the wedged orphan is alive at 45 s;
+- drop the wall arm → the live-parent wedge is alive at 90 s;
+- leave the pipe's write end unreachable → the helper's GC finalizes it, the watchdog is gone at
+  the control check, and all three legs fail;
+- drop symbolize → both samples show `???` where the spin is;
+- announce on stderr before signalling → the wedged orphan (dead stderr) is alive at 45 s;
+- a start time that never matches → nothing is signalled; both wedge legs fail. The positive
+  control that the identity check admits the real target.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
@@ -3245,6 +3344,9 @@ view.
 - `Say` can succeed into a dying TCP connection; the `@sent` outbox row is what keeps the
   record when it does.
 - Linux is untested. macOS is the developed and used platform.
+- What wedged `internal/cli`'s test binary in #43 is not known. D-053 bounds it and samples the
+  next one; it does not explain the first two. Off darwin the watchdog can identify no target,
+  so it signals nothing and only the in-process poll bounds an orphan.
 - The commit gate covers only the ordinary commit path, and only where the hook is installed.
   `--no-verify` and `commit-tree` skip it, a merge commit runs `pre-merge-commit` instead,
   and the commits that rebase, cherry-pick, revert and `am` create do not run `pre-commit` at

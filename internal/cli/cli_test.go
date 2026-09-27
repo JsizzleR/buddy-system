@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/store"
+	"github.com/JsizzleR/buddy-system/internal/testguard"
 	_ "modernc.org/sqlite"
 )
 
@@ -503,6 +504,11 @@ func TestStaleShownInLs(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
+	// First, before anything can wedge: this binary is the one #43 found
+	// orphaned and spinning for 44 minutes past its own -test.timeout. Arm
+	// exits an orphan within about a second and starts a watchdog that ends
+	// a wedged one (D-053). In the watchdog process it never returns.
+	testguard.Arm()
 	// Guard: the suite shells out to git; make its absence loud, not flaky.
 	if _, err := exec.LookPath("git"); err != nil {
 		fmt.Fprintln(os.Stderr, "cli tests require git on PATH")
