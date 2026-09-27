@@ -215,20 +215,16 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   frame. The pclntab survives; `internal/testguard`'s watchdog symbolizes its own samples
   from it. And `pgrep -f cli.test` matches the LINKER mid-build (its argv names the output),
   so find a test binary as a child of its `go` process, not by name.
-- **An orphaned test binary that makes no write and ignores its own `-test.timeout` is
-  WEDGED, not blocked on a dead stderr** (measured 2026-09-27, D-053): the timeout panic
-  exits fine with a dead stderr, and in a stop-the-world waiting on an unpreemptible
-  goroutine no Go code runs at all — timers, AfterFunc, a ppid poll. Only a signal from
-  another process ends it. RLIMIT_CPU does not: Go drops SIGXCPU, and darwin sent no SIGKILL
-  at the hard limit.
-- **The pre-push tier can hang in `forkExec` of git until go test's 10m timeout**
-  (twice, 2026-09-26 and -27, each in a different test). Both times it was inside
-  the hook, where git's exec-path puts CLT's `libexec/git-core/git` first on PATH
-  (a 60-byte argv0 in the dump), and the child never finished exec. The dump
-  reads like a code deadlock, but it is not your diff: look for `forkExec` →
-  `readlen` before suspecting it. Retry the push with no other `go test` running
-  in the checkout (the second hang had several alongside); the retry was green
-  both times. No retry loop or timeout knob is built on it.
+- **A `-race` test binary can hang in `forkExec` → `readlen` until go test's 10m timeout
+  (darwin; D-061, #53).** The FORK CHILD deadlocks in ThreadSanitizer
+  (`forkAndExecInChild` → `__tsan::SlotLock`, a lock another parent thread held at the
+  fork) and never execs. The parent waits in `readlen`, and the child is left orphaned and
+  spinning: one thread, the parent's argv. A race toy reproduced it (8/8 forkers hung in
+  170 s; 0 in 356k forks without `-race`). It is not your diff, not git, not PATH, not the
+  hook: retry, ideally with no other `go test` running. testguard's watchdog ends the
+  stuck child. A stuck child also holds the watchdog's pipe open (close-on-exec never
+  fires), which is why D-053's first watchdog missed it. Only a signal ends it (SIGQUIT
+  did in <2 s); RLIMIT_CPU does not.
 - **Restart the daemon when a change adds a journal table** — the running daemon
   migrates the journal at open, so a new table only appears after a restart.
   Hooks spawn a fresh binary per tool call, so *sessions* need no restart.
