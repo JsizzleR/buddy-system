@@ -385,7 +385,9 @@ ledger row entered through the CLI (D-006).
 44. **`msg`'s wake address rides its result line (D-041).** One send answers on ONE line. The
     D-039 address used to be a second line, and an orchestrator that read `msg … | head -1`
     (measured, 2026-09-24) lost it, so an idle lane sat unwoken until the operator typed into
-    it. Do not propose moving the address back onto a line of its own.
+    it. Do not propose moving the address back onto a line of its own. It is ALSO written to
+    stderr as one line (D-052): a sender that discarded stdout as a receipt (`>/dev/null`) lost
+    it, measured. Stderr is empty when there is no wake; a `2>&1` reader sees it twice.
 
 45. **A SHARED claim may overlap other shared claims, and nothing else (D-042).** One mode term
     in the one conflict scan: an overlap conflicts unless both sides are shared. The gate returns

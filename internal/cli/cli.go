@@ -2703,10 +2703,18 @@ func cmdMsg(args []string, env Env) error {
 	// The harness's own channel to a session at its prompt (D-039): named,
 	// never used — buddy wakes nothing. On the SAME line (D-041), because a
 	// sender reading `| head -1` dropped it when it was the second.
-	if wake := wakeClause(env, rcpt, nowOf(env)); wake != "" {
+	wake := wakeClause(env, rcpt, nowOf(env))
+	if wake != "" {
 		line += "; " + wake
 	}
 	fmt.Fprintln(env.Stdout, line)
+	// AND on stderr (issue #42): a sender that treats the result line as a
+	// receipt discards stdout (`>/dev/null`), and the wake is the one part of
+	// it that asks the sender to act. Stdout keeps it too (D-041), so a
+	// `2>&1` reader sees it twice, which costs nothing.
+	if wake != "" {
+		fmt.Fprintf(env.Stderr, "buddy: message #%d to %s is queued; %s\n", id, fence.Line(tgt.String(), 128), wake)
+	}
 	return nil
 }
 

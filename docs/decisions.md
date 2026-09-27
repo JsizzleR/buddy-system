@@ -3192,6 +3192,34 @@ tool-kind column, bytes over string and array results, even and odd medians, row
 window with a control, and that no marker text from the fixture is ever printed. The resolved-root
 case bites only where the two spellings differ (macOS `/var`); on Linux CI it passes vacuously.
 
+## D-052 — `msg`'s wake address is also written to stderr
+
+2026-09-26 · issue #42
+
+**What was wrong** — A coordinating session sent `buddy msg <target> "…" >/dev/null` to several
+workers, treating the result line as a receipt it did not need. Four recipients had been idle at
+their prompts for 45–54 minutes by `buddy sessions`. `msg` built the D-039 wake address for each,
+on the result line as D-041 requires, and the redirect dropped it. Nothing drained until the
+sender noticed the silence and woke each by hand: about 50 idle minutes across four sessions. It
+is D-041's failure in its next shape. The wake is the one part of the result line that asks the
+sender to act, and the only signal that the message will not arrive by itself.
+
+**The rule** — when the wake clause is non-empty, `msg` ALSO writes one stderr line,
+`buddy: message #N to <target> is queued; <the same wake clause>`, after the stdout line. Stdout
+is unchanged (D-041), so `| head -1` and a stdout-only redirect still carry it; a `2>&1` reader
+sees it twice, which costs nothing. The target is fenced as on stdout. With no wake, stderr stays
+empty, so a stderr reader is never told to act on a session that drains on its own.
+
+**What it does not do** — same conditions, same text, same single observation as D-039; buddy
+still wakes nothing, and the wake still carries no content. The issue's optional second half
+(`buddy sent` flagging a long-undelivered message to a recipient quiet the whole time) is
+separable and was not built.
+
+**Test shape** — `wake_test.go`: the three quiet cases assert one stderr line with the prefix and
+the socket address and no body; every other case (seen recently, no socket, a regular file,
+process gone, two live processes, ended, broadcast) asserts stderr is empty. Mutant with the
+stderr write dropped: the three quiet legs fail, the rest pass.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
