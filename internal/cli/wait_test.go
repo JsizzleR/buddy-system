@@ -193,6 +193,80 @@ func TestWaitCheckCapsTheNextCheckAtTheDeadline(t *testing.T) {
 	}
 }
 
+// A timer never lands, so the park it covers ends with a wake buddy never
+// sees (D-054, issue #44): the declaration says what to do then, as its
+// third line. A wait on a claim lands by itself and says nothing of the kind
+// — its two lines are held in TestWaitDeclareCheckLandOnceThenNoWait, and
+// the claim wait here is the control that the line is the timer's alone.
+func TestWaitTimerSaysHowItEnds(t *testing.T) {
+	boundedParallel(t)
+	w := newWaitFx(t)
+	w.turn(t, w.clock, 214_000, 1_200, 0, 1_200)
+
+	got := lines(w.ok(t, "sess-a", "wait", "--until", "90m", "--note", "own tier run"))
+	want := "a timer never lands: when something else wakes you first (a run's completion notice, a message, the operator), run `buddy wait clear`, and stop the /loop that runs the check"
+	if len(got) != 3 || got[2] != want {
+		t.Fatalf("a timer declaration ends with how it ends:\n got %q\nwant %q", strings.Join(got, "\n"), want)
+	}
+	if !strings.HasPrefix(got[0], "WAITING on a timer (no claim named: it never lands, it expires) — deadline in 1h30m") {
+		t.Fatalf("the declaration line:\n%s", got[0])
+	}
+	if !strings.Contains(got[1], "each check is one tool call (a turn of about three cache reads)") {
+		t.Fatalf("the arming line must say what a check costs:\n%s", got[1])
+	}
+
+	// Re-declared on a claim, the same session is told nothing of the kind.
+	got = lines(w.ok(t, "sess-a", "wait", "--on", "api-work"))
+	for _, l := range got {
+		if strings.HasPrefix(l, "a timer never lands") {
+			t.Fatalf("a wait on a claim lands by itself; the timer's advice is not its:\n%s", strings.Join(got, "\n"))
+		}
+	}
+	if !strings.HasPrefix(got[0], `WAITING on claim "api-work"`) || !strings.HasPrefix(got[len(got)-1], "replaced your open wait on a timer") {
+		t.Fatalf("the replacing declaration:\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// Before any request of the session is observed there is no tier, and the
+// keep-alive is advised anyway (cacheTier: pays, not known) — so the arming
+// line's other arm carries the check's cost too, and the timer's advice
+// includes the loop (Codex code pass: only the known-tier arm was held).
+func TestWaitTimerWithNoTierObservedYet(t *testing.T) {
+	boundedParallel(t)
+	w := newWaitFx(t) // no turn: nothing observed
+	got := lines(w.ok(t, "sess-a", "wait", "--until", "90m"))
+	if len(got) != 3 || !strings.HasPrefix(got[1], "keep-alive: no cache tier observed for this session yet.") ||
+		!strings.Contains(got[1], "each check is one tool call (a turn of about three cache reads)") {
+		t.Fatalf("the no-tier arming line:\n%s", strings.Join(got, "\n"))
+	}
+	if !strings.HasPrefix(got[2], "a timer never lands") || !strings.HasSuffix(got[2], ", and stop the /loop that runs the check") {
+		t.Fatalf("with no tier observed the loop was advised, so the advice includes it:\n%s", got[2])
+	}
+}
+
+// Declared with --session from another shell — an orchestrator parking a
+// lane — the reader is not the parked session. "Wakes you … run buddy wait
+// clear" would send it to clear its OWN wait (review, measured: the lane's
+// timer stayed open), so the line names the lane and the flag, and following
+// it verbatim from the declaring shell clears the lane's timer.
+func TestWaitTimerAdviceDeclaredForAnotherSession(t *testing.T) {
+	boundedParallel(t)
+	w := newWaitFx(t)
+	w.turn(t, w.clock, 214_000, 1_200, 0, 1_200)
+	w.ok(t, "sess-b", "wait", "--until", "2h") // the declarer's own timer: must survive
+
+	got := lines(w.ok(t, "sess-b", "wait", "--session", "sess-a", "--until", "90m"))
+	want := "a timer never lands: when something else wakes alpha first (a run's completion notice, a message, the operator), `buddy wait clear --session sess-a` clears it — pass this on, and stop the /loop that runs the check"
+	if len(got) != 3 || got[2] != want {
+		t.Fatalf("a timer declared for another session:\n got %q\nwant %q", strings.Join(got, "\n"), want)
+	}
+	w.ok(t, "sess-b", "wait", "clear", "--session", "sess-a")
+	ls := w.ok(t, "sess-b", "wait", "ls")
+	if strings.Contains(ls, "wait alpha") || !strings.Contains(ls, "wait bravo") {
+		t.Fatalf("the advice, followed from the declaring shell, must clear the lane's timer and only it:\n%s", ls)
+	}
+}
+
 // The tier decides whether a keep-alive pays: on 5m, and on a turn that
 // wrote both tiers (judged by the shorter, as the roster judges it, D-020),
 // nothing is armed and the check says to stop. The 1h tier is the control.
@@ -219,6 +293,21 @@ func TestWaitArmsNothingOffTheHourTier(t *testing.T) {
 			}
 			if !tc.pays && (!strings.HasPrefix(decl, "keep-alive: NONE") || !strings.Contains(check, "no next check:")) {
 				t.Fatalf("off the hour tier both lines must say why:\n%s\n%s", decl, check)
+			}
+			// A timer always says to clear it when woken first; "stop the
+			// loop" only where a loop was advised (D-054).
+			timer := lines(w.ok(t, "sess-a", "wait", "--until", "90m"))
+			last := "" // the advice line; a "replaced your open wait" line follows it here
+			for _, l := range timer {
+				if strings.HasPrefix(l, "a timer never lands") {
+					last = l
+				}
+			}
+			if !strings.Contains(last, "run `buddy wait clear`") {
+				t.Fatalf("pays=%v: a timer must say to clear it:\n%s", tc.pays, strings.Join(timer, "\n"))
+			}
+			if stop := strings.Contains(last, "stop the /loop"); stop != tc.pays {
+				t.Fatalf("pays=%v: told to stop a loop=%v\n%s", tc.pays, stop, last)
 			}
 		})
 	}

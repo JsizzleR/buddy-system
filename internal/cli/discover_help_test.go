@@ -141,6 +141,23 @@ func TestHelloHelpLineNamesOnlyWhatHelpAnswers(t *testing.T) {
 	}
 }
 
+// The line names wait's TIMER form, not only `--on` (D-054, issue #44): the
+// parks that cost most — a session on its own hour-plus run, a lane waiting
+// for its orchestrator — have no claim to name, and nothing else a session
+// reads at start tells it a wait needs none. A count floor cannot see one
+// name dropped from the line, so this asks for the name itself.
+func TestHelloHelpLineTeachesTheTimerWait(t *testing.T) {
+	taught := map[string]map[string]bool{}
+	if errs, _ := checkNamedVerbsInto(helloHelpLine, helpUsage, taught); len(errs) > 0 {
+		t.Fatalf("the help line names what help does not answer: %v", errs)
+	}
+	for _, name := range []string{"--on", "--until", "check"} {
+		if !taught["wait"][name] {
+			t.Errorf("the help line does not teach `buddy wait %s`:\n%s", name, helloHelpLine)
+		}
+	}
+}
+
 func TestSkillNamesOnlyWhatHelpAnswers(t *testing.T) {
 	body, err := os.ReadFile("../../skills/buddy/SKILL.md")
 	if err != nil {

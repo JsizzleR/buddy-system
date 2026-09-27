@@ -257,9 +257,9 @@ operator      pause <target> [--note <text>]             deny the target's next 
               wait [--on <slug>]... [--until 3h] [--note <text>]   declare what you are
                                     waiting on (a deadline is required: default 3h, at most
                                     12h); then arm THIS session's own keep-alive with
-                                    /loop buddy wait check — one tool call per ~50m that
-                                    keeps the 1h prompt cache warm and drains the inbox,
-                                    and says STILL WAITING / LANDED / EXPIRED / NO WAIT.
+                                    /loop buddy wait check — one check (~3 cache reads) per
+                                    ~50m that keeps the 1h prompt cache warm and drains the
+                                    inbox, and says STILL WAITING / LANDED / EXPIRED / NO WAIT.
                                     wait clear · wait ls.  A wait reserves nothing.
                                     --ready HEAD|<commit>: your work is in on the run the
                                     awaited claim guards, ready at that commit (one long
@@ -1799,6 +1799,13 @@ const helloInboxCountLine = 128
 // suggests `wait --on`; beat names a changed authority file); the ones listed
 // here have no such moment, so this line is the only one they get.
 //
+// The timer form of `wait` (`--until` with no `--on`) is named for the same
+// reason (D-054, issue #44). The refusal that suggests `wait --on` reaches a
+// session only when a claim collides; the parks that cost the most — a
+// session on its own hour-plus test run, a lane waiting for its orchestrator
+// — collide with nothing. Measured over one fleet's week: 3 of 129 sessions
+// declared a wait, and 145 of 149 wakes after an hour came back cold.
+//
 // Considered and cut: the MCP server's `instructions` field. It is the chat
 // half — absent when the daemon is down — and claims must work with chat
 // entirely absent (invariant 1). The full verb list was cut too: every
@@ -1809,7 +1816,7 @@ const helloInboxCountLine = 128
 // Every `buddy <verb> --flag` it names is checked against that verb's usage
 // line (TestHelloHelpLineNamesOnlyWhatHelpAnswers), so a renamed flag fails a
 // test rather than teaching every session a refusal.
-const helloHelpLine = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim --dry-run` (forecast a refusal) `--shared` (lanes co-hold a file); `buddy wait --on <slug>` (declare a wait on a peer, then arm your own `/loop buddy wait check`); `buddy msg --measured|--lead|--relay` (what a claim rests on) `--supersedes <id>` (correct one); `buddy sent`; `buddy ids take`.\n"
+const helloHelpLine = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim --dry-run` (forecast a refusal) `--shared` (lanes co-hold a file); `buddy wait --on <slug>` (declare a wait on a peer) or `--until 2h` alone (before you park on your own long run, or on the orchestrator), then arm your own `/loop buddy wait check`; `buddy msg --measured|--lead|--relay` (what a claim rests on) `--supersedes <id>` (correct one); `buddy sent`; `buddy ids take`.\n"
 
 // writeHelloClaims renders the digest's claims list inside room bytes
 // (D-036, issue #30).

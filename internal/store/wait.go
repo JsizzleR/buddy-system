@@ -53,11 +53,14 @@ import (
 // declaration, and a reader joining them on `decl` cannot pair one
 // declaration's deadline with another's claims.
 
-// WaitCeiling is the longest wait a session may declare. The cost model's
-// break-even on Opus is about sixteen hours of 50-minute reads against one
-// re-write, and the over-12h gap bucket measured a net LOSS; no single tier
-// or review slot in the field notes came near it. Nobody should wait through
-// a night on a timer.
+// WaitCeiling is the longest wait a session may declare. The over-12h gap
+// bucket measured a net LOSS; no single tier or review slot in the field
+// notes came near it. Nobody should wait through a night on a timer. The
+// break-even behind it was first put at sixteen hours on Opus, pricing a check
+// as one read; a check is a turn of about three (D-054), which puts it near
+// 5.5 h on Opus 5, 11 h on Opus 5.5 and 22 h on Fable 5.1. The ceiling stays
+// where it is: it bounds a mistake, and whether the session is resumed at all
+// is the question that decides a wait's worth.
 const WaitCeiling = 12 * time.Hour
 
 // WaitFloor is the shortest: the harness's scheduler has a one-minute floor,
@@ -216,7 +219,7 @@ func (s *Store) DeclareWaitReady(sessionID, incarnation string, slugs []string, 
 		return Wait{}, nil, ErrWaitRefused{Why: fmt.Sprintf("--until %s is under the %s floor: the harness schedules nothing sooner than a minute", until, WaitFloor)}
 	}
 	if until > WaitCeiling {
-		return Wait{}, nil, ErrWaitRefused{Why: fmt.Sprintf("--until %s is over the %s ceiling: past about sixteen hours a keep-alive has spent more in reads than the re-write it prevents, and nobody should wait through a night on a timer — wait less, and ask before waiting again",
+		return Wait{}, nil, ErrWaitRefused{Why: fmt.Sprintf("--until %s is over the %s ceiling: nobody should wait through a night on a timer (what a keep-alive costs per hour is in the USAGE guide) — wait less, and ask before waiting again",
 			until, WaitCeiling)}
 	}
 	var out Wait
