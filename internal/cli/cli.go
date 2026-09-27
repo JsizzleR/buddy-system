@@ -1421,6 +1421,12 @@ func cmdIdle(args []string, env Env) error {
 // mark after. It carries only the inbox. The notices beat also carries
 // (dirty, authority, a landed wait) belong to the tool call that observes
 // them, and that call follows.
+//
+// AND ONE LINE OF ITS OWN (D-055, #46): when the session DECLARED a handoff
+// size (BUDDY_HANDOFF_AT) and its last observed prompt is at or past it, the
+// prompt that opens the turn says so — ahead of the inbox, in the same one
+// document. Here and not on beat because it is a per-TURN fact, and beat
+// would repeat it on every tool call; see handoffNote.
 func cmdBusy(args []string, env Env) error {
 	h, err := readHook(env)
 	if err != nil {
@@ -1437,20 +1443,34 @@ func cmdBusy(args []string, env Env) error {
 	if err := st.ClearIdle(h.SessionID); err != nil {
 		return err
 	}
-	label := ""
-	if me, known, err := st.SessionByID(h.SessionID); err != nil {
+	me, known, err := st.SessionByID(h.SessionID)
+	if err != nil {
 		return err
-	} else if known {
+	}
+	label := ""
+	if known {
 		label = me.Label
 	}
 	msgs, err := st.Undelivered(h.SessionID, label)
-	if err != nil || len(msgs) == 0 {
+	if err != nil {
 		return err
 	}
+	// The handoff line (D-055) rides the SAME document, ahead of the inbox:
+	// it is buddy's own observation, so it must not sit inside the block the
+	// inbox header marks as operator/peer text. It prints with nothing
+	// queued, which is the one case busy used to be silent in.
+	note := busyHandoff(st, me, known, env)
+	if note == "" && len(msgs) == 0 {
+		return nil
+	}
 	var b strings.Builder
+	b.WriteString(note)
 	ids := writeInbox(&b, boundDrain(msgs, nowOf(env)), nowOf(env))
 	if err := writeHookContext(env, "UserPromptSubmit", b.String()); err != nil {
 		return err // write failed → nothing marked → the next drain delivers it
+	}
+	if len(ids) == 0 {
+		return nil
 	}
 	return st.MarkDelivered(h.SessionID, ids)
 }

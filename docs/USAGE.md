@@ -62,7 +62,8 @@ the prompt that opens the turn (D-040), so mail queued to a session waiting at
 its prompt arrives with whatever is typed into it next, and not only on the
 turn's first tool call. Wire `Stop` and skip `busy` if you want one line
 instead of two. The cost: a text-only answer reads as `idle` while it is being
-written, and never sees mail queued while the session was at rest.
+written, never sees mail queued while the session was at rest, and never hears
+that it has grown past a declared handoff size (`BUDDY_HANDOFF_AT`, below).
 
 ## Upgrading and the ledger's schema
 
@@ -503,6 +504,24 @@ The annotations after the id are what an orchestrator picks on:
   running the 1M-token variant writes the same model string into its transcript
   as the 200k one, and 90,499 tokens is 45% of one window and 9% of the other.
   Unset, the row prints the count and no percentage.
+
+  The same count can tell a session when to hand its work to a successor
+  (D-055). Declare a size on the one process that should hear it — the
+  orchestrator, not its lanes:
+
+  ```sh
+  BUDDY_HANDOFF_AT=500k claude      # same spellings as BUDDY_CONTEXT_WINDOW
+  ```
+
+  With the `busy` hook wired, every prompt that opens one of its turns then
+  carries one line once its last observed prompt is at or past the size:
+  `BUDDY: your prompt was 507k at your last observed request (turn 3m ago), at
+  or past the 500k you hand off at (BUDDY_HANDOFF_AT) — finish the round, write
+  the handoff, and start your successor (buddy skill: Running a fleet)`. It
+  says "last observed" because the number lags one request. Unset, unparseable
+  or under, and `busy` prints exactly what it did before. It never rides
+  `beat`, and it refuses nothing. When compaction is enough, the harness's own
+  `--autocompact <size>` is the tool instead.
 
 - `cache 1h hot 48m` — which prompt-cache lifetime the session's last turn
   wrote (the API offers 5 minutes or 1 hour) and how much of it is left; past

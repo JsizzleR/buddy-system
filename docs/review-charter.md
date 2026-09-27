@@ -499,6 +499,18 @@ ledger row entered through the CLI (D-006).
     pid/background-task wait target, `wait --on` your own claim, a Stop-hook nudge, inferring a
     park from idleness, or "always keep warm" (past four hours the fleet's parks broke even).
 
+57. **A session that DECLARED a handoff size is told, once per turn, when it has grown past it
+    (D-055, #46).** MEASURED over one fleet repo, 15 days: 4 orchestrator successions, 3 begun
+    by the operator noticing the size. `BUDDY_HANDOFF_AT` (parsed as `BUDDY_CONTEXT_WINDOW` is;
+    unset or unparseable is off) is set on the one process it applies to. When the LAST
+    OBSERVED prompt for the current incarnation is at or past it, `busy` (UserPromptSubmit)
+    puts one line ahead of the inbox in its single document, on every turn-opening prompt,
+    even with nothing queued. The line names the size, the turn's age and the threshold, and
+    points at the skill's "Running a fleet". The drain (D-040) is unchanged. It is an
+    observation (invariant 10): it refuses, reserves and schedules nothing, and infers no role.
+    Do not propose firing it on `beat`, a role or reserved slug, a stored "told" flag, or
+    reading the transcript from the prompt hook.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
