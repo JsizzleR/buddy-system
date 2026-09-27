@@ -146,8 +146,19 @@ func TestMsgNamesTheWakeAddressOfAQuietRecipient(t *testing.T) {
 			if has != tc.wake {
 				t.Fatalf("wake address present=%v, want %v:\n%s", has, tc.wake, out)
 			}
+			// Stderr carries the wake too (issue #42), because a sender that
+			// discards stdout as a receipt lost it; and carries NOTHING when
+			// there is no wake, so a stderr reader is never told to act on a
+			// session that drains on its own.
 			if !tc.wake {
+				if errw != "" {
+					t.Fatalf("no wake, so stderr must be empty, got:\n%s", errw)
+				}
 				return
+			}
+			wantErr := `buddy: message #1 to ` + tc.to + ` is queued; to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") + `"`
+			if !strings.HasPrefix(errw, wantErr) || strings.Count(errw, "\n") != 1 || strings.Count(errw, body) != 0 {
+				t.Fatalf("want one stderr line starting\n%s\n(and no body), got:\n%s", wantErr, errw)
 			}
 			want := `; to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") +
 				`" with the text "buddy mail is queued for you: run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way` + "\n"
