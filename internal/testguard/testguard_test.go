@@ -34,6 +34,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 	Arm()
+	ScrubGitEnv() // gitenv_test.go runs git (#49)
 	os.Exit(m.Run())
 }
 

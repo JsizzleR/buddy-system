@@ -63,3 +63,15 @@ mkrepo() {
 	# missing key fails by prompting rather than by failing.
 	git -C "$1" config commit.gpgsign false
 }
+
+# SOURCING THIS CLEARS GIT'S LOCAL ENVIRONMENT (#49). Every done-check builds
+# throwaway repositories with `git init`/`git -C <dir> config`, and an
+# inherited absolute GIT_DIR — what git hands a hook run from a linked
+# worktree — sends those into the real repository instead (measured
+# 2026-09-27: it came out bare, repositoryformatversion=99). check.sh unsets
+# the same list before it runs any of them; this covers a done-check run on
+# its own from inside some other hook.
+for _v in $(git rev-parse --local-env-vars 2>/dev/null || true) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_PREFIX; do
+	unset "$_v"
+done
+unset _v

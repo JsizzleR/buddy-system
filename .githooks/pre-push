@@ -61,6 +61,20 @@ if [ "$pushing" = "0" ]; then
 	exit 0
 fi
 
+# THE TIER RUNS WITH NONE OF GIT'S LOCAL ENVIRONMENT (#49). Git runs this hook
+# with GIT_DIR set, and from a LINKED worktree it is ABSOLUTE
+# (<repo>/.git/worktrees/<name>). Measured 2026-09-27: a push from one handed
+# it to every test fixture, and `git -C <tmp> …` — which does not override an
+# absolute GIT_DIR — wrote core.bare=true and repositoryformatversion=99 into
+# the REAL repository, after which every git command there died and the claim
+# gate failed closed for every session. Everything above has already used the
+# environment it needed (discovery, the local hook). The tier finds its
+# repository from the cwd, which is the worktree being pushed. check.sh
+# unsets the same list itself, for any other caller.
+for v in $(git rev-parse --local-env-vars 2>/dev/null || true) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_PREFIX; do
+	unset "$v"
+done
+
 CHECK=${BUDDY_PREPUSH_CHECK:-sh scripts/check.sh hermetic}
 echo "pre-push: running the hermetic tier ($CHECK)" >&2
 if sh -c "$CHECK" >&2; then

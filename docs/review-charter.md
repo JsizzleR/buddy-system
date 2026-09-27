@@ -511,6 +511,26 @@ ledger row entered through the CLI (D-006).
     Do not propose firing it on `beat`, a role or reserved slug, a stored "told" flag, or
     reading the transcript from the prompt hook.
 
+58. **A coordinator opens its own lanes with the harness; buddy launches and ends nothing
+    (D-056, #47; #22's decline stands).** MEASURED from sessions in auto mode: `herdr tab create`
+    + `herdr agent start … -- -n <l> --session-id <uuid> "<brief>"` opens an interactive lane
+    (it honours `--session-id`, `--env` reaches the process, it starts in MANUAL permission mode,
+    and `herdr pane close` runs its `bye`); `claude --bg -n <l>` starts a background lane but
+    ignores `--session-id`; `claude agents --json` lists every session. The skill's "Running a
+    fleet" teaches it: open only as many lanes as the operator allowed, and never with a more
+    permissive mode than the launcher's own. The brief rides the launch; `msg` waits for the
+    lane's hello (a premature one is refused, loudly); ending a lane is the operator's act; the
+    successor handoff runs on a file named in the `orchestrator` claim, `msg` + wake, release.
+    Do not propose `buddy spawn`/`exit`, or `buddy expect` (a brief queued before hello).
+
+59. **The test suite never runs with git's local environment (D-057, #49).** MEASURED: a push
+    from a linked worktree hands the pre-push hook an ABSOLUTE `GIT_DIR`, and the fixtures'
+    `git -C <tmp>` inherited it and made the real repository bare with
+    repositoryformatversion=99. `git rev-parse --local-env-vars` (united with a fixed copy) is
+    unset by pre-push before the tier, by check.sh first thing, by sourcing lib.sh, and by
+    `testguard.ScrubGitEnv()` in the TestMain of every package that runs git (a gate enforces
+    it). Do not propose stripping `GIT_*` wholesale, or relying on the hook alone.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

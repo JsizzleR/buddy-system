@@ -28,6 +28,16 @@
 # existed, a real data race sat green at HEAD indefinitely, visible only to
 # someone who typed -race by hand.
 set -eu
+# GIT'S LOCAL ENVIRONMENT IS NOT THIS SUITE'S (#49). Run from a hook, git hands
+# us GIT_DIR, and from a LINKED worktree it is absolute: measured 2026-09-27, a
+# pre-push from one sent every fixture's `git -C <tmp> …` into the real
+# repository, which came out bare with repositoryformatversion=99. Git's own
+# list plus a fixed copy, so a git that dies on the repository it was pointed
+# at still leaves nothing set. The test binaries scrub again in TestMain
+# (testguard.ScrubGitEnv), for a `go test` started some other way.
+for v in $(git rev-parse --local-env-vars 2>/dev/null || true) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_PREFIX; do
+  unset "$v"
+done
 # Safe spelling, not `cd "$(dirname "$0")/.."`: that resolves through the
 # CALLER's $CDPATH and can run this whole suite against a DIFFERENT checkout.
 # scripts/lib.sh has the measurement.
@@ -104,6 +114,34 @@ if [ "$run_hermetic" = 1 ]; then
   [ "$ctlhit" = "1 2 " ] || { echo "check.sh: the CDPATH scan reported line(s) '$ctlhit' of its four-line control, want '1 2 ' — the gate is broken, not the tree" >&2; exit 1; }
   unsafe=$(cdscan .githooks/* scripts/*.sh || true)
   [ -z "$unsafe" ] || { echo "check.sh: CDPATH-unsafe cd — use \`CDPATH= cd -- \"\$(dirname -- \"\$0\")/..\"\` (see scripts/lib.sh):" >&2; echo "$unsafe" >&2; exit 1; }
+
+  # GIT-ENV GATE, source-shape (#49). Every package that runs git — in a test
+  # or in the code its tests drive in-process — must scrub git's local
+  # environment in its TestMain: `testguard.ScrubGitEnv()` as a statement, not
+  # a mention. The unset above covers this script's path; the scrub covers
+  # `go test` started from inside any other hook. grep-shaped because the
+  # failure is invisible to the suite: a fixture writing into the wrong
+  # repository passes. Two clauses, as above: the scan, and a planted
+  # three-package control it must agree with (execs git, no scrub -> reported;
+  # a scrub only in a comment -> reported; a real scrub -> not).
+  gitexec='exec\.Command(Context)?\((ctx, )?"git"'
+  gitenvscan() {
+    for d in "$@"; do
+      grep -qsE "$gitexec" "$d"/*.go || continue
+      ls "$d"/*_test.go >/dev/null 2>&1 || continue
+      grep -qsE '^[[:space:]]*(testguard\.)?ScrubGitEnv\(\)' "$d"/*_test.go || echo "$d"
+    done
+  }
+  gectl=$(mktemp -d -t gitenv-control.XXXXXX)
+  mkdir -p "$gectl/a" "$gectl/b" "$gectl/c"
+  printf 'package a\nfunc f() { exec.Command("git", "init") }\n' > "$gectl/a/a_test.go"
+  printf 'package b\nfunc f() { exec.Command("git", "init") }\n// testguard.ScrubGitEnv() is only mentioned here\n' > "$gectl/b/b_test.go"
+  printf 'package c\nfunc f() { exec.Command("git", "init") }\nfunc TestMain() {\n\ttestguard.ScrubGitEnv()\n}\n' > "$gectl/c/c_test.go"
+  gehit=$(gitenvscan "$gectl/a" "$gectl/b" "$gectl/c" | sed "s#^$gectl/##" | tr '\n' ' ')
+  rm -rf "$gectl"
+  [ "$gehit" = "a b " ] || { echo "check.sh: the git-env scan reported '$gehit' of its control, want 'a b ' — the gate is broken, not the tree" >&2; exit 1; }
+  leaky=$(gitenvscan $(find cmd internal -type d) || true)
+  [ -z "$leaky" ] || { echo "check.sh: these packages run git with no testguard.ScrubGitEnv() in a TestMain (#49):" >&2; echo "$leaky" >&2; exit 1; }
 
   go vet ./...
   go test ./... -count=1
