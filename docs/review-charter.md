@@ -388,6 +388,8 @@ ledger row entered through the CLI (D-006).
     it. Do not propose moving the address back onto a line of its own. It is ALSO written to
     stderr as one line (D-052): a sender that discarded stdout as a receipt (`>/dev/null`) lost
     it, measured. Stderr is empty when there is no wake; a `2>&1` reader sees it twice.
+    `buddy sent` names the same wake on each still-queued recipient that the same
+    `wakeClause` says needs one. No "after N minutes" threshold: `msg` prints it at age zero.
 
 45. **A SHARED claim may overlap other shared claims, and nothing else (D-042).** One mode term
     in the one conflict scan: an overlap conflicts unless both sides are shared. The gate returns

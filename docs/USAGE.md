@@ -344,6 +344,12 @@ the only words. A recorded delivery means a hook wrote the message into that
 session's context, never that it was read. `buddy sent` with no id lists your
 last ten sends.
 
+A session that still has the message queued, and that `msg` would have named a
+wake for (quiet, one live harness process, its socket there), gets the same
+`to wake it now: …` clause after its `queued` (D-052). In the list, a direct
+send carries it on its line, and a broadcast says how many of its sessions can
+be woken and that `buddy sent <id>` names each address.
+
 Only the sending session can correct a message; the operator at a bare
 terminal can correct only messages sent with no session. A message whose
 sender is unknown cannot be corrected by anyone. That covers every message sent

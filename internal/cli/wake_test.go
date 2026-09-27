@@ -175,3 +175,107 @@ func TestMsgNamesTheWakeAddressOfAQuietRecipient(t *testing.T) {
 		})
 	}
 }
+
+// Issue #42's second half: `buddy sent` names the same wake for a recipient
+// that still has the message queued and that msg's rule says needs one.
+func TestSentNamesTheWakeOfAQueuedQuietRecipient(t *testing.T) {
+	boundedParallel(t)
+	const wakeHead = "to wake it now: SendMessage to \"uds:"
+	cases := []struct {
+		name  string
+		to    string
+		after func(t *testing.T, f *fixture) // between the send and the report
+		wake  bool
+	}{
+		{"queued to an idle session with its socket", "bravo", func(t *testing.T, f *fixture) {}, true},
+		// The positive control above, less one condition each.
+		{"delivered, then idle again", "bravo", func(t *testing.T, f *fixture) {
+			beatAs(t, f, 400) // the beat drains it
+			idleB(t, f)
+			f.clock = f.clock.Add(10 * time.Minute)
+		}, false},
+		// Not "seen since": every hook that marks a session seen (beat,
+		// busy) also drains its inbox, so that case is "delivered" above.
+		{"queued, its process gone", "bravo", func(t *testing.T, f *fixture) {
+			f.kill(400)
+		}, false},
+		{"queued, its socket gone", "bravo", func(t *testing.T, f *fixture) {
+			os.Remove(filepath.Join(f.sockDir, "400.sock"))
+		}, false},
+		{"a broadcast", "all", func(t *testing.T, f *fixture) {}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.sockDir = shortSockDir(t)
+			f.initAndHello(t)
+			beatAs(t, f, 400)
+			l, err := net.Listen("unix", filepath.Join(f.sockDir, "400.sock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer l.Close()
+			idleB(t, f)
+			f.clock = f.clock.Add(10 * time.Minute)
+			var out, errw string
+			var code int
+			f.asSession("sess-a", func() { out, errw, code = f.run(t, f.repo, "", "msg", tc.to, "take the router bundle") })
+			if code != 0 {
+				t.Fatalf("msg: %s %s", out, errw)
+			}
+			tc.after(t, f)
+			var list, one string
+			f.asSession("sess-a", func() {
+				list, errw, code = f.run(t, f.repo, "", "sent")
+				if code == 0 {
+					one, errw, code = f.run(t, f.repo, "", "sent", "1")
+				}
+			})
+			if code != 0 {
+				t.Fatalf("sent: %s", errw)
+			}
+			// The report is still one header per send, and one row per
+			// addressed session.
+			if n := strings.Count(list, "\n"); n != 1 || !strings.HasPrefix(list, "#1 to ") {
+				t.Fatalf("sent must list one send on one line, got:\n%s", list)
+			}
+			var bravo string
+			for _, ln := range strings.Split(one, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(ln), "bravo") {
+					bravo = ln
+				}
+			}
+			if bravo == "" {
+				t.Fatalf("control: sent 1 must list bravo:\n%s", one)
+			}
+			if has := strings.Contains(bravo, wakeHead); has != tc.wake {
+				t.Fatalf("bravo's row: wake present=%v, want %v:\n%s", has, tc.wake, one)
+			}
+			if strings.Count(one, wakeHead) > 1 {
+				t.Fatalf("only bravo can be woken (alpha has no socket):\n%s", one)
+			}
+			if !tc.wake {
+				if strings.Contains(list, "wake") {
+					t.Fatalf("no wake, so the list must not mention one:\n%s", list)
+				}
+				return
+			}
+			if !strings.Contains(bravo, "queued; "+wakeHead+filepath.Join(f.sockDir, "400.sock")) {
+				t.Fatalf("the wake must follow bravo's queued standing:\n%s", bravo)
+			}
+			switch tc.to {
+			case "all":
+				if !strings.Contains(list, "; 1 addressed session(s) still have it queued and can be woken: buddy sent 1 names each wake address") {
+					t.Fatalf("a broadcast counts its wakeable sessions and names the report:\n%s", list)
+				}
+			default:
+				if !strings.Contains(list, "; "+wakeHead) {
+					t.Fatalf("a direct send carries its wake on the list line:\n%s", list)
+				}
+			}
+			if strings.Contains(list+one, "router") {
+				t.Fatalf("sent prints no body:\n%s%s", list, one)
+			}
+		})
+	}
+}
