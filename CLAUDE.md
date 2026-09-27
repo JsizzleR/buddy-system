@@ -42,6 +42,9 @@ used platform.
   `beat`, `idle`, `busy`, `bye`), the git commit gate (`commit-gate`, `commitgate.go`), and the
   ONE place that reads a Claude Code transcript (`transcript.go`: the last
   turn's token counts for the roster, never any message text).
+- `internal/testguard` — `Arm()`, the first statement of `internal/cli`'s TestMain: ends a
+  test binary whose `go test` died (in-process ppid poll, exit 3) and, from a watchdog
+  process, one that wedged (sample, SIGQUIT, SIGKILL). Test infrastructure only (D-053).
 - `internal/fence` — untrusted-content fencing. Every attacker-influenced value
   that reaches a model's context goes through here.
 - `internal/buddylist` — the `buddylistd` daemon (`chatd.go`), the journal,
@@ -206,6 +209,16 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **`check.sh` exit 2 means the live leg did not run** (no `.cache/oscar-server`;
   run `scripts/get-oscar.sh`). "Not run" is neither pass nor fail, and it is
   reported loudly on purpose so a leg cannot silently stop running.
+- **`go test` binaries carry no symbol table**: `sample` of one prints `???` for every Go
+  frame. The pclntab survives; `internal/testguard`'s watchdog symbolizes its own samples
+  from it. And `pgrep -f cli.test` matches the LINKER mid-build (its argv names the output),
+  so find a test binary as a child of its `go` process, not by name.
+- **An orphaned test binary that makes no write and ignores its own `-test.timeout` is
+  WEDGED, not blocked on a dead stderr** (measured 2026-09-27, D-053): the timeout panic
+  exits fine with a dead stderr, and in a stop-the-world waiting on an unpreemptible
+  goroutine no Go code runs at all — timers, AfterFunc, a ppid poll. Only a signal from
+  another process ends it. RLIMIT_CPU does not: Go drops SIGXCPU, and darwin sent no SIGKILL
+  at the hard limit.
 - **The pre-push tier can hang in `forkExec` of git until go test's 10m timeout**
   (twice, 2026-09-26 and -27, each in a different test). Both times it was inside
   the hook, where git's exec-path puts CLT's `libexec/git-core/git` first on PATH
@@ -496,6 +509,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   it. Advisory: never fails or blocks init, never runs in a hook, installs and edits nothing.
   The skill says to use the LSP tool before grep. `scripts/startup-report.sh` is the
   before/after instrument, counts only.
+- **A test binary that outlives its `go test` is ended from outside, and leaves a sample
+  (D-053, #43).** In-process `Getppid` poll (exit 3, ~1 s) for a healthy orphan; a watchdog
+  process (same binary, pipe EOF for exit, pid + start time for identity) for a wedged one or
+  one at twice its `-test.timeout`: symbolized `sample` to `$TMPDIR`, SIGQUIT, SIGKILL, and a
+  stderr line LAST (stderr may be the dead pipe; announcing first killed it). RLIMIT_CPU and an in-process AfterFunc wall were cut.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
