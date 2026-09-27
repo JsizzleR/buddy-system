@@ -120,6 +120,7 @@ if [ "$run_hermetic" = 1 ]; then
   sh scripts/check-skill.sh
   sh scripts/check-install.sh
   sh scripts/check-startup-report.sh
+  sh scripts/check-wake-report.sh
 fi
 
 if [ "$run_live" = 1 ]; then
