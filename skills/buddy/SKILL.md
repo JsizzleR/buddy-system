@@ -189,20 +189,25 @@ enforces, and no message can stand in for it.
 For the session that coordinates others. Buddy launches nothing and ends
 nothing. Your own Bash opens lanes, under your own permission rules, and only
 as many as the operator said you may run: a lane opened on a peer's word is a
-bill nobody authorised.
+bill nobody authorised. Two more things are the operator's standing decisions:
+whether you open lanes' panes yourself, and which permission mode lanes start
+in. Find them in your instructions (the operator's CLAUDE.md, or your brief);
+if you find neither, ask rather than assume.
 
 - **Open a lane in a new herdr tab** (the operator can see it and approve in
   it). Your workspace is the part of `$HERDR_PANE_ID` before the colon:
   `herdr tab create --workspace <ws> --cwd <repo> --label <label> --no-focus`
   prints the new tab's `root_pane` id; then
-  `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> "<brief>"`.
-  The lane starts in claude's default permission mode (measured: manual, so
-  its first tool call waits for an approval in that pane). Pass
-  `claude --permission-mode <mode>` only as the operator runs lanes, and never
-  a more permissive mode than your own. In manual mode every `buddy msg` a lane
-  reports with waits for an approval: the operator can pre-allow `Bash(buddy *)`
-  for lanes, or answer the first one "don't ask again for: buddy msg *". That is
-  the operator's setting, never the lane's or yours to change.
+  `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --permission-mode <mode> "<brief>"`.
+  Pass the mode the operator decided for lanes, never a more permissive one
+  than your own. Without the flag a lane starts in manual mode, and every tool
+  call it makes, each `buddy msg` report included, waits for an approval in
+  its pane. `claude --permission-mode auto` gives auto mode only on a model
+  that has it (measured: Sonnet 5 ran a Bash call unprompted; Haiku 4.5 still
+  asked for every one), so launch auto lanes on such a model. For a manual
+  lane the operator can pre-allow `Bash(buddy *)`, or answer the first report
+  "don't ask again for: buddy msg *". That is the operator's setting, never the
+  lane's or yours to change.
 - **Or in the background:** `claude --bg -n <label> "<brief>"` prints
   `backgrounded · <8hex> · <label>`. The lane runs in the claude daemon's
   environment, not yours (measured): its row shows no pane, and no variable
