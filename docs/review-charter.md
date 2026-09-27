@@ -532,6 +532,19 @@ ledger row entered through the CLI (D-006).
     names "git" (a gate enforces it, and a second keeps the four fixed copies of the list
     equal). Do not propose stripping `GIT_*` wholesale, or relying on the hook alone.
 
+60. **A `claude --bg` lane anchors at its own process, and its row names no pane (D-058,
+    #50).** MEASURED (2.1.283): the lane retitles its argv[0] to the single string
+    `claude bg-spare` (exec path is the versioned file), so the walk passed it and anchored at
+    the shared `claude daemon`. The lane is the hook's direct parent, and it runs in the
+    DAEMON's environment, so its pane (and any variable set on `claude --bg`, including
+    BUDDY_HANDOFF_AT) is whoever started the daemon's. The walk also matches an argv[0] whose
+    first word is exactly `claude`; an exact name still wins, and the walk stops at the first
+    match, so an interactive session in its measured shape (the hook's direct parent) anchors
+    where it always did. A retitle-only anchor records no pane. A lane live ACROSS the upgrade
+    keeps its daemon registration and pane until the operator's `bye <id> --force` (pinned by a
+    test; accepted, not fixed). Do not propose anchoring at the daemon with a flag, reading
+    CLAUDE_JOB_DIR, or a looser (path or prefix) retitle match.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

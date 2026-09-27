@@ -3578,6 +3578,9 @@ lanes and one `--bg` lane on Haiku:
   `claude stop`. Closing "its" pane would have closed the orchestrator. The recipe launches it
   under `env -u HERDR_PANE_ID -u HERDR_TAB_ID`. That hello records the daemon's pid for a
   background lane is a buddy defect, tracked in its own issue.
+  *Superseded by D-058 (#50):* a lane gets the claude daemon's environment, not the launcher's,
+  so the `env -u` held only when that launch started the daemon. The recipe dropped it; the row
+  now names the lane's own pid and no pane.
 - `buddy status` prints no prompt size; `buddy sessions` does, so the recipe points there.
 - A re-claim of `orchestrator` REPLACES its scopes, so the handoff re-claims with the same ones.
   Between the release and the successor's claim, `msg orchestrator` is refused (released slugs do
@@ -3678,6 +3681,93 @@ fixed lists equal. Mutants, each watched red: the hook's unset reduced to `GIT_D
 `cli`'s scrub removed (the gate names `internal/cli`), the scrub a no-op (three testguard test
 functions), `lib.sh`'s list cut back to the old six (QA-7's no-git run), and check.sh's list
 cut back (the equality gate).
+
+## D-058 — A `claude --bg` lane anchors at its own process, and its row names no pane
+
+2026-09-27 · issue #50
+
+**What was wrong** — A lane started with `claude --bg` was registered under the wrong process
+and, from a herdr pane, the wrong pane. In D-056's verbatim run the row read `pid 41756 pane
+herdr:w18:p9`. The pid was the shared `claude daemon`, which outlived `claude stop`, so the
+roster's `pid N` / `GONE` said nothing about the lane. The pane was the ORCHESTRATOR's: the
+recipe's close step is `herdr pane close <pane id>`, and an operator reading the row would have
+closed the coordinator.
+
+**Measured** (2026-09-27, Claude Code 2.1.283, five Haiku lanes launched from pane `w18:pA`):
+- The tree is hook → lane → pty host → daemon → launchd. The hook's DIRECT parent is the lane:
+  a one-off `--settings` hook recorded ppid 14509, and `claude agents --json` named 14509.
+- The lane RETITLES its argv. procargs2 gives exec path `…/versions/2.1.283` (base `2.1.283`)
+  and argv[0] `"claude bg-spare"`, one string with a space in it. The pty host is `"claude
+  bg-pty-host"`, the daemon exec `…/bin/claude`. So D-025's walk matched nothing until the
+  daemon. An interactive session is exec `…/bin/claude`, argv[0] `claude`, the hook's direct
+  parent.
+- `bye` after `claude stop` ended the row 5 s later through the OWN-registration arm: its walk
+  landed on the same daemon `{pid, born}`, removed its own row and found no other. That was not
+  a liveness verdict. Two lanes on one daemon pid did not interfere (separate session ids).
+- A lane runs in the DAEMON's environment. A lane launched with `HERDR_PANE_ID` set, under a
+  daemon started without it, had no pane. `BUDDY_HANDOFF_AT=123k claude --bg …` did not reach
+  the lane (absent from `ps eww`). D-056's `env -u` therefore held only when that launch was
+  the one that started the transient daemon.
+
+**The rule** — The walk also matches an argv[0] whose first space-separated word is EXACTLY
+`claude` (the harness's retitle, `claude <mode>`). An exact name on any of a process's names
+still wins, and the walk still stops at its first match. So an interactive session in its
+measured shape (the hook's direct parent, argv[0] `claude`) anchors exactly where it did:
+nothing above or below it can newly win. A process that sits BETWEEN a hook and its session and
+calls itself `claude <something>` (a wrapper retitled that way) would now win the walk, and its
+session would record no pane. That is the name trust D-025 already extended to an argv[0] of
+exactly `claude`, not a new boundary. A `--bg` lane now anchors at itself. Its row names the pid `claude
+agents` shows and reads `GONE` after `claude stop`, and `bye`'s D-025 fence judges the lane,
+not the daemon, which is strictly tighter. An anchor matched ONLY by the retitle records no
+terminal handle: a pane read from the daemon's environment names whoever started the daemon,
+and no handle is honest where a wrong one is not.
+
+**Cut** — Keeping the daemon as the anchor and flagging it: the pid would still say nothing
+about the lane, and two processes on one session id under one daemon would share a
+registration, which is D-025's defect by another road. `CLAUDE_JOB_DIR` as the background
+signal: it appears only in the lane's environment, but it is as undocumented as the retitle,
+and the retitle is what the walk already reads. A looser retitle match (a path before the
+space, a prefix such as `claudette`): an exec path with a space in it would anchor a node
+process.
+
+**The upgrade residual** (Codex code pass, reproduced as a test that pins it). A lane already
+running when this binary is installed registered the DAEMON, and possibly a pane. After the
+upgrade its hooks anchor at the lane. Its next `hello` brings no pane, which the store reads as
+"keep" (D-025's rule for a refresh that brings nothing), so the old pane stays. Its `bye` is a
+stranger to the daemon's registration, which is still alive, so the row stays live and its
+claims keep refusing. The remedy is the operator's `buddy bye <id> --force`, or stopping `--bg`
+lanes before an install. No lane started after the upgrade can get into that state, and 0
+background lanes were live when this was built (`claude agents --json`). A store-level migration
+(an "explicitly clear this pane" refresh, and treating a registration that is the caller's own
+ancestor as the caller's) was judged not worth a wider store API for a state that ends when the
+last pre-upgrade lane does.
+
+**What it does not do** — It passes no environment into a lane (it cannot). The skill now
+says so: coordinators and their successors launch in a herdr tab with
+`--env BUDDY_HANDOFF_AT=…`, never with `--bg`. Nothing ends on `GONE`, as before. If a
+future harness stops retitling, a lane falls back to the daemon anchor, which is the
+behaviour before this record, not a new failure.
+
+**Test shape** — `proc_test.go`: the walk is now a pure function over an injected process
+lookup (`anchorWalk`), tested on the measured trees. Covered: interactive at depth 1 and
+through a wrapper; a retitled descendant of an interactive session; an interactive session
+started inside a lane (the interactive one wins); the lane anchoring at itself, with the
+daemon-alone control; npm `node` unbound; `claudette x`, `xclaude y`, `/opt/claude x`, an exec
+path with a space, and `claude ` with nothing after it all unbound; an exact name beating a
+retitle on one process; a failed lookup; the hop bound and its control. `hello` with a retitled
+anchor records the pid and no pane, with an interactive control one input away that records
+it. The lane's row reads `GONE` when the lane is gone while the daemon above it lives on, with a
+live control. Through `beat` and `bye`: a retitled beat binds an unbound lane to itself; a
+second live process on the id holds the row open against the lane's `bye`; and the lane's own
+`bye`, sent while it is still alive at SessionEnd, ends the row. The upgrade residual is pinned
+as above, with `bye --force` as its remedy. The Codex code pass found no defect for
+registrations made after the upgrade. It found the two upgrade residuals, the wrapper case
+(now qualified above), the two untested call sites and a GONE test that did not keep the daemon
+alive; the last three are now tested. Twelve mutants, each watched red: the
+retitle rule dropped; a path, a `claude` prefix or an empty remainder accepted as the retitle;
+the retitle tried before the exact name; the retitled bit dropped; the walk continuing past a
+retitled match; the hop bound off by one; beat's and bye's anchor emptied for a retitled caller
+(the two call sites Codex named); and the pane recorded always, or never.
 
 ## Known unfixed
 

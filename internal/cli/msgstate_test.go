@@ -383,7 +383,7 @@ func TestMsgProbesTheProcessRegisterOncePerSend(t *testing.T) {
 		Cwd:    f.repo,
 		Now:    func() time.Time { return f.clock },
 		Getenv: func(k string) string { return f.env[k] },
-		Anchor: func() (store.ProcRef, bool) { return f.proc, f.proc.PID != 0 },
+		Anchor: func() (harnessProc, bool) { return harnessProc{Ref: f.proc, Retitled: f.retitled}, f.proc.PID != 0 },
 		ProcAlive: func(store.ProcRef) bool {
 			probes++
 			return probes > 1

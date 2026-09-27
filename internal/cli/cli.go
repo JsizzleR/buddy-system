@@ -46,7 +46,7 @@ type Env struct {
 	// are seams so a test can play two incarnations as two processes; nil
 	// means the real process tree, which a test must never read — the suite
 	// runs under a claude process of its own.
-	Anchor    func() (store.ProcRef, bool)
+	Anchor    func() (harnessProc, bool)
 	ProcAlive func(store.ProcRef) bool
 	// SockDir is where the harness's per-process message sockets live (wake.go);
 	// "" means the real one. A seam for the reason Anchor is one.
@@ -60,7 +60,7 @@ func (e Env) getenv(k string) string {
 	return os.Getenv(k)
 }
 
-func (e Env) anchor() (store.ProcRef, bool) {
+func (e Env) anchor() (harnessProc, bool) {
 	if e.Anchor != nil {
 		return e.Anchor()
 	}
@@ -1074,8 +1074,16 @@ func cmdHello(args []string, env Env) error {
 		// --session at a terminal must not wait on hook JSON.
 		if h, err := readHook(env); err == nil {
 			session, dir = h.SessionID, h.Cwd
-			proc, _ = env.anchor()
-			terminal = terminalHandle(env)
+			a, _ := env.anchor()
+			proc = a.Ref
+			// A RETITLED anchor is a `claude --bg` lane (D-058): it runs in
+			// the claude daemon's environment, so HERDR_PANE_ID / TMUX_PANE
+			// there name whoever started the daemon — measured, the
+			// launcher's pane, which an operator winding down the fleet
+			// would close. No handle is honest; a wrong one is not.
+			if !a.Retitled {
+				terminal = terminalHandle(env)
+			}
 			hookDriven = true
 		}
 	}
@@ -1262,7 +1270,8 @@ func cmdBye(args []string, env Env) error {
 	if h, err := readHook(env); err == nil {
 		session, dir = h.SessionID, h.Cwd
 		hookDriven = true
-		from, _ = env.anchor()
+		a, _ := env.anchor()
+		from = a.Ref
 	} else {
 		for _, a := range args {
 			switch {
@@ -1528,8 +1537,8 @@ func cmdBeat(args []string, env Env) error {
 	// registered nothing is bound by its first hook-driven tool call, and a
 	// second process on the same id registers itself the moment it acts. Two
 	// sysctls, no fork; measured under the 100 ms budget with room to spare.
-	proc, _ := env.anchor()
-	if err := st.BeatFrom(h.SessionID, rel, proc); err != nil {
+	a, _ := env.anchor()
+	if err := st.BeatFrom(h.SessionID, rel, a.Ref); err != nil {
 		return err
 	}
 
