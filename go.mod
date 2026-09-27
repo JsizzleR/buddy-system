@@ -2,6 +2,8 @@ module github.com/JsizzleR/buddy-system
 
 go 1.26.2
 
+toolchain go1.26.8
+
 require (
 	github.com/mk6i/open-oscar-server v0.24.1-0.20260807035443-0de81537ed9c
 	golang.org/x/sys v0.39.0

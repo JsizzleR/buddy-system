@@ -216,15 +216,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   from it. And `pgrep -f cli.test` matches the LINKER mid-build (its argv names the output),
   so find a test binary as a child of its `go` process, not by name.
 - **A `-race` test binary can hang in `forkExec` → `readlen` until go test's 10m timeout
-  (darwin; D-061, #53).** The FORK CHILD deadlocks in ThreadSanitizer
-  (`forkAndExecInChild` → `__tsan::SlotLock`, a lock another parent thread held at the
-  fork) and never execs. The parent waits in `readlen`, and the child is left orphaned and
-  spinning: one thread, the parent's argv. A race toy reproduced it (8/8 forkers hung in
-  170 s; 0 in 356k forks without `-race`). It is not your diff, not git, not PATH, not the
-  hook: retry, ideally with no other `go test` running. testguard's watchdog ends the
-  stuck child. A stuck child also holds the watchdog's pipe open (close-on-exec never
-  fires), which is why D-053's first watchdog missed it. Only a signal ends it (SIGQUIT
-  did in <2 s); RLIMIT_CPU does not.
+  (darwin; D-061, #53, #55).** It is golang/go#79804: since go1.26.0 the race detector
+  instruments darwin's `rawSyscall`, and in the fork child that faults or spins in
+  `__tsan::TraceSwitchPartImpl` before exec. The parent waits in `readlen`, and the child is
+  left orphaned and spinning with the parent's argv. Fixed in **Go 1.26.5**; `go.mod` pins
+  `toolchain go1.26.8`, so under `GOTOOLCHAIN=auto` this repo builds with the fix. If it
+  recurs, check `go version` in the repo before anything else. D-061's watchdog still ends a
+  child stuck before exec. Not your diff, not git, not PATH.
 - **Restart the daemon when a change adds a journal table** — the running daemon
   migrates the journal at open, so a new table only appears after a restart.
   Hooks spawn a fresh binary per tool call, so *sessions* need no restart.

@@ -4061,6 +4061,20 @@ during the 2 s `sample`: dropped together with the pick-time check, the leg fail
 children that exec'd or left the group were killed, and each alone holds the leg. The
 target's re-read after enumeration covers a pid reused mid-poll.
 
+
+**Found upstream (#55, the same day)** — This is golang/go#79804, "runtime: SIGSEGV on child
+side of fork pre-exec with -race on darwin/arm64", reported against go1.26.3/1.26.4. From
+go1.26.0 darwin's `rawSyscall` is a Go function (CL 699177), so the race detector instruments
+it, and `forkAndExecInChild` calls it in the fork child, where the race runtime's thread state
+is invalid. The upstream bisect saw about one third SIGSEGVs and two thirds hangs, which are
+the orphans measured here. The fix, CL 786620 (`//go:norace` on `rawSyscall`,
+`rawSyscall6` and `rawSyscall9`), was backported as golang/go#79806 and released in **Go
+1.26.5**. The machine ran go1.26.4. `go.mod` now pins `toolchain go1.26.8`, so under the
+default `GOTOOLCHAIN=auto` every build of this repo, CI included (setup-go reads `go.mod`),
+uses a fixed release. The race toy that hung 8 of 8 forkers under go1.26.4 was re-run under the
+pinned toolchain (see #55). The holder arm stays: it ends ANY same-binary child that never
+execs, whatever wedged it. The tsan slot-lock reading above is superseded by the upstream
+analysis.
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
