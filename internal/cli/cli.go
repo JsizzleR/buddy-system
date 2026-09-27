@@ -2719,7 +2719,7 @@ func cmdMsg(args []string, env Env) error {
 	// The harness's own channel to a session at its prompt (D-039): named,
 	// never used — buddy wakes nothing. On the SAME line (D-041), because a
 	// sender reading `| head -1` dropped it when it was the second.
-	wake := wakeClause(env, rcpt, nowOf(env))
+	wake := wakeClause(env, rcpt, nowOf(env), id)
 	if wake != "" {
 		line += "; " + wake
 	}

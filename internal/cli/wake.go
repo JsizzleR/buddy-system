@@ -67,7 +67,22 @@ import (
 const defaultSockDir = "/tmp/cc-socks"
 
 // wakeText is the whole of what the wake says. The message is in the ledger.
-const wakeText = "buddy mail is queued for you: run buddy inbox"
+//
+// A NEW TEXT FOR EVERY SUGGESTION A SECOND APART (D-059, issue #51). It used to be one fixed string,
+// and Claude Code drops a peer message identical to the previous one from the
+// same sender. Measured 2026-09-27: three wakes to one lane at about 4:27, 4:28
+// and 4:28:40; the third showed in its pane as "Dropped a peer message …
+// identical to the previous message from this sender", the sender's
+// SendMessage had reported success, and `buddy sent` then suggested the same
+// text again. A lane handed two pieces of work in a row, or re-woken because it
+// did not act, lost the second wake. So the text names the send's id and the
+// local time the wake was NAMED: consecutive sends differ by id, and `sent`
+// re-suggesting one message differs by time (two in one second for one
+// message are still identical, accepted). Still no content: an id and a
+// clock reading, never the body (D-039), and it still says "run buddy inbox".
+func wakeText(id int64, at time.Time) string {
+	return fmt.Sprintf("buddy mail #%d is queued for you (%s): run buddy inbox", id, at.Local().Format("15:04:05"))
+}
 
 func (e Env) sockDir() string {
 	if e.SockDir != "" {
@@ -78,7 +93,8 @@ func (e Env) sockDir() string {
 
 // wakeClause is what `msg` appends to its result line when the recipient is
 // quiet and reachable through the harness channel; "" otherwise. It reads the
-// send's one observation and probes nothing itself.
+// send's one observation and probes nothing itself. id is the message the wake
+// is for (a broadcast's own id on a `sent` row).
 //
 // ON THE RESULT LINE, NOT BELOW IT (D-041, issue #32). It used to be a second
 // line. Measured on a field run's ledger, 2026-09-24: an orchestrator ran
@@ -88,7 +104,14 @@ func (e Env) sockDir() string {
 // type into its pane. The orchestrator then guessed a harness peer NAME, and
 // that send never arrived. One line survives head -1, tail -1 and a grep for
 // the recipient.
-func wakeClause(env Env, r recipient, now time.Time) string {
+func wakeClause(env Env, r recipient, now time.Time, id int64) string {
+	return wakeFor(wakeAddr(env, r, now), id, now)
+}
+
+// wakeAddr is the harness address a wake would go to, "uds:<socket>", or ""
+// when msg's rule says no wake. Split from the text so `sent` can observe a
+// session once per report and still name each message's own wake.
+func wakeAddr(env Env, r recipient, now time.Time) string {
 	// No liveness test of its own, deliberately: bye deletes an ended
 	// session's registered processes, so an ended target already fails the
 	// one-live-process condition below, and a second test in front of it
@@ -105,6 +128,15 @@ func wakeClause(env Env, r recipient, now time.Time) string {
 	if fi, err := os.Stat(sock); err != nil || fi.Mode()&os.ModeSocket == 0 {
 		return ""
 	}
+	return "uds:" + sock
+}
+
+// wakeFor renders the clause for one address and one message; "" for no
+// address.
+func wakeFor(addr string, id int64, now time.Time) string {
+	if addr == "" {
+		return ""
+	}
 	return fmt.Sprintf("to wake it now: SendMessage to %q with the text %q — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way",
-		"uds:"+sock, wakeText)
+		addr, wakeText(id, now))
 }

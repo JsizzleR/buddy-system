@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -156,12 +157,17 @@ func TestMsgNamesTheWakeAddressOfAQuietRecipient(t *testing.T) {
 				}
 				return
 			}
-			wantErr := `buddy: message #1 to ` + tc.to + ` is queued; to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") + `"`
-			if !strings.HasPrefix(errw, wantErr) || strings.Count(errw, "\n") != 1 || strings.Count(errw, body) != 0 {
-				t.Fatalf("want one stderr line starting\n%s\n(and no body), got:\n%s", wantErr, errw)
+			// The text names the send's id and the local time the wake was
+			// named (D-059), spelled out here rather than read back from
+			// wakeText, so the test is a second statement of the format.
+			clause := `to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") +
+				`" with the text "buddy mail #1 is queued for you (` + f.clock.Local().Format("15:04:05") +
+				`): run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way`
+			// Stderr carries the SAME clause, whole (D-052).
+			if wantErr := "buddy: message #1 to " + tc.to + " is queued; " + clause + "\n"; errw != wantErr {
+				t.Fatalf("want exactly one stderr line\n%s(and no body), got:\n%s", wantErr, errw)
 			}
-			want := `; to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") +
-				`" with the text "buddy mail is queued for you: run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way` + "\n"
+			want := "; " + clause + "\n"
 			if !strings.HasSuffix(out, want) {
 				t.Fatalf("want the wake address to end the result line:\n%s\nin:\n%s", want, out)
 			}
@@ -277,5 +283,118 @@ func TestSentNamesTheWakeOfAQueuedQuietRecipient(t *testing.T) {
 				t.Fatalf("sent prints no body:\n%s%s", list, one)
 			}
 		})
+	}
+}
+
+// D-059 (issue #51): Claude Code drops a peer message identical to the
+// previous one from the same sender, so a fixed wake text lost the second wake
+// to a lane. Each suggestion is now its own text: two sends in the same
+// second differ by id, and `sent` naming the same message again differs by
+// the time it was named. Neither carries the body.
+func TestWakeTextIsUniquePerSuggestion(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.sockDir = shortSockDir(t)
+	f.initAndHello(t)
+	beatAs(t, f, 400)
+	listenSock(t, f.sockDir, 400)
+	idleB(t, f)
+	f.clock = f.clock.Add(10 * time.Minute)
+	sentAt := f.clock
+
+	textRe := regexp.MustCompile(`with the text "([^"]*)"`)
+	texts := func(where, s string) []string {
+		t.Helper()
+		var got []string
+		for _, m := range textRe.FindAllStringSubmatch(s, -1) {
+			got = append(got, m[1])
+		}
+		if len(got) == 0 {
+			t.Fatalf("%s: no wake text in:\n%s", where, s)
+		}
+		return got
+	}
+	var fromMsg []string
+	for i, body := range []string{"take the router bundle", "take the parser bundle"} {
+		var out, errw string
+		var code int
+		f.asSession("sess-a", func() { out, errw, code = f.run(t, f.repo, "", "msg", "bravo", body) })
+		if code != 0 {
+			t.Fatalf("msg %d: %s %s", i+1, out, errw)
+		}
+		got := texts("msg stdout", out)[0]
+		if e := texts("msg stderr", errw)[0]; e != got {
+			t.Fatalf("stderr must carry the same wake text as stdout: %q vs %q", e, got)
+		}
+		if strings.Contains(out+errw, "bundle") {
+			t.Fatalf("the wake carries no body:\n%s%s", out, errw)
+		}
+		fromMsg = append(fromMsg, got)
+	}
+	// The clock did not move between the two sends: the id alone tells them
+	// apart, and each names its own.
+	hhmmss := sentAt.Local().Format("15:04:05")
+	for i, want := range []string{
+		"buddy mail #1 is queued for you (" + hhmmss + "): run buddy inbox",
+		"buddy mail #2 is queued for you (" + hhmmss + "): run buddy inbox",
+	} {
+		if fromMsg[i] != want {
+			t.Fatalf("send %d: wake text %q, want %q", i+1, fromMsg[i], want)
+		}
+	}
+
+	// A re-wake of message #1 from `sent`, 90 s later: same message, a
+	// different text, so the harness does not drop it as a repeat.
+	f.clock = f.clock.Add(90 * time.Second)
+	var one, list, errw string
+	var code int
+	f.asSession("sess-a", func() {
+		one, errw, code = f.run(t, f.repo, "", "sent", "1")
+		if code == 0 {
+			list, errw, code = f.run(t, f.repo, "", "sent")
+		}
+	})
+	if code != 0 {
+		t.Fatalf("sent: %s", errw)
+	}
+	again := texts("sent 1", one)
+	if len(again) != 1 {
+		t.Fatalf("sent 1 names one wake (bravo's), got %d:\n%s", len(again), one)
+	}
+	if want := "buddy mail #1 is queued for you (" + f.clock.Local().Format("15:04:05") + "): run buddy inbox"; again[0] != want || again[0] == fromMsg[0] {
+		t.Fatalf("sent's re-wake must be %q, and differ from msg's %q; got %q", want, fromMsg[0], again[0])
+	}
+	// The list observes bravo ONCE and still names each send's own id on
+	// that send's line: a memo of the whole clause would print one send's
+	// wake on the other's line.
+	if strings.Count(list, "\n") != 2 || strings.Contains(one+list, "bundle") {
+		t.Fatalf("want one line per send and no body:\n%s", list)
+	}
+	now := f.clock.Local().Format("15:04:05")
+	for _, ln := range strings.Split(strings.TrimSuffix(list, "\n"), "\n") {
+		id := strings.Fields(ln)[0] // "#1", "#2"
+		if got := texts("sent list", ln); len(got) != 1 || got[0] != "buddy mail "+id+" is queued for you ("+now+"): run buddy inbox" {
+			t.Fatalf("the line for %s must name its own wake, at the time sent ran (%s), got %q:\n%s", id, now, got, list)
+		}
+	}
+
+	// A correction is a send of its own: its wake names the correction's id,
+	// never the id it corrects, on msg and on its sent row.
+	var fix, errw2 string
+	f.asSession("sess-a", func() {
+		fix, errw2, code = f.run(t, f.repo, "", "msg", "bravo", "--supersedes", "1", "take the lexer bundle")
+		if code == 0 {
+			one, errw2, code = f.run(t, f.repo, "", "sent", "3")
+		}
+	})
+	if code != 0 {
+		t.Fatalf("correction: %s %s", fix, errw2)
+	}
+	want3 := "buddy mail #3 is queued for you (" + now + "): run buddy inbox"
+	if got := texts("correction msg", fix); got[0] != want3 {
+		t.Fatalf("a correction's wake names its own id: got %q, want %q", got[0], want3)
+	}
+	if got := texts("sent 3", one); len(got) != 1 || got[0] != want3 {
+		t.Fatalf("sent 3 names the correction's own id: got %q, want %q", got, want3)
 	}
 }

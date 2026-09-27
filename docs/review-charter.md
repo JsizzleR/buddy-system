@@ -368,8 +368,9 @@ ledger row entered through the CLI (D-006).
     typed by your user" note), never as the operator's turn. A body cannot forge the wrapper,
     because the host escapes the tag. For a quiet target (idle, stale, or registered and not
     seen since) with exactly one live registered process whose `/tmp/cc-socks/<pid>.sock`
-    exists as a socket, `msg` prints `SendMessage to "uds:…"` with the fixed text "buddy mail is
-    queued for you: run buddy inbox". The body stays in the ledger. One observation serves the
+    exists as a socket, `msg` prints `SendMessage to "uds:…"` with a text ending "run buddy
+    inbox" that names the message id and the second (D-059, see 61). The body stays in the
+    ledger. One observation serves the
     result line and the wake line. No send from buddy, no pane injection, no broadcast wake, no
     name mapping. Do not propose buddy calling the harness, carrying the body in the wake, or
     deriving the address from anything but a live, birth-time-checked registered pid.
@@ -544,6 +545,15 @@ ledger row entered through the CLI (D-006).
     keeps its daemon registration and pane until the operator's `bye <id> --force` (pinned by a
     test; accepted, not fixed). Do not propose anchoring at the daemon with a flag, reading
     CLAUDE_JOB_DIR, or a looser (path or prefix) retitle match.
+
+61. **A wake's text names its message and the second it was named (D-059, #51).** MEASURED:
+    Claude Code drops a peer message identical to the previous one from the same sender
+    (SendMessage still reports success; a delivery notice says so minutes later), so one fixed
+    wake text lost a second wake to the same lane. The text is `buddy mail #<id> is queued for you (<HH:MM:SS>): run
+    buddy inbox`: the send's id (a broadcast's own on a `sent` row) and the local time the wake
+    was named. Two suggestions for one message in one displayed second are still identical;
+    that residual is accepted. No body, sender or kind. Do not propose a fixed text, carrying
+    the body, or buddy detecting or retrying a dropped wake.
 
 62. **The Stop hook cannot see its turn's reply; it names its turn, and the next prompt records
     the footprint (D-060, #52).** MEASURED (2.1.283, interactive): the turn's final usage record

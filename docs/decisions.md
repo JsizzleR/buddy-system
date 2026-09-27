@@ -3769,6 +3769,62 @@ the retitle tried before the exact name; the retitled bit dropped; the walk cont
 retitled match; the hop bound off by one; beat's and bye's anchor emptied for a retitled caller
 (the two call sites Codex named); and the pane recorded always, or never.
 
+## D-059 — A wake's text names its message and the second it was named, and no content
+
+2026-09-27 · issue #51
+
+**What was wrong** — The wake `msg` names (D-039, D-041, D-052) and `sent` repeats was one fixed
+string, `buddy mail is queued for you: run buddy inbox`. Claude Code drops a peer message
+IDENTICAL to the previous one from the same sender. Measured 2026-09-27, in a verbatim run of the
+skill's "Running a fleet": three wakes to one Haiku lane, each with exactly the text `msg` printed,
+at about 4:27, 4:28 and 4:28:40. The first two were delivered. The third showed in the lane's pane
+as "Dropped a peer message … identical to the previous message from this sender". The sender's
+SendMessage returned "queued there", and `buddy sent` then showed the message undelivered and
+suggested the same text again. A retry about 80 s after the last delivered wake went through; the
+window was not measured. The sender IS told, but late: minutes after the send, a "[Cross-session
+delivery notice]" said the message was dropped and NOT delivered, and to treat it as unsent. An
+orchestrator that hands a lane two pieces of work in a row, or re-wakes a lane that did not act,
+lost the second wake. The mail stayed queued; the lane was not woken.
+
+**The rule** — The wake's text names the message and the moment the wake was named:
+
+    buddy mail #<id> is queued for you (<HH:MM:SS>): run buddy inbox
+
+`<id>` is the send's id, the `#N` the recipient's drain prints (D-043); on a `sent` row of a
+broadcast it is the broadcast's id. `<HH:MM:SS>` is the local time at which `msg` or `sent` named
+the wake. Two consecutive sends differ by id even within one second, and `sent` re-suggesting one
+message differs from `msg`'s suggestion once the clock has moved a second. The text still ends
+"run buddy inbox", and stderr (D-052) carries the same clause. `sent` still observes each session
+once per report; what it remembers is the ADDRESS, and each send's line names that send's own id.
+
+- **Still content-free (D-039).** An id and a clock reading, never the body, the sender, or the
+  kind. The body stays in the ledger, fenced, and is delivered by the drain.
+- **Local time, to the second.** It is what the recipient's pane shows beside the message, and a
+  second is finer than the one measured window (a retry 80 s later went through). A nonce was
+  considered: it is unique too, but tells a reader nothing, where the id says which mail and the
+  time says which suggestion.
+
+**What it does not do** — buddy still wakes nothing, and still names a wake under exactly D-039's
+conditions. It does not detect a dropped wake, retry, or read the delivery notice; `sent` is still
+the report of what the ledger holds. It is not unique in every case: two suggestions for ONE
+message in the same displayed second are identical, and if both are sent in a row the harness drops
+the second, named under a second after the first. The clock face also repeats (the next day, a
+clock set back), which matters only if that old text was the sender's previous message.
+
+**Test shape** — `wake_test.go`. `TestMsgNamesTheWakeAddressOfAQuietRecipient`'s quiet cases now
+spell out the whole clause, `#1` and the fixture clock's local `HH:MM:SS`, and require stderr to be
+exactly `buddy: message #1 to <target> is queued; <that clause>`.
+`TestWakeTextIsUniquePerSuggestion`: two sends to one idle recipient at the same instant give `#1`
+and `#2` texts that differ, stderr matching stdout for each, no body in either; `sent 1` 90 s later
+names `#1` with the new time, unequal to `msg`'s; `sent`'s list names each send's own id, at the
+time `sent` ran, on that send's line; and a correction's wake (`msg` and `sent 3`) names the
+correction's id, not #1. Mutants, each watched red (11 of 11): the old fixed text, time without id,
+id without time, UTC for local time, `sent` memoizing the whole clause per session, `msg` naming id
+0, stderr rendering a different clause than stdout, and `sent` rendering an earlier time than the
+one it names the wake at, the same only on the list line, and a correction naming the id it
+corrects (on `msg`, and on its `sent` row). The UTC mutant dies only where local time is not UTC (measured on this box, EDT); on a
+UTC machine it is equivalent.
+
 ## D-060 — The Stop hook cannot see the turn's reply; it says so, and the next prompt records it
 
 2026-09-27 · issue #52

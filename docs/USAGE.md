@@ -297,13 +297,18 @@ unwoken:
 
 ```sh
 buddy msg bravo "take the router bundle"
-# queued for bravo — bravo last reported idle 10m ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call; to wake it now: SendMessage to "uds:/tmp/cc-socks/21180.sock" with the text "buddy mail is queued for you: run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); …
+# queued for bravo — bravo last reported idle 10m ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call; to wake it now: SendMessage to "uds:/tmp/cc-socks/21180.sock" with the text "buddy mail #7 is queued for you (16:28:40): run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); …
 ```
 
 The same wake also goes to stderr as one line,
 `buddy: message #N to bravo is queued; to wake it now: …`, because a sender
 that discarded the result line as a receipt (`>/dev/null`) lost it (issue
 #42). A `2>&1` reader sees it twice. Stderr stays empty when there is no wake.
+
+The wake's text names the message id and the local time the wake was named
+(D-059), because Claude Code drops a peer message identical to the previous
+one from the same sender: with one fixed text, a second wake to the same lane
+was lost. It still carries no body.
 
 `buddy` wakes nothing. It is a binary, and it cannot call the harness's
 SendMessage tool or type into a pane. The sending *agent* decides whether to
