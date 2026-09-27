@@ -475,7 +475,13 @@ func TestPresenceDialLandingAfterRetirementIsClosed(t *testing.T) {
 					return false
 				}
 				if !tc.wantClosed {
-					return recordedHas(c, "join harbor")
+					// The join is recorded on the wire BEFORE dial publishes
+					// b.conn under p.mu, so "join harbor" alone let live()
+					// read 0/1 in the gap: 5 of 300 isolated -race runs
+					// (2026-09-27), more under check.sh's load. The landing
+					// is the published conn, so wait for that too.
+					online, _ := h.d.presence.live()
+					return recordedHas(c, "join harbor") && online == 1
 				}
 				c.mu.Lock()
 				defer c.mu.Unlock()
