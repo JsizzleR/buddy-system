@@ -577,6 +577,11 @@ ledger row entered through the CLI (D-006).
     the sample symbolizes after go test deletes the binary. Do not propose a retry loop, a
     timeout knob, a box-wide process scan, or treating D-053's stop-the-world toy as the cause.
 
+64. **The `-race` forkExec hang is golang/go#79804, fixed in Go 1.26.5 (D-061, #55).** `go.mod`
+    pins `toolchain go1.26.8`; under `GOTOOLCHAIN=auto` every build, CI included, uses it.
+    Do not propose a retry loop, a timeout knob, or dropping the `-race` legs for it; if it
+    recurs, the toolchain in use is the first thing to check.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
