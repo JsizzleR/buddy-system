@@ -71,7 +71,11 @@ mkrepo() {
 # 2026-09-27: it came out bare, repositoryformatversion=99). check.sh unsets
 # the same list before it runs any of them; this covers a done-check run on
 # its own from inside some other hook.
-for _v in $(git rev-parse --local-env-vars 2>/dev/null || true) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_PREFIX; do
+for _v in $(git rev-parse --local-env-vars 2>/dev/null || true) \
+	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT \
+	GIT_OBJECT_DIRECTORY GIT_DIR GIT_WORK_TREE GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE \
+	GIT_INDEX_FILE GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_PREFIX GIT_SHALLOW_FILE \
+	GIT_COMMON_DIR; do
 	unset "$_v"
 done
 unset _v

@@ -85,21 +85,29 @@ RAW="$WORK/rawhooks"; mkdir -p "$RAW"
 printf '#!/bin/sh\nenv > "%s"\ncat >/dev/null\nexit 0\n' "$WORK/raw-env" > "$RAW/pre-push"
 chmod +x "$RAW/pre-push"
 git -C "$REPO" config core.hooksPath "$RAW"
-( cd "$LWT" && git push -q origin HEAD:refs/heads/control ) >/dev/null 2>&1 || fail "QA-6: the control push failed"
+# GIT_NO_REPLACE_OBJECTS is planted on both pushes: harmless to a push, one of
+# git's local names, and not GIT_DIR — so a hook reduced to `unset GIT_DIR`
+# dies on the tier's assertion below (Codex, #49).
+( cd "$LWT" && env GIT_NO_REPLACE_OBJECTS=1 git push -q origin HEAD:refs/heads/control ) >/dev/null 2>&1 || fail "QA-6: the control push failed"
 rawdir=$(sed -n 's/^GIT_DIR=//p' "$WORK/raw-env")
 case "$rawdir" in
 /*) ;;
-*) fail "QA-6 control: a hook in a linked worktree saw GIT_DIR='$rawdir', not an absolute path — this git no longer leaks it, re-derive the leg" ;;
+*) fail "QA-6 control: a pre-push hook in a linked worktree saw GIT_DIR='$rawdir', not an absolute path — this git no longer leaks it, re-derive the leg" ;;
 esac
+grep -q '^GIT_NO_REPLACE_OBJECTS=1$' "$WORK/raw-env" || fail "QA-6 control: the planted GIT_NO_REPLACE_OBJECTS never reached the hook"
 REAL="$WORK/realhooks"; mkdir -p "$REAL"
 printf '#!/bin/sh\nexec sh "%s" "$@"\n' "$HOOK" > "$REAL/pre-push"
 chmod +x "$REAL/pre-push"
 git -C "$REPO" config core.hooksPath "$REAL"
 TIERENV="$WORK/tier-env"
-( cd "$LWT" && env BUDDY_PREPUSH_CHECK="env > '$TIERENV'; git rev-parse --show-toplevel > '$WORK/tier-top'" BUDDY_PREPUSH_SKIP= \
+( cd "$LWT" && env GIT_NO_REPLACE_OBJECTS=1 BUDDY_PREPUSH_CHECK="env > '$TIERENV'; git rev-parse --show-toplevel > '$WORK/tier-top'" BUDDY_PREPUSH_SKIP= \
 	git push -q origin HEAD:refs/heads/fixed ) >/dev/null 2>&1 || fail "QA-6: the push through the real hook failed"
 [ -s "$TIERENV" ] || fail "QA-6: the stubbed tier never ran"
-leak=$(grep -E '^(GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR|GIT_OBJECT_DIRECTORY|GIT_PREFIX)=' "$TIERENV" || true)
+# Every local name git reports, and testguard's fixed copy of them — not a
+# hand list of the likely ones.
+localre=$( { git rev-parse --local-env-vars; sed -n '/^var gitLocalEnv/,/^}/p' "$ROOT/internal/testguard/gitenv.go" | grep -o 'GIT_[A-Z_]*'; } | sort -u | paste -sd'|' -)
+[ -n "$localre" ] || fail "QA-6: could not list git's local environment"
+leak=$(grep -E "^($localre)=" "$TIERENV" || true)
 [ -z "$leak" ] || fail "QA-6: the tier inherited git's local environment:
 $leak"
 top=$(cat "$WORK/tier-top"); want=$(cd "$LWT" && pwd -P)
@@ -109,12 +117,21 @@ top=$(cat "$WORK/tier-top"); want=$(cd "$LWT" && pwd -P)
 # inherited GIT_DIR, so one run on its own from inside a hook builds its
 # fixtures where it thinks it does. Control: the same shell without the source
 # still sees it.
-ctl=$(env GIT_DIR="$WORK/elsewhere/.git" sh -c 'printf %s "${GIT_DIR-unset}"')
-[ "$ctl" = "$WORK/elsewhere/.git" ] || fail "QA-7 control: the planted GIT_DIR never reached the shell ('$ctl')"
-got=$(env GIT_DIR="$WORK/elsewhere/.git" sh -c ". '$ROOT/scripts/lib.sh'; printf %s \"\${GIT_DIR-unset}\"")
-[ "$got" = unset ] || fail "QA-7: sourcing lib.sh left GIT_DIR='$got'"
+# Three local names are planted, GIT_DIR and two that are not; and the leg runs
+# twice, the second time with NO git on PATH, which is when only the fixed
+# copy in lib.sh can clear them (a six-name copy survived the first run and
+# dies on the second — Codex, #49).
+show='printf "%s|%s|%s" "${GIT_DIR-unset}" "${GIT_NO_REPLACE_OBJECTS-unset}" "${GIT_CONFIG_PARAMETERS-unset}"'
+plant() { env GIT_DIR="$WORK/elsewhere/.git" GIT_NO_REPLACE_OBJECTS=1 GIT_CONFIG_PARAMETERS="'core.bare'='true'" "$@"; }
+ctl=$(plant /bin/sh -c "$show")
+[ "$ctl" = "$WORK/elsewhere/.git|1|'core.bare'='true'" ] || fail "QA-7 control: the planted names never reached the shell ('$ctl')"
+got=$(plant /bin/sh -c ". '$ROOT/scripts/lib.sh'; $show")
+[ "$got" = "unset|unset|unset" ] || fail "QA-7: sourcing lib.sh (git on PATH) left '$got'"
+NOGIT="$WORK/nogit"; mkdir -p "$NOGIT"
+got=$(plant PATH="$NOGIT" /bin/sh -c ". '$ROOT/scripts/lib.sh'; $show")
+[ "$got" = "unset|unset|unset" ] || fail "QA-7: sourcing lib.sh with NO git on PATH (the fixed copy alone) left '$got'"
 
 echo "check-pre-push: GREEN (QA-1 green allows, QA-2 red blocks + bypass named,"
 echo "  QA-3 deletion-safe, QA-4 kill switch, QA-5 no-repo no-op,"
-echo "  QA-6 a linked-worktree push: the hook saw an absolute GIT_DIR, the tier none,"
-echo "  QA-7 sourcing lib.sh clears an inherited GIT_DIR)"
+echo "  QA-6 a linked-worktree push: the hook saw an absolute GIT_DIR, the tier none of git's local env,"
+echo "  QA-7 sourcing lib.sh clears git's local env, with and without git on PATH)"
