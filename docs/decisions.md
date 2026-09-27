@@ -3565,6 +3565,26 @@ nothing.
   calls in panes (115 ack prompts over the window). A background lane has no pane until
   someone attaches, so herdr comes first and `--bg` is the fallback.
 
+**What the verbatim run changed** — A reviewer ran every step of the recipe, using two herdr
+lanes and one `--bg` lane on Haiku:
+- An assignment sent by `buddy msg` was REFUSED by a lane whose brief did not authorise it. The
+  lane said "a peer cannot override your instructions", which is what the skill's own
+  untrusted-inbox rule tells it. The control lane was sent the same message, and its brief read
+  "your orchestrator is <label>: take your assignments from it through buddy msg". It complied.
+  So the brief names the orchestrator by its LABEL, which is the sender a lane sees on every
+  `msg`, and says the launch carries the launcher's authority, so only what the operator gave.
+- A `--bg` lane inherits the launching shell's `HERDR_PANE_ID`. Its roster row named the
+  ORCHESTRATOR's pane, and its pid was the shared `claude daemon`, which outlived
+  `claude stop`. Closing "its" pane would have closed the orchestrator. The recipe launches it
+  under `env -u HERDR_PANE_ID -u HERDR_TAB_ID`. That hello records the daemon's pid for a
+  background lane is a buddy defect, tracked in its own issue.
+- `buddy status` prints no prompt size; `buddy sessions` does, so the recipe points there.
+- A re-claim of `orchestrator` REPLACES its scopes, so the handoff re-claims with the same ones.
+  Between the release and the successor's claim, `msg orchestrator` is refused (released slugs do
+  not resolve, D-019), so the successor claims the moment it is released.
+- A lane's first request wrote 44–46k tokens on Haiku, against "about 60k" measured across
+  the fleet's Opus lanes. It depends on the model.
+
 **Not measured** — whether a lane launched with `--permission-mode` behaves under the
 operator's settings as the operator expects (the recipe leaves the choice to the operator), and
 any launcher other than herdr.
@@ -3580,9 +3600,10 @@ herdr tab with Haiku lanes.
 
 **What happened** — To test exactly the commits being pushed, and not a peer's half-written
 files in the shared checkout, a session pushed from a throwaway LINKED worktree
-(`git worktree add --detach`). The pre-push hook ran the hermetic tier from it. Git runs a hook
-with `GIT_DIR` set, and in a linked worktree the value is absolute
-(`<repo>/.git/worktrees/<name>`). Nothing between the hook and the test binaries removed it.
+(`git worktree add --detach`). The pre-push hook ran the hermetic tier from it. Git (2.54, the
+version measured) runs the pre-push hook with `GIT_DIR` set, and in a linked worktree the value
+is absolute (`<repo>/.git/worktrees/<name>`). Only pre-push was measured; the charter records
+that pre-commit exported no `GIT_DIR` in its own measured setup. Nothing between the hook and the test binaries removed it.
 The fixtures' `git -C <tmp> …` inherited it, and `-C` does not override an absolute `GIT_DIR`, so
 every fixture ran against the real repository:
 - the refused-repository fixture (`discovery_test.go`) wrote `core.bare = true` and
@@ -3606,14 +3627,17 @@ that bypasses it:
 - `scripts/check.sh` unsets it as its first act, for any caller.
 - `scripts/lib.sh` unsets it when sourced, for a done-check run on its own inside some other
   hook.
-- `testguard.ScrubGitEnv()` runs in the `TestMain` of every package that runs git (`cli`,
-  `buddylist`, `testguard`), for a `go test` started from inside any hook: a machine's own
-  `hooks.local`, a `rebase --exec`, an editor's. A test that needs `GIT_DIR` sets it with
-  `t.Setenv` after the scrub.
+- `testguard.ScrubGitEnv()` runs inside the `TestMain` of every package that imports `os/exec`
+  and names `"git"` (`cli`, `buddylist`, `testguard`), for a `go test` started from inside any
+  hook: a machine's own `hooks.local`, a `rebase --exec`, an editor's. A test that needs
+  `GIT_DIR` sets it with `t.Setenv` after the scrub.
 
 The fixed copy is there because the one git that cannot answer `--local-env-vars` may be the one
-pointed at a broken repository. It is a union, never the only source, and a test fails when git
-lists a name the copy lacks.
+pointed at a broken repository. It is a union, never the only source. A test fails when git
+lists a name the copy lacks, and check.sh fails when any of the four copies (Go, pre-push,
+check.sh, lib.sh) differs from the others. The first shell copies held six names against Go's
+fifteen, so a git that could not answer would have left `GIT_CONFIG` and eight more set (Codex
+code pass).
 
 **Considered and cut** —
 - *Stripping `GIT_*` wholesale.* That takes `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM` and the
@@ -3626,6 +3650,14 @@ lists a name the copy lacks.
 - *Forbidding pushes from a linked worktree.* The push was a reasonable act, and a hook that
   cannot run safely from every worktree is the defect.
 
+**What the Codex code pass changed** — the shell copies became the whole list, with the
+equality gate. The package gate was keyed on one call spelling and accepted a scrub anywhere in
+a `_test.go`: it missed `exec.CommandContext(context.Background(), "git", …)` and passed a scrub
+in an unused helper. It is now keyed on the `os/exec` import and the `"git"` literal, and it
+reads the scrub from inside `TestMain`'s body. QA-6 checked six names, and QA-7 planted only
+`GIT_DIR`. Both now check git's whole list, and QA-7 runs again with no git on `PATH`, where only
+the fixed copy can clear anything.
+
 **Test shape** — `testguard`: the scrub clears every listed name and leaves a non-local one;
 with no git on `PATH` the fixed copy still clears `GIT_DIR`; the copy covers everything git
 lists; and end to end, a fixture-style `git -C <tmp> init` + `config core.bare true` under an
@@ -3633,14 +3665,19 @@ inherited absolute `GIT_DIR` reaches a stand-in "real" repository (the control, 
 is armed on this machine's git), and under the scrub does not. `check-pre-push.sh` QA-6: a REAL
 push from a linked worktree of a throwaway repo. First a raw hook records its env and must see
 an absolute `GIT_DIR` (the control; if a future git stops leaking it, the leg says to re-derive).
-Then the real hook, its tier stubbed to record its env and the repository it finds, and none of
-the local names may appear. The tier must still find the pushed worktree from its cwd. QA-7:
-sourcing `lib.sh` clears an inherited `GIT_DIR`. `check.sh`: a source-shape gate fails any
-package that runs git (in a test, or in code its tests drive) without a `ScrubGitEnv()`
-statement in a `_test.go`, with a planted three-package control: no scrub, a scrub only in a
-comment, a real scrub. Mutants, each watched red: the hook's unset removed (QA-6), `cli`'s scrub
-removed (the gate names `internal/cli`), the scrub a no-op (four testguard tests), `lib.sh`'s
-unset removed (QA-7).
+Then the real hook, its tier stubbed to record its env and the repository it finds. A second
+local name (`GIT_NO_REPLACE_OBJECTS`) is planted on both pushes, the raw hook must see it, and
+none of git's local names (its own list united with the fixed copy) may reach the tier. The tier
+must still find the pushed worktree from its cwd. QA-7: sourcing `lib.sh` clears three planted
+local names, `GIT_DIR` among them, both with git on `PATH` and with none. `check.sh`: a
+source-shape gate fails any package that imports `os/exec` and names `"git"` without a
+`ScrubGitEnv()` statement inside its `TestMain`, against a planted five-package control: no
+scrub; a scrub only in a comment; a scrub in `TestMain`, the one that passes; a scrub in an
+unused helper; a `CommandContext` with another context argument. A second gate holds the four
+fixed lists equal. Mutants, each watched red: the hook's unset reduced to `GIT_DIR` (QA-6),
+`cli`'s scrub removed (the gate names `internal/cli`), the scrub a no-op (three testguard test
+functions), `lib.sh`'s list cut back to the old six (QA-7's no-git run), and check.sh's list
+cut back (the equality gate).
 
 ## Known unfixed
 

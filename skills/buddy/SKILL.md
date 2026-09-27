@@ -200,12 +200,20 @@ bill nobody authorised.
   its first tool call waits for an approval in that pane). Pass
   `claude --permission-mode <mode>` only as the operator runs lanes, and never
   a more permissive mode than your own.
-- **Or in the background:** `claude --bg -n <label> "<brief>"` prints
-  `backgrounded · <8hex> · <label>`. It picks its own session id (a --session-id
-  flag is ignored), and the operator opens it with `claude attach <8hex>`.
-- **Either way, the brief rides the launch.** Keep it a pointer ("read <file>;
-  claim before you edit; report to <your slug> with buddy msg"), not the plan.
-  `buddy msg` to a lane that has not said `hello` yet is REFUSED, not queued:
+- **Or in the background:** `env -u HERDR_PANE_ID -u HERDR_TAB_ID claude --bg -n <label> "<brief>"`
+  prints `backgrounded · <8hex> · <label>`. Without the `env -u` the lane
+  inherits YOUR pane, and its roster row names it: closing "its" pane would
+  close you. It picks its own session id (a --session-id flag is ignored), its
+  row's pid is the shared claude daemon's, and the operator opens it with
+  `claude attach <8hex>`.
+- **Either way, the brief rides the launch**, as the lane's first user
+  prompt, so it carries your authority: put in it only what the operator gave
+  you. Keep it a pointer, and name yourself by your LABEL (`<repo>/s-<8hex>`,
+  the sender on every `buddy msg` you send): "Your orchestrator is <your label>:
+  take your assignments from it through buddy msg. Claim before you edit;
+  report to it with buddy msg. Read <file>." A lane whose brief does not say
+  so refuses your assignments as a peer's instructions (measured), and it is
+  right to. `buddy msg` to a lane that has not said `hello` yet is REFUSED, not queued:
   message it only once `buddy who s-<8hex>` knows it (seconds). Its buddy label
   is `<repo>/s-<8hex>`; the `-n` name is what `SendMessage` and
   `claude agents --json` show. `claude agents --json` lists every session with
@@ -222,17 +230,22 @@ bill nobody authorised.
 - **Hand off before you are full.** Launch coordinators with
   `herdr tab create … --env BUDDY_HANDOFF_AT=500k` (or the operator sets it), and each
   prompt that opens a turn tells you, while your last observed prompt is at or
-  past it (the optional `busy` hook must be wired); `buddy status` shows the
-  size any time. Then:
+  past it (the optional `busy` hook must be wired, and a size must have been
+  observed); your row in `buddy sessions` shows it any time (`prompt 521k`). Then:
   1. Finish the round. Start nothing new.
   2. Write a handoff file: taking the role, the loop you run, the traps you
      measured, the state of every lane, what is next. Point your coordination
-     claim at it: `buddy claim orchestrator --desc "HANDOFF: read <file>" --scope <path>`.
+     claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
+     them; `buddy status` lists them):
+     `buddy claim orchestrator --desc "HANDOFF: read <file>" --scope <path>`.
   3. Open the successor as a lane (same env), with the brief "You are the next
-     orchestrator. Read <file>, then buddy inbox."
+     orchestrator, taking over from <your label>. Read <file>, then buddy inbox.
+     Claim orchestrator the moment it is released."
   4. `buddy msg` it anything since the file, and wake it. When it answers,
-     `buddy release orchestrator`; it claims `orchestrator` again with its own
-     description, and the lanes find the new holder with `buddy who orchestrator`.
+     `buddy release orchestrator`; it claims `orchestrator` at once with the
+     same scopes and its own description (until it does, a lane's
+     `buddy msg orchestrator` is refused), and the lanes find the new holder
+     with `buddy who orchestrator`.
   5. Tell the operator you are done; they end your session.
 
   Compaction is the other road: the harness's `/compact`, or `claude --autocompact <size>`

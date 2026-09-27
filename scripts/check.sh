@@ -35,7 +35,11 @@ set -eu
 # list plus a fixed copy, so a git that dies on the repository it was pointed
 # at still leaves nothing set. The test binaries scrub again in TestMain
 # (testguard.ScrubGitEnv), for a `go test` started some other way.
-for v in $(git rev-parse --local-env-vars 2>/dev/null || true) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_PREFIX; do
+for v in $(git rev-parse --local-env-vars 2>/dev/null || true) \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT \
+  GIT_OBJECT_DIRECTORY GIT_DIR GIT_WORK_TREE GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE \
+  GIT_INDEX_FILE GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_PREFIX GIT_SHALLOW_FILE \
+  GIT_COMMON_DIR; do
   unset "$v"
 done
 # Safe spelling, not `cd "$(dirname "$0")/.."`: that resolves through the
@@ -115,33 +119,52 @@ if [ "$run_hermetic" = 1 ]; then
   unsafe=$(cdscan .githooks/* scripts/*.sh || true)
   [ -z "$unsafe" ] || { echo "check.sh: CDPATH-unsafe cd — use \`CDPATH= cd -- \"\$(dirname -- \"\$0\")/..\"\` (see scripts/lib.sh):" >&2; echo "$unsafe" >&2; exit 1; }
 
-  # GIT-ENV GATE, source-shape (#49). Every package that runs git — in a test
-  # or in the code its tests drive in-process — must scrub git's local
-  # environment in its TestMain: `testguard.ScrubGitEnv()` as a statement, not
-  # a mention. The unset above covers this script's path; the scrub covers
-  # `go test` started from inside any other hook. grep-shaped because the
-  # failure is invisible to the suite: a fixture writing into the wrong
-  # repository passes. Two clauses, as above: the scan, and a planted
-  # three-package control it must agree with (execs git, no scrub -> reported;
-  # a scrub only in a comment -> reported; a real scrub -> not).
-  gitexec='exec\.Command(Context)?\((ctx, )?"git"'
+  # GIT-ENV GATE, source-shape (#49). Every package that may run git — it
+  # imports os/exec and names "git" anywhere, in a test or in the code its tests
+  # drive in-process — must call `testguard.ScrubGitEnv()` as a statement
+  # INSIDE its TestMain, where it runs before any test. Keyed on the import
+  # and the literal, not on a call spelling: an exec.CommandContext with any
+  # context argument, a variable holding "git", or an aliased import all still
+  # name both (Codex, #49). The unset at the top covers this script's path;
+  # the scrub covers `go test` started from inside any other hook.
+  # grep-shaped because the failure is invisible to the suite: a fixture
+  # writing into the wrong repository passes. Two clauses, as above: the scan,
+  # and a planted five-package control it must agree with, one arm per way to
+  # be wrong: a: runs git, no scrub; b: a scrub only in a comment; c: a scrub
+  # in TestMain (the one that passes); d: a scrub in an unused helper, not in
+  # TestMain; e: exec.CommandContext with a non-`ctx` context and no scrub.
   gitenvscan() {
     for d in "$@"; do
-      grep -qsE "$gitexec" "$d"/*.go || continue
+      grep -qs '"os/exec"' "$d"/*.go || continue
+      grep -qs '"git"' "$d"/*.go || continue
       ls "$d"/*_test.go >/dev/null 2>&1 || continue
-      grep -qsE '^[[:space:]]*(testguard\.)?ScrubGitEnv\(\)' "$d"/*_test.go || echo "$d"
+      awk '/^func TestMain\(/{on=1} on{print} on && /^}/{on=0}' "$d"/*_test.go |
+        grep -qE '^[[:space:]]*(testguard\.)?ScrubGitEnv\(\)' || echo "$d"
     done
   }
   gectl=$(mktemp -d -t gitenv-control.XXXXXX)
-  mkdir -p "$gectl/a" "$gectl/b" "$gectl/c"
-  printf 'package a\nfunc f() { exec.Command("git", "init") }\n' > "$gectl/a/a_test.go"
-  printf 'package b\nfunc f() { exec.Command("git", "init") }\n// testguard.ScrubGitEnv() is only mentioned here\n' > "$gectl/b/b_test.go"
-  printf 'package c\nfunc f() { exec.Command("git", "init") }\nfunc TestMain() {\n\ttestguard.ScrubGitEnv()\n}\n' > "$gectl/c/c_test.go"
-  gehit=$(gitenvscan "$gectl/a" "$gectl/b" "$gectl/c" | sed "s#^$gectl/##" | tr '\n' ' ')
+  for p in a b c d e; do mkdir -p "$gectl/$p"; done
+  printf 'package a\nimport "os/exec"\nfunc f() { exec.Command("git", "init") }\n' > "$gectl/a/a_test.go"
+  printf 'package b\nimport "os/exec"\nfunc f() { exec.Command("git", "init") }\n// testguard.ScrubGitEnv() is only mentioned here\n' > "$gectl/b/b_test.go"
+  printf 'package c\nimport "os/exec"\nfunc f() { exec.Command("git", "init") }\nfunc TestMain(m *testing.M) {\n\ttestguard.ScrubGitEnv()\n}\n' > "$gectl/c/c_test.go"
+  printf 'package d\nimport "os/exec"\nfunc f() { exec.Command("git", "init") }\nfunc unused() {\n\ttestguard.ScrubGitEnv()\n}\nfunc TestMain(m *testing.M) {\n}\n' > "$gectl/d/d_test.go"
+  printf 'package e\nimport "os/exec"\nfunc f() { exec.CommandContext(context.Background(), "git", "init") }\n' > "$gectl/e/e_test.go"
+  gehit=$(gitenvscan "$gectl/a" "$gectl/b" "$gectl/c" "$gectl/d" "$gectl/e" | sed "s#^$gectl/##" | tr '\n' ' ')
   rm -rf "$gectl"
-  [ "$gehit" = "a b " ] || { echo "check.sh: the git-env scan reported '$gehit' of its control, want 'a b ' — the gate is broken, not the tree" >&2; exit 1; }
+  [ "$gehit" = "a b d e " ] || { echo "check.sh: the git-env scan reported '$gehit' of its control, want 'a b d e ' — the gate is broken, not the tree" >&2; exit 1; }
   leaky=$(gitenvscan $(find cmd internal -type d) || true)
-  [ -z "$leaky" ] || { echo "check.sh: these packages run git with no testguard.ScrubGitEnv() in a TestMain (#49):" >&2; echo "$leaky" >&2; exit 1; }
+  [ -z "$leaky" ] || { echo "check.sh: these packages may run git with no testguard.ScrubGitEnv() in their TestMain (#49):" >&2; echo "$leaky" >&2; exit 1; }
+  # ONE LIST IN FOUR PLACES (#49). The fixed copy of git's local environment is
+  # what runs when `git rev-parse --local-env-vars` cannot, so every copy must
+  # be the whole list: the shell copies once held six names against Go's
+  # fifteen (Codex). Each copy is compared with testguard's, and that one must
+  # still hold at least the fifteen it was measured with.
+  golist=$(sed -n '/^var gitLocalEnv/,/^}/p' internal/testguard/gitenv.go | grep -o '"GIT_[A-Z_]*"' | tr -d '"' | sort -u | tr '\n' ' ')
+  [ "$(echo $golist | wc -w | tr -d ' ')" -ge 15 ] || { echo "check.sh: testguard's gitLocalEnv read as '$golist' — fewer than 15 names, the extraction or the list is broken" >&2; exit 1; }
+  for f in .githooks/pre-push scripts/check.sh scripts/lib.sh; do
+    shlist=$(sed -n '/^[[:space:]]*for _\{0,1\}v in \$(git rev-parse --local-env-vars/,/; do$/p' "$f" | grep -o 'GIT_[A-Z_]*' | sort -u | tr '\n' ' ')
+    [ "$shlist" = "$golist" ] || { echo "check.sh: $f's fallback list of git's local env differs from testguard's:" >&2; echo "  $f: $shlist" >&2; echo "  gitenv.go: $golist" >&2; exit 1; }
+  done
 
   go vet ./...
   go test ./... -count=1

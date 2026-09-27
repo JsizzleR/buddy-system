@@ -523,13 +523,14 @@ ledger row entered through the CLI (D-006).
     successor handoff runs on a file named in the `orchestrator` claim, `msg` + wake, release.
     Do not propose `buddy spawn`/`exit`, or `buddy expect` (a brief queued before hello).
 
-59. **The test suite never runs with git's local environment (D-057, #49).** MEASURED: a push
-    from a linked worktree hands the pre-push hook an ABSOLUTE `GIT_DIR`, and the fixtures'
+59. **The test suite never runs with git's local environment (D-057, #49).** MEASURED (git
+    2.54): a push from a linked worktree hands the pre-push hook an ABSOLUTE `GIT_DIR`, and the fixtures'
     `git -C <tmp>` inherited it and made the real repository bare with
     repositoryformatversion=99. `git rev-parse --local-env-vars` (united with a fixed copy) is
     unset by pre-push before the tier, by check.sh first thing, by sourcing lib.sh, and by
-    `testguard.ScrubGitEnv()` in the TestMain of every package that runs git (a gate enforces
-    it). Do not propose stripping `GIT_*` wholesale, or relying on the hook alone.
+    `testguard.ScrubGitEnv()` inside the TestMain of every package that imports os/exec and
+    names "git" (a gate enforces it, and a second keeps the four fixed copies of the list
+    equal). Do not propose stripping `GIT_*` wholesale, or relying on the hook alone.
 
 ## Environment facts (measured, do not re-derive)
 
