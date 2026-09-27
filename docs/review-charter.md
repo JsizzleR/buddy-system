@@ -486,6 +486,19 @@ ledger row entered through the CLI (D-006).
     or `SetTraceback("crash")` (it would SIGABRT every panicking test). The cause of #43's
     wedge is not known; the watchdog's sample is what will name it.
 
+56. **A park with no claim to name keeps warm on a TIMER wait, and is told so before it parks
+    (D-054, #44, #45).** MEASURED over one fleet's week: 3 of 129 sessions declared a wait,
+    145 of 149 wakes past an hour were cold and 0 of 19 at 50–60 minutes; the costly parks
+    were a session's own hour-plus run (the integrator of a shared run included: `wait --on`
+    refuses your own claim) and a lane waiting for its orchestrator. The skill's "Before you
+    park", `hello`'s help line naming `--until` alone, and a timer declaration's third line
+    (clear it when something else wakes you first; `--session <id>` named when declared for
+    another session; no "stop the loop" off the hour tier) teach it. A check is one tool call
+    inside a turn of about three requests (median 3, mean 4.05), and USAGE's cost table is
+    priced that way. `scripts/wake-report.sh` re-measures, counts only. Do not propose a
+    pid/background-task wait target, `wait --on` your own claim, a Stop-hook nudge, inferring a
+    park from idleness, or "always keep warm" (past four hours the fleet's parks broke even).
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

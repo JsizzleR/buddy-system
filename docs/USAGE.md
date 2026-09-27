@@ -572,7 +572,7 @@ moved, since the file there changes only when that worktree pulls.
 ```sh
 buddy wait --on api-work --until 3h --note "then: rebase, run check.sh"
 # WAITING on claim "api-work" (held by repo/s-4856919d, seen 3m ago) — deadline in 3h0m; note: then: rebase, run check.sh
-# keep-alive: cache 1h tier (last written 2m ago). Arm it in THIS session: /loop buddy wait check — each check is one tool call …
+# keep-alive: cache 1h tier (last written 2m ago). Arm it in THIS session: /loop buddy wait check — each check is one tool call (a turn of about three cache reads) …
 /loop buddy wait check               # typed in the WAITING session: its own scheduler, self-paced
 # STILL WAITING on claim "api-work" (held by …, seen 3m ago) — 1h12m so far, deadline in 1h48m; next check in 50m (3000s from now)
 # last observed request 50m ago read 398k, wrote 1k (mostly read from the cache)
@@ -591,6 +591,31 @@ days of this box's transcripts: 187 requests after a gap over an hour re-wrote
 base and restarts the hour, so one cheap request inside each hour is all it
 takes; and because that request is a tool call, `beat` drains the parked
 session's inbox as well, which nothing else was doing.
+
+**Most parks have no claim to name** (D-054). A session waiting on its OWN
+background run (the test tier it started, which on one fleet now takes 62–94
+minutes), the integrator of a shared run (`wait --on` refuses your own claim),
+and a lane that has handed its work in and waits for its orchestrator or the
+operator are all parked on nothing buddy holds. The timer form covers them:
+
+```sh
+buddy wait --until 2h --note "own tier run, ~80 min"   # no --on: expires at the deadline, never lands
+# WAITING on a timer (no claim named: it never lands, it expires) — deadline in 2h0m; note: own tier run, ~80 min
+# keep-alive: cache 1h tier (…). Arm it in THIS session: /loop buddy wait check — …
+# a timer never lands: when something else wakes you first (a run's completion notice, a message, the operator), run `buddy wait clear`, and stop the /loop that runs the check
+/loop buddy wait check
+# … the run's completion notice (or a message, or the operator) wakes the session first:
+buddy wait clear                                        # and stop the loop
+```
+
+Measured over that fleet's week (129 sessions): 3 declared a wait and 1 armed
+the loop, and 145 of 149 wakes after an hour came back cold, against 0 of 19
+after 50–60 minutes. The one that armed it, an integrator, read the cache on
+20 of 20 checks through its own tier runs. Wakes by what woke them, cold and
+within four hours: the operator typing 37, a peer (the orchestrator) 29, the
+session's own run finishing 26 — every own run past 60 minutes came back cold.
+`hello`'s help line names the timer form; the skill says when to use it.
+`scripts/wake-report.sh` re-measures all of this from the transcripts.
 
 **The trigger is the session's own.** `buddy wait` records what the session
 is waiting on (open claims of other sessions, resolved once to their claim
@@ -618,18 +643,30 @@ warm; measured, 9 of 11 one-hour wakes came back cold. The fixed form can't
 express a uniform 50-minute cron period, so it pings every 30 minutes: two
 reads an hour instead of 1.2, and correct.
 
-**What a keep-alive costs,** per hour of waiting, at list multipliers (1h write
-2× base, read 0.1×, Fable 5.1 read 0.025×), for a 400k-token prefix. No verb
-prints a dollar figure; pricing is external and changes:
+**What a keep-alive costs,** per hour of waiting, at list rates (1h write 2×
+base; reads $0.50/M on Opus 5, $0.20/M on Opus 5.5, $0.25/M on Fable 5.1), for
+a 400k-token prefix. A check is ONE tool call but a turn of about THREE requests
+— the check, the scheduling call, the end of the turn — each reading the whole
+prefix (measured over 20 fires: median 3, mean 4.05; D-054 corrected the table,
+which had priced a check as one read). No verb prints a dollar figure; pricing
+is external and changes:
 
-| | Opus 5 | Fable 5.1 |
-| --- | --- | --- |
-| One cold re-write | $4.00 | $8.00 |
-| One warm ping | $0.20 | $0.10 |
-| Keep-alive per hour (1.2 pings) | $0.24 | $0.12 |
-| Break-even wait length | ~16 h | ~66 h |
-| Saved on a 65-minute wait | 95% | 99% |
-| Saved on a 4-hour wait | 80% | 95% |
+| | Opus 5 | Opus 5.5 | Fable 5.1 |
+| --- | --- | --- | --- |
+| One cold re-write | $4.00 | $3.20 | $8.00 |
+| One check (3 reads) | $0.60 | $0.24 | $0.30 |
+| Keep-alive per hour (1.2 checks) | $0.72 | $0.29 | $0.36 |
+| Break-even wait length | ~5.5 h | ~11 h | ~22 h |
+| Saved on a 65-minute wait (1 check) | 85% | 92.5% | 96% |
+| Saved on a 4-hour wait (4 checks) | 40% | 70% | 85% |
+
+The table assumes the median three reads and a wake before the next check. At
+the measured mean (4.05) every cost is a third higher and break-even is about
+4, 8 and 16 h. A timer that runs to its own deadline pays one more check at it.
+Pinging more often than the check says costs in proportion and keeps nothing
+warmer: the one session measured using the loop scheduled every 25 minutes (the
+harness's own suggestion for an idle heartbeat) against the check's 50, as a
+heartbeat for other work.
 
 Hence a **required deadline**: default 3h, ceiling 12h (refused above it).
 The question that matters is whether the session will be resumed at all, and

@@ -216,6 +216,7 @@ buddy release api-refactor                                    # or --scope docs 
 buddy ls                                                      # every open claim, STALE flagged
 buddy whose internal/api/handler.go                           # who claimed it, who has it dirty
 buddy wait --on api-refactor --until 3h                       # declare a wait on a peer's claim
+buddy wait --until 2h --note "own tier run"                   # parked on your own run or the orchestrator: a timer
 ```
 
 A **scope** is a file or directory prefix; there are no globs. A claim is

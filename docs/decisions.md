@@ -3332,6 +3332,107 @@ Mutants, each watched red:
 - a start time that never matches → nothing is signalled; both wedge legs fail. The positive
   control that the identity check admits the real target.
 
+## D-054 — A park with no claim to name keeps warm on a timer wait, and is told so before it parks
+
+2026-09-27 · issues #44, #45
+
+**What was wrong** — D-033's keep-alive works whenever it is armed, and it was almost never
+armed. The operator asked how well idle sessions were staying warm while an orchestrator ran
+hour-long hermetic tiers, and the answer took a hand-rolled script over one fleet's
+transcripts (token counts and timestamps only) and ledger. Seven days, 2026-09-20 → 09-27,
+129 sessions:
+
+- wakes after 50–60 minutes idle: 19, **0** cold. After more than an hour: 149, **145** cold.
+  D-033's edge holds exactly;
+- **3** sessions declared a wait and **1** armed `/loop buddy wait check`. That one, an
+  integrator, read the cache on 20 of 20 checks through its own tier runs;
+- the cold wakes within four hours (92), by what woke them: the operator typing 37 (mean idle
+  100 min), a peer message 29 (139 min; one land woke 15 parked lanes in 7 minutes, 14 cold),
+  the session's own background run finishing 26 (87 min);
+- own runs: 66 tier launches in 37 sessions. Of 34 wakes on a task finishing after 50+
+  minutes, 27 were cold, every one past the hour. The week before, the same wakes came at
+  54–58 minutes and 31 of 39 were warm: the tier crossing the hour is what turned them;
+- 54.6M tokens re-written, about $491 at list rates. The 92 within four hours cost about $345,
+  and a 50-minute keep-alive priced at the measured cost of a check would have cost about $87.
+  Past four hours (mean 7.3 h, mostly overnight) it was a wash, $146 against $144.
+
+Everything that tells a session to wait reaches it through a claim: a refused `claim` prints
+the `buddy wait --on …` line, and the D-049 section teaches riders. The parks that cost the
+most name no claim. A session on its own run holds nothing another session waits on, and
+`wait --on` refuses your own claim, so the integrator of a shared run is in the same position
+as a lone session running its own tier. A lane that has handed its work in waits for the
+orchestrator, which is not a claim either. The timer form, `buddy wait` with no `--on`, has
+covered both since D-033. Nothing taught it.
+
+**The rule** — Mostly taught; three lines of output changed:
+- The skill gets **"Before you park"**. Declare a timer sized to the park before ending a turn
+  that something else will end: your own run longer than about 50 minutes, or parked for the
+  orchestrator or operator. Arm the loop. `buddy wait clear` when something else wakes you
+  first. Skip a park with no known end.
+- The integrator's line says the tier it runs is such a park.
+- An orchestrator tells a parked lane roughly when it will next need it, so the lane can size
+  its wait.
+- `hello`'s help line (D-046) names `--until` alone beside `--on`.
+- A timer's declaration prints a third line: a timer never lands, so when something else wakes
+  you first (a run's completion notice, a message, the operator), `buddy wait clear` and stop
+  the loop. A reviewer running every step of a timer's life in a scratch repo found that no
+  output said this anywhere. The only mention was `wait clear`'s own reply, which comes after
+  the fact. A wait on a claim lands by itself and prints no such line. Two variants, both
+  from the same review. Off the hour tier no loop was advised, so the line says only to clear:
+  an open timer keeps the roster, `who` and `msg` reporting a working session as waiting.
+  Declared with `--session` for another session (an orchestrator parking a lane), the line
+  names that session and `buddy wait clear --session <id>`, to pass on. A bare `wait clear`
+  there cleared the DECLARER's own wait and left the lane's timer open.
+- The declaration's keep-alive line and `buddy --help` give a check's real cost (below). The
+  12 h ceiling's refusal no longer claims a break-even ("past about sixteen hours"). It says
+  only that nobody should wait through a night on a timer, and USAGE carries the per-model
+  hours.
+- `scripts/wake-report.sh` (#45) re-measures all of the above from the transcripts, counts
+  only, so the next "how are we doing" is one command.
+
+**A check is a turn, not a tool call.** D-033 and the skill called a check "a single tool
+call". It is, inside a turn of at least three requests (the check, the scheduling call, the
+end of the turn), each reading the whole prefix. Over the 20 measured fires: median 3, mean
+4.05. USAGE's cost table priced a check as one read, a third of its cost, so its savings were
+too high: on Opus 5 a four-hour wait saves 40%, not 80%. Corrected, at the median three reads:
+break-even is about 5.5 h on Opus 5, 11 h on Opus 5.5 and 22 h on Fable 5.1, not 16/66 h. At the
+mean 4.05 it is about 4, 8 and 16 h. A timer that reaches its own deadline also runs one last
+check at it. The 12 h ceiling stands. It bounds a mistake, and whether
+the session will be resumed at all is still the question that matters.
+
+**Considered and cut** —
+- *`wait --on` your own claim, for the integrator.* Its claim is held from forming to landing,
+  not released when the tier ends, so a wait on it would land at the wrong moment. The timer
+  says what is true.
+- *A process or background-task target ("LANDED when pid N exits").* The harness already wakes
+  the session when its task ends. The only thing missing was a request every 50 minutes until
+  then, and a timer bounded by the run's length supplies it. A new target kind would also be
+  the first that watches something outside the ledger.
+- *A Stop-hook nudge when a turn ends with a background run going.* Buddy cannot see the
+  harness's background tasks, and inferring a park from idleness is what D-033 ruled out.
+- *Pacing.* The one looping session scheduled every 25 minutes against the check's `next check
+  in 50m`, using the loop as a heartbeat for its lanes and tier. The harness's scheduler text
+  suggests 20–30 minutes for exactly that. A shorter delay is safe, only costlier, so the check
+  is unchanged and the skill and USAGE say what it costs.
+- *A cold-cache note on `msg` to a quiet lane.* The roster already prints `cache 1h cold`
+  (D-020), and a lane that has work must be woken either way.
+- *"Always keep warm."* Past four hours the fleet's parks broke even.
+
+**Test shape** — `TestWaitTimerSaysHowItEnds`: a timer's declaration is three lines, the third
+the advice held to its text, and the arming line names a check's cost; re-declared on a claim,
+the same session gets no such line (the control), and `TestWaitDeclareCheckLandOnceThenNoWait`
+still holds a claim wait to two lines. `TestWaitTimerAdviceDeclaredForAnotherSession`: declared
+with `--session`, the line names the lane and the flag, and following it verbatim from the
+declaring shell clears the lane's timer and leaves the declarer's own. `TestWaitArmsNothingOffTheHourTier`
+gains a timer leg: always "clear", "stop the /loop" only on the hour tier. Mutants: the line
+never printed; printed for every wait; the `--session` variant replaced by the self one; the
+loop clause unguarded. Each fails its test. `TestHelloHelpLineTeachesTheTimerWait` reads the help line through the same
+parser as the name gate and requires it to teach `wait --on`, `--until` and `check`. Mutants:
+the `--until` clause dropped fails it; the flag renamed fails it and the name gate. The name
+gate's count floor (9) could not see the drop, since the line already named 15. The skill's
+two gates (every name it teaches exists; every name in the usage table is taught) pass on the
+new section. `scripts/check-wake-report.sh`, from `check.sh`, covers the instrument.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a

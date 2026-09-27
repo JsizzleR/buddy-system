@@ -78,6 +78,7 @@ sh scripts/get-oscar.sh                   # build the pinned AIM-compatible serv
 sh scripts/run-local.sh                   # bring up the local TOC stack + daemon for a trial
 scripts/cost-report.sh                    # 7-day context-cost baseline (counts and byte lengths only)
 sh scripts/startup-report.sh [repo]       # minutes and tool calls before each session's first edit (counts only)
+sh scripts/wake-report.sh [project]       # idle->wake warm/cold by what woke it, tokens re-written (counts only)
 sh scripts/codex-review.sh <prompt-file> <out-file>
 ```
 
@@ -514,6 +515,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   process (same binary, pipe EOF for exit, pid + start time for identity) for a wedged one or
   one at twice its `-test.timeout`: symbolized `sample` to `$TMPDIR`, SIGQUIT, SIGKILL, and a
   stderr line LAST (stderr may be the dead pipe; announcing first killed it). RLIMIT_CPU and an in-process AfterFunc wall were cut.
+- **A park with no claim to name keeps warm on a TIMER wait, and is told so before it parks
+  (D-054, #44, #45).** Measured on one fleet's week: 3 of 129 sessions declared a wait, 145 of
+  149 wakes past an hour were cold (0 of 19 at 50–60 min), and the costly parks were a
+  session's OWN hour-plus run and a lane waiting for its orchestrator — neither collides with a
+  claim, so the refusal that suggests `wait --on` never reached them. Skill "Before you park",
+  `hello`'s help line names `--until` alone, `scripts/wake-report.sh` re-measures. A check is
+  one tool call but a turn of ~3 requests (USAGE's cost table was corrected). No new verb, no
+  pid/task target, no inference, no Stop-hook nudge; pacing unchanged.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
