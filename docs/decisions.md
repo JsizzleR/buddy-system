@@ -3433,6 +3433,85 @@ gate's count floor (9) could not see the drop, since the line already named 15. 
 two gates (every name it teaches exists; every name in the usage table is taught) pass on the
 new section. `scripts/check-wake-report.sh`, from `check.sh`, covers the instrument.
 
+## D-055 — A session that declared a handoff size is told, once per turn, when it has grown past it
+
+2026-09-27 · issue #46
+
+**What was wrong** — An orchestrator could not tell that it had grown past the point where its
+operator wanted it handed off, and nothing told it. The roster printed `prompt 507k` for anyone who
+looked, but the model does not know its own prompt size, and `buddy status` is a place it has no
+reason to look. Measured over one fleet repo, 15 days (2026-09-13 → 09-27), 173 sessions, token
+counts and timestamps only: 53 sessions crossed 500k, and there were 4 orchestrator successions.
+In 3 of the 4 the **operator** noticed the size and started the handoff. The one that went well
+was told early (~290k): it finished its batch, wrote a handoff file, woke its successor and
+released `orchestrator`, and the successor had re-claimed it and re-woken 8 lanes 43 s later, with
+no operator prompt. The one that went badly auto-compacted at 970k and grew back to 919k before
+anyone asked for a brief. Its successor's first request was a 96.6k cold write, and re-orienting
+took 17 operator prompts over 2 hours.
+
+**The rule** — `BUDDY_HANDOFF_AT` is a size the operator DECLARES in one session's environment
+(`BUDDY_HANDOFF_AT=500k claude`), parsed exactly as `BUDDY_CONTEXT_WINDOW` is (`declaredWindow`:
+`k`/`M` suffixes, a bare count, the same wrap guard; unset or unparseable is off). When it is
+declared and the session's last OBSERVED prompt (the number the roster prints as `prompt N`, for
+the current incarnation only) is at or past it, `busy` adds one line to the prompt that opens the
+turn:
+
+    BUDDY: your prompt was 507k at your last observed request (turn 3m ago), at or past the 500k
+    you hand off at (BUDDY_HANDOFF_AT) — finish the round, write the handoff, and start your
+    successor (buddy skill: Running a fleet)
+
+It rides the SAME single `UserPromptSubmit` document as the inbox drain, ahead of the inbox header
+(it is buddy's own observation, so it must not sit inside the block marked as peer text), and it
+prints even with nothing queued. The drain's bound, fence and write-then-mark (D-040) are
+unchanged. It is level-triggered: every turn-opening prompt past the size carries it. An ENDED
+session that is handed a prompt is still told. Its observation belongs to its own incarnation
+(`bye` does not change it), and a prompt arriving under the id means the process is running, so
+the stale fact is the ledger's "ended", not the number. A test pins this, so adding a `Live()`
+guard later would be a decision rather than an accident.
+
+- **Declared, not derived.** Nothing in a transcript says which session is the orchestrator, and
+  roles were cut (D-015). The operator sets it on the one process it applies to, so lanes are never
+  told. A hook is a child of its own session's process, so the declaration reaches no other
+  session. Settings can set it for every session if an operator wants that. Measured for #47:
+  `herdr tab create … --env BUDDY_HANDOFF_AT=500k` puts it in the lane's `claude` process
+  environment (`ps eww`), so that lane's hooks inherit it.
+- **"Last observed", never "now".** The number is the one the last `Stop` or `beat` read off the
+  session's own transcript, so it lags one request. The line carries the turn's age, as the roster
+  does. A prompt hook cannot know the size of the request it is about to open.
+- **On `busy` and never on `beat`.** A handoff is decided per turn. `beat` runs on every tool call,
+  and fifty copies of the line per turn, on the session that can least afford the context, is a
+  line that gets tuned out. `busy` also reaches a turn that runs no tool at all. The cost: `busy`
+  is an optional hook, so a machine without it wired never sees the line. D-040 said `busy`
+  "carries only the inbox". This is the one addition, for this reason.
+
+**What it does not do** — refuse, reserve or schedule anything (invariant 10: an observation);
+name a role or reserve a slug (D-015, D-030); read a transcript itself (it reads the ledger's
+observations through `sampleOf`, the same read `wait` and `who` make, which loads every retained
+sample; it runs only when the variable is declared, and its cost at fleet size is not measured);
+or say what to do beyond pointing at the
+skill's recipe, which the skill owns (#47, "Running a fleet"). It is not a compaction trigger:
+the harness's own `--autocompact <size>` is the tool when compaction is enough.
+
+**Test shape** — `handoff_test.go`. A table over the pure decision: unset, garbage, zero,
+negative, a fraction, a value that would wrap, one token under, exactly at, over, no observation,
+`500K`, padded, `1M` under and at, a bare count. Each silent row sits beside a speaking row that
+differs in one input, and each speaking row is checked to be one line, to name the recipe and
+never to say "now". End to end through the hook: undeclared, unparseable, under and unobserved stay
+exactly as before (silent with nothing queued), each followed by a positive control on the same
+fixture; at, over and `1M` speak, again on the next prompt. Declared, over and a queued message
+give ONE document with the note before the inbox header and the message marked. Every silent case is
+also run with mail queued (delivered, marked, no line), and a label-addressed row under a declared
+size is still owed. Both documents are checked to name `UserPromptSubmit`. These three came from
+the Codex code pass, which found no implementation defect. A failed write
+marks nothing. `beat` never carries it (control: `busy` on the same session does). A revived
+incarnation is not told its predecessor's size. Mutants, each watched red: `<` to `<=`, the
+observation guard dropped, the declaration guard dropped, the wrong environment variable,
+both incarnation guards dropped (`ContextSamples`' JOIN and `sampleOf`'s check; either
+alone holds, so each single drop is an equivalent mutant, measured), the age dropped, the note after the inbox, the note silent without
+mail, the note dropped, delivery marked before the write, the recipe pointer renamed, Codex's two
+(a declared-but-silent busy that returns before the drain; the wrong event name when the note
+prints), and a `Live()` guard.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
