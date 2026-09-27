@@ -206,6 +206,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **`check.sh` exit 2 means the live leg did not run** (no `.cache/oscar-server`;
   run `scripts/get-oscar.sh`). "Not run" is neither pass nor fail, and it is
   reported loudly on purpose so a leg cannot silently stop running.
+- **The pre-push tier can hang in `forkExec` of git until go test's 10m timeout**
+  (twice, 2026-09-26 and -27, each in a different test). Both times it was inside
+  the hook, where git's exec-path puts CLT's `libexec/git-core/git` first on PATH
+  (a 60-byte argv0 in the dump), and the child never finished exec. The dump
+  reads like a code deadlock, but it is not your diff: look for `forkExec` →
+  `readlen` before suspecting it. Retry the push with no other `go test` running
+  in the checkout (the second hang had several alongside); the retry was green
+  both times. No retry loop or timeout knob is built on it.
 - **Restart the daemon when a change adds a journal table** — the running daemon
   migrates the journal at open, so a new table only appears after a restart.
   Hooks spawn a fresh binary per tool call, so *sessions* need no restart.
