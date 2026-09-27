@@ -199,13 +199,17 @@ bill nobody authorised.
   The lane starts in claude's default permission mode (measured: manual, so
   its first tool call waits for an approval in that pane). Pass
   `claude --permission-mode <mode>` only as the operator runs lanes, and never
-  a more permissive mode than your own.
-- **Or in the background:** `env -u HERDR_PANE_ID -u HERDR_TAB_ID claude --bg -n <label> "<brief>"`
-  prints `backgrounded · <8hex> · <label>`. Without the `env -u` the lane
-  inherits YOUR pane, and its roster row names it: closing "its" pane would
-  close you. It picks its own session id (a --session-id flag is ignored), its
-  row's pid is the shared claude daemon's, and the operator opens it with
-  `claude attach <8hex>`.
+  a more permissive mode than your own. In manual mode every `buddy msg` a lane
+  reports with waits for an approval: the operator can pre-allow `Bash(buddy *)`
+  for lanes, or answer the first one "don't ask again for: buddy msg *". That is
+  the operator's setting, never the lane's or yours to change.
+- **Or in the background:** `claude --bg -n <label> "<brief>"` prints
+  `backgrounded · <8hex> · <label>`. The lane runs in the claude daemon's
+  environment, not yours (measured): its row shows no pane, and no variable
+  you set on the launch reaches it, so `BUDDY_HANDOFF_AT` cannot be passed to
+  one. It picks its own session id (a --session-id flag is ignored), its row's
+  pid is its own (the pid `claude agents --json` shows), and the operator
+  opens it with `claude attach <8hex>`.
 - **Either way, the brief rides the launch**, as the lane's first user
   prompt, so it carries your authority: put in it only what the operator gave
   you. Keep it a pointer, and name yourself by your LABEL (`<repo>/s-<8hex>`,
@@ -227,8 +231,10 @@ bill nobody authorised.
   `buddy who <lane>` shows it holds nothing, say so. Close a lane yourself
   (`herdr pane close <pane id>`, which runs its `bye`; `claude stop <8hex>` for a
   background one) only if the operator told you, not a peer, that you may.
-- **Hand off before you are full.** Launch coordinators with
-  `herdr tab create … --env BUDDY_HANDOFF_AT=500k` (or the operator sets it), and each
+- **Hand off before you are full.** Launch coordinators, and their successors,
+  in a herdr tab with `herdr tab create … --env BUDDY_HANDOFF_AT=500k` (or the
+  operator sets it), never with `claude --bg`: a background lane runs in the
+  daemon's environment, and the size never reaches it. Each
   prompt that opens a turn tells you, while your last observed prompt is at or
   past it (the optional `busy` hook must be wired, and a size must have been
   observed); your row in `buddy sessions` shows it any time (`prompt 521k`). Then:
@@ -236,11 +242,13 @@ bill nobody authorised.
   2. Write a handoff file: taking the role, the loop you run, the traps you
      measured, the state of every lane, what is next. Point your coordination
      claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
-     them; `buddy status` lists them):
-     `buddy claim orchestrator --desc "HANDOFF: read <file>" --scope <path>`.
-  3. Open the successor as a lane (same env), with the brief "You are the next
-     orchestrator, taking over from <your label>. Read <file>, then buddy inbox.
-     Claim orchestrator the moment it is released."
+     them, and `buddy status` lists them), repeating the scope flag once for
+     each path you hold, never the handoff file in their place:
+     `buddy claim orchestrator --desc "HANDOFF: read <file>" --scope <each path you hold>`.
+  3. Open the successor the same way, in a herdr tab carrying the same size
+     (never in the background, where it would not reach it), with the brief "You are the next orchestrator, taking over from <your
+     label>. Read <file>, then buddy inbox. Claim orchestrator the moment it is
+     released."
   4. `buddy msg` it anything since the file, and wake it. When it answers,
      `buddy release orchestrator`; it claims `orchestrator` at once with the
      same scopes and its own description (until it does, a lane's

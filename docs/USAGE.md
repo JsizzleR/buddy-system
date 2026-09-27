@@ -467,11 +467,17 @@ The annotations after the id are what an orchestrator picks on:
   on it. Two pids on one row (`pid 100,200`) is a session id opened twice
   (`--resume` while the first still runs); the row ends only when the last one
   says `bye`. A row with no `pid` is **unbound** — its `hello` was hand-run or
-  predates this, and its `bye` ends it as it always did.
+  predates this, and its `bye` ends it as it always did. A `claude --bg` lane
+  renames its own process `claude bg-spare`; that retitle is matched too, so
+  its row names the lane itself, the pid `claude agents --json` shows, and not
+  the shared `claude daemon` above it, which outlives every lane (D-058).
 - `pane tmux:%3` — the terminal the harness inherited its environment
   from (`TMUX_PANE`, or `HERDR_PANE_ID` for the herdr multiplexer, which wins
   when both are set), reported at registration: which
-  window on the operator's screen this row is. Buddy never acts on it.
+  window on the operator's screen this row is. Buddy never acts on it. A
+  `claude --bg` lane has none: it runs in the claude daemon's environment,
+  whose pane is whoever started the daemon (measured: the launcher's), so its
+  row shows no pane rather than a wrong one (D-058).
 - `claude-opus-5/xhigh prompt 90k turn 4s` — what the session is running and
   how much context it was last seen carrying. The model and the effort are read
   from the same record as the counts and printed only when it recorded them:

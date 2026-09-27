@@ -35,6 +35,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/JsizzleR/buddy-system/internal/store"
 )
@@ -61,23 +62,71 @@ const maxAnchorHops = 16
 // single-threaded and the roster reads pids one at a time.
 var lastProcErr error
 
+// harnessProc is the anchor a walk found: the process, and whether it was
+// recognised ONLY by a retitled argv[0] (see harnessMatch). A retitled anchor
+// is a process the harness's daemon spawned, not a session started from a
+// terminal, and hello records no terminal handle for it (D-058).
+type harnessProc struct {
+	Ref      store.ProcRef
+	Retitled bool
+}
+
+// harnessMatch says whether a process's names make it the harness, and
+// whether only a RETITLED argv[0] did.
+//
+// THE RETITLE (D-058, #50). A `claude --bg` lane is a process the claude
+// daemon spawns, and it renames its own argv to the single string
+// `claude bg-spare` (measured 2026-09-27, 2.1.283: procargs2's argv[0] is
+// "claude bg-spare", one string with a space in it; its exec path is the
+// versioned file, base "2.1.283"). Neither name's base is `claude`, so the
+// walk went on past the lane and its pty host and stopped at the shared
+// `…/bin/claude daemon`: the row named the daemon's pid, which outlives every
+// lane, and bye's fence judged the daemon instead of the lane. The lane is
+// the hook's DIRECT parent (measured: a hook's ppid was the pid `claude
+// agents --json` reports), so matching the retitle stops the walk there.
+//
+// EXACTLY the word `claude` before the first space, and never a path: the
+// harness writes the bare word, and a looser rule would let an exec path
+// with a space in it ("/Users/x/claude stuff/bin/node") or a lookalike
+// ("claudette x") anchor a session. An exact match on any name wins over a
+// retitled one, and an interactive session's own `claude` (exec path
+// `…/bin/claude`, argv[0] `claude`) is the hook's direct parent, so nothing
+// above or below it can newly win: the walk stops at the first match.
+func harnessMatch(names []string) (match, retitled bool) {
+	for _, name := range names {
+		if harnessNames[filepath.Base(name)] {
+			return true, false
+		}
+	}
+	for _, name := range names {
+		if first, rest, ok := strings.Cut(name, " "); ok && rest != "" && harnessNames[first] {
+			return true, true
+		}
+	}
+	return false, false
+}
+
 // anchorProc finds the harness process this hook was spawned by, or reports
 // that there is none.
-func anchorProc() (store.ProcRef, bool) {
-	pid := os.Getppid()
+func anchorProc() (harnessProc, bool) {
+	return anchorWalk(os.Getppid(), procInfo)
+}
+
+// anchorWalk is the walk over an injected process lookup, so the tree a
+// test describes is the only tree it reads (the suite runs under a claude
+// process of its own; see Env.Anchor).
+func anchorWalk(pid int, info func(int) (int, []string, int64, bool)) (harnessProc, bool) {
 	for hop := 0; hop < maxAnchorHops && pid > 1; hop++ {
-		ppid, names, born, ok := procInfo(pid)
+		ppid, names, born, ok := info(pid)
 		if !ok {
-			return store.ProcRef{}, false
+			return harnessProc{}, false
 		}
-		for _, name := range names {
-			if harnessNames[filepath.Base(name)] {
-				return store.ProcRef{PID: pid, Born: born}, true
-			}
+		if match, retitled := harnessMatch(names); match {
+			return harnessProc{Ref: store.ProcRef{PID: pid, Born: born}, Retitled: retitled}, true
 		}
 		pid = ppid
 	}
-	return store.ProcRef{}, false
+	return harnessProc{}, false
 }
 
 // procAlive reports whether the registered process is still the process

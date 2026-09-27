@@ -97,8 +97,11 @@ type fixture struct {
 	// session to the developer's harness — on this box — and to nothing on
 	// CI. Unset, every session is UNBOUND, which is the pre-D-025 behaviour
 	// every older test was written against.
-	proc  store.ProcRef
-	alive map[int]int64
+	proc store.ProcRef
+	// retitled says the anchor above was recognised only by a retitled
+	// argv[0], the shape a `claude --bg` lane has (D-058).
+	retitled bool
+	alive    map[int]int64
 	// sockDir stands in for the harness's socket directory (wake.go), EMPTY
 	// of sockets by default for the reason env is: the real one on this box
 	// holds the developer's own sessions.
@@ -152,7 +155,7 @@ func (f *fixture) run(t *testing.T, cwd, stdin string, args ...string) (stdout, 
 		Cwd:    cwd,
 		Now:    func() time.Time { return f.clock },
 		Getenv: func(k string) string { return f.env[k] },
-		Anchor: func() (store.ProcRef, bool) { return f.proc, f.proc.PID != 0 },
+		Anchor: func() (harnessProc, bool) { return harnessProc{Ref: f.proc, Retitled: f.retitled}, f.proc.PID != 0 },
 		ProcAlive: func(p store.ProcRef) bool {
 			born, ok := f.alive[p.PID]
 			return ok && (p.Born == 0 || born == 0 || born == p.Born)
