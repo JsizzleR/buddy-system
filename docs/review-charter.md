@@ -566,6 +566,17 @@ ledger row entered through the CLI (D-006).
     not propose waiting in `idle` for the reply (1 of 20 within the 100 ms budget), a detached
     writer, reading `last_assistant_message` (text, no usage), or a clock threshold for freshness.
 
+63. **A `-race` forkExec can leave its child stuck before exec, and the watchdog ends it (D-061,
+    #53).** MEASURED: the child spins in ThreadSanitizer's slot lock (`forkAndExecInChild` →
+    `__tsan::SlotLock` / `TraceSwitchPartImpl`), held by a parent thread at fork, and never
+    execs. The parent waits in `readlen` to the timeout. It is `-race` only (toy: 8/8 forkers hung;
+    0 of 356k forks without -race), not git, PATH or the hook. The child keeps the watchdog's pipe
+    (close-on-exec acts only at exec), so the watchdog has a holder arm. Target gone and pipe held
+    means it ends the target's same-binary children, orphaned, same start time, in its own
+    process group, seen while the target lived, never itself. It holds its executable's fd so
+    the sample symbolizes after go test deletes the binary. Do not propose a retry loop, a
+    timeout knob, a box-wide process scan, or treating D-053's stop-the-world toy as the cause.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
