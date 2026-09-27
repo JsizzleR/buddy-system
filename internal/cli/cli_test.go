@@ -509,6 +509,10 @@ func TestMain(m *testing.M) {
 	// exits an orphan within about a second and starts a watchdog that ends
 	// a wedged one (D-053). In the watchdog process it never returns.
 	testguard.Arm()
+	// Before any fixture runs git: nothing of git's local environment may
+	// reach it, or `git -C <tmp>` writes into whatever repository an
+	// inherited GIT_DIR names (#49, testguard/gitenv.go).
+	testguard.ScrubGitEnv()
 	// Guard: the suite shells out to git; make its absence loud, not flaky.
 	if _, err := exec.LookPath("git"); err != nil {
 		fmt.Fprintln(os.Stderr, "cli tests require git on PATH")

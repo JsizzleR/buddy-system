@@ -42,7 +42,8 @@ used platform.
   `beat`, `idle`, `busy`, `bye`), the git commit gate (`commit-gate`, `commitgate.go`), and the
   ONE place that reads a Claude Code transcript (`transcript.go`: the last
   turn's token counts for the roster, never any message text).
-- `internal/testguard` — `Arm()`, the first statement of `internal/cli`'s TestMain: ends a
+- `internal/testguard` — `ScrubGitEnv()`, in the TestMain of every package that runs git
+  (D-057: nothing of git's local environment reaches a fixture). `Arm()`, the first statement of `internal/cli`'s TestMain: ends a
   test binary whose `go test` died (in-process ppid poll, exit 3) and, from a watchdog
   process, one that wedged (sample, SIGQUIT, SIGKILL). Test infrastructure only (D-053).
 - `internal/fence` — untrusted-content fencing. Every attacker-influenced value
@@ -113,7 +114,9 @@ Useful knobs: `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
 session's context window, e.g. `1M`/`200k` — DECLARED because it cannot be
 derived: the 1M and 200k Opus variants write the same model string into the
 transcript, so unset means the roster prints the prompt size with no
-percentage), `BUDDY_OSCAR_BIN`. (`BUDDY_LEDGER` is `cost-report.sh`'s knob ONLY — the `buddy`
+percentage), `BUDDY_HANDOFF_AT` (a session's DECLARED handoff size, same syntax, on the one
+process it applies to: `busy` says so on every turn-opening prompt while the last observed
+prompt is at or past it, D-055), `BUDDY_OSCAR_BIN`. (`BUDDY_LEDGER` is `cost-report.sh`'s knob ONLY — the `buddy`
 binary does not read it, and it finds its ledger from the cwd's git common dir.)
 Codex: `CODEX_EFFORT` (default `xhigh`; `max` is a second
 pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
@@ -271,6 +274,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   runs BOTH `UserPromptSubmit` and `Stop`, so a keep-alive ping resets `idle`.
   Scheduled tasks are session-only (not on disk); surviving `--resume` was not
   measured.
+- **A hook run from a LINKED worktree gets an ABSOLUTE `GIT_DIR`** (`<repo>/.git/worktrees/<name>`;
+  from the main checkout it is the relative `.git`). Anything the hook runs inherits it, and
+  `git -C <dir>` does not override it: measured 2026-09-27, a pre-push from a linked worktree
+  sent the test fixtures into the real repository, which came out bare with
+  repositoryformatversion=99, and every session's gate failed closed until the operator fixed
+  `.git/config` by hand (D-057, #49). The suite now unsets git's local env at four layers; keep
+  them all.
 - Git, for anything touching hooks: `--name-only` **quotes** non-ASCII paths (use
   `-z`); rename detection reports only the destination (`--no-renames` gives
   both); `diff.relative=true` in a user config silently makes output
@@ -523,6 +533,19 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `hello`'s help line names `--until` alone, `scripts/wake-report.sh` re-measures. A check is
   one tool call but a turn of ~3 requests (USAGE's cost table was corrected). No new verb, no
   pid/task target, no inference, no Stop-hook nudge; pacing unchanged.
+- **A session that DECLARED a handoff size is told, once per turn, when it has grown past it
+  (D-055, #46).** `BUDDY_HANDOFF_AT` (parsed as `BUDDY_CONTEXT_WINDOW`) on the one process it
+  applies to; `busy` puts one line ahead of the inbox while the LAST OBSERVED prompt of the
+  current incarnation is at or past it. Never on beat; refuses nothing; infers no role.
+- **A coordinator opens its own lanes with the harness; buddy launches and ends nothing (D-056,
+  #47).** herdr `tab create` + `agent start` (honours `--session-id`, `--env`; lanes start in
+  manual mode) or `claude --bg` (ignores `--session-id`). The skill's "Running a fleet": only as
+  many lanes as the operator allowed, never a more permissive mode than the launcher's, the brief
+  rides the launch, `msg` after hello, ending a lane is the operator's act, handoff by file +
+  `orchestrator` claim. `buddy spawn`/`exit` (#22) and `buddy expect` were cut.
+- **The test suite never runs with git's local environment (D-057, #49).** pre-push, check.sh,
+  lib.sh and each git-running package's TestMain (`testguard.ScrubGitEnv`, gated) unset
+  `git rev-parse --local-env-vars`.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

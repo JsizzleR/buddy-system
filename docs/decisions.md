@@ -3512,6 +3512,136 @@ mail, the note dropped, delivery marked before the write, the recipe pointer ren
 (a declared-but-silent busy that returns before the drain; the wrong event name when the note
 prints), and a `Live()` guard.
 
+## D-056 — A coordinator opens its own lanes with the harness, and buddy stays out of it
+
+2026-09-27 · issue #47 (reopens #22's measurement, not its decline)
+
+**What was wrong** — The operator asked whether an orchestrator could open its own sessions as
+work needs them, including a successor orchestrator when its context passes 500k. In one fleet
+repo over 15 days (173 sessions), every session had been opened by hand. There were 326 bare
+`claude` launches in shell history, 0 with a prompt argument and 0 with `--model` or `--name`.
+Briefing was done by typing: 98 first prompts within ten minutes, 9 pasted briefs of 1.2–5.6 KB
+(three identical, pasted into three panes), 8 prompts asking the orchestrator to put a brief on
+the clipboard, and 37 "I opened another session" notices. That came to about 3.1 minutes per
+session opened. #22 declined `buddy spawn` and `buddy exit` (a supervisor is out of scope) and
+left open whether the harness surface would do. Nothing had measured it, and the skill said
+nothing.
+
+**Measured (2026-09-27, from inside Claude Code sessions in auto mode; every call allowed)** —
+- `herdr tab create --workspace <ws> --cwd <repo> --label <l> --env K=V --no-focus`, then
+  `herdr agent start <l> --kind claude --pane <id> -- -n <l> --session-id <uuid> "<brief>"`,
+  opens an interactive lane in a new tab. It honours `--session-id`, `--env` reaches the lane's
+  process (`ps eww`), and its `hello` gives it a roster row with `pane herdr:…`. It started in
+  **manual** permission mode. `herdr pane close` ended it, `bye` ran, and the row went `ended`
+  within seconds.
+- `claude --bg -n <l> "<brief>"` starts a background session. It runs the hooks and prints
+  `backgrounded · <8hex> · <l>`, it **ignores** `--session-id`, and `claude stop` ended it through
+  `bye`. It refuses an untrusted workspace. `claude stop` cannot end an interactive lane.
+- `claude -p --session-id <uuid>` reaches `hello` under exactly that id.
+- `claude agents --json` lists every session with `sessionId`, `name`, `kind`, `status`, `pid`,
+  `cwd` and `waitingFor`, with no TTY.
+- `buddy msg` to an id that has not said hello is refused, loudly, not queued.
+
+**The rule** — The skill's "Running a fleet" teaches it:
+- Open lanes with the harness, under the launcher's own permission rules. Open only as many as
+  the operator allowed, and give a lane no more permissive a mode than the launcher has.
+- The brief rides the launch, as a pointer. Message the lane once `hello` has registered it.
+- Ending a lane is the operator's act. A coordinator closes one only on the operator's own word.
+- The successor handoff runs on existing primitives: a handoff file named in the `orchestrator`
+  claim's description (D-030), `msg` and a wake, release, and the successor re-claims. That is
+  the path the fleet's one clean succession took (43 s, no operator prompt). The signal to start
+  it is D-055's `BUDDY_HANDOFF_AT`, launched with the coordinator's tab.
+
+**Considered and cut** —
+- *`buddy spawn` / `buddy exit` (#22).* Still declined. The harness already does the launch
+  with one command, and a verb that launched would make buddy a supervisor. A launch or an exit
+  reachable on a relayed instruction is #20's hazard, and here it costs money too: a lane's first
+  request writes about 60k tokens of cache.
+- *`buddy expect <id>`*, to queue a brief for a session before its hello. Measured
+  unnecessary. The brief rides the initial prompt, and the launcher knows the id (chosen with
+  `--session-id` in herdr, printed by `--bg`). `hello` lands within seconds, `claude agents
+  --json` shows a lane that never arrived, and a premature `msg` is refused loudly, not lost.
+- *Launching only with `--bg`.* The operator's fleet runs one pane per lane and approves tool
+  calls in panes (115 ack prompts over the window). A background lane has no pane until
+  someone attaches, so herdr comes first and `--bg` is the fallback.
+
+**Not measured** — whether a lane launched with `--permission-mode` behaves under the
+operator's settings as the operator expects (the recipe leaves the choice to the operator), and
+any launcher other than herdr.
+
+**Test shape** — Prose only. The skill gate reads every `buddy <verb> --flag` in the section
+against the usage table (`buddy claim --desc --scope`, `release`, `who`, `status`, `msg`). The
+`herdr` and `claude` commands are the harness's, and a reviewer ran each verbatim in a new
+herdr tab with Haiku lanes.
+
+## D-057 — The test suite never runs with git's local environment
+
+2026-09-27 · issue #49
+
+**What happened** — To test exactly the commits being pushed, and not a peer's half-written
+files in the shared checkout, a session pushed from a throwaway LINKED worktree
+(`git worktree add --detach`). The pre-push hook ran the hermetic tier from it. Git runs a hook
+with `GIT_DIR` set, and in a linked worktree the value is absolute
+(`<repo>/.git/worktrees/<name>`). Nothing between the hook and the test binaries removed it.
+The fixtures' `git -C <tmp> …` inherited it, and `-C` does not override an absolute `GIT_DIR`, so
+every fixture ran against the real repository:
+- the refused-repository fixture (`discovery_test.go`) wrote `core.bare = true` and
+  `core.repositoryformatversion = 99` into the real `.git/config`, after which every git command
+  in the checkout died ("Expected git repo version <= 1, found 99");
+- the claim gate then failed closed for every session in the repo, exactly as invariant 3
+  requires. It refused Bash and Edit alike, so the session that caused it could not repair it,
+  and the operator restored the two values by hand;
+- fixtures created two linked worktrees and their branches (`wt`, `wtB`) in the real `.git`
+  and committed onto the pushing worktree's detached HEAD. They were pruned and deleted.
+
+The tier went red, so the push was blocked and main was untouched. It had never bitten from the
+main checkout, only because there a hook's `GIT_DIR` is the relative `.git`, which resolves
+inside each fixture's own temp dir. CLAUDE.md already said `GIT_*` leaks through hooks, in the
+other direction: a hook's child git needing it. This is a test suite running inside a hook.
+
+**The rule** — Nothing of git's local environment (`git rev-parse --local-env-vars`, united
+with a fixed copy of it) reaches the suite, at four layers, since a guard's scope is every path
+that bypasses it:
+- `.githooks/pre-push` unsets it after discovery and the local hook, just before the tier.
+- `scripts/check.sh` unsets it as its first act, for any caller.
+- `scripts/lib.sh` unsets it when sourced, for a done-check run on its own inside some other
+  hook.
+- `testguard.ScrubGitEnv()` runs in the `TestMain` of every package that runs git (`cli`,
+  `buddylist`, `testguard`), for a `go test` started from inside any hook: a machine's own
+  `hooks.local`, a `rebase --exec`, an editor's. A test that needs `GIT_DIR` sets it with
+  `t.Setenv` after the scrub.
+
+The fixed copy is there because the one git that cannot answer `--local-env-vars` may be the one
+pointed at a broken repository. It is a union, never the only source, and a test fails when git
+lists a name the copy lacks.
+
+**Considered and cut** —
+- *Stripping `GIT_*` wholesale.* That takes `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM` and the
+  like with it, which a fixture may legitimately depend on. The local list is git's own definition
+  of "which repository", and a test holds a non-local name surviving.
+- *Only the hook.* It covers the path this took, and nothing else that runs `go test`.
+- *Rewriting every fixture's git helper to set `cmd.Env` itself.* Eight files spawn git, and
+  production code the tests drive in-process spawns more. The process-level scrub covers all of
+  them at once, and the gate stops a ninth file from arriving without it.
+- *Forbidding pushes from a linked worktree.* The push was a reasonable act, and a hook that
+  cannot run safely from every worktree is the defect.
+
+**Test shape** — `testguard`: the scrub clears every listed name and leaves a non-local one;
+with no git on `PATH` the fixed copy still clears `GIT_DIR`; the copy covers everything git
+lists; and end to end, a fixture-style `git -C <tmp> init` + `config core.bare true` under an
+inherited absolute `GIT_DIR` reaches a stand-in "real" repository (the control, proving the leg
+is armed on this machine's git), and under the scrub does not. `check-pre-push.sh` QA-6: a REAL
+push from a linked worktree of a throwaway repo. First a raw hook records its env and must see
+an absolute `GIT_DIR` (the control; if a future git stops leaking it, the leg says to re-derive).
+Then the real hook, its tier stubbed to record its env and the repository it finds, and none of
+the local names may appear. The tier must still find the pushed worktree from its cwd. QA-7:
+sourcing `lib.sh` clears an inherited `GIT_DIR`. `check.sh`: a source-shape gate fails any
+package that runs git (in a test, or in code its tests drive) without a `ScrubGitEnv()`
+statement in a `_test.go`, with a planted three-package control: no scrub, a scrub only in a
+comment, a real scrub. Mutants, each watched red: the hook's unset removed (QA-6), `cli`'s scrub
+removed (the gate names `internal/cli`), the scrub a no-op (four testguard tests), `lib.sh`'s
+unset removed (QA-7).
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
