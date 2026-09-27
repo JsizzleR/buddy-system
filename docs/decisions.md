@@ -3258,6 +3258,10 @@ blocks writing to a dead stderr.
   `GODEBUG=asyncpreemptoff=1`, a call-free loop, and `runtime.GC()`) gives exactly the #43
   shape: orphaned, ppid 1, ~81% of a core, alive at 3× its timeout. The CAUSE in cli.test is
   still unknown; this reproduces the class.
+  *Superseded in part by D-061 (#53):* the first live occurrence to be sampled was not the test
+  binary at all. It was a `-race` forkExec's child, stuck in ThreadSanitizer before exec, with
+  one thread and the parent's argv. #43's orphans had that shape too. The stop-the-world wedge
+  above is still guarded, but it was never shown to be what happened.
 - **Refuted: RLIMIT_CPU as the wall.** The kernel sends SIGXCPU at the soft limit (a spinning
   `sh` died of it in 2 s), but the Go runtime handles and drops SIGXCPU, and exceeding the hard
   limit sent no SIGKILL: soft 3 s / hard 6 s, still spinning 30 s later.
@@ -3944,6 +3948,118 @@ and not fenced; `MarkIdle` ignoring the fence, dating by the fence, or not check
 `since`; the superseded check off, never found, or matching any older prompt; the pending base
 not written. Equivalent, measured: the found path passing a zero fence, since `MarkIdle` now
 fences a dated mark by its own date.
+
+## D-061 — A `-race` forkExec can leave its child stuck before exec; the watchdog ends it
+
+2026-09-27 · issue #53
+
+**What was wrong** — A plain `sh scripts/check.sh` (not a hook) timed out in its `-race` leg:
+`internal/cli` took 660 s, with one goroutine in `syscall.forkExec` → `readlen` under a
+`git rev-parse`. Afterwards a process with the test binary's argv sat orphaned, at ~96% of a
+core, for 44 minutes. D-053's watchdog had exited without sampling or signalling anything.
+It was the third forkExec → readlen hang. CLAUDE.md blamed the first two on the pre-push hook
+putting CLT's libexec git first on PATH. This one was outside any hook, through `/usr/bin/git`
+(a 12-byte exec path in the dump).
+
+**Measured** (go1.26.4, darwin/arm64):
+- The orphan had ONE thread. A live Go test binary has many, and a process fresh from `fork` has
+  one. A `go test -race -c` build of the exact tree symbolizes its only stack as
+  `…revParse` → `os/exec.(*Cmd).Start` → `syscall.forkExec` → **`syscall.forkAndExecInChild`**
+  → `rawSyscall` → **`__tsan::TraceSwitchPartImpl`** → `cthread_yield` → `swtch_pri`. It was the
+  FORK CHILD, which never exec'd. (A non-race rebuild gave nonsense frames: symbolize against the
+  build that ran.)
+- Reproduced in a race toy: 8 goroutines forking `/usr/bin/true` while 32 others generate race
+  traffic. All 8 forkers hung within 170 s (104,351 forks). The 8 leftovers were orphaned, state
+  R, one thread each, with the parent's argv, in `forkAndExecInChild` → `__tsan::SlotLock` → a
+  `sched_yield` spin. CONTROL: the same toy without `-race` made 356,378 forks and 0 hung.
+- So the child takes ThreadSanitizer's slot lock, which another parent thread held at the
+  instant of fork. That thread does not exist in the child, and nothing will ever release the
+  lock. The parent waits in `readlen` for an exec that never comes. It happens in `-race` builds
+  only, and more often under trace traffic (load). It is not git, PATH, CLT or the hook.
+- Why D-053's watchdog did nothing: the child inherited the watchdog pipe's write end, and
+  close-on-exec closes it only AT exec. So no EOF came. The parent hit its `-test.timeout`,
+  panicked and EXITED normally (the dump printed). The watchdog's orphan arm then read its target
+  as gone, and counted nothing. At the 2× wall, `stop` could not identify the target, sent
+  nothing and returned. The watchdog that was left, 16 s older than the orphan, was the parent's.
+
+**The rule** — A HOLDER arm, checked before the other two. When the target is gone (no process,
+or another start time) and the pipe is still open for `orphanGrace` polls, a child of the target
+that never exec'd holds the write end. While the target lives, the watchdog records the
+target's children in ITS OWN process group whose exec path is the target's (`groupKids`,
+`kern.proc.pgrp` + `kern.proc.procargs2`). A child that exec'd git carries git's path; a
+fork-only child carries the parent's. Once the target is gone, it ends those that are still the
+process it saw (same start time), are ORPHANED (ppid 1), still carry the target's exec path,
+are still in its group, and are not itself (`pickHolders`). It samples each, sends SIGQUIT, then
+SIGKILL, re-checking start time, exec path and group before every step. It writes ONE report,
+after every process is done. When the wall or orphan arm ends a wedged TARGET, its holders are
+ended the same way before that report. Orphanhood is checked once, when the holders are picked.
+A re-check before each signal was built and cut: on darwin reparenting only ever goes to launchd,
+and a reused pid fails the start time. Its mutant survived every leg. A holder in another process group is never touched. It
+cannot be found, and if it keeps the pipe open the watchdog reports and exits.
+
+Why ending a LEGITIMATE same-binary child is safe (a testguard helper the target re-exec'd, not
+a stuck fork): it was the target's own child, it is this same test binary, its parent is gone,
+and it is still running after the test run that started it ended. A helper that exec'd closed
+the pipe at exec, so it is only swept up because something in the group still holds the pipe.
+Either way it is a test process that outlived its run, which is the leak this guard exists to
+end. A test binary never owns anything a later run needs.
+
+The TARGET opens its executable before it starts the watchdog and hands it over as fd 3, which
+the watchdog holds; symbolize reads the pclntab through `/dev/fd/N`. `go test` deletes the binary when it exits, and
+an unsymbolized sample names nothing. The target and any child it forked are the same binary.
+
+**What the Codex code pass changed** (five findings, each now a test, watched red against the
+first cut):
+- A child seen between fork and exec (every git child is, for an instant) execs, or leaves the
+  group, before the arm acts. It was still picked. The exec path and group are now re-checked.
+- The report was written after EACH holder. A dead stderr (the #53 case) killed the watchdog
+  with its first write, before the second holder. There is now one report, last.
+- The remembered list was never pruned, so after 64 children had come and gone no new one was
+  recorded. Gone entries are now dropped before the cap.
+- The wall and orphan arms returned after ending the target, leaving the holder its death
+  orphaned. They now end the holders too.
+- The watchdog opened the executable itself, racing its deletion. The target now opens it first.
+Also from that pass: the target is re-read after enumerating its children, so a pid reused
+mid-poll does not lend its children to the list, and the report no longer says each holder
+"never exec'd" (a re-exec'd helper can be one).
+
+**Limits, accepted** — A child forked after the last poll before the target died is not seen,
+and not ended. A target that could not be identified at start, or whose exec path the kernel
+would not give, turns the holder arm off. With no wall, such a watchdog then waits for EOF.
+Three failed lookups of a LIVE target read as "gone": nothing is picked (its children are not
+orphaned), the watchdog says so and stops guarding it.
+
+**Cut** — Mitigating the ThreadSanitizer bug in this repo. It is upstream, and a retry loop or a
+timeout knob hides it (CLAUDE.md). Whether to file it upstream, with the toy as the repro, is the
+operator's call. Also cut: listing every process on the box (`kern.proc.all`) to find holders.
+It would reach other groups and other runs; the group plus the target's own child list is the
+fence.
+
+**Test shape** — `testguard_test.go`, each written to fail first:
+- `TestWatchdogEndsTheChildAnExitedTargetLeftHoldingItsPipe`: a target spawns a same-binary
+  holder that inherits the pipe, in its own group, and exits normally. Red before the fix (the
+  holder was alive 30 s later, the #53 failure). Green: the holder is sampled and gone. The
+  negatives beside that control, both untouched: a same-binary holder in ANOTHER group, and an
+  orphaned in-group child that exec'd `/bin/sleep`.
+- `TestPickHolders`: a table covers the orphaned child (picked), one with a live parent, a
+  reused pid, an exited one and the watchdog itself (none picked). On darwin a child always
+  reparents to launchd when its parent dies (no subreaper), so a non-orphaned candidate cannot
+  be built with real processes. The table is where that guard is exercised.
+- `TestWatchdogSymbolizesAfterTheBinaryIsDeleted`: the wedge helper runs from a COPY of the test
+  binary, deleted once it arms. Red before the fix (`???` frames). Green: the sample names
+  `spinForever`.
+Mutants, each pass with an unmutated control run green first. Watched red: the holder arm
+dropped; `kern.proc.all` in place of the group; the exec-path filter dropped (the exec'd
+`sleep` child was killed); `pickHolders` without its orphan, start-time, self, exec-path or
+group rule; the held image unused; the image not handed over by the target; a report written
+before the next holder (the second in-group holder survived its dead stderr); the arms not
+ending the holders of a target they ended; and `remember` not pruning. `stop`'s per-signal
+ORPHAN re-check survived and was cut, as above: it guards a state that cannot occur. Two
+guards survive single mutation and are kept, because their windows are real but cannot be
+staged deterministically. The per-step exec-path and group re-check covers a child that execs
+during the 2 s `sample`: dropped together with the pick-time check, the leg fails, since the
+children that exec'd or left the group were killed, and each alone holds the leg. The
+target's re-read after enumeration covers a pid reused mid-poll.
 
 ## Known unfixed
 

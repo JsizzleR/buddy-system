@@ -3,6 +3,7 @@
 package testguard
 
 import (
+	"bytes"
 	"debug/gosym"
 	"debug/macho"
 	"os"
@@ -27,6 +28,55 @@ func procOf(pid int) (ppid int, born int64, ok bool) {
 	}
 	born = kp.Proc.P_starttime.Sec*1_000_000 + int64(kp.Proc.P_starttime.Usec)
 	return int(kp.Eproc.Ppid), born, true
+}
+
+// groupKids lists the processes in process group pgid whose parent is parent
+// and whose exec path is exe: the target's children that are still THIS
+// binary. A child that exec'd git (or anything) carries another exec path; the
+// one a -race forkExec left stuck before exec carries the target's, because a
+// fork copies the parent's argument block (#53: the orphan had the parent's
+// argv exactly). kern.proc.pgrp is one sysctl over the group, which `ps -g`
+// reads; the group is the target's, inherited, and only its members can match.
+func groupKids(pgid, parent int, exe string) []kid {
+	kps, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)
+	if err != nil {
+		return nil
+	}
+	var out []kid
+	for i := range kps {
+		kp := &kps[i]
+		pid := int(kp.Proc.P_pid)
+		if int(kp.Eproc.Ppid) != parent || execPath(pid) != exe {
+			continue
+		}
+		out = append(out, kid{pid: pid, born: kp.Proc.P_starttime.Sec*1_000_000 + int64(kp.Proc.P_starttime.Usec)})
+	}
+	return out
+}
+
+// procAll is procOf plus the exec path and the process group: everything a
+// holder must still match before it is sampled or signalled (D-061).
+func procAll(pid int) (ppid int, born int64, exe string, pgid int, ok bool) {
+	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		return 0, 0, "", 0, false
+	}
+	born = kp.Proc.P_starttime.Sec*1_000_000 + int64(kp.Proc.P_starttime.Usec)
+	return int(kp.Eproc.Ppid), born, execPath(pid), int(kp.Eproc.Pgid), true
+}
+
+// execPath is the exec path in pid's argument block (kern.procargs2), or ""
+// when the kernel will not say.
+func execPath(pid int) string {
+	raw, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil || len(raw) <= 4 {
+		return ""
+	}
+	rest := raw[4:]
+	if i := bytes.IndexByte(rest, 0); i >= 0 {
+		return string(rest[:i])
+	}
+	return ""
 }
 
 // frameRE is a frame `sample` could not name: the binary has no symbol table,

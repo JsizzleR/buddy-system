@@ -69,6 +69,25 @@
 // at the default traceback level it shows only the thread the signal landed
 // on — measured, an idle M, not the spinning one.
 //
+// #53 (D-061) CORRECTED WHAT WEDGES. The first live occurrence to be sampled was
+// NOT the test binary: it was the CHILD of a -race forkExec, stuck before exec.
+// One thread; symbolized against the -race build, syscall.forkAndExecInChild ->
+// __tsan::TraceSwitchPartImpl -> sched_yield, a spin on ThreadSanitizer's slot
+// lock that another parent thread held at the instant of fork and that nothing
+// in the child will ever release. Reproduced in a race toy (8 of 8 forking
+// goroutines hung in 170 s; 0 in 356,378 forks without -race). The parent sat
+// in readlen waiting for an exec that never came, hit its -test.timeout,
+// panicked and EXITED normally. The child had inherited this watchdog's pipe
+// (close-on-exec closes it only AT exec), so no EOF came; the target was gone,
+// so the orphan arm never counted and the wall's identity check sent nothing.
+// Hence the HOLDER arm: the target gone and the pipe still held means a child
+// of the target that never exec'd holds it, and the watchdog ends the orphaned
+// same-binary children of the target it saw while the target lived, in its
+// own process group (holderScope.end). The stop-the-world toy below is still a
+// wedge this guards, but it was never what the live orphans were. And the
+// executable is opened at start and held, because go test deletes it and the
+// sample is worthless unsymbolized.
+//
 // Cut: an in-process hard wall (time.AfterFunc(2*timeout, os.Exit)), which the
 // issue proposed. With a healthy scheduler it duplicates testing's own alarm,
 // and in the wedge it cannot fire. Also cut: finding the cause of the wedge. No
@@ -99,6 +118,7 @@ const (
 	envTarget   = "BUDDY_TESTGUARD_TARGET"   // the target's pid
 	envPPID     = "BUDDY_TESTGUARD_PPID"     // the target's parent when it armed
 	envWall     = "BUDDY_TESTGUARD_WALL"     // the target's wall, a Duration; 0 = none
+	envImage    = "BUDDY_TESTGUARD_IMAGE"    // "3": fd 3 is the executable, opened by the target
 )
 
 var (
@@ -121,6 +141,13 @@ var (
 	pipeW *os.File
 	// watchdogPID is the watchdog's pid, 0 when none started. A test reads it.
 	watchdogPID int
+	// exeImage is the watchdog's own executable, opened when it starts and
+	// held (#53): go test deletes the binary when it exits, and symbolize
+	// reads the pclntab through this descriptor after the name is gone. The
+	// target and any child it forked are the same binary.
+	exeImage *os.File
+	// maxKids bounds the children the watchdog remembers.
+	maxKids = 64
 )
 
 // Arm must be the first statement of TestMain. In a watchdog process it never
@@ -204,7 +231,21 @@ func startWatchdog(ppid int, wall time.Duration) error {
 	// reading it. Stdout stays /dev/null: the test binary's stdout is what
 	// `go test` parses.
 	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	// The executable, opened HERE and handed over as fd 3 (#53): opened by
+	// the watchdog itself, it raced the name's deletion — the target could
+	// arm, and a leg or go test delete the file, before the watchdog ran its
+	// first line (Codex code pass, D-061). Opened before the watchdog exists,
+	// it cannot.
+	img, imgErr := os.Open(self)
+	if imgErr == nil {
+		cmd.ExtraFiles = []*os.File{img}
+		cmd.Env = append(cmd.Env, envImage+"=3")
+	}
+	err = cmd.Start()
+	if img != nil {
+		img.Close()
+	}
+	if err != nil {
 		r.Close()
 		w.Close()
 		return err
@@ -221,6 +262,12 @@ func watchdog() {
 	target, _ := strconv.Atoi(os.Getenv(envTarget))
 	ppid, _ := strconv.Atoi(os.Getenv(envPPID))
 	wall, _ := time.ParseDuration(os.Getenv(envWall))
+	if os.Getenv(envImage) == "3" {
+		// Inherited descriptors are not close-on-exec; `sample` need not
+		// see this one.
+		syscall.CloseOnExec(3)
+		exeImage = os.NewFile(3, "test binary")
+	}
 	gone := make(chan struct{})
 	go func() {
 		io.Copy(io.Discard, os.Stdin)
@@ -232,8 +279,14 @@ func watchdog() {
 		return
 	}
 	_, born, identified := procOf(target)
+	// The exec path the target's un-exec'd children carry is the target's
+	// own, read now while it lives, and the group is the one we share. An
+	// empty path (the kernel would not say) turns the holder arm off: no
+	// child can match it.
+	h := holderScope{exe: execPath(target), pgid: syscall.Getpgrp(), self: os.Getpid()}
+	var kids []kid
 	start := time.Now()
-	orphaned := 0
+	orphaned, targetGone := 0, 0
 	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
 	for {
@@ -242,37 +295,149 @@ func watchdog() {
 			return
 		case <-tick.C:
 		}
-		if wall > 0 && time.Since(start) >= wall {
-			stop(target, born, identified, gone, fmt.Sprintf("test binary pid %d has run %s, twice its -test.timeout", target, wall))
-			return
+		p, b, ok := procOf(target)
+		// The target is gone but its pipe is not: a child of it that never
+		// exec'd holds the write end (#53). Before the other arms, which can
+		// only judge a target that is still there. A lookup that fails three
+		// polls running is taken for gone; if the target in fact lives, its
+		// children are not orphaned, nothing is picked, and the watchdog
+		// says so and stops guarding it (accepted: the kernel answering
+		// kern.proc.pid for a live pid is the one thing every arm assumes).
+		if identified && (!ok || b != born) {
+			if targetGone++; targetGone >= orphanGrace {
+				report(h.end(target, kids, gone))
+				return
+			}
+			continue
 		}
-		if p, _, ok := procOf(target); ok && p != ppid {
-			orphaned++
+		targetGone = 0
+		if identified && h.exe != "" {
+			now := groupKids(h.pgid, target, h.exe)
+			// The target could have died, and its pid been reused by a
+			// same-binary process in this group, between the check above
+			// and the enumeration: re-read it, and keep the list only if it
+			// is still ours.
+			if _, b2, ok2 := procOf(target); ok2 && b2 == born {
+				kids = remember(kids, now, procOf)
+			}
+		}
+		why := ""
+		if wall > 0 && time.Since(start) >= wall {
+			why = fmt.Sprintf("test binary pid %d has run %s, twice its -test.timeout", target, wall)
+		} else if ok && p != ppid {
+			if orphaned++; orphaned >= orphanGrace {
+				why = fmt.Sprintf("test binary pid %d is orphaned and still running %d polls after its own guard should have exited it", target, orphaned)
+			}
 		} else {
 			orphaned = 0
 		}
-		if orphaned >= orphanGrace {
-			stop(target, born, identified, gone, fmt.Sprintf("test binary pid %d is orphaned and still running %d polls after its own guard should have exited it", target, orphaned))
+		if why != "" {
+			rep := stop(target, born, identified, nil, gone, why)
+			// Ending the target orphans whatever of its children still holds
+			// the pipe; they are ended too, before anything is written
+			// (Codex code pass, D-061).
+			if alive(gone) && identified && h.exe != "" {
+				rep += h.end(target, kids, gone)
+			}
+			report(rep)
 			return
 		}
 	}
 }
 
+// report writes the watchdog's account, once, after every process it acted on
+// has been signalled: stderr may be a dead pipe, and a write there ends the
+// watchdog (SIGPIPE) — which is fine only when there is nothing left to do.
+func report(s string) {
+	if s != "" {
+		os.Stderr.WriteString(s)
+	}
+}
+
+// remember adds the children not already known (pid AND start time) and drops
+// the known ones that are gone or replaced, keeping at most maxKids live
+// entries: a cap on the ones still there, not a lifetime count (Codex code
+// pass: a never-pruned list stopped admitting children after 64 had come and
+// gone, and a holder forked after that was never seen).
+func remember(known, now []kid, look func(int) (int, int64, bool)) []kid {
+	kept := known[:0]
+	for _, k := range known {
+		if _, b, ok := look(k.pid); ok && b == k.born {
+			kept = append(kept, k)
+		}
+	}
+	for _, k := range now {
+		dup := false
+		for _, o := range kept {
+			if o == k {
+				dup = true
+				break
+			}
+		}
+		if !dup && len(kept) < maxKids {
+			kept = append(kept, k)
+		}
+	}
+	return kept
+}
+
+// holderScope is what a holder must still be to be ended: the target's exec
+// path, the watchdog's process group, and not the watchdog itself.
+type holderScope struct {
+	exe  string
+	pgid int
+	self int
+}
+
+// end ends what holds the pipe of a target that has exited or been stopped:
+// the children picked by pickHolders, each re-checked — same start time, same
+// exec path, same group — before its sample and before every signal, since a
+// child seen between its fork and its exec (every git child is, for an
+// instant) execs, and one can leave the group (Codex code pass, D-061). It
+// returns its account; the caller writes it after everything is done.
+//
+// Why this is safe for a LEGITIMATE child too (a helper the target re-exec'd
+// as the same binary): it was the target's own, it is this same test binary,
+// its parent is gone, and it is still running after the test run that
+// started it ended. A helper that exec'd closed the pipe at exec, so it is
+// only swept up because something in the group still holds the pipe; either
+// way it is a test process that outlived its run — the leak this guard exists
+// to end. A test binary never owns anything a later run needs.
+func (h holderScope) end(target int, kids []kid, gone <-chan struct{}) string {
+	hs := pickHolders(kids, h, procAll)
+	if len(hs) == 0 {
+		return fmt.Sprintf("testguard: test binary pid %d is gone, something still holds its pipe, and no orphaned child of it was seen, so nothing was sent\n", target)
+	}
+	rep := ""
+	for _, k := range hs {
+		still := func() bool {
+			_, b, exe, pg, ok := procAll(k.pid)
+			return ok && b == k.born && exe == h.exe && pg == h.pgid
+		}
+		rep += stop(k.pid, k.born, true, still, gone, fmt.Sprintf("test binary pid %d is gone and its child pid %d, the same binary, orphaned, still holds its pipe (a -race forkExec stuck before exec is the measured cause, D-061)", target, k.pid))
+	}
+	return rep
+}
+
 // stop records a native sample of the target, SIGQUITs it, and SIGKILLs it if
 // that did not end it — each step only while the pipe is open AND the pid still
-// carries the start time the watchdog read, so nothing but the target is ever
-// sampled or signalled. What it did is reported LAST: stderr may be a dead pipe
+// carries the start time the watchdog read (and, for a holder, still passes
+// still), so nothing but the process identified is ever sampled or signalled.
+// (A holder is not re-checked for being orphaned: pickHolders required it,
+// reparenting on darwin only ever goes to launchd, and a reused pid fails the
+// start time. That re-check was built and cut — its mutant survived every leg.)
+// It RETURNS its account instead of writing it: stderr may be a dead pipe
 // (SIGPIPE kills the watchdog on that write) or a live one nobody drains (a
-// blocked write), and neither may stand between a wedged target and its
-// signal. After the signals, either costs nothing.
-func stop(target int, born int64, identified bool, gone <-chan struct{}, why string) {
+// blocked write), and neither may stand between a wedged target, or the next
+// holder, and its signal.
+func stop(target int, born int64, identified bool, still func() bool, gone <-chan struct{}, why string) string {
 	path := filepath.Join(os.TempDir(), fmt.Sprintf("buddy-testguard-%d-%d.sample.txt", target, time.Now().Unix()))
 	ours := func() bool {
 		if !alive(gone) || !identified {
 			return false
 		}
 		_, b, ok := procOf(target)
-		return ok && b == born
+		return ok && b == born && (still == nil || still())
 	}
 	did := "it could not be identified, so nothing was sent"
 	if ours() {
@@ -289,15 +454,28 @@ func stop(target int, born int64, identified bool, gone <-chan struct{}, why str
 		}
 		syscall.Kill(target, sig)
 		sent += " " + sig.String()
-		select {
-		case <-gone:
-		case <-time.After(5 * time.Second):
-		}
+		ended(target, born, gone, 5*time.Second)
 	}
 	if sent != "" {
 		did += "; sent" + sent
 	}
-	fmt.Fprintf(os.Stderr, "testguard: %s; %s\n", why, did)
+	return fmt.Sprintf("testguard: %s; %s\n", why, did)
+}
+
+// ended waits until the pipe closes or the process is no longer the one
+// identified, at most limit. Not the pipe alone: a holder in another group
+// can keep it open after this one has gone.
+func ended(pid int, born int64, gone <-chan struct{}, limit time.Duration) {
+	deadline := time.Now().Add(limit)
+	for time.Now().Before(deadline) {
+		if !alive(gone) {
+			return
+		}
+		if _, b, ok := procOf(pid); !ok || b != born {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func alive(gone <-chan struct{}) bool {
@@ -332,7 +510,37 @@ func sample(pid int, path string, gone <-chan struct{}) {
 		cmd.Process.Kill()
 		return
 	}
-	if exe, err := os.Executable(); err == nil {
+	if exeImage != nil {
+		// The name may already be gone (go test deletes the binary); the
+		// descriptor is not, and /dev/fd reopens it.
+		symbolize(path, "/dev/fd/"+strconv.Itoa(int(exeImage.Fd())))
+	} else if exe, err := os.Executable(); err == nil {
 		symbolize(path, exe)
 	}
+}
+
+// kid is a process the watchdog saw as its target's same-binary child, with
+// the start time that makes the pid mean that process (D-025).
+type kid struct {
+	pid  int
+	born int64
+}
+
+// pickHolders is which of the children the watchdog saw it may end once the
+// target is gone and the pipe is still held (#53, D-061): each must still be
+// the process it saw (same start time), ORPHANED (reparented to launchd),
+// still the target's binary, still in the watchdog's process group, and never
+// the watchdog itself. look is procAll, a seam so the rule can be tested on a
+// table.
+func pickHolders(seen []kid, h holderScope, look func(int) (int, int64, string, int, bool)) []kid {
+	var out []kid
+	for _, k := range seen {
+		if k.pid == h.self {
+			continue
+		}
+		if ppid, born, exe, pg, ok := look(k.pid); ok && born == k.born && ppid == 1 && exe == h.exe && pg == h.pgid {
+			out = append(out, k)
+		}
+	}
+	return out
 }
