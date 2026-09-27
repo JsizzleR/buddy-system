@@ -25,6 +25,16 @@ import (
 // delivery" is the word and never "read" or "seen" (D-032): it is evidence of
 // a write into context. A write whose mark then failed is redelivered, and
 // reads here as queued until it is.
+//
+// A QUEUED ROW NAMES ITS WAKE (issue #42's second half). Measured: four
+// recipients sat idle 45–54 minutes with a message queued, and the sender
+// found out only by running `sent` and `sessions` and putting the two
+// together by hand. So a recipient that still has the message queued, and
+// that `msg`'s own rule says needs a wake (D-039: quiet, one live harness
+// process, its socket there), gets the same wake clause here, by the same
+// function on a fresh observation. The issue asked for "after N minutes";
+// no threshold was built, because `msg` prints the same clause at age zero
+// and a threshold would only hide a fact the sender can act on now.
 
 const maxSentList = 10
 
@@ -42,6 +52,7 @@ func cmdSent(args []string, env Env) error {
 	}
 	defer st.Close()
 	now := nowOf(env)
+	w := waker{st: st, env: env, now: now, memo: map[string]string{}}
 
 	if fs.NArg() == 1 {
 		id, err := strconv.ParseInt(strings.TrimPrefix(fs.Arg(0), "#"), 10, 64)
@@ -55,7 +66,7 @@ func cmdSent(args []string, env Env) error {
 		if !ok {
 			return fmt.Errorf("no message #%d", id)
 		}
-		printSent(env, si, now, true)
+		printSent(env, si, now, true, w)
 		return nil
 	}
 
@@ -75,7 +86,7 @@ func cmdSent(args []string, env Env) error {
 		return nil
 	}
 	for _, si := range list {
-		printSent(env, si, now, false)
+		printSent(env, si, now, false, w)
 	}
 	return nil
 }
@@ -83,7 +94,12 @@ func cmdSent(args []string, env Env) error {
 // printSent renders one report: a header line and, when rows is set, one row
 // per addressed session. The sender tag and labels are peer-controlled and
 // fenced; the target of a direct message is shown by its recipient's label.
-func printSent(env Env, si store.SentInfo, now time.Time, rows bool) {
+//
+// A wake rides the row of the session it wakes. Without rows (the list), a
+// direct message carries its one wake on the header line, and a broadcast
+// counts its wakeable sessions and points at the report that names them, so
+// one send stays one line.
+func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 	to := "all"
 	if si.Target != store.AllTarget {
 		to = si.Target
@@ -107,10 +123,24 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool) {
 		}
 		head += "; superseded by " + strings.Join(by, ", ")
 	}
-	fmt.Fprintln(env.Stdout, head)
 	if !rows {
+		var wakes []string
+		for _, r := range si.Recipients {
+			if wk := w.wake(r); wk != "" {
+				wakes = append(wakes, wk)
+			}
+		}
+		switch {
+		case len(wakes) == 0:
+		case si.Target != store.AllTarget:
+			head += "; " + wakes[0]
+		default:
+			head += fmt.Sprintf("; %d addressed session(s) still have it queued and can be woken: buddy sent %d names each wake address", len(wakes), si.ID)
+		}
+		fmt.Fprintln(env.Stdout, head)
 		return
 	}
+	fmt.Fprintln(env.Stdout, head)
 	for _, r := range si.Recipients {
 		label := r.Label
 		if label == "" {
@@ -120,8 +150,34 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool) {
 		if si.Supersedes != 0 {
 			line += fmt.Sprintf("   #%d: %s", si.Supersedes, deliveryWord(r.Original, now))
 		}
+		if wk := w.wake(r); wk != "" {
+			line += "; " + wk
+		}
 		fmt.Fprintln(env.Stdout, line)
 	}
+}
+
+// waker answers, for one addressed session, the D-039 wake clause if it
+// still has the message queued, else "". One observation per session per
+// report: the list names up to ten sends, and a broadcast addresses every
+// live session, so the process register is probed once for each.
+type waker struct {
+	st   *store.Store
+	env  Env
+	now  time.Time
+	memo map[string]string
+}
+
+func (w waker) wake(r store.SentRecipient) string {
+	if !r.Delivered.IsZero() || r.Expired {
+		return ""
+	}
+	wk, seen := w.memo[r.SessionID]
+	if !seen {
+		wk = wakeClause(w.env, observe(w.st, w.env, r.SessionID), w.now)
+		w.memo[r.SessionID] = wk
+	}
+	return wk
 }
 
 // deliveryWord is one message's standing with one session, in the ledger's

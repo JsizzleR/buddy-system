@@ -457,6 +457,7 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   orchestrator reading `msg … | head -1` lost the second-line address and an idle lane sat
   unwoken. Never move it back to its own line. It is ALSO written to stderr (D-052, #42),
   because a sender discarding stdout as a receipt lost it; stderr is empty with no wake.
+  `buddy sent` names the same wake on a queued row, by the same rule; no age threshold.
 - **A SHARED claim may overlap other shared claims and nothing else (D-042, #33).** `claim
   --shared`: shared/exclusive refuse both ways, a slug is one holder, the gate still wants a
   covering claim of your own (claim-first) and returns an exclusive blocker first, a refresh

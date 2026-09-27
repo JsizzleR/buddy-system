@@ -3192,7 +3192,7 @@ tool-kind column, bytes over string and array results, even and odd medians, row
 window with a control, and that no marker text from the fixture is ever printed. The resolved-root
 case bites only where the two spellings differ (macOS `/var`); on Linux CI it passes vacuously.
 
-## D-052 — `msg`'s wake address is also written to stderr
+## D-052 — `msg`'s wake address is also written to stderr, and `sent` names it
 
 2026-09-26 · issue #42
 
@@ -3210,15 +3210,28 @@ is unchanged (D-041), so `| head -1` and a stdout-only redirect still carry it; 
 sees it twice, which costs nothing. The target is fenced as on stdout. With no wake, stderr stays
 empty, so a stderr reader is never told to act on a session that drains on its own.
 
-**What it does not do** — same conditions, same text, same single observation as D-039; buddy
-still wakes nothing, and the wake still carries no content. The issue's optional second half
-(`buddy sent` flagging a long-undelivered message to a recipient quiet the whole time) is
-separable and was not built.
+**Second half: `buddy sent` names the wake too.** The sender in that run found the stuck
+messages only by reading `buddy sent` and `buddy sessions` side by side. Now every recipient
+row still `queued` whose session the same `wakeClause` says needs a wake gets `; to wake it
+now: …` after its standing, from one fresh observation per session per report. In the list (no
+id), a direct send carries its wake on its line; a broadcast says how many of its sessions can
+be woken and that `buddy sent <id>` names each address, so one send stays one line. The issue
+asked for "after N minutes" and "quiet the whole time". Neither was built. `msg` prints the
+same clause at age zero, so a threshold would only hide a fact the sender can act on now.
+"Not seen since the send" cannot differ from "queued" here, because every hook that marks a
+session seen (`beat`, `busy`) also drains its inbox.
+
+**What it does not do** — same conditions, same text as D-039; buddy still wakes nothing, and
+the wake still carries no content. `sent` still prints no body.
 
 **Test shape** — `wake_test.go`: the three quiet cases assert one stderr line with the prefix and
 the socket address and no body; every other case (seen recently, no socket, a regular file,
 process gone, two live processes, ended, broadcast) asserts stderr is empty. Mutant with the
 stderr write dropped: the three quiet legs fail, the rest pass.
+`TestSentNamesTheWakeOfAQueuedQuietRecipient`: a queued direct send and a queued broadcast to
+an idle session with its socket carry the wake (on bravo's row, and on the list line or as a
+count); delivered-then-idle-again, a dead process and a missing socket carry none, on either
+view.
 
 ## Known unfixed
 

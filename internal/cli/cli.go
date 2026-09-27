@@ -2676,7 +2676,7 @@ func cmdMsg(args []string, env Env) error {
 		// ONE observation of the recipient serves the result line AND the
 		// wake clause (D-039, D-041), so the two cannot describe two states of it and
 		// the process register is probed once per send.
-		rcpt = observe(st, env, tgt)
+		rcpt = observe(st, env, tgt.ID)
 		note = sendNote(st, rcpt, tgt, nowOf(env))
 	}
 	id, err := st.Send(tgt, sender, body, opts)
@@ -2902,8 +2902,8 @@ type recipient struct {
 // observe reads the target's row, its idle report and its process register,
 // probing each registered process exactly once. A register that cannot be
 // read is reported as absent, the way the roster does.
-func observe(st *store.Store, env Env, t store.Target) recipient {
-	si, ok, err := st.SessionByID(t.ID)
+func observe(st *store.Store, env Env, sessionID string) recipient {
+	si, ok, err := st.SessionByID(sessionID)
 	if err != nil || !ok {
 		return recipient{}
 	}
