@@ -324,7 +324,12 @@ type hookInput struct {
 	// that reads it is beat's context accounting (internal/cli/transcript.go);
 	// nothing in the safety path has any business in a file the harness owns.
 	TranscriptPath string `json:"transcript_path"`
-	ToolInput      struct {
+	// PromptID names the turn a Stop or a prompt belongs to; the harness
+	// writes the same id as `promptId` on that turn's own user records
+	// (measured, 2.1.283: typed prompts, tool results, peer messages). The
+	// Stop hook uses it to tell its own turn from a newer one (D-060).
+	PromptID  string `json:"prompt_id"`
+	ToolInput struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 		Command      string `json:"command"`
@@ -1360,13 +1365,12 @@ func cmdIdle(args []string, env Env) error {
 	defer st.Close()
 
 	// THE TURN'S OWN END TIME, read from the transcript the hook payload
-	// already names. Two things come of it, and the second is why it is
-	// worth a read here (measured under a millisecond on a 2.3 MB file):
+	// already names. Two things come of it:
 	//
 	//  - `since` dates the turn that ended, not the moment this process got
 	//    scheduled, so a slow hook does not report a session as more
 	//    recently idle than it is;
-	//  - a turn that ended BEFORE this incarnation registered cannot be this
+	//  - a turn that ended before this incarnation registered cannot be this
 	//    incarnation's, which is how the store refuses a Stop delayed across
 	//    a bye and a hello (issue #11).
 	//
@@ -1374,35 +1378,10 @@ func cmdIdle(args []string, env Env) error {
 	// gone idle stops beating, so without this its prompt size would freeze
 	// at its last TOOL CALL and age from there — on exactly the sessions an
 	// orchestrator is choosing between. The end of a turn is also when that
-	// number is largest and most worth having.
-	at := time.Time{}
-	if u, ok := lastUsage(h.TranscriptPath); ok {
-		at = u.At
-		// THE SAMPLE IS FENCED BY THE TURN'S TIME, the fence MarkIdle already
-		// applies below. The transcript is read BEFORE the identity here —
-		// the reverse of beat's order — so a Stop that sampled incarnation
-		// I's turn, then lost its session to a bye and a revival, stamped the
-		// NEW incarnation J with I's footprint and cache tier: RecordContext
-		// checks only that J is current, and it is (Codex design pass,
-		// D-033). A turn that ended before J registered cannot be J's.
-		if si, known, err := st.SessionByID(h.SessionID); err == nil && known && si.Live() && !u.At.Before(si.Started) {
-			_ = st.RecordContext(h.SessionID, si.Incarnation, store.ContextSample{
-				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Effort: u.Effort,
-				Prompt: u.Prompt, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
-				Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
-				Cache5m: u.Cache5m, Cache1h: u.Cache1h, TierAt: u.TierAt,
-			})
-			// THE BASE (D-038): the commit this session's tree was on as the
-			// turn ended, under the same fence as the footprint. Here and not
-			// on beat, which forks no git by design. Best effort: a HEAD that
-			// cannot be read records nothing, and the previous base keeps its
-			// own age.
-			if sha := headOf(h.Cwd); sha != "" {
-				_ = st.RecordBase(h.SessionID, si.Incarnation, sha, u.At)
-			}
-		}
-	}
-	return st.MarkIdle(h.SessionID, at)
+	// number is largest and most worth having — and the harness has not
+	// written it yet when Stop runs, so a prose turn's number is recorded by
+	// the next prompt's busy instead (D-060, idlewait.go).
+	return recordTurnEnd(st, h, env)
 }
 
 // cmdBusy is the OPTIONAL UserPromptSubmit hook: a turn is starting.
@@ -1468,6 +1447,7 @@ func cmdBusy(args []string, env Env) error {
 	// it is buddy's own observation, so it must not sit inside the block the
 	// inbox header marks as operator/peer text. It prints with nothing
 	// queued, which is the one case busy used to be silent in.
+	resampleFootprint(st, h, me, known, env) // the turn that just ended (D-060)
 	note := busyHandoff(st, me, known, env)
 	if note == "" && len(msgs) == 0 {
 		return nil

@@ -137,6 +137,16 @@ type transcriptLine struct {
 	} `json:"message"`
 }
 
+// userLine is the even narrower sliver of a PROMPT or TOOL RESULT record: the
+// three fields that say it is the session's own and when it was written. Its
+// content is never named, so it is never decoded into anything.
+type userLine struct {
+	Type        string `json:"type"`
+	IsSidechain bool   `json:"isSidechain"`
+	Timestamp   string `json:"timestamp"`
+	PromptID    string `json:"promptId"`
+}
+
 // lastUsage returns the newest usable usage record in the transcript at path.
 // Every failure is the same answer — false, meaning "no new observation" —
 // because this runs inside a hook whose verdict it must never change: a
@@ -144,8 +154,51 @@ type transcriptLine struct {
 // does not know, an unparseable timestamp. The caller keeps whatever it
 // recorded last and says how old it is.
 func lastUsage(path string) (usageSample, bool) {
+	r := readTurn(path, "")
+	return r.u, r.ok
+}
+
+// turnRead is what one read of a transcript's tail says about the turn it
+// ends with: the newest usage record, and whether something newer is still
+// waiting for its reply.
+//
+// PENDING IS SEEN IN THE FILE, NOT GUESSED FROM A CLOCK (D-060, #52). At Stop
+// the harness has not yet written the turn's final assistant record: measured
+// on 2.1.283 over 11 Stops (prose turns, tool turns, long output), it was
+// missing at every one and landed 33–83 ms after Stop fired, while the hooks
+// were still running. What IS on disk by then is the turn's own prompt or its
+// last tool result — a `"type":"user"` record — so "the newest user record is
+// newer than the newest usage record" says exactly "the reply to it has not
+// landed", in a prose turn and a tool turn alike, with no threshold to tune.
+// Without it the Stop hook recorded the PREVIOUS request's footprint and dated
+// the idle mark by it: in a prose-only session, the previous turn.
+//
+// A TIE IS PENDING. Two records in one millisecond cannot be ordered by
+// their clocks, and the two wrong answers are not equally wrong: calling a
+// landed reply pending records no footprint for a turn (busy records it at
+// the next prompt), while calling a pending one landed records the previous
+// request as this turn's — the bug this exists to remove.
+//
+// AND THE TURN IS NAMED. `prompt` is the hook's prompt_id; when this turn's
+// own user record is found in the tail and a user record of ANOTHER prompt
+// is newer than it, the session has begun a newer turn — a queued prompt, or
+// a successor incarnation after a bye and a hello — and this Stop is late
+// (`superseded`). Its turn's record not being found at all (an unknown kind
+// of turn, a harness that sends no prompt_id) says nothing, and the time
+// fences apply as before.
+type turnRead struct {
+	u  usageSample
+	ok bool
+	// pendingAt is that unanswered record's own time; zero means nothing is
+	// waiting (or no user record was found in the tail read).
+	pendingAt time.Time
+	// superseded: the named turn's record is on disk behind a newer prompt.
+	superseded bool
+}
+
+func readTurn(path, prompt string) turnRead {
 	if path == "" {
-		return usageSample{}, false
+		return turnRead{}
 	}
 	// A REGULAR FILE, checked before the open. os.Open on a FIFO with no
 	// writer BLOCKS — indefinitely, inside a 100 ms hook — and a directory
@@ -154,29 +207,44 @@ func lastUsage(path string) (usageSample, bool) {
 	// rather than arguing about how it could be reached.
 	fi, err := os.Lstat(path)
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() == 0 {
-		return usageSample{}, false
+		return turnRead{}
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return usageSample{}, false
+		return turnRead{}
 	}
 	defer f.Close()
 	// One escalation, then give up. The second window is not a bigger guess
 	// at "enough": it is the one measured shape the first cannot hold, a
 	// record behind a single oversized tool result.
+	//
+	// The newest user record is taken from the FIRST window that has one,
+	// which is the smallest: it is at the end of the file by construction,
+	// and an escalation only goes looking further back for a usage record.
+	var last lastUser
 	for _, window := range [...]int64{tailBytes, maxTailBytes} {
-		if u, ok := usageInTail(f, fi.Size(), window); ok {
-			return u, true
+		u, ok, lu := usageInTail(f, fi.Size(), window, prompt)
+		if last.at.IsZero() {
+			last = lu
+		}
+		if ok {
+			r := turnRead{u: u, ok: true, superseded: last.superseded}
+			if !last.at.IsZero() && !last.at.Before(u.At) {
+				r.pendingAt = last.at
+			}
+			return r
 		}
 		if window >= fi.Size() {
 			break // the whole file was already read; a second pass reads the same bytes
 		}
 	}
-	return usageSample{}, false
+	// No usage record at all — a session's first turn, before its first reply
+	// lands. A user record here is pending exactly as above.
+	return turnRead{pendingAt: last.at, superseded: last.superseded}
 }
 
 // usageInTail returns the newest usable record within the last `window` bytes
-// of f.
+// of f, and what the newest user record there says (see lastUserOf).
 //
 // THE NEWEST BY TIMESTAMP, not the last one positionally. A transcript is
 // appended to, so the two coincide on every file measured here — which is
@@ -184,7 +252,16 @@ func lastUsage(path string) (usageSample, bool) {
 // Reading the whole window costs a parse per usage-bearing record (a handful,
 // since the prefilter skips the tool results that are most of the bytes) and
 // makes this function's name true of what it returns.
-func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
+//
+// THE USER RECORD IS THE LAST ONE POSITIONALLY, and that difference is paid
+// for: user records are the tool results — most of the bytes — so taking the
+// newest by timestamp would parse every one of them, inside a hook that
+// polls. The last in append order is the harness's own order and costs one
+// parse (a few more only when the last candidates are a subagent's or cut off
+// mid-write). A user record that is out of order by timestamp can only make
+// pending read false where it was true, which leaves the answer the Stop hook
+// gave before D-060: the previous reply, recorded as it always was.
+func usageInTail(f *os.File, size, window int64, prompt string) (usageSample, bool, lastUser) {
 	var best usageSample
 	found := false
 	// The newest record that WROTE a cache tier, tracked separately from the
@@ -198,7 +275,7 @@ func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
 	buf := make([]byte, size-off)
 	n, err := f.ReadAt(buf, off)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return best, false
+		return best, false, lastUser{}
 	}
 	buf = buf[:n]
 	// A window that did not start at byte 0 begins mid-record. That fragment
@@ -208,11 +285,12 @@ func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
 	if off > 0 {
 		i := bytes.IndexByte(buf, '\n')
 		if i < 0 {
-			return best, false // one line longer than the whole window
+			return best, false, lastUser{} // one line longer than the whole window
 		}
 		buf = buf[i+1:]
 	}
-	for _, ln := range bytes.Split(buf, []byte("\n")) {
+	lines := bytes.Split(buf, []byte("\n"))
+	for _, ln := range lines {
 		// A prefilter before the parser, because most of a transcript's bytes
 		// are tool results: unmarshalling a 108 KB line to discover it has no
 		// usage in it is the one cost a 100 ms hook cannot spend. A record
@@ -281,7 +359,53 @@ func usageInTail(f *os.File, size, window int64) (usageSample, bool) {
 	if found {
 		best.Cache5m, best.Cache1h, best.TierAt = tier5m, tier1h, tierAt
 	}
-	return best, found
+	return best, found, lastUserOf(lines, prompt)
+}
+
+// lastUser is what the tail says about its newest user record.
+type lastUser struct {
+	at         time.Time // the newest user record's own time; zero if none
+	superseded bool      // the named prompt's record is found, and a newer one is another prompt's
+}
+
+// lastUserOf reads the user records among lines, walking back from the end:
+// the newest parseable, non-sidechain one's time, and — when prompt names a
+// turn and the newest is another prompt's — whether that turn's own record is
+// further back (superseded). The walk stops at the named turn's record, so
+// the normal case, where the newest record IS the named turn's, costs one
+// parse. The literal prefilter is the same bet usageInTail's makes on
+// "usage": the harness writes compact JSON, and inside a string value every
+// quote is escaped, so a tool result's CONTENT cannot spell `"type":"user"` —
+// only a record's own key can (or a nested object's, which the parse below
+// then rejects on the top-level field).
+func lastUserOf(lines [][]byte, prompt string) lastUser {
+	var out lastUser
+	newestID := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !bytes.Contains(lines[i], []byte(`"type":"user"`)) {
+			continue
+		}
+		var rec userLine
+		if err := json.Unmarshal(lines[i], &rec); err != nil || rec.Type != "user" || rec.IsSidechain {
+			continue // cut off mid-write, a subagent's, or a nested match
+		}
+		at, err := time.Parse(time.RFC3339, rec.Timestamp)
+		if err != nil {
+			continue
+		}
+		if out.at.IsZero() {
+			out.at, newestID = at, rec.PromptID
+			if prompt == "" || newestID == "" || newestID == prompt {
+				return out
+			}
+			continue
+		}
+		if rec.PromptID == prompt {
+			out.superseded = true
+			return out
+		}
+	}
+	return out
 }
 
 // declaredWindow reads the operator's declaration of this session's context

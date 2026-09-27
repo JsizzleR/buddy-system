@@ -3769,6 +3769,126 @@ the retitle tried before the exact name; the retitled bit dropped; the walk cont
 retitled match; the hop bound off by one; beat's and bye's anchor emptied for a retitled caller
 (the two call sites Codex named); and the pane recorded always, or never.
 
+## D-060 — The Stop hook cannot see the turn's reply; it says so, and the next prompt records it
+
+2026-09-27 · issue #52
+
+**What was wrong** — `idle` (the Stop hook) reads the turn's final usage record from the
+transcript to date the idle mark, fence it to this incarnation (D-016, #11), and record the
+footprint the roster and the handoff note print (D-015, D-020, D-055). The harness has not written
+that record when Stop runs. `idle` therefore read the PREVIOUS request, which in a prose-only
+session is the previous turn. Found in a verbatim run of #47's recipe: a Haiku lane's roster row had
+no `prompt` after its first turn, then showed turn 1's time after turn 2 and turn 2's after turn 3,
+and its first `busy` printed no handoff note. Three things followed. The footprint and the note
+lagged a whole turn, and a first turn got none. `idle N` counted from the previous request, so a
+lane that had just answered read "idle 50s". And after a revival the previous request is the
+predecessor's, so the fence refused the revived session's first Stop: it reported no idle mark at
+all.
+
+**Measured** (2.1.283, interactive Haiku lanes in a herdr tab, hooks added with a one-off
+`--settings`; counts and timestamps only):
+- A probe hook with a detached poller: the turn's final record was missing at 11 of 11 Stops
+  (prose turns, one- and two-tool turns, long output). The harness writes it WHILE hooks run: a
+  probe that held its hook open for 5 s still saw it land. That probe timed from Python's own
+  start, 20–30 ms after the spawn, so its "33–83 ms after Stop" understates the spawn-relative
+  figure below.
+- A Go timer as the Stop hook, exec'ing `buddy idle` 0.3 ms into the hook and alternating
+  binaries against a scratch ledger. A debug build polled after its work to find the landing, from
+  its own process start: **p50 96.2 ms, p90 98.0, max 108.3 (n=20)**, a tight cluster that looks
+  like a write-behind flush. The installed `idle` (3962ef7) ran in **26.4 / 42.7 / 46.0 ms**
+  (p50/p90/max, n=20).
+- At the next prompt the reply was on disk for 7 of 7 prompts that a human or a separate message
+  started (5–74 s after the Stop), and for 3 of 4 that a queued message started 40–151 ms after
+  it (missing at 40 ms).
+- The Stop payload's `last_assistant_message` is the reply's TEXT, a string with no usage in it.
+  Its `prompt_id` is the `promptId` the harness writes on that turn's own user records: a typed
+  prompt, its tool results, and a peer message (`isMeta`, `promptSource` system). Checked on 3 of
+  3 turns, one of each kind.
+
+**The rule** —
+- **Pending is read from the file.** `readTurn` also returns the newest non-sidechain
+  `"type":"user"` record (a prompt or a tool result). If that is newer than the newest usage
+  record, the reply to it has not landed. This is exact, with no clock threshold. A tie is pending,
+  because the two errors differ. Calling a landed reply pending records no footprint for one turn,
+  and `busy` records it at the next prompt. Calling a pending reply landed is the original bug. The
+  check costs one parse: the last such record in append order, found behind a literal prefilter
+  that matched 188 of 188 user records, and nothing else, in this session's own transcript.
+- **The Stop's turn is named.** If this Stop's `prompt_id` record is in the tail, and a newer user
+  record belongs to ANOTHER prompt, the session has begun another turn. That is a queued prompt, or
+  a successor incarnation after a bye and a hello. The Stop is late, and records nothing: no
+  footprint, no base, no idle mark. The Codex code pass found the successor case: the successor's
+  pending prompt passes the time fence alone, so without this the new pending path would have marked
+  a working J idle on I's delayed Stop. If the named turn's record is not found (an unknown kind of
+  turn, or a harness that sends no `prompt_id`), the time fences below apply unchanged.
+- **`idle` reads once.** If the reply is on disk (rare at Stop), everything is dated and fenced by
+  it, as before. If it is pending (the norm), no footprint is recorded: the reply it can see is the
+  previous request's, and the ledger already holds it or a newer one. The mark is dated by the
+  write. It is fenced by the pending record, this turn's own prompt or tool result, which a revived
+  session's first turn passes and a Stop delayed across a bye and a hello still fails. The base
+  (D-038) is recorded behind the same fence and dated by the observation. `store.MarkIdle` takes
+  `since` and `fenceAt` separately, and a dated mark with no fence is its own fence, so the split
+  opens no way around the check.
+- **`busy` re-reads before the handoff check.** At the prompt that opens the next turn, the reply
+  has usually landed. `busy` records it (beat's order: identity first, then the transcript), then
+  answers D-055's question. It is fenced by the incarnation's start, as `idle` is, so a revived
+  session is not told its predecessor's size (D-055). In the queued-prompt race it reads the
+  previous request, and `RecordContext`'s newer-or-equal-turn rule makes that a no-op.
+- **Between turns, a prose session's roster footprint is normally one turn old.** `prompt N`, and
+  D-020's `cache 1h hot/cold` clock, come from the observation `busy` made at the START of the turn
+  that just ended. It is older when that `busy` lost the queued-prompt race. It always carries its
+  own request's time, never a fabricated "now". For the cache clock
+  the error is conservative: the real last request is newer than the observed one, so the roster
+  can call a warm cache colder, never a cold one warm. A session that runs tools is mostly
+  unaffected, because `beat` samples during the turn.
+
+**Considered and cut** —
+- *A bounded wait in `idle` for the reply* (the first proposal). Inside the hook's 100 ms budget,
+  a wait ending 85 ms after process start caught **1 of 20**. Catching 19 of 20 needs ~110 ms of
+  waiting, a ~120 ms hook, on every Stop, to record a number the next prompt records anyway.
+- *Waiting in a detached process.* A writer racing the next turn's `beat` and `busy` is a new
+  class of bug, for the same number.
+- *Reading the Stop payload.* No usage in it, and buddy reads no message text.
+- *A freshness threshold on the clock* ("a reply more than N s old is stale"). The file says it
+  exactly.
+
+**Residuals** — `sessions.started` is stored in whole seconds, so both fences, `idle`'s and
+`busy`'s, admit evidence from earlier in the same second as a revival. A predecessor whose last
+reply lands in the second its successor says hello can pass. This predates D-060 (the Codex code
+pass), and the `prompt_id` fence closes it for `idle` whenever the named turn is on disk. A user
+record the harness might write after a completed reply, with no new turn (a bookkeeping record), would
+read as pending. That is the harmless direction, and none appeared in the transcripts measured.
+
+**Latency before/after** — Same lane, same Go timer, one binary per Stop, alternating, 47 Stops.
+The installed `idle` (3962ef7): **p50 26.6 ms, p90 29.6, max 32.8 (n=23)**. D-060's (pre-warmed
+with one run, since a freshly built binary's first exec measured 244.9 ms once): **26.3 / 27.7 /
+28.6 (n=24)**. No measurable change. Every D-060 Stop took the pending path and read `idle 0s`.
+
+**Test shape** — `idlewait_test.go`. The detector, as a table: answered, the Stop's case, a large
+tool result waiting, a first turn, and three that must NOT read as pending (a subagent's prompt, a
+prompt cut off mid-write, a nested `"type":"user"` inside a reply), plus no user record at all. The
+answered turn is the control that pending is not simply always on, and `lastUsage` is pinned to be
+`readTurn`'s usage half. `idle` before the reply records no footprint and reads `idle 0s`; the same
+transcript with the reply on disk records it and dates the mark by it (control). The fence, per
+path: pending, the revived session's own prompt is marked and a prompt from before the revival is
+refused; found, its own reply is marked and a reply from before the revival is refused. `busy`
+re-reads before the note, at 100k (speaks) and 200k (silent control), and records the roster's
+footprint too. `busy` does not tell a revived session its predecessor's size (its own reply after
+the revival is the control). A resting prose session shows the last observation with that
+observation's age and cache clock, not "now"; a reply on disk is the control. `store`'s `MarkIdle`
+tests take the new signature, and pin the split: an earlier `since` with no fence is refused, an
+undated mark fenced by earlier evidence is refused, and one fenced by this incarnation's evidence
+lands dated by the write. A Stop superseded by a newer prompt records nothing, not even a base.
+Its controls, each marked: the newest turn's own Stop, a Stop with no `prompt_id`, and a Stop
+naming a turn not on disk. The pending path's base write is asserted. Mutants, each in a private
+copy and watched red: pending never set; a first turn not pending; a tie read as landed; a
+subagent's prompt counted; a nested `"type":"user"` counted (it first SURVIVED, because the nested
+match sat inside the reply, whose own time equals its usage. The fixture now puts it in a later
+system record); pending fenced by, dated by, or recording the stale reply; `busy` not re-sampling,
+and not fenced; `MarkIdle` ignoring the fence, dating by the fence, or not checking an unfenced
+`since`; the superseded check off, never found, or matching any older prompt; the pending base
+not written. Equivalent, measured: the found path passing a zero fence, since `MarkIdle` now
+fences a dated mark by its own date.
+
 ## Known unfixed
 
 - Enforcement is cooperative, not containment. The gate adjudicates declared paths, has a
