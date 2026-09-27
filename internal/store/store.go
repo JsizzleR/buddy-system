@@ -2167,10 +2167,20 @@ type IdleState struct {
 }
 
 // MarkIdle records that the session has finished a turn and is waiting for
-// its operator, dated by `at` — the END of the turn that just finished, which
-// the caller reads from the transcript. A zero `at` means the caller could
-// not establish it and the write time is used instead, which is what this
-// did for everything before issue #11.
+// its operator, dated by `since` — the END of the turn that just finished,
+// which the caller reads from the transcript. A zero `since` means the caller
+// could not establish it and the write time is used instead, which is what
+// this did for everything before issue #11.
+//
+// `fenceAt` is the evidence that the turn is THIS incarnation's (below), and
+// it is a separate argument because the two can differ (D-060, #52): at Stop
+// the harness has not yet written the turn's final record (measured, 11 of 11
+// Stops), so when the caller's bounded wait for it runs out, the end time is
+// "now" and the only record of this turn already on disk is its prompt or
+// tool result. Dating `since` by that record would call the session idle
+// since before it started working; fencing by the stale reply it could see
+// instead would refuse every revived session's first Stop, because that
+// reply is its predecessor's. When the reply was found both are its time.
 //
 // Ended or unknown session: a silent no-op, like every other late hook.
 //
@@ -2189,12 +2199,12 @@ type IdleState struct {
 // across a bye, a hello and a beat would then mark the NEW incarnation idle
 // on the OLD one's turn, correctly tagged and simply untrue (issue #11). A
 // turn that ended before this incarnation registered cannot be this
-// incarnation's turn, so `at < started` is refused. With no event time the
-// check cannot run and the old behaviour stands: written, and cleared by the
-// next beat. Degrading rather than refusing is deliberate — refusing on an
-// unreadable transcript would turn the feature off silently, which is the
+// incarnation's turn, so `fenceAt < started` is refused. With no event time
+// the check cannot run and the old behaviour stands: written, and cleared by
+// the next beat. Degrading rather than refusing is deliberate — refusing on
+// an unreadable transcript would turn the feature off silently, which is the
 // failure this project keeps finding.
-func (s *Store) MarkIdle(sessionID string, at time.Time) error {
+func (s *Store) MarkIdle(sessionID string, since, fenceAt time.Time) error {
 	return s.tx(func(tx *sql.Tx) error {
 		var inc string
 		var started time.Time
@@ -2206,12 +2216,14 @@ func (s *Store) MarkIdle(sessionID string, at time.Time) error {
 		if err != nil {
 			return err
 		}
-		since := s.now()
-		if !at.IsZero() {
-			if at.Before(started) {
-				return nil // an earlier incarnation's turn, arriving late
-			}
-			since = at
+		if fenceAt.IsZero() {
+			fenceAt = since // a dated mark with no separate evidence is its own fence, as before D-060
+		}
+		if !fenceAt.IsZero() && fenceAt.Before(started) {
+			return nil // an earlier incarnation's turn, arriving late
+		}
+		if since.IsZero() {
+			since = s.now()
 		}
 		_, err = tx.Exec(`INSERT INTO session_idle (session_id, incarnation, since) VALUES (?,?,?)
 			ON CONFLICT(session_id) DO UPDATE SET incarnation=excluded.incarnation, since=excluded.since`,

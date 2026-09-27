@@ -1110,7 +1110,7 @@ func TestContextSampleNeverGoesBackwardsOrResurrects(t *testing.T) {
 func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	st, clk := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
-	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
+	if err := st.MarkIdle("sess-a", time.Time{}, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	idle, err := st.IdleSessions()
@@ -1124,7 +1124,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	// A repeated Stop with no tool call between is a NEW turn ending: the
 	// session became idle again, later.
 	clk.advance(10 * time.Minute)
-	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
+	if err := st.MarkIdle("sess-a", time.Time{}, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	idle, _ = st.IdleSessions()
@@ -1143,7 +1143,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	if got, ok := idle["sess-a"]; ok {
 		t.Errorf("the previous incarnation's idle mark is not this one's: %+v", got)
 	}
-	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
+	if err := st.MarkIdle("sess-a", time.Time{}, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	idle, _ = st.IdleSessions()
@@ -1157,7 +1157,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 	// listed the sessions a moment earlier would print "idle" for a session
 	// that has since gone: available, and gone.
 	d := hello(t, st, "sess-d", "dee", "/wt/d")
-	if err := st.MarkIdle(d.SessionID, time.Time{}); err != nil {
+	if err := st.MarkIdle(d.SessionID, time.Time{}, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := mustIdle(t, st)["sess-d"]; !ok {
@@ -1177,7 +1177,7 @@ func TestIdleMarkBelongsToOneIncarnationAndOneLiveSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"sess-c", "sess-never-said-hello"} {
-		if err := st.MarkIdle(id, time.Time{}); err != nil {
+		if err := st.MarkIdle(id, time.Time{}, time.Time{}); err != nil {
 			t.Fatalf("%s: a late idle mark is a no-op, not an error: %v", id, err)
 		}
 	}
@@ -1205,7 +1205,7 @@ func TestMarkIdleDatesTheTurnAndRefusesAnEarlierOne(t *testing.T) {
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
 	turnEnded := clk.t
 	clk.advance(30 * time.Second) // the hook was slow to start
-	if err := st.MarkIdle(a.SessionID, turnEnded); err != nil {
+	if err := st.MarkIdle(a.SessionID, turnEnded, turnEnded); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustIdle(t, st)["sess-a"]; !got.Since.Equal(turnEnded) {
@@ -1219,15 +1219,41 @@ func TestMarkIdleDatesTheTurnAndRefusesAnEarlierOne(t *testing.T) {
 	}
 	clk.advance(time.Minute)
 	b := hello(t, st, "sess-a", "alpha", "/wt/a")
-	if err := st.MarkIdle("sess-a", turnEnded); err != nil {
+	if err := st.MarkIdle("sess-a", turnEnded, turnEnded); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := mustIdle(t, st)["sess-a"]; ok {
 		t.Errorf("a turn that ended before this incarnation started must be refused: %+v", got)
 	}
+	// A dated mark with no separate fence is its own fence, as before D-060:
+	// the split must not open a way around the check.
+	if err := st.MarkIdle("sess-a", turnEnded, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mustIdle(t, st)["sess-a"]; ok {
+		t.Errorf("an earlier since with no fence must still be refused: %+v", got)
+	}
+	// D-060's pending shape: dated by the write, fenced by evidence from
+	// before this incarnation — refused.
+	if err := st.MarkIdle("sess-a", time.Time{}, turnEnded); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mustIdle(t, st)["sess-a"]; ok {
+		t.Errorf("an undated mark fenced by an earlier incarnation's evidence must be refused: %+v", got)
+	}
+	// ...and fenced by this incarnation's own evidence, it lands dated by the write.
+	if err := st.MarkIdle("sess-a", time.Time{}, clk.t); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustIdle(t, st)["sess-a"]; got.Incarnation != b.Incarnation || !got.Since.Equal(clk.t) {
+		t.Errorf("an undated mark with this incarnation's fence lands at the write time: %+v", got)
+	}
+	if err := st.ClearIdle("sess-a"); err != nil {
+		t.Fatal(err)
+	}
 	// Positive control: this incarnation's own turn lands.
 	clk.advance(time.Second)
-	if err := st.MarkIdle("sess-a", clk.t); err != nil {
+	if err := st.MarkIdle("sess-a", clk.t, clk.t); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustIdle(t, st)["sess-a"]; got.Incarnation != b.Incarnation || !got.Since.Equal(clk.t) {
@@ -1238,7 +1264,7 @@ func TestMarkIdleDatesTheTurnAndRefusesAnEarlierOne(t *testing.T) {
 	// written, dated by the clock. Degrading beats refusing — an unreadable
 	// transcript must not turn the feature off.
 	clk.advance(time.Minute)
-	if err := st.MarkIdle("sess-a", time.Time{}); err != nil {
+	if err := st.MarkIdle("sess-a", time.Time{}, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustIdle(t, st)["sess-a"]; !got.Since.Equal(clk.t) {
@@ -1251,7 +1277,7 @@ func TestMarkIdleDatesTheTurnAndRefusesAnEarlierOne(t *testing.T) {
 func TestClearIdleRetracts(t *testing.T) {
 	st, clk := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
-	if err := st.MarkIdle(a.SessionID, clk.t); err != nil {
+	if err := st.MarkIdle(a.SessionID, clk.t, clk.t); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := mustIdle(t, st)["sess-a"]; !ok {

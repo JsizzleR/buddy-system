@@ -545,6 +545,17 @@ ledger row entered through the CLI (D-006).
     test; accepted, not fixed). Do not propose anchoring at the daemon with a flag, reading
     CLAUDE_JOB_DIR, or a looser (path or prefix) retitle match.
 
+62. **The Stop hook cannot see its turn's reply; it names its turn, and the next prompt records
+    the footprint (D-060, #52).** MEASURED (2.1.283, interactive): the turn's final usage record
+    lands ~96 ms after the Stop hook's process starts (p50 96.2, p90 98.0, max 108.3), and `idle`
+    is done by ~26 ms. It was missing at every Stop measured. `idle` reads once. If a user record
+    is at or after the newest usage record, the reply is pending: no footprint, the mark dated now
+    and fenced by that record. A Stop whose `prompt_id` turn is on disk behind a newer prompt
+    records nothing. `busy` re-reads, fenced by incarnation start, before D-055's note, so a
+    resting prose session's footprint is normally one turn old and errs colder, never warmer. Do
+    not propose waiting in `idle` for the reply (1 of 20 within the 100 ms budget), a detached
+    writer, reading `last_assistant_message` (text, no usage), or a clock threshold for freshness.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
