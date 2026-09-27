@@ -126,7 +126,7 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 	if !rows {
 		var wakes []string
 		for _, r := range si.Recipients {
-			if wk := w.wake(r); wk != "" {
+			if wk := w.wake(r, si.ID); wk != "" {
 				wakes = append(wakes, wk)
 			}
 		}
@@ -150,7 +150,7 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 		if si.Supersedes != 0 {
 			line += fmt.Sprintf("   #%d: %s", si.Supersedes, deliveryWord(r.Original, now))
 		}
-		if wk := w.wake(r); wk != "" {
+		if wk := w.wake(r, si.ID); wk != "" {
 			line += "; " + wk
 		}
 		fmt.Fprintln(env.Stdout, line)
@@ -158,9 +158,11 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 }
 
 // waker answers, for one addressed session, the D-039 wake clause if it
-// still has the message queued, else "". One observation per session per
+// still has message id queued, else "". One observation per session per
 // report: the list names up to ten sends, and a broadcast addresses every
-// live session, so the process register is probed once for each.
+// live session, so the process register is probed once for each. The memo
+// holds the ADDRESS, not the clause: the text names each message's own id
+// (D-059), so two sends to one session are two different wakes.
 type waker struct {
 	st   *store.Store
 	env  Env
@@ -168,16 +170,16 @@ type waker struct {
 	memo map[string]string
 }
 
-func (w waker) wake(r store.SentRecipient) string {
+func (w waker) wake(r store.SentRecipient, id int64) string {
 	if !r.Delivered.IsZero() || r.Expired {
 		return ""
 	}
-	wk, seen := w.memo[r.SessionID]
+	addr, seen := w.memo[r.SessionID]
 	if !seen {
-		wk = wakeClause(w.env, observe(w.st, w.env, r.SessionID), w.now)
-		w.memo[r.SessionID] = wk
+		addr = wakeAddr(w.env, observe(w.st, w.env, r.SessionID), w.now)
+		w.memo[r.SessionID] = addr
 	}
-	return wk
+	return wakeFor(addr, id, w.now)
 }
 
 // deliveryWord is one message's standing with one session, in the ledger's

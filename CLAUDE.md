@@ -473,8 +473,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   harness SendMessage wakes an idle session as a MARKED PEER message (host-verified sender
   pid, "not typed by your user"), never the operator's turn, and the host escapes a forged
   wrapper. For a quiet target with one live registered pid whose `/tmp/cc-socks/<pid>.sock`
-  exists, `msg` prints the address and the fixed text "run buddy inbox". The body stays in the
-  ledger. One observation per send.
+  exists, `msg` prints the address and a text ending "run buddy inbox" that names the
+  send's id and the second (D-059: the harness drops a repeat of the sender's previous text).
+  The body stays in the ledger. One observation per send.
 - **`busy` drains the inbox into the prompt that opens a turn (D-040, #31).** UserPromptSubmit
   runs beat's drain (bound, fence, write-then-mark) as one `UserPromptSubmit` document, and
   prints nothing when nothing is queued. Inbox only; beat's notices stay on the tool call. It
