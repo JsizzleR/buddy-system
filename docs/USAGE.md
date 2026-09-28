@@ -25,6 +25,7 @@ answer.
 - [Waiting without going cold — `buddy wait`](#waiting-without-going-cold--buddy-wait)
 - [Resource slots — a claim on `.buddy/slot/<name>`](#resource-slots--a-claim-on-buddyslotname)
 - [One long run closes out several sessions](#one-long-run-closes-out-several-sessions)
+- [Landing through an orchestrator](#landing-through-an-orchestrator)
 - [The identifier register — `buddy ids`](#the-identifier-register--buddy-ids)
 - [The commit gate in detail](#the-commit-gate-in-detail)
 - [Chat internals](#chat-internals)
@@ -859,6 +860,43 @@ What each piece is, and is not:
   form it with the integrator's claim above, or ask.
 - Slots are per checkout: sessions in different repositories do not see each
   other's `herm`.
+
+## Landing through an orchestrator
+
+The long run above, with the roles fixed for a whole shift (D-062). One
+session holds a claim named `orchestrator` for as long as it coordinates; it
+forms a run claim per batch, exactly as the integrator above does, and forms
+the next as soon as it releases one, since a lane's `wait --on <run>` is
+refused while no such claim exists. Every other session's item lands through
+that run. The skill's "Landing through an
+orchestrator" is the session-facing recipe, both sides. What the operator
+sees, and where each fact lives:
+
+- **`buddy who orchestrator`** is the coordinator's record. Its description is
+  the published note (D-030): how a lane reports, the current run's slug, or
+  the file that says. The run it is holding shows as a second claim, on
+  `.buddy/slot/<run>` and `.buddy/slot/main`.
+- **`buddy who <run>`** is the batch: every lane that declared `--ready`, at
+  which commit, and every lane that said it is not ready yet, in its own
+  words. A lane waits on the RUN, never on `orchestrator`, which outlives
+  every run and is released only at a handoff.
+- **A lane's report is two things**: the `--ready` declaration in the ledger,
+  and a `buddy msg orchestrator "<item> READY: …"` carrying what the ledger
+  does not hold (the review receipt, the files, the checks it ran).
+- **A landing is two things too**: `release <run> --outcome pass`, which every
+  rider's next `wait check` reads as LANDED, and a message that ends the
+  lane's work in words. The outcome says the run passed; only the
+  orchestrator's words say a lane is done, because the outcome cannot know
+  which lanes hold follow-ups the run did not carry.
+- **Repo-specific rules stay in the repo**: which tier is "the shared tier",
+  which review a lane owes, which checks are its own, how worktrees are
+  named. They live in the orchestrator's description or the file it names,
+  never in buddy.
+
+Buddy keeps no task table. The claim is the responsibility, `wait --ready` is
+the report, `release --outcome` is the close, and `who` is the view. A
+`buddy task` verb was proposed ([ORCHESTRATION-PLAN.md](ORCHESTRATION-PLAN.md))
+and is not built.
 
 ## The identifier register — `buddy ids`
 

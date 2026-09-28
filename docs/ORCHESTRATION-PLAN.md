@@ -7,7 +7,12 @@ need were then met by smaller decisions in [decisions.md](decisions.md): one
 session's whole record in `status` and `who` (D-027), `--help` on every verb
 (D-031) and the `buddy` skill (D-046), resource slots (D-035), and one long run
 that closes out several sessions (D-049). The tracked-work lifecycle
-(increment 2) was not built. Kept as the record of what was proposed.
+(increment 2) was not built as a table. One fleet repo then ran it live, in
+prose, and it is taught as a recipe over existing verbs in the skill's
+"Landing through an orchestrator" (D-062, 2026-09-27): a durable
+`orchestrator` claim, a per-run claim, `wait --ready` as the report,
+`release --outcome` as the close. No `task` verb. Kept as the record of what
+was proposed.
 
 Original status: draft for Fable design review. Implementation had not started.
 

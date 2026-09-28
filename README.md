@@ -243,7 +243,8 @@ was last seen or that it is idle at its prompt.
 **[docs/USAGE.md](docs/USAGE.md)** covers each feature in depth: the roster's
 columns, messages and corrections, waits that keep a parked session's prompt
 cache warm, resource slots, batching several sessions into one long test run,
-authority files, an id register, and the commit gate.
+landing every lane's work through one orchestrator, authority files, an id
+register, and the commit gate.
 
 ## Presence (the fun half)
 
@@ -363,7 +364,7 @@ sandbox against them. See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 | Document | What it is |
 | --- | --- |
-| [docs/USAGE.md](docs/USAGE.md) | Every feature in depth: hooks, claims, messages, the roster, waits, slots, long runs, authority files, ids, the commit gate |
+| [docs/USAGE.md](docs/USAGE.md) | Every feature in depth: hooks, claims, messages, the roster, waits, slots, long runs, landing through an orchestrator, authority files, ids, the commit gate |
 | [docs/DESIGN.md](docs/DESIGN.md) | Why it is built this way, and the assumptions measurement refuted |
 | [docs/decisions.md](docs/decisions.md) | The append-only decision record (D-001 onward) behind every rule |
 | [docs/README.md](docs/README.md) | Index of everything else in `docs/`, including plans and field notes |

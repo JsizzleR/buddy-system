@@ -523,6 +523,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   per the skill's "Running a fleet". Buddy launches and ends nothing; `spawn`/`exit`/`expect` cut.
 - **The suite never sees git's local env (D-057, #49):** pre-push, check.sh, lib.sh, and a
   gated `testguard.ScrubGitEnv()` in each git-running package's TestMain.
+- **Landing through an orchestrator is a recipe in the skill (D-062):** two claims (a durable
+  `orchestrator`, a per-run claim on the slots), READY is `wait --ready` plus a message, LANDED
+  is the release's outcome plus words that end the lane's work, and every `msg` result is read
+  for its wake line. Repo-specific parameters stay in the repo's own skill. No task table.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

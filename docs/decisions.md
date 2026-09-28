@@ -4096,3 +4096,70 @@ analysis.
   all. Git will not let a repository configure its own `core.hooksPath` — correctly, since
   that names a directory of programs git executes — so an uninstalled hook is the default
   state of every fresh clone.
+
+## D-062 — Landing through an orchestrator is a recipe in the skill, over existing verbs
+
+2026-09-27 · operator request (the fleet's protocol, graduated; no issue)
+
+**What was wrong** — The orchestration plan of 2026-09-20 proposed a `buddy task` lifecycle
+(offered, accepted, reported, closed). The review sent increment 2 back: prove the lifecycle live
+before building a table for it. It was not built. Meanwhile one fleet repo wrote the lifecycle
+into its OWN skill, as prose, and ran it: a landing protocol under the session holding the
+`orchestrator` claim (its record of 2026-09-26), then the orchestrator's own duties (2026-09-27),
+after measuring what the first version left unsaid. A docs-only lane sat idle for three hours
+with its "landed" message undelivered, and four assignment and red-report messages reached nobody
+for about fifty minutes, because the sender discarded `buddy msg`'s result and with it the wake
+line. It had landed nine batches by its third day. That protocol was the increment-2 lifecycle,
+proven live, and it lived where no other repo's session would read it (D-046: the skill is where
+a session learns how the verbs fit). Two of its parts were also weaker than what buddy already
+had: READY and LANDED travelled in messages alone, and the measured failure was a LANDED that
+never arrived, which is the failure D-049 built `wait --ready` and `release --outcome` to remove,
+since the rider's own loop reads the outcome.
+
+The operator's question that opened this (2026-09-27) was where two projects, the fleet repo and
+buddy, were going: apart, or together as a "software factory". The answer recorded here: the
+product stays where it is, and the protocol is the shareable part, so it is homed in the skill.
+
+**The rule** — A skill section, "Landing through an orchestrator", and a USAGE section of the same
+name:
+- The orchestrator holds TWO claims. `orchestrator`, durable, its description the published note
+  (D-030): how to report, the current run's slug, or the file that says. And the run's claim on
+  `.buddy/slot/<run>` and `.buddy/slot/main`, formed per batch and released with its outcome
+  (D-049). A lane waits on the RUN, never on `orchestrator`: that claim outlives every run, and
+  a wait on it lands only at a handoff (D-056).
+- A lane: own worktree at current main; claim with the item's name as the slug; commit, review,
+  own checks green; never the shared tier, never main, never a push. READY is
+  `wait --on <run> --ready HEAD` in the ledger AND a message with what the ledger does not hold
+  (review receipt, files, checks run). Then `/loop buddy wait check` and park. Keep claims and
+  worktree until LANDED names it PASS; on FAIL, fix, re-declare, say so.
+- The orchestrator owes, every time: an answer to every READY naming its run; every `msg` result
+  read and its wake line delivered; the landing reported in the same turn, as the release's
+  outcome AND as words that end each landed lane's work; a red routed to the lane it belongs to;
+  the new main told to every lane still working; and, before handoff or exit, `who` on every lane
+  it assigned. A stale claim with no answer is reported to the operator, never freed.
+- Repo-specific parameters (which tier, which review, which checks are a lane's own, worktree
+  naming, id spaces, review-slot caps) stay in the repo's own skill or the orchestrator's
+  description. Buddy names none of them.
+- Buddy keeps no task table. The claim is the responsibility, the `--ready` is the report, the
+  outcome is the close, and `who` is the view.
+
+**Considered and cut** —
+- *`buddy task` (the plan's increment 2).* Still not built. Every fact it would hold has a row:
+  responsibility and scope in the claim, "reported" in `session_waits.ready_sha`, "closed" in
+  `claims.outcome`, the brief and the acknowledgement in the inbox, the view in `who`. B1 and B2
+  of the review (recovery after a resume; a notice "awaiting retrieval" for 24 hours) would apply
+  to a table exactly as they did; the recipe answers them with the wake line (D-052, D-059) and
+  the timer wait (D-054) instead.
+- *One LANDED that also means "you may exit".* The outcome is one fact about one run; whether a
+  lane is done is the orchestrator's word, since a lane may hold follow-ups the run did not carry.
+  Two channels, on purpose: the ledger's for the fact, a message for the instruction.
+- *Naming the fleet repo.* Not named, as elsewhere in this record.
+
+**Not measured** — A fleet running the recipe with `wait --ready` in place of a message-only
+READY. The fleet repo still runs its message-only form; adopting the ledger half is its own
+docs-only item, through its orchestrator.
+
+**Test shape** — Prose only. The skill gate reads every `buddy <verb> --flag` in the section
+against the usage table (`wait --on --ready --until`, `who`, `msg`, `sent`,
+`release --outcome --note`, `sweep --force`); the coverage gate is unchanged, since the section
+adds no name.
