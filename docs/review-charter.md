@@ -582,6 +582,24 @@ ledger row entered through the CLI (D-006).
     Do not propose a retry loop, a timeout knob, or dropping the `-race` legs for it; if it
     recurs, the toolchain in use is the first thing to check.
 
+65. **Landing through an orchestrator is a recipe in the skill, over existing verbs (D-062).**
+    One fleet repo ran the orchestration plan's increment-2 lifecycle live, in prose, in its own
+    skill, and MEASURED what the first version left unsaid: a lane sat idle three hours for a
+    "landed" message that never came, and four assignments and red reports reached nobody for
+    about fifty minutes because the sender discarded `msg`'s result and its wake line. The
+    skill's "Landing through an orchestrator" teaches both sides: the orchestrator holds a
+    durable `orchestrator` claim (its description the published note, D-030) AND a per-run
+    claim on `.buddy/slot/<run>` and `.buddy/slot/main` (D-049), formed again the moment one is
+    released; a lane waits on the RUN, never on `orchestrator`. READY is `wait --on <run>
+    --ready HEAD` plus a message carrying what the ledger does not hold; LANDED is the release's
+    outcome plus words that end the lane's work. The orchestrator owes an answer to every READY,
+    every `msg` result read for its wake line, the landing said in the same turn, a red routed to
+    its lane, the new main to every lane still working, and `who` on every lane before handoff.
+    Repo-specific parameters (tier, review, own checks, worktree names, id spaces) stay in the
+    repo's own skill. Do not propose `buddy task` or any task table (every fact has a row:
+    claim, `ready_sha`, `outcome`, inbox), a LANDED that also means "you may exit", or naming
+    the fleet repo.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
