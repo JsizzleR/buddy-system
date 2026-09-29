@@ -102,6 +102,10 @@ type fixture struct {
 	// argv[0], the shape a `claude --bg` lane has (D-058).
 	retitled bool
 	alive    map[int]int64
+	// procs is the process table the JOBS line reads, and self the pid it is
+	// read from (jobs.go). EMPTY for the reason proc is.
+	procs []procEntry
+	self  int
 	// sockDir stands in for the harness's socket directory (wake.go), EMPTY
 	// of sockets by default for the reason env is: the real one on this box
 	// holds the developer's own sessions.
@@ -160,7 +164,8 @@ func (f *fixture) run(t *testing.T, cwd, stdin string, args ...string) (stdout, 
 			born, ok := f.alive[p.PID]
 			return ok && (p.Born == 0 || born == 0 || born == p.Born)
 		},
-		SockDir: f.sockDir,
+		ProcTable: func() ([]procEntry, int, bool) { return f.procs, f.self, true },
+		SockDir:   f.sockDir,
 	})
 	return out.String(), errw.String(), code
 }

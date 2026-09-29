@@ -306,6 +306,13 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		}
 	}
 
+	// JOBS — the shells still running under its harness process (jobs.go,
+	// D-065). Beside EXIT because EXIT speaks for the ledger only, and was
+	// read as speaking for the session.
+	if line := jobsLine(env, st, si); line != "" {
+		fmt.Fprintln(env.Stdout, line)
+	}
+
 	// EXIT — what the LEDGER would be left holding. A description of
 	// consequences, never permission: nothing here says a session may be
 	// ended, and nothing that could be printed here would make it so.

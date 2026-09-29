@@ -82,3 +82,27 @@ func execNames(rest []byte) []string {
 	}
 	return out
 }
+
+// readProcTable reads every process in one sysctl, kern.proc.all — what `ps
+// -ax` reads. P_comm is right here where the anchor walk could not use it:
+// a shell is exec'd by its own name, and the basename is all JOBS compares.
+func readProcTable() ([]procEntry, bool) {
+	kps, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	if err != nil {
+		return nil, false
+	}
+	out := make([]procEntry, 0, len(kps))
+	for _, kp := range kps {
+		comm := kp.Proc.P_comm[:]
+		if i := bytes.IndexByte(comm, 0); i >= 0 {
+			comm = comm[:i]
+		}
+		out = append(out, procEntry{
+			PID:  int(kp.Proc.P_pid),
+			PPID: int(kp.Eproc.Ppid),
+			Comm: string(comm),
+			Born: kp.Proc.P_starttime.Sec*1_000_000 + int64(kp.Proc.P_starttime.Usec),
+		})
+	}
+	return out, true
+}

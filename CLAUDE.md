@@ -533,6 +533,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **The handoff size may be declared fleet-wide (D-064):** a settings `env` entry reaches the
   hook (measured); `install.sh` reports whether `BUDDY_HANDOFF_AT` is set there; the line names a
   coordinator's arm and a lane's (a lane finishes its item and reports; it opens no successor).
+- **`status`/`who` print a JOBS line (D-065):** shells running directly under the session's
+  registered harness process (kern.proc.all by ppid; the anchor re-identified by start time in
+  the same table), pids and ages, never argv. An observation beside EXIT; "cannot say" is never "none".
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

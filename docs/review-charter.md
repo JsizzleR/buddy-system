@@ -612,6 +612,19 @@ ledger row entered through the CLI (D-006).
     not have claimed. No consent step, no recorded previous holder: cut, see the record. Do not
     propose release-then-claim or `--outcome aborted` as the handoff of a run that carries on.
 
+67. **`status` and `who` print a JOBS line: the shells still running directly under the
+    session's registered harness process (D-065).** Measured 2026-09-29: an outgoing
+    orchestrator said it "holds nothing, close me" with a gate script and a 42-minute watcher
+    still running as its children, and EXIT (the ledger only) was read as the session. A Bash
+    tool call is `/bin/zsh`, a direct child of claude in its OWN process group, so the line reads
+    `kern.proc.all` by parent (D-061's cut of that scan was for a different purpose), counts
+    shells only (MCP servers, gopls, caffeinate are not), excludes the caller's ancestor chain,
+    and re-identifies the anchor by its registered start time in the same table (a reused pid
+    must not lend its shells). Pids and ages only, never argv. "Cannot say" (no live registered
+    process, a platform whose table is not read, the anchor not the registered one) is never
+    "none". It refuses, ends and grants nothing. Do not propose ending, signalling or
+    reparenting a session's processes from buddy (D-027, D-056).
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
