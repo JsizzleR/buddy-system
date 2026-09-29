@@ -530,6 +530,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **A holder hands an open claim on with `release <slug> --to <target>` (D-063):** one transaction
   moves owner and incarnation, keeping the claim id, so its waits follow it; refuses a dead sender,
   an ended/re-registered recipient, a recipient waiting on it, and an overlap it could not claim.
+- **The handoff size may be declared fleet-wide (D-064):** a settings `env` entry reaches the
+  hook (measured); `install.sh` reports whether `BUDDY_HANDOFF_AT` is set there; the line names a
+  coordinator's arm and a lane's (a lane finishes its item and reports; it opens no successor).
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

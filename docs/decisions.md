@@ -4225,3 +4225,40 @@ Mutated in a private copy: the incarnation fence, the self-wait refusal, the ove
 sender's liveness check, `renewed=now` and the empty-`--to` guard each killed by a test. Codex's
 code pass found the receipt's "told them" overstated a queued send (D-032): it reads "notice
 queued".
+
+## D-064 — The handoff size may be declared fleet-wide, so its line speaks to lanes too, and `install.sh` says whether it is set
+
+2026-09-29 · operator request (follows D-063)
+
+**What was wrong** — The orchestrator handoff measured for D-063 began, again, with the operator
+noticing the size ("context here is getting a bit large"), as 3 of the 4 measured for D-055 had.
+`BUDDY_HANDOFF_AT` is declared per process, and the recipe had the outgoing orchestrator pass it
+to its successor with `herdr tab create … --env`; nothing put it on the FIRST orchestrator, which
+the operator launches, and nothing said whether it was set anywhere. The same fleet had lanes at
+944k and 636k that nobody was told about.
+
+**The rule** —
+- Measured 2026-09-29: an entry in a settings file's `env` block is in the environment of that
+  session's `UserPromptSubmit` hook (a headless `claude -p --settings` whose hook wrote
+  `${VAR:-UNSET}` to a file wrote the settings value, with the variable absent from the parent
+  shell). So `"env": {"BUDDY_HANDOFF_AT": "400k"}` in `~/.claude/settings.json` reaches every
+  session, the first orchestrator included. USAGE says so.
+- `install.sh` reports it in one line after the hook report: the size set there, or not set
+  (with the line to add), or set while `buddy busy` is not wired, in which case no session is
+  ever told. Reported only; it never edits settings and never chooses a size.
+- Declared fleet-wide, the line reaches lanes too, so it no longer says "start your successor":
+  it says "finish the round and hand off" and names both arms of the skill — a coordinator's
+  "Hand off before you are full", and a lane's "Landing through an orchestrator" step 6, which
+  finishes its item, reports to its orchestrator, and takes nothing new (a lane opens no
+  successor, D-056). The orchestrator's sweep also reports lanes past the size to the operator
+  (the skill, 3a0a450).
+
+**Considered and cut** — A separate lane size variable (`BUDDY_LANE_HANDOFF_AT`): nothing tells a
+hook which role its session plays (D-015), and one line naming both arms costs less than a
+second declaration. A JSON parser in `install.sh`: a grep for the key as a JSON key is enough for
+a report, and a false "set" would only say so. Setting a default size: the operator's call.
+
+**Test shape** — `check-install.sh` QA-1 (not set, with busy unwired), QA-3b (set and named;
+the wired file does not warn; the same file without busy says nobody is told, the fixture checked
+to have lost busy; the busy-not-wired arm mutated in a private copy and killed by QA-3b).
+`handoff_test.go` asserts the two-armed pointer.

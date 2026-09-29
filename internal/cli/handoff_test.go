@@ -84,7 +84,7 @@ func TestHandoffNoteDecides(t *testing.T) {
 			if strings.Count(got, "\n") != 1 || !strings.HasSuffix(got, "\n") {
 				t.Errorf("the note must be exactly one line: %q", got)
 			}
-			if !strings.Contains(got, "(buddy skill: Running a fleet)") {
+			if !strings.Contains(got, `(buddy skill: a coordinator, "Hand off before you are full"; a lane, "Landing through an orchestrator" step 6)`) {
 				t.Errorf("the note must name the skill's recipe: %q", got)
 			}
 			if strings.Contains(got, " now") {
