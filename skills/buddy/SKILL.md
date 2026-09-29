@@ -321,7 +321,8 @@ if you find neither, ask rather than assume.
   background one) only if the operator told you, not a peer, that you may.
 - **Hand off before you are full.** Launch coordinators, and their successors,
   in a herdr tab with `herdr tab create … --env BUDDY_HANDOFF_AT=500k` (or the
-  operator sets it), never with `claude --bg`: a background lane runs in the
+  operator sets it for every session in the settings `env` block, which reaches
+  the first orchestrator too), never with `claude --bg`: a background lane runs in the
   daemon's environment, and the size never reaches it. Each
   prompt that opens a turn tells you, while your last observed prompt is at or
   past it (the optional `busy` hook must be wired, and a size must have been

@@ -507,7 +507,10 @@ ledger row entered through the CLI (D-006).
     OBSERVED prompt for the current incarnation is at or past it, `busy` (UserPromptSubmit)
     puts one line ahead of the inbox in its single document, on every turn-opening prompt,
     even with nothing queued. The line names the size, the turn's age and the threshold, and
-    points at the skill's "Running a fleet". The drain (D-040) is unchanged. It is an
+    points at the skill's recipe for BOTH arms: a coordinator's "Hand off before you are full",
+    a lane's "Landing through an orchestrator" step 6 (D-064: the size may be declared
+    fleet-wide in the settings `env` block, measured to reach the hook, so lanes hear it too,
+    and a lane opens no successor). `install.sh` reports whether it is set there. The drain (D-040) is unchanged. It is an
     observation (invariant 10): it refuses, reserves and schedules nothing, and infers no role.
     Do not propose firing it on `beat`, a role or reserved slug, a stored "told" flag, or
     reading the transcript from the prompt hook.

@@ -525,11 +525,17 @@ The annotations after the id are what an orchestrator picks on:
   BUDDY_HANDOFF_AT=500k claude      # same spellings as BUDDY_CONTEXT_WINDOW
   ```
 
+  Or for every session, the first orchestrator included, in the `env` block of
+  `~/.claude/settings.json` (`"env": {"BUDDY_HANDOFF_AT": "400k"}`): measured
+  2026-09-29, a settings `env` entry reaches the `UserPromptSubmit` hook's
+  environment. `install.sh` reports whether it is set there (D-064).
+
   With the `busy` hook wired, every prompt that opens one of its turns then
   carries one line once its last observed prompt is at or past the size:
   `BUDDY: your prompt was 507k at your last observed request (turn 3m ago), at
-  or past the 500k you hand off at (BUDDY_HANDOFF_AT) — finish the round, write
-  the handoff, and start your successor (buddy skill: Running a fleet)`. It
+  or past the 500k you hand off at (BUDDY_HANDOFF_AT) — finish the round and
+  hand off (buddy skill: a coordinator, "Hand off before you are full"; a lane,
+  "Landing through an orchestrator" step 6)`. It
   says "last observed" because the number lags one request. Unset, unparseable
   or under, and `busy` prints exactly what it did before. It never rides
   `beat`, and it refuses nothing. When compaction is enough, the harness's own

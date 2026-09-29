@@ -50,6 +50,8 @@ echo "$out" | grep -qF 'hooks: NOT wired in' || fail "QA-1: the hook report is m
 $out"
 missing=$(echo "$out" | sed -n 's/.*NOT wired in [^:]*: *\(.*\) (README.*/\1/p')
 [ "$missing" = "buddy busy buddylist presence" ] || fail "QA-1: hook report named '$missing', want 'buddy busy buddylist presence'"
+echo "$out" | grep -qF 'handoff: BUDDY_HANDOFF_AT not set in' || fail "QA-1: an unset handoff size is reported:
+$out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-1: no done line"
 
 # QA-2: re-run is idempotent — skill current, binaries rebuilt and running.
@@ -65,6 +67,30 @@ mv "$WORK/settings2.json" "$WORK/settings.json"
 out=$(inst 2>&1) || fail "QA-3: install failed:
 $out"
 echo "$out" | grep -qF 'hooks: all eight wired' || fail "QA-3: every hook is wired:
+$out"
+
+# QA-3b (D-064): a handoff size in the settings env block is named, and a
+# settings file whose busy hook is missing says nobody will be told (its
+# control is the wired file just above, which must not say so).
+sed 's/^{"hooks": {/{"env": {"BUDDY_HANDOFF_AT": "400k"}, "hooks": {/' "$WORK/settings.json" > "$WORK/settings2.json"
+mv "$WORK/settings2.json" "$WORK/settings.json"
+out=$(inst 2>&1) || fail "QA-3b: install failed:
+$out"
+echo "$out" | grep -qF 'handoff: BUDDY_HANDOFF_AT=400k in' || fail "QA-3b: the declared size is named:
+$out"
+echo "$out" | grep -qF 'NOT wired, so no session' && fail "QA-3b: busy is wired here:
+$out"
+sed 's/{"command": "\\"$HOME\/bin\/buddy\\" busy"}, //' "$WORK/settings.json" > "$WORK/settings2.json"
+grep -q 'buddy\\" busy' "$WORK/settings2.json" && fail "QA-3b: the fixture still wires busy"
+# inst() names the settings file itself, so the fixture goes in its place.
+cp "$WORK/settings.json" "$WORK/settings.keep"
+mv "$WORK/settings2.json" "$WORK/settings.json"
+out=$(inst 2>&1) || fail "QA-3b: install failed:
+$out"
+mv "$WORK/settings.keep" "$WORK/settings.json"
+echo "$out" | grep -qF 'handoff: BUDDY_HANDOFF_AT=400k in' || fail "QA-3b: the size is named without busy too:
+$out"
+echo "$out" | grep -qF 'but buddy busy is NOT wired, so no session is ever told' || fail "QA-3b: a size with no busy hook says nobody is told:
 $out"
 
 # QA-4: a destination that cannot be built fails LOUD — non-zero, and names it.
@@ -86,5 +112,5 @@ $out"
 echo "$out" | grep -qF 'install-skill exited' || fail "QA-5: the failure must name the step:
 $out"
 
-echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control,"
+echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's)"

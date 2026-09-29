@@ -190,4 +190,24 @@ else
 		say "hooks: NOT wired in $SETTINGS:$missing (README \"Hook wiring\"; busy is optional)"
 	fi
 fi
+
+# 7. The handoff size, reported (D-064). BUDDY_HANDOFF_AT in the settings `env`
+# block reaches every session's hooks, the operator-launched first
+# orchestrator included (measured 2026-09-29: a settings env entry is in the
+# UserPromptSubmit hook's environment). In the handoffs measured for D-055 the
+# OPERATOR noticed the size in 3 of 4, and the next one measured (2026-09-29)
+# was the same, so whether it is set is worth one line. Reported only: the
+# size is the operator's to choose and this script never edits settings. A
+# grep, not a JSON parse: it matches the key as a JSON key and nothing else,
+# and a false "set" would only say so.
+handoff=""
+[ -f "$SETTINGS" ] && handoff=$(sed -n 's/.*"BUDDY_HANDOFF_AT"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SETTINGS" | head -1)
+if [ -z "$handoff" ]; then
+	say "handoff: BUDDY_HANDOFF_AT not set in $SETTINGS; a session is told to hand off only if its own environment declares it (D-055; e.g. \"env\": {\"BUDDY_HANDOFF_AT\": \"400k\"})"
+else
+	case " ${missing:-} " in
+	*" buddy busy "*) say "handoff: BUDDY_HANDOFF_AT=$handoff in $SETTINGS, but buddy busy is NOT wired, so no session is ever told" ;;
+	*) say "handoff: BUDDY_HANDOFF_AT=$handoff in $SETTINGS; every session is told as a turn opens once its last prompt is at or past it" ;;
+	esac
+fi
 say "done"

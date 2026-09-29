@@ -51,14 +51,17 @@ const EnvHandoffAt = "BUDDY_HANDOFF_AT"
 //
 // AN OBSERVATION, NOT A CONTROL (invariant 10). It refuses nothing, reserves
 // no slug (D-030), names no role, and schedules nothing: what to do about it
-// is the skill's recipe ("Running a fleet"), which the line only points at.
+// is the skill's recipe, which the line only points at. It names BOTH arms
+// (D-064): once the size is declared fleet-wide in settings, a lane hears it
+// too, and a lane must not open its own successor (D-056) — it finishes its
+// item and reports to its orchestrator.
 func handoffNote(now time.Time, at int64, c store.ContextSample, observed bool) string {
 	if at <= 0 || !observed || c.Prompt < at {
 		return ""
 	}
 	return fmt.Sprintf("BUDDY: your prompt was %s at your last observed request (turn %s ago), "+
-		"at or past the %s you hand off at (%s) — finish the round, write the handoff, "+
-		"and start your successor (buddy skill: Running a fleet)\n",
+		"at or past the %s you hand off at (%s) — finish the round and hand off "+
+		"(buddy skill: a coordinator, \"Hand off before you are full\"; a lane, \"Landing through an orchestrator\" step 6)\n",
 		tokens(c.Prompt), age(now, c.TurnAt), tokens(at), EnvHandoffAt)
 }
 
