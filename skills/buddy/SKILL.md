@@ -217,6 +217,11 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
    on your branch, commit, declare `buddy wait --on <run> --ready HEAD` again,
    and say so.
 5. No item yet? `buddy msg orchestrator "NEW SESSION <your label>: ready for work"`.
+6. **Told, as a turn opens, that you are past your handoff size?** A lane does
+   not open its own successor. Finish the item in hand, commit, and report where
+   it stands: `buddy msg orchestrator "<item> at handoff size: <state> @ <sha>"`.
+   Take nothing new. Whether a fresh lane takes the rest is your orchestrator's
+   call, and ending you is the operator's.
 
 An assignment carries authority only if your brief said to take assignments
 from this orchestrator (Running a fleet, below). The ledger says who holds
@@ -251,7 +256,9 @@ at your handoff. Then, every time:
    rebases onto that and not onto the tree it started from.
 6. **Before you hand off or exit, sweep your assignments**: `buddy who` each
    lane you assigned, and confirm it is working on something named or has
-   been told it is done. Everything unfinished goes in the handoff note.
+   been told it is done. Everything unfinished goes in the handoff note. Read
+   each lane's `prompt` on `buddy sessions` too, and tell the operator which
+   lanes are at or past the handoff size.
 
 A lane with a stale claim and no answer stays the operator's to free
 (`buddy sweep --force`): report it, never free it yourself.
@@ -305,8 +312,9 @@ if you find neither, ask rather than assume.
   address `msg` prints. Tell each parked lane roughly when you will next need
   it (Before you park). From there, both sides of the loop are Landing
   through an orchestrator (above).
-- **Ending a lane is the operator's act.** When its work has landed and
-  `buddy who <lane>` shows it holds nothing, say so. Close a lane yourself
+- **Ending a lane is the operator's act.** When its work has landed,
+  `buddy who <lane>` shows it holds nothing, and it names no job of its own
+  still running, say so. Close a lane yourself
   (`herdr pane close <pane id>`, which runs its `bye`; `claude stop <8hex>` for a
   background one) only if the operator told you, not a peer, that you may.
 - **Hand off before you are full.** Launch coordinators, and their successors,
@@ -316,23 +324,46 @@ if you find neither, ask rather than assume.
   prompt that opens a turn tells you, while your last observed prompt is at or
   past it (the optional `busy` hook must be wired, and a size must have been
   observed); your row in `buddy sessions` shows it any time (`prompt 521k`). Then:
-  1. Finish the round. Start nothing new.
-  2. Write a handoff file: taking the role, the loop you run, the traps you
-     measured, the state of every lane, what is next. Point your coordination
-     claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
+  1. Finish the round. Start nothing new, and no background job you will not
+     see finish: a job you start is a child of YOUR session, and nothing hands
+     it to your successor. A watcher on anything long (a remote run, a nightly)
+     writes its result to a file; one that only echoes reports to a session
+     about to close.
+  2. Write a handoff file, where your repo keeps them. What the ledger cannot
+     hold goes first, under these headings, each present even when it says
+     "none":
+     - **Running jobs:** every background job of yours still running: its
+       command and pid, the file its output lands in, the line that says it
+       finished, and who reads it next.
+     - **Timers and external runs:** whatever finishes or fires with nobody
+       here watching (a nightly, a remote grader): when, and how to read it.
+     - **Owed:** what you promised the operator or a lane and have not delivered.
+
+     Then the role, the loop you run, the traps you measured, each lane's state
+     and what is next, and the ledger as it stands: paste `buddy status`,
+     `buddy sent`, and `buddy who <run>` for each run you hold. Point your
+     coordination claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
      them, and `buddy status` lists them), repeating the scope flag once for
      each path you hold, never the handoff file in their place:
      `buddy claim orchestrator --desc "HANDOFF: read <file>" --scope <each path you hold>`.
   3. Open the successor the same way, in a herdr tab carrying the same size
      (never in the background, where it would not reach it), with the brief "You are the next orchestrator, taking over from <your
-     label>. Read <file>, then buddy inbox. Claim orchestrator the moment it is
+     label>. Read <file>, then buddy inbox. Check that you can read the output
+     of every running job it lists. Claim orchestrator the moment it is
      released."
   4. `buddy msg` it anything since the file, and wake it. When it answers,
      `buddy release orchestrator`; it claims `orchestrator` at once with the
      same scopes and its own description (until it does, a lane's
      `buddy msg orchestrator` is refused), and the lanes find the new holder
      with `buddy who orchestrator`.
-  5. Tell the operator you are done; they end your session.
+  5. **Account for every running job before you say you are done:** finished,
+     handed over (its output file is in the handoff and the successor says it
+     can read it), or stopped. `buddy status`'s EXIT line speaks for the LEDGER
+     only: "holding nothing" says nothing about your processes, and closing your
+     pane may end them. Measured in one handoff: the outgoing orchestrator said
+     it held nothing while an 8-minute-old gate script and a 42-minute watcher
+     still ran as its children, the watcher reporting only to it. Then tell the
+     operator you are done, naming any job still running; they end your session.
 
   Compaction is the other road: the harness's `/compact`, or `claude --autocompact <size>`
   at launch, shrinks a session in place. Hand off instead when compaction would
