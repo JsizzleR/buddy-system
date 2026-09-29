@@ -69,6 +69,12 @@ type Target struct {
 	Slug  string // the open claim slug, when Via == "slug"
 	Via   string // "all" | "id" | "label" | "short" | "slug"
 	Live  bool   // the session has not ended (always true for AllTarget)
+	// Incarnation is the session's incarnation AS RESOLVED; empty for
+	// AllTarget. A write that binds the target to a row (TransferClaim, D-063)
+	// re-reads it inside its transaction and refuses a change: a successor
+	// that byes and re-hellos between resolution and the write is a different
+	// incarnation from the one that answered.
+	Incarnation string
 }
 
 // check is the runtime half of the guarantee. The exported fields make a
@@ -252,7 +258,7 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 			ErrAmbiguousTarget, target, AllTarget)
 	}
 
-	t := Target{ok: true, Raw: target, ID: found.SessionID, Label: found.Label, Via: via, Live: found.Live()}
+	t := Target{ok: true, Raw: target, ID: found.SessionID, Label: found.Label, Via: via, Live: found.Live(), Incarnation: found.Incarnation}
 	if via == "slug" {
 		t.Slug = target
 	}

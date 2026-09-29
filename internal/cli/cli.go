@@ -298,7 +298,7 @@ const (
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
 	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--dry-run] [--session <id>]"
-	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--session <id>]"
+	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--session <id>]"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
@@ -2330,11 +2330,19 @@ func cmdRelease(args []string, env Env) error {
 	fs.Var(&scopes, "scope", "release only this held scope, exactly as claimed (repeatable); the last one releases the claim")
 	outcome := fs.String("outcome", "", "what became of the job the claim guarded: pass, fail or aborted (D-049)")
 	note := fs.String("note", "", "with --outcome: one line for the waiters (the tested commit, who was in, who is next)")
+	to := fs.String("to", "", "hand the whole claim to this live session instead, keeping it open with its waits (D-063)")
 	if help, err := parseFlags(fs, args[1:], usageRelease, env); help || err != nil {
 		return err
 	}
 	if err := noStray("release", fs, usageRelease); err != nil {
 		return err
+	}
+	// `--to ""` must not fall through to a plain release: the caller asked to
+	// hand the claim on, and a release would land every waiter on it.
+	toGiven := false
+	fs.Visit(func(f *flag.Flag) { toGiven = toGiven || f.Name == "to" })
+	if toGiven && strings.TrimSpace(*to) == "" {
+		return fmt.Errorf("--to needs a session to hand the claim to; nothing was released\n  %s", usageRelease)
 	}
 	// D-049. Refused before the ledger is opened, so a malformed report never
 	// releases anything: a release that went through with its outcome dropped
@@ -2345,6 +2353,11 @@ func cmdRelease(args []string, env Env) error {
 			strconv.Quote(fence.Line(*outcome, 32)), strings.Join(store.Outcomes, ", "), usageRelease)
 	case *note != "" && *outcome == "":
 		return fmt.Errorf("--note rides an --outcome (pass, fail or aborted), and none was given; nothing was released\n  %s", usageRelease)
+	case *to != "" && (*outcome != "" || len(scopes) > 0):
+		// D-063. An outcome ENDS the job the claim guarded and --to hands the
+		// job on, so the two contradict; --scope narrows, and a transfer is of
+		// the whole claim (narrow first, then hand it on).
+		return fmt.Errorf("--to hands the whole claim on, still open: it takes no --outcome, --note or --scope; nothing was released\n  %s", usageRelease)
 	case *outcome != "" && len(scopes) > 0:
 		return fmt.Errorf("--outcome reports on the job the whole claim guarded, and --scope narrows the claim without ending it; release the claim whole to report; nothing was released\n  %s", usageRelease)
 	case renderedLen(*note) > maxOutcomeNote:
@@ -2359,6 +2372,9 @@ func cmdRelease(args []string, env Env) error {
 	si, err := whoAmI(st, env, session)
 	if err != nil {
 		return err
+	}
+	if *to != "" {
+		return releaseTo(st, env, si, slug, *to)
 	}
 	if len(scopes) > 0 {
 		// The holder narrowing its own reservation (wishlist §5b): the only
@@ -2390,6 +2406,52 @@ func cmdRelease(args []string, env Env) error {
 		reported = " — outcome " + outcomePhrase(*outcome, *note) + " recorded for its waiters"
 	}
 	fmt.Fprintf(env.Stdout, "released %s%s%s\n", strconv.Quote(fence.Line(slug, 128)), reported, releasedWaitersNote(st, claimID, env))
+	return nil
+}
+
+// releaseTo hands an open claim to another live session (D-063; the rules
+// and their failures are in store/transfer.go). The move is ONE transaction;
+// the notice to the recipient is a second write that can fail after the move
+// has committed, so the receipt for the move is printed first and a failed
+// notice is reported as exactly that — never as a failed release, which would
+// invite a retry of a move that already happened (Codex design pass). The
+// notice goes to the session the transfer resolved, by id, and never to a
+// fresh resolution of the argument: a slug target can change hands between
+// the two. It is information only: the ledger row is the authority
+// (invariant 4), and nothing asks the recipient's consent (cut; D-063).
+func releaseTo(st *store.Store, env Env, si store.SessionInfo, slug, raw string) error {
+	tgt, err := resolveTargetQuiet(st, raw)
+	if err != nil {
+		return err
+	}
+	claimID, label, err := st.TransferClaim(si.SessionID, si.Incarnation, slug, tgt)
+	if err != nil {
+		return fencedErr(fmt.Errorf("%w; nothing was handed on", err))
+	}
+	line := fmt.Sprintf("handed %s to %s — it stays open, with its scopes", strconv.Quote(fence.Line(slug, 128)), fence.Line(label, 64))
+	if waiters, err := waitersOn(st, claimID); err == nil && len(waiters) > 0 {
+		line += fmt.Sprintf(", and the %d wait(s) on it follow it: %s", len(waiters), waitersPhrase(st, waiters, nowOf(env)))
+	}
+	sender := senderFor(st, env, "")
+	sid, known := senderSession(st, env)
+	rcpt := observe(st, env, tgt.ID)
+	body := fmt.Sprintf("handed you claim %s (release --to, D-063): it is yours now, open, with its scopes and every wait on it. `buddy status` lists it; re-claim it with the SAME scopes to refresh its description.",
+		strconv.Quote(slug))
+	id, err := st.Send(tgt, sender, body, store.SendOpts{SenderSession: sid, SenderKnown: known})
+	if err != nil {
+		fmt.Fprintln(env.Stdout, line+"; telling them FAILED (the claim did move): "+fence.Line(err.Error(), 256)+" — `buddy msg` them yourself")
+		return nil
+	}
+	// "queued", never "told": delivery is the recipient's act (D-032).
+	line += fmt.Sprintf("; notice queued for them: message #%d", id)
+	wake := wakeClause(env, rcpt, nowOf(env), id)
+	if wake != "" {
+		line += "; " + wake
+	}
+	fmt.Fprintln(env.Stdout, line)
+	if wake != "" {
+		fmt.Fprintf(env.Stderr, "buddy: message #%d to %s is queued; %s\n", id, fence.Line(label, 64), wake)
+	}
 	return nil
 }
 

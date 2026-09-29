@@ -600,6 +600,15 @@ ledger row entered through the CLI (D-006).
     claim, `ready_sha`, `outcome`, inbox), a LANDED that also means "you may exit", or naming
     the fleet repo.
 
+66. **A holder hands an open claim on with `release <slug> --to <target>`, keeping its id (D-063).**
+    Release-then-claim mints a new claim id, and a wait is resolved once to a claim id, so a
+    successor re-claiming an in-flight run landed every rider with no outcome and dropped their
+    READY (measured, 2026-09-29). The transfer moves owner and incarnation in one transaction and
+    keeps everything else; it refuses a sender not live under its incarnation, an ended or
+    re-registered recipient, a recipient waiting on the claim, and any overlap the recipient could
+    not have claimed. No consent step, no recorded previous holder: cut, see the record. Do not
+    propose release-then-claim or `--outcome aborted` as the handoff of a run that carries on.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.

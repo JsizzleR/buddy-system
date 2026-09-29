@@ -4163,3 +4163,65 @@ docs-only item, through its orchestrator.
 against the usage table (`wait --on --ready --until`, `who`, `msg`, `sent`,
 `release --outcome --note`, `sweep --force`); the coverage gate is unchanged, since the section
 adds no name.
+
+## D-063 — A holder hands an open claim to another live session, and its waits go with it
+
+2026-09-29 · operator request (an orchestrator handoff, measured; no issue)
+
+**What was wrong** — An orchestrator handing its role to a successor held an in-flight run claim
+(`.buddy/slot/<run>` + `.buddy/slot/main`) with two riders parked on it `--ready`. The skill's
+handoff recipe covered only `orchestrator`, so the outgoing session worked out "how a run claim is
+passed on" for itself: release, and the successor claims again. A new claim is a new claim id,
+and a wait is resolved once to a claim id (D-033), so every rider's wait went LANDED with "No
+outcome was reported … ask its holder" (the holder that had just left), and each rider's READY sha
+went with its wait: `who <run>` showed the successor no riders until both re-declared by hand,
+which they did within a minute. One missed check later, the successor would have landed a run
+whose riders it could not see. Between the release and the re-claim, `msg <run>` was refused and
+main's slot was anybody's.
+
+**The rule** — `buddy release <slug> --to <target>` (`store.TransferClaim`). One immediate
+transaction changes the claim's `session_id` and `incarnation` and sets `renewed` to now; the
+claim id, scopes, mode, slug, description and `created` stand, so every wait on it keeps waiting,
+and the new holder's release (with its outcome) is what lands the riders. It refuses, writing
+nothing: a sender not live under its incarnation (release may close a dead incarnation's leftover
+claim; a transfer would keep it open under someone else); a recipient that has ended or whose
+incarnation changed since it was resolved (`Target.Incarnation`, new); the sender itself and
+`all`; a recipient with an open wait on this very claim (it would wait on its own claim, which
+only it can land — refused, never repaired, because dropping one target of a multi-target wait
+can LAND it); and any scope overlap the recipient could not have claimed itself (a session may
+hold overlapping claims of its own, so handing one of two away could leave two sessions on one
+path: the ordinary conflict scan runs against the new owner inside the transaction). `--to`
+takes no `--outcome`, `--note` or `--scope`: an outcome ends the job the transfer hands on.
+
+The CLI then queues one message to the recipient, signed by the sender, saying what it was handed
+and that a re-claim with the SAME scopes refreshes the description; the result line names the
+waiters that followed the claim and carries the wake address (D-041, D-052). The notice is a
+second write: if it fails, the receipt says the claim moved and the telling failed — never "not
+released", which would invite a retry of a move that happened.
+
+**Considered and cut** — Recipient consent (an offer the recipient accepts): the holder already
+decides how long the scopes stay reserved, and the skill sequences the move after the successor
+answers. A recorded previous holder: no schema for it; the notice names the sender. Clearing the
+recipient's self-wait: see above. A skill-only fallback (`release --outcome aborted` with a note
+naming the successor): Codex judged "aborted" untrue for a run that carries on, and it still
+drops every READY. "Land before you hand off": the trigger is context size, and the round in the
+measured case was eight minutes into a gate. An `orphan the ended owners first` step, as `claim`
+has: no reachable ledger state gives it anything to do here (a claim cannot already overlap an
+ended owner's exclusive claim; `claim` orphaned it when this one was taken), so it was dropped
+rather than kept untested.
+
+**The skill** — "Hand off before you are full" step 4 hands every claim over with `--to`, the run
+first, and says never to release a run for a successor to claim afresh. "One long run" names it
+for an integrator handing a run on mid-flight.
+
+**Test shape** — `store/transfer_test.go`: waits keep waiting and keep READY, the gate follows the
+owner, the new holder's refresh keeps the id and its outcome lands the rider, with the positive
+control that release-then-claim lands the rider with no outcome; a table of refusals with a live
+control, each leaving the claim where it was; ErrNoRelease for a claim not yours.
+`cli/release_to_test.go`: the one-line receipt, the recipient's notice, the rider STILL WAITING
+then LANDED on the new holder's outcome, and six refusals that leave the claim with its holder
+(among them `--to ""`, which must never fall through to a plain release).
+Mutated in a private copy: the incarnation fence, the self-wait refusal, the overlap scan, the
+sender's liveness check, `renewed=now` and the empty-`--to` guard each killed by a test. Codex's
+code pass found the receipt's "told them" overstated a queued send (D-032): it reads "notice
+queued".
