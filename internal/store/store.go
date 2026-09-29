@@ -1046,7 +1046,7 @@ func (s *Store) BeatFrom(sessionID, relPath string, proc ProcRef) error {
 // ClaimInfo is a claim joined with its owner and scopes.
 type ClaimInfo struct {
 	ClaimID     string
-	Incarnation string // the incarnation that TOOK the claim (not the owner's current one)
+	Incarnation string // the incarnation that TOOK the claim, or was handed it (D-063); not the owner's current one
 	Slug        string
 	Desc        string
 	State       string

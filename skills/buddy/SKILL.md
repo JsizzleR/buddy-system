@@ -119,7 +119,9 @@ or push main, and release it after — that is what stops a landing mid-run.
   that tree, parked on it like any long run of your own (see Before you park);
   green: fast-forward main to it. Then always report, never a bare release:
   `buddy release herm --outcome pass --note "<landed sha; who was in; who is next>"`,
-  or `--outcome fail` / `--outcome aborted` with what failed and who is out. A red
+  or `--outcome fail` / `--outcome aborted` with what failed and who is out.
+  Handing the run to another integrator mid-flight? `buddy release herm --to
+  <session>` keeps it open, with its riders' waits. A red
   run you will retry: keep the claim, re-claim with "RED — ejecting X, one more
   tier", run again, then release with the outcome.
 - **Rider, not done yet:** `buddy wait --on herm --note "done in 10" --until 4h`.
@@ -349,13 +351,18 @@ if you find neither, ask rather than assume.
   3. Open the successor the same way, in a herdr tab carrying the same size
      (never in the background, where it would not reach it), with the brief "You are the next orchestrator, taking over from <your
      label>. Read <file>, then buddy inbox. Check that you can read the output
-     of every running job it lists. Claim orchestrator the moment it is
-     released."
+     of every running job it lists, then say so. I will hand you my claims."
   4. `buddy msg` it anything since the file, and wake it. When it answers,
-     `buddy release orchestrator`; it claims `orchestrator` at once with the
-     same scopes and its own description (until it does, a lane's
-     `buddy msg orchestrator` is refused), and the lanes find the new holder
-     with `buddy who orchestrator`.
+     hand it every claim you hold, a run in flight first:
+     `buddy release <run> --to <its label>`, then
+     `buddy release orchestrator --to <its label>`. Each claim stays open with
+     its scopes, and every wait on it follows it: riders keep waiting, stay
+     READY on `buddy who <run>`, and land on the successor's outcome. Each
+     result line tells the successor with a message and ends with the address
+     to wake it: deliver it. It refreshes each description by claiming again
+     with the SAME scopes. Never release a run and have it claimed afresh: a
+     new claim is a new claim id, so every rider's wait lands with no outcome
+     and its READY is lost (measured).
   5. **Account for every running job before you say you are done:** finished,
      handed over (its output file is in the handoff and the successor says it
      can read it), or stopped. `buddy status`'s EXIT line speaks for the LEDGER

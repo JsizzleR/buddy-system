@@ -527,6 +527,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `orchestrator`, a per-run claim on the slots), READY is `wait --ready` plus a message, LANDED
   is the release's outcome plus words that end the lane's work, and every `msg` result is read
   for its wake line. Repo-specific parameters stay in the repo's own skill. No task table.
+- **A holder hands an open claim on with `release <slug> --to <target>` (D-063):** one transaction
+  moves owner and incarnation, keeping the claim id, so its waits follow it; refuses a dead sender,
+  an ended/re-registered recipient, a recipient waiting on it, and an overlap it could not claim.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

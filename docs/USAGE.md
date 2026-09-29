@@ -893,6 +893,14 @@ sees, and where each fact lives:
   named. They live in the orchestrator's description or the file it names,
   never in buddy.
 
+- **A handoff moves the claims, not their ids**: the outgoing orchestrator
+  runs `buddy release <run> --to <successor>` and then
+  `buddy release orchestrator --to <successor>` (D-063). Each claim stays open
+  with its scopes and every wait on it, so riders stay READY on `who <run>`
+  and land on the successor's outcome; the successor is sent a message saying
+  what it was handed. Release-then-claim would mint new claims and land every
+  rider with no outcome.
+
 Buddy keeps no task table. The claim is the responsibility, `wait --ready` is
 the report, `release --outcome` is the close, and `who` is the view. A
 `buddy task` verb was proposed ([ORCHESTRATION-PLAN.md](ORCHESTRATION-PLAN.md))
