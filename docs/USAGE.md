@@ -396,6 +396,7 @@ buddy who <id|label|s-id|slug>    # the same report for any name a session answe
 # DIRTY PATHS  3 recorded to this session (observations, not locks): internal/api/x.go, …
 # BASE         079dd6a7 (3 behind main, 12m ago) — an observation at the end of its last reported turn
 # INBOX        1 undelivered
+# JOBS         1 shell(s) running directly under its harness process (pid 30479) when sampled: pid 81311 12m — the ledger does not track them, and closing its pane may end them
 # EXIT         ending now would leave 2 claim(s) held — freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: api-work, docs-pass
 ```
 
@@ -403,6 +404,13 @@ A session has four names — its id, its label, the `s-<8hex>` short form, and
 whatever claim slug peers address it by — and before `who`, nothing took one
 and returned the rest. `who` resolves any of them exactly as `msg` and `pause` do
 (an open slug resolves; a released one does not) and prints the whole record.
+The `JOBS` line (D-065) is the one line not read from the ledger: the shells
+still running as direct children of the session's registered harness process,
+with pids and ages and never a command line. It is how a session that says it
+"holds nothing" is caught still running a gate script or a watcher. It cannot
+see a job that exec'd into another program or runs under a wrapper, and it
+says "cannot say" (never "none") without a live registered process or on a
+platform whose process table it does not read (only macOS is).
 The `EXIT` line is a **description of what the ledger would be left holding**.
 It is not permission and it is not proof that killing the session is safe:
 a coordinator can report that a session is safe to release and cannot obtain

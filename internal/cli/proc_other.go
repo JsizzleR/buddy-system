@@ -15,3 +15,7 @@ func procInfo(pid int) (ppid int, names []string, born int64, ok bool) {
 // procGone: this platform cannot say, so nothing is ever "gone" here — a
 // registration it cannot inspect reads as alive, the safe direction.
 func procGone(err error) bool { return false }
+
+// readProcTable: not measured on this platform, so the JOBS line says it
+// cannot say rather than "none".
+func readProcTable() ([]procEntry, bool) { return nil, false }

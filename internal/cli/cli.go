@@ -48,6 +48,9 @@ type Env struct {
 	// runs under a claude process of its own.
 	Anchor    func() (harnessProc, bool)
 	ProcAlive func(store.ProcRef) bool
+	// ProcTable is the process table and the caller's own pid, for the JOBS
+	// line (jobs.go); nil means the real one, which a test must never read.
+	ProcTable func() (table []procEntry, self int, ok bool)
 	// SockDir is where the harness's per-process message sockets live (wake.go);
 	// "" means the real one. A seam for the reason Anchor is one.
 	SockDir string

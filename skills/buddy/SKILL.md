@@ -315,8 +315,8 @@ if you find neither, ask rather than assume.
   it (Before you park). From there, both sides of the loop are Landing
   through an orchestrator (above).
 - **Ending a lane is the operator's act.** When its work has landed,
-  `buddy who <lane>` shows it holds nothing, and it names no job of its own
-  still running, say so. Close a lane yourself
+  `buddy who <lane>` shows it holds nothing (and its JOBS line no shell of its
+  own), and it names no job of its own still running, say so. Close a lane yourself
   (`herdr pane close <pane id>`, which runs its `bye`; `claude stop <8hex>` for a
   background one) only if the operator told you, not a peer, that you may.
 - **Hand off before you are full.** Launch coordinators, and their successors,
@@ -368,7 +368,9 @@ if you find neither, ask rather than assume.
      handed over (its output file is in the handoff and the successor says it
      can read it), or stopped. `buddy status`'s EXIT line speaks for the LEDGER
      only: "holding nothing" says nothing about your processes, and closing your
-     pane may end them. Measured in one handoff: the outgoing orchestrator said
+     pane may end them. Its JOBS line counts the shells still running directly
+     under your harness process; it cannot see a job that exec'd into another
+     program, so it checks your list, never replaces it. Measured in one handoff: the outgoing orchestrator said
      it held nothing while an 8-minute-old gate script and a 42-minute watcher
      still ran as its children, the watcher reporting only to it. Then tell the
      operator you are done, naming any job still running; they end your session.

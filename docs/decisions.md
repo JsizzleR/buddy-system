@@ -4262,3 +4262,59 @@ a report, and a false "set" would only say so. Setting a default size: the opera
 the wired file does not warn; the same file without busy says nobody is told, the fixture checked
 to have lost busy; the busy-not-wired arm mutated in a private copy and killed by QA-3b).
 `handoff_test.go` asserts the two-armed pointer.
+
+## D-065 — `status` and `who` count the shells still running under a session's harness process
+
+2026-09-29 · operator request (follows D-063, D-064)
+
+**What was wrong** — An outgoing orchestrator told its operator "this session holds nothing and
+the checkout is clean, so you can close it" while two of its own shells still ran as children of
+its claude process: a gate script eight minutes in, writing the summary its successor had been
+told to poll, and a 42-minute watcher on a remote nightly whose only output was an echo to the
+session about to close (measured 2026-09-29, `ps` by parent pid). `status`'s EXIT line was right:
+it speaks for the ledger, and says so. It was read as speaking for the session. The skill now has
+the handoff account for its running jobs (3a0a450); nothing could show one that was forgotten.
+
+**The rule** — `status` and `who` print a JOBS line before EXIT, for a live session:
+- the shells that are DIRECT children of the session's registered harness process (D-025's
+  `session_procs`, alive under its recorded start time), with pids and ages, oldest first;
+- or "no shell found directly under … when sampled, besides any running this report", naming
+  what it cannot see (a job that exec'd into another program, or runs under a wrapper);
+- or "cannot say": no live registered process; this platform's table is not read (only darwin
+  reads it); or the table's row for the anchor does not carry the registered start time.
+
+Measured on this machine before writing it: a live claude's children were one `/bin/zsh` (the
+Bash tool call running `ps`, in its OWN process group), `npm exec` (an MCP server), `buddylist`,
+`gopls` and `caffeinate`. So the line reads the whole table (`kern.proc.all`, one sysctl) and
+filters by parent pid: D-061's process-group walk cannot see a child in another group, and D-061
+cut the whole-table scan for its own purpose (ending its test binaries), not this one. It counts
+shells by the kernel's executable name, which excludes the MCP servers and the rest. The report's
+own shell is a Bash tool call too, so the caller's ancestor chain (walked in the same table,
+bounded like the anchor walk, cycle-safe) is excluded. A hook or status line the harness is
+running when the table is sampled is counted, and the line says "when sampled", nothing more.
+
+**What it prints and does not** — Pids and ages, never argv: a command line is whatever the
+session typed, may carry a secret, and would be peer text in another session's context. It refuses,
+ends, signals and grants nothing (invariant 10, D-027); nothing ends a session's processes from
+buddy (D-056). "Cannot say" is never rendered as "none" (D-016's rule).
+
+**Codex code pass** — CONFIRMED: the anchor was checked alive by `procAlive` and the table read
+separately, so a pid reused between the two would lend the session another process's shells. The
+table's own row for the anchor must now carry the registered start time (test: a table whose pid
+500 was born 2, not the registered 1, prints "cannot say"). The empty arm's first wording ("no
+shell running … at this instant") overclaimed a complete inventory; it now names what it cannot
+see.
+
+**Considered and cut** — Reporting from `bye` (the pane is already closing, and bye stays silent).
+Descendants beyond direct children (a background shell's own children are its business; the shell
+is the job). Printing command lines. Linux (`/proc` walk): not measured here, so it says cannot say.
+
+**Test shape** — `jobs_test.go`: the pure filter over the measured tree (the caller's chain
+excluded, with the control that counts it without the exclusion), a cycle in the self walk, and
+the CLI arms (two shells with ages, none, an unreadable table, an unbound session, a dead anchor,
+a reused anchor pid). `jobs_darwin_test.go`: the real sysctl finds this test's own child
+`/bin/sh -c "sleep 30; true"` under `os.Getpid()` (two commands, so sh cannot exec sleep in its
+place). Run live on this session: no background job → the empty arm; `sleep 90` backgrounded →
+"1 shell(s) … pid 81311 0s". Mutated in a private copy: the self-chain skip, the shell filter,
+the direct-child rule, the anchor liveness check, the platform arm and the anchor re-identification
+each killed by a test.
