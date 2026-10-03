@@ -371,7 +371,16 @@ func TestWatchdogEndsAWedgedOrphan(t *testing.T) {
 // the spinning goroutine. testing's own alarm never fires in the wedge; that
 // it did not is the control. Mutant: drop the wall arm — the helper spins
 // until this leg's deadline, and it goes red.
+//
+// Darwin only, like the other watchdog legs. The wall needs no parent, but
+// stop() signals only a process procOf IDENTIFIES by its start time, and off
+// darwin procOf cannot say (proc_other.go), so the watchdog rightly sends
+// nothing. Without this skip, every ubuntu CI run from D-053 (76a1f05) on
+// failed here at 90 s: "it could not be identified, so nothing was sent".
 func TestWatchdogWallEndsAWedgeUnderALiveParent(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the watchdog identifies a process by its start time on darwin only")
+	}
 	t.Parallel()
 	cmd, dir := helper(t, "wedge", "10s", "GODEBUG=asyncpreemptoff=1")
 	var stderr bytes.Buffer
