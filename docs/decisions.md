@@ -4430,3 +4430,53 @@ Mutated in a private copy: 31 mutants, each killed by a test (the check removed,
 ledger, or moved past the dry run; each renderer reverted one at a time; Field over the whole
 join, overall and in each of the five listings that also print the path; the first-item rule;
 the per-item cap; shellQuote's `=`; each guard on the fix line; the trim).
+
+## D-067 — `install.sh` waits out the launch constraint a new daemon build meets, and a daemon failure no longer skips the steps after it
+
+2026-10-03 · operator request, after D-066's install
+
+**What was wrong** — The install that landed D-066 died at step 4: `the daemon did not come back
+(state: spawn scheduled)`. Steps 5 and 6 (setup-clone, the hook report) never ran. At the time I
+put it down to a code-signature kill of the running daemon. The log says otherwise. The old daemon
+stopped at the kickstart. The SPAWN of the new build was refused: `xpcproxy exited due to
+OS_REASON_CODESIGNING | Launch Constraint Violation (Constraint not matched)`, and launchd marked
+the service inactive. Ten seconds later `backgroundtaskmanagementd` logged `invalidateLaunchItem`
+for the agent's plist, and the next spawn ran. The job carries `managed LWCR | has LWCR`. The
+binary is ad-hoc signed (identifier a.out, no team), so its identity is its code hash, and Go
+stamps the commit into every build, so every install after a commit is a new binary. The wait
+was ten one-second polls, the recovery took 10.016 s, and the wait lost.
+
+**Measured** — Refused spawn to re-registration: 10.016 s and 10.015 s (two samples), kickstart to
+`running` 10.15 s. The control: `kickstart -k` with the binary unchanged ran in 0.14 s, with no
+violation logged. Codex's discriminator: a new build (`-buildvcs=false`, a new code hash) left
+15 s before the kickstart was refused the same way, with nothing logged during the pause. So the
+delay follows the spawn, not the file change, and cannot be waited out in advance. What the
+constraint records was not read. Only this was observed: a changed binary fails it and an
+unchanged one does not.
+
+**The rule** — Step 4 polls up to `BUDDY_DAEMON_WAIT` seconds (default 30; a whole number of at
+most four digits). A return after the first poll says how long it took and the exit reason
+launchd RECORDED, worded as a record rather than as a finding about the run. A daemon that does
+not come back, or a kickstart that fails, is DEFERRED: steps 5 and 6 still run, then the install
+fails with that reason as its last line. `BUDDY_PLIST` and `BUDDY_LAUNCHCTL` let the done-check
+drive the step with a fake.
+
+**Considered and cut** (ranked with Codex) — Skipping the restart when the bytes are unchanged:
+the commit stamp changes them on every commit, so it saves nothing. `-buildvcs=false` for the
+daemon: it gives up provenance, and a real code change still changes the hash. `bootout` plus
+`bootstrap`: not shown to avoid the constraint, and a failed bootstrap leaves the agent unloaded,
+which is worse than a slow return. A second kickstart once the item is re-registered: launchd
+spawned it without one, and an unconditional `-k` can kill a daemon that has just come back.
+
+**Test shape** — `check-install.sh` QA-6 drives step 4 with a fake launchctl that reports `spawn
+scheduled` and `OS_REASON_CODESIGNING` until a given poll. Neither real launchd nor the real plist
+can be reached: HOME is a throwaway, so the default plist path does not exist, and a guard
+launchctl first on PATH records being reached. QA-6a: running at once gives the one-line report,
+and on macOS the fixture's own daemon program was rebuilt. QA-6b: running after 11 polls, past
+the old window (Codex: a 3 s case passed with the old default), succeeds and says `after 11s` and
+the reason. QA-6c: never running within 2 s fails LAST, after setup-clone's arm and the hook
+report, with no `done`. A non-numeric or over-long wait is refused. QA-6d: a failed kickstart is
+deferred the same way. Eleven mutants in a private copy were each killed: the wait ignored, the
+default set back to 10, no deferral on either arm, no final failure, the reason unread, either
+knob ignored, no validation, no bound, and a silent slow return. The real daemon kept its pid
+throughout.

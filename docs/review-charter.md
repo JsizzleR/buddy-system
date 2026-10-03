@@ -639,6 +639,12 @@ ledger row entered through the CLI (D-006).
 
 ## Environment facts (measured, do not re-derive)
 
+- A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
+  Constraint Violation`, the agent carrying `managed LWCR`. backgroundtaskmanagementd
+  re-registers it 10.0 s later (two samples), and the next spawn runs. It follows the spawn,
+  not the file: a 15 s pause between the build and the kickstart did not avoid it. An
+  unchanged binary restarts in 0.14 s. Measured 2026-10-03, macOS 27 (D-067).
+
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
 - `pgrep`/`pkill` abort on non-ASCII patterns ("illegal byte sequence") and report BUSY as
   FREE when they do. `ps | awk` has the same trap from the other side: a non-ASCII argv
