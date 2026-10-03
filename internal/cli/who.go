@@ -176,7 +176,7 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		if !c.Renewed.IsZero() && c.Stale(now) {
 			stale = fmt.Sprintf("  STALE (not renewed %s; still refuses)", age(now, c.Renewed))
 		}
-		scopes := joinCapped(c.Scopes, 512) // whole items, fenced inside, with a count of what was cut
+		scopes := scopeList(c.Scopes) // whole items, one token each, with a count of what was cut
 		fmt.Fprintf(env.Stdout, "  %-24s held %-4s %sscopes: %s%s\n",
 			fence.Field(c.Slug, 128), age(now, c.Created), sharedWord(c.Shared), scopes, stale)
 	}
@@ -338,15 +338,29 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 // with nothing to say so — a report that quietly drops rows is
 // indistinguishable from a smaller one (Codex code pass, D-027).
 func joinCapped(items []string, max int) string {
+	return joinWhole(items, max, func(s string) string { return fence.Line(s, max) })
+}
+
+// joinWhole is joinCapped with the fence chosen by the caller: scopeList
+// renders each scope as one token (fence.Field) under the same whole-item cap.
+//
+// The FIRST item always shows, cut by its own fence if it must be. Whole items
+// only, applied to the first, printed a claim whose one scope exceeds the cap
+// as `scopes: ...and 1 more not shown`, and the gate's deny as `inside scope
+// "...and 1 more not shown"`: a count where the only thing to read was the
+// path (Codex code pass, D-066). Field can also outgrow its cap, since each
+// space becomes a 3-byte ␣ after the cut, so a list may run past max by that
+// first item's overshoot; the callers that budget bytes measure the line.
+func joinWhole(items []string, max int, render func(string) string) string {
 	var b strings.Builder
 	shown := 0
 	for _, it := range items {
-		piece := fence.Line(it, max)
+		piece := render(it)
 		if shown > 0 {
 			piece = ", " + piece
-		}
-		if b.Len()+len(piece) > max {
-			break
+			if b.Len()+len(piece) > max {
+				break
+			}
 		}
 		b.WriteString(piece)
 		shown++

@@ -89,6 +89,20 @@ buddy ls                          # the board: who holds what, STALE flags
 buddy release api-refactor
 ```
 
+One `--scope` per path. A comma list is refused, and nothing is written: it
+used to be granted as one literal path, `a,b`, which covers neither `a` nor `b`
+(D-066). The refusal prints the repeated-flag form when that can be pasted back
+as typed:
+
+```
+buddy: scope "pkg/a.go,pkg/b.go" holds a comma, and --scope takes ONE path; nothing was claimed. Repeat the flag: --scope pkg/a.go --scope pkg/b.go
+```
+
+Every listing prints a claim's scopes the same way: joined by `, `, each one
+token, with a space inside a scope shown as `␣`. So a scope that holds a comma
+(a row from before the refusal) reads `pkg/a.go,pkg/b.go`, and a claim on both
+files reads `pkg/a.go, pkg/b.go`.
+
 A claim is granted whole or refused whole, and a refusal names **every**
 collision, not the first. To see the conflict set before taking anything:
 

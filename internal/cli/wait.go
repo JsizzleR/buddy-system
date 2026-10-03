@@ -726,10 +726,12 @@ func unpastableNote(n int) string {
 
 // shellQuote makes a slug safe to paste into a command line. A slug is
 // free text: `buddy wait --on a b` would wait on "a" and refuse "b" (Codex
-// design pass). Values made only of the characters below go bare.
+// design pass). Values made only of the characters below go bare — except
+// one that BEGINS with "=", which zsh's EQUALS option expands as a command
+// lookup: a bare `=sh` pastes as /bin/sh (Codex code pass, D-066).
 func shellQuote(s string) string {
-	if s == "" {
-		return "''"
+	if s == "" || strings.HasPrefix(s, "=") {
+		return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 	}
 	for _, r := range s {
 		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._/:@%+=,-", r)) {
@@ -1018,10 +1020,10 @@ func slotNote(conflicts []store.Conflict) string {
 	case 0:
 		return ""
 	case 1:
-		return "SLOT: " + fence.Line(slots[0], 512) +
+		return "SLOT: " + scopeList(slots) +
 			" is a shared resource, not a file — do not start the job it guards until it frees; buddy who <slug> counts who else is waiting\n"
 	default:
-		return "SLOT: " + fence.Line(strings.Join(slots, ", "), 512) +
+		return "SLOT: " + scopeList(slots) +
 			" are shared resources, not files — do not start the jobs they guard until they free; buddy who <slug> counts who else is waiting\n"
 	}
 }

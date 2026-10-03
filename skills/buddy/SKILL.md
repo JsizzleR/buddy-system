@@ -31,8 +31,9 @@ An open session gets the tool after `/reload-plugins`; a new one gets it at star
 ## Before you edit
 
 1. `buddy claim <slug> --desc "<what and why>" --scope <path> [--scope ...]`.
-   A scope is a file or a directory prefix, with no globs. A claim is granted
-   whole or refused whole.
+   A scope is a file or a directory prefix, with no globs. Use one `--scope` per
+   path. A comma list is refused, because it would name one file nobody has. A
+   claim is granted whole or refused whole.
 2. Not sure it will be granted? Run `buddy claim ... --dry-run`. It names every
    conflict and writes nothing.
 3. Every lane appends to one file (a playbook, a log)? Use `--shared`. Shared

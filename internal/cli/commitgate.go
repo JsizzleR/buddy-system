@@ -298,7 +298,7 @@ func cmdCommitGate(args []string, env Env) int {
 		fmt.Fprintf(w, "      claim %q held by %s (%s)\n", fence.Line(c.Slug, 128),
 			fence.Line(c.Owner.Label, 64), claimState(c, now))
 		fmt.Fprintf(w, "      scope %s%s — %s\n\n",
-			sharedWord(c.Shared), fence.Line(strings.Join(c.Scopes, ", "), 512), fence.Line(c.Desc, 512))
+			sharedWord(c.Shared), scopeList(c.Scopes), fence.Line(c.Desc, 512))
 	}
 	if len(order) > maxReportClaims {
 		fmt.Fprintf(w, "  ...and %d more claim(s) not shown\n\n", len(order)-maxReportClaims)

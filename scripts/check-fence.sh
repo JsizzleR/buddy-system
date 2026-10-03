@@ -15,8 +15,12 @@
 # carries peer text: .Label .Slug .Desc .Scopes .Worktree .Body .From .Note
 # .Terminal (the last is read from an ENVIRONMENT and printed into other
 # sessions' context, which is the same trigger).
-# A statement that names one of those must call fence.Line, fence.Field or
-# Fence at least as many times as it names them. (Field is Line plus a
+# A statement that names one of those must call fence.Line, fence.Field,
+# Fence or scopeList at least as many times as it names them. scopeList is the
+# one renderer of a claim's scope list (D-066): it fences each scope with
+# fence.Field. Counting it by name is an allowance, so clause 3 below checks
+# that its body still calls fence.Field: a scopeList that stopped fencing
+# would otherwise pass every statement that uses it. (Field is Line plus a
 # guarantee that the value stays ONE whitespace-delimited field — see issue
 # #6 — so it counts as fencing, and a column that needs it is not a second
 # rule but the same one applied where the columns are.) Counting is coarse on
@@ -43,7 +47,7 @@ scan() {
       if (stmt == "") return
       if (stmt !~ /fence: not peer text/) {
         tmp = stmt; nf = gsub(/\.(Label|Slug|Desc|Scopes|Worktree|Body|From|Note|Terminal)([^A-Za-z0-9_]|$)/, "&", tmp)
-        tmp = stmt; nfence = gsub(/fence\.Line\(|fence\.Field\(|[^a-zA-Z]Fence\(/, "&", tmp)
+        tmp = stmt; nfence = gsub(/fence\.Line\(|fence\.Field\(|[^a-zA-Z]Fence\(|[^a-zA-Z]scopeList\(/, "&", tmp)
         if (nf > nfence) printf "%s:%d: %d peer field(s), %d fence call(s): %s\n", FILENAME, start, nf, nfence, stmt
       }
       stmt = ""
@@ -75,6 +79,25 @@ func f() {
 GO
 if [ -z "$(scan "$control")" ]; then
   echo "check-fence: the scanner did not flag its own planted violation — the gate is broken, not the tree" >&2
+  exit 1
+fi
+
+# Clause 3: the scopeList allowance is honest. Its body, from `func scopeList(`
+# to the closing brace, must call fence.Field; the planted copy that does not
+# must be flagged first, or the check is matching nothing.
+fences_scopes() { awk '/^func scopeList\(/,/^}/' "$@" | grep -q 'fence\.Field('; }
+cat > "$control" <<'GO'
+package x
+func scopeList(scopes []string) string {
+	return strings.Join(scopes, ", ")
+}
+GO
+if fences_scopes "$control"; then
+  echo "check-fence: the scopeList check passed a planted scopeList that does not fence — the gate is broken, not the tree" >&2
+  exit 1
+fi
+if ! fences_scopes internal/cli/*.go; then
+  echo "check-fence: scopeList is counted as a fence call, and its body no longer calls fence.Field (D-066)" >&2
   exit 1
 fi
 

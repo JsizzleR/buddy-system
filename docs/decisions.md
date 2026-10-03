@@ -4318,3 +4318,115 @@ place). Run live on this session: no background job → the empty arm; `sleep 90
 "1 shell(s) … pid 81311 0s". Mutated in a private copy: the self-chain skip, the shell filter,
 the direct-child rule, the anchor liveness check, the platform arm and the anchor re-identification
 each killed by a test.
+
+## D-066 — `claim` refuses a `--scope` that holds a comma, and every listing renders a claim's scopes through one function
+
+2026-10-03 · issue #56
+
+**What was wrong** — `buddy claim fix --scope pkg/a.go,pkg/b.go,pkg/c.go` was granted as ONE scope,
+the literal path `pkg/a.go,pkg/b.go,pkg/c.go`. It exited 0 and printed `scopes: pkg/a.go,pkg/b.go,pkg/c.go`.
+Containment is exact (invariant 14), so the claim covered one file nobody has and none of the three
+its holder believed it held. `whose pkg/a.go` said CLAIMED BY (none). A peer's exclusive claim on
+`pkg/a.go` was granted over it. Under a peer's SHARED claim, the gate denied the holder's own edit of
+`pkg/a.go`. `ls` joined scopes with a bare `,`, so the literal and a real three-scope claim printed
+the same bytes. Every other listing fenced the joined list as one LINE, which keeps spaces, so a
+scope with `, ` in it printed the same as two scopes. Measured on one fleet's ledger (474 claims,
+99 sessions): 78 claims by 30 sessions had a comma scope. Each was a claim whose ONLY scope was a
+comma list of 2 to 29 parts, and 6 were still open. That repo and this one have 0 tracked paths
+with a comma. This ledger: 0 of 389 scope rows contain a comma or a space. The defect showed only
+when the shared-claim case denied an edit. Every other one of those claims reserved nothing, and
+nothing said so.
+
+**The rule** —
+- `cmdClaim` refuses any `--scope` holding an ASCII comma, whole, and writes nothing. The check
+  runs after flag parsing, BEFORE the ledger is opened, and before the `--dry-run` branch, so the
+  forecast refuses in the claim's own words. It applies to every spelling (`--scope=`, `-scope`),
+  `--shared`, and a refresh, which leaves the claim it would have refreshed as it was. The message
+  names at most three of the offending values, each fenced to 128 bytes. It prints
+  `Repeat the flag: --scope a --scope b` only when that command, pasted into sh or zsh, claims
+  exactly the paths meant: no part the fence alters (onFlags' rule), no part `NormalizeScope`
+  refuses (that refusal is named instead), and not cut short (D-047's rule; over 4 KiB it prints
+  the rule and no command). Each part is trimmed. `shellQuote` now quotes a word beginning with
+  `=`, because zsh's EQUALS option expands a bare `=sh` to `/bin/sh`. The same fix applies to
+  `wait --on` suggestions.
+- `scopeList` renders every listing of a claim's scopes. Each scope goes through `fence.Field`
+  (one token, a space shown as `␣`), joined by `, `, whole items within 512 bytes, with
+  `...and N more not shown` for the rest. The FIRST item always shows, cut by its own fence if it
+  must be. Its users: the claim result line, the dry run's `would claim`, the hello digest, both
+  arms of the gate's deny, `release --scope`'s result lines and its not-held refusal (re-rendered
+  in the CLI, since the store joins with `, `), `ls`, `whose`, `who`/`status` and the commit gate,
+  plus both arms of the SLOT note.
+
+**Why refuse, and why in the CLI** — Splitting was cut. A comma is legal in a path, so splitting
+would turn a caller who meant the literal into N wrong scopes without saying so. It would also
+give one flag a second syntax for help, the skill and their gates to teach. Warning was cut too:
+the claim would still exit 0 and protect nothing, which is the measured failure, and D-031 already
+refuses input a verb does not understand rather than act on it as something else. The cost is a
+path holding a comma, measured at zero. A prefix scope on its directory still covers one. The one
+exception is a ROOT-level file, because `.` cannot be claimed (Codex). If a real comma path is
+ever measured, an exact-literal escape can be added then. The check is not in `NormalizeScope` or
+the store: the ambiguity is the flag's (the store takes a list already), and `NormalizeScope` also
+serves `release --scope`, which must still narrow and release a legacy comma row by name.
+`release --scope a,b` against a claim on `a` and `b` was already refused, naming what is held.
+
+**`, ` and not a single space** — The issue proposed joining with a single space. With Field, both
+joins are unambiguous, since no rendered scope contains a space. `, ` keeps the bytes of the five
+listings that already used it for every ordinary claim. Its cost is a reader that splits on
+whitespace alone: it gets `a,` with the separator's comma attached. Codex and Fable would both ship
+`, `. Whole items with the first always shown: `who` already rendered whole items (D-027), but
+applied to the first item that rule printed a claim whose one scope exceeds 512 bytes as
+`scopes: ...and 1 more not shown`, and the gate's deny as `inside scope "...and 1 more not shown"`.
+Field can also outgrow its cap, because each space becomes a 3-byte `␣` after the cut.
+
+**Reviews** — Codex (design and code, one pass). CONFIRMED: zsh EQUALS on a bare `=word`; the
+singular SLOT note and the release refusal still outside the rule; a single over-long scope
+rendered as a bare count; the dry run and a refused refresh untested. REFUTED: "the 8192-byte
+fallback is unreachable". `fence.Line` appends its marker after the cut, so a truncated result is
+always longer than its cap; the fallback was replaced in any case. Fable (an adversarial run of
+about 45 inputs against the built binary, and a legacy ledger made by the HEAD binary). It
+confirmed every printed fix pastes back as meant, including `$(…)`, an apostrophe and `-x`, that
+the dry run refuses byte-identically, and that legacy rows render distinguishably in every
+listing. Also CONFIRMED: a 10 KiB comma argument crowded the guidance out of the message (now each
+value is fenced to 128 bytes, at most three named). Noted: a claim with more than 512 bytes of
+scopes costs a few bytes more in the hello digest (`, ...and N more not shown` against
+`…[truncated]`), which can show one claim fewer at the margin. The budget itself is never exceeded
+(swept to 8,965 bytes). The second Codex pass, on the revised code, found no production defect. It
+CONFIRMED a blind spot in the renderer test: the gate's deny, `whose` and the commit gate also print
+the PATH. The literal's path is byte-identical to the pair's rendering, so a list that Field
+fenced as one token passed. Now each listing is asserted on its own output, with the list matched
+in its listing's own context. It also noted that the long-scope test did not pin the 512-byte cap
+per item (now asserted).
+
+**`check-fence`** — The gate counts `.Scopes` in a `fmt` statement against its fence calls, so
+`scopeList(c.Scopes)` failed it. `who` had passed only because its `joinCapped(c.Scopes, …)` sat in
+an assignment outside the statement. Hoisting the other sites the same way would have made the
+gate blind to them. Instead the gate now counts `scopeList(` as a fence call, and a third clause
+fails if `scopeList`'s body stops calling `fence.Field`, with a planted copy it must flag first.
+Both clauses mutated: an unfenced `scopeList` and a raw `strings.Join(c.Scopes, ", ")` each turn
+it red.
+
+**Considered and cut** — Refusing Unicode comma look-alikes (U+FF0C, U+201A, U+060C, U+3001): they
+are legal in paths and were not measured as a mistaken list. Refusing a quoted scope with spaces:
+measured at 0, and a space is a far commoner path character than a comma. The `␣` on the result
+line is the holder's signal. Printing the NORMALIZED scopes on the claim result line (it echoes
+argv: `pkg/` against a stored `pkg`): an older difference, and not this defect.
+
+**Test shape** — `comma_scope_test.go`: the issue's remedy-agnostic invariant test (a claim that
+exits 0 covers every path and refuses a peer, or the refusal names the repeated form and writes no
+row) and its `ls` test. Refusal on every spelling, with a refused refresh leaving the `ls` row
+byte-identical, and a positive control that the comma-free refresh applies. Refusal with no
+ledger, with the control that a comma-free claim fails on the ledger instead. The dry run's
+stderr is byte-identical to the claim's. Each printed fix is run through a real `sh` and `zsh -f`,
+its argv compared with the paths meant, then claimed and each path checked with `whose`. The
+unpastable, invalid, comma-only, too-long and four-scope cases print no command, or name the rest.
+A renderer table (ls, whose, who, status, hello, both gate arms, commit gate, release refusal)
+holding a legacy `pkg/c.go, pkg/d.go` row and a real pair must show `pkg/c.go,␣pkg/d.go` AND
+`pkg/c.go, pkg/d.go`. The pair is the per-renderer control, and it also catches Field applied to
+the whole join. The caller's own listings use a space-holding scope instead (claim, dry run,
+narrowing, both SLOT arms). A 608-byte scope shows cut, then the rest counted. A legacy row narrows
+exactly and releases by name. `TestCommitGateStagedPathCannotForgeAReportRow` now writes its
+comma-holding root-level claim through the store, and first asserts that the CLI refuses it.
+Mutated in a private copy: 31 mutants, each killed by a test (the check removed, moved after the
+ledger, or moved past the dry run; each renderer reverted one at a time; Field over the whole
+join, overall and in each of the five listings that also print the path; the first-item rule;
+the per-item cap; shellQuote's `=`; each guard on the fix line; the trim).
