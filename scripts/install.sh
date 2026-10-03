@@ -26,11 +26,33 @@
 #   3. installs the user-level skill (scripts/install-skill.sh);
 #   4. restarts the chat daemon under launchd (`kickstart -k`, never kill:
 #      KeepAlive respawns a killed daemon and the loser of the socket race
-#      dies — CLAUDE.md) and checks it is running again;
+#      dies — CLAUDE.md) and checks it is running again, waiting out the
+#      launch constraint a NEW build meets first (below);
 #   5. wires THIS checkout (scripts/setup-clone.sh: hooks path, ledger);
 #   6. REPORTS which Claude Code hooks are wired in ~/.claude/settings.json.
 #      It never edits that file: which hooks a user runs is theirs to choose,
 #      and a script that rewrote it would be a script that could remove one.
+#   A daemon that does not come back fails the install, but at the END: steps
+#   5 and 6 do not depend on it, and dying at step 4 skipped them.
+#
+# A NEW DAEMON BUILD IS REFUSED ITS FIRST SPAWN (measured 2026-10-03, macOS
+# 27). The agent carries a launch constraint (`managed LWCR` in `launchctl
+# print`), and a CHANGED binary at the program path fails it until macOS
+# re-registers the item; what the constraint records was not read, only that
+# a changed binary fails it and an unchanged one does not. This binary is
+# ad-hoc signed (identifier a.out, no team), so its identity is its code hash,
+# and go stamps every build with the commit (-buildvcs), so every install after
+# a new commit is a new binary. launchd's first spawn of it fails, `xpcproxy exited
+# due to OS_REASON_CODESIGNING | Launch Constraint Violation`; macOS's
+# background task manager re-registers the item (`invalidateLaunchItem`) 10.0 s
+# after that refusal (two samples: 10.016 s, 10.015 s) and the next spawn runs.
+# It follows the SPAWN, not the file: a build left 15 s before the kickstart was
+# refused the same way, and nothing was logged in between (Codex's
+# discriminator, measured). So it cannot be waited out in advance, only polled
+# past. The old ten-second wait lost that race (state "spawn scheduled") and the
+# install died before steps 5 and 6. An unchanged binary comes back in 0.14 s
+# with no violation (the control). So the wait is 30 s, and a slow return names
+# the exit reason launchd recorded.
 #
 # BUILT WITH `go build -o` STRAIGHT OVER THE TARGET, never cp: on macOS, cp
 # over an existing Mach-O invalidates its ad-hoc signature and the kernel
@@ -43,6 +65,9 @@
 #   BUDDY_SETUP_CLONE=off  skip step 5
 #   BUDDY_SETTINGS      the settings file step 6 reads   (default ~/.claude/settings.json)
 #   BUDDY_REPO_BIN=off  skip the checkout's own bin/ copies in step 1
+#   BUDDY_PLIST         the daemon agent's plist          (default ~/Library/LaunchAgents/<agent>.plist)
+#   BUDDY_LAUNCHCTL     the launchctl step 4 runs         (default launchctl; the done-check's is a fake)
+#   BUDDY_DAEMON_WAIT   seconds step 4 waits for running  (default 30)
 set -eu
 CDPATH= cd -- "$(dirname -- "$0")/.."
 ROOT=$(pwd)
@@ -50,12 +75,23 @@ ROOT=$(pwd)
 BIN_DIR=${BUDDY_BIN_DIR:-$HOME/bin}
 SETTINGS=${BUDDY_SETTINGS:-$HOME/.claude/settings.json}
 AGENT=com.buddy-system.buddylistd
-PLIST="$HOME/Library/LaunchAgents/$AGENT.plist"
+PLIST=${BUDDY_PLIST:-$HOME/Library/LaunchAgents/$AGENT.plist}
+LAUNCHCTL=${BUDDY_LAUNCHCTL:-launchctl}
+DAEMON_WAIT=${BUDDY_DAEMON_WAIT:-30}
 
+# deferred holds a failure that must not stop the steps after it (the daemon,
+# step 4); it is reported, and fails the install, at the end.
+deferred=""
 say() { echo "install: $*"; }
 die() { echo "install: FAILED — $*" >&2; exit 1; }
 
 command -v go >/dev/null 2>&1 || die "no go toolchain on PATH"
+case $DAEMON_WAIT in
+'' | *[!0-9]*) die "BUDDY_DAEMON_WAIT must be a whole number of seconds, not '$DAEMON_WAIT'" ;;
+esac
+# Bounded too: a value past the shell's integer range breaks the comparison in
+# the wait, which then reads as that long a wait having expired (Codex).
+[ ${#DAEMON_WAIT} -le 4 ] || die "BUDDY_DAEMON_WAIT must be at most 9999 seconds, not '$DAEMON_WAIT'"
 
 rev=$(git rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
 dirty=""
@@ -145,20 +181,44 @@ elif [ ! -f "$PLIST" ]; then
 	say "daemon: no launchd agent ($PLIST); nothing to restart"
 else
 	uid=$(id -u)
-	if LC_ALL=C launchctl print "gui/$uid/$AGENT" >/dev/null 2>&1; then
-		LC_ALL=C launchctl kickstart -k "gui/$uid/$AGENT" || die "launchctl kickstart -k gui/$uid/$AGENT"
-		# KeepAlive brings it back within seconds; give it ten.
-		i=0 state=""
-		while [ $i -lt 10 ]; do
-			state=$(LC_ALL=C launchctl print "gui/$uid/$AGENT" 2>/dev/null | LC_ALL=C awk -F' = ' '/^\tstate = /{print $2; exit}')
+	if ! LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$AGENT" >/dev/null 2>&1; then
+		say "NOTE — $AGENT is not loaded; load it with: launchctl bootstrap gui/$uid $PLIST"
+	elif ! LC_ALL=C "$LAUNCHCTL" kickstart -k "gui/$uid/$AGENT"; then
+		# Deferred like a daemon that does not come back: steps 5 and 6 do not
+		# depend on it (Codex).
+		deferred="launchctl kickstart -k gui/$uid/$AGENT failed; see: launchctl print gui/$uid/$AGENT"
+		echo "install: daemon: kickstart FAILED — the install will fail after the remaining steps" >&2
+	else
+		# Up to DAEMON_WAIT seconds: a new build's first spawn is refused and
+		# macOS re-registers it about ten seconds later (see the header). The
+		# exit reason is read while waiting, so a slow return says why.
+		i=0 state="" reason=""
+		while :; do
+			job=$(LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$AGENT" 2>/dev/null || true)
+			state=$(printf '%s\n' "$job" | LC_ALL=C awk -F' = ' '/^\tstate = /{print $2; exit}')
+			r=$(printf '%s\n' "$job" | LC_ALL=C awk -F' = ' '/^\tlast exit reason = /{print $2; exit}')
+			[ -z "$r" ] || reason=$r
 			[ "$state" = running ] && break
+			[ "$i" -lt "$DAEMON_WAIT" ] || break
 			sleep 1
 			i=$((i + 1))
 		done
-		[ "$state" = running ] || die "the daemon did not come back (state: ${state:-unknown}); see ~/.buddylist/buddylistd.log"
-		say "daemon: restarted on the new build ($daemon_prog)"
-	else
-		say "NOTE — $AGENT is not loaded; load it with: launchctl bootstrap gui/$uid $PLIST"
+		# The reason is what launchd RECORDED, said as that: on 2026-10-03 a
+		# CODESIGNING reason here was a new build's launch constraint, and the
+		# line says so as a pointer, not as a finding about this run (Codex).
+		why=""
+		case $reason in
+		*CODESIGNING*) why="; launchd's last exit reason: $reason (a new build meets a launch constraint until macOS re-registers it; see install.sh's header)" ;;
+		?*) why="; launchd's last exit reason: $reason" ;;
+		esac
+		if [ "$state" != running ]; then
+			deferred="the daemon did not come back within ${DAEMON_WAIT}s (state: ${state:-unknown}$why); see ~/.buddylist/buddylistd.log and: launchctl print gui/$uid/$AGENT"
+			echo "install: daemon: NOT running — the install will fail after the remaining steps" >&2
+		elif [ "$i" -eq 0 ]; then
+			say "daemon: restarted on the new build ($daemon_prog)"
+		else
+			say "daemon: restarted on the new build ($daemon_prog) after ${i}s$why"
+		fi
 	fi
 fi
 
@@ -209,5 +269,9 @@ else
 	*" buddy busy "*) say "handoff: BUDDY_HANDOFF_AT=$handoff in $SETTINGS, but buddy busy is NOT wired, so no session is ever told" ;;
 	*) say "handoff: BUDDY_HANDOFF_AT=$handoff in $SETTINGS; every session is told as a turn opens once its last prompt is at or past it" ;;
 	esac
+fi
+if [ -n "$deferred" ]; then
+	echo "install: FAILED — $deferred" >&2
+	exit 1
 fi
 say "done"

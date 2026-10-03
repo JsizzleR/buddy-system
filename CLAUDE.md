@@ -251,6 +251,15 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   daemon is alive, unsupervised, and launchd retries against it forever.
   Restart it with `launchctl kickstart -k gui/$UID/com.buddy-system.buddylistd`
   — or kill the stray and let KeepAlive do it.
+- **A NEW daemon build is refused its first spawn for 10 s (macOS 27, D-067).** The
+  agent has a launch constraint (`managed LWCR`), and a changed binary at its program
+  path fails it: `xpcproxy exited due to OS_REASON_CODESIGNING | Launch Constraint
+  Violation`. Then `backgroundtaskmanagementd` re-registers it 10.0 s later (10.016,
+  10.015 s), and the next spawn runs. Go stamps the commit into every build, so this
+  happens on every install after a commit. It follows the spawn, not the file: a 15 s
+  pause before the kickstart changed nothing. This is NOT the cp-over-Mach-O kill.
+  An unchanged binary restarts in 0.14 s. `install.sh` waits up to 30 s. Read
+  launchd's side with `/usr/bin/log show`, because zsh's `log` builtin shadows it.
 - **`/clear` mints a NEW session id in the same process** (same pid and pane; the old
   row goes `ended`). `/compact` and `--resume` keep the id. So nothing keyed by
   session id (inbox, wait) crosses a `/clear`, and a message queued to the old id is

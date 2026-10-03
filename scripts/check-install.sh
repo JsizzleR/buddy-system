@@ -112,5 +112,115 @@ $out"
 echo "$out" | grep -qF 'install-skill exited' || fail "QA-5: the failure must name the step:
 $out"
 
+# QA-6: the daemon step (4), against a FAKE launchctl. A new daemon build is
+# refused its first spawn by a launch constraint and macOS re-registers it about
+# ten seconds later (measured, install.sh's header); the old ten-second wait
+# lost that race and died before setup-clone and the hook report. The fake
+# answers `print` with "spawn scheduled" and that exit reason until it has been
+# asked FAKE_RUN_AFTER times, then "running".
+#
+# NOT THE REAL DAEMON under the mutants measured (BUDDY_LAUNCHCTL ignored,
+# BUDDY_PLIST ignored, each killed by QA-6a): HOME is a throwaway, so the
+# default plist path does not exist, and a guard launchctl first on PATH
+# records being reached. An absolute /bin/launchctl or a ~user lookup would
+# get past both; nothing in install.sh spells either. Go's caches stay the real ones, or every
+# build here is cold. Its own skill dir: QA-5 leaves $WORK/skill unwritable.
+FAKE="$WORK/fake" GUARD="$WORK/guard"
+mkdir -p "$FAKE" "$GUARD" "$WORK/home" "$WORK/daemon"
+cat > "$FAKE/launchctl" <<'EOF2'
+#!/bin/sh
+case $1 in
+print)
+	n=$(cat "$FAKE_DIR/prints" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$FAKE_DIR/prints"
+	if [ "$n" -gt "$FAKE_RUN_AFTER" ]; then
+		printf 'gui/501/agent = {\n\tstate = running\n\tpid = 4242\n}\n'
+	else
+		printf 'gui/501/agent = {\n\tstate = spawn scheduled\n\tlast exit reason = OS_REASON_CODESIGNING\n}\n'
+	fi ;;
+kickstart) echo "$*" >> "$FAKE_DIR/kicks"; [ -z "${FAKE_KICK_FAIL:-}" ] || exit 1 ;;
+*) echo "fake launchctl: unexpected: $*" >&2; exit 64 ;;
+esac
+EOF2
+printf '#!/bin/sh\necho "$*" >> "%s/reached"\nexit 1\n' "$GUARD" > "$GUARD/launchctl"
+chmod +x "$FAKE/launchctl" "$GUARD/launchctl"
+cat > "$WORK/agent.plist" <<EOF2
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.buddy-system.buddylistd</string>
+  <key>ProgramArguments</key><array><string>$WORK/daemon/buddylist</string><string>serve</string></array>
+</dict></plist>
+EOF2
+gocache=$(go env GOCACHE) gomodcache=$(go env GOMODCACHE)
+# inst_daemon <polls until running> [wait seconds] [FAIL: kickstart fails]. Through env, not as
+# assignments in front of the call: those are not exported from a function
+# call in every sh (install.sh's step 5 says the same).
+inst_daemon() {
+	rm -f "$FAKE/prints" "$FAKE/kicks"
+	env HOME="$WORK/home" GOCACHE="$gocache" GOMODCACHE="$gomodcache" PATH="$GUARD:$PATH" \
+		BUDDY_BIN_DIR="$WORK/bin" BUDDY_SKILL_DIR="$WORK/skill6" BUDDY_SETTINGS="$WORK/settings.json" \
+		BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off \
+		BUDDY_PLIST="$WORK/agent.plist" BUDDY_LAUNCHCTL="$FAKE/launchctl" FAKE_DIR="$FAKE" \
+		FAKE_RUN_AFTER="$1" ${2:+"BUDDY_DAEMON_WAIT=$2"} ${3:+"FAKE_KICK_FAIL=$3"} sh scripts/install.sh
+}
+
+# QA-6a, the control: running on the first poll is the old one-line report.
+out=$(inst_daemon 1 2>&1) || fail "QA-6a: install failed:
+$out"
+[ -s "$FAKE/kicks" ] || fail "QA-6a: the daemon was never kickstarted, so nothing here is being tested:
+$out"
+echo "$out" | grep -q 'daemon: restarted on the new build ([^)]*)$' || fail "QA-6a: a prompt restart is one plain line:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-6a: no done line"
+# Where the plist can be read (macOS), the fixture's daemon program was the one
+# found and rebuilt; ubuntu has no PlistBuddy and the step names no program.
+if [ -x /usr/libexec/PlistBuddy ]; then
+	echo "$out" | grep -qF "built $WORK/daemon/buddylist" || fail "QA-6a: the fixture's daemon program was not rebuilt:
+$out"
+fi
+
+# QA-6b: refused first, running after 11 polls: PAST the old ten-poll wait,
+# which is what lost the measured 10.04 s return (Codex: a 3 s case passed
+# with the old default). Succeeds, and says how long and what launchd recorded.
+out=$(inst_daemon 12 2>&1) || fail "QA-6b: a daemon that comes back late must not fail the install:
+$out"
+echo "$out" | grep -qF "after 11s; launchd's last exit reason: OS_REASON_CODESIGNING (a new build meets a launch constraint" || fail "QA-6b: a slow return names its wait and the recorded reason:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-6b: no done line"
+
+# QA-6c: never running within BUDDY_DAEMON_WAIT. Fails non-zero and says why,
+# but only AFTER the steps that do not depend on the daemon have run.
+out=$(inst_daemon 1000 2 2>&1) && fail "QA-6c: a daemon that never comes back must fail the install:
+$out"
+echo "$out" | grep -qF "FAILED — the daemon did not come back within 2s (state: spawn scheduled; launchd's last exit reason: OS_REASON_CODESIGNING" || fail "QA-6c: the failure names the wait, the state and the reason:
+$out"
+# Steps 5 and 6 still ran: setup-clone's arm (off here, so its skip line) and
+# the hook report.
+echo "$out" | grep -qF 'install: setup-clone: skipped' || fail "QA-6c: step 5 must still run after a daemon failure:
+$out"
+echo "$out" | grep -q '^install: hooks: ' || fail "QA-6c: the hook report must still run after a daemon failure:
+$out"
+echo "$out" | tail -1 | grep -qF 'FAILED — the daemon did not come back' || fail "QA-6c: the failure must be the LAST line:
+$out"
+echo "$out" | grep -qx 'install: done' && fail "QA-6c: a failed install printed done"
+out=$(inst_daemon 1 soon 2>&1) && fail "QA-6c: a non-numeric wait must be refused:
+$out"
+echo "$out" | grep -qF "BUDDY_DAEMON_WAIT must be a whole number of seconds, not 'soon'" || fail "QA-6c: the refusal must say why:
+$out"
+out=$(inst_daemon 1 99999999999999999999 2>&1) && fail "QA-6c: a wait past the shell's integer range must be refused:
+$out"
+echo "$out" | grep -qF 'BUDDY_DAEMON_WAIT must be at most 9999 seconds' || fail "QA-6c: the bound must say why:
+$out"
+
+# QA-6d: a kickstart that fails is deferred like a daemon that never returns.
+out=$(inst_daemon 1 2 FAIL 2>&1) && fail "QA-6d: a failed kickstart must fail the install:
+$out"
+echo "$out" | grep -q '^install: hooks: ' || fail "QA-6d: the hook report must still run after a failed kickstart:
+$out"
+echo "$out" | tail -1 | grep -qF 'FAILED — launchctl kickstart -k gui/' || fail "QA-6d: the failed kickstart must be the LAST line:
+$out"
+[ ! -e "$GUARD/reached" ] || fail "QA-6: the REAL launchctl was reached: $(cat "$GUARD/reached")"
+
 echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
-echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's)"
+echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
+echo "  QA-6 the daemon waits past the old ten-poll window, says what launchd recorded, and fails last (also on a failed"
+echo "  kickstart); fake launchctl, real one guarded)"
