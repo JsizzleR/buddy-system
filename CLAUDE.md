@@ -536,6 +536,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **`status`/`who` print a JOBS line (D-065):** shells running directly under the session's
   registered harness process (kern.proc.all by ppid; the anchor re-identified by start time in
   the same table), pids and ages, never argv. An observation beside EXIT; "cannot say" is never "none".
+- **`claim` refuses a `--scope` holding a comma, and every scope list renders through one function
+  (D-066, #56).** A comma list was granted as ONE literal path that covered none of the files
+  (78 claims by 30 of 99 sessions on one fleet; 0 tracked paths with a comma). Refused whole in
+  the CLI, before the ledger, dry run included, naming `--scope a --scope b` only when that
+  pastes back as meant. Not split, not warned. The store and `release --scope` still accept the
+  literal, so legacy rows narrow and release. `scopeList`: `fence.Field` per scope, `, `-joined,
+  whole items, and the first item always shown.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

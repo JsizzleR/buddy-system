@@ -1879,7 +1879,7 @@ func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.Ses
 		// unfenced newline fabricates a line that reads as buddy's own.
 		lines[i] = fmt.Sprintf("  - %s (%s)%s: %s — %sscopes: %s\n",
 			fence.Line(c.Slug, 128), fence.Line(owner, 64), mark,
-			fence.Line(c.Desc, 512), sharedWord(c.Shared), fence.Line(strings.Join(c.Scopes, ", "), 512))
+			fence.Line(c.Desc, 512), sharedWord(c.Shared), scopeList(c.Scopes))
 	}
 	for i, c := range claims {
 		if c.Owner.SessionID != si.SessionID {
@@ -2121,14 +2121,14 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) int {
 		// word "shared" does not remove.
 		if c.Shared {
 			deny(env, fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. A shared claim admits edits from any session holding its own claim covering the path: buddy claim <your-slug> --shared --scope <path>. Two holders that read the same version and both write can still lose one edit.",
-				fence.Line(loc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512),
+				fence.Line(loc, 512), scopeList(c.Scopes),
 				fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix))
 			return 0
 		}
 		// permissionDecisionReason is shown to the model on every deny, so it
 		// is a context-injection sink like the digest above.
 		deny(env, fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s. Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
-			fence.Line(loc, 512), fence.Line(strings.Join(c.Scopes, ", "), 512),
+			fence.Line(loc, 512), scopeList(c.Scopes),
 			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix))
 	}
 	return 0
@@ -2154,13 +2154,19 @@ func cmdClaim(args []string, env Env) error {
 	var session string
 	sessionFlag(fs, &session)
 	var scopes multiFlag
-	fs.Var(&scopes, "scope", "repo-relative path or dir prefix (repeatable)")
+	fs.Var(&scopes, "scope", "ONE repo-relative path or dir prefix; repeat the flag for more (a comma list is refused, D-066)")
 	dry := fs.Bool("dry-run", false, "report the conflict set and what would be taken; write nothing")
 	shared := fs.Bool("shared", false, "other --shared claims may overlap this one (D-042)")
 	if help, err := parseFlags(fs, args[1:], usageClaim, env); help || err != nil {
 		return err
 	}
 	if err := noStray("claim", fs, usageClaim); err != nil {
+		return err
+	}
+	// Before the ledger and before the dry-run branch, so the forecast refuses
+	// with the claim's own words: a forecast that disagreed with the claim it
+	// predicts would be worse than none.
+	if err := commaScopes(scopes); err != nil {
 		return err
 	}
 	st, _, err := mustLedger(env.Cwd, env)
@@ -2203,7 +2209,7 @@ func cmdClaim(args []string, env Env) error {
 				strconv.Quote(fence.Line(d.Their, 512)))
 		}
 		if len(free) > 0 {
-			fmt.Fprintf(env.Stdout, "would claim: %s\n", fence.Line(strings.Join(free, ", "), 512))
+			fmt.Fprintf(env.Stdout, "would claim: %s\n", scopeList(free))
 		}
 		if len(conflicts) > 0 {
 			return fmt.Errorf("dry run: %d conflict(s); nothing was taken", len(conflicts))
@@ -2243,8 +2249,113 @@ func cmdClaim(args []string, env Env) error {
 	}
 	fmt.Fprintf(env.Stdout, "claimed %s for %s — %sscopes: %s\n",
 		strconv.Quote(fence.Line(slug, 128)), fence.Line(si.Label, 64), sharedWord(*shared),
-		fence.Line(strings.Join(scopes, ", "), 512))
+		scopeList(scopes))
 	return nil
+}
+
+// commaScopes refuses a --scope that holds a comma, naming the repeated-flag
+// form that claims what the caller meant (D-066, issue #56).
+//
+// THE FAILURE. `claim fix --scope a,b,c` was granted as ONE scope, the literal
+// path "a,b,c", and exited 0 printing "scopes: a,b,c". Containment is exact
+// (invariant 14), so it covered one file nobody has and none of the three the
+// holder believed it held: `whose a` answered CLAIMED BY (none), a peer's
+// exclusive claim on a was granted over it, and under a peer's SHARED claim
+// the gate denied the holder's own edit of a. Measured on one fleet's ledger:
+// 78 claims by 30 of 99 sessions, every one a scope that was nothing but a
+// comma list, and no tracked path containing a comma there or here. Each of
+// those claims reserved nothing, and nothing said so until a deny.
+//
+// REFUSED, whole, with nothing written. Splitting was cut: a comma is legal
+// in a path, so it would turn a caller who meant the literal into N wrong
+// scopes without saying so, and give one flag a second syntax for help, the
+// skill and their gates to teach. Warning was cut: the claim would still exit
+// 0 and protect nothing, which is the failure measured, and D-031 already
+// refuses input a verb does not understand rather than acting on it as
+// something else. The cost is a path with a comma in it, measured at zero; a
+// prefix scope on its directory still covers one. Here, in the CLI, and not in
+// NormalizeScope or the store: the ambiguity is the flag's (the store takes a
+// list already), and NormalizeScope also serves `release --scope`, which must
+// still be able to narrow a comma scope a ledger holds from before this.
+//
+// The fix line is printed only when it can be pasted back whole and would be
+// accepted as typed: not when a part is one the fence alters (onFlags' rule:
+// it names a different path), not when a part is one NormalizeScope refuses
+// (that refusal is named instead), and never cut short (D-047's rule) — a
+// list too long to print whole gets the rule and no command. The offending
+// values are named at most three, each fenced to 128 bytes, so a long one
+// cannot crowd out the remedy (Codex code pass).
+func commaScopes(scopes []string) error {
+	var bad, fix []string
+	var invalid error
+	pastable := true
+	for _, sc := range scopes {
+		parts := []string{sc}
+		if strings.Contains(sc, ",") {
+			bad = append(bad, sc)
+			parts = parts[:0]
+			for _, p := range strings.Split(sc, ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					parts = append(parts, p)
+				}
+			}
+		}
+		for _, p := range parts {
+			if fence.Line(p, 512) != p {
+				pastable = false
+			}
+			if _, err := store.NormalizeScope(p); err != nil && invalid == nil {
+				invalid = err
+			}
+			fix = append(fix, "--scope "+shellQuote(p))
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	named := make([]string, 0, 3)
+	for i, sc := range bad {
+		if i == 3 {
+			named = append(named, fmt.Sprintf("and %d more", len(bad)-3))
+			break
+		}
+		named = append(named, strconv.Quote(fence.Line(sc, 128)))
+	}
+	what := "scope " + named[0] + " holds a comma"
+	if len(bad) > 1 {
+		what = "scopes " + strings.Join(named, ", ") + " hold a comma"
+	}
+	head := what + ", and --scope takes ONE path; nothing was claimed. "
+	rule := "Repeat the flag, one path each: --scope <path> --scope <path>"
+	if invalid != nil {
+		return errors.New(head + rule + " (and " + fence.Line(invalid.Error(), 256) + ")")
+	}
+	const maxFix = 4096
+	if cmd := strings.Join(fix, " "); pastable && len(fix) > 0 && len(cmd) <= maxFix {
+		return errors.New(head + "Repeat the flag: " + cmd)
+	}
+	return errors.New(head + rule)
+}
+
+// scopeList renders a claim's scopes on one line: every scope ONE token
+// (fence.Field, a space shown as ␣), joined by ", ", whole scopes within 512
+// bytes and a count of the rest (joinCapped's rule). Every listing that prints
+// a claim's scopes uses it (D-066, issue #56).
+//
+// THE FAILURE. `ls` joined scopes with a bare "," and the other listings with
+// ", ", each fencing the whole join as one LINE. So in `ls` a claim on the one
+// literal path "pkg/a.go,pkg/b.go" — the shape a comma --scope used to grant,
+// still in ledgers from before the refusal — printed byte-identical to a claim
+// on both files; and everywhere else a scope with ", " in it printed the same
+// as two scopes. Field leaves no space inside a scope, so ", " is a separator
+// no scope can spell: split on exactly ", " and each piece is one scope.
+// ", " and not the single space proposed in the issue, because the listings
+// that already used ", " then keep their bytes for every ordinary claim. The
+// cost is a reader splitting on whitespace alone, which gets `a,` with the
+// separator's comma still attached (Fable and Codex passes; both would ship
+// ", ").
+func scopeList(scopes []string) string {
+	return joinWhole(scopes, 512, func(s string) string { return fence.Field(s, 512) })
 }
 
 // sharedWord is the fixed token every claim listing puts before a SHARED
@@ -2388,16 +2499,25 @@ func cmdRelease(args []string, env Env) error {
 		// the waiters named below are those of the claim that closed (D-033;
 		// Codex code pass — an id looked up beforehand could name another).
 		claimID, remaining, err := st.ReleaseScopesID(si.SessionID, si.Incarnation, slug, scopes)
+		var notHeld store.ErrScopeNotHeld
+		if errors.As(err, &notHeld) {
+			// The store's sentence, with its held list through scopeList: the
+			// store joins with a bare ", ", so a legacy scope "a, b" read
+			// back as the two scopes a and b — the one refusal a holder reads
+			// while narrowing exactly such a claim (Codex code pass, D-066).
+			return fmt.Errorf("claim %s does not hold scope %s exactly — it holds: %s (release names a held scope as claimed; containment is not release)",
+				strconv.Quote(fence.Line(notHeld.Slug, 128)), strconv.Quote(fence.Line(notHeld.Scope, 512)), scopeList(notHeld.Held))
+		}
 		if err != nil {
 			return fencedErr(err)
 		}
 		if len(remaining) == 0 {
 			fmt.Fprintf(env.Stdout, "released %s from %s — that was its last scope, so the claim is released%s\n",
-				fence.Line(strings.Join(scopes, ", "), 512), strconv.Quote(fence.Line(slug, 128)), releasedWaitersNote(st, claimID, env))
+				scopeList(scopes), strconv.Quote(fence.Line(slug, 128)), releasedWaitersNote(st, claimID, env))
 			return nil
 		}
 		fmt.Fprintf(env.Stdout, "released %s from %s — still held: %s\n",
-			fence.Line(strings.Join(scopes, ", "), 512), strconv.Quote(fence.Line(slug, 128)), fence.Line(strings.Join(remaining, ", "), 512))
+			scopeList(scopes), strconv.Quote(fence.Line(slug, 128)), scopeList(remaining))
 		return nil
 	}
 	claimID, err := st.ReleaseOutcome(si.SessionID, si.Incarnation, slug, *outcome, *note)
@@ -2512,7 +2632,7 @@ func cmdLs(args []string, env Env) error {
 		// listing (invariant 9).
 		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s%s — %s\n",
 			fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), state, age(now, c.Renewed),
-			sharedWord(c.Shared), fence.Line(strings.Join(c.Scopes, ","), 512), fence.Line(c.Desc, 512))
+			sharedWord(c.Shared), scopeList(c.Scopes), fence.Line(c.Desc, 512))
 	}
 	return nil
 }

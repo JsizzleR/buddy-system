@@ -443,7 +443,16 @@ func TestCommitGateStagedPathCannotForgeAReportRow(t *testing.T) {
 	forgedCap := `...and 99 more path(s) under the same claim`
 	f := newFixture(t)
 	f.initAndHello(t)
-	f.claimFor(t, "sess-a", "router-work", "edge cap", forgedRow, forgedCap)
+	// Through the store, not the CLI: forgedRow holds a comma, and `claim`
+	// refuses a comma scope (D-066). A ledger can still hold one from before
+	// the refusal, and the exact root-level file is the shape that makes the
+	// impersonation reachable, so the row is written the way that ledger
+	// wrote it rather than moved under a directory.
+	if _, _, code := f.run(t, f.repo, "", "claim", "router-work", "--session", "sess-a", "--desc", "edge cap",
+		"--scope", forgedRow); code == 0 {
+		t.Fatal("the CLI must refuse a comma scope; if it no longer does, claim this through it again")
+	}
+	f.legacyClaim(t, "sess-a", "router-work", forgedRow, forgedCap)
 	f.stage(t, f.wtB, forgedRow, forgedCap)
 
 	var errw string

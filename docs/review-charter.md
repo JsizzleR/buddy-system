@@ -625,6 +625,18 @@ ledger row entered through the CLI (D-006).
     "none". It refuses, ends and grants nothing. Do not propose ending, signalling or
     reparenting a session's processes from buddy (D-027, D-056).
 
+68. **`claim` refuses a `--scope` that holds a comma; every listing of a claim's scopes goes through
+    `scopeList` (D-066, issue #56).** Measured: 78 claims by 30 of 99 sessions on one fleet were a
+    comma list granted as one literal path, covering none of the files; 0 tracked paths there or
+    here contain a comma. Refused whole in `cmdClaim`, before the ledger and the dry-run branch.
+    The fix command is printed only when it pastes back as meant: no part the fence alters, none
+    `NormalizeScope` refuses, and not cut short. `scopeList` renders each scope with `fence.Field`,
+    joined by `, `, whole items, and always shows the first. `NormalizeScope`, the store and
+    `release --scope` still accept a comma, so legacy rows can be narrowed and released by name.
+    Do not propose splitting on the comma, a warning that exits 0, or moving the refusal into
+    `NormalizeScope`. Comma look-alikes (U+FF0C and the rest) and spaces are accepted: neither was
+    measured as a mistaken list.
+
 ## Environment facts (measured, do not re-derive)
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
