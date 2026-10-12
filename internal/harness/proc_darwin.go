@@ -33,7 +33,7 @@ func observeProcess(pid int) (ProcessIdentity, error) {
 		}
 		return ProcessIdentity{}, fmt.Errorf("observe pid %d: %w", pid, err)
 	}
-	id := ProcessIdentity{PID: pid, Start: kp.Proc.P_starttime.Sec*1_000_000 + int64(kp.Proc.P_starttime.Usec), PGID: int(kp.Eproc.Pgid)}
+	id := ProcessIdentity{PID: pid, Start: kinfoStart(kp), PGID: int(kp.Eproc.Pgid)}
 	if sid, err := unix.Getsid(pid); err == nil {
 		id.SID = sid
 	}

@@ -48,12 +48,14 @@ package harness
 //     the newer worker alive, admits a resume. That is artifact tampering by
 //     the machine user, whom the ledger trusts (invariant 6); no journal
 //     attempt row is kept to detect it, and the bindings make no claim to.
-//   - Descendants that leave the group (setsid, a shell's job control). The
-//     group check cannot see them; the record says so rather than claiming a
-//     clean tree.
-//   - Killing anything the adapter cannot pin, `--end-prior`, descendant
-//     sampling, Setsid: each waits on native qualification or the operator's
-//     open choice. Resume admits only what is observed GONE.
+//   - Killing anything the adapter cannot pin, and `--end-prior`: the
+//     operator chose the narrow contract (2026-10-11). Descendants that leave
+//     the group (setsid, a shell's job control) are observed instead, and the
+//     record carries what was seen (descendants.go); admission refuses while a
+//     recorded one lives and never signals it. One the adapter never saw is
+//     unknown, and nothing claims a clean tree. Resume admits only what is
+//     observed GONE.
+//   - Setsid: the worker stays on Setpgid until native qualification Q1/Q3.
 //   - Platforms without a start-time pin (neither darwin nor linux): the launch
 //     itself refuses, since nothing could later be admitted or ended safely.
 
@@ -65,6 +67,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -110,6 +113,11 @@ type OwnershipRecord struct {
 	WrittenAt  time.Time           `json:"written_at"`
 	Leader     *ProcessIdentity    `json:"leader,omitempty"`
 	Executable *ExecutableIdentity `json:"executable,omitempty"`
+	// Descendants and Close are the narrow contract's observations
+	// (descendants.go): escaped descendants recorded while the worker ran,
+	// and what the close observed about them. Evidence, never a signal list.
+	Descendants *DescendantRecord `json:"descendants,omitempty"`
+	Close       *CloseReport      `json:"close,omitempty"`
 }
 
 // ErrJournalOwned is NewController's refusal while another adapter holds the
@@ -200,7 +208,20 @@ type LaunchAuthorization struct {
 	template  OwnershipRecord
 	consumed  bool
 	published bool
-	spawned   OwnershipRecord
+	// spawned is the ONE canonical record once the worker exists. Every
+	// writer changes its own fields of it under mu and publishes the whole,
+	// so no writer republishes a stale copy over another's fields.
+	spawned OwnershipRecord
+	// descGen advances on every descendant commit: a scan commits only if
+	// none happened since it read its starting state.
+	descGen uint64
+	// sealed: the close report is in; nothing about descendants changes after.
+	sealed bool
+	// dirty: spawned is ahead of what is on disk (a publication failed), so
+	// the next commit publishes even if the observation did not change.
+	dirty      bool
+	persistErr error
+	closeErr   error
 }
 
 // Spawn runs start exactly once, with a durable intent before it and a durable
@@ -283,7 +304,94 @@ func (a *LaunchAuthorization) bind(id Identity) error {
 		return err
 	}
 	a.spawned = rec
+	a.dirty = false
 	return nil
+}
+
+// descendantState is a scan's starting point: the pinned leader, the
+// canonical observation and its generation. ok is false before a worker is
+// recorded and after the close sealed the record.
+func (a *LaunchAuthorization) descendantState() (leader ProcessIdentity, d DescendantRecord, gen uint64, ok bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.published || a.sealed || a.spawned.Leader == nil {
+		return ProcessIdentity{}, DescendantRecord{}, 0, false
+	}
+	if a.spawned.Descendants != nil {
+		d = *a.spawned.Descendants
+		d.Alive = append([]ObservedProcess(nil), d.Alive...)
+	}
+	return *a.spawned.Leader, d, a.descGen, true
+}
+
+// commitDescendants installs one scan's result, unless another commit landed
+// after the scan read its starting state or the close sealed the record. It
+// publishes only a change a resume or a report reads (or a pending failed
+// publication); a failure is kept for the close report and retried.
+func (a *LaunchAuthorization) commitDescendants(gen uint64, d DescendantRecord) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sealed || !a.published || gen != a.descGen {
+		return false
+	}
+	a.descGen++
+	publish := a.dirty || descendantsDiffer(a.spawned.Descendants, d)
+	rec := a.spawned
+	rec.Descendants = &d
+	a.spawned = rec
+	if !publish {
+		return true
+	}
+	rec.WrittenAt = time.Now()
+	if err := a.rec.publish(rec); err != nil {
+		a.dirty, a.persistErr = true, err
+		return true
+	}
+	a.spawned.WrittenAt = rec.WrittenAt
+	a.dirty = false
+	return true
+}
+
+// sealClose records the close report and the descendants it leaves, and
+// seals the record against every later descendant commit. A failed
+// publication still seals (no stale scan may follow it) and is returned.
+func (a *LaunchAuthorization) sealClose(report CloseReport, d DescendantRecord) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.sealed {
+		return errors.New("the ownership record is already sealed by a close")
+	}
+	if !a.published {
+		return errors.New("no spawned record to close")
+	}
+	a.sealed = true
+	rec := a.spawned
+	rec.Descendants, rec.Close = &d, &report
+	rec.WrittenAt = time.Now()
+	a.spawned = rec
+	if err := a.rec.publish(rec); err != nil {
+		a.dirty, a.closeErr = true, err
+		return err
+	}
+	a.dirty = false
+	return nil
+}
+
+// closeOutcome is what the close recorded, and why it may not be on disk.
+func (a *LaunchAuthorization) closeOutcome() (*CloseReport, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.spawned.Close == nil {
+		return nil, nil
+	}
+	report := *a.spawned.Close
+	if a.closeErr != nil {
+		return &report, fmt.Errorf("the close report could not be published to %s, so the record on disk holds an older observation, and a resume reads that one: check the descendants named below before resuming this receipt: %w", a.rec.path(), a.closeErr)
+	}
+	if a.dirty && a.persistErr != nil {
+		return &report, fmt.Errorf("an earlier descendant observation could not be published to %s: %w", a.rec.path(), a.persistErr)
+	}
+	return &report, nil
 }
 
 // AdmissionRefusal is a resume refusal. Waitable ones are the alive verdicts
@@ -327,6 +435,15 @@ type ownershipFacts struct {
 	LeaderErr     error
 	Group         groupState
 	GroupErr      error
+	// Descendants: each escaped descendant the record names, observed by its
+	// own pid and start time (descendants.go). Never probed as a group.
+	Descendants []descendantFact
+}
+
+type descendantFact struct {
+	Entry ObservedProcess
+	State processState
+	Err   error
 }
 
 // classifyOwnership is the pure decision over fixed observations: one verdict
@@ -346,6 +463,24 @@ func classifyOwnership(rec *OwnershipRecord, f ownershipFacts) *AdmissionRefusal
 	if f.Group == groupError {
 		return &AdmissionRefusal{Reason: fmt.Sprintf("could not probe the recorded worker group %d: %v", rec.Leader.PGID, f.GroupErr)}
 	}
+	if d := rec.Descendants; d != nil {
+		// Waiting cannot fill in what the record never held, nor answer an
+		// observation the adapter could not make.
+		if d.Overflow > 0 {
+			return &AdmissionRefusal{Reason: fmt.Sprintf("the ownership record dropped %d observations of escaped descendants for want of room (it holds at most %d), so a resume cannot say they are gone; recourse: start a fresh worker with a NEW receipt", d.Overflow, maxRecordedDescendants)}
+		}
+		if d.LastError != "" {
+			return &AdmissionRefusal{Reason: "the adapter's last scan for escaped descendants could not observe everything it needed (" + d.LastError + "), so a resume cannot say they are gone; recourse: start a fresh worker with a NEW receipt"}
+		}
+		if len(f.Descendants) != len(d.Alive) {
+			return &AdmissionRefusal{Reason: "the recorded escaped descendants were not all observed; refusing"}
+		}
+		for _, df := range f.Descendants {
+			if df.State == procError {
+				return &AdmissionRefusal{Reason: fmt.Sprintf("could not observe recorded escaped descendant pid %d (start %d): %v", df.Entry.PID, df.Entry.Start, df.Err)}
+			}
+		}
+	}
 	var alive []string
 	if f.Adapter == procAlive && !f.AdapterIsSelf {
 		alive = append(alive, fmt.Sprintf("the recording adapter (pid %d, start %d) is still running", rec.Adapter.PID, rec.Adapter.Start))
@@ -359,6 +494,19 @@ func classifyOwnership(rec *OwnershipRecord, f ownershipFacts) *AdmissionRefusal
 	case groupEPERM:
 		alive = append(alive, fmt.Sprintf("the recorded worker group %d still exists but cannot be probed (EPERM: typically an unreaped zombie member)", rec.Leader.PGID))
 	}
+	var escaped []string
+	for _, df := range f.Descendants {
+		if df.State == procAlive {
+			escaped = append(escaped, fmt.Sprintf("%d (start %d, pgid %d)", df.Entry.PID, df.Entry.Start, df.Entry.PGID))
+		}
+	}
+	if len(escaped) > 0 {
+		shown := escaped
+		if len(shown) > 8 {
+			shown = append(append([]string(nil), shown[:8]...), fmt.Sprintf("and %d more", len(escaped)-8))
+		}
+		alive = append(alive, fmt.Sprintf("%d escaped descendant(s) of the prior worker, outside its group, are still running: pid %s", len(escaped), strings.Join(shown, ", ")))
+	}
 	if len(alive) > 0 {
 		reason := "resume refused: "
 		for i, a := range alive {
@@ -367,7 +515,7 @@ func classifyOwnership(rec *OwnershipRecord, f ownershipFacts) *AdmissionRefusal
 			}
 			reason += a
 		}
-		return &AdmissionRefusal{Reason: reason + "; nothing was signalled; descendants that left the group are not checked; retry when they are gone, or pass --wait-prior DURATION to wait for that passively", Waitable: true}
+		return &AdmissionRefusal{Reason: reason + "; nothing was signalled; escaped descendants the adapter never observed are unknown and not checked; retry when these are gone, or pass --wait-prior DURATION to wait for that passively", Waitable: true}
 	}
 	return nil
 }
@@ -387,6 +535,9 @@ func recordShape(rec *OwnershipRecord) *AdmissionRefusal {
 	if rec.Leader.PGID != rec.Leader.PID || rec.Leader.PGID <= 1 {
 		return &AdmissionRefusal{Reason: fmt.Sprintf("ownership record's group %d is not the recorded leader %d's own group (or is not a private group); refusing rather than probe a group that may not be ours", rec.Leader.PGID, rec.Leader.PID)}
 	}
+	if err := descendantShape(rec.Descendants); err != nil {
+		return &AdmissionRefusal{Reason: "ownership record's escaped-descendant section " + err.Error() + "; refusing rather than probe what it names"}
+	}
 	return nil
 }
 
@@ -405,21 +556,17 @@ func observeOwnership(rec *OwnershipRecord) ownershipFacts {
 	}
 	f.Leader, f.LeaderErr = observeState(*rec.Leader)
 	f.Group, f.GroupErr = probeGroup(rec.Leader.PGID)
+	if rec.Descendants != nil {
+		for _, e := range rec.Descendants.Alive {
+			state, err := observeState(e.identity())
+			f.Descendants = append(f.Descendants, descendantFact{Entry: e, State: state, Err: err})
+		}
+	}
 	return f
 }
 
 func observeState(want ProcessIdentity) (processState, error) {
-	now, err := observeProcess(want.PID)
-	if errors.Is(err, errProcessGone) {
-		return procGone, nil
-	}
-	if err != nil {
-		return procError, err
-	}
-	if now.Start != want.Start {
-		return procRecycled, nil
-	}
-	return procAlive, nil
+	return stateWith(observeProcess, want)
 }
 
 // probeGroup is kill(-pgid, 0): signal 0 delivers nothing. The caller has

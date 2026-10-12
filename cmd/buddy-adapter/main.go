@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -224,6 +225,7 @@ func run(args []string) error {
 		// this local teardown cannot publish a new unknown disconnection.
 		cancel()
 		_ = c.Close()
+		reportClose(os.Stderr, c)
 	}()
 	emit := receiptEmitter(ctx, cancel, shutdown, os.Stdout)
 	startCtx, startCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -275,6 +277,39 @@ func run(args []string) error {
 	case err = <-shutdown:
 	}
 	return err
+}
+
+// reportClose says, on ONE stderr line, what the close observed about the
+// worker's descendants that left its group (A-02 narrow contract): none of them
+// is signalled, so a survivor is still running and the operator has to look.
+// The stdout receipt stream is unchanged. A close that could not be recorded
+// says so instead of reporting from an older record.
+func reportClose(w io.Writer, c *harness.Controller) {
+	report, err := c.CloseReport()
+	if err != nil {
+		fmt.Fprintf(w, "buddy-adapter: %v\n", err)
+	}
+	if report == nil {
+		return
+	}
+	line := fmt.Sprintf("buddy-adapter: worker closed (%s): %d escaped descendant(s) captured, %d ended, %d still running",
+		report.Trigger, len(report.Captured), len(report.Ended), len(report.Survivors))
+	if n := len(report.Survivors); n > 0 {
+		pids := make([]string, 0, 8)
+		for i, s := range report.Survivors {
+			if i == 8 {
+				pids = append(pids, fmt.Sprintf("and %d more", n-8))
+				break
+			}
+			pids = append(pids, strconv.Itoa(s.PID))
+		}
+		line += " (pid " + strings.Join(pids, ", ") + "; not signalled: they left the worker's group)"
+	}
+	line += fmt.Sprintf(", %d unknown", len(report.Unknown))
+	if report.CaptureError != "" {
+		line += "; the final scan was incomplete: " + report.CaptureError
+	}
+	fmt.Fprintln(w, line+"; descendants never observed: "+report.Unattributable)
 }
 
 func observeNativeEvents(ctx context.Context, events <-chan harness.Event,

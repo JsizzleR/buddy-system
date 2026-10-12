@@ -118,6 +118,9 @@ type Controller struct {
 	endLife        context.CancelFunc
 	ledgerTimeout  time.Duration
 	closed         bool
+	// launched is the authorization the running worker was spawned through:
+	// it holds the canonical ownership record, close report included.
+	launched *LaunchAuthorization
 }
 
 func NewController(b Backend, l Ledger, receiptPath string) (*Controller, error) {
@@ -321,6 +324,7 @@ func (c *Controller) Start(ctx context.Context, harness string, launch Launch, l
 		c.backend.Close()
 		return c.receipt("start"), errors.New("backend returned a worker without a published ownership record; refusing to control a worker nothing recorded")
 	}
+	c.launched = auth
 	identity, err := c.ledger.Begin(ctx, harness, id, label)
 	if err != nil {
 		c.backend.Close()
@@ -401,6 +405,7 @@ func (c *Controller) Resume(ctx context.Context) (Receipt, error) {
 		c.backend.Close()
 		return c.receipt("resume"), errors.New("backend returned a worker without a published ownership record; refusing to control a worker nothing recorded")
 	}
+	c.launched = auth
 	if id != saved.Identity.SessionID {
 		c.backend.Close()
 		return c.receipt("resume"), errors.New("native resume changed session id")
@@ -789,6 +794,20 @@ func (c *Controller) Close() error {
 	}
 	_ = c.backend.Close()
 	return c.journal.Close()
+}
+
+// CloseReport is what the worker's close observed about descendants that
+// left its group, as recorded in `<receipt>.proc`, and an error when that
+// record could not be published (the file then holds an older observation).
+// Nil before a worker was launched or ended.
+func (c *Controller) CloseReport() (*CloseReport, error) {
+	c.mu.Lock()
+	auth := c.launched
+	c.mu.Unlock()
+	if auth == nil {
+		return nil, nil
+	}
+	return auth.closeOutcome()
 }
 
 // presentApproval bounds what a receipt repeats about a native request

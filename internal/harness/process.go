@@ -20,10 +20,14 @@ package harness
 //
 // What this does NOT cover, and says so rather than claiming a clean tree:
 //   - A descendant that leaves the group (setsid, setpgid, a shell's job
-//     control, a daemonizing server) escapes the group signal. Close still
-//     closes our end of its stdout, so the transport finishes and Events
-//     closes, but that process keeps running. Whether a native harness puts
-//     its tool jobs in their own groups is a native qualification question.
+//     control, a daemonizing server) escapes the group signal, and the
+//     operator chose (2026-10-11) that it stays unsignalled: it is not
+//     pinned, so it is not ours. It is OBSERVED instead (descendants.go),
+//     recorded in the ownership record while the worker runs, and reported
+//     at close as ended, survivor or unknown. Close still closes our end of
+//     its stdout, so the transport finishes and Events closes, but that
+//     process keeps running. Measured: Claude Code puts every Bash tool
+//     shell in a session of its own, so a background tool job is one.
 //   - SIGKILL of the adapter, or a crash, runs no cleanup at all. The worker
 //     then sees only stdin EOF, and because it is in its own group a terminal
 //     ^C to the adapter's group no longer reaches it either. A released
@@ -60,6 +64,10 @@ const nativeFrameLimit = 4 << 20
 // turn, and it keeps adapter shutdown bounded on a signal or stdin EOF.
 const terminateGrace = 2 * time.Second
 
+// drainCap bounds how long a leader that exited by itself is given for the
+// reader to consume what it wrote, while something keeps native stdout open.
+const drainCap = 2 * terminateGrace
+
 type JSONProcess struct {
 	cmd    *exec.Cmd
 	pgid   int
@@ -76,8 +84,24 @@ type JSONProcess struct {
 	writeLock chan struct{}
 	errMu     sync.Mutex
 	err       error
-	admitOnce sync.Once
+	stopOnce  sync.Once
+	stdinOnce sync.Once
 	termOnce  sync.Once
+	// The narrow contract's observer (descendants.go). auth holds the
+	// canonical ownership record the sampler and the close write.
+	auth        *LaunchAuthorization
+	samplerStop chan struct{}
+	samplerDone chan struct{}
+	captureOnce sync.Once
+	trigger     string
+	capturedAt  time.Time
+	// signal is syscall.Kill unless a test watches it; trace is a test's
+	// record of the shutdown order; scanning a test's hold on a scan. All
+	// are fixed at start.
+	signal   func(int, syscall.Signal) error
+	trace    func(string)
+	scanning func()
+	reading  func()
 }
 
 // StartJSONProcess is the ONE way a worker child is created. auth is the
@@ -160,10 +184,76 @@ func startJSONProcess(ctx context.Context, auth *LaunchAuthorization, executable
 	// every holder is gone.
 	outWrite.Close()
 	p := &JSONProcess{cmd: cmd, pgid: cmd.Process.Pid, stdin: stdin, stdout: out, lines: make(chan json.RawMessage, 128),
-		done: make(chan struct{}), stop: make(chan struct{}), exited: make(chan struct{}), reaped: make(chan struct{}), writeLock: make(chan struct{}, 1)}
+		done: make(chan struct{}), stop: make(chan struct{}), exited: make(chan struct{}), reaped: make(chan struct{}), writeLock: make(chan struct{}, 1),
+		auth: auth, samplerStop: make(chan struct{}), samplerDone: make(chan struct{}), signal: syscall.Kill, trace: func(string) {}, scanning: func() {}, reading: func() {}}
+	every := descendantScanInterval
+	if hooks := processTestHooks.Load(); hooks != nil {
+		if hooks.signal != nil {
+			p.signal = hooks.signal
+		}
+		if hooks.trace != nil {
+			p.trace = hooks.trace
+		}
+		if hooks.scanEvery != 0 {
+			every = hooks.scanEvery
+		}
+		if hooks.scanning != nil {
+			p.scanning = hooks.scanning
+		}
+		if hooks.reading != nil {
+			p.reading = hooks.reading
+		}
+	}
+	go p.sample(every)
 	go p.watchExit()
 	go p.readFrames()
 	return p, nil
+}
+
+// sample records escaped descendants every interval until a shutdown stops
+// it. It never signals anything.
+func (p *JSONProcess) sample(every time.Duration) {
+	defer close(p.samplerDone)
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-p.samplerStop:
+			return
+		case <-tick.C:
+		}
+		p.scanning()
+		leader, d, gen, ok := p.auth.descendantState()
+		if !ok {
+			continue
+		}
+		p.auth.commitDescendants(gen, scanDescendants(systemObserver, leader, d))
+	}
+}
+
+// finalCapture stops and JOINS the sampler, then completes one last scan,
+// once. Every shutdown runs it before stdin closes (see the file comment in
+// descendants.go); the captured cohort is what the close report observes.
+func (p *JSONProcess) finalCapture(trigger string) {
+	p.captureOnce.Do(func() {
+		close(p.samplerStop)
+		<-p.samplerDone
+		p.trigger, p.capturedAt = trigger, time.Now()
+		if leader, d, gen, ok := p.auth.descendantState(); ok {
+			p.auth.commitDescendants(gen, scanDescendants(systemObserver, leader, d))
+		}
+		p.trace("captured")
+	})
+}
+
+// shutdownInput is the one order an adapter-initiated shutdown takes: write
+// admission off, the capture COMPLETED, then stdin closed. Closing stdin first
+// let a worker that exits on EOF reparent its children before anything saw
+// them (Codex design review, 2026-10-12).
+func (p *JSONProcess) shutdownInput(trigger string) {
+	p.stopOnce.Do(func() { close(p.stop); p.trace("admission-off") })
+	p.finalCapture(trigger)
+	p.stdinOnce.Do(func() { _ = p.stdin.Close(); p.trace("stdin-closed") })
 }
 
 // Claude's process name is also its hook ancestor marker. The executable
@@ -173,6 +263,7 @@ func startClaudeProcess(ctx context.Context, auth *LaunchAuthorization, executab
 }
 
 func (p *JSONProcess) readFrames() {
+	p.reading()
 	scan := bufio.NewScanner(p.stdout)
 	scan.Buffer(make([]byte, 4096), nativeFrameLimit)
 scanLoop:
@@ -209,7 +300,7 @@ scanLoop:
 	// before exposing EOF; ending the tree may take the grace period, and
 	// EOF must not wait for it.
 	p.setErr(errors.New("native output stream closed"))
-	p.closeAdmission()
+	p.shutdownInput("stdout_eof")
 	close(p.lines)
 	p.terminate()
 	_ = p.stdout.Close()
@@ -217,9 +308,13 @@ scanLoop:
 }
 
 // watchExit ends the group as soon as the leader exits. The harness is gone;
-// its tool processes are orphans that would keep writing in the worktree, and
-// one holding stdout would keep the transport open forever. It does not close
-// admission or our stdout: the reader still drains what the leader wrote.
+// its tool processes are orphans that would keep writing in the worktree. It
+// does not close admission at once: the reader still drains what the leader
+// wrote, and a closed stop would let it drop a frame it could have delivered.
+// But a descendant that LEFT the group survives the group signals, and one
+// holding stdout kept the transport open until somebody called Close (Codex
+// design review P2, 2026-10-12). That holder is not ours to signal, so the
+// reader is released by closing OUR read end (releaseAfterExit).
 func (p *JSONProcess) watchExit() {
 	select {
 	case <-p.reaped:
@@ -231,32 +326,109 @@ func (p *JSONProcess) watchExit() {
 		return
 	}
 	close(p.exited)
+	p.finalCapture("leader_exit")
 	p.terminate()
+	p.releaseAfterExit()
 }
 
-func (p *JSONProcess) closeAdmission() {
-	p.admitOnce.Do(func() { close(p.stop); _ = p.stdin.Close() })
+// releaseAfterExit gives the reader the grace to drain what the exited leader
+// wrote, then, while the transport has not finished, closes OUR read end only
+// once nothing in the pipe is unread, so no frame the leader wrote is lost.
+// Past drainCap it stops waiting and says frames may have been lost. It names
+// another holder only when the pipe showed nothing unread and no EOF: a fixed
+// timeout used to drop a frame a descheduled reader had not read yet, and
+// blamed an escaped holder it had not seen (Codex code review P2, 2026-10-12).
+// The leader is reaped by now, so p.done waits on the reader alone.
+func (p *JSONProcess) releaseAfterExit() {
+	deadline := time.Now().Add(drainCap)
+	wait := terminateGrace
+	for {
+		select {
+		case <-p.done:
+			return
+		case <-time.After(wait):
+		}
+		pending, err := pipePending(p.stdout)
+		switch {
+		case err != nil:
+			p.setErr(fmt.Errorf("the native worker exited and its stdout did not reach EOF; whether unread output remained is unknown (%v), so the adapter released its end: frames may have been lost and native state is unknown", err))
+		case pending && time.Now().Before(deadline):
+			wait = 100 * time.Millisecond
+			continue
+		case pending:
+			p.setErr(fmt.Errorf("the native worker exited and its stdout still held unread output after %s; the adapter released its end: frames may have been lost and native state is unknown", drainCap))
+		default:
+			p.setErr(errors.New("the native worker exited, and another process still held its stdout open with nothing unread; the adapter released its own end without signalling that process"))
+		}
+		_ = p.stdout.Close()
+		return
+	}
 }
 
 // terminate is the ONLY place the leader is reaped, and it signals the group
 // strictly before reaping (see the file comment).
+//
+// These are the only signals the process code sends after the launch: the
+// pinned group and the pinned leader, nothing derived from a descendant.
 func (p *JSONProcess) terminate() {
 	p.termOnce.Do(func() {
-		_ = syscall.Kill(-p.pgid, syscall.SIGTERM)
+		p.finalCapture("terminate")
+		p.trace("group-term")
+		_ = p.signal(-p.pgid, syscall.SIGTERM)
 		select {
 		case <-p.exited:
 		case <-time.After(terminateGrace):
 		}
 		// Unconditional: the leader exiting says nothing about its children.
-		_ = syscall.Kill(-p.pgid, syscall.SIGKILL)
+		_ = p.signal(-p.pgid, syscall.SIGKILL)
 		// And the leader by pid, which is ours until the Wait below. If the
 		// group signal reached nobody (measured by mutation: without Setpgid
 		// it does), this still ends the leader, so Close stays bounded
 		// instead of waiting in Wait forever.
-		_ = p.cmd.Process.Signal(syscall.SIGKILL)
+		_ = p.signal(p.cmd.Process.Pid, syscall.SIGKILL)
 		p.setErr(p.cmd.Wait())
+		p.reportClose(time.Now())
 		close(p.reaped)
 	})
+}
+
+// reportClose observes the captured cohort once more, after the reap, and
+// seals the record with the close report. A survivor is alive at observed_at;
+// nothing in `ended` was signalled.
+func (p *JSONProcess) reportClose(reaped time.Time) {
+	p.auth.mu.Lock()
+	var d DescendantRecord
+	if p.auth.spawned.Descendants != nil {
+		d = *p.auth.spawned.Descendants
+	}
+	p.auth.mu.Unlock()
+	report := CloseReport{Trigger: p.trigger, CapturedAt: p.capturedAt, CaptureError: d.LastError, ReapedAt: reaped,
+		Group:     fmt.Sprintf("SIGTERM to group %d, a %s grace for the leader, SIGKILL to the group and the leader, leader reaped", p.pgid, terminateGrace),
+		Captured:  append([]ObservedProcess{}, d.Alive...),
+		Ended:     []ProcessIdentity{},
+		Survivors: []ObservedProcess{},
+		Unknown:   []UnknownProcess{},
+		// Always: nothing can attribute a descendant that left the tree before
+		// a scan saw it, so the report never says the tree is empty.
+		Unattributable: "unknown"}
+	left := d
+	left.Alive = nil
+	for _, e := range d.Alive {
+		state, err := stateWith(observeProcess, e.identity())
+		switch state {
+		case procGone, procRecycled:
+			report.Ended = append(report.Ended, ProcessIdentity{PID: e.PID, Start: e.Start})
+			left.Ended = satAdd(left.Ended, 1)
+		case procError:
+			report.Unknown = append(report.Unknown, UnknownProcess{PID: e.PID, Start: e.Start, Error: err.Error()})
+			left.Alive = append(left.Alive, e)
+		default:
+			report.Survivors = append(report.Survivors, e)
+			left.Alive = append(left.Alive, e)
+		}
+	}
+	report.ObservedAt = time.Now()
+	_ = p.auth.sealClose(report, left)
 }
 
 func (p *JSONProcess) setErr(err error) {
@@ -330,7 +502,7 @@ func (p *JSONProcess) WriteContext(ctx context.Context, v any) error {
 // SIGKILL delivery), so a caller about to exit has actually ended the group.
 func (p *JSONProcess) Close() error {
 	p.setErr(errors.New("native transport closed by the adapter"))
-	p.closeAdmission()
+	p.shutdownInput("close")
 	p.terminate()
 	// A descendant that left the group can still hold the write end of
 	// stdout; without this the reader, done and Events never finish.

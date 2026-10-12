@@ -5454,3 +5454,115 @@ operator chose Codex's contract:
 So V-12's escaped job is reported, not ended. `qualify-claude-jobs.py`
 expects "reported, cleanup incomplete" rather than "ended", unless native
 cooperative cancellation is later qualified.
+
+### 2026-10-12 continuation: the narrow contract, built (V-12, A-02)
+
+What the operator's choice needed beyond the shared core: escaped descendants
+observed and recorded, a close that captures them before it can lose their
+ancestry and says what became of them, and a resume that refuses while a
+recorded one lives. `Setsid` is not in it; the worker stays on `Setpgid` until
+native Q1/Q3.
+
+**Observation (`internal/harness/descendants.go`).** One `kern.proc.all` read
+per scan (linux: `/proc/*/stat`, torn by construction; other platforms launch
+nothing). Breadth-first from the roots: the pinned leader and every recorded
+escaped descendant whose pid and start time still match. A row is a child only
+if its ppid names the node AND it started no earlier (equal allowed). The table
+is not known to be atomic, so every node a new descendant's chain passes through
+is re-observed AFTER the read; a node gone or recycled drops the chain (Codex
+design review: a parent exiting mid-read and its pid going to a stranger would
+otherwise make the stranger's child ours). Escaped means pgid differs from the
+leader's; in-group descendants are walked through, not recorded. A recorded one
+is dropped only on a positive gone/recycled observation by its own pid, never
+on table absence; a table row showing its pid held by a NEWER start replaces it
+and counts it ended (Codex code review: both used to be recorded, and a record
+naming one pid twice refuses every resume). At most 256; past that a saturating
+`overflow` counts dropped observations, sticky. `last_error` holds only
+DISCOVERY failures (a table read, an ancestor that could not be observed); a
+recorded identity that cannot be observed right now stays recorded and is
+observed again by the resume (Codex code review: made unresolved, it outlived
+the identity in a sealed record and refused for good).
+
+**When.** A sampler every second (no kqueue `NOTE_FORK` path: measured 3-11 of
+20 fast double forks). Every shutdown the adapter starts (Close, stdout EOF)
+takes one order: admission off, the sampler stopped and JOINED, a final scan
+completed, then stdin closed, then the group signals (Codex design review: a
+worker that exits on stdin EOF reparented its children first). A leader that
+exits by itself: a capture from recorded roots, then terminate.
+
+**Persistence.** The authorization holds one canonical record; the sampler,
+Start's identity `bind` and the close each change their own fields under its
+mutex and publish the whole. A scan commits only at the generation it read and
+before the close seals the record. A failed publication leaves it dirty and the
+next commit retries; a close that could not be published is said on stderr,
+and the file then holds an older observation that a resume reads (a stated
+limit: nothing durable can be written then).
+
+**The close report** (`.proc` `close`): trigger, captured cohort, `ended`
+(observed gone or recycled after the reap), `survivors` (alive at
+`observed_at`), `unknown`, and `unattributable: "unknown"` always. One stderr
+line repeats it, naming survivors by pid, "not signalled". The stdout receipt
+stream is unchanged.
+
+**Admission.** Waitable while a recorded escaped descendant is alive (pid and
+start time). Outright: overflow, an unresolved discovery error, a per-entry
+observation error, a malformed section (pid <= 1, a duplicate, over 256). No
+section adds no refusal: unrecorded is unknown, as before.
+
+**Found and fixed on the way (each with a test watched to fail first).**
+- A leader that exited by itself, with a descendant outside its group holding
+  native stdout, left the transport open until somebody called Close (Codex
+  design review P2). Fail-before: `TestJSONProcessLeaderExitReleasesTransportDespiteEscapedHolder`,
+  8.06 s, "kept the transport open with nobody calling Close".
+- The first release closed our read end after a fixed 2 s, so a reader that had
+  not yet read the leader's last frame lost it, and the error blamed a holder
+  nobody had seen (Codex code review P2). It now polls the pipe: unread bytes or
+  a pending EOF keep it waiting up to `drainCap` (4 s); it names another holder
+  only when nothing is unread.
+
+**Tests** (hermetic, darwin): attribution table; scan against a scripted kernel
+(table absence, gone/recycled, retained error, failed table read cleared by a
+complete scan, ancestor error, torn ancestry for recycled AND vanished
+intermediates, pid replacement and an older row ignored, 255/256 and saturating
+overflow); the classifier; record finality (stale generation, seal at the
+current generation, bind after seal, commit keeps identity, unchanged scan not
+republished, failed publication retried, close publication failure reported);
+real processes: a setsid'd survivor recorded, reported and alive after Close,
+one that ended before Close dropped and counted, the in-group child not recorded
+and killed, every nonzero signal to `-pgid` or the leader; the shutdown order on
+Close and on stdout EOF with no periodic scan; the capture joins a sampler held
+mid-scan; leader self-exit with an escaped holder; the drain keeps a held
+reader's frame and is bounded; resume refuses waitably while a recorded one
+lives and admits once it is gone, admits a recycled pid without signalling,
+refuses outright on overflow, scan error and malformed; the built adapter names
+an escaped tool on stderr, leaves it running, and `.proc` lists it.
+
+**Reviews** (constrained Codex, source evidence only): design PASS WITH CHANGES
+(three P2s, all applied); code pass 1 timed out at the watchdog after naming
+three gaps (applied, or the persistence one stated as a limit); code pass 2
+(narrow, no charter) REJECT on two P2s, both reproduced by a failing test and
+fixed; it found no signal path outside the pinned group and leader and no
+admission bypass. The fixes after pass 2 were not re-reviewed.
+
+**Mutation evidence** (private rsync'd copies, python-applied, one at a time;
+a build failure is not a kill; scoped tests, the whole two packages for a
+scoped survivor; scratchpad `a02n/mut/`). The final sweep ran 47 mutants against the
+code as committed; every one is killed by a test's assertion (two respelled
+after their first form did not compile, then killed).
+
+| Area | Mutants (all killed) |
+| --- | --- |
+| Attribution | predating child accepted; equal start rejected; in-group recorded; root start ignored; root not marked visited |
+| Scan | chain not re-observed; gone kept; retained identity dropped on an error; table error unsaid; ancestor error unsaid; capacity off by one; overflow wraps; unresolved error sticky; recycled read as alive; a retained error made unresolved; a retained error uncounted; a newer pid not replacing, an older one replacing, a replacement not counted |
+| Record | stale generation; commit after the seal; state after the seal; a second seal; no retry after a failed publication; always publish; a failed close publication unsaid |
+| Admission | overflow, unresolved error, count mismatch, per-entry error, live descendant, malformed section, and descendants never observed: each refusal removed |
+| Process | stdin closed before the capture on Close and on stdout EOF; the capture not joining the sampler; no close report; no periodic or final scan; no capture on the leader's own exit; a survivor signalled; a survivor reported as ended |
+| Release | the pipe never polled; no drain bound; the release blaming a holder it had not seen; the read end never closed |
+| Adapter | the stderr line removed |
+
+An earlier sweep of 38 against the first version left four survivors, each
+closed before this one: a `known` set that the visited set made redundant
+(removed), two tests that did not isolate their guard (the retained-error case
+still had the process in its table; the close-error case matched an earlier
+publication error's wording), and a join that timing alone could not catch (a
+scan hook now holds the sampler mid-scan, and Close must wait for it).

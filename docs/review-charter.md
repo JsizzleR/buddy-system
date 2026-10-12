@@ -774,9 +774,17 @@ ledger row entered through the CLI (D-006).
     refuses with no record, a record bound to another journal/receipt/identity, an
     intent-only record, or while the recorded adapter, leader or group lives (`kill(-pgid,
     0)`, ESRCH alone is absence); `--wait-prior` is a bounded passive re-check. `.start`
-    fences only Start; the flock plus intent-before-spawn fence every spawn. Excluded, do
+    fences only Start; the flock plus intent-before-spawn fence every spawn. **Narrow
+    contract (D-077, the operator's choice 2026-10-11):** descendants that left the group
+    are sampled every second (one `kern.proc.all` read; parentage only, every parent
+    re-checked by pid and start time after the read), recorded in `.proc`, captured again
+    before stdin closes on every adapter-initiated shutdown, reported at close (`ended`,
+    `survivors`, `unknown`; `unattributable` is always "unknown") and on one stderr line,
+    and NEVER signalled; resume refuses waitably while a recorded one lives, and outright
+    on overflow (256), an unresolved discovery error or a malformed section. Excluded, do
     not re-propose: record rollback detection (invariant 6), killing what the adapter
-    cannot pin, `--end-prior`, descendant sampling, Setsid.
+    cannot pin (a pid and start-time re-read is not a pin), `--end-prior`. Setsid waits on
+    native qualification Q1/Q3.
 
 ## Environment facts (measured, do not re-derive)
 

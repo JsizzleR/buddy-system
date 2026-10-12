@@ -1587,18 +1587,44 @@ nothing signalled and nothing written, while:
   process" is absence, so an unreaped zombie member or a permission error also
   refuses). A pid that exists with another start time is recycled: not ours,
   never signalled, counted as gone, although its numeric group still refuses
-  while it exists.
+  while it exists;
+- an escaped descendant the record names (see below) is still running, by pid
+  AND start time;
+- the record's escaped-descendant section cannot vouch for what it holds: it
+  dropped observations for want of room (it keeps at most 256), its last scan
+  could not observe everything it needed, one it names cannot be observed now,
+  or the section is malformed. These refuse outright; the recourse is a fresh
+  worker with a NEW receipt.
 
-Only an observation that could not be made at all refuses outright. The alive
-verdicts clear with time: `--wait-prior DURATION` (at most `10m`, only with
-`--resume`) re-runs the whole admission every 250 ms, waiting through a prior
-adapter that still holds the journal lock, and resumes once everything recorded
-is gone; it refuses at its bound, at a non-waitable refusal, or at an
-observation error, naming the last reason. It sends no signal and writes no
-ledger row while waiting, and it runs before the 30 s start budget. Descendants
-that left the worker's group (a `setsid` tool, a shell's job control) are not
-checked, and no option ends a worker the adapter cannot pin; end it by hand
-after checking, or wait for it.
+Only an observation that could not be made at all, or a record that cannot
+vouch for itself, refuses outright. The alive verdicts clear with time:
+`--wait-prior DURATION` (at most `10m`, only with `--resume`) re-runs the whole
+admission every 250 ms, waiting through a prior adapter that still holds the
+journal lock, and resumes once everything recorded is gone; it refuses at its
+bound, at a non-waitable refusal, or at an observation error, naming the last
+reason. It sends no signal and writes no ledger row while waiting, and it runs
+before the 30 s start budget. No option ends a process the adapter cannot pin
+(D-077, the operator's 2026-10-11 choice): end it by hand after checking, or
+wait for it.
+
+**Escaped descendants: observed, recorded, reported, never signalled.** A
+descendant that left the worker's group (a `setsid` tool, a shell's job
+control; measured, Claude Code runs every Bash tool shell in a session of its
+own) is outside what Close signals. While the worker runs, the adapter reads the
+process table every second and records, in `.proc`, each escaped descendant it
+can attribute by unbroken parentage from the worker (every parent re-checked by
+pid and start time after the read). Every shutdown the adapter starts turns
+write admission off, finishes one last scan, and only then closes the worker's
+stdin. The close report in `.proc` lists the escaped descendants captured then
+as `ended` (observed gone), `survivors` (still running after the group was
+ended and the leader reaped) or `unknown` (could not be observed), and the
+adapter prints the same on one stderr line, naming survivors by pid. One that
+left the tree before any scan saw it (a double fork, or a child started after the
+last scan that left its session and whose parent then exited) cannot be
+attributed, so the
+report always says `unattributable: unknown` and never that the tree is empty.
+If the record could not be written, the adapter says so on stderr: the file
+then holds an older observation, and a resume reads that one.
 
 Claude additionally requires at least one accepted wake and, for every recorded
 wake, an exact native input UUID, a terminal result (`completed`, or the measured
@@ -1630,9 +1656,12 @@ directly. Close, and INT/TERM/HUP to the adapter, end that group: SIGTERM, then
 SIGKILL as soon as the leader has exited or after 2 s at most, while the leader
 is still unreaped. The grace is the leader's, not its tools': a leader that
 exits on TERM at once, or by itself, ends the wait, so a tool still running
-gets TERM and KILL back to back. A descendant that put
-itself in another group escapes; an isolated Claude 2.1.291 tool fixture
-reproduced this limit. Complete descendant cleanup is not qualified; see the
+gets TERM and KILL back to back. A descendant that put itself in another group
+escapes those signals, and stays unsignalled: it is recorded and reported as
+above. An isolated Claude 2.1.291 tool fixture reproduced the escape. If the
+worker exits by itself while such a descendant still holds its stdout, the
+transport is released after the same 2 s by closing the adapter's own end, not
+by signalling the holder. Complete descendant cleanup is not qualified; see the
 [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md). SIGKILL of the adapter runs no cleanup, so a
 released journal lock shows the adapter exited, not that its worker did. Treat
 prior native ownership as uncertain before resuming. A wake refused before any

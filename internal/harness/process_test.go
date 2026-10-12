@@ -482,6 +482,117 @@ func TestJSONProcessLeaderExitEndsGroup(t *testing.T) {
 	}
 }
 
+// A-02 narrow contract, Codex design review P2: when the leader exits by
+// itself and a descendant that LEFT the group still holds native stdout, the
+// group signals never reach that holder, so no EOF ever came and the reader,
+// Events and done stayed open until somebody called Close. The holder is not
+// ours to signal; the transport must still finish, by releasing our own read
+// end after a bounded drain.
+func TestJSONProcessLeaderExitReleasesTransportDespiteEscapedHolder(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "holder-ready")
+	holder := fmt.Sprintf(`python3 -c 'import os,sys,time; os.setpgid(0,0); sys.stdout.write("{\"holder\":%%d}\n" %% os.getpid()); sys.stdout.flush(); open(%q,"w").close(); time.sleep(30)' & while [ ! -e %q ]; do sleep 0.01; done; exit 0`, ready, ready)
+	auth := testAuthorization(t)
+	p, err := StartJSONProcess(context.Background(), auth, "/bin/sh", []string{"-c", holder}, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	var v struct {
+		Holder int `json:"holder"`
+	}
+	readJSONLine(t, p, &v)
+	t.Cleanup(func() { _ = syscall.Kill(v.Holder, syscall.SIGKILL) })
+	select {
+	case <-p.exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("control: the leader did not exit by itself")
+	}
+	select {
+	case <-p.done:
+	case <-time.After(terminateGrace + 6*time.Second):
+		t.Fatal("the leader exited, and an escaped descendant holding native stdout kept the transport open with nobody calling Close")
+	}
+	// Released, not signalled: the holder left the group and is not ours.
+	if !alive(v.Holder) {
+		t.Fatalf("escaped stdout holder %d is gone; it was signalled, or the test no longer exercises the release", v.Holder)
+	}
+	if report, err := auth.closeOutcome(); err != nil || report == nil || report.Trigger != "leader_exit" || report.Unattributable != "unknown" {
+		t.Fatalf("close report after the leader's own exit: %+v, %v", report, err)
+	}
+	if err := p.Err(); err == nil || !strings.Contains(err.Error(), "another process still held its stdout open with nothing unread") {
+		t.Fatalf("the release does not say why: %v", err)
+	}
+}
+
+// The drain is bounded: a reader that never consumes what is in the pipe does
+// not keep an exited worker's transport open past drainCap, and the error says
+// frames may have been lost rather than naming a holder.
+func TestJSONProcessLeaderExitDrainIsBounded(t *testing.T) {
+	release := make(chan struct{})
+	processTestHooks.Store(&processHooks{reading: func() { <-release }})
+	t.Cleanup(func() { processTestHooks.Store(nil) })
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "holder-ready")
+	holder := fmt.Sprintf(`python3 -c 'import os,sys,time; os.setpgid(0,0); sys.stdout.write("{\"holder\":%%d}\n" %% os.getpid()); sys.stdout.flush(); open(%q,"w").write(str(os.getpid())); time.sleep(30)' & while [ ! -s %q ]; do sleep 0.01; done; exit 0`, ready, ready)
+	p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", holder}, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { close(release); _ = p.Close() })
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if b, err := os.ReadFile(ready); err == nil {
+			if pid, err := strconv.Atoi(string(b)); err == nil && pid > 1 {
+				t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("control: the holder never started")
+		}
+	}
+	for deadline := time.Now().Add(drainCap + 5*time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if err := p.Err(); err != nil && strings.Contains(err.Error(), "still held unread output") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("an exited worker's transport was held past the drain bound: %v", p.Err())
+		}
+	}
+}
+
+// Codex code review P2, 2026-10-12: the release after a leader's own exit was
+// a fixed timeout, so a reader that had not yet read the leader's last frame
+// lost it, and the error blamed a holder nobody had seen. The reader is held
+// past the grace while the leader writes a frame and exits; the frame must
+// still arrive.
+func TestJSONProcessLeaderExitDrainsWhatItWrote(t *testing.T) {
+	release := make(chan struct{})
+	processTestHooks.Store(&processHooks{reading: func() { <-release }})
+	t.Cleanup(func() { processTestHooks.Store(nil) })
+	p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", `echo '{"last":1}'; exit 0`}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	select {
+	case <-p.exited:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("control: the leader did not exit")
+	}
+	time.Sleep(terminateGrace + 500*time.Millisecond)
+	close(release)
+	select {
+	case line, ok := <-p.Read():
+		if !ok || string(line) != `{"last":1}` {
+			t.Fatalf("the exited leader's last frame was lost: %q open=%v err=%v", line, ok, p.Err())
+		}
+	case <-time.After(drainCap):
+		t.Fatal("no frame and no close")
+	}
+}
+
 // F-08: one frame over the bound is never skipped (it could be the approval
 // or result being waited for). It fails the transport with an error naming
 // the bound, write admission closes, and the worker's whole group ends.
