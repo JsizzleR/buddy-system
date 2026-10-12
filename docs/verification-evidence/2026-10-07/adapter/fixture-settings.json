@@ -1,0 +1,22 @@
+[
+  {
+    "source": "qualify-claude-endpoints.py:118",
+    "settings": "{\"enabledPlugins\": {}, \"hooks\": {\"PreToolUse\": [{\"matcher\": \"^(Edit|Write|NotebookEdit)$\", \"hooks\": [{\"type\": \"command\", \"command\": \"/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy\", \"timeout\": 10}]}]}}"
+  },
+  {
+    "source": "qualify-claude-mods.py:232",
+    "settings": "{\"enabledPlugins\": {}, \"hooks\": {\"PreToolUse\": [{\"matcher\": \"^(Edit|Write|NotebookEdit)$\", \"hooks\": [{\"type\": \"command\", \"command\": \"/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy\", \"timeout\": 10}]}]}}"
+  },
+  {
+    "source": "qualify-claude.py:414",
+    "settings": "{\"enabledPlugins\": {}, \"hooks\": {\"PreToolUse\": [{\"matcher\": \"^(Edit|Write|NotebookEdit)$\", \"hooks\": [{\"type\": \"command\", \"command\": \"/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy\", \"timeout\": 10}]}]}}"
+  },
+  {
+    "source": "qualify-claude.py:530",
+    "settings": "{\"enabledPlugins\": {}, \"hooks\": {\"PreToolUse\": [{\"matcher\": \"^(Edit|Write|NotebookEdit)$\", \"hooks\": [{\"type\": \"command\", \"command\": \"/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy\", \"timeout\": 10}]}]}}"
+  },
+  {
+    "source": "qualify-mixed-fleet.py:196",
+    "settings": "{\"enabledPlugins\": {}, \"hooks\": {\"PreToolUse\": [{\"matcher\": \"^(Edit|Write|NotebookEdit)$\", \"hooks\": [{\"type\": \"command\", \"command\": \"/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy\", \"timeout\": 10}]}]}}"
+  }
+]

@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -2293,7 +2293,7 @@
+ 		var note string
+ 		var paused bool
+ 		if err == nil {
+-			note, paused, err = repo.st.PausedFor(h.SessionID, label)
++			_ = label // mutation removes pause read
+ 		}
+ 		switch {
+ 		case err != nil:

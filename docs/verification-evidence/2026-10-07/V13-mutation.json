@@ -1,0 +1,14 @@
+{
+  "mutation": "omit no-forced-cleanup guard",
+  "file": "scripts/qualify-claude-jobs.py",
+  "test": "JobProbeCleanup",
+  "control_rc": 0,
+  "mutant_rc": 1,
+  "killed": true,
+  "private_copy": "/private/tmp/buddy-v13-mutant-udzzv9sb",
+  "log": "/private/tmp/buddy-verification-20261007.2EArSN/V13-mutant.log",
+  "replacement": {
+    "old": "result[\"checks\"][\"adapter_exited_without_fallback\"] = not result[\"adapter_forced_cleanup\"]",
+    "new": "result[\"checks\"][\"adapter_exited_without_fallback\"] = True"
+  }
+}

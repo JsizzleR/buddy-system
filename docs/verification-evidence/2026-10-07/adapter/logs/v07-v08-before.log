@@ -1,0 +1,18 @@
+=== RUN   TestNativeVersionProbeBoundsInheritedOutput
+=== RUN   TestNativeVersionProbeBoundsInheritedOutput/positive
+=== RUN   TestNativeVersionProbeBoundsInheritedOutput/leader-exit
+    verification_executable_test.go:65: version probe ignored its deadline while a descendant held stdout
+=== RUN   TestNativeVersionProbeBoundsInheritedOutput/cancelled
+    verification_executable_test.go:65: version probe ignored its deadline while a descendant held stdout
+--- FAIL: TestNativeVersionProbeBoundsInheritedOutput (4.19s)
+    --- PASS: TestNativeVersionProbeBoundsInheritedOutput/positive (0.04s)
+    --- FAIL: TestNativeVersionProbeBoundsInheritedOutput/leader-exit (2.06s)
+    --- FAIL: TestNativeVersionProbeBoundsInheritedOutput/cancelled (2.08s)
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/harness	4.350s
+=== RUN   TestAdapterSignalClosesWorkerWithFullStartupOutput
+    main_test.go:633: full startup stdout prevented signal cleanup
+--- FAIL: TestAdapterSignalClosesWorkerWithFullStartupOutput (8.24s)
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/cmd/buddy-adapter	8.391s
+FAIL

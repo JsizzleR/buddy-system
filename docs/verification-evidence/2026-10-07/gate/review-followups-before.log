@@ -1,0 +1,45 @@
+=== RUN   TestGateResolutionErrorStillChecksOtherSpellings
+    verification_gatetargets_test.go:203: want deny=true (containing "resolve the target"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateResolutionErrorStillChecksOtherSpellings2274694481/002","session_id":"sess-b","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateResolutionErrorStillChecksOtherSpellings2274694481/002/free/link/../entry"},"tool_name":"Write"}
+--- FAIL: TestGateResolutionErrorStillChecksOtherSpellings (0.14s)
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/$'apply_\x70atch'_<_p.patch
+    verification_gatetargets_test.go:212: want deny=true (containing "apply_patch tool"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo","session_id":"sess-b","tool_input":{"command":"$'apply_\\x70atch' \u003c p.patch"},"tool_name":"Bash"}
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_$'apply_patch_<_p.patch\n'
+    verification_gatetargets_test.go:212: want deny=true (containing "apply_patch tool"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo","session_id":"sess-b","tool_input":{"command":"bash -lc $'apply_patch \u003c p.patch\\n'"},"tool_name":"Bash"}
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/command_-pv_apply_patch
+    verification_gatetargets_test.go:216: want deny=false (containing ""), got "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"buddy gate: this Bash command invokes, or cannot safely rule out, apply_patch through the shell. Codex can apply it in-process, but the hook payload omits the command's working directory, so the gate cannot place the patched paths against the claims. Use the apply_patch tool, which the gate checks path by path; refusing.\"}}\n"
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo","session_id":"sess-b","tool_input":{"command":"command -pv apply_patch"},"tool_name":"Bash"}
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/command_-pV_apply_patch
+    verification_gatetargets_test.go:216: want deny=false (containing ""), got "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"buddy gate: this Bash command invokes, or cannot safely rule out, apply_patch through the shell. Codex can apply it in-process, but the hook payload omits the command's working directory, so the gate cannot place the patched paths against the claims. Use the apply_patch tool, which the gate checks path by path; refusing.\"}}\n"
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo","session_id":"sess-b","tool_input":{"command":"command -pV apply_patch"},"tool_name":"Bash"}
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/printf_'%s'_$'apply_\x70atch'
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo'\''_&&_apply_patch_<<EOF⏎***_Begin_Patch⏎***_Delete_File:_held.go⏎***_End_Patch⏎EOF⏎'
+    verification_gatetargets_test.go:223: want deny=true (containing "apply_patch tool"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002","session_id":"sess-b","tool_input":{"command":"bash -lc 'cd '\\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo'\\'' \u0026\u0026 apply_patch \u003c\u003cEOF⏎*** Begin Patch⏎*** Delete File: held.go⏎*** End Patch⏎EOF⏎'"},"tool_name":"Bash"}
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/'cd'_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo'_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_
+    verification_gatetargets_test.go:223: want deny=true (containing "apply_patch tool"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002","session_id":"sess-b","tool_input":{"command":"'cd' '/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo' \u0026\u0026 apply_patch \u003c\u003cEOF\n*** Begin Patch\n*** Delete File: held.go\n*** End Patch\nEOF\n"},"tool_name":"Bash"}
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/env_-C_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo'_apply_patch_<_p.patch
+    verification_gatetargets_test.go:223: want deny=true (containing "apply_patch tool"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002","session_id":"sess-b","tool_input":{"command":"env -C '/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo' apply_patch \u003c p.patch"},"tool_name":"Bash"}
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002'\''_&&_apply_patch_<<EOF⏎***_Begin_Patch⏎***_Delete_File:_held.go⏎***_End_Patch⏎EOF⏎'
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/'cd'_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002'_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_
+=== RUN   TestGateShellStaticQuotingAndNestedJurisdiction/env_-C_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002'_apply_patch_<_p.patch
+--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.26s)
+    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/$'apply_\x70atch'_<_p.patch (0.01s)
+    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_$'apply_patch_<_p.patch\n' (0.01s)
+    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/command_-pv_apply_patch (0.01s)
+    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/command_-pV_apply_patch (0.01s)
+    --- PASS: TestGateShellStaticQuotingAndNestedJurisdiction/printf_'%s'_$'apply_\x70atch' (0.01s)
+    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo'\''_&&_apply_patch_<<EOF⏎***_Begin_Patch⏎***_Delete_File:_held.go⏎***_End_Patch⏎EOF⏎' (0.03s)
+    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/'cd'_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo'_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_ (0.02s)
+    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/env_-C_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/001/repo'_apply_patch_<_p.patch (0.02s)
+    --- PASS: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002'\''_&&_apply_patch_<<EOF⏎***_Begin_Patch⏎***_Delete_File:_held.go⏎***_End_Patch⏎EOF⏎' (0.02s)
+    --- PASS: TestGateShellStaticQuotingAndNestedJurisdiction/'cd'_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002'_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_ (0.02s)
+    --- PASS: TestGateShellStaticQuotingAndNestedJurisdiction/env_-C_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3043070553/002'_apply_patch_<_p.patch (0.02s)
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/cli	0.575s
+FAIL

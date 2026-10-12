@@ -1,0 +1,11 @@
+--- internal/store/logical.go
++++ internal/store/logical.go
+@@ -133,7 +133,7 @@
+ 				return err
+ 			}
+ 			for _, rel := range rels {
+-				if scopeCovers(scope, rel) {
++				if false && scopeCovers(scope, rel) {
+ 					renew[id] = true
+ 				}
+ 			}

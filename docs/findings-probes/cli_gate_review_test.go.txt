@@ -1,0 +1,171 @@
+package cli
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
+
+func bashHookJSON(session, cwd, command string) string {
+	in := map[string]any{
+		"session_id": session, "cwd": cwd, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": command},
+	}
+	b, _ := json.Marshal(in)
+	return string(b)
+}
+
+// Codex intercepts exec_command `apply_patch <<'EOF' ... EOF` and applies it
+// in-process (core/src/tools/handlers/unified_exec/exec_command.rs:378), but
+// its PreToolUse payload is tool_name "Bash" (line 520-528).
+func TestReviewShellApplyPatchBypassesClaims(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, errw, code := f.run(t, f.repo, "", "claim", "core", "--session", "sess-a", "--scope", "src"); code != 0 {
+		t.Fatal(errw)
+	}
+	f.env[EnvHarness] = "codex"
+	// Positive control: the same patch through the apply_patch tool is denied.
+	patch := "*** Begin Patch\n*** Delete File: src/old.go\n*** End Patch\n"
+	out, _, _ := f.run(t, f.wtB, patchHookJSON("sess-b", f.wtB, patch), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Fatalf("control: apply_patch tool must be denied: %q", out)
+	}
+	for _, cmd := range []string{
+		"apply_patch <<'EOF'\n" + patch + "EOF\n",
+		"applypatch <<'EOF'\n" + patch + "EOF\n",
+		"cd " + f.wtB + " && apply_patch <<'EOF'\n" + patch + "EOF\n",
+	} {
+		out, errw, code := f.run(t, f.wtB, bashHookJSON("sess-b", f.wtB, cmd), "gate")
+		if _, denied := decodeDeny(t, out); !denied {
+			t.Errorf("shell-delivered apply_patch to a peer-held path was ALLOWED: code=%d out=%q err=%q cmd=%q", code, out, errw, cmd)
+		}
+	}
+}
+
+// Both Codex's PathUri::join / from_absolute_native_path and Claude's tools
+// resolve `..` lexically; the gate's canon() resolves it AFTER following a
+// symlink when the target exists.
+func TestReviewDotDotThroughSymlinkAbsolute(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	for _, d := range []string{"docs", "src/deep"} {
+		if err := os.MkdirAll(filepath.Join(f.repo, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{"docs/core.go", "src/core.go"} {
+		if err := os.WriteFile(filepath.Join(f.repo, p), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("../src/deep", filepath.Join(f.repo, "docs/link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "claim", "docs", "--session", "sess-a", "--scope", "docs"); code != 0 {
+		t.Fatal(errw)
+	}
+	// Control: the lexical target itself is denied.
+	direct := filepath.Join(f.repo, "docs/core.go")
+	out, _, _ := f.run(t, f.repo, patchHookJSON("sess-b", f.repo, patchText("*** Delete File: "+direct+"\n")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Fatalf("control must deny: %q", out)
+	}
+	// Relative spelling: lexical in both the gate and Codex -> denied.
+	out, _, _ = f.run(t, f.repo, patchHookJSON("sess-b", f.repo, patchText("*** Delete File: docs/link/../core.go\n")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Errorf("relative link/.. spelling allowed: %q", out)
+	}
+	// Absolute spelling: Codex deletes <repo>/docs/core.go; the gate checks src/core.go.
+	abs := filepath.Join(f.repo, "docs") + "/link/../core.go"
+	out, _, _ = f.run(t, f.repo, patchHookJSON("sess-b", f.repo, patchText("*** Delete File: "+abs+"\n")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Errorf("absolute link/.. spelling of a claimed file was ALLOWED by apply_patch gate: %q", out)
+	}
+	out, _, _ = f.run(t, f.repo, hookJSON("sess-b", f.repo, "Edit", abs), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Errorf("absolute link/.. spelling of a claimed file was ALLOWED by Edit gate: %q", out)
+	}
+}
+
+// A nested directory carrying a stale .git FILE (a pruned linked worktree,
+// a vendored tree) now routes to the foreign arm, whose git says "not a git
+// repository", which is errNoLedger -> allow. The home claim is never read.
+func TestReviewStaleNestedGitfileHidesHomeClaim(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	if err := os.MkdirAll(filepath.Join(f.repo, "vendor/lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, "vendor/lib/.git"), []byte("gitdir: "+filepath.Join(f.repo, ".git/worktrees/gone")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "claim", "vendor", "--session", "sess-a", "--scope", "vendor"); code != 0 {
+		t.Fatal(errw)
+	}
+	// Control: a sibling under the same scope without the stray .git is denied.
+	out, _, _ := f.run(t, f.repo, hookJSON("sess-b", f.repo, "Edit", filepath.Join(f.repo, "vendor/x.go")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Fatalf("control must deny: %q", out)
+	}
+	out, _, _ = f.run(t, f.repo, hookJSON("sess-b", f.repo, "Edit", filepath.Join(f.repo, "vendor/lib/x.go")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Errorf("Edit under a claimed scope inside a stale-gitfile dir was ALLOWED: %q", out)
+	}
+	out, _, _ = f.run(t, f.repo, patchHookJSON("sess-b", f.repo, patchText("*** Add File: vendor/lib/x.go\n+x\n")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Errorf("apply_patch under a claimed scope inside a stale-gitfile dir was ALLOWED: %q", out)
+	}
+}
+
+// A real nested repo (or initialized submodule) without its own ledger: the
+// home ledger's claim covering it is no longer consulted for ANY tool.
+func TestReviewNestedUnledgeredRepoHidesHomeClaim(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	nested := filepath.Join(f.repo, "vendor/lib")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", nested, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "claim", "vendor", "--session", "sess-a", "--scope", "vendor"); code != 0 {
+		t.Fatal(errw)
+	}
+	out, _, _ := f.run(t, f.repo, hookJSON("sess-b", f.repo, "Edit", filepath.Join(nested, "x.go")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Errorf("Claude Edit inside a nested unledgered repo under a home claim was ALLOWED: %q", out)
+	}
+}
+
+// Delete File (and a move's source) unlinks the named entry; the gate
+// adjudicates only the symlink's resolved target.
+func TestReviewDeleteSymlinkChecksTargetNotEntry(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	for _, d := range []string{"docs", "src"} {
+		if err := os.MkdirAll(filepath.Join(f.repo, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, "src/x.go"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../src/x.go", filepath.Join(f.repo, "docs/link2")); err != nil {
+		t.Fatal(err)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "claim", "docs", "--session", "sess-a", "--scope", "docs"); code != 0 {
+		t.Fatal(errw)
+	}
+	out, _, _ := f.run(t, f.repo, patchHookJSON("sess-b", f.repo, patchText("*** Delete File: docs/plain\n")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Fatalf("control must deny: %q", out)
+	}
+	out, _, _ = f.run(t, f.repo, patchHookJSON("sess-b", f.repo, patchText("*** Delete File: docs/link2\n")), "gate")
+	if _, denied := decodeDeny(t, out); !denied {
+		t.Errorf("Delete of a symlink entry inside a claimed scope was ALLOWED: %q", out)
+	}
+}

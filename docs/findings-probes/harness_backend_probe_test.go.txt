@@ -1,0 +1,36 @@
+package harness
+
+import (
+	"testing"
+)
+
+// Native 2.1.291 (xen in the binary): a matcher matching ^[a-zA-Z0-9_|]+$ is an
+// EXACT list split on '|', never a regex. Go's regexp.MatchString is unanchored.
+func TestProbeClaudeMatcherSemantics(t *testing.T) {
+	gate := "/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy"
+	for _, matcher := range []string{
+		"Edit|Write", // native: exactly Edit or Write; NotebookEdit ungated
+		"dit|rite",   // native: exact names "dit","rite" -> matches NO tool
+	} {
+		cfg := `{"hooks":{"PreToolUse":[{"matcher":"` + matcher + `","hooks":[{"type":"command","command":"` + gate + `"}]}]}}`
+		if err := claudeSettingsCompatibility([]byte(cfg), gate); err == nil {
+			t.Errorf("matcher %q ADMITTED as covering Edit, Write and NotebookEdit", matcher)
+		}
+	}
+}
+
+// Go's encoding/json folds struct keys case-insensitively; Claude's JSON.parse
+// does not. The native hook command / async / matcher are the lowercase keys.
+func TestProbeClaudeCaseFoldedKeys(t *testing.T) {
+	gate := "/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy"
+	for name, cfg := range map[string]string{
+		"command": `{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"true","Command":"` + gate + `"}]}]}}`,
+		"async":   `{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"` + gate + `","async":true,"Async":false}]}]}}`,
+		"matcher": `{"hooks":{"PreToolUse":[{"matcher":"Bash","Matcher":".*","hooks":[{"type":"command","command":"` + gate + `"}]}]}}`,
+		"hooks":   `{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[],"Hooks":[{"type":"command","command":"` + gate + `"}]}]}}`,
+	} {
+		if err := claudeSettingsCompatibility([]byte(cfg), gate); err == nil {
+			t.Errorf("%s: case-variant duplicate key ADMITTED; native reads the lowercase key", name)
+		}
+	}
+}

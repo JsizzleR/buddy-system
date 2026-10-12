@@ -1,0 +1,12 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -71,7 +71,8 @@
+ 			// turning an ungoverned directory into a fleet-wide refusal.
+ 			// A failed lexical spelling must not hide a physical spelling
+ 			// reaching a governed repo (V-03 constrained-review follow-up).
+-			if resolutionErr == nil {
++			return out, err
++ if resolutionErr == nil {
+ 				resolutionErr = err
+ 			}
+ 			continue

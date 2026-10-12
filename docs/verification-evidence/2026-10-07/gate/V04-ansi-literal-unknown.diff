@@ -1,0 +1,11 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -191,7 +191,7 @@
+ 		case *syntax.SglQuoted:
+ 			// Only this fixed quoted node enters the literal decoder: no
+ 			// substitutions, environment values, globbing or execution callbacks.
+-			value, err := expand.Literal(nil, &syntax.Word{Parts: []syntax.WordPart{p}})
++			if p.Dollar && strings.Contains(p.Value, "\\") { return "", false }; value, err := expand.Literal(nil, &syntax.Word{Parts: []syntax.WordPart{p}})
+ 			if err != nil {
+ 				return "", false
+ 			}

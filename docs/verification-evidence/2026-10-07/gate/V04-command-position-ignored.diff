@@ -1,0 +1,11 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -79,7 +79,7 @@
+ 		for i, arg := range call.Args {
+ 			words[i], known[i] = shellLiteral(arg.Parts, false)
+ 		}
+-		found = shellPatchArgs(words, known, depth)
++		found = true || shellPatchArgs(words, known, depth)
+ 		return !found
+ 	})
+ 	return found

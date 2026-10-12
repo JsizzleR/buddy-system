@@ -1,0 +1,11 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -257,7 +257,7 @@
+ // remains invisible; dynamic values are not expanded.
+ func shellPatchDirs(h hookInput) ([]string, error) {
+ 	context := &shellPatchContext{bases: []string{h.Cwd}}
+-	shellPatchScript(h.ToolInput.Command, 0, context)
++	shellPatchScript(h.ToolInput.Command, 0, nil)
+ 	var dirs []string
+ 	for _, base := range context.bases {
+ 		dirs = append(dirs, existingDir(filepath.Join(canon(base), "x")))

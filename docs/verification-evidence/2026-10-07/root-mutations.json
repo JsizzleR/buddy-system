@@ -1,0 +1,45 @@
+{
+  "root": "/private/tmp/buddy-verification-root-mutants-w5k07dun",
+  "results": [
+    {
+      "name": "V01_patch_only_admitted",
+      "file": "internal/harness/codex.go",
+      "test": "^TestCodexGateRequiresShellPatchCoverage$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V01_diagnostic_gate_removed",
+      "file": "internal/harness/diagnostic.go",
+      "test": "^TestCodexGateRequiresShellPatchCoverage$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V05_history_evidence_removed",
+      "file": "internal/store/adapter.go",
+      "test": "^TestDeliveredAdapterMailRetainsRecipientEvidence$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V05_classifier_evidence_removed",
+      "file": "internal/cli/cli.go",
+      "test": "^TestDeliveredAdapterMailRetainsRecipientEvidence$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V06_argv_label_removed",
+      "file": "internal/harness/process.go",
+      "test": "^TestClaudeProcessKeepsExactExecutableAndRecognizableArgv$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    }
+  ]
+}

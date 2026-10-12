@@ -1,0 +1,11 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -133,7 +133,7 @@
+ 				if !strings.HasPrefix(arg, "-") || arg == "-" {
+ 					break
+ 				}
+-				if name == "command" && !strings.HasPrefix(arg, "--") && strings.ContainsAny(arg[1:], "vV") {
++				if name == "command" && (arg == "-v" || arg == "-V") {
+ 					return false
+ 				}
+ 				if name == "env" && (arg == "-S" || arg == "--split-string") {

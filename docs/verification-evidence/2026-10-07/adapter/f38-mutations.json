@@ -1,0 +1,22 @@
+[
+  {
+    "name": "qualify-compaction.py-daemon-no-join",
+    "rc": 0,
+    "status": "survived"
+  },
+  {
+    "name": "qualify-compaction.py-stop-removed",
+    "rc": 1,
+    "status": "killed"
+  },
+  {
+    "name": "qualify-interrupted-compaction.py-daemon-no-join",
+    "rc": 0,
+    "status": "survived"
+  },
+  {
+    "name": "qualify-interrupted-compaction.py-stop-removed",
+    "rc": 1,
+    "status": "killed"
+  }
+]

@@ -1,0 +1,113 @@
+{
+  "scratch": "/private/tmp/buddy-adapter-verify-dxmg7jlz",
+  "final_source_hashes": {
+    "internal/harness/controller.go": "d8a6e637cc6cca5558bc164878273399a9920aea4df9c9a4858bc4a188dc14c7",
+    "internal/harness/verification_replay_test.go": "fe15cae354dd5e48a0c32db39a5a117eb24ccda56971eced7ca56c9dcf8593ef",
+    "internal/harness/executable.go": "a40799459d55bdf35847fbe755958bd822dbeb3c166d95de203c2af5bd991cac",
+    "internal/harness/verification_executable_test.go": "ce00ed613aaa468a0524cb5adcc3298ca094bc21e99184956be7989e7c1c2fef",
+    "internal/harness/codex.go": "8d728aa50ab7fc0ed7b72b69ed4fe5fad04c11b3d150873203e5f4592e03d568",
+    "internal/harness/claude.go": "2c2edb4ceca0e88e00be59b5ac48445db12b17fa2b39bfb21398ef19cb66ef3a",
+    "cmd/buddy-adapter/main.go": "86687ab3cb281db57cb7142cc350b9ee5a9a5fdf07eb48a9f643b8b1f4be111b",
+    "cmd/buddy-adapter/main_test.go": "0c3efa84db3e8f7cf03ce8f27599b5753968f9d553c0e9b1123dca0a3783ea34",
+    "scripts/qualify-claude.py": "facab15e641e84c552fa5081b94fe010b8a26e13102c48011b2b063da693c693",
+    "scripts/qualify-claude-interrupted.py": "a0419192b29a41435769907cc2e93d096a40dace4724c0b330777c621a843948",
+    "scripts/qualify-claude-interrupted-compaction.py": "f6702a86a8d866526c84741a5fdca087310617ece0b7b999b44c3a8180cf5dd0",
+    "scripts/qualify-interrupted.py": "5ddf3160be9fe69167979a4ba8842a84336bdd9bada246d2b022a070d5e194b4",
+    "scripts/qualify-interrupted-compaction.py": "9b30ccce20c9afd3b17109da73db0c12a94ddb00fb6779066c11317c0bc1667e",
+    "scripts/test_native_proxy.py": "f37736f63c6fd32f69749b595472ed8b357bd9c151554427e99786b83643f0b9",
+    "internal/harness/process.go": "511d47e725a0f7a700c7c38925c6730a872845685fb03cf49e5257dbfc7bd5fd",
+    "internal/harness/process_exit_darwin.go": "fe64f7da7d1d8c1603fe4f6b5bd432a8ec1b6f2781d3f41aa6044f47467a8478",
+    "internal/harness/process_exit_linux.go": "c4610e5f856c1d8eda9477e217211533311cc66e07a49ebb86daf123aa66ae81",
+    "cmd/buddy-adapter/hook.go": "bac1ca50c6ad8968efcc48862745d0fef203e8a7865026e12779bfe6f5014241",
+    "internal/harness/claude_settings_test.go": "3f014943cbd263c2ad19d968e7d13ed3ce51972c462b351e2f0adfcbbf27b837"
+  },
+  "initial_mutations": {
+    "distinct": 49,
+    "killed": 31,
+    "survived": 18,
+    "build_errors": 0
+  },
+  "final_core_mutations": {
+    "distinct": 62,
+    "killed": 58,
+    "survived": 4,
+    "build_error_kills": 0
+  },
+  "survivors": {
+    "fd-getfl-error": "Open fd was already established by F_GETFD; on ordinary tested inputs the error path is unreachable and a bad mode is separately refused. No kill is claimed.",
+    "fd-fstat-error": "After successful descriptor checks, Fstat error is not induced by fixture inputs; zero mode on failure is also refused by following type gate. No kill is claimed.",
+    "fd-newfile-nil": "Validated fd >=3 cannot trigger os.NewFile nil return, so removing the defensive nil check is equivalent for admitted inputs.",
+    "timeout-type": "jsonNumber returns zero on invalid type; the unchanged >=10 floor still rejects every such input."
+  },
+  "commands": [
+    {
+      "command": "go test -buildvcs=false -count=1 -timeout=120s ./internal/harness ./cmd/buddy-adapter",
+      "environment": "CLAUDE_CODE_SESSION_ID and CODEX_THREAD_ID unset; GOCACHE private; GIT_OPTIONAL_LOCKS=0",
+      "result": "PASS, harness 13.068s, adapter 4.985s",
+      "log": "logs/adapter-final-packages-rerun.log"
+    },
+    {
+      "command": "python3 -I -B scripts/test_native_proxy.py",
+      "result": "10 tests PASS, 8.634s; normal host execution required for ps parent-PID reads",
+      "log": "logs/f35-proxy-full.log"
+    }
+  ],
+  "adversarial": {
+    "6": "Group signals precede the sole Wait; awaitExit observes without reaping. Positive leader-exit, descendant-kill, escaped-stdout and TERM-flush fixtures exercised. Whole native job-tree termination is not claimed; native worker found separately grouped tool escape.",
+    "7": "Legacy unknown/accepted/delivered journals retain reservation. Valid refusal frees it. Contradictory own TurnID/ResultRef or prior ResultRef failed before and are now refused (V02); live ResultRef contradiction also stays reserved.",
+    "9": "Five actual runner settings dictionaries extracted from AST and evaluated with canonical absolute gate command; exact anchored matcher and timeout10 accepted.",
+    "10": "All searched receipt approval-detail consumers use native_event.approval; no checker depends on pending approvals[].detail."
+  },
+  "new_fixes": {
+    "V02": {
+      "before": "logs/v02-before.log",
+      "after": "logs/v02-after.log",
+      "mutations": [
+        "v02-prior-result",
+        "v02-refusal-turn",
+        "v02-refusal-result",
+        "v02-live-result"
+      ]
+    },
+    "F35": {
+      "before": "logs/f35-before.log",
+      "after": "logs/f35-after.log",
+      "mutations_file": "f35-mutations.json",
+      "scope": "capture exact ancestry across separate worker groups; intentional crash signals both groups and records fault_groups; fallback remains failure"
+    },
+    "V07": {
+      "before": "logs/v07-v08-before.log",
+      "after": "logs/emitter-after.log",
+      "mutant": "logs/v07-established-block-mutant.log",
+      "note": "first full-pipe mutant survived due signal timing; deterministic writer-entered barrier was added and kills it"
+    },
+    "V08": {
+      "before": "logs/v07-v08-before.log",
+      "after": "logs/v07-v08-after.log",
+      "mutations": [
+        "v08-kill-leader-only",
+        "v08-no-owned-group",
+        "v08-no-context-bound"
+      ]
+    },
+    "expected-close-race": {
+      "before": "logs/cleanup-race-before.log",
+      "after": "logs/emitter-after.log",
+      "mutant": "logs/shutdown-observation-gap.log"
+    }
+  },
+  "native_launches_by_this_worker": 0,
+  "shared_repo_actions": "No commit, install, live ledger access, settings changes or external messaging.",
+  "f38_supplement": {
+    "distinct": 4,
+    "killed": 2,
+    "survived": 2,
+    "note": "Both daemon=True plus removed explicit join mutants survive armed concurrent-input and pending-write tests; existing locking/BrokenPipe handling preserves observed behavior. Removing each injector stop signal fails child-exit bounded wait. This independently reproduces the known daemon-but-caught exception."
+  },
+  "all_worker_mutations": {
+    "distinct": 66,
+    "killed": 60,
+    "survived": 6,
+    "build_error_kills": 0
+  }
+}

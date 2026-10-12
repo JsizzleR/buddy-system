@@ -1,0 +1,74 @@
+[
+  {
+    "scope": "controller",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/controller-review.log",
+    "raw_sha256": "4b8d69f51b2995aaf4ff57414da99eeda1af195a0a41bd504e520af9e9360682",
+    "verdict": "reviews/controller-verdict.md"
+  },
+  {
+    "scope": "design",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/design-review.log",
+    "raw_sha256": "eb785b3feef0e884e28a5de3d7b439994f91ebe4d43d1f960cfc7f729494db46",
+    "verdict": "reviews/design-verdict.md"
+  },
+  {
+    "scope": "gate-followup",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/gate-followup-review.log",
+    "raw_sha256": "28c923693755601c946db56fc248e041ef8bddf770f16b9d62f0607ac79a7b42",
+    "verdict": "reviews/gate-followup-verdict.md"
+  },
+  {
+    "scope": "gate-jurisdiction",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/gate-jurisdiction-review.log",
+    "raw_sha256": "2472be4dfc4df9d1ea5023a609bbc266a6f07d36d96f5ebd94594d607e104349",
+    "verdict": "reviews/gate-jurisdiction-verdict.md"
+  },
+  {
+    "scope": "gate",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/gate-review.log",
+    "raw_sha256": "20dc25e471ae944319ecaf0d8d090ea4d705407b560bef15b4088ac3070e4529",
+    "verdict": "reviews/gate-verdict.md"
+  },
+  {
+    "scope": "mail",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/mail-review.log",
+    "raw_sha256": "2ce4964bbb908732b1a49751b4d06341b0299eae34738b4e3da0d6284d5c11b9",
+    "verdict": "reviews/mail-verdict.md"
+  },
+  {
+    "scope": "native-runner-followup",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/native-runner-followup-review.log",
+    "raw_sha256": "9a30ac7720c981533605ebfc458702b2c098f210370ae05eeacb014b058b7775",
+    "verdict": "reviews/native-runner-followup-verdict.md"
+  },
+  {
+    "scope": "native-runner",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/native-runner-review.log",
+    "raw_sha256": "4f4a96d1498bbac0cb8cb79676b3ed869d04595ab9196682e5c21a693f1bff15",
+    "verdict": "reviews/native-runner-verdict.md"
+  },
+  {
+    "scope": "presentation-followup",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/presentation-followup-review.log",
+    "raw_sha256": "09ec97c3ec5e5a5b952e4fcb94d9001c07ad0e190f2886769c94e4932c0a47f3",
+    "verdict": "reviews/presentation-followup-verdict.md"
+  },
+  {
+    "scope": "process-followup",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/process-followup-review.log",
+    "raw_sha256": "e5182749715c8c9d6b3e48f1a7a263e91d30d78dc8b627efb641231713f474f1",
+    "verdict": "reviews/process-followup-verdict.md"
+  },
+  {
+    "scope": "process",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/process-review.log",
+    "raw_sha256": "124235a7aa2b4b716c0d5138cad18784d759c0e370ad16ea19a6a5d4cd2cc0ed",
+    "verdict": "reviews/process-verdict.md"
+  },
+  {
+    "scope": "settings",
+    "raw_log": "/private/tmp/buddy-verification-20261007.2EArSN/settings-review.log",
+    "raw_sha256": "c675ed4ba90d7b7f7f679b10198b42bb5a88214be990564d9df4beaffb7898c5",
+    "verdict": "reviews/settings-verdict.md"
+  }
+]

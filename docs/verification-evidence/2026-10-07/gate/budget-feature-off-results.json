@@ -1,0 +1,23 @@
+[
+  {
+    "name": "long_ordinary",
+    "bytes": 131083,
+    "returncode": 0,
+    "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"buddy gate cannot place shell patch routing (shell patch routing exceeds its script budget); use the apply_patch tool\"}}\n",
+    "stderr": ""
+  },
+  {
+    "name": "depth_ordinary",
+    "bytes": 9884,
+    "returncode": 0,
+    "stdout": "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"buddy gate cannot place shell patch routing (shell patch routing exceeds its script budget); use the apply_patch tool\"}}\n",
+    "stderr": ""
+  },
+  {
+    "name": "short_control",
+    "bytes": 11,
+    "returncode": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+]

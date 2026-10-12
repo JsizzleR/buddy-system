@@ -1,0 +1,22 @@
+[
+  {
+    "name": "f35-old-group-equality",
+    "rc": 1,
+    "status": "killed"
+  },
+  {
+    "name": "f35-unverified-ancestry",
+    "rc": 1,
+    "status": "killed"
+  },
+  {
+    "name": "f35-birth-comparison",
+    "rc": 1,
+    "status": "killed"
+  },
+  {
+    "name": "f35-crash-only-adapter",
+    "rc": 1,
+    "status": "killed"
+  }
+]

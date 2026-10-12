@@ -1,0 +1,11 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -114,7 +114,7 @@
+ // "" for anything that is not a dangling link.
+ func danglingTarget(p string) string {
+ 	fi, err := os.Lstat(p)
+-	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
++	if true || err != nil || fi.Mode()&os.ModeSymlink == 0 {
+ 		return ""
+ 	}
+ 	if _, err := os.Stat(p); err == nil {

@@ -1,0 +1,52 @@
+ROOT=/private/tmp/buddy-claude-jobs-btpg0g3j
+{
+  "schema": "buddy.claude-job-groups.v1",
+  "root": "/private/tmp/buddy-claude-jobs-btpg0g3j",
+  "passed": false,
+  "provider": "deterministic-loopback",
+  "checks": {
+    "job_ancestry_captured": true,
+    "adapter_exit_zero": true,
+    "native_tool_job_exited_on_close": false,
+    "adapter_exited_without_fallback": true
+  },
+  "adapter_forced_cleanup": [],
+  "native_version": "2.1.291 (Claude Code)",
+  "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+  "buddy_sha256": "848e0b3b7d1fffe39d1a9a4b7b0ec49f75a8b954bb518d60e041e3651641096c",
+  "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+  "fixture_sha256": "7ac9e7212a6913672978ad0a36682bed47ef48b4e17201793d1346c2edf830e2",
+  "process_groups": {
+    "adapter": {
+      "pid": 88857,
+      "pgid": 88857,
+      "start": [
+        1791351370,
+        524520
+      ]
+    },
+    "job": {
+      "pid": 88926,
+      "pgid": 88925,
+      "start": [
+        1791351371,
+        216134
+      ]
+    },
+    "natives": [
+      {
+        "pid": 88862,
+        "pgid": 88861,
+        "start": [
+          1791351370,
+          660174
+        ]
+      }
+    ]
+  },
+  "close_elapsed_seconds": 0.001555666000000011,
+  "job_alive_after_close": true,
+  "fixture_cleanup_groups": [
+    88925
+  ]
+}

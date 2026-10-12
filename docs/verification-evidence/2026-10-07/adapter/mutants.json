@@ -1,0 +1,443 @@
+[
+  {
+    "name": "fd-lower-bound",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "if fd < 3 {",
+    "new": "if false && fd < 3 {",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "fd-open",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "unix.F_GETFD, 0); err != nil {",
+    "new": "unix.F_GETFD, 0); false && err != nil {",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "fd-getfl-error",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)\n\tif err != nil {",
+    "new": "flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)\n\tif false && err != nil {",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "fd-readonly",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "if flags&unix.O_ACCMODE != unix.O_RDONLY {",
+    "new": "if false && flags&unix.O_ACCMODE != unix.O_RDONLY {",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "fd-fstat-error",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "unix.Fstat(fd, &st); err != nil {",
+    "new": "unix.Fstat(fd, &st); false && err != nil {",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "fd-type",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "\tdefault:\n\t\treturn nil, fmt.Errorf(\"operator approval descriptor %d must be a pipe, FIFO, terminal or file\", fd)",
+    "new": "\tdefault:\n\t\tif false { return nil, fmt.Errorf(\"operator approval descriptor %d must be a pipe, FIFO, terminal or file\", fd) }",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "fd-cloexec",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "syscall.CloseOnExec(fd)",
+    "new": "_ = fd // removed CloseOnExec",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "fd-newfile-nil",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "if f == nil {",
+    "new": "if false && f == nil {",
+    "tests": "TestAdapterOperatorDescriptorAdmission",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "setpgid",
+    "path": "internal/harness/process.go",
+    "old": "Setpgid: true",
+    "new": "Setpgid: false",
+    "tests": "TestJSONProcessCloseEndsDescendants|TestJSONProcessLeaderExitEndsGroup",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "group-term",
+    "path": "internal/harness/process.go",
+    "old": "_ = syscall.Kill(-p.pgid, syscall.SIGTERM)",
+    "new": "// removed group TERM",
+    "tests": "TestJSONProcessCloseEndsDescendants|TestJSONProcessLeaderExitEndsGroup",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "group-kill",
+    "path": "internal/harness/process.go",
+    "old": "_ = syscall.Kill(-p.pgid, syscall.SIGKILL)",
+    "new": "// removed group KILL",
+    "tests": "TestJSONProcessCloseEndsDescendants|TestJSONProcessLeaderExitEndsGroup",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "reader-close",
+    "path": "internal/harness/process.go",
+    "old": "\t_ = p.stdout.Close()\n\treturn nil",
+    "new": "\t// removed reader close\n\treturn nil",
+    "tests": "TestJSONProcessCloseFinishesDespiteStdoutHolders",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "signal-handler",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)",
+    "new": "// removed signal registration",
+    "tests": "TestAdapterSignalEndsWorkerTree",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "sigpipe-ignore",
+    "path": "cmd/buddy-adapter/main.go",
+    "old": "signal.Ignore(syscall.SIGPIPE)",
+    "new": "// removed SIGPIPE ignore",
+    "tests": "TestAdapterSignalEndsWorkerTree",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "claude-not-submitted-377",
+    "path": "internal/harness/claude.go",
+    "old": "\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "claude-not-submitted-460",
+    "path": "internal/harness/claude.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "claude-not-submitted-464",
+    "path": "internal/harness/claude.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 2
+  },
+  {
+    "name": "claude-not-submitted-469",
+    "path": "internal/harness/claude.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 3
+  },
+  {
+    "name": "claude-not-submitted-474",
+    "path": "internal/harness/claude.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: Claude approval does not match a pending captured request\", ErrNotSubmitted)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: Claude approval does not match a pending captured request\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "claude-not-submitted-478",
+    "path": "internal/harness/claude.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: Claude approval must be allow or deny\", ErrNotSubmitted)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: Claude approval must be allow or deny\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "claude-not-submitted-482",
+    "path": "internal/harness/claude.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: unsupported: native approval requires its interactive user surface\", ErrNotSubmitted)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: unsupported: native approval requires its interactive user surface\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-292",
+    "path": "internal/harness/codex.go",
+    "old": "\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-295",
+    "path": "internal/harness/codex.go",
+    "old": "\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: Codex wake text must contain 1 to 4096 bytes\", ErrNotSubmitted)\n",
+    "new": "\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: Codex wake text must contain 1 to 4096 bytes\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-304",
+    "path": "internal/harness/codex.go",
+    "old": "\t\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: Codex active turn is unknown; inspect before sending\", ErrNotSubmitted)\n",
+    "new": "\t\t\treturn Delivery{State: \"unknown\"}, fmt.Errorf(\"%w: Codex active turn is unknown; inspect before sending\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-375",
+    "path": "internal/harness/codex.go",
+    "old": "\t\treturn obs, fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn obs, fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-378",
+    "path": "internal/harness/codex.go",
+    "old": "\t\treturn obs, fmt.Errorf(\"%w: Codex reconciliation requires an exact recorded turn ID\", ErrNotSubmitted)\n",
+    "new": "\t\treturn obs, fmt.Errorf(\"%w: Codex reconciliation requires an exact recorded turn ID\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-380",
+    "path": "internal/harness/codex.go",
+    "old": "\treturn obs, fmt.Errorf(\"%w: Codex reconcile is unsupported: the qualified history read is unbounded and an oversized reply would end the live worker; the wake stays unknown, do not replay\", ErrNotSubmitted)\n",
+    "new": "\treturn obs, fmt.Errorf(\"%w: Codex reconcile is unsupported: the qualified history read is unbounded and an oversized reply would end the live worker; the wake stays unknown, do not replay\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-443",
+    "path": "internal/harness/codex.go",
+    "old": "\t\treturn fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-532",
+    "path": "internal/harness/codex.go",
+    "old": "\t\treturn nil, fmt.Errorf(\"%w: %v\", ErrNotSubmitted, err)\n",
+    "new": "\t\treturn nil, fmt.Errorf(\"%w: %v\", errors.New(\"mutation: ordinary failure\"), err)\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "codex-not-submitted-537",
+    "path": "internal/harness/codex.go",
+    "old": "\t\treturn nil, fmt.Errorf(\"%w: Codex transport is not connected\", ErrNotSubmitted)\n",
+    "new": "\t\treturn nil, fmt.Errorf(\"%w: Codex transport is not connected\", errors.New(\"mutation: ordinary failure\"))\n",
+    "tests": "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "controller-not-submitted",
+    "path": "internal/harness/controller.go",
+    "old": "if errors.Is(err, ErrNotSubmitted) && (d.State == \"\" || d.State == \"unknown\") && d.TurnID == \"\" {",
+    "new": "if false && errors.Is(err, ErrNotSubmitted) && (d.State == \"\" || d.State == \"unknown\") && d.TurnID == \"\" {",
+    "tests": "TestControllerNotSubmittedWakeIsRetryable|TestControllerClaudeBusyWakeRefusalRetriesAndResumes",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "replay-open-intent",
+    "path": "internal/harness/controller.go",
+    "old": "!open || prior.State != \"unknown\" || prior.TurnID != \"\"",
+    "new": "false && (!open || prior.State != \"unknown\" || prior.TurnID != \"\")",
+    "tests": "TestControllerJournalNotSubmittedRequiresOpenIntent",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "replay-no-turn",
+    "path": "internal/harness/controller.go",
+    "old": "!open || prior.State != \"unknown\" || prior.TurnID != \"\"",
+    "new": "!open || prior.State != \"unknown\"",
+    "tests": "TestControllerJournalNotSubmittedRequiresOpenIntent",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "observation-gap",
+    "path": "internal/harness/controller.go",
+    "old": "c.observationGap = fmt.Sprintf(\"native %s event was not recorded: %s\", fence.Line(e.Kind, 64), fence.Line(err.Error(), 256))",
+    "new": "c.observationGap = \"\"",
+    "tests": "TestControllerUnrecordedEventIsNeverObservedAbsent",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "duplicate-key",
+    "path": "internal/harness/claude.go",
+    "old": "if _, dup := out[key]; dup {",
+    "new": "if _, dup := out[key]; false && dup {",
+    "tests": "TestClaudeSettings|TestClaudeEffectiveSettings",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "case-adapter",
+    "path": "internal/harness/claude.go",
+    "old": "\t\t\treturn fmt.Errorf(\"unsupported Claude adapter settings key %q; effective hook compatibility is unknown\", name)",
+    "new": "\t\t\tif false { return fmt.Errorf(\"unsupported Claude adapter settings key %q; effective hook compatibility is unknown\", name) }",
+    "tests": "TestClaudeSettings|TestClaudeEffectiveSettings",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "case-pretooluse",
+    "path": "internal/harness/claude.go",
+    "old": "\t\t\t\t\treturn fmt.Errorf(\"unsupported Claude PreToolUse group key %q\", key)",
+    "new": "\t\t\tif false { return fmt.Errorf(\"unsupported Claude PreToolUse group key %q\", key) }",
+    "tests": "TestClaudeSettings|TestClaudeEffectiveSettings",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "case-gate",
+    "path": "internal/harness/claude.go",
+    "old": "\t\t\treturn fmt.Errorf(\"unsupported Claude gate hook key %q\", key)",
+    "new": "\t\t\tif false { return fmt.Errorf(\"unsupported Claude gate hook key %q\", key) }",
+    "tests": "TestClaudeSettings|TestClaudeEffectiveSettings",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "matcher",
+    "path": "internal/harness/claude.go",
+    "old": "if err := claudeMatcherCoversGate(matcher); err != nil {",
+    "new": "if err := claudeMatcherCoversGate(matcher); false && err != nil {",
+    "tests": "TestClaudeSettings|TestClaudeEffectiveSettings",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "matcher-syntax",
+    "path": "internal/harness/claude.go",
+    "old": "if empty || strings.IndexFunc(list, func(r rune) bool { return !plain(r) }) >= 0 {",
+    "new": "if false && (empty || strings.IndexFunc(list, func(r rune) bool { return !plain(r) }) >= 0) {",
+    "tests": "TestClaudeSettingsMatcherSemantics",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "matcher-coverage",
+    "path": "internal/harness/claude.go",
+    "old": "if !names[tool] {",
+    "new": "if false && !names[tool] {",
+    "tests": "TestClaudeSettingsMatcherSemantics",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "async",
+    "path": "internal/harness/claude.go",
+    "old": "if async, ok := jsonBool(value); !ok || async {",
+    "new": "if async, ok := jsonBool(value); false && (!ok || async) {",
+    "tests": "TestClaudeSettings|TestClaudeEffectiveSettings",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "timeout-type",
+    "path": "internal/harness/claude.go",
+    "old": "!ok || seconds < claudeHookTimeoutMinSeconds || seconds > claudeHookTimeoutMaxSeconds",
+    "new": "seconds < claudeHookTimeoutMinSeconds || seconds > claudeHookTimeoutMaxSeconds || (false && !ok)",
+    "tests": "TestClaudeSettingsExactKeysAndBounds",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "timeout-min",
+    "path": "internal/harness/claude.go",
+    "old": "!ok || seconds < claudeHookTimeoutMinSeconds || seconds > claudeHookTimeoutMaxSeconds",
+    "new": "!ok || seconds > claudeHookTimeoutMaxSeconds",
+    "tests": "TestClaudeSettingsExactKeysAndBounds",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "timeout-max",
+    "path": "internal/harness/claude.go",
+    "old": "!ok || seconds < claudeHookTimeoutMinSeconds || seconds > claudeHookTimeoutMaxSeconds",
+    "new": "!ok || seconds < claudeHookTimeoutMinSeconds",
+    "tests": "TestClaudeSettingsExactKeysAndBounds",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "executable-identity",
+    "path": "internal/harness/executable.go",
+    "old": "if err != nil || !os.SameFile(checked, now) || checked.Size() != now.Size() || !checked.ModTime().Equal(now.ModTime()) || checked.Mode() != now.Mode() {",
+    "new": "if false && (err != nil || !os.SameFile(checked, now) || checked.Size() != now.Size() || !checked.ModTime().Equal(now.ModTime()) || checked.Mode() != now.Mode()) {",
+    "tests": "TestNativeExecutable",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "endpoint-shared-budget",
+    "path": "cmd/buddy-adapter/hook.go",
+    "old": "harness.HookGateBudget-spent",
+    "new": "harness.HookGateBudget-time.Since(started)+(spent-spent)",
+    "tests": "TestReceiptBoundHookExecutable/slow_endpoint_cannot_deny_the_tool_call",
+    "pkg": "./cmd/buddy-adapter",
+    "occ": 1
+  },
+  {
+    "name": "ledger-timeout",
+    "path": "internal/harness/controller.go",
+    "old": "ctx, cancel := context.WithTimeout(ctx, c.ledgerTimeout)",
+    "new": "ctx, cancel := context.WithCancel(ctx)",
+    "tests": "TestControllerStalledLedgerCannotWedgeShutdown",
+    "pkg": "./internal/harness",
+    "occ": 1
+  },
+  {
+    "name": "ledger-lifetime-cancel",
+    "path": "internal/harness/controller.go",
+    "old": "stop := context.AfterFunc(c.life, cancel)\n\treturn ctx, func() { stop(); cancel() }\n}\n\nfunc (c *Controller) Start",
+    "new": "stop := func() bool { return true }\n\treturn ctx, func() { stop(); cancel() }\n}\n\nfunc (c *Controller) Start",
+    "tests": "TestControllerStalledLedgerCannotWedgeShutdown",
+    "pkg": "./internal/harness",
+    "occ": 1
+  }
+]

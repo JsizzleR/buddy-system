@@ -1,0 +1,8 @@
+test_close_failure_still_preserves_forced_receipt (__main__.JobProbeCleanup) ... ok
+test_forced_close_is_not_success (__main__.JobProbeCleanup) ... ok
+test_unforced_close_positive_control (__main__.JobProbeCleanup) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.050s
+
+OK

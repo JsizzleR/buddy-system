@@ -1,0 +1,11 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -176,7 +176,7 @@
+ 			continue
+ 		}
+ 		links++
+-		if links > maxSymlinks {
++		if links > maxSymlinks { return next, nil }; if links > maxSymlinks {
+ 			return "", fmt.Errorf("target resolution exceeds %d symlink traversals (cycle or excessive chain)", maxSymlinks)
+ 		}
+ 		link, err := os.Readlink(next)

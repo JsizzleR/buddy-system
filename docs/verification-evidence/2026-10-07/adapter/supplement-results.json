@@ -1,0 +1,308 @@
+[
+  {
+    "name": "fd-lower-bound",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.52,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestVerificationOperatorStdinRefused",
+      "-v"
+    ]
+  },
+  {
+    "name": "group-term",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.76,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationGroupTERMAllowsFlush",
+      "-v"
+    ]
+  },
+  {
+    "name": "sigpipe-ignore",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.49,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestVerificationBrokenStdoutStillClosesWorker",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-460",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.69,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationClaudeApprovalRefusalsAreNotSubmitted",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-464",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.69,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationClaudeApprovalRefusalsAreNotSubmitted",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-469",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.68,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationClaudeApprovalRefusalsAreNotSubmitted",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-474",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.69,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationClaudeApprovalRefusalsAreNotSubmitted",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-478",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.7,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationClaudeApprovalRefusalsAreNotSubmitted",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-482",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.74,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationClaudeApprovalRefusalsAreNotSubmitted",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-375",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.63,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationCodexRefusalEdges",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-378",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 0.67,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationCodexRefusalEdges",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-537",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 0.68,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestVerificationCodexRefusalEdges",
+      "-v"
+    ]
+  },
+  {
+    "name": "replay-no-turn",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.7,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestControllerJournalRefusalRejectsNativeEvidence",
+      "-v"
+    ]
+  },
+  {
+    "name": "endpoint-shared-budget",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.51,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestVerificationEndpointKeepsGateBudget",
+      "-v"
+    ]
+  },
+  {
+    "name": "v02-prior-result",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.75,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestController(JournalRefusalRejectsNativeEvidence|LiveRefusalWithNativeEvidenceStaysReserved)",
+      "-v"
+    ]
+  },
+  {
+    "name": "v02-refusal-turn",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.79,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestController(JournalRefusalRejectsNativeEvidence|LiveRefusalWithNativeEvidenceStaysReserved)",
+      "-v"
+    ]
+  },
+  {
+    "name": "v02-refusal-result",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.71,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestController(JournalRefusalRejectsNativeEvidence|LiveRefusalWithNativeEvidenceStaysReserved)",
+      "-v"
+    ]
+  },
+  {
+    "name": "v02-live-result",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.76,
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=60s",
+      "./internal/harness",
+      "-run",
+      "TestController(JournalRefusalRejectsNativeEvidence|LiveRefusalWithNativeEvidenceStaysReserved)",
+      "-v"
+    ]
+  }
+]

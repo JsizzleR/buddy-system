@@ -1,0 +1,11 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -134,7 +134,7 @@
+ 	if _, err := os.Stat(p); err == nil {
+ 		return "", nil // not dangling: canon already followed it
+ 	}
+-	return resolveMissingTarget(p)
++	return p, nil
+ }
+ 
+ // resolveMissingTarget follows symlinks component by component, including a

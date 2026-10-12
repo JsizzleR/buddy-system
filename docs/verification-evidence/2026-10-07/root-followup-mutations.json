@@ -1,0 +1,45 @@
+{
+  "root": "/private/tmp/buddy-verification-root-mutants-z4jh_wy1",
+  "results": [
+    {
+      "name": "V09_pending_gap_overstated",
+      "file": "internal/harness/controller.go",
+      "test": "^TestControllerMissedCancellationMakesKnownApprovalUncertain$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V10_earlier_classification",
+      "file": "internal/cli/cli.go",
+      "test": "^TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V10_endpoint_incarnation",
+      "file": "internal/store/adapter.go",
+      "test": "^TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V10_sent_list_guard",
+      "file": "internal/cli/sent.go",
+      "test": "^TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    },
+    {
+      "name": "V10_sent_row_guard",
+      "file": "internal/cli/sent.go",
+      "test": "^TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake$",
+      "control_rc": 0,
+      "mutant_rc": 1,
+      "killed": true
+    }
+  ]
+}

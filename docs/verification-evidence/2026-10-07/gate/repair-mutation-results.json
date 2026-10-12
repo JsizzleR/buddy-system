@@ -1,0 +1,78 @@
+[
+  {
+    "name": "V03-resolver-omitted",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateDanglingSymlinkChain (0.20s)",
+      "--- FAIL: TestGateDanglingSymlinkPhysicalDotDot (0.11s)",
+      "--- FAIL: TestGateDanglingSymlinkResolutionBound (0.14s)",
+      "--- FAIL: TestGateChecksEverySpellingOfATarget (0.34s)",
+      "    --- FAIL: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)"
+    ]
+  },
+  {
+    "name": "V03-readlink-cleaned",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateDanglingSymlinkPhysicalDotDot (0.09s)"
+    ]
+  },
+  {
+    "name": "V03-resolution-error-ignored",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateDanglingSymlinkResolutionBound (0.13s)"
+    ]
+  },
+  {
+    "name": "V03-budget-allowed",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateDanglingSymlinkResolutionBound (0.14s)"
+    ]
+  },
+  {
+    "name": "V04-shell-recursion-omitted",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.22s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/bash_-lc_'apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF' (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls//bin/zsh_-c_\"apply_patch_<_p.patch\" (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/sh_-c_'bash_-lc_\"apply_patch_<_p.patch\"' (0.01s)"
+    ]
+  },
+  {
+    "name": "V04-command-position-ignored",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.21s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/git_commit_-m_\"apply_patch_fix\" (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/make_apply_patch (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/tee_apply_patch (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/printf_'%s\\n'_'foo;_apply_patch_fix' (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/rg_'(apply_patch|applypatch)'_internal/cli/patch.go (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/echo_'$(apply_patch_<_p.patch)' (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/cat_<<'EOF'_apply_patch_EOF_ (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/bash_-lc_'printf_\"%s\\n\"_\"apply_patch\"' (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/command_-v_apply_patch (0.01s)",
+      "--- FAIL: TestGateRefusesShellRoutedPatch (0.43s)"
+    ]
+  },
+  {
+    "name": "V04-quoted-word-ignored",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.23s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/bash_-lc_'apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF' (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/sh_-c_'bash_-lc_\"apply_patch_<_p.patch\"' (0.01s)",
+      "--- FAIL: TestGateRefusesShellRoutedPatch (0.59s)"
+    ]
+  }
+]

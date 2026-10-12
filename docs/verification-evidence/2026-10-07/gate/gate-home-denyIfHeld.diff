@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -2220,7 +2220,7 @@
+ 	// entry can override that placement; a fallback ancestor cannot.
+ 	nested := targetKey != homeKey && strings.HasPrefix(targetKey, homeTop+"/")
+ 	if st != nil {
+-		if rel, _, outside := placeCanonical(rc.top, cp); !outside {
++		if rel, _, outside := placeCanonical(rc.top, cp); !outside && !nested {
+ 			if reason := denyIfHeld(st, h, rel, ""); reason != "" || !nested {
+ 				return reason
+ 			}

@@ -1,0 +1,62 @@
+package harness
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// One native frame larger than the 4 MiB scanner bound (e.g. a Codex
+// thread/read includeTurns reply, or a stream-json tool_result carrying a
+// base64 document) is not "an error for that read": the transport SIGKILLs the
+// owned worker. SIGKILL also leaves the worker's own children running.
+func TestProbeOversizedFrameKillsWorkerAndOrphansChildren(t *testing.T) {
+	dir := t.TempDir()
+	pidfile := filepath.Join(dir, "grandchild.pid")
+	script := filepath.Join(dir, "native")
+	body := "#!/bin/sh\nsleep 60 &\necho $! > " + pidfile + "\necho $$ > " + pidfile + ".self\n" +
+		"python3 -c 'import sys; sys.stdout.write(\"{\\\"x\\\":\\\"\" + \"a\"*5000000 + \"\\\"}\\n\")'\nsleep 60\n"
+	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	p, err := StartJSONProcess(context.Background(), script, nil, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	deadline := time.After(10 * time.Second)
+	for open := true; open; {
+		select {
+		case _, ok := <-p.Read():
+			open = ok
+		case <-deadline:
+			t.Fatal("transport did not close")
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	t.Logf("transport error: %v", p.Err())
+	if p.Err() == nil || !strings.Contains(p.Err().Error(), "too long") {
+		t.Errorf("expected scanner ErrTooLong, got %v", p.Err())
+	}
+	if err := p.WriteContext(context.Background(), map[string]string{"after": "close"}); err == nil {
+		t.Errorf("write after oversized frame accepted")
+	}
+	selfRaw, _ := os.ReadFile(pidfile + ".self")
+	self, _ := strconv.Atoi(strings.TrimSpace(string(selfRaw)))
+	if syscall.Kill(self, 0) == nil {
+		t.Errorf("worker %d still alive after oversized frame", self)
+	} else {
+		t.Logf("worker %d was killed by one oversized frame", self)
+	}
+	raw, _ := os.ReadFile(pidfile)
+	gc, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if gc > 0 && syscall.Kill(gc, 0) == nil {
+		t.Errorf("worker's child %d survived the transport kill (orphaned, still running)", gc)
+		_ = syscall.Kill(gc, syscall.SIGKILL)
+	}
+}

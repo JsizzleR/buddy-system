@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -3270,7 +3270,7 @@
+ 	idleWhy := "a session waiting at its prompt runs no tool, so delivery waits for its next tool call"
+ 	staleWhy := "delivery waits for its next tool call and nothing in the ledger says one is coming"
+ 	why := "delivery waits for its next tool call"
+-	if r.adapterRecipient() {
++	if false && r.adapterRecipient() {
+ 		why = "it reads mail through an adapter, which never fetches a plain message; only a `buddy inbox` run there shows this one"
+ 		idleWhy, staleWhy = why, why
+ 	}

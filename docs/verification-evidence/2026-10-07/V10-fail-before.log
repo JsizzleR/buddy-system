@@ -1,0 +1,10 @@
+--- FAIL: TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake (0.27s)
+    --- FAIL: TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake/false (0.14s)
+        adaptermail_test.go:110: earlier incarnation suppressed current legacy wake: 0 queued for codex-worker — registered 0s ago and not seen since; it reads mail through an adapter, which never fetches a plain message; only a `buddy inbox` run there shows this one; 1 adapter message(s) captured for an earlier incarnation, which no fetch by the current one returns; message #2
+             
+    --- FAIL: TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake/true (0.12s)
+        adaptermail_test.go:110: earlier incarnation suppressed current legacy wake: 0 queued for codex-worker — registered 0s ago and not seen since; it reads mail through an adapter, which never fetches a plain message; only a `buddy inbox` run there shows this one; message #1
+             
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/cli	0.482s
+FAIL

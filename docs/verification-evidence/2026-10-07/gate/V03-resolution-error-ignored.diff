@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -2194,7 +2194,7 @@
+ 	homeKey := filepath.Join(homeTop, ".git")
+ 	for _, path := range paths {
+ 		targets, err := gateTargets(h.Cwd, path)
+-		if err != nil {
++		if false && err != nil {
+ 			why := fmt.Sprintf("buddy gate could not resolve the target (%s); refusing %s where a buddy ledger governs it", fence.Line(err.Error(), 512), h.ToolName)
+ 			if st != nil {
+ 				deny(env, why)

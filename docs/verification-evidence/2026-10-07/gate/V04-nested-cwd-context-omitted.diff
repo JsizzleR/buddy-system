@@ -1,0 +1,11 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -112,7 +112,7 @@
+ 					return false
+ 				}
+ 				if !strings.HasPrefix(arg, "--") && strings.Contains(arg[1:], "c") {
+-					return i+1 < len(words) && known[i+1] && shellPatchScript(words[i+1], depth+1, context)
++					return i+1 < len(words) && known[i+1] && shellPatchScript(words[i+1], depth+1, nil)
+ 				}
+ 				if arg == "-o" || arg == "-O" || arg == "--rcfile" || arg == "--init-file" {
+ 					i++

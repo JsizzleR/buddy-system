@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -3313,7 +3313,7 @@
+ 	// The adapter channel's backlog, counted apart: Undelivered excludes it
+ 	// by design, and "nothing earlier" over a full adapter queue told the
+ 	// sender the channel was draining when it was a different channel.
+-	b.WriteString(adapterBacklogNote(r.adapter, now))
++	// mutation removes adapter backlog note
+ 	return b.String()
+ }
+ 

@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -2156,7 +2156,7 @@
+ 				// An exhausted routing budget cannot invent jurisdiction.
+ 				// Refuse only where a discovered directory has a ledger; deeper
+ 				// unseen placements remain outside the cooperative observation.
+-				why = fmt.Sprintf("buddy gate cannot place shell patch routing (%s); use the apply_patch tool", fence.Line(routeErr.Error(), 512))
++				deny(env, fmt.Sprintf("buddy gate cannot place shell patch routing (%s); use the apply_patch tool", fence.Line(routeErr.Error(), 512))); return 0
+ 			}
+ 		}
+ 		if reason := governedAny(h, env, dirs, why, targetRepos); reason != "" {

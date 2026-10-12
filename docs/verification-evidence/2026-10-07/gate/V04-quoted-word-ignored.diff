@@ -1,0 +1,10 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -173,6 +173,7 @@
+ 				b.WriteByte(p.Value[i])
+ 			}
+ 		case *syntax.SglQuoted:
++ return "",false
+ 			if p.Dollar && strings.Contains(p.Value, "\\") {
+ 				return "", false
+ 			}

@@ -1,0 +1,29 @@
+from pathlib import Path
+import subprocess,json
+root=Path('/private/tmp/buddy-verification-claude-paths');root.mkdir(exist_ok=True)
+base=Path('/private/tmp/buddy-verification-native-4jbaj2p2/scripts/qualify-claude.py').read_text()
+base=base.replace('REPO = pathlib.Path(__file__).resolve().parent.parent',"REPO = pathlib.Path('/private/tmp/buddy-verification-native-4jbaj2p2')")
+cases=[
+ ('symlink', "(work/'target.txt').write_text('original\\n');(work/'guarded.txt').unlink();(work/'guarded.txt').symlink_to('target.txt')",'guarded.txt','target.txt'),
+ ('dotdot', "(work/'real/sub').mkdir(parents=True);(work/'alias').symlink_to('real/sub');(work/'leaf.txt').write_text('original\\n');(work/'real/leaf.txt').write_text('original\\n')",'alias/../leaf.txt','leaf.txt'),
+ ('dangling', "(work/'guarded.txt').unlink();(work/'guarded.txt').symlink_to('target.txt')",'guarded.txt','target.txt')]
+for name,setup,target,held in cases:
+ for governed in (True,False):
+  label=name+('-held' if governed else '-control')
+  s=base.replace('(work / "guarded.txt").write_text("original\\n")','(work / "guarded.txt").write_text("original\\n")\n        '+setup)
+  s=s.replace('"--scope", "guarded.txt"','"--scope", '+repr(held if governed else 'unrelated.txt'))
+  s=s.replace('(("guarded.txt", "conflicting-write\\n"), ("allowed.txt"', '(('+repr(target)+', "conflicting-write\\n"), ("allowed.txt"')
+  if not governed and name == 'dotdot':s=s.replace('(("allowed.txt", "allow"), ("operator-denied.txt", "deny"))', '('+repr((Path(target).name,'allow'))+', ("allowed.txt", "allow"), ("operator-denied.txt", "deny"))')
+  s=s.replace('checks["conflicting_write_denied"] = (work / "guarded.txt").read_text() == "original\\n"','checks["conflicting_write_denied"] = '+repr(governed)+' == bool(tool_outputs_placeholder)') if False else s
+  start=s.index('        checks["conflicting_write_denied"] =')
+  end=s.index('        inspection = ',start)
+  s=s[:start]+'''        checks["positive_write_allowed"] = (work / "allowed.txt").read_text() == "allowed-control\\n"
+        tool_outputs = {x["tool_use_id"]: x for request in server.requests for x in request["tool_outputs"]}
+        checks["expected_gate"] = ("inside scope" in str(tool_outputs["toolu_buddy_0"].get("content"))) == GOVERNED
+        result['path_observation']={str(p.relative_to(work)):{'symlink':p.is_symlink(),'exists':p.exists(),'body':p.read_text() if p.is_file() else None} for p in [work/name for name in ('guarded.txt','target.txt','leaf.txt','real/leaf.txt','alias/../leaf.txt')]}
+'''.replace('GOVERNED',repr(governed))+s[end:]
+  path=root/(label+'.py');path.write_text(s)
+  cmd=['python3','-B',str(path),'--claude','/private/tmp/buddy-verification-retained-bin/claude','--claude-version','2.1.291','--buddy','/private/tmp/buddy-claude-native-rr906mmh/bin/buddy','--adapter','/private/tmp/buddy-claude-native-rr906mmh/bin/buddy-adapter']
+  p=subprocess.run(cmd,capture_output=True,text=True,timeout=120)
+  (root/(label+'.log')).write_text(p.stdout+p.stderr)
+  print(label,p.returncode,next((v for v in p.stdout.splitlines() if v.startswith('ROOT=')),''),flush=True)

@@ -1,0 +1,10 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -2355,6 +2355,7 @@
+ // be read (invariant 3: that is DENY, never off), and "" when every one is
+ // provably ungoverned.
+ func governedAny(h hookInput, env Env, dirs []string, why string, repos map[string]gateRepo) string {
++ dirs = nil
+ 	for _, d := range dirs {
+ 		dir, key := repoKeyForDir(d)
+ 		repo := openGateRepo(h, env, dir, key, repos)

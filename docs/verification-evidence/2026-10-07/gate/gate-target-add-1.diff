@@ -1,0 +1,11 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -57,7 +57,7 @@
+ 		}
+ 		out = append(out, s)
+ 	}
+-	add(canon(lex))
++	// mutation removed add(canon(lex))
+ 	add(entryOf(lex, canon))
+ 	add(physical(raw))
+ 	add(entryOf(raw, physical))

@@ -1,0 +1,25 @@
+from pathlib import Path
+import subprocess,json
+root=Path('/private/tmp/buddy-verification-paths');root.mkdir(exist_ok=True)
+base=Path('/private/tmp/buddy-verification-native-4jbaj2p2/scripts/qualify-codex.py').read_text()
+cases=[
+ ('delete_link', "(work/'target.txt').write_text('original\\n');(work/'guarded.txt').unlink();(work/'guarded.txt').symlink_to('target.txt')", '*** Begin Patch\n*** Delete File: guarded.txt\n*** End Patch', 'guarded.txt'),
+ ('dotdot_physical', "(work/'real/sub').mkdir(parents=True);(work/'alias').symlink_to('real/sub');(work/'leaf.txt').write_text('original\\n');(work/'real/leaf.txt').write_text('original\\n')", '*** Begin Patch\n*** Update File: alias/../leaf.txt\n@@\n-original\n+changed\n*** End Patch', 'real/leaf.txt'),
+ ('dotdot_lexical', "(work/'real/sub').mkdir(parents=True);(work/'alias').symlink_to('real/sub');(work/'leaf.txt').write_text('original\\n');(work/'real/leaf.txt').write_text('original\\n')", '*** Begin Patch\n*** Update File: alias/../leaf.txt\n@@\n-original\n+changed\n*** End Patch', 'leaf.txt'),
+ ('dangling_link', "(work/'guarded.txt').unlink();(work/'guarded.txt').symlink_to('target.txt')", '*** Begin Patch\n*** Add File: guarded.txt\n+changed\n*** End Patch', 'target.txt'),
+ ('move', "(work/'source.txt').write_text('original\\n')", '*** Begin Patch\n*** Update File: source.txt\n*** Move to: guarded.txt\n@@\n-original\n+changed\n*** End Patch', 'source.txt'),
+]
+for name,setup,patch,held in cases:
+ for governed in (True,False):
+  label=name+('-held' if governed else '-control')
+  s=base.replace("patches=[DENY_PATCH,ALLOW_PATCH]",setup+'\n    patches=['+repr(patch)+',ALLOW_PATCH]')
+  s=s.replace("'--scope','guarded.txt'","'--scope',"+repr(held if governed else 'unrelated.txt'))
+  start=s.index('    checks={\n',s.index('def main():'))
+  end=s.index('    if args.shell_patch:\n',start)
+  s=s[:start]+"    checks={'codex_exit_zero':p.returncode==0, 'positive_control_written':(work/'allowed.txt').read_text()=='allowed-control\\n', 'expected_gate':bool(records) and ('\\\"deny\\\"' in records[0]['stdout']) == "+repr(governed)+"}\n"+s[end:]
+  s=s.replace("    (root/'result.json').write_text", "    result['path_observation']={str(p.relative_to(work)):{'symlink':p.is_symlink(),'exists':p.exists(),'body':p.read_text() if p.is_file() else None} for p in [work/name for name in ('guarded.txt','source.txt','target.txt','leaf.txt','real/leaf.txt','alias/../leaf.txt')]}\n    (root/'result.json').write_text")
+  path=root/(label+'.py');path.write_text(s)
+  cmd=['python3','-B',str(path),'--app-server','--repo','/private/tmp/buddy-verification-native-4jbaj2p2','--buddy','/private/tmp/buddy-codex-contract-qualification-yrr7q7c3/buddy','--codex','~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex']
+  p=subprocess.run(cmd,capture_output=True,text=True,timeout=90)
+  (root/(label+'.log')).write_text(p.stdout+p.stderr)
+  print(label,p.returncode,next((v for v in p.stdout.splitlines() if v.startswith('ROOT=')),''),flush=True)

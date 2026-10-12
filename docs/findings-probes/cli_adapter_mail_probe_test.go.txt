@@ -1,0 +1,108 @@
+package cli
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+// Probe 1: who/msg views of a session holding queued adapter mail.
+func TestProbeWhoAndMsgHideAdapterMail(t *testing.T) {
+	f, sender, recipient := adapterFixture(t)
+	for i := 0; i < 3; i++ {
+		adapterOK(t, f, "queue", "--session", sender.SessionID, "--incarnation", sender.Incarnation,
+			"--to", recipient.SessionID, "--to-incarnation", recipient.Incarnation, "--body", fmt.Sprintf("assignment %d", i))
+	}
+	out, errw, code := f.run(t, f.repo, "", "who", recipient.SessionID)
+	t.Logf("who exit=%d\n%s\nstderr=%s", code, out, errw)
+	if strings.Contains(out, "INBOX        0 undelivered") {
+		t.Errorf("who reports 0 undelivered while 3 adapter messages are queued")
+	}
+	out, errw, code = f.run(t, f.repo, "", "msg", recipient.SessionID, "hello")
+	t.Logf("msg exit=%d\n%s\nstderr=%s", code, out, errw)
+	if !strings.Contains(out, "earlier message") {
+		t.Errorf("msg says nothing about the 3 earlier queued adapter messages")
+	}
+}
+
+// Probe 2: a legacy correction of an adapter message.
+func TestProbeLegacyCorrectionOfAdapterMessage(t *testing.T) {
+	f, sender, recipient := adapterFixture(t)
+	q := adapterOK(t, f, "queue", "--session", sender.SessionID, "--incarnation", sender.Incarnation,
+		"--to", recipient.SessionID, "--to-incarnation", recipient.Incarnation, "--body", "assignment")
+	f.env[EnvCodexThread] = sender.SessionID
+	out, errw, code := f.run(t, f.repo, "", "msg", recipient.SessionID, "--supersedes", fmt.Sprint(q.Delivery.MessageID), "ignore that")
+	t.Logf("msg --supersedes exit=%d\n%s\nstderr=%s", code, out, errw)
+	if code == 0 {
+		t.Errorf("legacy msg accepted a correction of adapter message #%d", q.Delivery.MessageID)
+	}
+	delete(f.env, EnvCodexThread)
+	inbox := adapterOK(t, f, "inbox", "--session", recipient.SessionID, "--incarnation", recipient.Incarnation)
+	t.Logf("adapter inbox after correction: %+v", inbox.Messages)
+	out, errw, code = f.run(t, f.repo, "", "inbox", "--session", recipient.SessionID)
+	t.Logf("legacy inbox exit=%d\n%s\nstderr=%s", code, out, errw)
+}
+
+// Probe 3: `buddy sent` on an adapter message offers a legacy wake whose
+// instruction ("run buddy inbox") cannot surface that message.
+func TestPW(t *testing.T) {
+	f, sender, recipient := adapterFixture(t)
+	q := adapterOK(t, f, "queue", "--session", sender.SessionID, "--incarnation", sender.Incarnation,
+		"--to", recipient.SessionID, "--to-incarnation", recipient.Incarnation, "--body", "assignment")
+	// Receiving side registers its endpoint (Claude process 400).
+	f.env[EnvClaudeSession] = recipient.SessionID
+	f.proc.PID, f.proc.Born = 400, 1000
+	f.alive[400] = 1000
+	adapterOK(t, f, "endpoint", "--session", recipient.SessionID, "--incarnation", recipient.Incarnation)
+	delete(f.env, EnvClaudeSession)
+	f.proc.PID, f.proc.Born = 0, 0
+	f.sockDir = shortSockDir(t)
+	listenSock(t, f.sockDir, 400)
+	f.clock = f.clock.Add(31 * 60 * 1e9)
+	f.env[EnvCodexThread] = sender.SessionID
+	out, errw, code := f.run(t, f.repo, "", "sent", fmt.Sprint(q.Delivery.MessageID))
+	t.Logf("sent exit=%d\n%s\nstderr=%s", code, out, errw)
+	delete(f.env, EnvCodexThread)
+	out2, errw2, code2 := f.run(t, f.repo, "", "inbox", "--session", recipient.SessionID)
+	t.Logf("recipient legacy inbox exit=%d\n%s\nstderr=%s", code2, out2, errw2)
+	if strings.Contains(out, "SendMessage") && strings.Contains(out2, "inbox empty") {
+		t.Errorf("sent offered a wake to run `buddy inbox`, and buddy inbox cannot show adapter message #%d", q.Delivery.MessageID)
+	}
+}
+
+// Probe 4: a Codex worker editing a claimed file through the lifecycle hook
+// never renews that claim; after StaleAfter it is reported STALE.
+func TestProbeLifecycleHookNeverRenewsClaims(t *testing.T) {
+	f, worker := lifecycleFixture(t)
+	f.env[EnvCodexThread] = worker.SessionID
+	out, errw, code := f.run(t, f.repo, "", "claim", "work", "--desc", "d", "--scope", "README")
+	t.Logf("claim exit=%d %s %s", code, out, errw)
+	delete(f.env, EnvCodexThread)
+	for i := 0; i < 4; i++ {
+		f.clock = f.clock.Add(10 * 60 * 1e9)
+		payload := fmt.Sprintf(`{"session_id":%q,"cwd":%q,"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Update File: README\n@@\n-x\n+y\n*** End Patch\n"}}`, worker.SessionID, f.repo)
+		out, errw, code = f.run(t, f.repo, payload, "lifecycle", "hook", "--incarnation", worker.Incarnation)
+		if code != 0 {
+			t.Fatalf("hook exit=%d %s %s", code, out, errw)
+		}
+	}
+	out, errw, code = f.run(t, f.repo, "", "ls")
+	t.Logf("ls exit=%d\n%s\n%s", code, out, errw)
+	if strings.Contains(strings.ToLower(out), "stale") {
+		t.Errorf("claim of a worker that edited its file every 10 minutes is shown STALE")
+	}
+}
+
+// Probe 5: a manual `hello --session X` whose stdin is a non-TTY carrying
+// unrelated bytes (a script loop) now reads and refuses them.
+func TestProbeHelloSessionReadsStdin(t *testing.T) {
+	f := newFixture(t)
+	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatal(errw)
+	}
+	out, errw, code := f.run(t, f.repo, "second-line-of-a-loop\n", "hello", "--session", "manual-x")
+	t.Logf("hello exit=%d\n%s\nstderr=%s", code, out, errw)
+	if code != 0 {
+		t.Errorf("manual hello --session refused because stdin carried non-hook bytes")
+	}
+}

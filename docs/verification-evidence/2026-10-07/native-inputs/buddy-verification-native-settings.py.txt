@@ -1,0 +1,37 @@
+from pathlib import Path
+import importlib.util,http.server,tempfile,threading,time,json,sys,shlex,uuid
+repo=Path('/private/tmp/buddy-verification-native-4jbaj2p2')
+spec=importlib.util.spec_from_file_location('peers',repo/'scripts/qualify-claude-peers.py');peers=importlib.util.module_from_spec(spec);spec.loader.exec_module(peers)
+c=peers.common
+root=Path(tempfile.mkdtemp(prefix='buddy-native-settings-',dir='/private/tmp'));print('ROOT='+str(root),flush=True)
+results=[]
+for label,matcher,delay in [('literal','Edit|Write|NotebookEdit',.05),('anchored','^(Edit|Write|NotebookEdit)$',.05),('case-sensitive-control','edit|write|notebookedit',.05),('timeout10','^(Edit|Write|NotebookEdit)$',11)]:
+ case=root/label;case.mkdir();work=case/'work';work.mkdir();hook=case/'gate.py'
+ hook.write_text('import pathlib,time,sys,json\npathlib.Path('+repr(str(case/'hook-start'))+').write_text(str(time.time()))\ntime.sleep('+str(delay)+')\nprint("fixture hook denial",file=sys.stderr)\nsys.exit(2)\n')
+ original=c.write_json
+ def settings(path,value):
+  if path.name=='settings.json':value['hooks']['PreToolUse']=[{'matcher':matcher,'hooks':[{'type':'command','command':shlex.join([sys.executable,str(hook)]),'timeout':10}]}]
+  original(path,value)
+ c.write_json=settings
+ server=http.server.ThreadingHTTPServer(('127.0.0.1',0),c.MessagesFixture);server.requests=[];server.unexpected=[];server.sequence=[('Write',{'file_path':str(work/'target.txt'),'content':'must-not-land\n'})]
+ threading.Thread(target=server.serve_forever,daemon=True).start()
+ env=dict(c.clean_env(),ANTHROPIC_API_KEY='buddy-loopback-fixture-not-a-provider-key',ANTHROPIC_BASE_URL='http://127.0.0.1:'+str(server.server_address[1]),CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',DISABLE_AUTOUPDATER='1',DISABLE_TELEMETRY='1',DISABLE_ERROR_REPORTING='1',CLAUDE_CODE_DISABLE_AUTO_MEMORY='1')
+ native=None
+ try:
+  native=peers.Native('~/.local/share/claude/versions/2.1.291',case/'native',work,env,'all');c.write_json=original
+  native.start();mid=str(uuid.uuid4());began=time.time();native.send({'type':'user','session_id':native.session,'uuid':mid,'parent_tool_use_id':None,'message':{'role':'user','content':'Run the disposable deterministic fixture.'}})
+  requests=[];terminal=None
+  until=time.time()+20
+  while time.time()<until:
+   row=native.queue.get(timeout=20)
+   if row.get('type')=='control_request':
+    requests.append({'elapsed':time.time()-began,'request':row})
+    native.send({'type':'control_response','response':{'subtype':'success','request_id':row['request_id'],'response':{'behavior':'deny','message':'fixture native-deny-shape control','interrupt':False}}})
+   if row.get('type')=='result':terminal=row;break
+  result={'case':label,'matcher':matcher,'timeout':10,'hook_started':(case/'hook-start').exists(),'permission_requests':requests,'terminal':terminal,'target_exists':(work/'target.txt').exists(),'elapsed':time.time()-began}
+  original(case/'provider.json',server.requests);original(case/'result.json',result);results.append(result);print(json.dumps(result),flush=True)
+ finally:
+  c.write_json=original
+  if native:native.close()
+  server.shutdown();server.server_close()
+original(root/'result.json',{'native':'Claude Code 2.1.291','cases':results})

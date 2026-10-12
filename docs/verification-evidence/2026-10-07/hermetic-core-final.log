@@ -1,0 +1,69 @@
+?   	github.com/JsizzleR/buddy-system/cmd/buddy	[no test files]
+ok  	github.com/JsizzleR/buddy-system/cmd/buddy-adapter	4.623s
+?   	github.com/JsizzleR/buddy-system/cmd/buddylist	[no test files]
+ok  	github.com/JsizzleR/buddy-system/internal/buddylist	0.571s
+ok  	github.com/JsizzleR/buddy-system/internal/cli	37.552s
+ok  	github.com/JsizzleR/buddy-system/internal/fence	0.115s
+ok  	github.com/JsizzleR/buddy-system/internal/harness	11.444s
+ok  	github.com/JsizzleR/buddy-system/internal/ircwire	0.519s
+ok  	github.com/JsizzleR/buddy-system/internal/store	1.116s
+ok  	github.com/JsizzleR/buddy-system/internal/testguard	22.435s
+ok  	github.com/JsizzleR/buddy-system/internal/tocwire	0.281s
+?   	github.com/JsizzleR/buddy-system/cmd/buddy	[no test files]
+ok  	github.com/JsizzleR/buddy-system/cmd/buddy-adapter	6.155s
+?   	github.com/JsizzleR/buddy-system/cmd/buddylist	[no test files]
+ok  	github.com/JsizzleR/buddy-system/internal/buddylist	2.106s
+ok  	github.com/JsizzleR/buddy-system/internal/cli	67.914s
+ok  	github.com/JsizzleR/buddy-system/internal/fence	1.112s
+ok  	github.com/JsizzleR/buddy-system/internal/harness	13.244s
+ok  	github.com/JsizzleR/buddy-system/internal/ircwire	1.553s
+ok  	github.com/JsizzleR/buddy-system/internal/store	11.438s
+ok  	github.com/JsizzleR/buddy-system/internal/testguard	25.465s
+ok  	github.com/JsizzleR/buddy-system/internal/tocwire	1.312s
+check-commit-gate: GREEN (QA-1 warn+named, QA-1b clean control, QA-2 deny blocks via the hook,
+  QA-3 --no-verify bypass, QA-4 kill switch, QA-5 partial-commit temp index + control,
+  QA-6 no-ledger silent, QA-7 unreadable ledger fails closed)
+check-pre-push: GREEN (QA-1 green allows, QA-2 red blocks + bypass named,
+  QA-3 deletion-safe, QA-4 kill switch, QA-5 no-repo no-op,
+  QA-6 a linked-worktree push: the hook saw an absolute GIT_DIR, the tier none of git's local env,
+  QA-7 sourcing lib.sh clears git's local env, with and without git on PATH)
+check-local-hooks: GREEN (QA-1 absent is a no-op, QA-2 local refusal blocks a commit,
+  QA-3 its control, QA-4 pre-push stdin reaches both, QA-5 blocks past the skip knob,
+  QA-6 a linked worktree is covered)
+check-fence: GREEN (positive control flagged; 35 files clean)
+check-charter: GREEN (planted decision flagged; 77 decisions all charted)
+check-wait: GREEN (QA-1 ceiling refused + control, QA-2 unknown/own slug refused, QA-3 declare ->
+  STILL WAITING -> release names waiter -> beat LANDED once -> LANDED + note -> NO WAIT,
+  QA-4 no harness id refused, QA-5 --help writes nothing, QA-6 ready rider -> who -> outcome on LANDED)
+check-skill: GREEN (QA-1 fresh install, QA-2 current copy untouched, QA-3 stale copy replaced + kept, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time)
+check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,
+  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,
+  QA-6 the daemon waits past the old ten-poll window, says what launchd recorded, and fails last (also on a failed
+  kickstart); fake launchctl, real one guarded)
+check-startup-report: ok
+check-wake-report: ok
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 5.915s
+
+OK
+test_denial_echo_does_not_pass (__main__.self_test.<locals>.ProviderTests) ... ok
+test_exact_approval_matching (__main__.self_test.<locals>.ProviderTests) ... ok
+test_explicit_approval_is_per_call_and_supported (__main__.self_test.<locals>.ProviderTests) ... ok
+test_history_and_retries (__main__.self_test.<locals>.ProviderTests) ... ok
+test_literal_loopback_only (__main__.self_test.<locals>.ProviderTests) ... ok
+test_nonzero_and_timeout (__main__.self_test.<locals>.ProviderTests) ... ok
+test_unqueued_changed_and_unknown_result_refuse_progress (__main__.self_test.<locals>.ProviderTests) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.227s
+
+OK
+mixed-fleet contract checker: positive control and 41 damaged cases passed
+mixed-fleet acceptance checker: positive control and 20 broken cases passed
+{
+  "positive": "passed",
+  "rejected_mutations": 24,
+  "evidence": "synthetic: tests the checker, qualifies no native harness"
+}
+check.sh: HERMETIC GREEN (vet + tests + race + done-checks + script self-tests; live leg NOT run)

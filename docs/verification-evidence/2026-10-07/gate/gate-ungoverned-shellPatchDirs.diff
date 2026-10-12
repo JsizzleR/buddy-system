@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -2147,7 +2147,7 @@
+ 			}
+ 		}
+ 		if shellPatch {
+-			dirs = append(dirs, shellPatchDirs(h)...)
++			dirs = append(dirs, []string{}...)
+ 		}
+ 		if reason := governedAny(h, env, dirs, why, targetRepos); reason != "" {
+ 			deny(env, reason)

@@ -1,0 +1,11 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -186,7 +186,7 @@
+ 		if filepath.IsAbs(link) {
+ 			resolved = string(filepath.Separator)
+ 		}
+-		remaining = append(strings.Split(link, string(filepath.Separator)), remaining...)
++		remaining = append(strings.Split(filepath.Clean(link), string(filepath.Separator)), remaining...)
+ 	}
+ 	return resolved, nil
+ }

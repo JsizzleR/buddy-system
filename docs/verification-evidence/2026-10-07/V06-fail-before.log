@@ -1,0 +1,5 @@
+--- FAIL: TestClaudeProcessKeepsExactExecutableAndRecognizableArgv (0.03s)
+    process_test.go:90: Claude=true: argv0={"argv0":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/go-build875047959/b001/harness.test"}, want "claude"
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/harness	0.208s
+FAIL

@@ -1,0 +1,10 @@
+--- FAIL: TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake (0.27s)
+    --- FAIL: TestEarlierAdapterIncarnationDoesNotSuppressLegacyWake/false (0.14s)
+        adaptermail_test.go:117: old adapter message offered legacy wake: [sent] 0 #1 to legacy-successor from repo/s-sender, 0s ago — 0 of 1 with a recorded delivery; an adapter message: only its recipient's adapter inbox fetch returns it, and no legacy wake can surface it; to wake it now: SendMessage to "uds:/tmp/bw12994662/401.sock" with the text "buddy mail #1 is queued for you (08:00:00): run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way
+             
+        adaptermail_test.go:117: old adapter message offered legacy wake: [sent 1] 0 #1 to legacy-successor from repo/s-sender, 0s ago — 0 of 1 with a recorded delivery; an adapter message: only its recipient's adapter inbox fetch returns it, and no legacy wake can surface it
+              legacy-successor         queued; to wake it now: SendMessage to "uds:/tmp/bw12994662/401.sock" with the text "buddy mail #1 is queued for you (08:00:00): run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way
+             
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/cli	0.401s
+FAIL

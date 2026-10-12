@@ -1,0 +1,224 @@
+=== RUN   TestGateDeniesForeignScopeNamingClaimant
+=== PAUSE TestGateDeniesForeignScopeNamingClaimant
+=== RUN   TestGatePauseDeniesAndResumeClears
+=== PAUSE TestGatePauseDeniesAndResumeClears
+=== RUN   TestGateFeatureOffWithoutLedger
+=== PAUSE TestGateFeatureOffWithoutLedger
+=== RUN   TestGateFailsClosedOnCorruptLedger
+=== PAUSE TestGateFailsClosedOnCorruptLedger
+=== RUN   TestGateDeniesRelativePathInsideForeignScope
+=== PAUSE TestGateDeniesRelativePathInsideForeignScope
+=== RUN   TestGateDeniesCaseAliasedRepoRoot
+=== PAUSE TestGateDeniesCaseAliasedRepoRoot
+=== RUN   TestGateChecksDotDotPrefixedDirName
+=== PAUSE TestGateChecksDotDotPrefixedDirName
+=== RUN   TestGateNotebookEditUsesNotebookPath
+=== PAUSE TestGateNotebookEditUsesNotebookPath
+=== RUN   TestGateDeniesOnDanglingLedgerSymlink
+=== PAUSE TestGateDeniesOnDanglingLedgerSymlink
+=== RUN   TestGateConsultsTargetRepoLedgerForCrossRepoEdits
+=== PAUSE TestGateConsultsTargetRepoLedgerForCrossRepoEdits
+=== RUN   TestGateFailsClosedOnUnusableHookInput
+=== PAUSE TestGateFailsClosedOnUnusableHookInput
+=== RUN   TestGateAdjudicatesToolsUnknownToIt
+=== PAUSE TestGateAdjudicatesToolsUnknownToIt
+=== RUN   TestGateDeniesHookInputWithoutToolName
+=== PAUSE TestGateDeniesHookInputWithoutToolName
+=== RUN   TestGateDeniesNFDSpelledPathInsideForeignScope
+=== PAUSE TestGateDeniesNFDSpelledPathInsideForeignScope
+=== RUN   TestGateFailsClosedWhenTheCallerRowCannotBeRead
+=== PAUSE TestGateFailsClosedWhenTheCallerRowCannotBeRead
+=== RUN   TestGateResolvesRootsGitReportsAwkwardly
+=== PAUSE TestGateResolvesRootsGitReportsAwkwardly
+=== RUN   TestGateOnARefusedRepository
+=== RUN   TestGateOnARefusedRepository/refused,_no_ledger
+=== RUN   TestGateOnARefusedRepository/refused,_ledger_present
+=== RUN   TestGateOnARefusedRepository/linked_worktree,_no_ledger
+=== RUN   TestGateOnARefusedRepository/linked_worktree,_ledger_in_the_COMMON_dir
+--- PASS: TestGateOnARefusedRepository (0.69s)
+    --- PASS: TestGateOnARefusedRepository/refused,_no_ledger (0.17s)
+    --- PASS: TestGateOnARefusedRepository/refused,_ledger_present (0.18s)
+    --- PASS: TestGateOnARefusedRepository/linked_worktree,_no_ledger (0.17s)
+    --- PASS: TestGateOnARefusedRepository/linked_worktree,_ledger_in_the_COMMON_dir (0.17s)
+=== RUN   TestGateOnAnUnparsableGitFile
+--- PASS: TestGateOnAnUnparsableGitFile (0.12s)
+=== RUN   TestGateRefusesShellRoutedPatch
+=== PAUSE TestGateRefusesShellRoutedPatch
+=== RUN   TestGateShellRoutedPatchFeatureOff
+=== PAUSE TestGateShellRoutedPatchFeatureOff
+=== RUN   TestGateNestedRepoKeepsHomeClaim
+=== PAUSE TestGateNestedRepoKeepsHomeClaim
+=== RUN   TestGateChecksEverySpellingOfATarget
+=== PAUSE TestGateChecksEverySpellingOfATarget
+=== RUN   TestGateIdentityConflictOnlyWhereGoverned
+=== PAUSE TestGateIdentityConflictOnlyWhereGoverned
+=== RUN   TestGateForeignTargetHonoursPause
+=== PAUSE TestGateForeignTargetHonoursPause
+=== RUN   TestGatePatchChecksEveryOperation
+=== PAUSE TestGatePatchChecksEveryOperation
+=== RUN   TestGatePatchMalformedInputFailsClosed
+=== PAUSE TestGatePatchMalformedInputFailsClosed
+=== RUN   TestGatePatchForeignTargetsAndFeatureOff
+=== PAUSE TestGatePatchForeignTargetsAndFeatureOff
+=== RUN   TestGatePatchSharedClaimsNormalizationAndPause
+=== PAUSE TestGatePatchSharedClaimsNormalizationAndPause
+=== RUN   TestGatePatchNestedTargetWithoutHomeLedger
+=== PAUSE TestGatePatchNestedTargetWithoutHomeLedger
+=== RUN   TestGateFourDistinctTargetSpellings
+=== RUN   TestGateFourDistinctTargetSpellings/lexical-dest/file.go
+    verification_gatetargets_test.go:37: held=lexical-dest/file.go targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go2693347902/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go2693347902/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go2693347902/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go2693347902/001/repo/physical/entry]
+=== RUN   TestGateFourDistinctTargetSpellings/docs/entry
+    verification_gatetargets_test.go:37: held=docs/entry targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry2376854879/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry2376854879/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry2376854879/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry2376854879/001/repo/physical/entry]
+=== RUN   TestGateFourDistinctTargetSpellings/physical-dest/file.go
+    verification_gatetargets_test.go:37: held=physical-dest/file.go targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go4051609855/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go4051609855/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go4051609855/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go4051609855/001/repo/physical/entry]
+=== RUN   TestGateFourDistinctTargetSpellings/physical/entry
+    verification_gatetargets_test.go:37: held=physical/entry targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry4005186406/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry4005186406/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry4005186406/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry4005186406/001/repo/physical/entry]
+--- PASS: TestGateFourDistinctTargetSpellings (0.52s)
+    --- PASS: TestGateFourDistinctTargetSpellings/lexical-dest/file.go (0.13s)
+    --- PASS: TestGateFourDistinctTargetSpellings/docs/entry (0.13s)
+    --- PASS: TestGateFourDistinctTargetSpellings/physical-dest/file.go (0.13s)
+    --- PASS: TestGateFourDistinctTargetSpellings/physical/entry (0.13s)
+=== RUN   TestGateDanglingSymlinkChain
+    verification_gatetargets_test.go:65: candidates=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkChain504827926/001/repo/free/first /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkChain504827926/001/repo/docs/new.go]
+--- PASS: TestGateDanglingSymlinkChain (0.11s)
+=== RUN   TestGateDanglingSymlinkPhysicalDotDot
+    verification_gatetargets_test.go:96: candidates=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkPhysicalDotDot3436258100/001/repo/free/first /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkPhysicalDotDot3436258100/001/repo/docs/new.go]
+--- PASS: TestGateDanglingSymlinkPhysicalDotDot (0.11s)
+=== RUN   TestGateDanglingSymlinkResolutionBound
+--- PASS: TestGateDanglingSymlinkResolutionBound (0.21s)
+=== RUN   TestGateDeniesOnALedgerNewerThanTheBinary
+=== PAUSE TestGateDeniesOnALedgerNewerThanTheBinary
+=== CONT  TestGateDeniesForeignScopeNamingClaimant
+=== CONT  TestGateFailsClosedWhenTheCallerRowCannotBeRead
+=== CONT  TestGateForeignTargetHonoursPause
+=== CONT  TestGateNotebookEditUsesNotebookPath
+=== CONT  TestGateDeniesRelativePathInsideForeignScope
+=== CONT  TestGateChecksDotDotPrefixedDirName
+=== CONT  TestGateAdjudicatesToolsUnknownToIt
+=== CONT  TestGateDeniesCaseAliasedRepoRoot
+=== CONT  TestGateDeniesNFDSpelledPathInsideForeignScope
+=== CONT  TestGateDeniesHookInputWithoutToolName
+=== CONT  TestGateFeatureOffWithoutLedger
+=== CONT  TestGateDeniesOnALedgerNewerThanTheBinary
+--- PASS: TestGateNotebookEditUsesNotebookPath (0.14s)
+=== CONT  TestGateFailsClosedOnCorruptLedger
+--- PASS: TestGateFailsClosedWhenTheCallerRowCannotBeRead (0.16s)
+=== CONT  TestGatePatchMalformedInputFailsClosed
+--- PASS: TestGateDeniesForeignScopeNamingClaimant (0.16s)
+=== CONT  TestGatePatchSharedClaimsNormalizationAndPause
+--- PASS: TestGateDeniesRelativePathInsideForeignScope (0.26s)
+=== CONT  TestGatePatchChecksEveryOperation
+--- PASS: TestGateChecksDotDotPrefixedDirName (0.28s)
+=== CONT  TestGatePatchNestedTargetWithoutHomeLedger
+--- PASS: TestGateAdjudicatesToolsUnknownToIt (0.30s)
+=== CONT  TestGateNestedRepoKeepsHomeClaim
+--- PASS: TestGateDeniesHookInputWithoutToolName (0.37s)
+=== CONT  TestGateRefusesShellRoutedPatch
+--- PASS: TestGateForeignTargetHonoursPause (0.37s)
+=== CONT  TestGatePatchForeignTargetsAndFeatureOff
+--- PASS: TestGateDeniesCaseAliasedRepoRoot (0.38s)
+=== CONT  TestGateIdentityConflictOnlyWhereGoverned
+--- PASS: TestGateDeniesNFDSpelledPathInsideForeignScope (0.41s)
+=== CONT  TestGateShellRoutedPatchFeatureOff
+=== CONT  TestGatePauseDeniesAndResumeClears
+--- PASS: TestGateFeatureOffWithoutLedger (0.45s)
+--- PASS: TestGateFailsClosedOnCorruptLedger (0.33s)
+=== CONT  TestGateChecksEverySpellingOfATarget
+--- PASS: TestGateDeniesOnALedgerNewerThanTheBinary (0.50s)
+=== CONT  TestGateConsultsTargetRepoLedgerForCrossRepoEdits
+=== RUN   TestGatePatchMalformedInputFailsClosed/missing-command
+=== RUN   TestGatePatchMalformedInputFailsClosed/empty-patch
+=== RUN   TestGatePatchMalformedInputFailsClosed/truncated
+=== RUN   TestGatePatchMalformedInputFailsClosed/no-header
+=== RUN   TestGatePatchMalformedInputFailsClosed/empty-path
+=== RUN   TestGatePatchMalformedInputFailsClosed/nul-path
+=== RUN   TestGatePatchMalformedInputFailsClosed/update-without-lines
+=== RUN   TestGatePatchMalformedInputFailsClosed/unprefixed-add
+=== RUN   TestGatePatchMalformedInputFailsClosed/content-after-delete
+=== RUN   TestGatePatchMalformedInputFailsClosed/misplaced-move
+=== RUN   TestGatePatchMalformedInputFailsClosed/move-after-content
+=== RUN   TestGatePatchMalformedInputFailsClosed/late-malformed
+=== RUN   TestGatePatchMalformedInputFailsClosed/trailing-content
+=== RUN   TestGatePatchMalformedInputFailsClosed/unknown-environment
+--- PASS: TestGatePatchMalformedInputFailsClosed (0.36s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/missing-command (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/empty-patch (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/truncated (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/no-header (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/empty-path (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/nul-path (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/update-without-lines (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/unprefixed-add (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/content-after-delete (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/misplaced-move (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/move-after-content (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/late-malformed (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/trailing-content (0.00s)
+    --- PASS: TestGatePatchMalformedInputFailsClosed/unknown-environment (0.00s)
+=== CONT  TestGateDeniesOnDanglingLedgerSymlink
+=== RUN   TestGatePatchChecksEveryOperation/add
+=== RUN   TestGatePatchChecksEveryOperation/delete
+--- PASS: TestGatePatchSharedClaimsNormalizationAndPause (0.45s)
+=== CONT  TestGateFailsClosedOnUnusableHookInput
+=== RUN   TestGatePatchChecksEveryOperation/update
+=== RUN   TestGatePatchChecksEveryOperation/move-source
+=== RUN   TestGatePatchChecksEveryOperation/move-destination
+=== RUN   TestGatePatchChecksEveryOperation/later-path
+=== RUN   TestGatePatchChecksEveryOperation/multiple-conflicts
+=== RUN   TestGatePatchChecksEveryOperation/trailing-header-space
+--- PASS: TestGateNestedRepoKeepsHomeClaim (0.41s)
+=== CONT  TestGateResolvesRootsGitReportsAwkwardly
+--- PASS: TestGatePatchChecksEveryOperation (0.48s)
+    --- PASS: TestGatePatchChecksEveryOperation/add (0.02s)
+    --- PASS: TestGatePatchChecksEveryOperation/delete (0.02s)
+    --- PASS: TestGatePatchChecksEveryOperation/update (0.02s)
+    --- PASS: TestGatePatchChecksEveryOperation/move-source (0.02s)
+    --- PASS: TestGatePatchChecksEveryOperation/move-destination (0.02s)
+    --- PASS: TestGatePatchChecksEveryOperation/later-path (0.02s)
+    --- PASS: TestGatePatchChecksEveryOperation/multiple-conflicts (0.02s)
+    --- PASS: TestGatePatchChecksEveryOperation/trailing-header-space (0.02s)
+--- PASS: TestGatePatchNestedTargetWithoutHomeLedger (0.46s)
+--- PASS: TestGateRefusesShellRoutedPatch (0.50s)
+--- PASS: TestGateShellRoutedPatchFeatureOff (0.52s)
+--- PASS: TestGatePauseDeniesAndResumeClears (0.56s)
+=== RUN   TestGateChecksEverySpellingOfATarget/control:_claimed_file
+=== RUN   TestGateChecksEverySpellingOfATarget/control:_free_file
+=== RUN   TestGateChecksEverySpellingOfATarget/relative_link/..
+=== RUN   TestGateChecksEverySpellingOfATarget/absolute_link/.._patch
+=== RUN   TestGateChecksEverySpellingOfATarget/absolute_link/.._Edit
+=== RUN   TestGateChecksEverySpellingOfATarget/delete_claimed_entry
+=== RUN   TestGateChecksEverySpellingOfATarget/move_claimed_entry
+=== RUN   TestGateChecksEverySpellingOfATarget/write_through_a_free_entry_into_the_claim
+=== RUN   TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim
+=== RUN   TestGateChecksEverySpellingOfATarget/dangling_link_entry_in_the_claim
+--- PASS: TestGatePatchForeignTargetsAndFeatureOff (0.76s)
+--- PASS: TestGateIdentityConflictOnlyWhereGoverned (0.75s)
+=== RUN   TestGateChecksEverySpellingOfATarget/holder
+--- PASS: TestGateChecksEverySpellingOfATarget (0.68s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/control:_claimed_file (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/control:_free_file (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/relative_link/.. (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/absolute_link/.._patch (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/absolute_link/.._Edit (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/delete_claimed_entry (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/move_claimed_entry (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/write_through_a_free_entry_into_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/dangling_link_entry_in_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/holder (0.01s)
+=== RUN   TestGateResolvesRootsGitReportsAwkwardly/newline_in_the_repo_path
+=== RUN   TestGateFailsClosedOnUnusableHookInput/malformed-json
+=== RUN   TestGateFailsClosedOnUnusableHookInput/missing-session-id
+=== RUN   TestGateFailsClosedOnUnusableHookInput/empty-stdin
+--- PASS: TestGateFailsClosedOnUnusableHookInput (0.59s)
+    --- PASS: TestGateFailsClosedOnUnusableHookInput/malformed-json (0.00s)
+    --- PASS: TestGateFailsClosedOnUnusableHookInput/missing-session-id (0.00s)
+    --- PASS: TestGateFailsClosedOnUnusableHookInput/empty-stdin (0.00s)
+--- PASS: TestGateDeniesOnDanglingLedgerSymlink (0.68s)
+--- PASS: TestGateConsultsTargetRepoLedgerForCrossRepoEdits (0.78s)
+=== RUN   TestGateResolvesRootsGitReportsAwkwardly/newline_and_a_trailing_space
+--- PASS: TestGateResolvesRootsGitReportsAwkwardly (0.86s)
+    --- PASS: TestGateResolvesRootsGitReportsAwkwardly/newline_in_the_repo_path (0.21s)
+    --- PASS: TestGateResolvesRootsGitReportsAwkwardly/newline_and_a_trailing_space (0.20s)
+PASS
+ok  	github.com/JsizzleR/buddy-system/internal/cli	3.531s

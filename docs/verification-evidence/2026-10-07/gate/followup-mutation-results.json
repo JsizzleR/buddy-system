@@ -1,0 +1,62 @@
+[
+  {
+    "name": "V03-error-returns-before-other-spellings",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateResolutionErrorStillChecksOtherSpellings (0.13s)"
+    ]
+  },
+  {
+    "name": "V04-ansi-literal-unknown",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.28s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/$'apply_\\x70atch'_<_p.patch (0.01s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_$'apply_patch_<_p.patch\\n' (0.01s)"
+    ]
+  },
+  {
+    "name": "V04-nested-cwd-context-omitted",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.30s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction948389906/001/repo'\\''_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_' (0.02s)"
+    ]
+  },
+  {
+    "name": "V04-all-directory-context-omitted",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.26s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3828971426/001/repo'\\''_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_' (0.02s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/'cd'_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3828971426/001/repo'_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_ (0.02s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/env_-C_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3828971426/001/repo'_apply_patch_<_p.patch (0.02s)"
+    ]
+  },
+  {
+    "name": "V04-combined-lookup-not-recognized",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.29s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/command_-pv_apply_patch (0.01s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/command_-pV_apply_patch (0.01s)"
+    ]
+  },
+  {
+    "name": "V04-raw-word-prefilter",
+    "rc": 1,
+    "result": "KILLED",
+    "failures": [
+      "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.23s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/apply_\"\"patch_<_p.patch (0.01s)",
+      "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/apply_\\patch_<_p.patch (0.01s)",
+      "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.30s)",
+      "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/$'apply_\\x70atch'_<_p.patch (0.01s)"
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+--- internal/store/inbox.go
++++ internal/store/inbox.go
+@@ -193,7 +193,7 @@
+ 	// has an incarnation-bound correction of its own.
+ 	if adapter, err := isAdapterMessage(q, o.Supersedes); err != nil {
+ 		return err
+-	} else if adapter {
++	} else if false && adapter {
+ 		return ErrNotCorrectable{o.Supersedes, "it is an adapter message, which only its recipient's adapter fetches; a plain correction would never be shown beside it"}
+ 	}
+ 	return nil

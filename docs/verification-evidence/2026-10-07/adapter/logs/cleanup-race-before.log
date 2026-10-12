@@ -1,0 +1,13 @@
+=== RUN   TestAdapterExpectedShutdownDoesNotPublishDisconnect
+=== RUN   TestAdapterExpectedShutdownDoesNotPublishDisconnect/live-disconnect
+=== RUN   TestAdapterExpectedShutdownDoesNotPublishDisconnect/already-closing
+    main_test.go:670: expected shutdown presented as transport failure: observed=1 emitted=1
+=== RUN   TestAdapterExpectedShutdownDoesNotPublishDisconnect/cancel-during-observation
+    main_test.go:670: expected shutdown presented as transport failure: observed=1 emitted=1
+--- FAIL: TestAdapterExpectedShutdownDoesNotPublishDisconnect (0.00s)
+    --- PASS: TestAdapterExpectedShutdownDoesNotPublishDisconnect/live-disconnect (0.00s)
+    --- FAIL: TestAdapterExpectedShutdownDoesNotPublishDisconnect/already-closing (0.00s)
+    --- FAIL: TestAdapterExpectedShutdownDoesNotPublishDisconnect/cancel-during-observation (0.00s)
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/cmd/buddy-adapter	0.132s
+FAIL

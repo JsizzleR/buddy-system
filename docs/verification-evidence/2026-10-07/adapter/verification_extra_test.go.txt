@@ -1,0 +1,48 @@
+package harness
+
+import (
+ "context"
+ "encoding/json"
+ "errors"
+ "os"
+ "path/filepath"
+ "testing"
+)
+
+type cancelOnSecondErr struct { context.Context; calls int }
+func (c *cancelOnSecondErr) Err() error {c.calls++;if c.calls>1{return context.Canceled};return nil}
+
+func TestVerificationClaudeApprovalRefusalsAreNotSubmitted(t *testing.T){
+ for _,reason:=range []string{"first-cancel","bad-id","second-cancel","missing-request","invalid-decision","interactive","positive"}{t.Run(reason,func(t *testing.T){
+  c:=newClaude("unused");c.nativeID="native";writes:=0;c.proc=&claudeFakeProcess{write:func(context.Context,any)error{writes++;return nil}}
+  c.approvals["request"]=claudePermission{id:json.RawMessage(`"request"`),turnID:"turn",input:json.RawMessage(`{}`)}
+  ctx:=context.Background();d:=ApprovalDecision{ID:json.RawMessage(`"request"`),NativeSessionID:"native",TurnID:"turn",Decision:"allow"}
+  switch reason{
+  case "first-cancel":var cancel context.CancelFunc;ctx,cancel=context.WithCancel(ctx);cancel()
+  case "second-cancel":ctx=&cancelOnSecondErr{Context:ctx}
+  case "bad-id":d.ID=json.RawMessage(`1`)
+  case "missing-request":d.ID=json.RawMessage(`"absent"`)
+  case "invalid-decision":d.Decision="bogus"
+  case "interactive":p:=c.approvals["request"];p.requiresInteraction=true;c.approvals["request"]=p
+  }
+  err:=c.Approve(ctx,d)
+  if reason=="positive" {if err!=nil||writes!=1 {t.Fatalf("positive: %v writes=%d",err,writes)};return}
+  if !errors.Is(err,ErrNotSubmitted)||writes!=0{t.Fatalf("definite refusal classification: %v writes=%d",err,writes)}
+ })}
+}
+
+func TestVerificationCodexRefusalEdges(t *testing.T){
+ for _,reason:=range []string{"read-foreign","read-missing-turn","send-no-transport"}{t.Run(reason,func(t *testing.T){
+  c,_,launch:=codexFixture(t);native:=codexStart(t,c,launch);var err error
+  switch reason{case "read-foreign":_,err=c.ReadTurn(context.Background(),"other","turn");case "read-missing-turn":_,err=c.ReadTurn(context.Background(),native,"");case "send-no-transport":c.mu.Lock();c.process=nil;c.mu.Unlock();_,err=c.call(context.Background(),"turn/start",nil)}
+  if !errors.Is(err,ErrNotSubmitted){t.Fatalf("pre-write refusal lost classification: %v",err)}
+ })}
+}
+
+func TestVerificationGroupTERMAllowsFlush(t *testing.T){
+ root:=t.TempDir();script:=filepath.Join(root,"native");marker:=filepath.Join(root,"term-received")
+ body:="#!/usr/bin/env python3\nimport signal,sys\ndef finish(sig,frame):\n open(sys.argv[1],'w').write('TERM')\n sys.exit(0)\nsignal.signal(signal.SIGTERM,finish)\nprint('{}',flush=True)\nsignal.pause()\n"
+ if err:=os.WriteFile(script,[]byte(body),0700);err!=nil{t.Fatal(err)}
+ p,err:=StartJSONProcess(context.Background(),script,[]string{marker},root,nil);if err!=nil{t.Fatal(err)};defer p.Close()
+ var ready map[string]any;readJSONLine(t,p,&ready);p.Close();data,err:=os.ReadFile(marker);if err!=nil||string(data)!="TERM"{t.Fatalf("worker never flushed its TERM handler: %s %v",data,err)}
+}

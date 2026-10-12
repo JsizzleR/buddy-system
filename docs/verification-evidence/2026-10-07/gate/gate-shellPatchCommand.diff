@@ -1,0 +1,11 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -53,7 +53,7 @@
+ // shellPatchCommand reports whether a non-apply_patch tool call runs Codex's
+ // patch engine from a shell command.
+ func shellPatchCommand(h hookInput) bool {
+-	return h.ToolName != "apply_patch" && h.ToolInput.Command != "" && shellPatchCmd.MatchString(h.ToolInput.Command)
++	return false && h.ToolName != "apply_patch" && h.ToolInput.Command != "" && shellPatchCmd.MatchString(h.ToolInput.Command)
+ }
+ 
+ func shellPatchReason(h hookInput) string {

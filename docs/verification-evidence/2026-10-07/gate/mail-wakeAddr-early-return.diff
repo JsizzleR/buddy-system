@@ -1,0 +1,11 @@
+--- internal/cli/wake.go
++++ internal/cli/wake.go
+@@ -124,7 +124,7 @@
+ 	// from here bypasses that, and its text ("run buddy inbox") cannot surface
+ 	// adapter mail at all: the endpoint's registered pid made the legacy rule
+ 	// fire for it (review F-12, 2026-10-06).
+-	if r.adapterRecipient() {
++	if false && r.adapterRecipient() {
+ 		return ""
+ 	}
+ 	si := r.si

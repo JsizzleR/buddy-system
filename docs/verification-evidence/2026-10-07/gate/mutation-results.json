@@ -1,0 +1,218 @@
+[
+  {
+    "name": "gate-shellPatchCommand",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 5.436,
+    "failures": [
+      "--- FAIL: TestGateShellRoutedPatchFeatureOff (0.48s)",
+      "--- FAIL: TestGateRefusesShellRoutedPatch (0.63s)"
+    ]
+  },
+  {
+    "name": "gate-governed-shell-deny",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 5.883,
+    "failures": [
+      "--- FAIL: TestGateRefusesShellRoutedPatch (0.90s)"
+    ]
+  },
+  {
+    "name": "gate-ungoverned-shellPatchDirs",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 5.794,
+    "failures": [
+      "--- FAIL: TestGateShellRoutedPatchFeatureOff (0.97s)"
+    ]
+  },
+  {
+    "name": "gate-home-denyIfHeld",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 6.777,
+    "failures": [
+      "--- FAIL: TestGateNestedRepoKeepsHomeClaim (0.44s)"
+    ]
+  },
+  {
+    "name": "gate-target-add-1",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 7.376,
+    "failures": [
+      "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.78s)",
+      "    --- FAIL: TestVerificationFourDistinctTargetSpellings/lexical-dest/file.go (0.25s)"
+    ]
+  },
+  {
+    "name": "gate-target-add-2",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 5.97,
+    "failures": [
+      "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.77s)",
+      "    --- FAIL: TestVerificationFourDistinctTargetSpellings/docs/entry (0.20s)"
+    ]
+  },
+  {
+    "name": "gate-target-add-3",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 3.991,
+    "failures": [
+      "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.51s)",
+      "    --- FAIL: TestVerificationFourDistinctTargetSpellings/physical-dest/file.go (0.12s)"
+    ]
+  },
+  {
+    "name": "gate-target-add-4",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 4.401,
+    "failures": [
+      "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.76s)",
+      "    --- FAIL: TestVerificationFourDistinctTargetSpellings/physical/entry (0.20s)"
+    ]
+  },
+  {
+    "name": "gate-target-add-5",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 4.425,
+    "failures": [
+      "--- FAIL: TestGateChecksEverySpellingOfATarget (0.81s)",
+      "    --- FAIL: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)"
+    ]
+  },
+  {
+    "name": "gate-danglingTarget",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 4.601,
+    "failures": [
+      "--- FAIL: TestGateChecksEverySpellingOfATarget (0.72s)",
+      "    --- FAIL: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)"
+    ]
+  },
+  {
+    "name": "gate-governedAny",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 4.829,
+    "failures": [
+      "--- FAIL: TestGateIdentityConflictOnlyWhereGoverned (1.00s)",
+      "--- FAIL: TestGateShellRoutedPatchFeatureOff (0.77s)"
+    ]
+  },
+  {
+    "name": "gate-idErr-early-refusal",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 4.357,
+    "failures": [
+      "--- FAIL: TestGateIdentityConflictOnlyWhereGoverned (0.71s)"
+    ]
+  },
+  {
+    "name": "gate-pause-read",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 4.224,
+    "failures": [
+      "--- FAIL: TestGateForeignTargetHonoursPause (0.31s)"
+    ]
+  },
+  {
+    "name": "mail-wakeAddr-early-return",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.29,
+    "failures": [
+      "--- FAIL: TestNoLegacyWakeForAdapterMailOrRecipients (0.20s)"
+    ]
+  },
+  {
+    "name": "mail-endpoint-count",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.217,
+    "failures": [
+      "--- FAIL: TestNoLegacyWakeForAdapterMailOrRecipients (0.21s)"
+    ]
+  },
+  {
+    "name": "mail-who-line",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.204,
+    "failures": [
+      "--- FAIL: TestLegacyViewsReportAdapterMail (0.13s)",
+      "--- FAIL: TestNoLegacyWakeForAdapterMailOrRecipients (0.19s)"
+    ]
+  },
+  {
+    "name": "mail-sendNote-why",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.169,
+    "failures": [
+      "--- FAIL: TestLegacyViewsReportAdapterMail (0.17s)"
+    ]
+  },
+  {
+    "name": "mail-backlog-note",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.23,
+    "failures": [
+      "--- FAIL: TestLegacyViewsReportAdapterMail (0.20s)"
+    ]
+  },
+  {
+    "name": "mail-correctable",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.176,
+    "failures": [
+      "--- FAIL: TestLegacyCorrectionOfAdapterMailRefused (0.14s)"
+    ]
+  },
+  {
+    "name": "mail-lifecycle-extraction",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.181,
+    "failures": [
+      "--- FAIL: TestLifecycleHookRenewsObservedClaimsOnly (0.21s)"
+    ]
+  },
+  {
+    "name": "mail-BeatLogical-under-renew",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.371,
+    "failures": [
+      "--- FAIL: TestLifecycleHookRenewsObservedClaimsOnly (0.21s)"
+    ]
+  },
+  {
+    "name": "mail-BeatLogical-over-renew",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.262,
+    "failures": [
+      "--- FAIL: TestLifecycleHookRenewsObservedClaimsOnly (0.20s)"
+    ]
+  },
+  {
+    "name": "mail-hello-wrap",
+    "result": "KILLED",
+    "rc": 1,
+    "seconds": 1.171,
+    "failures": [
+      "--- FAIL: TestHelloSessionStdinRefusalNamesRecipe (0.24s)"
+    ]
+  }
+]

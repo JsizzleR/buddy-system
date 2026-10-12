@@ -1,0 +1,11 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -62,7 +62,7 @@
+ 	add(physical(raw))
+ 	add(entryOf(raw, physical))
+ 	for _, e := range append([]string(nil), out...) {
+-		add(danglingTarget(e))
++		_ = e
+ 	}
+ 	return out
+ }

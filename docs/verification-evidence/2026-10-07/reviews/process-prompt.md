@@ -1,0 +1,3 @@
+Perform a constrained CODE review, read-only: no builds/tests/native launches/web search/edits/subagents. Use only the listed source files and directly called helpers where necessary. Do not read memory or the whole repository. Review final current files, including untracked tests. Return ranked CONFIRMED P1/P2 with exact failing input and lines; distinguish residuals; source evidence only. Limit scope to the stated boundaries.
+
+cmd/buddy-adapter/main.go and internal/harness/process*.go: operator FD validation before any children, process group ownership while leader is unreaped, reader shutdown, signals, startup failure paths. Known stated limitations: descendants may regroup; SIGKILL adapter does not run cleanup. Do not repeat those as new findings.

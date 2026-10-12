@@ -1,0 +1,27 @@
+[
+  {
+    "name": "v07-uncancellable-output",
+    "rc": 0,
+    "status": "survived"
+  },
+  {
+    "name": "v08-kill-leader-only",
+    "rc": 1,
+    "status": "killed"
+  },
+  {
+    "name": "v08-no-owned-group",
+    "rc": 1,
+    "status": "killed"
+  },
+  {
+    "name": "v08-no-context-bound",
+    "rc": 1,
+    "status": "killed"
+  },
+  {
+    "name": "shutdown-observation-gap",
+    "rc": 1,
+    "status": "killed"
+  }
+]

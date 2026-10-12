@@ -1,0 +1,11 @@
+--- internal/cli/patch.go
++++ internal/cli/patch.go
+@@ -54,7 +54,7 @@
+ 	// Bound parser work. Beyond the budget the route is uncertain and must use
+ 	// the explicit tool in a governed repo. Do not prefilter on the raw word:
+ 	// static shell quoting can split a command name (apply_""patch).
+-	mentions := strings.Contains(script, "apply_patch") || strings.Contains(script, "applypatch")
++	mentions := strings.Contains(script, "apply_patch") || strings.Contains(script, "applypatch"); if !mentions { return false }
+ 	if depth >= 8 || len(script) > 128*1024 {
+ 		if context != nil {
+ 			context.err = fmt.Errorf("shell patch routing exceeds its script budget")

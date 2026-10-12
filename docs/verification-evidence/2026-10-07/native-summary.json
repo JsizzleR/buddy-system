@@ -1,0 +1,640 @@
+{
+  "scope": "Authorized verification only. Retained native binaries, inert keys, disposable configurations and loopback providers. No installation, real ledger migration, paid provider or external messaging. Results are local fixture evidence, not production proof.",
+  "source_snapshot": "/private/tmp/buddy-verification-native-4jbaj2p2; refreshed before final mixed-fleet and again before standalone-adapters. Earlier suites retain their captured source-manifest hashes; do not claim all used final tree bytes.",
+  "native_versions": {
+    "claude": "2.1.291",
+    "claude_path": "~/.local/share/claude/versions/2.1.291",
+    "claude_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+    "codex": "0.160.0",
+    "codex_path": "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex",
+    "codex_sha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+    "sdk": "0.3.202",
+    "sdk_path": "~/.npm/_npx/c59c72de5188656c/node_modules/@anthropic-ai/claude-agent-sdk",
+    "sdk_package_sha256": "c4f86b54930b68cf4814f94dde0ee1580e0f6b0adf4b74ae6def2233d2f6c7e9"
+  },
+  "suites": [
+    {
+      "suite": "claude-mods",
+      "receipt": "/private/tmp/buddy-claude-mods-wbb_n7gj/result.json",
+      "passed": true,
+      "checks_passed": 33,
+      "checks_total": 33,
+      "rejected_mutations": null,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-mods.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "checker_log": null,
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+          "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690"
+        }
+      ]
+    },
+    {
+      "suite": "claude-peers",
+      "receipt": "/private/tmp/buddy-claude-peers-yyz80iwc/result.json",
+      "passed": true,
+      "checks_passed": 50,
+      "checks_total": 50,
+      "rejected_mutations": 54,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": null,
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-peers.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-claude-peers.log",
+      "binary_contracts": [
+        {
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+          "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690"
+        }
+      ]
+    },
+    {
+      "suite": "claude-resume",
+      "receipt": "/private/tmp/buddy-claude-resume-620shi4x/result.json",
+      "passed": true,
+      "checks_passed": 22,
+      "checks_total": 22,
+      "rejected_mutations": 21,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": null,
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-resume.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-claude-resume.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "claude-interrupted",
+      "receipt": "/private/tmp/buddy-claude-interrupted-rljgi7q3/result.json",
+      "passed": true,
+      "checks_passed": 98,
+      "checks_total": 98,
+      "rejected_mutations": 86,
+      "buddy_sha256": null,
+      "adapter_sha256": null,
+      "native_sha256": null,
+      "source_manifest_sha256": null,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-interrupted.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-claude-interrupted.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "claude-compaction",
+      "receipt": "/private/tmp/buddy-claude-compaction-s449mxiq/result.json",
+      "passed": true,
+      "checks_passed": 26,
+      "checks_total": 26,
+      "rejected_mutations": 30,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": null,
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-compaction.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-claude-compaction.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "claude-endpoints",
+      "receipt": "/private/tmp/buddy-claude-endpoints-e83_4aek/result.json",
+      "passed": true,
+      "checks_passed": 38,
+      "checks_total": 38,
+      "rejected_mutations": 32,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-endpoints.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-claude-endpoints.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+          "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690"
+        }
+      ]
+    },
+    {
+      "suite": "recovery",
+      "receipt": "/private/tmp/buddy-recovery-ihxkvd6j/result.json",
+      "passed": true,
+      "checks_passed": 26,
+      "checks_total": 26,
+      "rejected_mutations": 26,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": null,
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-recovery.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-recovery.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "interrupted",
+      "receipt": "/private/tmp/buddy-interrupted-5vibh80e/result.json",
+      "passed": true,
+      "checks_passed": 52,
+      "checks_total": 52,
+      "rejected_mutations": 46,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": null,
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-interrupted.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-interrupted.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "uncertain",
+      "receipt": "/private/tmp/buddy-uncertain-kriee1yu/result.json",
+      "passed": true,
+      "checks_passed": 40,
+      "checks_total": 40,
+      "rejected_mutations": 38,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": null,
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-uncertain.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-uncertain.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "compaction",
+      "receipt": "/private/tmp/buddy-compaction-hetr0rln/result.json",
+      "passed": true,
+      "checks_passed": 23,
+      "checks_total": 23,
+      "rejected_mutations": 34,
+      "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+      "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+      "native_sha256": null,
+      "source_manifest_sha256": "6c9d0f21b38566d849b964bef00e45296c01cd861cdbc27a6a0390777cc2c502",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-compaction.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-compaction.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "interrupted-compaction",
+      "receipt": "/private/tmp/buddy-interrupted-compaction-32_w3vmg/result.json",
+      "passed": true,
+      "checks_passed": 75,
+      "checks_total": 75,
+      "rejected_mutations": 90,
+      "buddy_sha256": null,
+      "adapter_sha256": null,
+      "native_sha256": null,
+      "source_manifest_sha256": null,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-interrupted-compaction.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-interrupted-compaction.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d"
+        }
+      ]
+    },
+    {
+      "suite": "claude-history",
+      "receipt": "/private/tmp/buddy-claude-history-x8bf3bx9/result.json",
+      "passed": true,
+      "checks_passed": 130,
+      "checks_total": 130,
+      "rejected_mutations": 175,
+      "buddy_sha256": null,
+      "adapter_sha256": null,
+      "native_sha256": null,
+      "source_manifest_sha256": null,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-history.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291",
+        "--sdk",
+        "~/.npm/_npx/c59c72de5188656c/node_modules/@anthropic-ai/claude-agent-sdk"
+      ],
+      "checker_log": "/private/tmp/buddy-verification-checked-claude-history.log",
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "49d2a8a9cf1909f8b19fa5eed56c4242f631258b41b49a7983120c88d88d127d",
+          "native_versions": {
+            "claude": {
+              "executable_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+              "version": "2.1.291 (Claude Code)"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "suite": "mixed-fleet",
+      "receipt": "/private/tmp/buddy-mixed-fleet-2nxrxh7k/result.json",
+      "passed": true,
+      "checks_passed": 37,
+      "checks_total": 37,
+      "rejected_mutations": 41,
+      "buddy_sha256": "00d1e8ca2d36fede24dea267bf852f64a5440e1f6c18a452a3456e15c669b387",
+      "adapter_sha256": "be2db5922e207b55d1600e2309a7005cd7ecb5d828530ce0f31c9f5e600b9f40",
+      "source_manifest_sha256": "d0a5d8173f41d1ea778e30ab3afbc0006693db2371f93da23ae13df2e752a1be",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-mixed-fleet.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "binary_contracts": [
+        {
+          "adapter_sha256": "be2db5922e207b55d1600e2309a7005cd7ecb5d828530ce0f31c9f5e600b9f40",
+          "buddy_sha256": "00d1e8ca2d36fede24dea267bf852f64a5440e1f6c18a452a3456e15c669b387",
+          "native_versions": {
+            "claude": {
+              "executable_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+              "version": "2.1.291 (Claude Code)"
+            },
+            "codex": {
+              "executable_sha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+              "version": "codex-cli 0.160.0"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "suite": "claude-interrupted-compaction",
+      "receipt": "/private/tmp/buddy-claude-interrupted-compaction-c_glu0md/result.json",
+      "passed": true,
+      "checks_passed": 113,
+      "checks_total": 113,
+      "rejected_mutations": 222,
+      "buddy_sha256": null,
+      "adapter_sha256": null,
+      "source_manifest_sha256": null,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-interrupted-compaction.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "binary_contracts": [
+        {
+          "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+          "buddy_sha256": "848e0b3b7d1fffe39d1a9a4b7b0ec49f75a8b954bb518d60e041e3651641096c"
+        }
+      ]
+    },
+    {
+      "suite": "codex-shell-lifecycle-edge",
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-38n2tpxc/result.json",
+      "passed": true,
+      "checks_passed": 15,
+      "checks_total": 15,
+      "rejected_mutations": null,
+      "buddy_sha256": "848e0b3b7d1fffe39d1a9a4b7b0ec49f75a8b954bb518d60e041e3651641096c",
+      "adapter_sha256": null,
+      "source_manifest_sha256": null,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-codex.py",
+        "--app-server",
+        "--lifecycle",
+        "--edge-cases",
+        "--shell-patch",
+        "--buddy",
+        "/private/tmp/buddy-verification-retained-bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "binary_contracts": [
+        {
+          "buddy_sha256": "848e0b3b7d1fffe39d1a9a4b7b0ec49f75a8b954bb518d60e041e3651641096c"
+        }
+      ]
+    },
+    {
+      "suite": "standalone-adapters",
+      "receipt": "/private/tmp/buddy-step2-native-lqi8g020/result.json",
+      "passed": true,
+      "checks_passed": 9,
+      "checks_total": 9,
+      "rejected_mutations": null,
+      "buddy_sha256": "f0d51e5d25dcadce2482a42d236daf097b3b2ac5238424f2ee5a2e2852ee9e34",
+      "adapter_sha256": "be2db5922e207b55d1600e2309a7005cd7ecb5d828530ce0f31c9f5e600b9f40",
+      "fixture_sha256": "7add0b493fa1ab28ea14943d9e5858cd810d6de7aad4b729172b94665c457cd4",
+      "native_version": "0.160.0",
+      "command": "PATH=~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin:$PATH python3 -B scripts/qualify-adapters.py",
+      "log": "/private/tmp/buddy-verification-standalone-adapters-final.log",
+      "adapter_exit": 0
+    }
+  ],
+  "script_mutants": [
+    {
+      "mutant": "original_evidence_hashes",
+      "rc": 1,
+      "tail": "-compaction.py\", line 252, in self_test\n    count += evidence_self_test(r, Path(scratch))\n  File \"/private/tmp/buddy-verification-script-mutants/original_evidence_hashes/check-claude-interrupted-compaction.py\", line 409, in evidence_self_test\n    raise AssertionError(\"evidence %s (%s): original_evidence_hashes=%r, want %r\" % (\nAssertionError: evidence completed (wire: the armed /compact input rewritten): original_evidence_hashes=True, want False\n"
+    },
+    {
+      "mutant": "single_armed_compact_input_preserves_uuid",
+      "rc": 1,
+      "tail": "upted-compaction.py\", line 252, in self_test\n    count += evidence_self_test(r, Path(scratch))\n  File \"/private/tmp/buddy-verification-script-mutants/single_armed_compact_input_preserves_uuid/check-claude-interrupted-compaction.py\", line 406, in evidence_self_test\n    raise AssertionError(\"accepted corrupted evidence: %s: %s%s\" % (\nAssertionError: accepted corrupted evidence: completed: wire: the armed /compact input rewritten (hash re-recorded)\n"
+    },
+    {
+      "mutant": "boundary_observation_and_native_history",
+      "rc": 1,
+      "tail": "t\n    count += evidence_self_test(r, Path(scratch))\n  File \"/private/tmp/buddy-verification-script-mutants/boundary_observation_and_native_history/check-claude-interrupted-compaction.py\", line 412, in evidence_self_test\n    raise AssertionError(\"forged evidence did not fail %s: %s: %s\" % (check, mode, label))\nAssertionError: forged evidence did not fail boundary_observation_and_native_history: completed: wire: the native compact boundary removed\n"
+    },
+    {
+      "mutant": "loss_is_recorded_before_forwarding",
+      "rc": 1,
+      "tail": "-claude-interrupted-compaction.py\", line 252, in self_test\n    count += evidence_self_test(r, Path(scratch))\n  File \"/private/tmp/buddy-verification-script-mutants/loss_is_recorded_before_forwarding/check-claude-interrupted-compaction.py\", line 406, in evidence_self_test\n    raise AssertionError(\"accepted corrupted evidence: %s: %s%s\" % (\nAssertionError: accepted corrupted evidence: completed: wire: a drop the fault never made (hash re-recorded)\n"
+    },
+    {
+      "mutant": "native_inputs_and_approval_answers_exact",
+      "rc": 1,
+      "tail": "ude-interrupted-compaction.py\", line 252, in self_test\n    count += evidence_self_test(r, Path(scratch))\n  File \"/private/tmp/buddy-verification-script-mutants/native_inputs_and_approval_answers_exact/check-claude-interrupted-compaction.py\", line 406, in evidence_self_test\n    raise AssertionError(\"accepted corrupted evidence: %s: %s%s\" % (\nAssertionError: accepted corrupted evidence: completed: wire: an adapter input replayed (hash re-recorded)\n"
+    },
+    {
+      "mutant": "same_run",
+      "rc": 1,
+      "tail": "ification-script-mutants/same_run/check-mixed-fleet.py\", line 181, in suite_splice_self_test\n    refuse(bad, \"same_run\", \"suite root names another run\")\n  File \"/private/tmp/buddy-verification-script-mutants/same_run/check-mixed-fleet.py\", line 161, in refuse\n    raise AssertionError(\"accepted spliced suite (\" + why + \"): \" + guard + \" did not refuse\")\nAssertionError: accepted spliced suite (suite root names another run): same_run did not refuse\n"
+    },
+    {
+      "mutant": "same_contract",
+      "rc": 1,
+      "tail": "tract/check-mixed-fleet.py\", line 176, in suite_splice_self_test\n    refuse(bad, \"same_contract\", \"a case from a different \" + key)\n  File \"/private/tmp/buddy-verification-script-mutants/same_contract/check-mixed-fleet.py\", line 161, in refuse\n    raise AssertionError(\"accepted spliced suite (\" + why + \"): \" + guard + \" did not refuse\")\nAssertionError: accepted spliced suite (a case from a different fixture_sources): same_contract did not refuse\n"
+    },
+    {
+      "mutant": "history_exactly_one",
+      "rc": 1,
+      "tail": "Correct-layout positive control exit0; mutant exit1: RuntimeError not raised, 2 subtests. Initial import-layout error excluded."
+    },
+    {
+      "mutant": "still_owned",
+      "rc": 1,
+      "tail": ", forced), ([], []))\nAssertionError: Tuples differ: (['fallback SIGKILL of owned group 5686: its adapter did not end it'], [5686]) != ([], [])\n\nFirst differing element 0:\n['fallback SIGKILL of owned group 5686: its adapter did not end it']\n[]\n\n- (['fallback SIGKILL of owned group 5686: its adapter did not end it'], [5686])\n+ ([], [])\n\n----------------------------------------------------------------------\nRan 1 test in 0.111s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutant": "assert AST gate",
+      "rc": 1,
+      "tail": "Control exit0; ast.Assert -> ast.Pass makes planted controls fail, so the mutant is killed."
+    }
+  ],
+  "script_mutant_total": 10,
+  "script_mutants_killed": 10,
+  "extra_native_cases": {
+    "F01_direct_initial": {
+      "status": "REFUTED original matcher, fixed and rerun",
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-znaxrd20/result.json",
+      "detail": "^apply_patch$ does not receive Bash shell-routed patch; held file and collateral changed. Covering union refused; persistent final suite15/15."
+    },
+    "F01_wrapped": {
+      "status": "REFUTED original detector, fixed and rerun",
+      "before": "/private/tmp/buddy-codex-contract-qualification-c87pxm7t/result.json",
+      "after_log": "/private/tmp/buddy-verification-shell-bash-final.log",
+      "command": "python3 -B /private/tmp/buddy-verification-shell-bash.py --repo /private/tmp/buddy-verification-native-4jbaj2p2 --app-server --buddy /private/tmp/buddy-verification-retained-bin/buddy --codex ~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex",
+      "detail": "Exact bash -lc heredoc bypass changed held path before; after AST fix6/6 and unchanged."
+    },
+    "F05_F06_Codex": {
+      "status": "VERIFIED native cases10/10",
+      "log": "/private/tmp/buddy-verification-native-paths.log",
+      "command": "python3 -B /private/tmp/buddy-verification-native-paths.py",
+      "detail": "Delete removes symlink entry, leaves target; dotdot uses lexical leaf; Add through dangling symlink creates target; Move deletes source/writes destination. Held spelling cases refused; unheld controls actually executed."
+    },
+    "F05_F06_Claude": {
+      "status": "VERIFIED Write cases6/6; dedicated Delete/Move tool cases not applicable to the advertised Claude tool surface",
+      "log": "/private/tmp/buddy-verification-claude-paths-final.log",
+      "command": "python3 -B /private/tmp/buddy-verification-claude-paths.py",
+      "detail": "Write refuses both existing and dangling symlink even with unheld target; dotdot normalized lexically before hook. Held lexical path refused; unheld lexical leaf changed, physical alternate unchanged. Native2.1.291 advertised no dedicated Delete or Move tool; the governed path tools are Edit, Write and NotebookEdit. Bash rm/mv side effects are outside this declared-path gate contract, so these are not omitted direct-tool checks."
+    },
+    "F07_regrouped_job": {
+      "status": "REFUTED broader all-descendant cleanup",
+      "receipt": "/private/tmp/buddy-claude-jobs-sug0fu1z/result.json",
+      "detail": "Captured descendant Bash job had pgid42169; adapter42111 and native42114 differed. Close exit0 in0.00156s, job remained alive. Exact captured identity fallback killed only fixture group42169. No fallback promoted this to pass.",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-jobs.py",
+        "--claude",
+        "~/.local/share/claude/versions/2.1.291",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-verification-retained-bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-verification-retained-bin/buddy-adapter"
+      ],
+      "binary_hashes": {
+        "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+        "buddy_sha256": "848e0b3b7d1fffe39d1a9a4b7b0ec49f75a8b954bb518d60e041e3651641096c",
+        "adapter_sha256": "1d60f5f18f0054d9fb22a402778a12c2b0ef698230b40da0be4fd3c968ae81ec",
+        "fixture_sha256": "dad7648263bae6269977db1c78eba94a2049a634d381af9bd5efce40ba8cf22d"
+      }
+    },
+    "F07_native_deny_branches": {
+      "status": "NOT CHECKED",
+      "receipt": "/private/tmp/buddy-claude-native-t1femrvq/result.json",
+      "detail": "Attempted actual Agent/Bash branch emitted an async agent and never armed a subagent permission callback; no-active-input branch was not reached. Do not count13/14 as a qualifying pass. Ordinary native permission-deny wire shape did succeed in settings controls."
+    },
+    "F09_F21_settings": {
+      "status": "VERIFIED native2.1.291 matcher/timeout floor semantics; other admitted versions and600s bound NOT CHECKED",
+      "receipt": "/private/tmp/buddy-native-settings-oxht6xma/result.json",
+      "command": "python3 -B /private/tmp/buddy-verification-native-settings.py",
+      "detail": "Literal and anchored uppercase matchers fired and denied. Lowercase control did not fire. Hook configured timeout10 and sleep11 yielded can_use_tool after10.052s, showing hook cancellation is not native deny; explicit permission denial kept file absent. These were direct native semantic cases, not an admitted slow Buddy hook."
+    },
+    "F29_loaded_ledger": {
+      "status": "VERIFIED31/31",
+      "receipt": "/private/tmp/buddy-claude-native-yku9l1u8/result.json",
+      "timings": "/private/tmp/buddy-verification-endpoint-load/timings.jsonl",
+      "command": "python3 -B /private/tmp/buddy-verification-endpoint-load/run.py --claude /private/tmp/buddy-verification-retained-bin/claude --claude-version 2.1.291 --buddy /private/tmp/buddy-verification-endpoint-load/buddy-loaded --adapter /private/tmp/buddy-claude-native-rr906mmh/bin/buddy-adapter",
+      "detail": "Actual SQLite writer held700ms at endpoint admission; endpoint remained unknown; gate began236/253ms after lock armed, held Write denied and unheld Write allowed. Initial process-local Python3.9 monotonic timestamps excluded; final timestamps used wall clock."
+    },
+    "F07_regrouped_job_final": {
+      "status": "REFUTED; red3/4 after V13 reporting repair",
+      "receipt": "/private/tmp/buddy-claude-jobs-btpg0g3j/result.json",
+      "receipt_sha256": "79ce7e1a1b59ef57af9e6f157aa0f8e36aeb7ff7c4497bfa80556244b8619043",
+      "durable_copy": "native-job-result.json",
+      "command": "python3 -B scripts/qualify-claude-jobs.py --claude ~/.local/share/claude/versions/2.1.291 --claude-version 2.1.291 --buddy /private/tmp/buddy-verification-retained-bin/buddy --adapter /private/tmp/buddy-verification-retained-bin/buddy-adapter",
+      "exit_code": 1,
+      "adapter_forced_cleanup": [],
+      "exact_fixture_processes_absent_after_cleanup": true,
+      "note": "Post-cleanup ps on only recorded PIDs returned no processes. No broader cleanup claim."
+    }
+  },
+  "preserved_failures": [
+    {
+      "receipt": "/private/tmp/buddy-claude-interrupted-compaction-sr3ci8x7/result.json",
+      "reason": "F35 crash_active assumed native shared adapter pgid; child observed alive after3s. Other4 modes passed. Fixed ownership rerun all5 passed."
+    },
+    {
+      "receipt": "/private/tmp/buddy-mixed-fleet-k6pn8yck/result.json",
+      "reason": "36/37; normal Close raced unrecorded disconnected event(controller closed). Runtime race fixed; latest mixed37/37."
+    },
+    {
+      "receipt": "/private/tmp/buddy-claude-endpoints-lwm9c1ng/result.json",
+      "reason": "Retained version-basename executable caused endpoint birth unknown. Canonical native argv and proxy fixes restored capture."
+    },
+    {
+      "receipt": "/private/tmp/buddy-claude-endpoints-lmr3r6ec/result.json",
+      "reason": "Native receiver gone but socket pathname remained after TERM. Decision records socket_file_present separately; endpoint eligibility based exact receiver birth. No socket unlink used to fake success."
+    }
+  ],
+  "open_script_findings": {
+    "F13": "same_run/same_contract verified by independent neutering; same-build whole-case copy remains open until runner run_id exists.",
+    "F33": "Other checkers still need retained native receipts; only resume is self-contained synthetic baseline.",
+    "F35": "Distinct native group capture/fault cleanup corrected and native suites pass; blanket descendant cleanup refuted separately and forced-kill reporting in direct Mods/peers remains earlier declared partial.",
+    "F36": "Provider sequence/stage marker closure remains open.",
+    "F37": "Suite binding partial; recovery/interrupted lack complete source/native hash verification. No stronger authenticity claim made."
+  },
+  "script_edits_by_this_worker": [
+    "scripts/qualify-codex.py: persistent --shell-patch and covering Bash/apply_patch matcher",
+    "scripts/qualify-claude.py, qualify-claude-resume.py, qualify-claude-compaction.py, qualify-claude-interrupted-compaction.py: canonical native argv0 in observers (ownership edits belong to adapter worker)",
+    "scripts/qualify-claude-endpoints.py: canonical argv0 including sandbox path, stale socket observation and exact receiver eligibility",
+    "scripts/check-claude-delivery.py: receiver cleanup predicate and two mutations per endpoint case",
+    "scripts/qualify-claude-peers.py: canonical argv0 for direct native launch",
+    "scripts/qualify-recovery.py: explicit --claude-version option for retained291 rerun",
+    "scripts/qualify-claude-jobs.py: new durable native regroup probe; executed but not independently source-reviewed"
+  ],
+  "not_completed": [
+    "Native subagent/no-active-input permission branches not armed/observed.",
+    "Matcher/timeout semantics for2.1.289/2.1.290 and600s upper bound not executed.",
+    "No production/provider qualification, installation or schema15 deployment."
+  ],
+  "not_applicable": [
+    "Claude2.1.291 has no advertised dedicated Delete/Move tool. Native Bash rm/mv side effects fall outside the gate contract; Codex apply_patch delete/move cases were executed."
+  ]
+}

@@ -1,0 +1,33 @@
+EF.
+======================================================================
+ERROR: test_close_failure_still_preserves_forced_receipt (__main__.JobProbeCleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "~/Projects/buddy-system/scripts/test_native_proxy.py", line 393, in test_close_failure_still_preserves_forced_receipt
+    status, result = self.exercise(["SIGTERM"], close_error=True)
+  File "~/Projects/buddy-system/scripts/test_native_proxy.py", line 376, in exercise
+    status = module.main()
+  File "~/Projects/buddy-system/scripts/qualify-claude-jobs.py", line 113, in main
+    client.close()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1093, in __call__
+    return self._mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1097, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/unittest/mock.py", line 1158, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "~/Projects/buddy-system/scripts/test_native_proxy.py", line 350, in close
+    raise RuntimeError("fixture close failed after forced signal")
+RuntimeError: fixture close failed after forced signal
+
+======================================================================
+FAIL: test_forced_close_is_not_success (__main__.JobProbeCleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "~/Projects/buddy-system/scripts/test_native_proxy.py", line 381, in test_forced_close_is_not_success
+    self.assertEqual(status, 1, "forced SIGTERM was laundered into successful qualification")
+AssertionError: 0 != 1 : forced SIGTERM was laundered into successful qualification
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.122s
+
+FAILED (failures=1, errors=1)

@@ -1,0 +1,11 @@
+--- internal/cli/gatetargets.go
++++ internal/cli/gatetargets.go
+@@ -60,7 +60,7 @@
+ 	add(canon(lex))
+ 	add(entryOf(lex, canon))
+ 	add(physical(raw))
+-	add(entryOf(raw, physical))
++	// mutation removed add(entryOf(raw, physical))
+ 	for _, e := range append([]string(nil), out...) {
+ 		add(danglingTarget(e))
+ 	}

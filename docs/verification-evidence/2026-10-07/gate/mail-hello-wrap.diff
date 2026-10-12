@@ -1,0 +1,11 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -1148,7 +1148,7 @@
+ 		// delayed hook the manual path D-069 closed. But a script loop's
+ 		// stdin or an inherited pipe reaches here with no hint of why, so say
+ 		// what a hand-run registration takes (review F-27, 2026-10-06).
+-		herr = fmt.Errorf("%w; a hand-run `hello --session` takes no hook input, so give it an empty stdin (</dev/null): bytes there are read as a hook's and refused when they are not one", herr)
++		// mutation removes empty stdin guidance
+ 	}
+ 	if herr == nil {
+ 		if h.Harness == "codex" {

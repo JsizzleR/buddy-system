@@ -1,0 +1,10 @@
+--- internal/cli/cli.go
++++ internal/cli/cli.go
+@@ -2090,6 +2090,7 @@
+ 	// class, and a breach of invariant 3. A conflict still refuses wherever a
+ 	// home or TARGET ledger governs the call.
+ 	idErr := classifyHook(&h, env)
++ if idErr != nil { deny(env, "identity conflict"); return 0 }
+ 	if h.ToolName == "" {
+ 		// Structurally valid JSON that is semantically not a PreToolUse
+ 		// payload (no tool_name) is schema drift, not a pass (Codex finding:

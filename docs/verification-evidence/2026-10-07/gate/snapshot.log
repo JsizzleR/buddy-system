@@ -1,0 +1,117 @@
+=== RUN   TestLegacyViewsReportAdapterMail
+=== PAUSE TestLegacyViewsReportAdapterMail
+=== RUN   TestLegacyCorrectionOfAdapterMailRefused
+=== PAUSE TestLegacyCorrectionOfAdapterMailRefused
+=== RUN   TestNoLegacyWakeForAdapterMailOrRecipients
+=== PAUSE TestNoLegacyWakeForAdapterMailOrRecipients
+=== RUN   TestLifecycleHookRenewsObservedClaimsOnly
+=== PAUSE TestLifecycleHookRenewsObservedClaimsOnly
+=== RUN   TestHelloSessionStdinRefusalNamesRecipe
+=== PAUSE TestHelloSessionStdinRefusalNamesRecipe
+=== RUN   TestGateRefusesShellRoutedPatch
+=== PAUSE TestGateRefusesShellRoutedPatch
+=== RUN   TestGateShellRoutedPatchFeatureOff
+=== PAUSE TestGateShellRoutedPatchFeatureOff
+=== RUN   TestGateNestedRepoKeepsHomeClaim
+=== PAUSE TestGateNestedRepoKeepsHomeClaim
+=== RUN   TestGateChecksEverySpellingOfATarget
+=== PAUSE TestGateChecksEverySpellingOfATarget
+=== RUN   TestGateIdentityConflictOnlyWhereGoverned
+=== PAUSE TestGateIdentityConflictOnlyWhereGoverned
+=== RUN   TestGateForeignTargetHonoursPause
+=== PAUSE TestGateForeignTargetHonoursPause
+=== CONT  TestLegacyViewsReportAdapterMail
+=== CONT  TestGateShellRoutedPatchFeatureOff
+=== CONT  TestGateIdentityConflictOnlyWhereGoverned
+=== CONT  TestGateForeignTargetHonoursPause
+=== CONT  TestLifecycleHookRenewsObservedClaimsOnly
+=== CONT  TestGateChecksEverySpellingOfATarget
+=== CONT  TestGateRefusesShellRoutedPatch
+=== CONT  TestHelloSessionStdinRefusalNamesRecipe
+=== CONT  TestGateNestedRepoKeepsHomeClaim
+=== CONT  TestNoLegacyWakeForAdapterMailOrRecipients
+=== CONT  TestLegacyCorrectionOfAdapterMailRefused
+=== NAME  TestLegacyViewsReportAdapterMail
+    adaptermail_test.go:31: an empty adapter register must say so: - worker-label  (codex-worker)  live  started 0s  seen 0s
+        CLAIMS HELD  0
+        DIRTY PATHS  (none recorded)
+        BASE         (none recorded — the Stop hook records it at the end of each turn)
+        INBOX        0 undelivered
+        WAITING      none declared
+        AUTHORITY    no watched file carries a modification time later than this session's start (2 watched path(s) could not be read as a file and were not checked)
+        JOBS         cannot say: no live harness process is registered for it
+        EXIT         no claims held; the ledger would be left holding nothing (dirty paths, if any, are observations and stay in the tree)
+--- FAIL: TestLegacyViewsReportAdapterMail (0.21s)
+=== NAME  TestGateShellRoutedPatchFeatureOff
+    gatetargets_test.go:108: want deny=true (containing "apply_patch tool"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellRoutedPatchFeatureOff1734528240/002","session_id":"sess-b","tool_input":{"command":"apply_patch \u003c\u003c'EOF'\n*** Begin Patch\n*** Add File: /var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellRoutedPatchFeatureOff1734528240/001/repo/x.go\n+x\n*** End Patch\nEOF\n"},"tool_name":"Bash"}
+--- FAIL: TestGateShellRoutedPatchFeatureOff (0.25s)
+=== NAME  TestGateIdentityConflictOnlyWhereGoverned
+    gatetargets_test.go:207: want deny=false (containing ""), got "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"buddy gate could not read hook input ($CLAUDE_CODE_SESSION_ID and $CODEX_THREAD_ID disagree (claude-1 and codex-parent); clear the inherited identity before continuing); refusing the tool call\"}}\n"
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateIdentityConflictOnlyWhereGoverned4063748394/003","session_id":"claude-1","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateIdentityConflictOnlyWhereGoverned4063748394/003/x.txt"},"tool_name":"Write"}
+--- FAIL: TestGateIdentityConflictOnlyWhereGoverned (0.39s)
+=== NAME  TestGateForeignTargetHonoursPause
+    gatetargets_test.go:239: want deny=true (containing "paused edits in"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateForeignTargetHonoursPause800345614/001/repo","session_id":"sess-a","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateForeignTargetHonoursPause800345614/002/repo/x.go"},"tool_name":"Edit"}
+=== RUN   TestGateChecksEverySpellingOfATarget/control:_claimed_file
+=== RUN   TestGateChecksEverySpellingOfATarget/control:_free_file
+--- FAIL: TestGateForeignTargetHonoursPause (0.51s)
+=== RUN   TestGateChecksEverySpellingOfATarget/relative_link/..
+=== RUN   TestGateChecksEverySpellingOfATarget/absolute_link/.._patch
+    gatetargets_test.go:186: want deny=true (containing "docs"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo","session_id":"sess-b","tool_input":{"command":"*** Begin Patch\n*** Delete File: /var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo/docs/link/../core.go\n*** End Patch\n"},"tool_name":"apply_patch"}
+=== RUN   TestGateChecksEverySpellingOfATarget/absolute_link/.._Edit
+    gatetargets_test.go:186: want deny=true (containing "docs"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo","session_id":"sess-b","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo/docs/link/../core.go"},"tool_name":"Edit"}
+=== RUN   TestGateChecksEverySpellingOfATarget/delete_claimed_entry
+=== NAME  TestLifecycleHookRenewsObservedClaimsOnly
+    adaptermail_test.go:171: the patched file's claim must renew: "work                     worker-label             open STALE        40m  README — d"
+        other                    worker-label             open STALE        40m  docs — d
+        work                     worker-label             open STALE        40m  README — d
+--- FAIL: TestLifecycleHookRenewsObservedClaimsOnly (0.55s)
+=== NAME  TestGateChecksEverySpellingOfATarget/delete_claimed_entry
+    gatetargets_test.go:186: want deny=true (containing "docs"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo","session_id":"sess-b","tool_input":{"command":"*** Begin Patch\n*** Delete File: docs/filelink\n*** End Patch\n"},"tool_name":"apply_patch"}
+=== RUN   TestGateChecksEverySpellingOfATarget/move_claimed_entry
+    gatetargets_test.go:186: want deny=true (containing "docs"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo","session_id":"sess-b","tool_input":{"command":"*** Begin Patch\n*** Update File: docs/filelink\n*** Move to: free/moved.go\n@@\n-x\n+y\n*** End Patch\n"},"tool_name":"apply_patch"}
+=== RUN   TestGateChecksEverySpellingOfATarget/write_through_a_free_entry_into_the_claim
+=== RUN   TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim
+=== NAME  TestGateRefusesShellRoutedPatch
+    gatetargets_test.go:83: want deny=true (containing "apply_patch tool"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateRefusesShellRoutedPatch3640446367/001/wtB","session_id":"sess-b","tool_input":{"command":"apply_patch \u003c\u003c'EOF'\n*** Begin Patch\n*** Delete File: src/old.go\n*** End Patch\nEOF\n"},"tool_name":"Bash"}
+=== NAME  TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim
+    gatetargets_test.go:186: want deny=true (containing "docs"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo","session_id":"sess-b","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateChecksEverySpellingOfATarget948512310/001/repo/free/dangling"},"tool_name":"Write"}
+=== RUN   TestGateChecksEverySpellingOfATarget/dangling_link_entry_in_the_claim
+--- FAIL: TestGateRefusesShellRoutedPatch (0.59s)
+=== RUN   TestGateChecksEverySpellingOfATarget/holder
+--- FAIL: TestGateChecksEverySpellingOfATarget (0.63s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/control:_claimed_file (0.02s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/control:_free_file (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/relative_link/.. (0.01s)
+    --- FAIL: TestGateChecksEverySpellingOfATarget/absolute_link/.._patch (0.01s)
+    --- FAIL: TestGateChecksEverySpellingOfATarget/absolute_link/.._Edit (0.01s)
+    --- FAIL: TestGateChecksEverySpellingOfATarget/delete_claimed_entry (0.01s)
+    --- FAIL: TestGateChecksEverySpellingOfATarget/move_claimed_entry (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/write_through_a_free_entry_into_the_claim (0.01s)
+    --- FAIL: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/dangling_link_entry_in_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/holder (0.01s)
+=== NAME  TestHelloSessionStdinRefusalNamesRecipe
+    adaptermail_test.go:187: non-hook bytes must refuse and name the recipe: 1 "buddy hello: parse hook input: invalid character 's' looking for beginning of value\n"
+--- FAIL: TestHelloSessionStdinRefusalNamesRecipe (0.64s)
+=== NAME  TestGateNestedRepoKeepsHomeClaim
+    gatetargets_test.go:134: want deny=true (containing "vendor"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateNestedRepoKeepsHomeClaim3968242705/001/repo","session_id":"sess-b","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateNestedRepoKeepsHomeClaim3968242705/001/repo/vendor/inited/x.go"},"tool_name":"Edit"}
+--- FAIL: TestGateNestedRepoKeepsHomeClaim (0.80s)
+=== NAME  TestLegacyCorrectionOfAdapterMailRefused
+    adaptermail_test.go:75: dry=true: a legacy correction of adapter mail must refuse: 0 ""
+--- FAIL: TestLegacyCorrectionOfAdapterMailRefused (0.84s)
+=== NAME  TestNoLegacyWakeForAdapterMailOrRecipients
+    adaptermail_test.go:122: sent must name adapter mail and offer no legacy wake: #1 to worker-label from repo/s-sender, 31m ago — 0 of 1 with a recorded delivery
+          worker-label             queued; to wake it now: SendMessage to "uds:/tmp/bw4228768536/400.sock" with the text "buddy mail #1 is queued for you (08:31:00): run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way
+--- FAIL: TestNoLegacyWakeForAdapterMailOrRecipients (0.88s)
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/cli	1.046s
+FAIL

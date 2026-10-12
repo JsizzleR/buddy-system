@@ -1,0 +1,82 @@
+package harness
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// A wake for message #2 sent while the Claude worker is busy is refused by the
+// backend BEFORE any native write, yet it is reported as State "unknown" (not
+// ErrNotSubmitted). The controller journals that as an uncertain wake: #2 can
+// never be woken again, and the logical session can never be resumed.
+func TestProbeClaudeBusyWakeRefusalPoisonsJournal(t *testing.T) {
+	for _, busyWake := range []bool{false, true} {
+		name := "positive-control"
+		if busyWake {
+			name = "busy-wake"
+		}
+		t.Run(name, func(t *testing.T) {
+			b, launch, ctx := claudeFixture(t)
+			l := &fakeLedger{queued: true}
+			path := filepath.Join(t.TempDir(), "receipt.json")
+			c, err := NewController(b, l, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, err := c.Start(ctx, "claude", launch, "w")
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := r.Identity
+			idle := make(chan struct{}, 4)
+			go func() {
+				for e := range b.Events() {
+					_, _ = c.Observe(context.Background(), e)
+					if e.Kind == "idle" {
+						idle <- struct{}{}
+					}
+				}
+			}()
+			r1, err := c.Handle(ctx, Request{Schema: Schema, Operation: "send", Identity: id, MessageID: 1})
+			if err != nil || r1.Delivery == nil || r1.Delivery.State != "delivered" {
+				t.Fatalf("wake 1: %+v %v", r1.Delivery, err)
+			}
+			turn := r1.Delivery.TurnID
+			if busyWake {
+				r2, err := c.Handle(ctx, Request{Schema: Schema, Operation: "send", Identity: id, MessageID: 2})
+				t.Logf("busy wake #2: delivery=%+v err=%v notSubmitted=%v", r2.Delivery, err, errors.Is(err, ErrNotSubmitted))
+			}
+			if _, err := c.Handle(ctx, Request{Schema: Schema, Operation: "interrupt", Identity: id, TurnID: turn}); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-idle:
+			case <-time.After(5 * time.Second):
+				t.Fatal("no idle after interrupt")
+			}
+			time.Sleep(100 * time.Millisecond)
+			if busyWake {
+				r2, err := c.Handle(ctx, Request{Schema: Schema, Operation: "send", Identity: id, MessageID: 2})
+				t.Logf("wake #2 retried while idle: delivery=%+v err=%v", r2.Delivery, err)
+				if r2.Delivery != nil && r2.Delivery.State != "delivered" {
+					t.Errorf("message #2 can never be woken: retry returns the journalled %q with no native write", r2.Delivery.State)
+				}
+			}
+			c.Close()
+			rc := &resumeCounter{}
+			c2, err := NewController(rc, l, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c2.Close()
+			_, err = c2.Resume(context.Background())
+			t.Logf("resume: err=%v resumes=%d", err, rc.resumes)
+			if err != nil {
+				t.Errorf("resume refused after a wake that never touched the pipe: %v", err)
+			}
+		})
+	}
+}

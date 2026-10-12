@@ -1,0 +1,3 @@
+Perform a constrained CODE review, read-only: no builds/tests/native launches/web search/edits/subagents. Use only the listed source files and directly called helpers where necessary. Do not read memory or the whole repository. Review final current files, including untracked tests. Return ranked CONFIRMED P1/P2 with exact failing input and lines; distinguish residuals; source evidence only. Limit scope to the stated boundaries.
+
+internal/harness/controller.go and verification_replay_test.go: not_submitted live/replay (new V02 rejects TurnID/ResultRef contradictions), observation gaps, approval detail presentation and cancellation. Need follow paths bypassing guards. No native reconciliation API change: Codex ReadTurn deliberately unsupported.

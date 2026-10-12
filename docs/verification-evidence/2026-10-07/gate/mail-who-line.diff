@@ -1,0 +1,11 @@
+--- internal/cli/who.go
++++ internal/cli/who.go
+@@ -236,7 +236,7 @@
+ 	if err != nil {
+ 		return err
+ 	}
+-	fmt.Fprintln(env.Stdout, "ADAPTER      "+adapterRegister(ab, now))
++	_ = ab // mutation removes ADAPTER line
+ 
+ 	// WAITING — what this session has declared it is waiting on (D-033), with
+ 	// the one Verdict every view renders, when its keep-alive last checked in,

@@ -1,0 +1,247 @@
+package harness
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// R1: main.go wraps --operator-fd with os.NewFile and never marks it
+// close-on-exec, and does so only AFTER Start launched the native child. An
+// inherited descriptor (shell redirection / Python pass_fds) is non-CLOEXEC, so
+// the native worker inherits the operator approval channel.
+func TestReviewOperatorDescriptorNotInheritedByNativeChild(t *testing.T) {
+	var p [2]int
+	if err := syscall.Pipe(p[:]); err != nil { // like an inherited fd: no CLOEXEC
+		t.Fatal(err)
+	}
+	syscall.CloseOnExec(p[1]) // the operator UI keeps the write end
+	operator := os.NewFile(uintptr(p[0]), "operator-approvals") // exactly main.go:166
+	defer operator.Close()
+	ui := os.NewFile(uintptr(p[1]), "operator-ui")
+	defer ui.Close()
+	if _, err := ui.WriteString(`{"schema":"buddy.control.v1","operation":"approve","approval":{"decision":"allow"}}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf(`if (exec 0<&%d) 2>/dev/null; then IFS= read -r line <&%d; printf '{"inherited":true,"stolen":%%s}\n' "$line"; else echo '{"inherited":false}'; fi; read x`, p[0], p[0])
+	proc, err := StartJSONProcess(context.Background(), "/bin/sh", []string{"-c", script}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+	select {
+	case line := <-proc.Read():
+		var v struct {
+			Inherited bool            `json:"inherited"`
+			Stolen    json.RawMessage `json:"stolen"`
+		}
+		_ = json.Unmarshal(line, &v)
+		if v.Inherited {
+			t.Fatalf("native child inherited the operator approval descriptor and consumed the operator's decision: %s", v.Stolen)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no output")
+	}
+}
+
+// R2: JSONProcess.Close SIGKILLs only the direct native process. No process
+// group is created, so a tool subprocess the worker started survives and keeps
+// writing in the worktree after the adapter has closed the worker.
+func TestReviewCloseEndsNativeDescendants(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "late-write")
+	script := fmt.Sprintf(`(sleep 2; echo late > %q) </dev/null >/dev/null 2>&1 & echo "{\"tool_pid\":$!}"; exec sleep 300`, marker)
+	proc, err := StartJSONProcess(context.Background(), "/bin/sh", []string{"-c", script}, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		PID int `json:"tool_pid"`
+	}
+	select {
+	case line := <-proc.Read():
+		_ = json.Unmarshal(line, &v)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no output")
+	}
+	_ = proc.Close()
+	select {
+	case <-proc.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transport did not finish")
+	}
+	time.Sleep(3 * time.Second)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("descendant pid %d of the closed native worker wrote %s after Close", v.PID, marker)
+	}
+}
+
+// R2b: a descendant that inherited native stdout keeps the reader goroutine in
+// Scan forever after Close: done never closes and cmd.Wait never reaps.
+func TestReviewCloseWithDescendantHoldingStdout(t *testing.T) {
+	proc, err := StartJSONProcess(context.Background(), "/bin/sh", []string{"-c", `sleep 30 & echo '{"ready":true}'; exec sleep 300`}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-proc.Read()
+	_ = proc.Close()
+	select {
+	case <-proc.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("after Close, a descendant holding native stdout keeps the transport reader (and the unreaped child) alive")
+	}
+}
+
+type flakyLedger struct {
+	fakeLedger
+	failInspect bool
+}
+
+func (l *flakyLedger) Inspect(ctx context.Context, i Identity) (json.RawMessage, error) {
+	if l.failInspect {
+		return nil, errors.New("ledger momentarily unavailable")
+	}
+	return l.fakeLedger.Inspect(ctx, i)
+}
+
+// R3: an approval event that Observe could not record leaves c.state as
+// "observed busy" and receipts then report pending_approval "observed_absent".
+func TestReviewDroppedApprovalIsNotObservedAbsent(t *testing.T) {
+	b := &fakeBackend{}
+	l := &flakyLedger{fakeLedger: fakeLedger{queued: true}}
+	path := filepath.Join(t.TempDir(), "receipt.json")
+	c, err := NewController(b, l, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx := context.Background()
+	if _, err = c.Start(ctx, "codex", Launch{Worktree: t.TempDir()}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	id := l.identity
+	if _, err = c.Observe(ctx, Event{Kind: "busy", NativeSessionID: id.SessionID, TurnID: "t1"}); err != nil {
+		t.Fatal(err)
+	}
+	l.failInspect = true
+	_, err = c.Observe(ctx, Event{Kind: "approval", NativeSessionID: id.SessionID, TurnID: "t1",
+		Approval: &Approval{ID: json.RawMessage(`7`), NativeSessionID: id.SessionID, TurnID: "t1", Kind: "item/commandExecution/requestApproval"}})
+	if err == nil {
+		t.Fatal("expected the approval observation to fail")
+	}
+	l.failInspect = false
+	r, err := c.Handle(ctx, Request{Schema: Schema, Operation: "inspect", Identity: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.PendingApproval.State == "observed_absent" {
+		t.Fatalf("native approval is pending but an unrecorded event left pending_approval=%q (state %+v)", r.PendingApproval.State, r.State)
+	}
+}
+
+// R1b: an operator UI that opens its FIFO read-write (3<>fifo, so open never
+// blocks) hands the native child a WRITABLE operator channel: a worker shell
+// writes an approve request that the adapter's operator reader accepts.
+func TestReviewNativeChildCannotWriteOperatorChannel(t *testing.T) {
+	fifo := filepath.Join(t.TempDir(), "operator.fifo")
+	if err := syscall.Mkfifo(fifo, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := syscall.Open(fifo, syscall.O_RDWR, 0) // inherited form: no CLOEXEC
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator := os.NewFile(uintptr(fd), "operator-approvals") // exactly main.go:166
+	defer operator.Close()
+	script := fmt.Sprintf(`echo '{"schema":"buddy.control.v1","id":"model","operation":"approve","approval":{"id":7,"decision":"allow"}}' >&%d 2>/dev/null; echo '{"done":true}'; read x`, fd)
+	proc, err := StartJSONProcess(context.Background(), "/bin/sh", []string{"-c", script}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+	<-proc.Read()
+	got := make(chan string, 1)
+	go func() {
+		s := bufio.NewScanner(operator) // main.go read(f, true)
+		if s.Scan() {
+			got <- s.Text()
+		}
+	}()
+	select {
+	case line := <-got:
+		var q Request
+		if json.Unmarshal([]byte(line), &q) == nil && q.Approval != nil {
+			t.Fatalf("operator reader accepted a request written by the native worker: %s", line)
+		}
+	case <-time.After(2 * time.Second):
+	}
+}
+
+// Positive control for R1: the one-line fix (CloseOnExec before any child is
+// started) makes the same child see no descriptor.
+func TestReviewFixOperatorCloexecControl(t *testing.T) {
+	var p [2]int
+	if err := syscall.Pipe(p[:]); err != nil {
+		t.Fatal(err)
+	}
+	syscall.CloseOnExec(p[1])
+	syscall.CloseOnExec(p[0]) // the fix
+	operator := os.NewFile(uintptr(p[0]), "operator-approvals")
+	defer operator.Close()
+	ui := os.NewFile(uintptr(p[1]), "operator-ui")
+	defer ui.Close()
+	script := fmt.Sprintf(`if (exec 0<&%d) 2>/dev/null; then echo '{"inherited":true}'; else echo '{"inherited":false}'; fi; read x`, p[0])
+	proc, err := StartJSONProcess(context.Background(), "/bin/sh", []string{"-c", script}, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proc.Close()
+	line := <-proc.Read()
+	if string(line) != `{"inherited":false}` {
+		t.Fatalf("control: %s", line)
+	}
+}
+
+type refusingSend struct {
+	fakeBackend
+	refuse bool
+}
+
+func (b *refusingSend) Send(ctx context.Context, id, text string) (Delivery, error) {
+	b.sends++
+	if b.refuse {
+		return Delivery{State: "unknown"}, fmt.Errorf("%w: Codex active turn is unknown; inspect or reconcile before sending", ErrNotSubmitted)
+	}
+	return Delivery{State: "delivered", TurnID: "t2"}, nil
+}
+
+// R4: a definite pre-send refusal of a wake is journalled as an uncertain
+// delivery and deduplicated forever; the message can never be woken again.
+func TestReviewDefiniteWakeRefusalIsNotBurned(t *testing.T) {
+	b := &refusingSend{refuse: true}
+	l := &fakeLedger{queued: true}
+	path := filepath.Join(t.TempDir(), "receipt.json")
+	c, err := NewController(b, l, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx := context.Background()
+	if _, err = c.Start(ctx, "codex", Launch{Worktree: t.TempDir()}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	q := Request{Schema: Schema, Operation: "send", Identity: l.identity, MessageID: 9}
+	r1, _ := c.Handle(ctx, q)
+	b.refuse = false
+	r2, err := c.Handle(ctx, q)
+	if b.sends != 2 {
+		t.Fatalf("a not-submitted wake was burned: first %+v, retry %+v (err %v), native sends %d", *r1.Delivery, *r2.Delivery, err, b.sends)
+	}
+}

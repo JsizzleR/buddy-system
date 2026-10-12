@@ -1,0 +1,27 @@
+=== RUN   TestGateFourDistinctTargetSpellings
+=== RUN   TestGateFourDistinctTargetSpellings/lexical-dest/file.go
+    verification_gatetargets_test.go:32: held=lexical-dest/file.go targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go3631295411/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go3631295411/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go3631295411/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingslexical-destfile.go3631295411/001/repo/physical/entry]
+=== RUN   TestGateFourDistinctTargetSpellings/docs/entry
+    verification_gatetargets_test.go:32: held=docs/entry targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry530074161/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry530074161/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry530074161/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsdocsentry530074161/001/repo/physical/entry]
+=== RUN   TestGateFourDistinctTargetSpellings/physical-dest/file.go
+    verification_gatetargets_test.go:32: held=physical-dest/file.go targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go357904597/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go357904597/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go357904597/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysical-destfile.go357904597/001/repo/physical/entry]
+=== RUN   TestGateFourDistinctTargetSpellings/physical/entry
+    verification_gatetargets_test.go:32: held=physical/entry targets=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry2339670043/001/repo/lexical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry2339670043/001/repo/docs/entry /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry2339670043/001/repo/physical-dest/file.go /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateFourDistinctTargetSpellingsphysicalentry2339670043/001/repo/physical/entry]
+--- PASS: TestGateFourDistinctTargetSpellings (0.70s)
+    --- PASS: TestGateFourDistinctTargetSpellings/lexical-dest/file.go (0.25s)
+    --- PASS: TestGateFourDistinctTargetSpellings/docs/entry (0.13s)
+    --- PASS: TestGateFourDistinctTargetSpellings/physical-dest/file.go (0.12s)
+    --- PASS: TestGateFourDistinctTargetSpellings/physical/entry (0.20s)
+=== RUN   TestGateDanglingSymlinkChain
+    verification_gatetargets_test.go:56: candidates=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkChain59989914/001/repo/free/first /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkChain59989914/001/repo/free/second]
+    verification_gatetargets_test.go:68: want deny=true (containing "docs"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkChain59989914/001/repo","session_id":"sess-b","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkChain59989914/001/repo/free/first"},"tool_name":"Write"}
+--- FAIL: TestGateDanglingSymlinkChain (0.16s)
+=== RUN   TestGateDanglingSymlinkPhysicalDotDot
+    verification_gatetargets_test.go:83: candidates=[/private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkPhysicalDotDot3074094431/001/repo/free/first /private/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkPhysicalDotDot3074094431/001/repo/other/new.go]
+    verification_gatetargets_test.go:94: want deny=true (containing "docs"), got ""
+        input: {"cwd":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkPhysicalDotDot3074094431/001/repo","session_id":"sess-b","tool_input":{"file_path":"/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateDanglingSymlinkPhysicalDotDot3074094431/001/repo/free/first"},"tool_name":"Write"}
+--- FAIL: TestGateDanglingSymlinkPhysicalDotDot (0.11s)
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/cli	1.178s
+FAIL

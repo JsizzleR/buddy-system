@@ -1,0 +1,28 @@
+FF
+======================================================================
+FAIL: test_native_ownership_follows_ancestry_across_groups (__main__.OwnedCleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "~/Projects/buddy-system/scripts/test_native_proxy.py", line 274, in test_native_ownership_follows_ancestry_across_groups
+    self.assertEqual([v["pid"] for v in owned], [child])
+AssertionError: Lists differ: [] != [12651]
+
+Second list contains 1 additional elements.
+First extra element 0:
+12651
+
+- []
++ [12651]
+
+======================================================================
+FAIL: test_deliberate_crash_ends_both_captured_groups (__main__.OwnedCleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "~/Projects/buddy-system/scripts/test_native_proxy.py", line 289, in test_deliberate_crash_ends_both_captured_groups
+    self.assertEqual(len(owned), 1, "new worker group was not captured")
+AssertionError: 0 != 1 : new worker group was not captured
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.124s
+
+FAILED (failures=2)

@@ -1,0 +1,884 @@
+[
+  {
+    "name": "fd-lower-bound",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 2.65,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-lower-bound.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "fd-open",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 1.91,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-open.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "fd-getfl-error",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 2.03,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-getfl-error.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "fd-readonly",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.07,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-readonly.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "fd-fstat-error",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 1.85,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-fstat-error.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "fd-type",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 1.9,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-type.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "fd-cloexec",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 1.88,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-cloexec.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "fd-newfile-nil",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 1.67,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/fd-newfile-nil.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterOperatorDescriptorAdmission",
+      "-v"
+    ]
+  },
+  {
+    "name": "setpgid",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 10.22,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/setpgid.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestJSONProcessCloseEndsDescendants|TestJSONProcessLeaderExitEndsGroup",
+      "-v"
+    ]
+  },
+  {
+    "name": "group-term",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 5.19,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/group-term.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestJSONProcessCloseEndsDescendants|TestJSONProcessLeaderExitEndsGroup",
+      "-v"
+    ]
+  },
+  {
+    "name": "group-kill",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 5.28,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/group-kill.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestJSONProcessCloseEndsDescendants|TestJSONProcessLeaderExitEndsGroup",
+      "-v"
+    ]
+  },
+  {
+    "name": "reader-close",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 6.02,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/reader-close.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestJSONProcessCloseFinishesDespiteStdoutHolders",
+      "-v"
+    ]
+  },
+  {
+    "name": "signal-handler",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 7.89,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/signal-handler.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterSignalEndsWorkerTree",
+      "-v"
+    ]
+  },
+  {
+    "name": "sigpipe-ignore",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 1.75,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/sigpipe-ignore.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestAdapterSignalEndsWorkerTree",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-377",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.11,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/claude-not-submitted-377.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-460",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 3.07,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/claude-not-submitted-460.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-464",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 2.95,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/claude-not-submitted-464.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-469",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 3.11,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/claude-not-submitted-469.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-474",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 2.98,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/claude-not-submitted-474.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-478",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 3.14,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/claude-not-submitted-478.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "claude-not-submitted-482",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 3.13,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/claude-not-submitted-482.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-292",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.15,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-292.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-295",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.11,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-295.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-304",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.12,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-304.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-375",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 3.1,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-375.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-378",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 3.21,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-378.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-380",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.58,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-380.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-443",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.64,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-443.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-532",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.41,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-532.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "codex-not-submitted-537",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 3.62,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/codex-not-submitted-537.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaude.*(Approval|Cancelled|Refusals)|TestCodex.*(Approval|Refusals|Reconcile)|TestController",
+      "-v"
+    ]
+  },
+  {
+    "name": "controller-not-submitted",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 1.42,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/controller-not-submitted.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestControllerNotSubmittedWakeIsRetryable|TestControllerClaudeBusyWakeRefusalRetriesAndResumes",
+      "-v"
+    ]
+  },
+  {
+    "name": "replay-open-intent",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.71,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/replay-open-intent.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestControllerJournalNotSubmittedRequiresOpenIntent",
+      "-v"
+    ]
+  },
+  {
+    "name": "replay-no-turn",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 0.76,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/replay-no-turn.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestControllerJournalNotSubmittedRequiresOpenIntent",
+      "-v"
+    ]
+  },
+  {
+    "name": "observation-gap",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.88,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/observation-gap.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestControllerUnrecordedEventIsNeverObservedAbsent",
+      "-v"
+    ]
+  },
+  {
+    "name": "duplicate-key",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.58,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/duplicate-key.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettings|TestClaudeEffectiveSettings",
+      "-v"
+    ]
+  },
+  {
+    "name": "case-adapter",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.77,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/case-adapter.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettings|TestClaudeEffectiveSettings",
+      "-v"
+    ]
+  },
+  {
+    "name": "case-pretooluse",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 3.03,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/case-pretooluse.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettings|TestClaudeEffectiveSettings",
+      "-v"
+    ]
+  },
+  {
+    "name": "case-gate",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.7,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/case-gate.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettings|TestClaudeEffectiveSettings",
+      "-v"
+    ]
+  },
+  {
+    "name": "matcher",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.92,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/matcher.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettings|TestClaudeEffectiveSettings",
+      "-v"
+    ]
+  },
+  {
+    "name": "matcher-syntax",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.74,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/matcher-syntax.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettingsMatcherSemantics",
+      "-v"
+    ]
+  },
+  {
+    "name": "matcher-coverage",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.77,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/matcher-coverage.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettingsMatcherSemantics",
+      "-v"
+    ]
+  },
+  {
+    "name": "async",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.81,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/async.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettings|TestClaudeEffectiveSettings",
+      "-v"
+    ]
+  },
+  {
+    "name": "timeout-type",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 0.76,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/timeout-type.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettingsExactKeysAndBounds",
+      "-v"
+    ]
+  },
+  {
+    "name": "timeout-min",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.78,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/timeout-min.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettingsExactKeysAndBounds",
+      "-v"
+    ]
+  },
+  {
+    "name": "timeout-max",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.89,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/timeout-max.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestClaudeSettingsExactKeysAndBounds",
+      "-v"
+    ]
+  },
+  {
+    "name": "executable-identity",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 0.98,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/executable-identity.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestNativeExecutable",
+      "-v"
+    ]
+  },
+  {
+    "name": "endpoint-shared-budget",
+    "status": "survived",
+    "rc": 0,
+    "elapsed": 1.68,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/endpoint-shared-budget.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./cmd/buddy-adapter",
+      "-run",
+      "TestReceiptBoundHookExecutable/slow_endpoint_cannot_deny_the_tool_call",
+      "-v"
+    ]
+  },
+  {
+    "name": "ledger-timeout",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.78,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/ledger-timeout.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestControllerStalledLedgerCannotWedgeShutdown",
+      "-v"
+    ]
+  },
+  {
+    "name": "ledger-lifetime-cancel",
+    "status": "killed",
+    "rc": 1,
+    "elapsed": 2.98,
+    "log": "/private/tmp/buddy-adapter-verify-dxmg7jlz/logs/ledger-lifetime-cancel.log",
+    "cmd": [
+      "go",
+      "test",
+      "-buildvcs=false",
+      "-count=1",
+      "-timeout=70s",
+      "./internal/harness",
+      "-run",
+      "TestControllerStalledLedgerCannotWedgeShutdown",
+      "-v"
+    ]
+  }
+]

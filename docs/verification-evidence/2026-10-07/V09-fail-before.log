@@ -1,0 +1,5 @@
+--- FAIL: TestControllerMissedCancellationMakesKnownApprovalUncertain (0.05s)
+    observation_test.go:58: missed cancellation claimed pending: {State:observed Detail:the listed approvals are pending; the set may be incomplete: native approval_resolved event was not recorded: ledger busy past its bound} ledger busy past its bound
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/harness	0.190s
+FAIL

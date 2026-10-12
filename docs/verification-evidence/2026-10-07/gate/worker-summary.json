@@ -1,0 +1,721 @@
+{
+  "role": "authorized worker; hermetic tests and disposable syscall fixtures; native shell proof supplied by sibling worker",
+  "snapshot": "refs/snapshots/orchestrator-pre-fixes-20261006",
+  "step2": {
+    "snapshot_failures": [
+      "TestLegacyViewsReportAdapterMail",
+      "TestGateShellRoutedPatchFeatureOff",
+      "TestGateIdentityConflictOnlyWhereGoverned",
+      "TestGateForeignTargetHonoursPause",
+      "TestLifecycleHookRenewsObservedClaimsOnly",
+      "TestGateRefusesShellRoutedPatch",
+      "TestGateChecksEverySpellingOfATarget",
+      "TestHelloSessionStdinRefusalNamesRecipe",
+      "TestGateNestedRepoKeepsHomeClaim",
+      "TestLegacyCorrectionOfAdapterMailRefused",
+      "TestNoLegacyWakeForAdapterMailOrRecipients"
+    ],
+    "current_passes": [
+      "TestVerificationShellVerdicts",
+      "TestVerificationNestedLinkedWorktree",
+      "TestVerificationMixedJurisdiction",
+      "TestVerificationLogicalRecipientNoWake",
+      "TestHelloSessionStdinRefusalNamesRecipe",
+      "TestLegacyViewsReportAdapterMail",
+      "TestGateShellRoutedPatchFeatureOff",
+      "TestGateChecksEverySpellingOfATarget",
+      "TestNoLegacyWakeForAdapterMailOrRecipients",
+      "TestGateIdentityConflictOnlyWhereGoverned",
+      "TestLegacyCorrectionOfAdapterMailRefused",
+      "TestGateForeignTargetHonoursPause",
+      "TestGateNestedRepoKeepsHomeClaim",
+      "TestLifecycleHookRenewsObservedClaimsOnly",
+      "TestGateRefusesShellRoutedPatch"
+    ],
+    "logs": [
+      "snapshot.log",
+      "current.log"
+    ],
+    "environment_notes": [
+      "Initial default GOCACHE denied; rerun task-local /private/tmp cache.",
+      "Initial sandbox socket bind failed; rerun scoped unsandboxed temp Unix sockets. Neither setup failure counted as mutation kill.",
+      "go version go1.27.1 darwin/arm64"
+    ]
+  },
+  "step3": {
+    "mutations": [
+      {
+        "name": "gate-shellPatchCommand",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 5.436,
+        "failures": [
+          "--- FAIL: TestGateShellRoutedPatchFeatureOff (0.48s)",
+          "--- FAIL: TestGateRefusesShellRoutedPatch (0.63s)"
+        ]
+      },
+      {
+        "name": "gate-governed-shell-deny",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 5.883,
+        "failures": [
+          "--- FAIL: TestGateRefusesShellRoutedPatch (0.90s)"
+        ]
+      },
+      {
+        "name": "gate-ungoverned-shellPatchDirs",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 5.794,
+        "failures": [
+          "--- FAIL: TestGateShellRoutedPatchFeatureOff (0.97s)"
+        ]
+      },
+      {
+        "name": "gate-home-denyIfHeld",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 6.777,
+        "failures": [
+          "--- FAIL: TestGateNestedRepoKeepsHomeClaim (0.44s)"
+        ]
+      },
+      {
+        "name": "gate-target-add-1",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 7.376,
+        "failures": [
+          "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.78s)",
+          "    --- FAIL: TestVerificationFourDistinctTargetSpellings/lexical-dest/file.go (0.25s)"
+        ]
+      },
+      {
+        "name": "gate-target-add-2",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 5.97,
+        "failures": [
+          "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.77s)",
+          "    --- FAIL: TestVerificationFourDistinctTargetSpellings/docs/entry (0.20s)"
+        ]
+      },
+      {
+        "name": "gate-target-add-3",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 3.991,
+        "failures": [
+          "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.51s)",
+          "    --- FAIL: TestVerificationFourDistinctTargetSpellings/physical-dest/file.go (0.12s)"
+        ]
+      },
+      {
+        "name": "gate-target-add-4",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 4.401,
+        "failures": [
+          "--- FAIL: TestVerificationFourDistinctTargetSpellings (0.76s)",
+          "    --- FAIL: TestVerificationFourDistinctTargetSpellings/physical/entry (0.20s)"
+        ]
+      },
+      {
+        "name": "gate-target-add-5",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 4.425,
+        "failures": [
+          "--- FAIL: TestGateChecksEverySpellingOfATarget (0.81s)",
+          "    --- FAIL: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)"
+        ]
+      },
+      {
+        "name": "gate-danglingTarget",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 4.601,
+        "failures": [
+          "--- FAIL: TestGateChecksEverySpellingOfATarget (0.72s)",
+          "    --- FAIL: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)"
+        ]
+      },
+      {
+        "name": "gate-governedAny",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 4.829,
+        "failures": [
+          "--- FAIL: TestGateIdentityConflictOnlyWhereGoverned (1.00s)",
+          "--- FAIL: TestGateShellRoutedPatchFeatureOff (0.77s)"
+        ]
+      },
+      {
+        "name": "gate-idErr-early-refusal",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 4.357,
+        "failures": [
+          "--- FAIL: TestGateIdentityConflictOnlyWhereGoverned (0.71s)"
+        ]
+      },
+      {
+        "name": "gate-pause-read",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 4.224,
+        "failures": [
+          "--- FAIL: TestGateForeignTargetHonoursPause (0.31s)"
+        ]
+      },
+      {
+        "name": "mail-wakeAddr-early-return",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.29,
+        "failures": [
+          "--- FAIL: TestNoLegacyWakeForAdapterMailOrRecipients (0.20s)"
+        ]
+      },
+      {
+        "name": "mail-endpoint-count",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.217,
+        "failures": [
+          "--- FAIL: TestNoLegacyWakeForAdapterMailOrRecipients (0.21s)"
+        ]
+      },
+      {
+        "name": "mail-who-line",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.204,
+        "failures": [
+          "--- FAIL: TestLegacyViewsReportAdapterMail (0.13s)",
+          "--- FAIL: TestNoLegacyWakeForAdapterMailOrRecipients (0.19s)"
+        ]
+      },
+      {
+        "name": "mail-sendNote-why",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.169,
+        "failures": [
+          "--- FAIL: TestLegacyViewsReportAdapterMail (0.17s)"
+        ]
+      },
+      {
+        "name": "mail-backlog-note",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.23,
+        "failures": [
+          "--- FAIL: TestLegacyViewsReportAdapterMail (0.20s)"
+        ]
+      },
+      {
+        "name": "mail-correctable",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.176,
+        "failures": [
+          "--- FAIL: TestLegacyCorrectionOfAdapterMailRefused (0.14s)"
+        ]
+      },
+      {
+        "name": "mail-lifecycle-extraction",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.181,
+        "failures": [
+          "--- FAIL: TestLifecycleHookRenewsObservedClaimsOnly (0.21s)"
+        ]
+      },
+      {
+        "name": "mail-BeatLogical-under-renew",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.371,
+        "failures": [
+          "--- FAIL: TestLifecycleHookRenewsObservedClaimsOnly (0.21s)"
+        ]
+      },
+      {
+        "name": "mail-BeatLogical-over-renew",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.262,
+        "failures": [
+          "--- FAIL: TestLifecycleHookRenewsObservedClaimsOnly (0.20s)"
+        ]
+      },
+      {
+        "name": "mail-hello-wrap",
+        "result": "KILLED",
+        "rc": 1,
+        "seconds": 1.171,
+        "failures": [
+          "--- FAIL: TestHelloSessionStdinRefusalNamesRecipe (0.24s)"
+        ]
+      }
+    ],
+    "initial_survivors": [
+      "gate-target-add-1",
+      "gate-target-add-2",
+      "gate-target-add-3",
+      "gate-target-add-4"
+    ],
+    "survivor_resolution": "Existing tests conflated candidates. Permanent TestGateFourDistinctTargetSpellings creates four different destinations; all four mutants then died at their own candidate.",
+    "build_errors": 0,
+    "mutation_script": "mutations.py"
+  },
+  "adversarial": {
+    "shell_initial": {
+      "bash -lc apply_patch": "ALLOWED; native sibling later proves bypass, repaired V04",
+      "sudo -u x apply_patch": "ALLOWED; repaired static wrapper detection",
+      "env -i apply_patch": "DENIED",
+      "$(apply_patch)": "DENIED",
+      "git commit -m \"apply_patch fix\"": "ALLOWED",
+      "make apply_patch": "ALLOWED",
+      "tee apply_patch": "ALLOWED",
+      "printf '%s\\n' 'foo; apply_patch fix'": "FALSE DENIAL; repaired V04",
+      "rg '(apply_patch|applypatch)' internal/cli/patch.go": "FALSE DENIAL; repaired V04"
+    },
+    "nested_linked_worktree": "Parent cwd, peer claim .claude and detached linked worktree .claude/worker: peer refused; holder allowed. Conservative D-073 home reservation maintained.",
+    "jurisdiction": "All-unmanaged multi-path patch allowed despite identity conflict. One governed path among unmanaged paths refused. Corrupt target ledger refused. Pathless unmanaged shell allowed.",
+    "unclassified_logical_recipient": "No endpoint or mail: no session_procs; who/msg offered no SendMessage even with available fixture socket.",
+    "latency_final": {
+      "edit": {
+        "samples": 40,
+        "min_ms": 12.487958,
+        "median_ms": 13.910625,
+        "p95_ms": 14.8165,
+        "max_ms": 15.8335,
+        "over_100_ms": 0,
+        "all_ms": [
+          12.487958,
+          12.533541,
+          12.5375,
+          12.577125,
+          12.61025,
+          12.628208,
+          12.855542,
+          12.900417,
+          13.005458,
+          13.066833,
+          13.178417,
+          13.432875,
+          13.439958,
+          13.50275,
+          13.655875,
+          13.735834,
+          13.746125,
+          13.746333,
+          13.781208,
+          13.905375,
+          13.915875,
+          13.960167,
+          13.990375,
+          14.015708,
+          14.021,
+          14.044792,
+          14.078458,
+          14.097291,
+          14.18325,
+          14.22925,
+          14.231375,
+          14.249792,
+          14.324542,
+          14.425542,
+          14.449167,
+          14.526666,
+          14.538708,
+          14.8165,
+          14.994167,
+          15.8335
+        ]
+      },
+      "patch128": {
+        "samples": 40,
+        "min_ms": 20.032416,
+        "median_ms": 22.087062500000002,
+        "p95_ms": 34.314791,
+        "max_ms": 58.211875,
+        "over_100_ms": 0,
+        "all_ms": [
+          20.032416,
+          20.065625,
+          20.338291,
+          20.489292,
+          20.595208,
+          20.740875,
+          20.769166,
+          20.838875,
+          20.890208,
+          21.065167,
+          21.296333,
+          21.549,
+          21.565584,
+          21.710667,
+          21.758667,
+          21.800375,
+          21.8225,
+          21.830167,
+          21.946292,
+          22.06925,
+          22.104875,
+          22.180083,
+          22.185875,
+          22.206958,
+          22.214458,
+          22.322334,
+          22.466375,
+          22.485708,
+          22.661208,
+          22.716584,
+          23.26525,
+          24.072333,
+          24.334667,
+          27.662333,
+          29.538417,
+          29.836208,
+          33.631083,
+          34.314791,
+          53.620417,
+          58.211875
+        ]
+      }
+    },
+    "latency_distinct_final": {
+      "samples": 40,
+      "min_ms": 30.093667,
+      "median_ms": 32.4289795,
+      "p95_ms": 42.752209,
+      "max_ms": 68.889083,
+      "over_100_ms": 0,
+      "all_ms": [
+        30.093667,
+        30.60975,
+        30.634084,
+        30.716,
+        30.902166,
+        30.961625,
+        31.116667,
+        31.254166,
+        31.269417,
+        31.275958,
+        31.285083,
+        31.447833,
+        31.733167,
+        31.918792,
+        31.996166,
+        32.073333,
+        32.078833,
+        32.137292,
+        32.256625,
+        32.415334,
+        32.442625,
+        32.467833,
+        32.514708,
+        32.721041,
+        32.766,
+        32.823,
+        32.878709,
+        32.915917,
+        32.998709,
+        33.043625,
+        33.054542,
+        33.163875,
+        33.214125,
+        34.375333,
+        34.934916,
+        36.771375,
+        41.803125,
+        42.752209,
+        66.219083,
+        68.889083
+      ]
+    },
+    "latency_before_followup_repairs": {
+      "edit": {
+        "samples": 40,
+        "min_ms": 12.844,
+        "median_ms": 13.4562295,
+        "p95_ms": 14.270625,
+        "max_ms": 14.919459,
+        "over_100_ms": 0,
+        "all_ms": [
+          12.844,
+          12.889583,
+          12.9145,
+          12.929334,
+          13.023666,
+          13.095209,
+          13.113,
+          13.1545,
+          13.170083,
+          13.214667,
+          13.216875,
+          13.236792,
+          13.240458,
+          13.242417,
+          13.27625,
+          13.303791,
+          13.339833,
+          13.372875,
+          13.427209,
+          13.453334,
+          13.459125,
+          13.501417,
+          13.511292,
+          13.581166,
+          13.63225,
+          13.641708,
+          13.653708,
+          13.653875,
+          13.661583,
+          13.687958,
+          13.851375,
+          13.949583,
+          14.017625,
+          14.024458,
+          14.054292,
+          14.075583,
+          14.156916,
+          14.270625,
+          14.473416,
+          14.919459
+        ]
+      },
+      "patch128": {
+        "samples": 40,
+        "min_ms": 20.841375,
+        "median_ms": 21.8325625,
+        "p95_ms": 81.122541,
+        "max_ms": 100.236042,
+        "over_100_ms": 1,
+        "all_ms": [
+          20.841375,
+          20.9795,
+          20.98075,
+          21.068,
+          21.112459,
+          21.31925,
+          21.350375,
+          21.389,
+          21.393833,
+          21.483292,
+          21.52225,
+          21.60225,
+          21.665459,
+          21.68275,
+          21.716125,
+          21.731958,
+          21.741292,
+          21.7535,
+          21.757959,
+          21.81575,
+          21.849375,
+          21.869291,
+          21.977666,
+          22.122333,
+          22.252833,
+          22.283292,
+          22.292333,
+          22.580625,
+          23.291042,
+          57.610833,
+          65.535375,
+          65.623667,
+          67.284125,
+          69.051542,
+          72.191708,
+          73.535125,
+          79.900375,
+          81.122541,
+          93.757959,
+          100.236042
+        ]
+      }
+    },
+    "latency_binary_sha256": "fc235e97624ecb2f115729fbed73c6b80a70f4c102616e1281e88eb430955031"
+  },
+  "repair_mutations": [
+    {
+      "name": "V03-resolver-omitted",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateDanglingSymlinkChain (0.20s)",
+        "--- FAIL: TestGateDanglingSymlinkPhysicalDotDot (0.11s)",
+        "--- FAIL: TestGateDanglingSymlinkResolutionBound (0.14s)",
+        "--- FAIL: TestGateChecksEverySpellingOfATarget (0.34s)",
+        "    --- FAIL: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)"
+      ]
+    },
+    {
+      "name": "V03-readlink-cleaned",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateDanglingSymlinkPhysicalDotDot (0.09s)"
+      ]
+    },
+    {
+      "name": "V03-resolution-error-ignored",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateDanglingSymlinkResolutionBound (0.13s)"
+      ]
+    },
+    {
+      "name": "V03-budget-allowed",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateDanglingSymlinkResolutionBound (0.14s)"
+      ]
+    },
+    {
+      "name": "V04-shell-recursion-omitted",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.22s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/bash_-lc_'apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF' (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls//bin/zsh_-c_\"apply_patch_<_p.patch\" (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/sh_-c_'bash_-lc_\"apply_patch_<_p.patch\"' (0.01s)"
+      ]
+    },
+    {
+      "name": "V04-command-position-ignored",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.21s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/git_commit_-m_\"apply_patch_fix\" (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/make_apply_patch (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/tee_apply_patch (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/printf_'%s\\n'_'foo;_apply_patch_fix' (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/rg_'(apply_patch|applypatch)'_internal/cli/patch.go (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/echo_'$(apply_patch_<_p.patch)' (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/cat_<<'EOF'_apply_patch_EOF_ (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/bash_-lc_'printf_\"%s\\n\"_\"apply_patch\"' (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/command_-v_apply_patch (0.01s)",
+        "--- FAIL: TestGateRefusesShellRoutedPatch (0.43s)"
+      ]
+    },
+    {
+      "name": "V04-quoted-word-ignored",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.23s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/bash_-lc_'apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF' (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/sh_-c_'bash_-lc_\"apply_patch_<_p.patch\"' (0.01s)",
+        "--- FAIL: TestGateRefusesShellRoutedPatch (0.59s)"
+      ]
+    }
+  ],
+  "repairs": {
+    "V03": "Two-link dangling chain and physical dotdot in readlink destination; regressions watched fail then pass. Bounded40 component resolver refuses uncertainty inside ledger, preserves feature off.",
+    "V04": "bash -lc native shell bypass and quoted regex false positives; regression watched fail then pass. Pinned mvdan.cc/sh/v3 v3.12.0 syntax AST, bounded wrapper recursion; static split/escaped names also checked.",
+    "V05": "Root-owned adapter historic evidence repair: worker changed adapterRecipient to include Known; root validates."
+  },
+  "owned_source_sha256": {
+    "internal/cli/gatetargets.go": "f3f514158d3a828b196ad431edac7dbb1c052c878cb9b1ff9326ba3116daf988",
+    "internal/cli/patch.go": "81641dd73882134edd776b1d4f717a1217f94890f377e49c10b7bc3d92ebcc12",
+    "internal/cli/verification_gatetargets_test.go": "de10e389f99a3f8a5224fd294204170a47ca4ee01f398755d5f143e55d69aa39",
+    "go.mod": "40f643727c437aaf05f6e072bf01edd9bc6669a5d876a5f5c9a8588424b71d85",
+    "go.sum": "486580f3a757d131553fd638f3738646cab1c761171c9723fde579e18c79d655",
+    "internal/cli/cli.go": "0b91514085ee7c875e0d934d6ec3b72b0db2e240fdf5e05af714d0a046487ff8"
+  },
+  "reconcile_revision": "All four revised native Codex suites plus independent self-tests passed per native worker: interrupted52/52,46 damaged; uncertain40/40,38 damaged; compaction23/23,34 damaged; interrupted-compaction75/75,90 damaged. Evidence /private/tmp/buddy-native-verification-summary.json. Worker direct boundary checks accepted real unsupported receipt and synthetic unknown-turn control, rejected14 mutants.",
+  "followup_mutations": [
+    {
+      "name": "V03-error-returns-before-other-spellings",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateResolutionErrorStillChecksOtherSpellings (0.13s)"
+      ]
+    },
+    {
+      "name": "V04-ansi-literal-unknown",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.28s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/$'apply_\\x70atch'_<_p.patch (0.01s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_$'apply_patch_<_p.patch\\n' (0.01s)"
+      ]
+    },
+    {
+      "name": "V04-nested-cwd-context-omitted",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.30s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction948389906/001/repo'\\''_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_' (0.02s)"
+      ]
+    },
+    {
+      "name": "V04-all-directory-context-omitted",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.26s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/bash_-lc_'cd_'\\''/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3828971426/001/repo'\\''_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_' (0.02s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/'cd'_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3828971426/001/repo'_&&_apply_patch_<<EOF_***_Begin_Patch_***_Delete_File:_held.go_***_End_Patch_EOF_ (0.02s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/env_-C_'/var/folders/wh/xk409y6x5r3fbl33_gs7ps6h0000gn/T/TestGateShellStaticQuotingAndNestedJurisdiction3828971426/001/repo'_apply_patch_<_p.patch (0.02s)"
+      ]
+    },
+    {
+      "name": "V04-combined-lookup-not-recognized",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.29s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/command_-pv_apply_patch (0.01s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/command_-pV_apply_patch (0.01s)"
+      ]
+    },
+    {
+      "name": "V04-raw-word-prefilter",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellWrapperPatchAndQuotedControls (0.23s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/apply_\"\"patch_<_p.patch (0.01s)",
+        "    --- FAIL: TestGateShellWrapperPatchAndQuotedControls/apply_\\patch_<_p.patch (0.01s)",
+        "--- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction (0.30s)",
+        "    --- FAIL: TestGateShellStaticQuotingAndNestedJurisdiction/$'apply_\\x70atch'_<_p.patch (0.01s)"
+      ]
+    }
+  ],
+  "followup_gate_result": "All TestGate PASS after 4 constrained-review corrections; review-followups-after.log (5.798s).",
+  "followup_regression_note": "Initial nested-heredoc test used shellArg which fences newlines. Corrected to shellQuote; exact corrected bytes passed current and failed nested-context/all-context mutants. Other follow-up inputs failed initial tree directly.",
+  "budget_feature_off": {
+    "result": "Repaired and permanent regression watched fail then pass; all TestGate passed4.378s.",
+    "regression": "TestGateShellBudgetRequiresJurisdiction",
+    "receipts": [
+      "budget-feature-off-results.json",
+      "budget-feature-off-before.log",
+      "budget-feature-off-after.log"
+    ],
+    "mutation": {
+      "name": "V04-budget-blanket-refusal",
+      "rc": 1,
+      "result": "KILLED",
+      "failures": [
+        "--- FAIL: TestGateShellBudgetRequiresJurisdiction (0.14s)",
+        "    --- FAIL: TestGateShellBudgetRequiresJurisdiction/bytes (0.01s)",
+        "    --- FAIL: TestGateShellBudgetRequiresJurisdiction/depth (0.01s)"
+      ]
+    },
+    "contract": "Budget uncertainty alone never creates jurisdiction. Known home/target ledgers refuse. Unseen placements beyond parser bounds remain unobserved cooperative scope."
+  }
+}

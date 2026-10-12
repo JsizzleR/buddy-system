@@ -1,0 +1,5 @@
+--- FAIL: TestDeliveredAdapterMailRetainsRecipientEvidence (0.13s)
+    adaptermail_test.go:79: delivered adapter history lost or counted as backlog: queued for codex-worker — registered 0s ago and not seen since; delivery waits for its next tool call; 1 earlier message(s) to it still undelivered, the oldest 0s old; message #3
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/cli	0.401s
+FAIL

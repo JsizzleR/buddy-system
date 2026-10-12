@@ -1,0 +1,92 @@
+=== RUN   TestLegacyViewsReportAdapterMail
+=== PAUSE TestLegacyViewsReportAdapterMail
+=== RUN   TestLegacyCorrectionOfAdapterMailRefused
+=== PAUSE TestLegacyCorrectionOfAdapterMailRefused
+=== RUN   TestNoLegacyWakeForAdapterMailOrRecipients
+=== PAUSE TestNoLegacyWakeForAdapterMailOrRecipients
+=== RUN   TestLifecycleHookRenewsObservedClaimsOnly
+=== PAUSE TestLifecycleHookRenewsObservedClaimsOnly
+=== RUN   TestHelloSessionStdinRefusalNamesRecipe
+=== PAUSE TestHelloSessionStdinRefusalNamesRecipe
+=== RUN   TestGateRefusesShellRoutedPatch
+=== PAUSE TestGateRefusesShellRoutedPatch
+=== RUN   TestGateShellRoutedPatchFeatureOff
+=== PAUSE TestGateShellRoutedPatchFeatureOff
+=== RUN   TestGateNestedRepoKeepsHomeClaim
+=== PAUSE TestGateNestedRepoKeepsHomeClaim
+=== RUN   TestGateChecksEverySpellingOfATarget
+=== PAUSE TestGateChecksEverySpellingOfATarget
+=== RUN   TestGateIdentityConflictOnlyWhereGoverned
+=== PAUSE TestGateIdentityConflictOnlyWhereGoverned
+=== RUN   TestGateForeignTargetHonoursPause
+=== PAUSE TestGateForeignTargetHonoursPause
+=== RUN   TestVerificationShellVerdicts
+    verification_adversarial_test.go:30: command="bash -lc 'apply_patch <<EOF\n*** Begin Patch\n*** Delete File: held\n*** End Patch\nEOF'" detect=false denied=false rc=0 stderr=""
+    verification_adversarial_test.go:30: command="sudo -u x apply_patch < p.patch" detect=false denied=false rc=0 stderr=""
+    verification_adversarial_test.go:30: command="env -i apply_patch < p.patch" detect=true denied=true rc=0 stderr=""
+    verification_adversarial_test.go:30: command="$(apply_patch < p.patch)" detect=true denied=true rc=0 stderr=""
+    verification_adversarial_test.go:30: command="git commit -m \"apply_patch fix\"" detect=false denied=false rc=0 stderr=""
+    verification_adversarial_test.go:30: command="make apply_patch" detect=false denied=false rc=0 stderr=""
+    verification_adversarial_test.go:30: command="tee apply_patch" detect=false denied=false rc=0 stderr=""
+    verification_adversarial_test.go:30: command="bash -c 'apply_patch < p.patch'" detect=false denied=false rc=0 stderr=""
+    verification_adversarial_test.go:30: command="env -C /tmp apply_patch < p.patch" detect=false denied=false rc=0 stderr=""
+    verification_adversarial_test.go:30: command="printf '%s\\n' 'foo; apply_patch fix'" detect=true denied=true rc=0 stderr=""
+    verification_adversarial_test.go:30: command="echo \"apply_patch\"" detect=false denied=false rc=0 stderr=""
+--- PASS: TestVerificationShellVerdicts (0.22s)
+=== RUN   TestVerificationNestedLinkedWorktree
+    verification_adversarial_test.go:43: peer denied by home .claude claim; claim owner allowed
+--- PASS: TestVerificationNestedLinkedWorktree (0.16s)
+=== RUN   TestVerificationMixedJurisdiction
+    verification_adversarial_test.go:56: all ungoverned allowed; mixed governed refused; unreadable target refused; pathless ungoverned allowed
+--- PASS: TestVerificationMixedJurisdiction (0.44s)
+=== RUN   TestVerificationLogicalRecipientNoWake
+    verification_adversarial_test.go:67: [who codex-worker]: no SendMessage
+    verification_adversarial_test.go:67: [msg codex-worker --from op plain]: no SendMessage
+    verification_adversarial_test.go:72: logical session with no mail or endpoint registers no processes
+--- PASS: TestVerificationLogicalRecipientNoWake (0.13s)
+=== CONT  TestLegacyViewsReportAdapterMail
+=== CONT  TestGateShellRoutedPatchFeatureOff
+=== CONT  TestGateIdentityConflictOnlyWhereGoverned
+=== CONT  TestHelloSessionStdinRefusalNamesRecipe
+=== CONT  TestGateChecksEverySpellingOfATarget
+=== CONT  TestGateForeignTargetHonoursPause
+=== CONT  TestNoLegacyWakeForAdapterMailOrRecipients
+=== CONT  TestLegacyCorrectionOfAdapterMailRefused
+=== CONT  TestGateNestedRepoKeepsHomeClaim
+=== CONT  TestLifecycleHookRenewsObservedClaimsOnly
+=== CONT  TestGateRefusesShellRoutedPatch
+--- PASS: TestHelloSessionStdinRefusalNamesRecipe (0.15s)
+--- PASS: TestLegacyViewsReportAdapterMail (0.25s)
+--- PASS: TestGateShellRoutedPatchFeatureOff (0.29s)
+=== RUN   TestGateChecksEverySpellingOfATarget/control:_claimed_file
+=== RUN   TestGateChecksEverySpellingOfATarget/control:_free_file
+=== RUN   TestGateChecksEverySpellingOfATarget/relative_link/..
+=== RUN   TestGateChecksEverySpellingOfATarget/absolute_link/.._patch
+=== RUN   TestGateChecksEverySpellingOfATarget/absolute_link/.._Edit
+=== RUN   TestGateChecksEverySpellingOfATarget/delete_claimed_entry
+=== RUN   TestGateChecksEverySpellingOfATarget/move_claimed_entry
+=== RUN   TestGateChecksEverySpellingOfATarget/write_through_a_free_entry_into_the_claim
+=== RUN   TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim
+=== RUN   TestGateChecksEverySpellingOfATarget/dangling_link_entry_in_the_claim
+=== RUN   TestGateChecksEverySpellingOfATarget/holder
+--- PASS: TestGateChecksEverySpellingOfATarget (0.50s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/control:_claimed_file (0.02s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/control:_free_file (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/relative_link/.. (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/absolute_link/.._patch (0.02s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/absolute_link/.._Edit (0.03s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/delete_claimed_entry (0.03s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/move_claimed_entry (0.02s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/write_through_a_free_entry_into_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/dangling_link_into_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/dangling_link_entry_in_the_claim (0.01s)
+    --- PASS: TestGateChecksEverySpellingOfATarget/holder (0.01s)
+--- PASS: TestNoLegacyWakeForAdapterMailOrRecipients (0.62s)
+--- PASS: TestGateIdentityConflictOnlyWhereGoverned (0.64s)
+--- PASS: TestLegacyCorrectionOfAdapterMailRefused (0.71s)
+--- PASS: TestGateForeignTargetHonoursPause (0.81s)
+--- PASS: TestGateNestedRepoKeepsHomeClaim (0.86s)
+--- PASS: TestLifecycleHookRenewsObservedClaimsOnly (0.88s)
+--- PASS: TestGateRefusesShellRoutedPatch (1.04s)
+PASS
+ok  	github.com/JsizzleR/buddy-system/internal/cli	2.147s

@@ -1,0 +1,10 @@
+{
+  "name": "V04-budget-blanket-refusal",
+  "rc": 1,
+  "result": "KILLED",
+  "failures": [
+    "--- FAIL: TestGateShellBudgetRequiresJurisdiction (0.14s)",
+    "    --- FAIL: TestGateShellBudgetRequiresJurisdiction/bytes (0.01s)",
+    "    --- FAIL: TestGateShellBudgetRequiresJurisdiction/depth (0.01s)"
+  ]
+}

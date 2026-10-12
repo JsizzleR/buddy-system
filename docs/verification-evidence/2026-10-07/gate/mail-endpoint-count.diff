@@ -1,0 +1,11 @@
+--- internal/store/adapter.go
++++ internal/store/adapter.go
+@@ -392,7 +392,7 @@
+ 		if err := q.QueryRow(`SELECT COUNT(*) FROM session_endpoints WHERE session_id=?`, sessionID).Scan(&n); err != nil {
+ 			return err
+ 		}
+-		b.Endpoint = n > 0
++		b.Endpoint = false && n > 0
+ 		return nil
+ 	})
+ 	return b, err

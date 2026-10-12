@@ -1,0 +1,24 @@
+{
+  "go_version": "go1.27.1 darwin/arm64",
+  "commands": [
+    {
+      "command": "env GIT_OPTIONAL_LOCKS=0 go build ./...",
+      "exit_code": 0,
+      "log": "final-build.log"
+    },
+    {
+      "command": "env GIT_OPTIONAL_LOCKS=0 go vet ./...",
+      "exit_code": 0,
+      "log": "final-vet.log"
+    },
+    {
+      "command": "env GIT_OPTIONAL_LOCKS=0 sh scripts/check.sh hermetic",
+      "exit_code": 0,
+      "log": "hermetic-final.log",
+      "summary": "HERMETIC GREEN; live leg NOT run"
+    }
+  ],
+  "scope": "No newly built binary was run on the real repository ledger.",
+  "final_hermetic_includes": "V13 JobProbeCleanup: 3 controls, full proxy suite 13 tests; no native harness",
+  "final_source_manifest_sha256": "b5c5d1e17bee15e0a718e868033b6522ccd61ea2f0b11f1659577cbb2cc22429"
+}

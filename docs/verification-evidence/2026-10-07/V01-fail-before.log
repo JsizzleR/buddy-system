@@ -1,0 +1,20 @@
+--- FAIL: TestCodexGateRequiresShellPatchCoverage (0.00s)
+    --- FAIL: TestCodexGateRequiresShellPatchCoverage/^apply_patch$ (0.00s)
+        codex_test.go:357: matcher "^apply_patch$": allow=false, start error=<nil>
+        codex_test.go:366: matcher "^apply_patch$": native thread started=true
+        codex_test.go:370: diagnostic disagrees with admission: {State:configured_snapshot Detail:} {State:trusted_snapshot Detail:supplied native metadata only; current trust and enforcement remain unknown}
+    --- FAIL: TestCodexGateRequiresShellPatchCoverage/apply_patch (0.00s)
+        codex_test.go:357: matcher "apply_patch": allow=false, start error=<nil>
+        codex_test.go:366: matcher "apply_patch": native thread started=true
+        codex_test.go:370: diagnostic disagrees with admission: {State:configured_snapshot Detail:} {State:trusted_snapshot Detail:supplied native metadata only; current trust and enforcement remain unknown}
+    --- FAIL: TestCodexGateRequiresShellPatchCoverage/^(apply_patch|Bash)$ (0.00s)
+        codex_test.go:357: matcher "^(apply_patch|Bash)$": allow=true, start error=unsupported Codex gate matcher: explicit apply_patch coverage required
+        codex_test.go:366: matcher "^(apply_patch|Bash)$": native thread started=false
+        codex_test.go:370: diagnostic disagrees with admission: {State:unsupported_snapshot Detail:capture does not match the adapter's exact synchronous patch gate} {State:unknown Detail:}
+    --- FAIL: TestCodexGateRequiresShellPatchCoverage/^(Bash|apply_patch)$ (0.00s)
+        codex_test.go:357: matcher "^(Bash|apply_patch)$": allow=true, start error=unsupported Codex gate matcher: explicit apply_patch coverage required
+        codex_test.go:366: matcher "^(Bash|apply_patch)$": native thread started=false
+        codex_test.go:370: diagnostic disagrees with admission: {State:unsupported_snapshot Detail:capture does not match the adapter's exact synchronous patch gate} {State:unknown Detail:}
+FAIL
+FAIL	github.com/JsizzleR/buddy-system/internal/harness	0.167s
+FAIL

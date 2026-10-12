@@ -1,0 +1,11 @@
+--- internal/cli/lifecycle.go
++++ internal/cli/lifecycle.go
+@@ -186,7 +186,7 @@
+ 	// be read renews nothing and still records the beat: this is an
+ 	// observation, and a claim is never renewed on a guess.
+ 	var rels []string
+-	if event == "beat" {
++	if false && event == "beat" {
+ 		if paths, err := gatePaths(h); err == nil {
+ 			for _, p := range paths {
+ 				if rel, _, outside := placeInRepo(rc.top, h.Cwd, p); !outside {
