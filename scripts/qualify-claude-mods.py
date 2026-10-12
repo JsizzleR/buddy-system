@@ -49,6 +49,7 @@ def make_mod(root, name, hook):
 class Native:
     def __init__(self, args, cwd, env, case):
         self.frames = []
+        self.forced = []  # F-35: a fallback signal is a native that would not exit
         self.pending = queue.Queue()
         self.unparsed = []
         self.stderr = (case / "native.stderr").open("w")
@@ -102,10 +103,14 @@ class Native:
         try:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            # Still unreaped, so the group is provably ours (D-077's narrow
+            # contract: signal only what is pinned). Recorded, never laundered.
+            self.forced.append("SIGTERM")
             os.killpg(self.process.pid, signal.SIGTERM)
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                self.forced.append("SIGKILL")
                 os.killpg(self.process.pid, signal.SIGKILL)
                 self.process.wait(timeout=5)
         self.reader.join(timeout=2)
@@ -198,6 +203,8 @@ def native_case(root, name, claude, buddy, env, mod):
                 result["cleanup_failure"] = str(exc)
                 result["checks"]["native_cleanup"] = False
             result["exit_code"] = native.process.returncode
+            result["native_forced_cleanup"] = list(native.forced)
+            result["checks"]["native_exited_without_fallback"] = not native.forced
             base.write_json(case / "native-frames.json", native.frames)
             result["native_frames_sha256"] = base.digest(case / "native-frames.json")
             result["checks"]["clean_native_exit"] = native.process.returncode == 0 and not native.unparsed
@@ -253,6 +260,8 @@ def admission_case(root, name, claude, buddy, binary, env, mod, version):
                 result["cleanup_failure"] = str(exc)
                 result["checks"]["adapter_cleanup"] = False
             result["exit_code"] = adapter.process.returncode
+            result["adapter_forced_cleanup"] = list(adapter.forced)
+            result["checks"]["adapter_exited_without_fallback"] = not adapter.forced
             result["checks"]["expected_adapter_exit"] = adapter.process.returncode == (1 if mod else 0)
             base.write_json(case / "adapter-events.json", adapter.events)
             result["child_cleanup"] = base.observed_child_exit(case / "native.jsonl")

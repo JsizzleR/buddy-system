@@ -175,6 +175,7 @@ class Native:
         self.stderr_bytes = 0
         self.unparsed = 0
         self.closed = False
+        self.forced = []  # F-35: a fallback signal is a native that would not exit
         self.hook_file = folder / "hook.json"
         config = folder / "config"
         config.mkdir()
@@ -303,17 +304,22 @@ class Native:
         try:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            # Still unreaped, so the group is provably ours (D-077's narrow
+            # contract). A native that handles TERM can still exit 0, so the
+            # exit code alone would launder this: record it in cleanup.json.
+            self.forced.append("SIGTERM")
             os.killpg(self.process.pid, signal.SIGTERM)
             try:
                 self.process.wait(timeout=3)
             except subprocess.TimeoutExpired:
+                self.forced.append("SIGKILL")
                 os.killpg(self.process.pid, signal.SIGKILL)
                 self.process.wait(timeout=3)
         self.reader.join(timeout=3)
         self.err_reader.join(timeout=3)
         common.write_json(self.folder / "native-observations.json", self.events)
         common.write_json(self.folder / "cleanup.json", {"exit": self.process.returncode,
-            "stdout_unparsed_lines": self.unparsed, "stderr_bytes": self.stderr_bytes})
+            "stdout_unparsed_lines": self.unparsed, "stderr_bytes": self.stderr_bytes, "forced_signals": self.forced})
 
 
 def inspect_mail(buddy, work, env, identity, message_id):

@@ -218,6 +218,24 @@ class OwnedCleanup(unittest.TestCase):
                     p.stdout.close(); p.stderr.close()
                     self.assertEqual(marker.read_text(), "cleaned")
 
+    def test_without_the_handler_finally_never_runs(self):
+        # The control: the same runner-shaped child, handler not installed. The
+        # signal's default action ends it and `finally` never runs, so the test
+        # above observes the handler and not Python's ordinary shutdown.
+        source = ("import time,sys\n"
+                  "try:\n print('ready',flush=True);time.sleep(30)\n"
+                  "finally:\n open(sys.argv[1],'w').write('cleaned')\n")
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=signum), tempfile.TemporaryDirectory(prefix="buddy-proxy-test-") as tmp:
+                marker = Path(tmp) / "marker"
+                p = subprocess.Popen([sys.executable, "-I", "-B", "-c", source, str(marker)],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.assertEqual(p.stdout.readline(), b"ready\n")
+                p.send_signal(signum)
+                self.assertEqual(p.wait(timeout=10), -signum)
+                p.stdout.close(); p.stderr.close()
+                self.assertFalse(marker.exists(), "cleanup ran with no handler installed")
+
     def spawn_adapter(self):
         # A stand-in adapter: its own session/group, one native child in it.
         p = subprocess.Popen([sys.executable, "-c", "import subprocess,sys,time\n"
@@ -329,6 +347,61 @@ class OwnedCleanup(unittest.TestCase):
                 # sleep is reparented to launchd, which reaps it.
                 self.assertLess(time.monotonic(), deadline, "owned orphan survived its fallback kill")
                 time.sleep(.02)
+
+
+class ForcedCloseIsRecorded(unittest.TestCase):
+    """F-35: the Mods and peers close helpers record a fallback signal.
+
+    The native here handles TERM and exits 0, so its exit code alone would
+    launder a forced close into a clean one. Each helper must record what it
+    sent; the peers receipt carries it to check-claude-delivery, which refuses
+    any forced signal. A stand-in native, never a harness.
+    """
+    STUBBORN = ("import signal,sys,time\n"
+                "signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))\n"
+                "print('ready',flush=True)\n"
+                "while True: time.sleep(1)\n")
+
+    def stubborn(self):
+        p = subprocess.Popen([sys.executable, "-I", "-B", "-c", self.STUBBORN], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+        self.assertEqual(p.stdout.readline(), b"ready\n")
+        def cleanup():
+            if p.poll() is None:  # still unreaped: the group is ours
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait(timeout=5)
+            p.stdout.close()
+        self.addCleanup(cleanup)
+        return p
+
+    def idle_thread(self):
+        import threading
+        t = threading.Thread(target=lambda: None)
+        t.start()
+        return t
+
+    def test_peers_close_records_forced_signal(self):
+        peers = load("qualify-claude-peers.py")
+        with tempfile.TemporaryDirectory(prefix="buddy-proxy-test-") as tmp:
+            native = object.__new__(peers.Native)
+            native.closed, native.process, native.forced = False, self.stubborn(), []
+            native.reader, native.err_reader = self.idle_thread(), self.idle_thread()
+            native.folder, native.events, native.unparsed, native.stderr_bytes = Path(tmp), [], 0, 0
+            native.close()
+            cleanup = json.loads((Path(tmp) / "cleanup.json").read_text())
+            self.assertEqual(native.process.returncode, 0, "control: the stand-in should exit 0 on TERM")
+            self.assertEqual(cleanup["exit"], 0)
+            self.assertEqual(cleanup["forced_signals"], ["SIGTERM"])
+
+    def test_mods_close_records_forced_signal(self):
+        mods = load("qualify-claude-mods.py")
+        with tempfile.TemporaryDirectory(prefix="buddy-proxy-test-") as tmp:
+            native = object.__new__(mods.Native)
+            native.process, native.forced = self.stubborn(), []
+            native.reader, native.stderr = self.idle_thread(), (Path(tmp) / "stderr").open("w")
+            native.close()
+            self.assertEqual(native.process.returncode, 0, "control: the stand-in should exit 0 on TERM")
+            self.assertEqual(native.forced, ["SIGTERM"])
 
 
 class JobProbeCleanup(unittest.TestCase):

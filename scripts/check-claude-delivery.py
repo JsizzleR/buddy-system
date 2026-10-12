@@ -167,8 +167,12 @@ def peer_case(e, case):
                     result["is_error"] is False and result["queued_turn_count"] == 0 and
                     result["session_id"] == case[role]["native_session_id"] and bool(result["user_message_uuid"]))
         check(role + "_initial_completed_input", completed)
+        # F-35: a native that handles TERM exits 0 after a forced close, so the
+        # exit code alone launders it. The runner records what it sent; a
+        # receipt from before that record existed cannot say, and fails.
         check(role + "_clean_exit", lambda role=role: read(role + "/cleanup.json")["exit"] == 0 and
-              read(role + "/cleanup.json")["stdout_unparsed_lines"] == 0)
+              read(role + "/cleanup.json")["stdout_unparsed_lines"] == 0 and
+              read(role + "/cleanup.json")["forced_signals"] == [])
 
     def delivery():
         requests = [v for v in e.read("provider-observations.json") if v["route"] == mode + "-sender"]
@@ -271,6 +275,7 @@ def self_test(receipt):
             for role in ("sender", "receiver"):
                 mutate(["crossSessionInbound"], "wrong", folder + role + "/settings.json")
                 mutate(["exit"], 1, folder + role + "/cleanup.json")
+                mutate(["forced_signals"], ["SIGTERM"], folder + role + "/cleanup.json")
                 mutate(["session_id"], "wrong", folder + role + "/hook.json")
                 mutate([], [], folder + role + "/native-observations.json")
             if case["mode"] != "accept":
@@ -398,7 +403,7 @@ def synthetic(root, kind):
             for file, value in (("hook.json", hook), ("endpoint-observation.json", native[role]),
                                 ("socket-observation.json", {"pid": pid, "exit": 0, "stderr": "", "stdout": "n" + sock + "\n"}),
                                 ("settings.json", {"crossSessionInbound": native[role]["effective_crossSessionInbound"]}),
-                                ("cleanup.json", {"exit": 0, "stdout_unparsed_lines": 0})):
+                                ("cleanup.json", {"exit": 0, "stdout_unparsed_lines": 0, "forced_signals": []})):
                 names.append(s.write("%s/%s/%s" % (mode, role, file), value))
         address = "uds:" + native["receiver"]["socket"]
         msg = "msg-" + mode
