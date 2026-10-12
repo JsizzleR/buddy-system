@@ -233,11 +233,166 @@ def self_test(r):
     return {"positive": "passed", "rejected_mutations": count}
 
 
+def synthetic_case(root, mode):
+    """One coherent SYNTHETIC fault case under root (base.Synthetic says what that is)."""
+    s = base.Synthetic(root)
+    crash, active = mode.startswith("crash"), mode.endswith("active")
+    version, sid, inc = "2.1.291", "11111111-2222-4333-8444-" + str(MODES.index(mode)) * 12, "inc-" + mode
+    t1, t2, mid, fresh_mid = "turn-" + mode, "fresh-" + mode, 7, 8
+    ident = {"schema": "buddy.lifecycle.v1", "harness": "claude", "session_id": sid, "incarnation": inc}
+    ev = lambda op, **f: base.control(op, ident, **f)
+    native = lambda kind, turn, **f: ev("event", native_event=dict(kind=kind, native_session_id=sid, turn_id=turn, **f))
+    detail = {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "touch .fixture/marker"}}
+    approval = ev("event", state={"state": "observed", "detail": "waiting_for_approval"},
+                  native_event={"kind": "approval", "native_session_id": sid, "approval": {
+                      "id": "req-1", "native_session_id": sid, "turn_id": t1, "detail": detail, "item_id": "call-1"}})
+    decision = {"id": "req-1", "native_session_id": sid, "turn_id": t1, "decision": "allow"}
+    wake = ev("send", message_id=mid, wake_delivery={"state": "delivered", "turn_id": t1})
+    start = ev("start")
+    journal = [start, wake, approval]
+    approved = ev("approve", approval_response=decision, approval_delivery={"state": "submitted"})
+    if active:
+        journal.append(approved)
+    frame = lambda kind, value: {"type": kind, "frame": value}
+    launch = lambda *args: {"type": "buddy_fixture_native_process", "pid": 100 + len(args), "args": ["--print", *args]}
+    def raw(uuid, turn, status):
+        return frame("native_frame", {"type": "result", "uuid": uuid, "session_id": sid, "user_message_uuid": turn,
+            "user_message_uuids": [turn], "queued_turn_count": 0, "terminal_reason": status,
+            "is_error": status != "completed", "subtype": "success" if status == "completed" else "error_during_execution"})
+    wire = [launch("--session-id", sid, "--permission-mode", "manual"),
+            frame("adapter_frame", {"type": "user", "uuid": t1}),
+            frame("native_frame", {"type": "user", "isReplay": True, "uuid": t1, "session_id": sid}),
+            frame("native_frame", {"type": "control_request", "request_id": "req-1", "request": detail})]
+    answers = []
+    if active:
+        answers.append("req-1")
+        wire.append(frame("adapter_frame", {"type": "control_response", "response": {"request_id": "req-1"}}))
+    r = {"schema": "buddy.claude-interrupted.v1", "mode": mode, "root": str(s.root), "provider": "deterministic-loopback",
+         "loopback": "127.0.0.1", "claude_version": version, "wake": wake, "approval": approval,
+         "old_decision": decision, "queue": {"delivery": {"message_id": mid}}, "cleanup_errors": [],
+         "final_child_exit": {"status": "observed_absent"}, "provider_barrier": active,
+         "response_released_at_fault": False,
+         "fault_script": {"results": [{"exit_code": 0}] if active else [], "final_emitted": False}}
+    if active:
+        r["approved"] = approved
+        s.write(ROLE + "/.fixture/before-abort.txt", "once\n")
+    status = "aborted_streaming" if active else "aborted_tools"
+    requests = [{"input_fingerprint": "a", "tool_outputs": []}, {"input_fingerprint": "b", "tool_outputs": [{"call_id": "old", "is_error": False}]}]
+    if crash:
+        resume = ev("resume", error="refused: the last turn is unfinished or uncertain")
+        r.update(refusal_exit=1, requests_before_resume=2, requests_after_resume=2, fault_provider_errors=[{"error_type": "connection_closed"}])
+        before_events, after_events = [start, wake, approval] + ([approved] if active else []), []
+    else:
+        interrupt = ev("interrupt")
+        wire.append(frame("adapter_frame", {"type": "control_request", "request": {"subtype": "interrupt"}}))
+        terminal = native("result", t1, result_ref="res-1", result_status=status,
+                          error="native result: error_during_execution/" + status)
+        idle = native("idle", t1)
+        wire.append(raw("res-1", t1, status))
+        resume = ev("resume", pending_approval={"state": "unknown"})
+        fresh_wake = ev("send", message_id=fresh_mid, wake_delivery={"state": "delivered", "turn_id": t2})
+        fresh_approval = ev("approve", approval_response={"id": "req-2", "turn_id": t2}, approval_delivery={"state": "submitted"})
+        fresh_result, fresh_idle = native("result", t2, result_ref="res-2", result_status="completed"), native("idle", t2)
+        journal += [interrupt, terminal, idle, resume, fresh_wake, fresh_approval, fresh_result, fresh_idle]
+        wire += [launch("--resume", sid, "--permission-mode", "manual")] + [
+            frame("adapter_frame", {"type": "control_request", "request": {"subtype": v}})
+            for v in ("initialize", "get_settings", "reload_plugins", "get_settings")] + [
+            frame("adapter_frame", {"type": "user", "uuid": t2}),
+            frame("adapter_frame", {"type": "control_response", "response": {"request_id": "req-2"}}), raw("res-2", t2, "completed")]
+        answers.append("req-2")
+        requests.append({"input_fingerprint": "c", "tool_outputs": [{"call_id": "old", "is_error": False},
+                                                                    {"call_id": "call-1", "is_error": not active}]})
+        old_inbox = {"messages": {"count": 1, "items": [{"message_id": mid}]}}
+        old_delivered = {"delivery": {"message_id": mid, "state": "delivered"}}
+        s.write(ROLE + "/.fixture/old-inbox.json", old_inbox)
+        s.write(ROLE + "/.fixture/old-delivered.json", old_delivered)
+        s.write(ROLE + "/.fixture/fresh.txt", "fresh")
+        r.update(wrong_interrupt={"error": "no such turn"}, interrupt=interrupt, terminal=terminal, idle=idle,
+                 requests_before_resume=2, requests_after_resume=2, requests_after_replay=2,
+                 duplicate={"message_id": mid, "wake_delivery": wake["wake_delivery"]},
+                 replay={"error": "approval already answered"}, inspect={"approvals": []},
+                 fresh_wake=fresh_wake, old_inbox=old_inbox, old_delivered=old_delivered,
+                 fresh_output=json.dumps([{"output": "guard: claude.txt is inside scope", "is_error": True},
+                                          {"is_error": False}, {"exit_code": 0, "is_error": False}]))
+        before_events = [start, wake, approval] + ([approved] if active else []) + [interrupt, terminal, idle]
+        after_events = [resume, fresh_wake, fresh_approval, fresh_result, fresh_idle]
+    r["restart"] = {"resume": resume, "before": {"exit": -9 if crash else 0, "unparsed": [], "events": before_events,
+                                                 "children": {"status": "observed_absent"}}}
+    s.jsonl(STATE + "identity.json.events", journal)
+    s.jsonl(STATE + "native-observations.jsonl", wire)
+    s.write(STATE + "identity.json", {"identity": ident})
+    s.write(STATE + "launch.json", {"harness_version": version, "hooks": {"mods": "builtin-only-" + version}})
+    s.write(ROLE + "-provider.json", {"errors": [], "requests": requests})
+    ready = s.repo(ROLE)
+    s.write(ROLE + "/claude.txt", "allowed\n")
+    s.write(ROLE + "/codex.txt", "original\n")
+    if crash:
+        r.update(journal_before_resume=s.digest(STATE + "identity.json.events"),
+                 journal_after_refusal=s.digest(STATE + "identity.json.events"),
+                 wire_before_resume=s.digest(STATE + "native-observations.jsonl"),
+                 wire_after_refusal=s.digest(STATE + "native-observations.jsonl"))
+    claims = [("c1", "run-interrupted", "owner", "owner-inc", "open", ""), ("c2", "worker", sid, inc, "open", "")]
+    waits, targets = [(sid, inc, "d1", ready, None)], [("d1", sid, inc, 0, "c1", "run-interrupted")]
+    snap = lambda name, **kw: s.ledger(name, sessions=[(sid, inc, None)], waits=waits, targets=targets, **kw)
+    for stage in stages(r):
+        r[stage] = snap(stage, claims=claims, delivered=[(mid, sid, 1)] if stage == "after_fresh" else [])
+    r["ledger"] = snap("final", claims=[c[:4] + ("released", "pass") for c in claims])
+    r["ready_sha"] = ready
+    r["sessions"] = {ROLE: {"identity": ident, "worktree": str(s.root / ROLE), "native_version": version + " (Claude Code)",
+                            "events": after_events, "adapter_exit": 1 if crash else 0, "unparsed": [],
+                            "native_child_exit": {"status": "observed_absent"}}}
+    s.built(r)
+    base.synthetic_contract(r, r["sessions"].values())
+    return s.seal(r, evidence_paths(r))
+
+
+def synthetic_suite(top):
+    Path(top).mkdir(parents=True, exist_ok=True)
+    top = Path(top).resolve(strict=True)
+    return {"schema": "buddy.claude-interrupted-suite.v1", "root": str(top),
+            "cases": {mode: synthetic_case(top / mode, mode) for mode in MODES}}
+
+
+def synthetic_self_test():
+    """Every receipt mutation and splice above, against synthetic evidence."""
+    with tempfile.TemporaryDirectory(prefix="buddy-claude-interrupted-synthetic-") as tmp:
+        r = synthetic_suite(Path(tmp) / "suite")
+        out = self_test(r)
+        wire, journal = STATE + "native-observations.jsonl", STATE + "identity.json.events"
+        user = lambda v: v["type"] == "adapter_frame" and v["frame"].get("type") == "user"
+        launch = lambda v: v["type"] == "buddy_fixture_native_process"
+        result = lambda v: v["type"] == "native_frame" and v["frame"].get("type") == "result"
+        for mode in MODES:
+            plans = [(wire, lambda rows: rows.insert(2, copy.deepcopy(next(v for v in rows if user(v)))),
+                      "native_inputs_and_approval_answers_exact"),
+                     (wire, lambda rows: rows.insert(1, copy.deepcopy(next(v for v in rows if launch(v)))),
+                      "native_launch_and_renewed_controls"),
+                     (journal, lambda rows: rows[0]["identity"].update(incarnation="stale"), "captured_identity")]
+            if mode.startswith("crash"):
+                plans.append((wire, lambda rows: rows.append({"type": "native_frame", "frame": {"type": "result"}}),
+                              "unfinished_turn_has_no_terminal"))
+            else:
+                plans.append((wire, lambda rows: rows.remove(next(v for v in rows if result(v))),
+                              "cancelled_result_and_idle"))
+            with tempfile.TemporaryDirectory(prefix="buddy-forged-") as scratch:
+                out["rejected_mutations"] += base.forged_jsonl_self_test(r["cases"][mode], validate_case, plans, scratch)
+            with tempfile.TemporaryDirectory(prefix="buddy-hash-binding-") as scratch:
+                out["rejected_mutations"] += base.hash_binding_self_test(r["cases"][mode], validate_case, evidence_paths, scratch)
+        out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
+        return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true",
+                        help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error("a receipt is required unless --self-test")
+        print(json.dumps(synthetic_self_test(), indent=2))
+        return 0
     r = json.loads(args.receipt.read_text())
     out = self_test(r) if args.self_test else validate(r)
     print(json.dumps(out, indent=2))

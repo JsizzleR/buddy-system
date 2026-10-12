@@ -219,11 +219,139 @@ def self_test(r):
     return {"positive": "passed", "rejected_mutations": count}
 
 
+def synthetic_case(root, mode):
+    """One coherent SYNTHETIC case under root (base.Synthetic says what that is)."""
+    s = base.Synthetic(root)
+    sid, inc, turn, t0, t2, mid = "thread-" + mode, "inc-" + mode, "compact-" + mode, "turn-0", "fresh-" + mode, 4
+    ident = {"schema": "buddy.lifecycle.v1", "harness": "codex", "session_id": sid, "incarnation": inc}
+    ev = lambda op, **f: base.control(op, ident, **f)
+    native = lambda kind, t, **f: ev("event", native_event=dict(kind=kind, native_session_id=sid, turn_id=t, **f))
+    frame = lambda kind, value: {"type": kind, "frame": value}
+    item = {"type": "contextCompaction", "id": "item-" + mode}
+    request = {"id": "fixture-compact", "method": "thread/compact/start", "params": {"threadId": sid}}
+    reply = {"id": "fixture-compact", "result": {}}
+    status = "completed" if mode == "lost_completion" else "interrupted"
+    history = {"id": "fixture-history", "result": {"thread": {"id": sid, "turns": [{"id": turn, "status": status}]}}}
+    wake = ev("send", message_id=mid, wake_delivery={"state": "delivered", "turn_id": t0})
+    started = native("compaction_started", turn, item_id=item["id"])
+    start = ev("start")
+    journal = [start, wake, started]
+    wire = [frame("fixture_frame", request), frame("native_frame", reply),
+            frame("native_frame", {"method": "item/started", "params": {"threadId": sid, "turnId": turn, "item": item}})]
+    fault = {"provider_barrier": True, "response_released_at_fault": False, "provider_errors": [{"error_type": "connection_closed"}]}
+    if mode == "cancel":
+        interrupt, result, idle = ev("interrupt"), native("result", turn, result_status="interrupted", result_ref="r-int"), native("idle", turn)
+        journal += [interrupt, result, idle]
+        wire += [frame("adapter_frame", {"method": "turn/interrupt", "params": {"threadId": sid, "turnId": turn}}),
+                 frame("native_frame", {"method": "turn/completed", "params": {"threadId": sid, "turn": {"id": turn, "status": "interrupted"}}})]
+        fault.update(wrong_interrupt={"error": "no such turn"}, interrupt=interrupt, result=result, idle=idle)
+    elif mode == "lost_completion":
+        completed = {"method": "item/completed", "params": {"threadId": sid, "turnId": turn, "item": item}}
+        done = {"method": "turn/completed", "params": {"threadId": sid, "turn": {"id": turn, "status": "completed"}}}
+        wire += [frame("native_frame", completed), frame("native_frame", done),
+                 frame("dropped_frame", completed), frame("dropped_frame", done)]
+        fault = {"dropped_item": completed, "dropped_result": done, "provider_errors": []}
+    wire += [frame("fixture_frame", {"id": "fixture-history", "method": "thread/read", "params": {"threadId": sid, "includeTurns": True}}),
+             frame("native_frame", history),
+             frame("adapter_frame", {"id": 30, "method": "thread/resume", "params": {"threadId": sid}}),
+             frame("adapter_frame", {"id": 31, "method": "turn/start", "params": {"threadId": sid}}),
+             frame("adapter_frame", {"id": "req-2", "result": {"decision": "accept"}})]
+    before_events = list(journal)
+    resume = ev("resume", pending_approval={"state": "unknown"})
+    reconcile = ev("reconcile", message_id=mid, wake_delivery=wake["wake_delivery"],
+                   error="Codex reconcile is unsupported: the turn is known")
+    fresh_wake = ev("send", message_id=9, wake_delivery={"state": "delivered", "turn_id": t2})
+    fresh = [ev("approve", approval_response={"id": "req-2", "turn_id": t2}, approval_delivery={"state": "submitted"}),
+             native("result", t2, result_status="completed", result_ref="r-2"), native("idle", t2)]
+    after_events = [resume, reconcile, fresh_wake] + fresh
+    journal += after_events
+    s.jsonl(STATE + "identity.json.events", journal)
+    s.jsonl(STATE + "native-observations.jsonl", wire)
+    s.write(STATE + "identity.json", {"identity": ident})
+    s.write(STATE + "launch.json", {"harness_version": "0.160.0"})
+    s.write(STATE + "fixture-compact-taken.json", request)
+    s.write(STATE + "fixture-compact-reply.json", reply)
+    s.write(STATE + "fixture-history-taken.json", {"id": "fixture-history", "method": "thread/read"})
+    s.write(STATE + "fixture-history-reply.json", history)
+    s.write(ROLE + "-provider.json", {"errors": [], "requests": [{}, {}]})
+    ready = s.repo(ROLE)
+    old_inbox = {"messages": {"count": 1, "items": [{"message_id": mid}]}}
+    old_delivered = {"delivery": {"message_id": mid, "state": "delivered"}}
+    s.write(ROLE + "/.fixture/old-inbox.json", old_inbox)
+    s.write(ROLE + "/.fixture/old-delivered.json", old_delivered)
+    s.write(ROLE + "/.fixture/fresh.txt", "fresh")
+    s.write(ROLE + "/codex.txt", "allowed\n")
+    s.write(ROLE + "/claude.txt", "original\n")
+    claims = [("c1", "run-compact", "owner", "owner-inc", "open", ""), ("c2", "worker", sid, inc, "open", "")]
+    waits, targets = [(sid, inc, "d1", ready, None)], [("d1", sid, inc, 0, "c1", "run-compact")]
+    snap = lambda name, **kw: s.ledger(name, sessions=[(sid, inc, None)], waits=waits, targets=targets, **kw)
+    r = {"schema": "buddy.interrupted-compaction.v1", "mode": mode, "root": str(s.root), "provider": "deterministic-loopback",
+         "approval": {"queue": {"delivery": {"message_id": mid}}, "wake": wake},
+         "compaction": {"request": request, "reply": reply, "started": started, "script": {"step_count": 0, "results": []}},
+         "fault": fault, "restart": {"resume": resume, "before": {"exit": 0 if mode == "cancel" else -9, "unparsed": [],
+                                                              "events": before_events, "children": {"status": "observed_absent"}}},
+         "requests_before": 2, "requests_after": 2, "duplicate": {"message_id": mid, "wake_delivery": wake["wake_delivery"]},
+         "replay": {"error": "approval already answered"}, "reconcile": reconcile, "compaction_history": history,
+         "fresh_wake": fresh_wake, "old_inbox": old_inbox, "old_delivered": old_delivered, "cleanup_errors": [],
+         "fresh_output": json.dumps([{"output": "guard: codex.txt is inside scope"}, {"exit_code": 0}, {"exit_code": 1}, {"exit_code": 0}]),
+         "ready_sha": ready}
+    for stage in STAGES:
+        r[stage] = snap(stage, claims=claims, delivered=[(mid, sid, 1)] if stage == "after_fresh" else [])
+    r["ledger"] = snap("final", claims=[c[:4] + ("released", "pass") for c in claims])
+    r["sessions"] = {ROLE: {"identity": ident, "harness": "codex", "worktree": str(s.root / ROLE),
+                            "native_version": "codex-cli 0.160.0", "events": after_events, "adapter_exit": 0,
+                            "unparsed": [], "native_child_exit": {"status": "observed_absent"}}}
+    s.built(r)
+    base.synthetic_contract(r, r["sessions"].values())
+    return s.seal(r, evidence_paths(r))
+
+
+def synthetic_suite(top):
+    Path(top).mkdir(parents=True, exist_ok=True)
+    top = Path(top).resolve(strict=True)
+    return {"schema": "buddy.interrupted-compaction-suite.v1", "root": str(top),
+            "cases": {mode: synthetic_case(top / mode, mode) for mode in MODES}}
+
+
+def synthetic_self_test():
+    """Every receipt mutation and splice above, plus evidence forgeries, against synthetic evidence."""
+    with tempfile.TemporaryDirectory(prefix="buddy-interrupted-compaction-synthetic-") as tmp:
+        r = synthetic_suite(Path(tmp) / "suite")
+        out = self_test(r)
+        wire, journal = STATE + "native-observations.jsonl", STATE + "identity.json.events"
+        method = lambda kind, name: lambda v: v["type"] == kind and v["frame"].get("method") == name
+        for mode in MODES:
+            plans = [(wire, lambda rows: rows.append(copy.deepcopy(next(v for v in rows if method("fixture_frame", "thread/compact/start")(v)))),
+                      "one_compact_no_retry"),
+                     (wire, lambda rows: rows.append({"type": "adapter_frame", "frame": {"id": 32, "method": "turn/start"}}),
+                      "no_wake_or_approval_replay"),
+                     (wire, lambda rows: rows.append({"type": "adapter_frame", "frame": {"id": 33, "method": "thread/read"}}),
+                      "reconcile_withdrawn_without_native_query"),
+                     (journal, lambda rows: rows[0]["identity"].update(incarnation="stale"), "same_captured_identity"),
+                     (journal, lambda rows: rows.append(dict(copy.deepcopy(rows[0]), native_event={"kind": "compaction_completed"})),
+                      "observation_not_completion")]
+            if mode != "cancel":
+                plans.append((journal, lambda rows, mode=mode: rows.append(dict(copy.deepcopy(rows[0]), native_event={
+                    "kind": "result", "turn_id": "compact-" + mode})), "no_invented_compaction_result"))
+            with tempfile.TemporaryDirectory(prefix="buddy-forged-") as scratch:
+                out["rejected_mutations"] += base.forged_jsonl_self_test(r["cases"][mode], validate_case, plans, scratch)
+            with tempfile.TemporaryDirectory(prefix="buddy-hash-binding-") as scratch:
+                out["rejected_mutations"] += base.hash_binding_self_test(r["cases"][mode], validate_case, evidence_paths, scratch)
+        out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
+        return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true",
+                        help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error("a receipt is required unless --self-test")
+        print(json.dumps(synthetic_self_test(), indent=2))
+        return 0
     r = json.loads(args.receipt.read_text())
     out = self_test(r) if args.self_test else validate(r)
     print(json.dumps(out, indent=2))

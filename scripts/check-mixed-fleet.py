@@ -194,6 +194,207 @@ def suite_splice_self_test(suite, modes, validate, validate_case, scratch, pinne
     return count
 
 
+# SYNTHETIC EVIDENCE (review F-33). Most checkers' self-tests ran only against a
+# native receipt retained in /private/tmp, so a fresh clone could not run them,
+# check.sh could not gate them, and once a receipt was gone nothing in the tree
+# exercised the guards they hold (audit A-06: the suite binding above was
+# killed only by a self-test against an ephemeral 93 MB receipt). These write
+# REAL files a checker reads the same way it reads a capture: JSON-lines wire
+# logs and journals, SQLite ledger snapshots, a git worktree, a provider log,
+# each hashed the way a runner hashes it. They test a CHECKER. They qualify no
+# native harness, and a pass against them says nothing about Claude or Codex.
+SYNTHETIC_LEDGER = """
+    CREATE TABLE sessions(session_id, incarnation, ended);
+    CREATE TABLE claims(claim_id, slug, session_id, incarnation, state, outcome);
+    CREATE TABLE session_waits(session_id, incarnation, decl, ready_sha, cleared);
+    CREATE TABLE session_wait_targets(decl, session_id, incarnation, ord, claim_id, slug);
+    CREATE TABLE inbox_delivery(msg_id, session_id, delivered);
+    CREATE TABLE inbox(msg_id, target, sender_session, body);
+    CREATE TABLE adapter_messages(msg_id, sender_incarnation, recipient_incarnation);
+"""
+# One build's artifacts. Every case of a synthetic suite writes these same
+# bytes, so their hashes agree the way one run's do (suite_binding).
+SYNTHETIC_BUILT = {"source-manifest.json": "{}\n", "bin/buddy": "synthetic buddy\n",
+                   "bin/buddy-adapter": "synthetic adapter\n"}
+SYNTHETIC_BUILT_KEYS = {"source-manifest.json": "source_manifest_sha256", "bin/buddy": "buddy_sha256",
+                        "bin/buddy-adapter": "adapter_sha256"}
+
+
+def control(operation, ident, **fields):
+    """A buddy.control.v1 receipt that claims nothing: every effect unknown."""
+    return dict({"schema": "buddy.control.v1", "operation": operation, "identity": ident,
+                 "state": {"state": "unknown"}, "completion": {"state": "unknown"},
+                 "acknowledgment": {"state": "unknown"}, "body_delivery": {"state": "unknown"},
+                 "capabilities": {"telemetry": {"support": "unknown"},
+                                  "reconcile": {"support": "unsupported"}}}, **fields)
+
+
+class Synthetic:
+    """One synthetic case's evidence root. For self-tests only."""
+
+    def __init__(self, root):
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.root = self.root.resolve(strict=True)
+
+    def write(self, name, value):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(value, bytes):
+            path.write_bytes(value)
+        elif isinstance(value, str):
+            path.write_text(value)
+        else:
+            path.write_text(json.dumps(value))
+        return name
+
+    def jsonl(self, name, rows):
+        return self.write(name, "".join(json.dumps(v) + "\n" for v in rows))
+
+    def ledger(self, name, sessions=(), claims=(), waits=(), targets=(), delivered=(), inbox=(), adapter=()):
+        """A SQLite snapshot (no WAL) with the tables the checkers read."""
+        path = self.root / (name + ".db")
+        db = sqlite3.connect(path)
+        try:
+            db.executescript(SYNTHETIC_LEDGER)
+            for table, rows in (("sessions", sessions), ("claims", claims), ("session_waits", waits),
+                                ("session_wait_targets", targets), ("inbox_delivery", delivered),
+                                ("inbox", inbox), ("adapter_messages", adapter)):
+                for row in rows:
+                    db.execute("INSERT INTO %s VALUES (%s)" % (table, ",".join("?" * len(row))), row)
+            db.commit()
+        finally:
+            db.close()
+        return str(path)
+
+    def repo(self, name):
+        """A real git repository at root/name with one commit; returns its HEAD."""
+        work = self.root / name
+        work.mkdir(parents=True, exist_ok=True)
+        git(work, "init", "-q", "-b", "main")
+        git(work, "config", "user.name", "Fixture")
+        git(work, "config", "user.email", "fixture@example.invalid")
+        (work / "README").write_text("synthetic fixture worktree\n")
+        git(work, "add", "README")
+        git(work, "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+        return git(work, "rev-parse", "HEAD")
+
+    def built(self, receipt):
+        """Write the build's artifacts and record their hashes in receipt."""
+        for name, text in SYNTHETIC_BUILT.items():
+            self.write(name, text)
+            receipt[SYNTHETIC_BUILT_KEYS[name]] = self.digest(name)
+        return receipt
+
+    def digest(self, name):
+        path = Path(name) if Path(name).is_absolute() else self.root / name
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def seal(self, receipt, paths):
+        """Record evidence_sha256 for paths, keyed relative to the root.
+
+        Returns the receipt as a runner's JSON file would load it. A builder
+        shares one dict between fields (a wake's delivery, its duplicate and
+        its reconcile), deepcopy keeps that sharing, and a self-test mutation
+        then damages both sides of the comparison it exists to fail: measured,
+        `duplicate.wake_delivery.turn_id` was accepted. A loaded receipt
+        shares nothing.
+        """
+        sealed = receipt.setdefault("evidence_sha256", {})
+        for name in paths:
+            path = Path(name) if Path(name).is_absolute() else self.root / name
+            sealed[str(path.resolve(strict=True).relative_to(self.root))] = self.digest(path)
+        return json.loads(json.dumps(receipt))
+
+
+def synthetic_contract(receipt, sessions):
+    """Fill the suite contract fields one run of one build would share."""
+    receipt.update(fixture_sources={"fixture.py": "f" * 64}, source_head="e" * 40)
+    for session in sessions:
+        session.setdefault("native_sha256", "a" * 64)
+    return receipt
+
+
+def hash_binding_self_test(case, validate_case, paths, scratch, check="original_evidence_hashes", relocate=True):
+    """Every hashed evidence file is bound: one changed byte fails `check`.
+
+    Runs on a private relocated copy, or on case itself when relocate is False
+    (a case already built privately, for a checker whose hashed evidence pins
+    its absolute root, so no copy can pass). The control (the case passes
+    before and after) proves a refusal is the binding, not a broken copy.
+    """
+    moved = relocated_case(case, Path(scratch) / "hash-binding") if relocate else case
+    root = Path(moved["root"]).resolve(strict=True)
+    def verdict():
+        try:
+            return validate_case(moved)
+        except ValueError as error:
+            # Evidence.read verifies a file's hash before decoding it, and a
+            # checker that reads one outside a check (history's report line)
+            # lets that refusal escape; validate() turns it into a fail.
+            if not str(error).startswith("changed evidence: "):
+                raise
+            return {"passed": False, "checks": {check: False}}
+    if not verdict()["passed"]:
+        raise AssertionError("hash-binding control: the copied case failed: " + str(verdict().get("errors")))
+    count = 0
+    for name in paths(moved):
+        target = (Path(name) if Path(name).is_absolute() else root / name).resolve(strict=True)
+        if root not in target.parents:
+            raise AssertionError("hash-binding target outside the private copy: " + str(target))
+        original = target.read_bytes()
+        target.write_bytes(original + b"\n")
+        try:
+            out = verdict()
+            if out["passed"] or out["checks"].get(check) is not False:
+                raise AssertionError("an edited evidence file was not refused by " + check + ": " + str(name))
+        finally:
+            target.write_bytes(original)
+        count += 1
+    if not verdict()["passed"]:
+        raise AssertionError("hash-binding control did not restore")
+    return count
+
+
+def forged_jsonl_self_test(case, validate_case, plans, scratch, relocate=True):
+    """Forge JSON-lines evidence and RE-RECORD its hash; the named check must fail.
+
+    plans: (name relative to the case root, edit(rows) in place, check). The
+    hash guard must PASS on each forgery (its positive control), so the
+    refusal can only come from the semantic check named, never from a hash
+    standing in for it (the F-14 lesson). Runs on a private relocated copy,
+    or on case itself when relocate is False (see hash_binding_self_test).
+    """
+    moved = relocated_case(case, Path(scratch) / "forged") if relocate else case
+    root = Path(moved["root"]).resolve(strict=True)
+    if not validate_case(moved)["passed"]:
+        raise AssertionError("forgery control: the case failed before any forgery: " + str(validate_case(moved).get("errors")))
+    count = 0
+    for name, edit, check in plans:
+        target = root / name
+        original = target.read_bytes()
+        rows = [json.loads(v) for v in original.decode().splitlines()]
+        edit(rows)
+        changed = "".join(json.dumps(v) + "\n" for v in rows).encode()
+        if changed == original:
+            raise AssertionError("forgery changed nothing: " + name + " for " + check)
+        target.write_bytes(changed)
+        try:
+            bad = copy.deepcopy(moved)
+            bad["evidence_sha256"][name] = hashlib.sha256(changed).hexdigest()
+            checks = validate_case(bad)["checks"]
+            if checks.get("original_evidence_hashes") is not True:
+                raise AssertionError("forgery control: the re-recorded hash did not pass (" + check + ")")
+            if checks.get(check) is not False:
+                raise AssertionError("forged " + name + " did not fail " + check)
+        finally:
+            target.write_bytes(original)
+        count += 1
+    if not validate_case(moved)["passed"]:
+        raise AssertionError("forgery control did not restore")
+    return count
+
+
 class Evidence:
     def __init__(self, receipt, overrides=None):
         self.receipt = receipt

@@ -265,15 +265,26 @@ print(" ".join(sorted(hits)))
   [ -z "$pyhit" ] || { echo "check.sh: assert statements in scripts/ vanish under python -O; use an explicit check: $pyhit" >&2; exit 1; }
   # The self-tests that need nothing but python3: a fake child behind every
   # native proxy (plus TERM/HUP cleanup and owned-identity kills), the
-  # loopback provider against itself, and two checkers against SYNTHETIC
+  # loopback provider against itself, and the checkers against SYNTHETIC
   # evidence they build in a temp dir: real git worktrees, SQLite snapshots,
-  # wire logs and journals, no harness. Synthetic evidence tests a checker; it
-  # qualifies no native harness. The other checkers' self-tests still need a
-  # retained native receipt (F-33) and stay manual until they build their own.
+  # wire logs and journals, no harness (check-mixed-fleet.Synthetic). Synthetic
+  # evidence tests a checker; it qualifies no native harness. The four SUITE
+  # checkers also run their splice tests here, so the run binding (F-13) is
+  # exercised by the tree and not only by an ephemeral receipt (audit A-06).
   python3 -I -B scripts/test_native_proxy.py
   python3 -I -B scripts/mixed_fleet_provider.py --self-test
   python3 -I -B scripts/check-mixed-fleet.py --self-test
   python3 -I -B scripts/check-claude-resume.py --self-test
+  python3 -I -B scripts/check-claude-interrupted.py --self-test
+  python3 -I -B scripts/check-claude-interrupted-compaction.py --self-test
+  python3 -I -B scripts/check-interrupted-compaction.py --self-test
+  python3 -I -B scripts/check-claude-history.py --self-test
+  python3 -I -B scripts/check-claude-compaction.py --self-test
+  python3 -I -B scripts/check-compaction.py --self-test
+  python3 -I -B scripts/check-claude-delivery.py --self-test
+  python3 -I -B scripts/check-interrupted.py --self-test
+  python3 -I -B scripts/check-recovery.py --self-test
+  python3 -I -B scripts/check-uncertain.py --self-test
   # node --check, with a planted control so a check that accepts everything
   # cannot pass for one that checked.
   mjs_skipped=

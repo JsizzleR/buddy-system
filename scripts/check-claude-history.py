@@ -288,11 +288,167 @@ def self_test(r):
     return dict(positive='passed', rejected_mutations=count)
 
 
+def synthetic_case(root, mode):
+    """One coherent SYNTHETIC case under root (base.Synthetic says what that is)."""
+    s = base.Synthetic(root)
+    good, crash = mode == 'completed', mode.startswith('crash_')
+    version, sid, inc, tid, mid = '2.1.291', '33333333-4444-4555-8666-' + str(MODES.index(mode)) * 12, 'inc-' + mode, 'input-' + mode, 3
+    ident = {'schema': 'buddy.lifecycle.v1', 'harness': 'claude', 'session_id': sid, 'incarnation': inc}
+    ev = lambda op, **f: base.control(op, ident, **f)
+    frame = lambda kind, value: {'type': kind, 'frame': value}
+    worktree = str(s.root / ROLE)
+    sdk = {'version': '0.3.202', 'sha256': {'sdk.mjs': '1' * 64, 'sdk.d.ts': '2' * 64, 'package.json': '3' * 64}}
+    versions = {'claude': {'version': version + ' (Claude Code)', 'executable_sha256': 'a' * 64}}
+    launch = {'worktree': worktree, 'harness_version': version, 'permission_mode': 'workspace-write',
+              'gate_command': 'fixture gate', 'hooks': {'configured': 'observed', 'observed': 'unknown',
+                                                        'mods': 'builtin-only-' + version}}
+    message = {'role': 'user', 'content': 'Buddy peer notification: message #3 is queued.'}
+    user = {'type': 'user', 'uuid': tid, 'message': message}
+    replay = {'type': 'user', 'uuid': tid, 'isReplay': True, 'session_id': sid}
+    result = {'type': 'result', 'uuid': 'res-' + mode, 'session_id': sid, 'user_message_uuid': tid,
+              'user_message_uuids': [tid], 'terminal_reason': 'completed', 'queued_turn_count': 0,
+              'subtype': 'success', 'is_error': False}
+    detail = {'subtype': 'can_use_tool', 'tool_name': 'Bash'}
+    start, intent = ev('start'), ev('send', message_id=mid, wake_delivery={'state': 'unknown'})
+    journal = [start, intent]
+    wire = [{'type': 'buddy_fixture_native_process', 'pid': 300, 'args': ['--print', '--session-id', sid]},
+            frame('adapter_frame', user), frame('native_frame', replay)]
+    r = {'schema': 'buddy.claude-history.v1', 'mode': mode, 'root': str(s.root), 'provider': 'deterministic-loopback',
+         'loopback': '127.0.0.1', 'claude_version': version, 'native_versions': versions, 'sdk': sdk,
+         'native_input_uuid': tid, 'queue': {'delivery': {'message_id': mid}}, 'missing_id': 'missing-session',
+         'cleanup_errors': [], 'final_child_exit': {'status': 'observed_absent'}}
+    if mode != 'lost_ack':
+        wake = ev('send', message_id=mid, wake_delivery={'state': 'delivered', 'turn_id': tid})
+        journal.append(wake)
+        r['wake'] = wake
+    assistant = lambda stop: {'type': 'assistant', 'uuid': 'a-' + mode, 'session_id': sid, 'message': {'stop_reason': stop}}
+    rows = [dict(user, session_id=sid), assistant('tool_use' if crash else 'end_turn')]
+    if mode == 'crash_approval':
+        rows = []
+    if not crash:
+        wire.append(frame('native_frame', result))
+        if mode == 'lost_result':
+            wire.append(frame('dropped_frame', result))
+        if mode == 'lost_ack':
+            wire += [frame('dropped_frame', replay), frame('dropped_frame', result)]
+    else:
+        obs = {'id': 'req-1', 'native_session_id': sid, 'turn_id': tid, 'detail': detail}
+        approval = ev('event', native_event={'kind': 'approval', 'native_session_id': sid, 'approval': obs})
+        journal.append(approval)
+        wire.append(frame('native_frame', {'type': 'control_request', 'request_id': 'req-1', 'request': detail}))
+        r.update(approval=approval, fault_provider_errors=[{'error_type': 'connection_closed'}])
+        if mode == 'crash_active':
+            approved = ev('approve', approval_response={'id': 'req-1', 'turn_id': tid}, approval_delivery={'state': 'submitted'})
+            journal.append(approved)
+            s.write(ROLE + '/.fixture/marker.txt', 'once\n')
+            r.update(approved=approved, provider_barrier=True, response_released_at_fault=False,
+                     script={'results': [{'exit_code': 0}]})
+        else:
+            r['script'] = {'results': []}
+    if good:
+        terminal = ev('event', native_event={'kind': 'result', 'native_session_id': sid, 'turn_id': tid,
+                                             'result_ref': result['uuid'], 'result_status': 'completed'})
+        idle = ev('event', native_event={'kind': 'idle', 'native_session_id': sid, 'turn_id': tid})
+        journal += [terminal, idle]
+    before_events = list(journal)
+    if good:
+        resume = ev('resume', pending_approval={'state': 'unknown'})
+        journal.append(resume)
+        wire.append({'type': 'buddy_fixture_native_process', 'pid': 301, 'args': ['--print', '--resume', sid]})
+        after_events = [resume]
+    else:
+        resume = ev('resume', error='refused: the last turn is unfinished or uncertain')
+        after_events = []
+    lookup = lambda: {'schema': 'buddy.claude-history-lookup.v1', 'sdk_version': sdk['version'], 'sdk_sha256': sdk['sha256'],
+                      'session_id': sid, 'worktree': worktree}
+    s.write(STATE + 'history.json', dict(lookup(), messages=rows, system_messages=rows,
+                                         missing_id=r['missing_id'], missing_messages=[]))
+    s.write(STATE + 'missing-history.json', dict(lookup(), messages=[], system_messages=[], missing_messages=[]))
+    s.write(STATE + 'history.stderr', '')
+    s.write(STATE + 'missing-history.stderr', '')
+    s.jsonl(STATE + 'identity.json.events', journal)
+    s.jsonl(STATE + 'native-observations.jsonl', wire)
+    s.write(STATE + 'launch.json', launch)
+    s.write(STATE + 'identity.json', {'schema': 'buddy.control.v1', 'identity': ident, 'launch': launch})
+    s.write('native-versions.json', versions)
+    s.write('sdk-contract.json', sdk)
+    s.write(ROLE + '-provider.json', {'errors': [], 'requests': [{}, {}]})
+    ready = s.repo(ROLE)
+    s.write(ROLE + '/claude.txt', 'allowed\n')
+    s.write(ROLE + '/codex.txt', 'original\n')
+    journal_digest, wire_digest = s.digest(STATE + 'identity.json.events'), s.digest(STATE + 'native-observations.jsonl')
+    state = {'native': {'pid': 300}, 'empty_native': {}, 'requests': 2, 'journal': journal_digest, 'wire': wire_digest}
+    r.update(lookup_before=state, lookup_after=copy.deepcopy(state), requests_after_resume=2, ready_sha=ready,
+             restart={'resume': resume, 'before': {'exit': 0 if good else -9, 'unparsed': [], 'events': before_events,
+                                                   'children': {'status': 'observed_absent'}}})
+    if good:
+        r.update(duplicate={'message_id': mid, 'wake_delivery': r['wake']['wake_delivery']}, requests_after_duplicate=2)
+    else:
+        r.update(refusal_exit=1, journal_after_refusal=journal_digest, wire_after_refusal=wire_digest)
+    claims = [('c1', 'run-history', 'owner', 'owner-inc', 'open', ''), ('c2', 'worker', sid, inc, 'open', '')]
+    first = Path(s.ledger(STAGES[0], sessions=[(sid, inc, None)], claims=claims, waits=[(sid, inc, 'd1', ready, None)],
+                          targets=[('d1', sid, inc, 0, 'c1', 'run-history')]))
+    r[STAGES[0]] = str(first)
+    for stage in STAGES[1:]:
+        # Byte-identical copies: the lookup must leave the ledger's bytes alone.
+        (s.root / (stage + '.db')).write_bytes(first.read_bytes())
+        r[stage] = str(s.root / (stage + '.db'))
+    r['ledger'] = s.ledger('final', sessions=[(sid, inc, None)], claims=[c[:4] + ('released', 'pass') for c in claims])
+    r['sessions'] = {ROLE: {'identity': ident, 'worktree': worktree, 'native_version': versions['claude']['version'],
+                            'native_sha256': versions['claude']['executable_sha256'], 'events': after_events,
+                            'adapter_exit': 0 if good else 1, 'unparsed': [], 'native_child_exit': {'status': 'observed_absent'}}}
+    s.built(r)
+    base.synthetic_contract(r, r['sessions'].values())
+    r['fixture_sources'] = {'claude-history.mjs': 'c' * 64, 'qualify-claude-history.py': 'd' * 64}
+    return s.seal(r, evidence_paths(r))
+
+
+def synthetic_suite(top):
+    Path(top).mkdir(parents=True, exist_ok=True)
+    top = Path(top).resolve(strict=True)
+    return {'schema': 'buddy.claude-history-suite.v1', 'root': str(top),
+            'cases': {mode: synthetic_case(top / mode, mode) for mode in MODES}}
+
+
+def synthetic_self_test():
+    """Every receipt mutation, contract corruption and splice above, against synthetic evidence."""
+    with tempfile.TemporaryDirectory(prefix='buddy-claude-history-synthetic-') as tmp:
+        r = synthetic_suite(Path(tmp) / 'suite')
+        out = self_test(r)
+        wire, journal = STATE + 'native-observations.jsonl', STATE + 'identity.json.events'
+        for mode in MODES:
+            plans = [(wire, lambda rows: rows.append(copy.deepcopy(next(v for v in rows if v['type'] == 'adapter_frame'))),
+                      'one_input_native_acceptance'),
+                     (wire, lambda rows: rows.append({'type': 'buddy_fixture_native_process', 'pid': 9, 'args': ['--print', '--resume', 'x']}),
+                      'only_owned_expected_launches'),
+                     (journal, lambda rows: rows.append(dict(copy.deepcopy(rows[0]), turn_observation={'source': 'history'})),
+                      'no_history_promoted_to_work_or_approval')]
+            if mode == 'completed':
+                plans.append((journal, lambda rows: rows.pop(), 'completed_positive_resume_and_dedup'))
+            else:
+                plans.append((wire, lambda rows: rows.append({'type': 'dropped_frame', 'frame': {'type': 'system'}}),
+                              'exact_output_fault'))
+            # launch.json pins the absolute worktree (exact_native_contract), so
+            # no relocated copy can pass: forge a privately built case instead.
+            with tempfile.TemporaryDirectory(prefix='buddy-forged-') as scratch:
+                case = synthetic_case(Path(scratch) / mode, mode)
+                out['rejected_mutations'] += base.forged_jsonl_self_test(case, validate_case, plans, scratch, relocate=False)
+                out['rejected_mutations'] += base.hash_binding_self_test(case, validate_case, evidence_paths, scratch, relocate=False)
+        out['evidence'] = 'synthetic: tests the checker, qualifies no native harness'
+        return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('receipt', type=Path)
-    parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('receipt', type=Path, nargs='?')
+    parser.add_argument('--self-test', action='store_true',
+                        help='with no receipt, run against synthetic evidence built in a temp dir (hermetic)')
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error('a receipt is required unless --self-test')
+        print(json.dumps(synthetic_self_test(), indent=2))
+        return 0
     r = json.loads(args.receipt.read_text())
     out = self_test(r) if args.self_test else validate(r)
     print(json.dumps(out, indent=2))

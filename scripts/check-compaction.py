@@ -11,6 +11,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("compaction_evidence", Path(__file__).with_name("check-mixed-fleet.py"))
@@ -176,11 +177,107 @@ def self_test(r):
     return {"positive": "passed", "rejected_mutations": len(changes)}
 
 
+STAGES = ("before_compact", "after_compact", "after_resume", "after_reconcile", "after_fresh")
+
+
+def synthetic(root):
+    """A coherent SYNTHETIC compaction capture under root (base.Synthetic says what that is)."""
+    s = base.Synthetic(root)
+    sid, inc, turn, t0, t2, mid = "thread-compaction", "inc-compaction", "compact-turn", "turn-0", "fresh-turn", 4
+    ident = {"schema": "buddy.lifecycle.v1", "harness": "codex", "session_id": sid, "incarnation": inc}
+    ev = lambda op, **f: base.control(op, ident, **f)
+    native = lambda kind, t, **f: ev("event", native_event=dict(kind=kind, native_session_id=sid, turn_id=t, **f))
+    frame = lambda kind, value: {"type": kind, "frame": value}
+    item = {"type": "contextCompaction", "id": "item-1"}
+    request = {"id": "fixture-compact", "method": "thread/compact/start", "params": {"threadId": sid}}
+    reply = {"id": "fixture-compact", "result": {}}
+    wake = ev("send", message_id=mid, wake_delivery={"state": "delivered", "turn_id": t0})
+    started = native("compaction_started", turn, item_id=item["id"])
+    completed = ev("event", state={"state": "observed", "detail": "busy"},
+                   native_event=dict(kind="compaction_completed", native_session_id=sid, turn_id=turn, item_id=item["id"]))
+    result, idle = native("result", turn, result_status="completed", result_ref="r-1"), native("idle", turn)
+    before = [ev("start"), wake, started, completed, result, idle]
+    resume = ev("resume", pending_approval={"state": "unknown"})
+    reconcile = ev("reconcile", message_id=mid, wake_delivery=wake["wake_delivery"],
+                   error="Codex reconcile is unsupported: the turn is known")
+    fresh_wake = ev("send", message_id=9, wake_delivery={"state": "delivered", "turn_id": t2})
+    after = [resume, reconcile, fresh_wake,
+             ev("approve", approval_response={"id": "req-2", "turn_id": t2}, approval_delivery={"state": "submitted"}),
+             native("result", t2, result_status="completed", result_ref="r-2"), native("idle", t2)]
+    wire = [frame("fixture_frame", request), frame("native_frame", reply),
+            frame("native_frame", {"method": "item/started", "params": {"threadId": sid, "turnId": turn, "item": item}}),
+            frame("native_frame", {"method": "item/completed", "params": {"threadId": sid, "turnId": turn, "item": item}}),
+            frame("adapter_frame", {"id": 30, "method": "thread/resume", "params": {"threadId": sid}}),
+            frame("adapter_frame", {"id": 31, "method": "turn/start", "params": {"threadId": sid}}),
+            frame("adapter_frame", {"id": "req-2", "result": {"decision": "accept"}})]
+    s.jsonl(STATE + "identity.json.events", before + after)
+    s.jsonl(STATE + "native-observations.jsonl", wire)
+    s.write(STATE + "identity.json", {"identity": ident})
+    s.write(STATE + "launch.json", {"harness_version": "0.160.0"})
+    s.write(STATE + "compact-request-taken.json", request)
+    s.write(STATE + "compact-reply.json", reply)
+    s.write(ROLE + "-provider.json", {"errors": [], "requests": [{}, {}]})
+    ready = s.repo(ROLE)
+    for name, text in (("codex.txt", "allowed\n"), ("claude.txt", "original\n"), (".fixture/fresh.txt", "fresh")):
+        s.write(ROLE + "/" + name, text)
+    claims = [("c1", "run-compact", "owner", "owner-inc", "open", ""), ("c2", "worker", sid, inc, "open", "")]
+    snap = lambda name, **kw: s.ledger(name, sessions=[(sid, inc, None)], waits=[(sid, inc, "d1", ready, None)],
+                                       targets=[("d1", sid, inc, 0, "c1", "run-compact")], **kw)
+    r = {"schema": "buddy.compaction.v1", "root": str(s.root), "provider": "deterministic-loopback",
+         "approval": {"queue": {"delivery": {"message_id": mid}}, "wake": wake},
+         "compaction": {"request": request, "reply": reply, "started": started, "completed": completed,
+                        "result": result, "idle": idle, "script": {"final_emitted": True, "step_count": 0, "results": []}},
+         "restart": {"resume": resume, "before": {"exit": 0, "unparsed": [], "events": before,
+                                                  "children": {"status": "observed_absent"}}},
+         "requests_before": 2, "requests_after": 2, "duplicate": {"message_id": mid, "wake_delivery": wake["wake_delivery"]},
+         "replay": {"error": "approval already answered"}, "reconcile": reconcile, "fresh_wake": fresh_wake,
+         "old_inbox": {"messages": {"count": 1, "items": [{"message_id": mid}]}},
+         "old_delivered": {"delivery": {"message_id": mid, "state": "delivered"}}, "cleanup_errors": [],
+         "fresh_output": json.dumps([{"output": "guard: codex.txt is inside scope"}, {"exit_code": 0}, {"exit_code": 1}, {"exit_code": 0}]),
+         "ready_sha": ready}
+    for stage in STAGES:
+        r[stage] = snap(stage, claims=claims, delivered=[(mid, sid, 1)] if stage == "after_fresh" else [])
+    r["ledger"] = snap("final", claims=[c[:4] + ("released", "pass") for c in claims])
+    r["sessions"] = {ROLE: {"identity": ident, "harness": "codex", "worktree": str(s.root / ROLE),
+                            "native_version": "codex-cli 0.160.0", "events": after, "adapter_exit": 0,
+                            "unparsed": [], "native_child_exit": {"status": "observed_absent"}}}
+    s.built(r)
+    return s.seal(r, evidence_paths(r))
+
+
+def synthetic_self_test():
+    """The receipt mutations above, evidence forgeries and the hash binding, against synthetic evidence."""
+    with tempfile.TemporaryDirectory(prefix="buddy-compaction-synthetic-") as tmp:
+        r = synthetic(Path(tmp) / "case")
+        out = self_test(r)
+        wire, journal = STATE + "native-observations.jsonl", STATE + "identity.json.events"
+        plans = [(wire, lambda rows: rows.append(copy.deepcopy(rows[0])), "native_compact_request_reply"),
+                 (wire, lambda rows: rows.insert(3, copy.deepcopy(rows[2])), "native_item_started"),
+                 (wire, lambda rows: rows.append({"type": "adapter_frame", "frame": {"id": 32, "method": "turn/steer"}}),
+                  "no_wake_or_approval_replay"),
+                 (wire, lambda rows: rows.append({"type": "adapter_frame", "frame": {"id": 33, "method": "thread/turns/list"}}),
+                  "reconcile_withdrawn_without_native_query"),
+                 (journal, lambda rows: rows.insert(2, rows.pop(3)), "ordered_compaction_journal"),
+                 (journal, lambda rows: rows[0]["identity"].update(incarnation="stale"), "same_captured_identity")]
+        with tempfile.TemporaryDirectory(prefix="buddy-forged-") as scratch:
+            out["rejected_mutations"] += base.forged_jsonl_self_test(r, validate, plans, scratch)
+        with tempfile.TemporaryDirectory(prefix="buddy-hash-binding-") as scratch:
+            out["rejected_mutations"] += base.hash_binding_self_test(r, validate, evidence_paths, scratch)
+        out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
+        return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true",
+                        help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error("a receipt is required unless --self-test")
+        print(json.dumps(synthetic_self_test(), indent=2))
+        return 0
     r = json.loads(args.receipt.read_text())
     out = self_test(r) if args.self_test else validate(r)
     print(json.dumps(out, indent=2))

@@ -10,6 +10,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("interrupted_evidence", Path(__file__).with_name("check-mixed-fleet.py"))
@@ -155,11 +156,102 @@ def self_test(receipt):
     return {"positive": "passed", "damaged_cases_rejected": len(changes)}
 
 
+def synthetic(root):
+    """A coherent SYNTHETIC interrupted-recovery capture under root (base.Synthetic says what that is)."""
+    s = base.Synthetic(root)
+    r = {"schema": "buddy.interrupted.v1", "root": str(s.root), "provider": "deterministic-loopback",
+         "cleanup_errors": [], "cases": {}, "sessions": {}}
+    final_claims, final_delivered, sessions = [], [], []
+    for index, role in enumerate(ROLES):
+        sid, inc, turn, fresh, mid = "thread-" + role, "inc-" + role, "turn-" + role, "fresh-" + role, 10 + index
+        ident = {"schema": "buddy.lifecycle.v1", "harness": "codex", "session_id": sid, "incarnation": inc}
+        ev = lambda op, ident=ident, **f: base.control(op, ident, **f)
+        native = lambda kind, t, sid=sid, ev=ev, **f: ev("event", native_event=dict(kind=kind, native_session_id=sid, turn_id=t, **f))
+        wake = ev("send", message_id=mid, wake_delivery={"state": "delivered", "turn_id": turn})
+        reconcile = ev("reconcile", message_id=mid, wake_delivery=wake["wake_delivery"],
+                       error="Codex reconcile is unsupported: the turn is known")
+        fresh_wake = ev("send", message_id=50 + index, wake_delivery={"state": "delivered", "turn_id": fresh})
+        events = [reconcile, fresh_wake,
+                  ev("approve", approval_response={"id": "req-f", "turn_id": fresh}, approval_delivery={"state": "submitted"}),
+                  native("result", fresh, result_status="completed", result_ref="r-f"), native("idle", fresh)]
+        c = {"identity": ident, "wake": wake, "queue": {"delivery": {"message_id": mid}}, "busy": native("busy", turn),
+             "requests_before": 3, "requests_after": 3, "duplicate": {"message_id": mid, "wake_delivery": wake["wake_delivery"]},
+             "reconcile": reconcile, "recovered": {"messages": {"count": 1, "items": [{"message_id": mid}]}},
+             "delivered": {"delivery": {"message_id": mid, "state": "delivered"}}, "fresh_wake": fresh_wake}
+        s.jsonl(role + "-state/native-observations.jsonl", [
+            {"type": "adapter_frame", "frame": {"id": 1, "method": "turn/start", "params": {"threadId": sid}}},
+            {"type": "native_frame", "frame": {"method": "turn/started", "params": {"threadId": sid, "turn": {"id": turn}}}}])
+        worktree = s.root / role
+        s.write(role + "/.fixture/fresh.txt", "fresh")
+        claim = ("claim-" + role, role, sid, inc)
+        ledger = lambda name, state="open", outcome="", delivered=(): s.ledger(
+            role + "-" + name, sessions=[(sid, inc, None)], claims=[claim + (state, outcome)], delivered=delivered)
+        c["ledger_before"] = ledger("before")
+        c["ledger_after_reconcile"] = ledger("after-reconcile")
+        final_claims.append(claim + ("released", "pass"))
+        final_delivered.append((mid, sid, 1))
+        sessions.append((sid, inc, None))
+        if role != "interrupt":
+            c["crash"] = {"exit": -9, "unparsed": [], "children": {"status": "observed_absent"},
+                          "events": [ev("start"), wake]}
+            c["resume"] = ev("resume", pending_approval={"state": "unknown"})
+            c["ledger_after_crash"] = ledger("after-crash")
+        if role == "active_crash":
+            c["provider_barrier"] = True
+        if role in ("interrupt", "approval_crash"):
+            c["approval"] = ev("event", pending_approval={"state": "observed"},
+                               native_event={"kind": "approval", "native_session_id": sid, "approval": {"id": "req-1", "turn_id": turn}})
+            c["replay"] = {"error": "approval already answered"}
+        if role == "interrupt":
+            c["interrupt"] = ev("interrupt")
+            c["result"] = native("result", turn, result_status="interrupted", result_ref="r-i")
+        if role == "lost_result":
+            c["dropped"] = {"method": "turn/completed", "params": {"threadId": sid, "turn": {"id": turn, "status": "completed"}}}
+            s.write(role + "/.fixture/once.txt", "once\n")
+        r["cases"][role] = c
+        r["sessions"][role] = {"identity": ident, "harness": "codex", "worktree": str(worktree),
+                               "native_version": "codex-cli 0.160.0", "events": events, "adapter_exit": 0, "unparsed": [],
+                               "native_child_exit": {"status": "observed_absent"}}
+    r["ledger"] = s.ledger("final", sessions=sessions, claims=final_claims, delivered=final_delivered)
+    return s.seal(r, [])
+
+
+def synthetic_self_test():
+    """The receipt mutations above, plus evidence edits, against synthetic evidence."""
+    with tempfile.TemporaryDirectory(prefix="buddy-interrupted-synthetic-") as tmp:
+        r = synthetic(Path(tmp) / "case")
+        out = self_test(r)
+        # The wire is read, not trusted: an adapter history query anywhere in
+        # it must fail the reconcile boundary for that role, and no other.
+        for role in ROLES:
+            path = Path(r["root"]) / (role + "-state/native-observations.jsonl")
+            original = path.read_bytes()
+            path.write_bytes(original + (json.dumps({"type": "adapter_frame", "frame": {"id": 9, "method": "thread/read"}}) + "\n").encode())
+            try:
+                verdict = validate(r)
+                failed = sorted(k for k, v in verdict["checks"].items() if not v)
+                if failed != [role + ":reconcile_withdrawn_without_native_query"]:
+                    raise AssertionError("a native history query in " + role + "'s wire failed " + str(failed))
+            finally:
+                path.write_bytes(original)
+            out["damaged_cases_rejected"] += 1
+        if not validate(r)["passed"]:
+            raise AssertionError("synthetic control did not restore")
+        out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
+        return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true",
+                        help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error("a receipt is required unless --self-test")
+        print(json.dumps(synthetic_self_test(), indent=2))
+        return 0
     receipt = json.loads(args.receipt.read_text())
     result = self_test(receipt) if args.self_test else validate(receipt)
     print(json.dumps(result, indent=2))

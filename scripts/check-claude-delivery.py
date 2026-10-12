@@ -11,9 +11,11 @@ Hashes bind saved observations, not a tamper-proof log or production readiness.
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 
 
 class Evidence:
@@ -313,11 +315,157 @@ def self_test(receipt):
     return {"positive": "passed", "summary_flags_ignored": True, "rejected_mutations": rejected}
 
 
+def _base():
+    # Loaded only for synthetic evidence: the checker itself stays standalone.
+    spec = importlib.util.spec_from_file_location("delivery_synthetic", Path(__file__).with_name("check-mixed-fleet.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def synthetic(root, kind):
+    """A coherent SYNTHETIC endpoint or peer capture under root (check-mixed-fleet.Synthetic says what that is)."""
+    base = _base()
+    s = base.Synthetic(root)
+    version = "2.1.291"
+    s.write("native-version.json", {"version": version + " (Claude Code)", "executable_sha256": "a" * 64})
+    s.write("source-manifest.json", "{}\n")
+    s.write("bin/buddy", "synthetic buddy\n")
+    s.write("bin/buddy-adapter", "synthetic adapter\n")
+    r = {"root": str(s.root), "claude_version": version, "native_version": version + " (Claude Code)", "native_sha256": "a" * 64,
+         "provider": "deterministic loopback Messages fixture; no real inference", "cases": [],
+         "source_manifest_sha256": s.digest("source-manifest.json"),
+         "binary_paths": {"buddy": str(s.root / "bin/buddy"), "adapter": str(s.root / "bin/buddy-adapter")},
+         "buddy_sha256": s.digest("bin/buddy"), "adapter_sha256": s.digest("bin/buddy-adapter")}
+    names = ["native-version.json"]
+    if kind == "endpoint":
+        r["schema"] = "buddy.claude-endpoint-qualification.v1"
+        for index, name in enumerate(("custom", "absent")):
+            ident = {"session_id": "sid-" + name, "incarnation": "inc-" + name}
+            pid, born, mid = 500 + index, 1760000000123456 + index, 30 + index
+            tmpdir = str(s.root / name / "tmp")
+            socket = tmpdir + "/claude-%d.sock" % pid
+            endpoint = ({"status": "observed", "pid": pid, "born": born, "socket": socket} if name == "custom" else
+                        {"status": "observed_absent", "pid": pid, "born": born})
+            sockets = [socket] if name == "custom" else []
+            wire = [{"type": "buddy_fixture_native_process", "pid": 499, "version_probe": True},
+                    {"type": "buddy_fixture_native_process", "pid": pid, "version_probe": False},
+                    {"type": "result", "uuid": "res-" + name, "user_message_uuid": "turn-" + name, "subtype": "success",
+                     "session_id": ident["session_id"], "queued_turn_count": 0}]
+            if name == "custom":
+                wire.append({"type": "system", "messaging_socket_path": socket, "session_id": ident["session_id"]})
+            control = lambda op, ident=ident, **f: dict({"identity": ident, "operation": op, "completion": {"state": "unknown"}}, **f)
+            events = [control("send", request_id="wake", wake_delivery={"state": "delivered", "turn_id": "turn-" + name}),
+                      control("event", native_event={"kind": "result", "turn_id": "turn-" + name, "result_ref": "res-" + name}),
+                      control("event", native_event={"kind": "idle", "turn_id": "turn-" + name})]
+            files = {"launch.json": {"harness_version": version, "hooks": {"mods": "builtin-only-" + version}, "permission_mode": "workspace-write"},
+                     "ledger-before.json": {"identity": ident, "endpoint": {"status": "unknown"}},
+                     "ledger-inspection.json": {"identity": ident, "endpoint": endpoint},
+                     "socket-observation.json": {"pid": pid, "born_before": born, "born_after": born, "exit": 0 if sockets else 1,
+                                                 "stderr": "", "stdout": "".join("n" + v + "\n" for v in sockets)},
+                     "adapter-events.json": events,
+                     "provider-observations.json": [{"tool_outputs": [
+                         {"tool_use_id": "toolu_buddy_0", "is_error": True, "content": "guarded.txt is inside scope run-endpoint"},
+                         {"tool_use_id": "toolu_buddy_1", "is_error": False, "content": "ok"}]}],
+                     "inbox.json": {"identity": ident, "messages": {"count": 1, "items": [{
+                         "recipient": ident, "message_id": mid, "state": "queued", "provenance": "peer",
+                         "acknowledged": {"status": "unknown"}, "completed": {"status": "unknown"}}]}}}
+            for file, value in files.items():
+                names.append(s.write(name + "/" + file, value))
+            names.append(s.jsonl(name + "/native-observations.jsonl", wire))
+            s.write(name + "/work/guarded.txt", "original\n")
+            s.write(name + "/work/allowed.txt", "control\n")
+            r["cases"].append({"case": name, "identity": ident, "endpoint": endpoint, "native_process": {"pid": pid, "born": born},
+                               "native_process_birth_after_socket_observation": born, "native_unix_socket_names": sockets,
+                               "configured_native_tmpdir": tmpdir, "message_id": mid,
+                               "cleanup_observation": {"status": "observed_absent", "remaining_or_unknown_pids": [], "observed_pids": [pid]},
+                               "endpoint_cleanup": {"pid": pid, "born": born, "sampled_start": [0, 0], "eligible_delivery": False,
+                                                    "socket_file_present": False}})
+        return s.seal(r, names)
+    r["schema"] = "buddy.claude-peer-qualification.v1"
+    requests = []
+    for mode in ("accept", "hold", "refuse"):
+        native = {}
+        for role in ("sender", "receiver"):
+            sid, pid = "sid-%s-%s" % (mode, role), 600 + len(native) + 10 * len(requests)
+            sock = "/private/tmp/peer-%s-%s.sock" % (mode, role)
+            hook = {"session_id": sid, "event": "SessionStart", "parent_pid": pid, "socket": sock}
+            native[role] = {"native_session_id": sid, "pid": pid, "socket": sock, "hook": hook,
+                            "effective_crossSessionInbound": mode if role == "receiver" else "accept"}
+            result = {"type": "result", "subtype": "success", "is_error": False, "queued_turn_count": 0,
+                      "session_id": sid, "user_message_uuid": "turn-%s-%s" % (mode, role)}
+            native[role + "_initial_result"] = result
+            for file, value in (("hook.json", hook), ("endpoint-observation.json", native[role]),
+                                ("socket-observation.json", {"pid": pid, "exit": 0, "stderr": "", "stdout": "n" + sock + "\n"}),
+                                ("settings.json", {"crossSessionInbound": native[role]["effective_crossSessionInbound"]}),
+                                ("cleanup.json", {"exit": 0, "stdout_unparsed_lines": 0})):
+                names.append(s.write("%s/%s/%s" % (mode, role, file), value))
+        address = "uds:" + native["receiver"]["socket"]
+        msg = "msg-" + mode
+        receipt = {"type": "text", "text": json.dumps({"success": True, "msg_id": msg})}
+        tool_results = [{"content": [receipt], "is_error": False}]
+        notice = []
+        if mode != "accept":
+            notice = ["[Cross-session delivery notice] Your message to another session was " +
+                      ("held by that session " if mode == "hold" else "refused ") + "(recipient: " + address + "; msg_id: " + msg + ")" +
+                      (". NOT delivered: the session holds peer messages." if mode == "hold" else ": the session refuses peer messages.")]
+        requests += [{"route": mode + "-sender", "recipient": address, "tool_names": ["SendMessage"], "tool_results": tool_results,
+                      "delivery_notices": notice},
+                     {"route": mode + "-receiver", "tool_results": [], "delivery_notices": [], "peer_marker_seen": mode == "accept"}]
+        names.append(s.write(mode + "/sender/native-observations.json", [native["sender_initial_result"], {"delivery_notices": notice}]))
+        names.append(s.write(mode + "/receiver/native-observations.json", [native["receiver_initial_result"]]))
+        buddy = {"session_id": native["receiver"]["native_session_id"], "incarnation": "inc-" + mode}
+        mail = {"identity": buddy, "messages": {"count": 1, "items": [{
+            "recipient": buddy, "message_id": 40, "state": "queued", "provenance": "peer",
+            "acknowledged": {"status": "unknown"}, "completed": {"status": "unknown"}}]}}
+        names.append(s.write(mode + "/mail-before.json", mail))
+        names.append(s.write(mode + "/mail-after.json", mail))
+        r["cases"].append(dict(native, mode=mode, send_tool_results=tool_results, native_message_id=msg,
+                               marker_reached_receiver_provider_input=mode == "accept",
+                               native_delivery_outcome={"accept": "receiver_provider_input_observed", "hold": "held", "refuse": "refused"}[mode],
+                               native_delivery_notices=sorted(set(notice)), post_send_observation_seconds=3,
+                               buddy_identity=buddy, queued={"delivery": {"message_id": 40}},
+                               body_delivery="not_marked_delivered", work_completion="unknown"))
+    names.append(s.write("provider-observations.json", requests))
+    return s.seal(r, names)
+
+
+def synthetic_self_test():
+    """Both receipt kinds' mutations and notice forgeries, against synthetic evidence."""
+    out = {"positive": "passed", "summary_flags_ignored": True, "rejected_mutations": 0,
+           "evidence": "synthetic: tests the checker, qualifies no native harness"}
+    with tempfile.TemporaryDirectory(prefix="buddy-delivery-synthetic-") as tmp:
+        for kind in ("endpoint", "peer"):
+            r = synthetic(Path(tmp) / kind, kind)
+            out["rejected_mutations"] += self_test(r)["rejected_mutations"]
+            # Saved bytes are bound: one changed byte in any hashed file fails.
+            for name in sorted(r["evidence_sha256"]):
+                path = Path(r["root"]) / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                try:
+                    if validate(r)["passed"]:
+                        raise AssertionError("accepted edited evidence: " + name)
+                finally:
+                    path.write_bytes(original)
+                out["rejected_mutations"] += 1
+            if not validate(r)["passed"]:
+                raise AssertionError("synthetic control did not restore")
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true",
+                        help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error("a receipt is required unless --self-test")
+        result = synthetic_self_test()
+        print(json.dumps(result, indent=2))
+        return 0
     try:
         receipt = json.loads(args.receipt.read_text())
         result = self_test(receipt) if args.self_test else validate(receipt)

@@ -12,6 +12,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("recovery_evidence", Path(__file__).with_name("check-mixed-fleet.py"))
@@ -217,11 +218,172 @@ def self_test(receipt):
     return {"positive": True, "rejected_mutations": len(changes)}
 
 
+HARNESS = {"coordinator": "codex", "claude_worker": "claude", "codex_worker": "codex", "successor": "codex"}
+
+
+def synthetic(root):
+    """A coherent SYNTHETIC recovery capture under root (base.Synthetic says what that is)."""
+    s = base.Synthetic(root)
+    ident = {role: {"schema": "buddy.lifecycle.v1", "harness": harness, "session_id": "sid-" + role, "incarnation": "inc-" + role}
+             for role, harness in HARNESS.items()}
+    pair = lambda role: {"session_id": ident[role]["session_id"], "incarnation": ident[role]["incarnation"]}
+    ev = lambda role, op, **f: base.control(op, ident[role], **f)
+    native = lambda role, kind, turn, **f: ev(role, "event", native_event=dict(kind=kind, native_session_id=ident[role]["session_id"], turn_id=turn, **f))
+    def turn_events(role, turn):
+        return [native(role, "result", turn, result_status="completed", result_ref="r-" + turn), native(role, "idle", turn)]
+    # One repository, four linked worktrees: one common dir, as the fixture runs it.
+    work = s.root / "coordinator"
+    work.mkdir()
+    base.git(work, "init", "-q", "-b", "main")
+    base.git(work, "config", "user.name", "Fixture")
+    base.git(work, "config", "user.email", "fixture@example.invalid")
+    for name in ("claude.txt", "codex.txt"):
+        (work / name).write_text("fixed\n")
+    base.git(work, "add", "claude.txt", "codex.txt")
+    base.git(work, "-c", "commit.gpgsign=false", "commit", "-qm", "both fixed")
+    sha = base.git(work, "rev-parse", "HEAD")
+    for role in ("claude_worker", "codex_worker", "successor"):
+        base.git(work, "worktree", "add", "-q", "--detach", str(s.root / role), sha)
+    for name, text in ((".fixture/approved-control.txt", "approved"), (".fixture/resumed.txt", "permitted\n")):
+        s.write("coordinator/" + name, text)
+    # Eight peer messages, each with its native fetch and its ledger rows.
+    plan = [("assignment", "coordinator", "claude_worker"), ("assignment", "coordinator", "codex_worker"),
+            ("report", "claude_worker", "coordinator"), ("report", "codex_worker", "coordinator"),
+            ("post-resume", "claude_worker", "coordinator"), ("handoff", "coordinator", "successor"),
+            ("landed", "successor", "claude_worker"), ("landed", "successor", "codex_worker")]
+    messages, inbox_rows, adapter_rows, delivered_rows = [], [], [], []
+    for mid, (purpose, sender, recipient) in enumerate(plan, 1):
+        body = purpose + " " + sha
+        queued = {"message_id": mid, "state": "queued", "sender": pair(sender), "recipient": pair(recipient),
+                  "provenance": "peer", "acknowledged": {"status": "unknown"}, "completed": {"status": "unknown"}}
+        inbox = {"schema": "buddy.adapter.v1", "operation": "inbox", "identity": pair(recipient),
+                 "messages": {"status": "observed", "count": 1, "items": [dict(queued, body=body)]}}
+        delivered = {"schema": "buddy.adapter.v1", "operation": "delivered", "delivery": dict(queued, state="delivered", delivered_at=100 + mid)}
+        marker = "native-fetch-" + str(mid)
+        s.write("fetch-%d.json" % mid, {"inbox": inbox, "delivered": delivered, "marker": marker})
+        output = [{"kind": "shell", "exit_code": 0, "output": marker + "\n"}]
+        if purpose == "post-resume":
+            output += [{"kind": "patch", "output": "Command blocked by PreToolUse hook: claude.txt is inside scope run-recovery"},
+                       {"kind": "patch", "output": "Exit code: 0\nA .fixture/resumed.txt"}]
+        messages.append({"purpose": purpose, "sender": sender, "recipient": recipient,
+            "queue": {"schema": "buddy.adapter.v1", "operation": "queue", "delivery": queued},
+            "inbox": inbox, "delivered": delivered, "native_fetch": str(s.root / ("fetch-%d.json" % mid)),
+            "native_output": json.dumps(output),
+            "idle_before": {"schema": "buddy.adapter.v1", "operation": "inspect", "identity": pair(recipient),
+                            "lifecycle": {"status": "observed", "value": "live"}, "observed_state": {"status": "observed", "value": "idle"}},
+            "wake": ev(recipient, "send", message_id=mid, wake_delivery={"state": "delivered"}, body_delivery={"state": "queued"})})
+        inbox_rows.append((mid, ident[recipient]["session_id"], ident[sender]["session_id"], body))
+        adapter_rows.append((mid, ident[sender]["incarnation"], ident[recipient]["incarnation"]))
+        delivered_rows.append((mid, ident[recipient]["session_id"], 100 + mid))
+    # The coordinator's approval, its crash-free restart, and the handoff.
+    approval_mid, decision = 90, {"id": "req-1", "turn_id": "turn-approval", "decision": "allow"}
+    approval_wake = ev("coordinator", "send", message_id=approval_mid, wake_delivery={"state": "delivered", "turn_id": "turn-approval"})
+    replay = ev("coordinator", "approve", error="approval already answered")
+    approval = {"queue": {"delivery": {"message_id": approval_mid}}, "wake": approval_wake, "decision": decision,
+                "request": ev("coordinator", "event", state={"state": "observed", "detail": "waiting_for_approval"},
+                              pending_approval={"state": "observed"}),
+                "answer": ev("coordinator", "approve", approval_response=decision, approval_delivery={"state": "submitted"}),
+                "replay": replay}
+    resume = ev("coordinator", "resume")
+    before = [ev("coordinator", "start"), approval_wake] + turn_events("coordinator", "turn-approval")
+    sessions = {}
+    for role in HARNESS:
+        events = [] if role == "coordinator" else [ev(role, "start")] + turn_events(role, "turn-" + role)
+        if role == "coordinator":
+            events = [resume, replay, ev(role, "approve", approval_response={"id": "req-2", "turn_id": "turn-fresh"},
+                                         approval_delivery={"state": "submitted"})] + turn_events(role, "turn-fresh")
+        sessions[role] = {"identity": ident[role], "harness": HARNESS[role], "worktree": str(s.root / role), "events": events,
+                          "adapter_exit": 0, "unparsed": [], "native_child_exit": {"status": "observed_absent"}}
+    coord, succ = (ident["coordinator"]["session_id"], ident["coordinator"]["incarnation"]), (ident["successor"]["session_id"], ident["successor"]["incarnation"])
+    renewed = dict(pair("coordinator"), incarnation="inc-coordinator-renewed")
+    claim_rows = lambda owner, state="open", outcome="": [("c-orch", "orchestrator") + owner + (state, outcome),
+                                                         ("c-run", "run-recovery") + owner + (state, outcome)]
+    waits = [(ident[w]["session_id"], ident[w]["incarnation"], "d-" + w, sha, None) for w in ("claude_worker", "codex_worker")]
+    targets = [("d-" + w, ident[w]["session_id"], ident[w]["incarnation"], 0, "c-run", "run-recovery") for w in ("claude_worker", "codex_worker")]
+    coordinator_row = [coord + (None,)]
+    s.write("job/result.json", {"exit_code": 0, "sha": sha, "after_sha": sha, "expected_sha": sha})
+    s.write("job/stdout", "both worker changes validated\n")
+    s.write("job/stderr", "")
+    job = {"owner": "qualification fixture", "result_reader": ident["successor"], "result": str(s.root / "job/result.json"),
+           "stdout": str(s.root / "job/stdout"), "stderr": str(s.root / "job/stderr")}
+    guard = ("c-guard", "renewed-guard", renewed["session_id"], renewed["incarnation"], "open", "")
+    r = {"schema": "buddy.recovery.v1", "root": str(s.root), "provider": "deterministic-loopback", "cleanup_errors": [],
+         "sessions": sessions, "messages": messages, "approval": approval,
+         "restart": {"before": {"exit": 0, "unparsed": [], "events": before, "children": {"status": "observed_absent"}},
+                     "resume": resume, "inspect": {"state": {"state": "idle"}},
+                     "requests_before_duplicate": 4, "requests_after_duplicate": 4,
+                     "ledger": s.ledger("restart", sessions=coordinator_row, claims=claim_rows(coord))},
+         "before_resume": s.ledger("before-resume", sessions=coordinator_row, claims=claim_rows(coord)),
+         "duplicate": {"message_id": approval_mid, "wake_delivery": approval_wake["wake_delivery"]},
+         "recovered_mail": {"inbox": {"messages": {"count": 1}},
+                            "delivered": {"delivery": {"message_id": approval_mid, "state": "delivered"}}},
+         "before_transfer": s.ledger("before-transfer", claims=claim_rows(coord), waits=waits, targets=targets),
+         "after_transfer": s.ledger("after-transfer", claims=claim_rows(succ), waits=waits, targets=targets),
+         "ready": [{"role": w, "sha": sha, "claim_id": "c-run"} for w in ("claude_worker", "codex_worker")],
+         "handoff": {"outgoing": ident["coordinator"], "successor": ident["successor"], "job": job, "sha": sha,
+                     "outstanding": ["validate " + sha], "claim_ids": {"orchestrator": "c-orch", "run-recovery": "c-run"},
+                     "workers": {w: {"ready_sha": sha} for w in ("claude_worker", "codex_worker")}},
+         "job_alive_after_outgoing_exit": True, "job_exit": 0,
+         "landing": {"sha": sha, "ref": "refs/heads/main", "worktree": str(work),
+                     "job": json.loads((s.root / "job/result.json").read_text())},
+         "landed_ledger": s.ledger("landed", claims=[("c-run", "run-recovery") + succ + ("released", "pass")]),
+         "delayed_events": [{"operation": op, "exit_code": 1} for op in ("refresh", "busy", "idle", "end")],
+         "renewed_identity": renewed,
+         "before_delayed": s.ledger("before-delayed", claims=[guard]),
+         "after_delayed": s.ledger("after-delayed", claims=[guard]),
+         "stale_resume": {"exit_code": 1, "stderr": "buddy-adapter: logical session identity refused\n",
+                          "trace_before": "t-7", "trace_after": "t-7"}}
+    r["ledger"] = s.ledger("final", sessions=[(renewed["session_id"], renewed["incarnation"], None)],
+                           claims=[guard[:4] + ("released", "pass")], delivered=delivered_rows,
+                           inbox=inbox_rows, adapter=adapter_rows)
+    return s.seal(r, [])
+
+
+def synthetic_self_test():
+    """The receipt mutations above, plus git and evidence edits, against synthetic evidence."""
+    with tempfile.TemporaryDirectory(prefix="buddy-recovery-synthetic-") as tmp:
+        r = synthetic(Path(tmp) / "case")
+        out = self_test(r)
+        def refused(why, expect):
+            failed = sorted(k for k, v in validate(r)["checks"].items() if not v)
+            if expect not in failed:
+                raise AssertionError(why + " did not fail " + expect + ": " + str(failed))
+            out["rejected_mutations"] += 1
+        # The landing is read from git, not from the receipt.
+        work = Path(r["landing"]["worktree"])
+        (work / "codex.txt").write_text("broken\n")
+        base.git(work, "-c", "commit.gpgsign=false", "commit", "-qam", "unvalidated change")
+        moved = base.git(work, "rev-parse", "HEAD")
+        refused("main moved past the validated commit", "validated_blobs_and_landing")
+        base.git(work, "update-ref", "refs/heads/main", r["landing"]["sha"])
+        base.git(work, "reset", "-q", "--hard", r["landing"]["sha"])
+        # A worker that moved after declaring READY.
+        worker = Path(r["sessions"]["claude_worker"]["worktree"])
+        base.git(worker, "checkout", "-q", "--detach", moved)
+        refused("a worker HEAD past its READY", "ready_declarations_survive_transfer")
+        base.git(worker, "checkout", "-q", "--detach", r["landing"]["sha"])
+        # The job's own output is read: a skipped validation prints nothing.
+        stdout = Path(r["handoff"]["job"]["stdout"])
+        stdout.write_text("")
+        refused("an empty job stdout", "job_checks_exact_commit")
+        stdout.write_text("both worker changes validated\n")
+        if not validate(r)["passed"]:
+            raise AssertionError("synthetic control did not restore: " + str(validate(r)["errors"]))
+        out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
+        return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true",
+                        help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error("a receipt is required unless --self-test")
+        print(json.dumps(synthetic_self_test(), indent=2))
+        return 0
     receipt = json.loads(args.receipt.read_text())
     result = self_test(receipt) if args.self_test else validate(receipt)
     print(json.dumps(result, indent=2))

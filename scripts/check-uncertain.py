@@ -11,6 +11,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("uncertain_evidence", Path(__file__).with_name("check-mixed-fleet.py"))
@@ -183,11 +184,135 @@ def self_test(receipt):
     return {"positive": "passed", "damaged_cases_rejected": len(changes)}
 
 
+def synthetic(root):
+    """A coherent SYNTHETIC uncertain-recovery capture under root (base.Synthetic says what that is)."""
+    s = base.Synthetic(root)
+    r = {"schema": "buddy.uncertain.v1", "root": str(s.root), "provider": "deterministic-loopback",
+         "cleanup_errors": [], "cases": {}, "sessions": {}}
+    final_claims, final_delivered, sessions = [], [], []
+    for index, role in enumerate(ROLES):
+        sid, inc, turn, fresh, mid = "thread-" + role, "inc-" + role, "turn-" + role, "fresh-" + role, 20 + index
+        state = role + "-state/"
+        ident = {"schema": "buddy.lifecycle.v1", "harness": "codex", "session_id": sid, "incarnation": inc}
+        ev = lambda op, ident=ident, **f: base.control(op, ident, pending_approval={"state": "unknown"}, **f)
+        native = lambda kind, t, sid=sid, ev=ev, **f: ev("event", native_event=dict(kind=kind, native_session_id=sid, turn_id=t, **f))
+        resume = ev("resume")
+        fresh_wake = ev("send", message_id=60 + index, wake_delivery={"state": "delivered", "turn_id": fresh})
+        tail = [fresh_wake, ev("approve", approval_response={"id": "req-f", "turn_id": fresh}, approval_delivery={"state": "submitted"}),
+                native("result", fresh, result_status="completed", result_ref="r-f"), native("idle", fresh)]
+        completed = {"method": "turn/completed", "params": {"threadId": sid, "turn": {"id": turn, "status": "completed"}}}
+        wire = [{"type": "adapter_frame", "frame": {"id": 1, "method": "turn/start", "params": {"threadId": sid}}}]
+        c = {"identity": ident, "resume": resume, "queue": {"delivery": {"message_id": mid}}, "requests_before": 2,
+             "requests_after": 2, "recovered": {"messages": {"count": 1, "items": [{"message_id": mid}]}},
+             "delivered": {"delivery": {"message_id": mid, "state": "delivered"}}, "fresh_wake": fresh_wake}
+        if role == "lost_wake":
+            intent = ev("send", message_id=mid, wake_delivery={"state": "unknown"})
+            journal = [ev("start"), intent]
+            dropped = {"id": 1, "result": {"turn": {"id": turn}}}
+            c.update(dropped_wake=dropped, native_completed=completed, duplicate={"message_id": mid, "wake_delivery": {"state": "unknown"}})
+            s.write(state + "dropped-wake.json", dropped)
+            s.write(state + "native-completed.json", completed)
+            c["reconcile"] = ev("reconcile", message_id=mid, wake_delivery={"state": "unknown"},
+                                turn_observation={"source": "transport_journal", "native_session_id": sid, "status": {"state": "unknown"}})
+        else:
+            forwarded = role == "approval_forwarded"
+            wake = ev("send", message_id=mid, wake_delivery={"state": "delivered", "turn_id": turn})
+            decision = {"id": "req-1", "native_session_id": sid, "turn_id": turn, "decision": "allow"}
+            approval = ev("event", native_event={"kind": "approval", "native_session_id": sid, "approval": {"id": "req-1", "turn_id": turn}})
+            attempt = ev("approve", approval_response=decision, approval_delivery={"state": "unknown"})
+            answered = ev("approve", approval_response=decision, approval_delivery={"state": "submitted"})
+            journal = [ev("start"), wake, approval, attempt, answered]
+            frame = {"id": "req-1", "result": {"decision": "accept"}}
+            size = len(json.dumps(frame))
+            seam = {"frame": frame, "complete": forwarded, "frame_bytes": size, "bytes_written": size if forwarded else size // 2}
+            s.write(state + "approval-delivery.json", seam)
+            c.update(wake=wake, decision=decision, approval=approval, approval_response=answered, delivery_seam=seam,
+                     replay={"error": "approval already answered"},
+                     duplicate={"message_id": mid, "wake_delivery": wake["wake_delivery"]})
+            c["reconcile"] = ev("reconcile", message_id=mid, wake_delivery=wake["wake_delivery"],
+                                error="Codex reconcile is unsupported: the turn is known")
+            if forwarded:
+                c["native_completed"] = completed
+                s.write(state + "native-completed.json", completed)
+                s.write(role + "/.fixture/effect.txt", "once\n")
+        c["crash"] = {"exit": -9, "unparsed": [], "children": {"status": "observed_absent"}, "events": list(journal)}
+        journal += [resume, c["reconcile"]] + tail
+        # The resume reply ends the replay window; the fresh input opens the next turn.
+        wire += [{"type": "adapter_frame", "frame": {"id": 30, "method": "thread/resume", "params": {"threadId": sid}}},
+                 {"type": "native_frame", "frame": {"id": 30, "result": {"thread": {"id": sid}}}},
+                 {"type": "native_frame", "frame": {"method": "thread/status/changed"}},
+                 {"type": "adapter_frame", "frame": {"id": 31, "method": "turn/start", "params": {"threadId": sid}}},
+                 {"type": "adapter_frame", "frame": {"id": "req-f", "result": {"decision": "accept"}}}]
+        c.update(trace_before=2, trace_after=len(wire))
+        s.jsonl(state + "identity.json.events", journal)
+        s.jsonl(state + "native-observations.jsonl", wire)
+        s.write(role + "/.fixture/fresh.txt", "fresh")
+        claim = ("claim-" + role, role, sid, inc)
+        ledger = lambda name, sid=sid, inc=inc, claim=claim, role=role: s.ledger(
+            role + "-" + name, sessions=[(sid, inc, None)], claims=[claim + ("open", "")])
+        c.update(ledger_before=ledger("before"), ledger_after_crash=ledger("after-crash"),
+                 ledger_after_reconcile=ledger("after-reconcile"))
+        final_claims.append(claim + ("released", "pass"))
+        final_delivered.append((mid, sid, 1))
+        sessions.append((sid, inc, None))
+        r["cases"][role] = c
+        r["sessions"][role] = {"identity": ident, "harness": "codex", "worktree": str(s.root / role),
+                               "native_version": "codex-cli 0.160.0", "events": [resume, c["reconcile"]] + tail,
+                               "adapter_exit": 0, "unparsed": [], "native_child_exit": {"status": "observed_absent"}}
+    r["ledger"] = s.ledger("final", sessions=sessions, claims=final_claims, delivered=final_delivered)
+    s.built(r)
+    return s.seal(r, [])
+
+
+def synthetic_self_test():
+    """The receipt mutations above, plus evidence edits, against synthetic evidence."""
+    with tempfile.TemporaryDirectory(prefix="buddy-uncertain-synthetic-") as tmp:
+        r = synthetic(Path(tmp) / "case")
+        out = self_test(r)
+        def edit(role, name, change, expect):
+            path = Path(r["root"]) / (role + "-state/" + name)
+            original = path.read_bytes()
+            rows = [json.loads(v) for v in original.decode().splitlines()]
+            change(rows)
+            path.write_text("".join(json.dumps(v) + "\n" for v in rows))
+            try:
+                failed = sorted(k for k, v in validate(r)["checks"].items() if not v)
+                if role + ":" + expect not in failed:
+                    raise AssertionError("edited %s/%s did not fail %s: %s" % (role, name, expect, failed))
+            finally:
+                path.write_bytes(original)
+            out["damaged_cases_rejected"] += 1
+        replayed = {"type": "adapter_frame", "frame": {"id": 32, "method": "turn/steer"}}
+        for role in ROLES:
+            # A replayed input inside the recovery window, read from the wire:
+            # trace_slice's own counts refuse a second turn start...
+            edit(role, "native-observations.jsonl", lambda rows: rows.insert(-2, replayed), "no_replay")
+            # ...but not a spent approval answered INSIDE the window before the
+            # fresh input, with no answer after it. Only the window scan sees that
+            # (measured: with the scan removed the edit above still failed).
+            edit(role, "native-observations.jsonl", lambda rows: rows.insert(-2, rows.pop()), "no_replay")
+            edit(role, "identity.json.events", lambda rows: rows[1]["identity"].update(incarnation="stale"), "captured_identity")
+        edit("lost_wake", "identity.json.events", lambda rows: rows.insert(2, dict(rows[1], native_event={"turn_id": "turn-lost_wake"})),
+             "lost_reply_stays_unknown_without_native_query")
+        for role in ("approval_partial", "approval_forwarded"):
+            edit(role, "identity.json.events", lambda rows: rows.pop(3), "native_delivery_fault_seam")
+        if not validate(r)["passed"]:
+            raise AssertionError("synthetic control did not restore")
+        out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
+        return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("receipt", type=Path)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("receipt", type=Path, nargs="?")
+    parser.add_argument("--self-test", action="store_true",
+                        help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
     args = parser.parse_args()
+    if args.receipt is None:
+        if not args.self_test:
+            parser.error("a receipt is required unless --self-test")
+        print(json.dumps(synthetic_self_test(), indent=2))
+        return 0
     receipt = json.loads(args.receipt.read_text())
     result = self_test(receipt) if args.self_test else validate(receipt)
     print(json.dumps(result, indent=2))
