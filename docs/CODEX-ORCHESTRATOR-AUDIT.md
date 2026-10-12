@@ -33,10 +33,18 @@ On 2026-10-11 session `s-0f653d6a` ran the A-01 mutants left unrun and the
 final hermetic check, and landed regressions for the four survivors (test code
 only; `patch.go` is unchanged). The bullets below carry those results.
 
+On 2026-10-12 the same session committed the tree at the operator's request. It
+was NOT installed, also at the operator's request: another project on this machine
+could not take the schema-15 risk. After the operator chose Codex's narrower
+ownership contract, the session built it (D-077, 2026-10-12 continuation), closed
+F-31 (D-072 continuation), and integrated a lane's F-33, F-13, F-37, F-35 and part
+of F-36. A re-review of A-01 reopened it; see the A-01 bullet below. Nothing native
+ran.
+
 | Item | State | Where |
 | --- | --- | --- |
 | A-01 static shell forms | **Closed, hermetic.** Every static form listed under A-01 is refused where a ledger governs, each with a kernel control that the real shell runs it. `pushd`, `~` and the nested forms are placed. The ten false-denial controls pass. The borderline forms are decided: covered, or recorded as the cooperative limit. One crafted case stays open by decision: a persistent `exec <<'SH'` redirection read by a later statement's shell. Native rerun still owed (A-07). | `internal/cli/patch.go`, `shellroute_test.go`; D-073 audit continuation; USAGE "Shell-routed patches" |
-| A-02 shared core | **Closed for the shared core, hermetic.** A durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives. Also: `--wait-prior` and a single-use launch authorization. `.start` fences only Start; every spawn is fenced by the flock plus intent-before-spawn. Out by the operator's choice (2026-10-11, Codex's narrower contract): unpinned killing and `--end-prior`. Still owed under it: durable descendant observation and its receipt fields, and `Setsid` once Q1/Q3 pass. | `internal/harness/ownership.go`, `ownership_test.go`, `cmd/buddy-adapter/resume_test.go`; D-077 A-02 continuation |
+| A-02 shared core | **Closed, hermetic; the narrow contract built 2026-10-12** (escaped descendants observed, recorded, reported at close and on stderr, never signalled; resume refuses while a recorded one lives; D-077 2026-10-12 continuation). **Shared core, 2026-10-08:** A durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives. Also: `--wait-prior` and a single-use launch authorization. `.start` fences only Start; every spawn is fenced by the flock plus intent-before-spawn. Out by the operator's choice (2026-10-11, Codex's narrower contract): unpinned killing and `--end-prior`. Still owed: `Setsid` once Q1/Q3 pass, and the native rerun. | `internal/harness/ownership.go`, `ownership_test.go`, `cmd/buddy-adapter/resume_test.go`; D-077 A-02 continuation |
 | 3. Correct the record | **Done.** Report rows F-01, F-07, F-08, F-13, F-14, F-18, F-27 and F-41, and the mutation table. A-11 markers and anchors. A-13 sentences. A-10 test, with a 2 s stdin bound found necessary. A-14: tests for the target ledger's own label, and new guards for each patch.go guard the rewrite kept. | Report; `decisions.md` D-070, D-071, D-077; `review-charter.md` GIVEN 78; USAGE; CLAUDE.md |
 | A-12 dependency | **Done.** | D-073 audit continuation; CLAUDE.md |
 
@@ -57,7 +65,18 @@ and fixed. Mutation and check results:
   budget test expands without end (8.9 GB inside 60 s). An assertion kills it
   first, but run it alone and bounded. Details are in the D-073 audit
   continuation.
-- A-02: 27 of 28 mutants killed, one equivalent (D-077 A-02 continuation).
+- A-01, reopened 2026-10-12. The ninth round's fixes had never been re-reviewed. A
+  narrowed constrained Codex pass over `wrapper()` and `shell()` returned REJECT:
+  four gaps it confirmed by source review (two `env -S` jurisdiction paths, `script`
+  with no command, an over-budget brace word taken as an option's value), one
+  refuted as stated, and on fish one more fail-open and two false denials. Kernel
+  probes showed a real shell runs the fixture's apply_patch for two of them; for
+  `script` none ran here. None is reproduced by a test yet: the lane doing it was
+  stopped mid-turn by a safety classifier, declined to resume, and this session did
+  not take it over. Open for the operator. The prompts, verdicts and probes are in
+  `~/Archives/buddy-system/2026-10-12-a01-rereview/` (SHA256SUMS beside them).
+- A-02: 27 of 28 mutants killed, one equivalent (D-077 A-02 continuation). The narrow
+  contract built on 2026-10-12 has its own sweep (D-077 2026-10-12 continuation).
 - `sh scripts/check.sh hermetic` over the finished tree, the 2026-10-11
   regressions included, ran on 2026-10-11: exit 0, **HERMETIC GREEN** (vet,
   tests, unscoped race, done-checks, script self-tests; the live leg is not
@@ -207,6 +226,9 @@ first is alive (F-07 closure requirement).**
   hermetic tier.
 - "Owned-process match" in the 10/10 row is the same mutant as `f35-birth-comparison`.
 - This is F-33's open item seen from the mutation side.
+- *Closed hermetically 2026-10-12:* every checker now self-tests on synthetic evidence in
+  `check.sh hermetic`, so the suite binding is exercised by the tree, and 19 binding mutants
+  are killed by its own tests.
 
 **A-07: none of the 16 native suites ran the final product code (report lines 36–39).**
 
@@ -564,7 +586,7 @@ processes is a native question.
    - Close the static forms.
    - Write the regressions first and watch each one fail.
    - Then correct USAGE `:114–125` and the D-073 continuation.
-2. **A-02 and V-12.** *Shared core closed 2026-10-08 (hermetic). The operator chose Codex's narrower contract on 2026-10-11 (D-077).*
+2. **A-02 and V-12.** *Shared core closed 2026-10-08 (hermetic). The operator chose Codex's narrower contract on 2026-10-11 (D-077); built 2026-10-12, hermetic. `Setsid` waits on Q1/Q3.*
    - The operator chooses between Fable's proposal and Codex's narrower contract (see
      "Codex's review of the proposal").
    - Both start the same way: a durable pre-spawn ownership record, and resume that
@@ -582,10 +604,27 @@ processes is a native question.
 6. **Native rerun.** After 1 and 2, an operator-authorized native rerun on the final
    bytes (A-07).
 
-The existing open backlog is unchanged: F-13 run ID, F-26 adapter renewal, F-31,
-F-33, F-35, F-36, F-37.
+The open backlog, as of 2026-10-12:
+- F-13: no runner-generated run id binds every case.
+- F-26: workers the adapter launches still have no claim-renewal route. It is a
+  design choice: a PostToolUse hook in the adapter's gate contract (which changes the
+  strict hook settings both harnesses are admitted on), or renewal from the paths in
+  observed native events. Either needs the native rerun.
+- F-36: the provider timeline is used by `check-interrupted` only (see the report row).
+- F-35, F-36, F-37: the runner side is compiled, not run, until A-07.
+- F-31, F-33 and F-37 are closed hermetically (report rows).
 
 ## Where the raw results are
+
+The 2026-10-12 work is archived outside the repo, each directory with a
+`SHA256SUMS`:
+- `~/Archives/buddy-system/2026-10-12-a02-narrow-contract/`: the A-02 narrow
+  contract's Codex prompts and verdicts, mutant lists and per-mutant logs
+  (`a02n-results.tar.zst`), and the F-31 mutants (`f31-mutants.tar.zst`).
+- `~/Archives/buddy-system/2026-10-12-a01-rereview/`: the A-01 re-review's
+  prompts, verdicts and kernel probes.
+- The originals of the 22 evidence files whose home paths were replaced are in
+  `~/Archives/buddy-system/2026-10-07-orchestrator-verification/repo-evidence-unscrubbed.tar.zst`.
 
 The 2026-10-11 A-01 mutation run (session `s-0f653d6a`) is under
 `/private/tmp/claude-501/…/0f653d6a-0a6f-4658-997d-2dbacd0a9f8b/scratchpad/a01-mut2/`:
