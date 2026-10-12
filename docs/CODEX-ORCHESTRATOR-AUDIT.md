@@ -36,7 +36,7 @@ only; `patch.go` is unchanged). The bullets below carry those results.
 | Item | State | Where |
 | --- | --- | --- |
 | A-01 static shell forms | **Closed, hermetic.** Every static form listed under A-01 is refused where a ledger governs, each with a kernel control that the real shell runs it. `pushd`, `~` and the nested forms are placed. The ten false-denial controls pass. The borderline forms are decided: covered, or recorded as the cooperative limit. One crafted case stays open by decision: a persistent `exec <<'SH'` redirection read by a later statement's shell. Native rerun still owed (A-07). | `internal/cli/patch.go`, `shellroute_test.go`; D-073 audit continuation; USAGE "Shell-routed patches" |
-| A-02 shared core | **Closed for the shared core, hermetic.** A durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives. Also: `--wait-prior` and a single-use launch authorization. `.start` fences only Start; every spawn is fenced by the flock plus intent-before-spawn. Not done, by instruction: unpinned killing, `--end-prior`, `Setsid`, Q1-Q7. | `internal/harness/ownership.go`, `ownership_test.go`, `cmd/buddy-adapter/resume_test.go`; D-077 A-02 continuation |
+| A-02 shared core | **Closed for the shared core, hermetic.** A durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives. Also: `--wait-prior` and a single-use launch authorization. `.start` fences only Start; every spawn is fenced by the flock plus intent-before-spawn. Out by the operator's choice (2026-10-11, Codex's narrower contract): unpinned killing and `--end-prior`. Still owed under it: durable descendant observation and its receipt fields, and `Setsid` once Q1/Q3 pass. | `internal/harness/ownership.go`, `ownership_test.go`, `cmd/buddy-adapter/resume_test.go`; D-077 A-02 continuation |
 | 3. Correct the record | **Done.** Report rows F-01, F-07, F-08, F-13, F-14, F-18, F-27 and F-41, and the mutation table. A-11 markers and anchors. A-13 sentences. A-10 test, with a 2 s stdin bound found necessary. A-14: tests for the target ledger's own label, and new guards for each patch.go guard the rewrite kept. | Report; `decisions.md` D-070, D-071, D-077; `review-charter.md` GIVEN 78; USAGE; CLAUDE.md |
 | A-12 dependency | **Done.** | D-073 audit continuation; CLAUDE.md |
 
@@ -555,7 +555,8 @@ processes is a native question.
 - Under Codex's contract, V-12's escaped job is reported, not ended.
   `qualify-claude-jobs.py` then expects "reported, cleanup incomplete" rather than "ended",
   unless native cooperative cancellation is qualified.
-- This choice is the operator's. No decision is recorded here.
+- **Decided 2026-10-11: Codex's narrower contract.** Recorded in D-077's "2026-10-11:
+  the operator chose the narrow contract".
 
 ## Work order for the next session
 
@@ -563,7 +564,7 @@ processes is a native question.
    - Close the static forms.
    - Write the regressions first and watch each one fail.
    - Then correct USAGE `:114–125` and the D-073 continuation.
-2. **A-02 and V-12.** *Shared core closed 2026-10-08 (hermetic). The operator's choice below is still open.*
+2. **A-02 and V-12.** *Shared core closed 2026-10-08 (hermetic). The operator chose Codex's narrower contract on 2026-10-11 (D-077).*
    - The operator chooses between Fable's proposal and Codex's narrower contract (see
      "Codex's review of the proposal").
    - Both start the same way: a durable pre-spawn ownership record, and resume that

@@ -5431,3 +5431,26 @@ the record's shape was validated) is fixed by `recordShape` running before any
 probe; no false admission followed from it. Its residual question (pipe
 cleanup on a refused spawn) is answered by the code it could not see: `in`,
 `out` and `outWrite` are all closed on that arm.
+
+### 2026-10-11: the operator chose the narrow contract (V-12, A-02)
+
+The audit's ownership proposal left one choice open: may Close, or a resume,
+signal a process the adapter cannot pin? Fable's proposal said yes, after a
+pid and start-time re-read; Codex's review said no, and found two P1 races in
+the yes (a descendant's pid reused between the re-read and the `kill`, and a
+prior group with nothing holding it unreaped under `--end-prior`). The
+operator chose Codex's contract:
+
+- The adapter signals only the group it pins: its own unreaped child's.
+  Nothing else is ever signalled, whatever its pid and start time read as.
+- There is no `--end-prior`. Resume admits only what it observes gone.
+- Descendants that left the group are OBSERVED, durably, and reported:
+  captured, ended only on observed termination, survivors, and an
+  unattributable remainder that is always `unknown`. They are evidence for
+  reporting and for refusing a resume, never a safety guarantee.
+- The worker launches as a session leader (`Setsid`), once native
+  qualification Q1 and Q3 pass. Until then it stays on `Setpgid`.
+
+So V-12's escaped job is reported, not ended. `qualify-claude-jobs.py`
+expects "reported, cleanup incomplete" rather than "ended", unless native
+cooperative cancellation is later qualified.
