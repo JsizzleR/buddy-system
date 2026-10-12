@@ -130,3 +130,87 @@ func TestDiagnoseHelpAndInvalidInputDoNotReadStdinOrRunNative(t *testing.T) {
 type diagnosticPanicReader struct{}
 
 func (diagnosticPanicReader) Read([]byte) (int, error) { panic("diagnostic read stdin") }
+
+// F-31: a Codex hook that runs buddy without BUDDY_HARNESS=codex is classified
+// as a Claude hook unless the hook process happens to inherit CODEX_THREAD_ID
+// (observed in a tool shell, not documented for hooks), and a legacy lifecycle
+// verb then changes a logical session without its token. The docs require the
+// marker; diagnose reads a hand-wired Codex hook layer and says which commands
+// lack it.
+func TestDiagnoseCodexHookMarkers(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	layer := func(t *testing.T, events map[string][]string) string {
+		t.Helper()
+		hooks := map[string]any{}
+		for event, cmds := range events {
+			var entries []map[string]any
+			for _, c := range cmds {
+				entries = append(entries, map[string]any{"type": "command", "command": c})
+			}
+			hooks[event] = []map[string]any{{"matcher": "^(apply_patch|Bash)$", "hooks": entries}}
+		}
+		b, err := json.Marshal(map[string]any{"hooks": hooks})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "hooks.json")
+		if err := os.WriteFile(path, b, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	for _, tc := range []struct {
+		name      string
+		events    map[string][]string
+		verdict   string
+		unmarked  int
+		finding   string
+		noFinding bool
+	}{
+		{"marked gate", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=codex /abs/bin/buddy gate"}}, "marked", 0, "", true},
+		{"marked through env", map[string][]string{"PreToolUse": {"env BUDDY_HARNESS='codex' buddy gate"}}, "marked", 0, "", true},
+		{"unmarked gate", map[string][]string{"PreToolUse": {"/abs/bin/buddy gate"}}, "unmarked", 1, "classified as a Claude hook", false},
+		{"one of two unmarked", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=codex /abs/bin/buddy gate", "/abs/bin/buddy gate"}}, "unmarked", 1, "classified as a Claude hook", false},
+		{"unmarked lifecycle", map[string][]string{"PostToolUse": {"/abs/bin/buddy beat"}}, "unmarked", 1, "without its captured token", false},
+		{"marked lifecycle is refused by design", map[string][]string{"Stop": {"BUDDY_HARNESS=codex /abs/bin/buddy bye"}}, "marked", 0, "refused", false},
+		{"marked claude in a Codex layer", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=claude /abs/bin/buddy gate"}}, "unmarked", 1, "names claude", false},
+		{"no buddy command", map[string][]string{"PreToolUse": {"/usr/bin/true"}}, "no_buddy_command_recognized", 0, "", true},
+		{"a command word that is not a fixed literal", map[string][]string{"PreToolUse": {`"$BUDDY" gate`}}, "unrecognized", 0, "not a fixed literal", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := diagnosticOK(t, f, f.repo, "--codex-hooks", layer(t, tc.events))
+			d := r.CodexHooks
+			if d == nil || d.Verdict != tc.verdict || d.Unmarked != tc.unmarked || len(d.SHA256) != 64 {
+				t.Fatalf("got %+v", d)
+			}
+			var findings []string
+			for _, c := range d.Commands {
+				if c.Finding != "" {
+					findings = append(findings, c.Finding)
+				}
+			}
+			joined := strings.Join(findings, " | ")
+			if tc.noFinding && joined != "" || !tc.noFinding && !strings.Contains(joined, tc.finding) {
+				t.Fatalf("findings %q, want %q", joined, tc.finding)
+			}
+		})
+	}
+	t.Run("refusals", func(t *testing.T) {
+		good := layer(t, map[string][]string{"PreToolUse": {"/abs/bin/buddy gate"}})
+		bad := filepath.Join(t.TempDir(), "bad.json")
+		if err := os.WriteFile(bad, []byte("{not json"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{
+			{"--harness", "claude", "--codex-hooks", good},
+			{"--codex-hooks", "hooks.json"},
+			{"--codex-hooks", bad},
+		} {
+			_, errw, code := f.run(t, f.repo, "", append([]string{"diagnose"}, args...)...)
+			if code == 0 || errw == "" {
+				t.Fatalf("diagnose %v accepted", args)
+			}
+		}
+	})
+}

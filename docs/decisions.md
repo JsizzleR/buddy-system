@@ -4726,6 +4726,31 @@ References: [SQLite read-only WAL behavior](https://sqlite.org/wal.html#read_onl
 [SQLite immutable URI semantics](https://sqlite.org/uri.html#uriimmutable),
 and [Codex hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
+### 2026-10-12 continuation: a hand-wired Codex hook layer is checked for its marker (F-31)
+
+A Codex hook that runs buddy without `BUDDY_HARNESS=codex` is classified as a
+Claude hook, unless the hook process happens to inherit `CODEX_THREAD_ID`
+(observed in a tool shell, not documented for hooks). A legacy lifecycle verb
+so classified changes a logical session without its captured token (D-069). The
+docs required the marker; nothing checked a layer for it, and the adapter's own
+capture check covers only its own gate command.
+
+`buddy diagnose --codex-hooks <absolute hooks.json>` reads that one file under
+the same rules as every diagnostic input (absolute, regular, at most 1 MiB, no
+final symlink), except that unknown fields are allowed: it is Codex's file, not
+Buddy's schema. Each hook command is parsed with the gate's shell parser (parse
+only). A simple command whose fixed-literal command word is `buddy`, optionally
+after `env` and `NAME=value` words, is listed by event with its verb and marker.
+A command word that is not a fixed literal is `unrecognized`, never guessed; a
+wrapper script or `sh -c` is not inspected, and the report says so. The verdict
+is `unmarked` if any buddy command lacks the Codex marker (or names another, or
+one that is not a fixed literal), else `unrecognized`, `marked`, or
+`no_buddy_command_recognized`. A marked lifecycle verb is listed as refused by
+design. It describes the file, not what Codex loaded, trusted or ran, and it is
+refused with `--harness claude`. Tests: nine layers plus three refusals; 11
+mutants in a private copy, each killed (two respelled after their first form did
+not compile).
+
 ## D-073 — The gate checks every spelling a write can land on; jurisdiction decides before identity; a nested repo adds to the home ledger, never replaces it
 
 2026-10-06. Review of the Codex orchestrator implementation

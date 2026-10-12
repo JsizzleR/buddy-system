@@ -12,14 +12,20 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"path"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
+	"mvdan.cc/sh/v3/syntax"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/harness"
 	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
-const usageDiagnose = "usage: buddy diagnose [--harness codex|claude] [--launch <absolute-json-path> | --receipt <absolute-saved-receipt>] [--evidence <absolute-json-path>]\n" +
+const usageDiagnose = "usage: buddy diagnose [--harness codex|claude] [--launch <absolute-json-path> | --receipt <absolute-saved-receipt>] [--evidence <absolute-json-path>] [--codex-hooks <absolute-hooks-json>]\n" +
 	"       Offline JSON compatibility report; no migration, session registration, inbox drain, hooks or native commands. Exit 0 means report produced, never readiness."
 
 type diagnosticReport struct {
@@ -31,6 +37,7 @@ type diagnosticReport struct {
 	ReceiptBinding string                     `json:"receipt_binding"`
 	InputSHA256    string                     `json:"input_sha256,omitempty"`
 	Harness        *harness.HarnessDiagnostic `json:"harness,omitempty"`
+	CodexHooks     *codexHookDiagnostic       `json:"codex_hooks,omitempty"`
 }
 
 func cmdDiagnose(args []string, env Env) error {
@@ -39,6 +46,7 @@ func cmdDiagnose(args []string, env Env) error {
 	launchPath := fs.String("launch", "", "launch configuration; requires harness")
 	receiptPath := fs.String("receipt", "", "saved buddy.control.v1 receipt with captured identity")
 	evidencePath := fs.String("evidence", "", "optional historical native version/hook capture")
+	codexHooks := fs.String("codex-hooks", "", "a hand-wired Codex hooks.json layer to check for the BUDDY_HARNESS=codex marker")
 	if help, err := parseFlags(fs, args, usageDiagnose, env); help || err != nil {
 		return err
 	}
@@ -56,6 +64,9 @@ func cmdDiagnose(args []string, env Env) error {
 	}
 	if *evidencePath != "" && *launchPath == "" && *receiptPath == "" {
 		return errors.New("diagnose --evidence requires --launch or --receipt")
+	}
+	if *codexHooks != "" && *kind == "claude" {
+		return errors.New("diagnose --codex-hooks reads a Codex hook layer; it does not apply to --harness claude")
 	}
 	r := diagnosticReport{Schema: harness.DiagnosticSchema, Readiness: "not_established", Repository: "unknown", ReceiptBinding: "unknown"}
 	now := time.Now()
@@ -107,6 +118,13 @@ func cmdDiagnose(args []string, env Env) error {
 		d.EvidenceSHA256 = evidenceHash
 		r.Harness = &d
 	}
+	if *codexHooks != "" {
+		d, err := diagnoseCodexHookLayer(*codexHooks)
+		if err != nil {
+			return err
+		}
+		r.CodexHooks = d
+	}
 	rc, err := resolveRepo(env.Cwd)
 	switch {
 	case errors.Is(err, errNoLedger):
@@ -153,4 +171,193 @@ func diagnosticJSON(path string, dst any) (string, error) {
 	}
 	hash := sha256.Sum256(b)
 	return hex.EncodeToString(hash[:]), nil
+}
+
+// CODEX HOOK MARKERS (F-31). A Codex hook that runs buddy without
+// BUDDY_HARNESS=codex is classified as a Claude hook (classifyHook), unless the
+// hook process happens to inherit CODEX_THREAD_ID, which was observed in a tool
+// shell and is not documented for hooks. A legacy lifecycle verb so classified
+// changes a logical session without its captured token (D-069). The docs
+// require the marker; nothing checked a hand-wired layer for it.
+//
+// This reads the operator's own hooks.json layer, offline, and reports which
+// buddy commands carry the marker. It parses each command with the shell parser
+// the gate uses (mvdan.cc/sh, parse only) and recognizes a simple command whose
+// fixed-literal command word is buddy, optionally after `env` and NAME=value
+// words. A wrapper (a script, `sh -c`) is not inspected, and a command word
+// that is not a fixed literal is reported as unrecognized rather than guessed.
+// Exit 0 still means only that a report was produced: a layer on disk is not
+// the effective configuration Codex loaded, trusted or ran.
+
+type codexHookDiagnostic struct {
+	SHA256       string             `json:"sha256"`
+	Verdict      string             `json:"verdict"`
+	Unmarked     int                `json:"unmarked"`
+	Unrecognized int                `json:"unrecognized"`
+	Commands     []codexHookCommand `json:"commands"`
+	Detail       string             `json:"detail"`
+}
+
+type codexHookCommand struct {
+	Event   string `json:"event"`
+	Verb    string `json:"verb,omitempty"`
+	Marker  string `json:"marker,omitempty"`
+	Finding string `json:"finding,omitempty"`
+}
+
+var buddyHookVerbs = map[string]bool{"gate": true, "hello": true, "beat": true, "busy": true, "idle": true, "bye": true}
+
+func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
+	b, err := harness.ReadDiagnosticFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var layer struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(b, &layer) != nil {
+		return nil, errors.New("diagnose --codex-hooks needs a Codex hooks.json layer ({\"hooks\": {\"<Event>\": [{\"hooks\": [{\"type\": \"command\", \"command\": ...}]}]}})")
+	}
+	sum := sha256.Sum256(b)
+	d := &codexHookDiagnostic{SHA256: hex.EncodeToString(sum[:]), Commands: []codexHookCommand{},
+		Detail: "the supplied file only: not the effective configuration Codex loaded, its trust, or enforcement; a wrapper script or sh -c is not inspected"}
+	events := make([]string, 0, len(layer.Hooks))
+	for event := range layer.Hooks {
+		events = append(events, event)
+	}
+	sort.Strings(events)
+	found := 0
+	for _, event := range events {
+		for _, group := range layer.Hooks[event] {
+			for _, h := range group.Hooks {
+				if h.Type != "command" {
+					continue
+				}
+				for _, c := range codexHookCalls(event, h.Command) {
+					switch {
+					case c.Verb == "":
+						d.Unrecognized++
+					case c.Marker != "codex":
+						d.Unmarked++
+						found++
+					default:
+						found++
+					}
+					d.Commands = append(d.Commands, c)
+				}
+			}
+		}
+	}
+	switch {
+	case d.Unmarked > 0:
+		d.Verdict = "unmarked"
+	case d.Unrecognized > 0:
+		d.Verdict = "unrecognized"
+	case found > 0:
+		d.Verdict = "marked"
+	default:
+		d.Verdict = "no_buddy_command_recognized"
+	}
+	return d, nil
+}
+
+// codexHookCalls returns one entry per buddy call in a hook command, and one
+// unrecognized entry per simple command whose command word is not a fixed
+// literal (it could be buddy). Everything else is not buddy and is omitted.
+func codexHookCalls(event, command string) []codexHookCommand {
+	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
+	if err != nil {
+		return []codexHookCommand{{Event: event, Finding: "the command does not parse as a shell command, so whether it runs buddy is unknown"}}
+	}
+	var out []codexHookCommand
+	syntax.Walk(file, func(node syntax.Node) bool {
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		marker, markerKnown := "", true
+		assign := func(name string, value *syntax.Word) {
+			if name != EnvHarness {
+				return
+			}
+			marker, markerKnown = "", true
+			if value != nil {
+				w := decodeWord(value)
+				marker, markerKnown = w.text, w.known
+			}
+		}
+		for _, a := range call.Assigns {
+			if a.Name != nil {
+				assign(a.Name.Value, a.Value)
+			}
+		}
+		args := call.Args
+		first := decodeWord(args[0])
+		if first.known && path.Base(first.text) == "env" {
+			args = args[1:]
+			for len(args) > 0 {
+				w := decodeWord(args[0])
+				name, value, isAssign := strings.Cut(w.text, "=")
+				if !w.known || !isAssign || !validEnvName(name) {
+					break
+				}
+				if name == EnvHarness {
+					marker, markerKnown = value, true
+				}
+				args = args[1:]
+			}
+			if len(args) == 0 {
+				return true
+			}
+			first = decodeWord(args[0])
+		}
+		if !first.known {
+			out = append(out, codexHookCommand{Event: event, Finding: "a command word is not a fixed literal, so whether it runs buddy is unknown"})
+			return true
+		}
+		if path.Base(first.text) != "buddy" || len(args) < 2 {
+			return true
+		}
+		verb := decodeWord(args[1])
+		c := codexHookCommand{Event: event, Verb: verb.text, Marker: marker}
+		if !verb.known {
+			c.Verb = "unknown"
+		}
+		switch {
+		case !markerKnown:
+			c.Marker = "unknown"
+			c.Finding = "BUDDY_HARNESS is not a fixed literal here, so whether this hook is marked as Codex is unknown"
+		case marker == "":
+			c.Marker = "missing"
+			c.Finding = "runs buddy " + fence.Line(c.Verb, 32) + " without BUDDY_HARNESS=codex: classified as a Claude hook unless the hook process inherits CODEX_THREAD_ID"
+			if buddyHookVerbs[c.Verb] && c.Verb != "gate" {
+				c.Finding += ", and this lifecycle verb then changes a logical session without its captured token (D-069)"
+			}
+		case marker != "codex":
+			c.Marker = fence.Line(marker, 32)
+			c.Finding = "BUDDY_HARNESS names " + c.Marker + " in a Codex hook layer"
+		case buddyHookVerbs[c.Verb] && c.Verb != "gate":
+			c.Finding = "an unfenced Codex lifecycle hook: buddy refused it by design (D-069); lifecycle goes through the adapter's captured token"
+		}
+		out = append(out, c)
+		return true
+	})
+	return out
+}
+
+func validEnvName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if r != '_' && !(r >= 'A' && r <= 'Z') && !(r >= 'a' && r <= 'z') && !(i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }

@@ -189,7 +189,8 @@ replace `/absolute/path/to/buddy` before installing it in the appropriate
 
 The explicit `BUDDY_HARNESS=codex` marker identifies a Codex hook even if the
 hook process lacks the shell's native thread variable. It does not grant
-permissions. Review the exact definition through Codex `/hooks`: new or changed
+permissions. `buddy diagnose --codex-hooks <absolute hooks.json>` lists any
+buddy command in a layer that lacks it (see "Offline compatibility diagnostic"). Review the exact definition through Codex `/hooks`: new or changed
 untrusted hooks are skipped. Configuration, trust and observed enforcement are
 separate facts. The repository installer does not change Codex permissions or
 hook trust. After opting in, run an actual Codex patch against a peer-held
@@ -2243,7 +2244,22 @@ buddy diagnose --harness codex
 buddy diagnose --harness claude --launch /absolute/worker-launch.json
 buddy diagnose --receipt /absolute/saved-adapter-receipt.json
 buddy diagnose --receipt /absolute/saved-adapter-receipt.json --evidence /absolute/native-capture.json
+buddy diagnose --codex-hooks /absolute/path/to/hooks.json
 ```
+
+`--codex-hooks` reads one hand-wired Codex `hooks.json` layer (F-31) and lists,
+under `codex_hooks`, every `buddy` command its hooks run, by event, with the
+`BUDDY_HARNESS` marker each carries. Its `verdict` is `unmarked` when any lacks
+`BUDDY_HARNESS=codex` (such a hook is classified as a Claude hook unless the hook
+process happens to inherit `CODEX_THREAD_ID`, and a lifecycle verb then changes a
+logical session without its captured token), `unrecognized` when a command word
+is not a fixed literal, `marked`, or `no_buddy_command_recognized`. A marked
+lifecycle verb is listed as refused by design (D-069). Commands are parsed with
+the gate's shell parser, parse only; `env NAME=value` prefixes are read, a
+wrapper script or `sh -c` is not inspected. Unknown fields in the layer are
+allowed (it is Codex's file, not Buddy's schema). It describes the file, not the
+configuration Codex loaded, its trust or its enforcement; it does not apply to
+`--harness claude`.
 
 `--receipt` accepts the saved `buddy.control.v1` object containing `identity`
 and `launch`, not a single lifecycle CLI result. `--launch` uses the existing

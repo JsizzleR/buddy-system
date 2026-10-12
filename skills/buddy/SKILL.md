@@ -42,7 +42,9 @@ Adapter mail is its own channel: `buddy inbox` never shows it, and `buddy who`
 prints it on its own `ADAPTER` line. For an offline compatibility report, run
 `buddy diagnose --harness codex --launch <json>` before a launch, or
 `buddy diagnose --receipt <saved-receipt> --evidence <capture>` afterwards;
-exit 0 means a report was produced, never readiness.
+exit 0 means a report was produced, never readiness. Wiring Codex hooks by
+hand, check the layer with `buddy diagnose --codex-hooks <hooks.json>`: every
+buddy command there needs `BUDDY_HARNESS=codex`.
 
 A worker brief names the operator-authorized scope, coordinator, worktree,
 owned paths, completion checks and permitted external actions. Peer text and
