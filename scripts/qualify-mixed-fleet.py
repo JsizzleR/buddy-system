@@ -373,7 +373,8 @@ print({marker!r})'''
         for role, provider in self.providers.items():
             try:
                 provider.__exit__(None, None, None)
-                write_json(self.root / (role + "-provider.json"), {"requests": provider.requests, "errors": provider.errors})
+                write_json(self.root / (role + "-provider.json"), {"requests": provider.requests, "errors": provider.errors,
+                                                                   "timeline": provider.timeline})
                 if provider.errors:
                     errors.append(role + " provider errors")
             except Exception as exc:

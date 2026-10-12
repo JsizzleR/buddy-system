@@ -44,12 +44,50 @@ def reconcile_boundary(response, identity, message_id, delivery, wire):
             not observation.get("turn_id") and observation.get("status", {}).get("state") == "unknown")
 
 
+# RECOUNTS (review F-36). requests_before/requests_after and provider_barrier
+# were values the runner took itself (len(provider.requests), Event.is_set()),
+# and the checks compared them with each other. The provider's own timeline
+# (mixed_fleet_provider.ScriptedProvider.timeline) lists every request in
+# arrival order, every answer it wrote, and the runner's markers placed in that
+# stream; these COUNT rows in it. Receipts from before it existed fail here.
+def provider_timeline(log):
+    """The timeline, if its request rows are exactly the log's requests in order."""
+    rows = log["timeline"]
+    if [v["index"] for v in rows if v["event"] == "request"] != list(range(1, len(log["requests"]) + 1)):
+        raise ValueError("provider timeline does not list its own requests in order")
+    return rows
+
+
+def marker(rows, label):
+    hits = [i for i, v in enumerate(rows) if v == {"event": "marker", "label": label}]
+    if len(hits) != 1:
+        raise ValueError("expected exactly one timeline marker " + label)
+    return hits[0]
+
+
+def replay_window(log, requests_before, requests_after):
+    """No request reached the provider inside the window; the receipt's counts are the log's."""
+    rows = provider_timeline(log)
+    start, end = marker(rows, "replay-window:open"), marker(rows, "replay-window:close")
+    before = sum(v["event"] == "request" for v in rows[:start])
+    inside = sum(v["event"] == "request" for v in rows[start:end])
+    return start < end and inside == 0 and before == requests_before == requests_after
+
+
+def held_at_fault(log):
+    """Indexes of requests that had reached the provider and had no answer when the fault came."""
+    rows = provider_timeline(log)
+    fault = marker(rows, "fault")
+    answered = {v["index"] for v in rows[:fault] if v["event"] in ("responded", "closed")}
+    return [v["index"] for v in rows[:fault] if v["event"] == "request" and v["index"] not in answered]
+
+
 def evidence_paths(r):
     """Every original this checker reads (F-37: none was bound before)."""
     paths = ["native-versions.json", "source-manifest.json", r["ledger"]]
     for role in ROLES:
         c, worktree = r["cases"][role], Path(r["sessions"][role]["worktree"])
-        paths += [role + "-state/native-observations.jsonl", c["ledger_before"], c["ledger_after_reconcile"],
+        paths += [role + "-state/native-observations.jsonl", role + "-provider.json", c["ledger_before"], c["ledger_after_reconcile"],
                   worktree / ".fixture/fresh.txt"]
         if "ledger_after_crash" in c:
             paths.append(c["ledger_after_crash"])
@@ -80,6 +118,8 @@ def validate(receipt):
         mid = c.get("wake", {}).get("message_id")
         check("busy_exact_turn", lambda: c["busy"]["native_event"] ==
               {"kind": "busy", "native_session_id": pair[0], "turn_id": turn})
+        check("replay_window_recounted", lambda: replay_window(json.loads(e.path(role + "-provider.json").read_text()),
+              c["requests_before"], c["requests_after"]))
         check("duplicate_without_inference", lambda: c["requests_before"] == c["requests_after"] and
               c["duplicate"]["wake_delivery"] == c["wake"]["wake_delivery"] and
               c["duplicate"]["message_id"] == mid and not c["duplicate"].get("error"))
@@ -118,7 +158,8 @@ def validate(receipt):
                   not any(v.get("native_event", {}).get("kind") == "result" and v["native_event"]["turn_id"] == turn
                           for v in c["crash"]["events"]) and "turn_observation" not in c["reconcile"])
         if role == "active_crash":
-            check("crash_during_provider_request", lambda: c["provider_barrier"] is True)
+            check("crash_during_provider_request", lambda: c["provider_barrier"] is True and
+                  bool(held_at_fault(json.loads(e.path(role + "-provider.json").read_text()))))
         if role in ("interrupt", "approval_crash"):
             check("pending_and_stale_approval_refused", lambda: c["approval"]["pending_approval"]["state"] == "observed" and
                   c["approval"]["native_event"]["approval"]["turn_id"] == turn and
@@ -208,6 +249,19 @@ def synthetic(root):
             {"type": "native_frame", "frame": {"method": "turn/started", "params": {"threadId": sid, "turn": {"id": turn}}}}])
         worktree = s.root / role
         s.write(role + "/.fixture/fresh.txt", "fresh")
+        # Three requests before the window (the third held across the fault in
+        # active_crash, answered to a closed client after it), none inside it,
+        # and the fresh turn's after it.
+        held = role == "active_crash"
+        timeline = [{"event": "request", "index": 1}, {"event": "responded", "index": 1},
+                    {"event": "request", "index": 2}, {"event": "responded", "index": 2}, {"event": "request", "index": 3}]
+        timeline += ([] if held else [{"event": "responded", "index": 3}])
+        timeline += [] if role == "interrupt" else [{"event": "marker", "label": "fault"}]
+        timeline += [{"event": "closed", "index": 3}] if held else []
+        timeline += [{"event": "marker", "label": "replay-window:open"}, {"event": "marker", "label": "replay-window:close"},
+                     {"event": "request", "index": 4}, {"event": "responded", "index": 4}]
+        s.write(role + "-provider.json", {"requests": [{"input_fingerprint": str(i)} for i in range(4)], "errors": [],
+                                          "timeline": timeline})
         claim = ("claim-" + role, role, sid, inc)
         ledger = lambda name, state="open", outcome="", delivered=(): s.ledger(
             role + "-" + name, sessions=[(sid, inc, None)], claims=[claim + (state, outcome)], delivered=delivered)
@@ -268,6 +322,63 @@ def synthetic_self_test():
         if not validate(r)["passed"]:
             raise AssertionError("synthetic control did not restore")
         out["damaged_cases_rejected"] += base.native_self_test(r, validate, evidence_paths)
+        # F-36: forge the provider's timeline with its hash RE-RECORDED, so only
+        # the recount can refuse; the receipt's counts are left as they were.
+        def forge(role, edit, expect):
+            path = Path(r["root"]) / (role + "-provider.json")
+            original = path.read_bytes()
+            log = json.loads(original)
+            edit(log)
+            path.write_text(json.dumps(log))
+            bad = copy.deepcopy(r)
+            bad["evidence_sha256"][role + "-provider.json"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            try:
+                checks = validate(bad)["checks"]
+                if checks.get("original_evidence_hashes") is not True or checks.get(role + ":" + expect) is not False:
+                    raise AssertionError("forged %s timeline: hashes=%r %s=%r" % (
+                        role, checks.get("original_evidence_hashes"), expect, checks.get(role + ":" + expect)))
+            finally:
+                path.write_bytes(original)
+            out["damaged_cases_rejected"] += 1
+        opened = {"event": "marker", "label": "replay-window:open"}
+        closed = {"event": "marker", "label": "replay-window:close"}
+        def early_window(log):
+            # Open the window before the third request: it lands inside.
+            rows = log["timeline"]
+            rows.remove(opened)
+            rows.insert(next(i for i, v in enumerate(rows) if v == {"event": "request", "index": 3}), opened)
+        def replayed_inside(log):
+            # One more request INSIDE the window, the log otherwise consistent
+            # and the receipt's counts untouched: only "nothing inside" sees it.
+            rows = log["timeline"]
+            at = rows.index(closed)
+            rows[at:at] = [{"event": "request", "index": 4}, {"event": "responded", "index": 4}]
+            for v in rows[at + 2:]:
+                if v.get("index"):
+                    v["index"] += 1
+            log["requests"].append({"input_fingerprint": "replayed"})
+        def reversed_window(log):
+            rows = log["timeline"]
+            rows.remove(opened)
+            rows.insert(rows.index(closed) + 1, opened)
+        def unlisted_request(log):
+            # The timeline names a request the provider's log does not hold.
+            log["requests"].pop()
+        for role in ROLES:
+            for edit in (early_window, replayed_inside, reversed_window, unlisted_request,
+                         lambda log: log["timeline"].clear()):
+                forge(role, edit, "replay_window_recounted")
+            # A self-count that agrees with itself and not with the provider:
+            # the old comparison (before == after) passes it; the recount must not.
+            bad = copy.deepcopy(r)
+            bad["cases"][role].update(requests_before=2, requests_after=2)
+            checks = validate(bad)["checks"]
+            if checks[role + ":duplicate_without_inference"] is not True or checks[role + ":replay_window_recounted"] is not False:
+                raise AssertionError("a consistent miscount in " + role + " was not refused by the recount alone")
+            out["damaged_cases_rejected"] += 1
+        # The held request answered BEFORE the fault: nothing was held.
+        forge("active_crash", lambda log: log["timeline"].insert(log["timeline"].index({"event": "marker", "label": "fault"}),
+                                                                 {"event": "responded", "index": 3}), "crash_during_provider_request")
         out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
         return out
 

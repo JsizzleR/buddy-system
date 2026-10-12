@@ -22,6 +22,7 @@ import shlex
 import socket
 import sys
 import threading
+import time
 import uuid
 import zlib
 
@@ -216,6 +217,18 @@ class ScriptedProvider:
         self.loopback = loopback
         self.requests = []
         self.errors = []
+        # THE TIMELINE (review F-36). A receipt said `requests_before ==
+        # requests_after` and `provider_barrier: true` because the runner
+        # counted len(self.requests) and read a threading.Event: values the
+        # fixture took itself, which a checker could only trust. This is the
+        # provider's own record, in arrival order, of what reached it and what
+        # it answered: {"event": "request"|"responded"|"closed", "index": n}
+        # with n the request's 1-based position in self.requests, and the
+        # runner's {"event": "marker", "label": ...} at stage boundaries. A
+        # checker then COUNTS rows between markers instead of reading a count.
+        # A marker is still the runner's, but it is a position in the
+        # provider's stream, not a boolean about it.
+        self.timeline = []
         self.turns = []
         self._queued = collections.deque()
         self._active = None
@@ -257,6 +270,19 @@ class ScriptedProvider:
 
     def __exit__(self, *args):
         self.close()
+
+    def mark(self, label):
+        """Record a stage boundary in the provider's own timeline.
+
+        Returns the number of requests before it, read under the same lock: a
+        runner that counted len(self.requests) separately could disagree with
+        the marker's position by a request that landed in between.
+        """
+        if not isinstance(label, str) or not label or "\n" in label or "\r" in label:
+            raise ValueError("timeline marker must be one nonempty line")
+        with self._lock:
+            self.timeline.append({"event": "marker", "label": label})
+            return len(self.requests)
 
     def queue_turn(self, label, steps, final_text="Deterministic Buddy fixture complete."):
         steps = tuple(steps)
@@ -350,6 +376,7 @@ class ScriptedProvider:
             fingerprint = _fingerprint(request, self.harness)
             self.requests.append({"path": path, "model": request.get("model"), "stream": request.get("stream"),
                                   "input_fingerprint": fingerprint, "tools": names, "tool_outputs": outputs})
+            self.timeline.append({"event": "request", "index": len(self.requests)})
             if self._active is None:
                 if self._last and self._last.input_fingerprint == fingerprint:
                     return self._final_item(self._last), len(self.requests)
@@ -388,6 +415,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         fixture = self.server.fixture
+        sequence = None
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if not 0 < size <= MAX_REQUEST:
@@ -415,12 +443,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             events = _codex_events(item, sequence) if fixture.harness == "codex" else _claude_events(item, sequence, request.get("model"))
             body = "".join("event: " + event["type"] + "\ndata: " + json.dumps(event) + "\n\n" for event in events).encode()
             self._body(200, "text/event-stream", body)
+            with fixture._lock:
+                fixture.timeline.append({"event": "responded", "index": sequence})
         except (ValueError, TypeError, KeyError, AttributeError) as exc:
             # Fixed diagnostics do not contain the rejected request or headers.
             fixture.errors.append({"error_type": type(exc).__name__, "error": str(exc)})
             self._body(400, "application/json", b'{"error":{"type":"fixture_error","message":"invalid fixture request; inspect provider errors"}}')
         except (BrokenPipeError, ConnectionResetError):
             fixture.errors.append({"error_type": "connection_closed", "error": "native client closed the response"})
+            if sequence is not None:
+                with fixture._lock:
+                    fixture.timeline.append({"event": "closed", "index": sequence})
 
 
 def _codex_events(item, sequence):
@@ -632,6 +665,44 @@ def self_test():
                     provider._respond(request, "fixture")
             with self.assertRaises(ValueError):
                 shell("true", self.cwd, require_approval="yes")
+
+        def test_timeline_orders_requests_and_markers(self):
+            # F-36: the provider's own arrival order, with the runner's markers
+            # placed in it; a count is what a checker derives, never reads.
+            provider = ScriptedProvider("claude")
+            provider.queue_turn("one", [])
+            provider._respond(self.request("claude", "first"), "fixture")
+            self.assertEqual(provider.mark("window:open"), 1)
+            self.assertEqual(provider.mark("window:close"), 1)
+            provider.queue_turn("two", [])
+            provider._respond(self.request("claude", "second"), "fixture")
+            self.assertEqual(provider.timeline, [
+                {"event": "request", "index": 1}, {"event": "marker", "label": "window:open"},
+                {"event": "marker", "label": "window:close"}, {"event": "request", "index": 2}])
+            for label in ("", "two\nlines", None):
+                with self.assertRaises(ValueError):
+                    provider.mark(label)
+
+        def test_timeline_records_an_answered_request(self):
+            # Over real loopback HTTP: "responded" follows its request, and only
+            # after the answer was written. The control is the request row.
+            import http.client
+            with ScriptedProvider("claude") as provider:
+                provider.queue_turn("one", [])
+                connection = http.client.HTTPConnection("127.0.0.1", provider.port, timeout=10)
+                try:
+                    connection.request("POST", "/v1/messages", json.dumps(self.request("claude", "hello")),
+                                       {"Content-Type": "application/json"})
+                    response = connection.getresponse()
+                    response.read()
+                    self.assertEqual(response.status, 200)
+                finally:
+                    connection.close()
+                deadline = time.monotonic() + 5
+                while len(provider.timeline) < 2 and time.monotonic() < deadline:
+                    time.sleep(.02)
+            self.assertEqual(provider.timeline, [{"event": "request", "index": 1}, {"event": "responded", "index": 1}])
+            self.assertEqual(provider.errors, [])
 
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ProviderTests)
     return unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()

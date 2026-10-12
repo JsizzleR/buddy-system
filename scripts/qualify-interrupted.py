@@ -145,6 +145,9 @@ def exercise(fleet):
                     case["dropped"] = await_file(state / "dropped.json")
                     script.assert_complete()
                     (state / "drop-result").unlink()
+                # F-36: where the crash falls in the provider's own timeline. A
+                # held request has no answer before this marker.
+                provider.mark("fault")
                 restart(fleet, role, case)
         finally:
             release.set()
@@ -160,13 +163,15 @@ def exercise(fleet):
             case["fault_provider_errors"] = list(provider.errors)
             provider.errors[:] = [e for e in provider.errors if e.get("error_type") != "connection_closed"]
         abandon_script(provider)
-        case["requests_before"] = len(provider.requests)
+        # F-36: the replay window, as positions in the provider's timeline;
+        # the checker counts the requests between them.
+        case["requests_before"] = provider.mark("replay-window:open")
         case["reconcile"] = control(fleet, role, role + "-reconcile", "reconcile", permit_error=True, message_id=mid)
         case["duplicate"] = control(fleet, role, role + "-duplicate", "send", message_id=mid)
         if "old_decision" in case:
             case["replay"] = control(fleet, role, role + "-old-approval", "approve", operator=True,
                                      permit_error=True, approval=case["old_decision"])
-        case["requests_after"] = len(provider.requests)
+        case["requests_after"] = provider.mark("replay-window:close")
         case["ledger_after_reconcile"] = recovery.save_snapshot(fleet, role + "-reconciled")
         # Fresh exact approval and inbox retrieval are positive controls after
         # each fault. Retrieve the original body without sending its wake again.
