@@ -3,9 +3,11 @@
 #
 # Usage: sh scripts/check.sh [all|hermetic|live]      (default: all)
 #
-#   hermetic  gofmt, source-shape gates, vet, tests, -race, and the per-feature
-#             done-checks. Needs nothing but the toolchain and git. This is the
-#             tier a fresh clone can run, and the tier CI runs.
+#   hermetic  gofmt, source-shape gates, vet, tests, -race, the per-feature
+#             done-checks, and the qualification scripts' hermetic self-tests
+#             and syntax sweep. Needs nothing but the toolchain, git and
+#             python3 (node optional, reported when absent). This is the tier
+#             a fresh clone can run, and the tier CI runs.
 #   live      the oscar legs, which drive the real pinned server binary.
 #   all       both. The DEFAULT, and it exits 2 when the live binary is absent.
 #
@@ -28,6 +30,9 @@
 # existed, a real data race sat green at HEAD indefinitely, visible only to
 # someone who typed -race by hand.
 set -eu
+# The driver is not a session in any fixture ledger. Standalone done-checks
+# also scrub these in lib.sh; cover the Go and pre-push legs here as well.
+unset CODEX_THREAD_ID CODEX_SESSION_ID
 # GIT'S LOCAL ENVIRONMENT IS NOT THIS SUITE'S (#49). Run from a hook, git hands
 # us GIT_DIR, and from a LINKED worktree it is absolute: measured 2026-09-27, a
 # pre-push from one sent every fixture's `git -C <tmp> …` into the real
@@ -182,6 +187,111 @@ if [ "$run_hermetic" = 1 ]; then
   sh scripts/check-install.sh
   sh scripts/check-startup-report.sh
   sh scripts/check-wake-report.sh
+
+  # QUALIFICATION SCRIPTS (review F-32). Before this, none of the .py/.mjs
+  # files under scripts/ ran automatically and this file syntax-checked only
+  # *.sh, so a qualification checker could stop parsing and every gate here
+  # stayed green. The rule above ("a done-check not invoked here is a feature
+  # nothing gates") is stated for check-*.sh; its point covers check-*.py.
+  #
+  # DEPENDENCY POLICY. python3 is REQUIRED by this tier: on macOS the git this
+  # tier already needs is the Command Line Tools' git, and the same install
+  # ships python3, so this adds no prerequisite there. node is NOT required: it
+  # only syntax-checks the one .mjs helper, so its absence is reported loudly
+  # (here and on the summary line) as NOT RUN, never as passed. Nothing below
+  # launches a native claude/codex, needs the Agent SDK or a receipt under
+  # /private/tmp: those self-tests (check-claude-*.py and friends against a
+  # retained native receipt) stay manual until they carry synthetic evidence
+  # (F-33). -I ignores PYTHON* and user site-packages, which would otherwise
+  # let the caller's environment decide what a checker imports; -B keeps
+  # __pycache__ out of the tree for a script that forgets dont_write_bytecode.
+  command -v python3 >/dev/null 2>&1 || { echo "check.sh: python3 not found — the hermetic tier runs the qualification scripts' self-tests and syntax sweep" >&2; exit 1; }
+  # The sweep COMPILES (in memory, no .pyc), not merely ast.parse: compile also
+  # refuses what the parser accepts — `return` outside a function, a misplaced
+  # `nonlocal`. Two clauses, as above: the sweep, and a planted three-file
+  # control it must agree with: a parse error and a compile-only error MUST be
+  # reported, a clean file must NOT be. A sweep respelled into ast.parse misses
+  # the second; one that never opens its arguments misses both.
+  pysweep() {
+    python3 -I -B -c '
+import sys
+bad = []
+for path in sys.argv[1:]:
+    try:
+        with open(path, "rb") as f:
+            compile(f.read(), path, "exec", dont_inherit=True)
+    except (SyntaxError, ValueError) as e:
+        bad.append(path)
+        print("check.sh: %s does not compile: %s" % (path, e), file=sys.stderr)
+print(" ".join(p.rsplit("/", 1)[-1] for p in bad))
+' "$@"
+  }
+  pyctl=$(mktemp -d -t pysweep-control.XXXXXX)
+  printf 'def f(:\n    pass\n' > "$pyctl/a_parse.py"
+  printf 'x = 1\nreturn x\n' > "$pyctl/b_compile.py"
+  printf 'def f():\n    return 1\n' > "$pyctl/c_clean.py"
+  pyhit=$(pysweep "$pyctl/a_parse.py" "$pyctl/b_compile.py" "$pyctl/c_clean.py" 2>/dev/null || true)
+  rm -rf "$pyctl"
+  [ "$pyhit" = "a_parse.py b_compile.py" ] || { echo "check.sh: the python sweep reported '$pyhit' of its control, want 'a_parse.py b_compile.py' — the gate is broken, not the tree" >&2; exit 1; }
+  pybad=$(pysweep scripts/*.py)
+  [ -z "$pybad" ] || { echo "check.sh: scripts that do not compile: $pybad" >&2; exit 1; }
+  # NO `assert` STATEMENT IN scripts/*.py (F-39). `python -O` strips them, and
+  # these were qualification GATES: measured, under -O qualify-codex trusted
+  # hooks it never saw untrusted and qualify-adapters exited 0 over a failed
+  # result. Use an explicit check (qualify-codex.require). AST-shaped, not
+  # grep-shaped, because fixture programs embedded in string literals assert
+  # on purpose (a child python runs them, without -O) and a test's
+  # self.assertEqual is a call. The control: a bare assert and a nested one
+  # MUST be reported; an assert inside a string and an assertEqual must NOT.
+  pyasserts() {
+    python3 -I -B -c '
+import ast, sys
+hits = []
+for path in sys.argv[1:]:
+    with open(path, "rb") as f:
+        tree = ast.parse(f.read(), path)
+    hits += ["%s:%d" % (path.rsplit("/", 1)[-1], n.lineno) for n in ast.walk(tree) if isinstance(n, ast.Assert)]
+print(" ".join(sorted(hits)))
+' "$@"
+  }
+  pyctl=$(mktemp -d -t pyassert-control.XXXXXX)
+  printf 'x = 1\nassert x\n' > "$pyctl/a_bare.py"
+  printf 'SRC = "assert False"\nclass T:\n    def t(self):\n        self.assertEqual(1, 1)\n' > "$pyctl/b_text.py"
+  printf 'def f(y):\n    if y:\n        assert y, "m"\n' > "$pyctl/c_nested.py"
+  pyhit=$(pyasserts "$pyctl/a_bare.py" "$pyctl/b_text.py" "$pyctl/c_nested.py" 2>/dev/null || true)
+  rm -rf "$pyctl"
+  [ "$pyhit" = "a_bare.py:2 c_nested.py:3" ] || { echo "check.sh: the assert scan reported '$pyhit' of its control, want 'a_bare.py:2 c_nested.py:3' — the gate is broken, not the tree" >&2; exit 1; }
+  pyhit=$(pyasserts scripts/*.py)
+  [ -z "$pyhit" ] || { echo "check.sh: assert statements in scripts/ vanish under python -O; use an explicit check: $pyhit" >&2; exit 1; }
+  # The self-tests that need nothing but python3: a fake child behind every
+  # native proxy (plus TERM/HUP cleanup and owned-identity kills), the
+  # loopback provider against itself, and two checkers against SYNTHETIC
+  # evidence they build in a temp dir: real git worktrees, SQLite snapshots,
+  # wire logs and journals, no harness. Synthetic evidence tests a checker; it
+  # qualifies no native harness. The other checkers' self-tests still need a
+  # retained native receipt (F-33) and stay manual until they build their own.
+  python3 -I -B scripts/test_native_proxy.py
+  python3 -I -B scripts/mixed_fleet_provider.py --self-test
+  python3 -I -B scripts/check-mixed-fleet.py --self-test
+  python3 -I -B scripts/check-claude-resume.py --self-test
+  # node --check, with a planted control so a check that accepts everything
+  # cannot pass for one that checked.
+  mjs_skipped=
+  if command -v node >/dev/null 2>&1; then
+    jsctl=$(mktemp -d -t mjs-control.XXXXXX)
+    printf 'export const = ;\n' > "$jsctl/bad.mjs"
+    if node --check "$jsctl/bad.mjs" >/dev/null 2>&1; then
+      rm -rf "$jsctl"; echo "check.sh: node --check accepted its broken control — the gate is broken, not the tree" >&2; exit 1
+    fi
+    rm -rf "$jsctl"
+    for s in scripts/*.mjs; do
+      [ -f "$s" ] || continue
+      node --check "$s" || { echo "check.sh: $s has a syntax error" >&2; exit 1; }
+    done
+  else
+    mjs_skipped="; node --check of scripts/*.mjs NOT RUN (no node on PATH)"
+    echo "check.sh: NODE CHECK NOT RUN — no node on PATH, so scripts/*.mjs were not syntax-checked" >&2
+  fi
 fi
 
 if [ "$run_live" = 1 ]; then
@@ -196,7 +306,7 @@ if [ "$run_live" = 1 ]; then
 fi
 
 case "$TIER" in
-  hermetic) echo "check.sh: HERMETIC GREEN (vet + tests + race + done-checks; live leg NOT run)" ;;
+  hermetic) echo "check.sh: HERMETIC GREEN (vet + tests + race + done-checks + script self-tests; live leg NOT run${mjs_skipped:-})" ;;
   live)     echo "check.sh: LIVE GREEN" ;;
-  all)      echo "check.sh: ALL GREEN (hermetic + race + live)" ;;
+  all)      echo "check.sh: ALL GREEN (hermetic + race + script self-tests + live${mjs_skipped:-})" ;;
 esac

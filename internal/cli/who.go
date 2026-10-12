@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/store"
@@ -228,6 +229,14 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	} else {
 		fmt.Fprintf(env.Stdout, "INBOX        %d undelivered, the oldest %s old\n", len(msgs), age(now, oldestOf(msgs)))
 	}
+	// ADAPTER — the adapter channel, its own register (review F-24). INBOX
+	// counts the legacy channel only, so a full adapter queue used to print
+	// as "0 undelivered".
+	ab, err := st.AdapterBacklogOf(si.SessionID, si.Incarnation)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(env.Stdout, "ADAPTER      "+adapterRegister(ab, now))
 
 	// WAITING — what this session has declared it is waiting on (D-033), with
 	// the one Verdict every view renders, when its keep-alive last checked in,
@@ -380,4 +389,23 @@ func unreadNote(unread int) string {
 		return "every watched file was read"
 	}
 	return fmt.Sprintf("%d watched path(s) could not be read as a file and were not checked", unread)
+}
+
+// adapterRegister is the ADAPTER line's text: what the ledger records about
+// the session's adapter channel, "(none)" when it records nothing.
+func adapterRegister(a store.AdapterBacklog, now time.Time) string {
+	var parts []string
+	if a.Current > 0 {
+		parts = append(parts, fmt.Sprintf("%d queued for its adapter, the oldest %s old", a.Current, age(now, a.CurrentOldest)))
+	}
+	if a.Earlier > 0 {
+		parts = append(parts, fmt.Sprintf("%d captured for an earlier incarnation, which no fetch by the current one returns", a.Earlier))
+	}
+	if a.Endpoint {
+		parts = append(parts, "a receiving endpoint is registered; it is woken through its adapter, never a legacy socket wake")
+	}
+	if len(parts) == 0 {
+		return "(none) — no adapter mail queued and no adapter endpoint recorded"
+	}
+	return strings.Join(parts, "; ")
 }

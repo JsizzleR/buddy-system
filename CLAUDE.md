@@ -6,7 +6,7 @@ already written down here or in the two docs linked below.
 
 ## What this is
 
-Coordination for several Claude Code sessions running in parallel on one
+Coordination for Claude Code and Codex sessions running in parallel on one
 operator's machine. Two halves that must never be confused:
 
 - **Claims (`buddy`)** — a transactional SQLite ledger of who has reserved which
@@ -18,7 +18,9 @@ operator's machine. Two halves that must never be confused:
   is the **visibility** half. It never reserves and never refuses.
 
 Go 1.26, pure Go, **no cgo** (`modernc.org/sqlite`). macOS is the developed and
-used platform.
+used platform. The claims binary also links `mvdan.cc/sh/v3` (v3.12.0, pure Go):
+the gate parses a Bash call's command with it to find shell-routed patches
+(`internal/cli/patch.go`, D-073). It parses only; nothing is expanded or run.
 
 ## Read this first
 
@@ -54,6 +56,15 @@ used platform.
   `Conn` seam. **The daemon must not know what IRC is.** Protocol specifics
   (numerics, charset, framing) stay in the wire package; anything the daemon
   needs crosses as a `buddylist`-level type (e.g. `ErrNickInUse`).
+- `internal/harness` — the native harness backends (Codex app-server, Claude
+  stream-json), the controller, its exclusive receipt journal, and the owned
+  child process. Used by `cmd/buddy-adapter`; `buddy diagnose` links it too, for
+  its capability tables and `harness.Diagnose` (an offline projection over a
+  saved launch and evidence), and launches nothing.
+- `cmd/buddy-adapter` — the SEPARATE opt-in control binary for one worker it
+  launches (D-070, D-074). Never installed by `install.sh`. Its `hook`
+  subcommand is the PreToolUse wrapper a worker's gate configuration names; the
+  adapter checks that configuration and edits no settings or hook trust.
 - `.githooks/pre-commit` — the commit-time claim gate.
 - `skills/buddy/SKILL.md` — the user-level skill, SHIPPED here and installed to
   `~/.claude/skills/buddy/` by `setup-clone.sh` / `scripts/install-skill.sh`.
@@ -81,11 +92,17 @@ scripts/cost-report.sh                    # 7-day context-cost baseline (counts 
 sh scripts/startup-report.sh [repo]       # minutes and tool calls before each session's first edit (counts only)
 sh scripts/wake-report.sh [project]       # idle->wake warm/cold by what woke it, tokens re-written (counts only)
 sh scripts/codex-review.sh <prompt-file> <out-file>
+python3 -I scripts/check-<name>.py <receipt> --self-test   # an evidence checker: reads a receipt, launches nothing
+python3 scripts/qualify-<name>.py ...                      # a native qualification: LAUNCHES claude/codex; operator-authorized only
 ```
 
 - **`check.sh` tiers.** `hermetic` = gofmt, source-shape gates, vet, tests,
-  `-race`, and the per-feature done-checks; needs only the toolchain and git.
-  That is what CI and a fresh clone run. `live` drives the real pinned server
+  `-race`, and the per-feature done-checks, plus the qualification scripts'
+  hermetic leg (a `compile()` sweep of `scripts/*.py`, no `assert` statement in
+  them because `python -O` strips it, and the self-tests that need no native
+  binary). It needs the toolchain, git and `python3`. `node` is optional: without
+  it the `.mjs` syntax check prints NOT RUN, loudly. That is what CI and a fresh
+  clone run. `live` drives the real pinned server
   binary. `all` is the default and runs both.
 - **`install.sh` is the one upgrade path — standing rule: run it after landing
   anything under `cmd/`, `internal/` or `skills/`.** It rebuilds EVERY buddy
@@ -101,13 +118,18 @@ sh scripts/codex-review.sh <prompt-file> <out-file>
   default state of every fresh clone**. The script sets the hooks path and inits
   the ledger; it is idempotent and refuses to steal a hooks path somebody else
   configured.
-- **`codex-review.sh` is the ONLY way to invoke Codex.** Never hand-roll
-  `codex exec`, and **never background it**: it wedges under an agent harness —
-  elapsed climbs, CPU stays ~0, and nothing is ever emitted, so a wedged run and
-  a live one are indistinguishable from the output file. If the budget is tight,
-  cut the prompt's scope, not the foregrounding. The script also pins model /
-  effort / tier and verifies the run header, ASCII-folds the prompt, caps
-  concurrency, and prepends the review charter.
+- **Never background `codex exec` under an agent harness, whatever the role.** It
+  wedges there: elapsed climbs, CPU stays ~0, and nothing is ever emitted, so a
+  wedged run and a live one are indistinguishable from the output file. That is a
+  property of the command under a harness, measured, and a driver or worker role
+  changes nothing about it. (The adapter's `app-server --stdio` transport is a
+  different program, not measured to wedge.)
+- **`codex-review.sh` is the ONLY way to launch a local constrained Codex review.**
+  Never hand-roll a review's `codex exec`. If the budget is tight, cut the prompt's
+  scope, not the foregrounding. The script also pins model / effort / tier and
+  verifies the run header, ASCII-folds the prompt, caps concurrency, and prepends
+  the review charter. Operator-authorized Codex drivers and workers use the roles
+  in `AGENTS.md`; they are not constrained review passes.
 
 Useful knobs: `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
 `BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_COST_DAYS`, `BUDDY_CONTEXT_WINDOW` (a
@@ -165,7 +187,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
     statement, `wait check` — D-033), never inline in `bye`. The hook
     payload names no incarnation, so `bye` is fenced by the harness PROCESS that
     registered the session (`session_procs`, D-025): it ends a session only when
-    no registered process is still alive.
+    no registered process is still alive. A LOGICAL session (Codex, or a worker
+    an adapter launched) has no such process, so every lifecycle event carries
+    the incarnation token captured at `lifecycle begin`, checked in the same
+    transaction as its effect, and nothing looks up the current token to repair
+    a late event (D-069).
 13. **One folding rule: `strings.ToLower(norm.NFC.String(s))`.** Never
     `strings.EqualFold`, never a second normalization.
 14. **Scope containment is exactly** `scope == path || strings.HasPrefix(path,
@@ -190,9 +216,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - Some gates are `grep`-shaped because `-race` structurally cannot see the class
   (measured). Those come in two clauses: one for a new occurrence, one for the
   gate being quietly defeated by respelling the line it allows. Keep both.
-- **Codex cannot build or test.** A Codex pass is never test evidence. Its
-  findings become evidence only once a reproducing test is written and watched
-  to fail.
+- **A constrained Codex reviewer cannot build or test.** Its verdict is never
+  test evidence. Authorized drivers and workers (`AGENTS.md`) may build and test;
+  report commands and results separately from review findings. A defect's
+  reproducing test must still be watched to fail without the fix.
 - A guard's review scope is every site that **bypasses** it, not the diff that
   adds it.
 - Prefer naming the exact failing input and the resulting wrong behavior over
@@ -402,7 +429,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   label worn twice; `msg` says when the recipient has an outstanding idle report, and
   says nothing when it has none.
 - **Authority files are watched by mtime and announced once (D-028).** `buddy
-  authority` lists at most 8 repo-relative paths, `CLAUDE.md` always; `beat` tells a
+  authority` lists at most 8 configured repo-relative paths, plus `CLAUDE.md` and
+  `AGENTS.md` always; `beat` tells a
   session ONCE per change, on its next tool call, that a watched file changed on disk
   AFTER it started; `status` shows the same. It is an advisory about the file on disk,
   never a claim about the session's copy; no fingerprint, no git.
@@ -530,6 +558,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   at or past it. Declared per process; never on beat; refuses nothing.
 - **A coordinator opens its own lanes with the harness (D-056, #47):** herdr or `claude --bg`,
   per the skill's "Running a fleet". Buddy launches and ends nothing; `spawn`/`exit`/`expect` cut.
+  The one recorded exception is the separate opt-in `buddy-adapter`, for the worker it launches
+  from typed argv (D-074); `buddy` itself gains no such verb.
 - **The suite never sees git's local env (D-057, #49):** pre-push, check.sh, lib.sh, and a
   gated `testguard.ScrubGitEnv()` in each git-running package's TestMain.
 - **Landing through an orchestrator is a recipe in the skill (D-062):** two claims (a durable
@@ -552,9 +582,47 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   pastes back as meant. Not split, not warned. The store and `release --scope` still accept the
   literal, so legacy rows narrow and release. `scopeList`: `fence.Field` per scope, `, `-joined,
   whole items, and the first item always shown.
+- **Codex participates through the patch gate and native identity; roles are explicit
+  (D-068).** `apply_patch` is parsed and every affected path checked, both ends of a move;
+  `CODEX_THREAD_ID` is the observed native identity. `AGENTS.md` splits authorized
+  drivers/workers from read-only constrained reviewers.
+- **Logical lifecycle events carry a captured incarnation (D-069).** `lifecycle begin`
+  mints it; every later event supplies it; unfenced Codex hello/beat/busy/idle/bye refuse.
+- **Versioned adapter receipts and a separate adapter binary (D-070), schema 15.**
+  `buddy.adapter.v1`/`buddy.control.v1`; legacy drains exclude adapter mail; approvals
+  enter only through the operator descriptor. D-075 supersedes its "Claude resume is
+  unsupported".
+- **Claude admission is an exact version/built-in-Mod-profile pair (D-071)**, from the
+  code's table, never a semver range or an absence assertion.
+- **`buddy diagnose` never opens the source ledger with SQLite (D-072):** a private
+  immutable copy of a stable image; readiness always `not_established`.
+- **The gate checks every spelling, decides jurisdiction before identity, and adds a
+  nested repo's ledger to the home one (D-073).** Shell-routed `apply_patch` refuses where a
+  ledger governs; an identity conflict refuses only there; lexical and physical spellings,
+  link entries and dangling targets are all checked; a target repo's pause applies.
+- **`buddy-adapter` is the one exception to "launches, wakes and ends nothing" (D-074).**
+- **Recovery admission is exact-version and terminal-evidence-bound (D-075).**
+- **Adapter mail is its own register in every legacy view (D-076):** `ADAPTER` beside
+  `INBOX`, no socket wake or legacy correction for adapter mail, and a lifecycle
+  PostToolUse renews only the claims covering the paths it names.
+- **The adapter owns its worker's process group and validates the operator descriptor before
+  any child (D-077):** read-only, close-on-exec, typed; Close ends the group; a refusal before
+  any native byte is `not_submitted`; an unrecorded event is unknown, never `observed_absent`;
+  strict Claude gate settings; executables resolved once. Codex `reconcile` is withdrawn.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
+
+## Structured harness adapters
+
+Step 2 adds `internal/harness` and the separate opt-in `cmd/buddy-adapter`
+control binary (D-070). `buddy` remains an offline coordination CLI. Adapters
+consume versioned JSON and immutable captured lifecycle receipts; no human
+output parsing, current-token recapture, task database or dashboard. Schema 15
+stores incarnation-bound inbox metadata and receiving Claude endpoint
+observations. Older installed binaries refuse a migrated ledger: do not run a
+new binary on a production ledger or install it as part of a fixture exercise.
+See `docs/CODEX-ORCHESTRATOR-PLAN.md` for exact checks and qualification gaps.
 
 ## Out of scope
 
@@ -562,4 +630,6 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - Interrupting an in-flight tool call (harness-level, not ours).
 - The chat-command bridge, until real auth is on.
 - Any authority derived from chat.
-- OS-level containment, filesystem ACLs, or a supervisor process.
+- OS-level containment, filesystem ACLs, or a supervisor process. (The opt-in
+  `buddy-adapter` owning the one worker it launched is the recorded exception,
+  D-074; it supervises nothing else.)

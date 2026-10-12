@@ -184,6 +184,18 @@ func correctable(q rowQuerier, t Target, o SendOpts) error {
 	case target != t.ID:
 		return ErrNotCorrectable{o.Supersedes, fmt.Sprintf("it was addressed to %q, and a correction goes to exactly the original's audience", target)}
 	}
+	// An adapter message is fetched only by its recipient's adapter, bound to
+	// the incarnation captured at queue time; a plain correction lands in the
+	// legacy inbox, which never shows the original. Accepted, it reached only
+	// the channel that could not see what it corrected, and the adapter inbox
+	// kept serving the original with no link (review F-25, 2026-10-06). Refused
+	// here, so the send and its dry run refuse alike, until the adapter channel
+	// has an incarnation-bound correction of its own.
+	if adapter, err := isAdapterMessage(q, o.Supersedes); err != nil {
+		return err
+	} else if adapter {
+		return ErrNotCorrectable{o.Supersedes, "it is an adapter message, which only its recipient's adapter fetches; a plain correction would never be shown beside it"}
+	}
 	return nil
 }
 
@@ -278,7 +290,10 @@ type SentInfo struct {
 	SenderSession string
 	Kind          string
 	KindNote      string
-	Recipients    []SentRecipient
+	// Adapter: the message travels on the adapter channel (schema 15), which
+	// only its recipient's adapter fetches. No legacy wake can surface it.
+	Adapter    bool
+	Recipients []SentRecipient
 }
 
 // Sent reports one message: its links and, for every session it addressed,
@@ -295,6 +310,9 @@ func (s *Store) Sent(id int64) (SentInfo, bool, error) {
 		return si, false, err
 	}
 	si.OwnerKnown, si.SenderSession = owner.Valid, owner.String
+	if si.Adapter, err = isAdapterMessage(s.db, si.ID); err != nil {
+		return si, false, err
+	}
 	msgs := []InboxMsg{{ID: si.ID}}
 	if err := s.links("", msgs); err != nil {
 		return si, false, err

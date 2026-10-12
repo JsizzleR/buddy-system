@@ -9,6 +9,7 @@ require (
 	golang.org/x/sys v0.39.0
 	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.40.1
+	mvdan.cc/sh/v3 v3.12.0
 )
 
 require (

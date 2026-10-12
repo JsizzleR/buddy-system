@@ -20,6 +20,12 @@ the skill in step with them.
 | [DESIGN.md](DESIGN.md) | The rationale in one read, including the assumptions measurement refuted. Read this before proposing a change. |
 | [decisions.md](decisions.md) | The append-only decision record, D-001 onward: for each rule, what was wrong, what shipped, what was cut and why. Long; search it for the D-number a page cites. |
 
+## Work in progress
+
+| Document | What it is |
+| --- | --- |
+| [CODEX-ORCHESTRATOR-PLAN.md](CODEX-ORCHESTRATOR-PLAN.md) | Codex orchestration work order and receipts: participation, adapters, isolated native mixed-fleet exercise and offline compatibility diagnostic implemented; real-provider and recovery qualification remain open |
+
 ## Working notes, kept as history
 
 These are dated and are not descriptions of the current tool. Each carries a

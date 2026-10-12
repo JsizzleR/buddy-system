@@ -123,9 +123,18 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 		}
 		head += "; superseded by " + strings.Join(by, ", ")
 	}
+	if si.Adapter {
+		// Said, because `buddy inbox` never shows it (review F-12). No wake is
+		// offered for it, even if its captured incarnation was replaced by a
+		// legacy recipient that can be woken for NEW plain mail (V-10).
+		head += "; an adapter message: only its recipient's adapter inbox fetch returns it, and no legacy wake can surface it"
+	}
 	if !rows {
 		var wakes []string
 		for _, r := range si.Recipients {
+			if si.Adapter {
+				continue
+			}
 			if wk := w.wake(r, si.ID); wk != "" {
 				wakes = append(wakes, wk)
 			}
@@ -150,8 +159,10 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 		if si.Supersedes != 0 {
 			line += fmt.Sprintf("   #%d: %s", si.Supersedes, deliveryWord(r.Original, now))
 		}
-		if wk := w.wake(r, si.ID); wk != "" {
-			line += "; " + wk
+		if !si.Adapter {
+			if wk := w.wake(r, si.ID); wk != "" {
+				line += "; " + wk
+			}
 		}
 		fmt.Fprintln(env.Stdout, line)
 	}

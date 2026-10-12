@@ -24,6 +24,11 @@ applied to agent fleets:
   scrollback those protocols never had) and exposes MCP tools so agents can read
   the room and talk back.
 
+Codex participation is being added in bounded steps. See the
+[Codex hook and identity guide](docs/USAGE.md#codex-participation) for patch
+coverage, installation and current lifecycle limits, and the
+[orchestrator work order](docs/CODEX-ORCHESTRATOR-PLAN.md) for qualification status.
+
 ## What it looks like
 
 Session A claims a directory:

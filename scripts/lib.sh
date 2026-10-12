@@ -47,6 +47,11 @@
 # a path with a slash in it on purpose — `.` searches $PATH for an operand with
 # no slash, which is the same class of bug as the $CDPATH one above.
 
+# A done-check's temporary ledger must not inherit the Codex driver thread.
+# Fixtures set their own identity after sourcing this file. Otherwise a command
+# intended to exercise an anonymous caller instead looks up the driver's id.
+unset CODEX_THREAD_ID CODEX_SESSION_ID
+
 # repo_root <script-path> — absolute path of the repo root, given the calling
 # script's "$0". Prints nothing and fails if the directory does not exist.
 repo_root() {

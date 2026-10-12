@@ -30,13 +30,13 @@ package cli
 // defect; the notice is what would have caught it. Deduplicated in the
 // ledger per (session, incarnation, file, mtime), so a file changed twice
 // warns twice and a file changed once warns once. Cost on the hot path: N
-// Stats (bounded by maxAuthority) and, only when one has moved, one SELECT.
+// Stats (two built-ins plus MaxAuthority) and, only when one has moved, one SELECT.
 //
 // THE LIST LIVES IN THE LEDGER (`buddy authority add|rm`), not in git config:
 // reading git config is a fork, 7-9 ms against a 100 ms hook budget, and the
-// beat path already has the ledger open. CLAUDE.md is ALWAYS watched — it is
-// the harness's own authority file and the one the incident was about — and
-// `add` extends the set. Paths are repo-relative, normalized like scopes.
+// beat path already has the ledger open. CLAUDE.md and AGENTS.md are ALWAYS
+// watched: either harness can otherwise keep stale participation rules in
+// context. `add` extends the set. Paths are repo-relative, normalized like scopes.
 
 import (
 	"errors"
@@ -50,9 +50,20 @@ import (
 	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
-// alwaysWatched is watched whether or not the list names it. The harness
-// reads it at every session start, which is exactly the snapshot that rots.
-const alwaysWatched = "CLAUDE.md"
+// alwaysWatched names the instruction files independent of the configured
+// list. Adding a built-in spends none of its eight slots; older ledgers may
+// already contain one, so every comparison still uses the shared case/NFC fold.
+var alwaysWatched = [...]string{"CLAUDE.md", "AGENTS.md"}
+
+// alwaysWatchedPath returns the canonical spelling, or empty for an extension.
+func alwaysWatchedPath(p string) string {
+	for _, builtIn := range alwaysWatched {
+		if store.SamePath(p, builtIn) {
+			return builtIn
+		}
+	}
+	return ""
+}
 
 // authorityFile is one watched file whose recorded modification time
 // postdates a session's registration.
@@ -88,15 +99,15 @@ func authorityChanged(st *store.Store, top string, si store.SessionInfo) (change
 	return changed, unread, nil
 }
 
-// watchList is the configured list with CLAUDE.md always first.
+// watchList is the configured list with the built-in instruction files first.
 func watchList(st *store.Store) ([]string, error) {
 	paths, err := st.AuthorityPaths()
 	if err != nil {
 		return nil, err
 	}
-	out := []string{alwaysWatched}
+	out := append([]string(nil), alwaysWatched[:]...)
 	for _, p := range paths {
-		if !store.SamePath(p, alwaysWatched) {
+		if alwaysWatchedPath(p) == "" {
 			out = append(out, p)
 		}
 	}
@@ -155,7 +166,7 @@ func cmdAuthority(args []string, env Env) error {
 		}
 		for _, p := range paths {
 			note := ""
-			if store.SamePath(p, alwaysWatched) {
+			if alwaysWatchedPath(p) != "" {
 				note = "  (always)"
 			}
 			// "watching " in front: a path NAMED "BUDDY: …" at column zero
@@ -168,10 +179,10 @@ func cmdAuthority(args []string, env Env) error {
 		if err != nil {
 			return err
 		}
-		if store.SamePath(n, alwaysWatched) {
+		if builtIn := alwaysWatchedPath(n); builtIn != "" {
 			// Not stored: it is watched whether or not it is listed, and a
 			// row for it would spend one of the eight slots on nothing.
-			fmt.Fprintf(env.Stdout, "%s is always watched\n", alwaysWatched)
+			fmt.Fprintf(env.Stdout, "%s is always watched\n", builtIn)
 			return nil
 		}
 		if err := st.AuthorityAdd(n); err != nil {
@@ -184,8 +195,19 @@ func cmdAuthority(args []string, env Env) error {
 		if err != nil {
 			return err
 		}
-		if store.SamePath(n, alwaysWatched) {
-			return fmt.Errorf("%s is always watched", alwaysWatched)
+		if builtIn := alwaysWatchedPath(n); builtIn != "" {
+			// Before this path became built-in, the operator could store it
+			// as an extension. Explicit rm frees that redundant slot without
+			// ever removing the built-in watch; reads perform no migration.
+			removed, err := st.AuthorityRemove(n)
+			if err != nil {
+				return err
+			}
+			if removed {
+				fmt.Fprintf(env.Stdout, "removed redundant configured entry for %s; remains always watched\n", builtIn)
+				return nil
+			}
+			return fmt.Errorf("%s is always watched", builtIn)
 		}
 		removed, err := st.AuthorityRemove(n)
 		if err != nil {

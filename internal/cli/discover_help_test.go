@@ -232,6 +232,11 @@ var skillExempt = map[string]string{
 	"pause":       "the operator's brake; a session is told it is paused, it never pauses a peer",
 	"resume":      "the operator's brake; a session is told it is paused, it never pauses a peer",
 	"authority":   "the operator curates the watched files; a session only sees the notice, which the skill explains",
+	// Adapter-implementer surface (review F-43, 2026-10-06): programs and the
+	// Codex lifecycle hook wiring type these, not a lane. Teaching every flag
+	// here loaded ~10 KB into every lane's skill; docs/USAGE.md documents them.
+	"lifecycle": "adapter/hook surface, typed by programs and hook wiring; docs/USAGE.md \"Structured adapters\" teaches it",
+	"adapter":   "adapter surface, typed by buddy-adapter and coordinators that run it; docs/USAGE.md \"Structured adapters\" teaches it",
 }
 
 // skillExemptFlag exempts a flag on EVERY verb that has it.

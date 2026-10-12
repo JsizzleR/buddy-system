@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,9 +152,18 @@ func newFixtureNamed(t *testing.T, name string) *fixture {
 // run executes a buddy command with stdin JSON (may be empty) from cwd.
 func (f *fixture) run(t *testing.T, cwd, stdin string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
+	return f.runReader(t, cwd, strings.NewReader(stdin), args...)
+}
+
+// runReader is run with stdin supplied as a reader, so a test can hand a verb
+// a real pipe (an *os.File) rather than bytes that are already complete: a
+// strings.Reader always reaches EOF, and the hook verbs' behaviour on a pipe
+// whose writer never closes is a different question (F-27, audit A-10).
+func (f *fixture) runReader(t *testing.T, cwd string, stdin io.Reader, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
 	var out, errw bytes.Buffer
 	code = Run(args, Env{
-		Stdin:  strings.NewReader(stdin),
+		Stdin:  stdin,
 		Stdout: &out,
 		Stderr: &errw,
 		Cwd:    cwd,

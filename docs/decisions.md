@@ -4480,3 +4480,954 @@ deferred the same way. Eleven mutants in a private copy were each killed: the wa
 default set back to 10, no deferral on either arm, no final failure, the reason unread, either
 knob ignored, no validation, no bound, and a silent slow return. The real daemon kept its pid
 throughout.
+
+## D-068 — Codex participation starts with path enforcement and native identity; driver and worker roles are explicit
+
+2026-10-04 · continuation of the accepted `CODEX-ORCHESTRATOR-PLAN.md` work order
+
+**What was wrong** — The gate treated Codex `apply_patch` as a pathless tool,
+checking pause but none of the patch's writes. Ordinary CLI identity accepted a
+Buddy override, while `wait check` required Claude's environment. Repository
+guidance also applied constrained-review restrictions to every Codex role.
+
+**The bounded change** — `AGENTS.md` distinguishes authorized implementation
+drivers/workers from read-only constrained reviewers. The latter still use
+`codex-review.sh`; a verdict remains separate from executed test evidence.
+The gate parses the local patch envelope before adjudication, checks additions,
+deletions, updates and both ends of moves, and emits one denial for a conflicting
+call. Target-ledger discovery still distinguishes absent from unreadable, even
+when the home directory has no ledger. Unknown or malformed patch routing is
+refused. No shell-side-effect containment is claimed.
+
+`CODEX_THREAD_ID` supplies native shell identity; ordinary explicit overrides
+retain precedence, while `wait check` requires the caller's native identity
+and refuses a conflicting override. Hook `session_id` and native identity must
+agree when both are present. The environment variable was observed locally
+with installed `codex-cli 0.160.0`; it is not a promise about every deployment.
+Both `CLAUDE.md` and `AGENTS.md` are always watched, in addition to the eight
+configured authority paths. No schema change is needed.
+
+**Lifecycle boundary** — Codex hooks must not borrow a Claude ancestor process
+or equate a shared app-server process with one thread. Marked Codex hooks stay
+unbound, and unfenced Codex idle/end hooks are refused. The future adapter must
+carry the logical incarnation from event production; reading the latest
+incarnation on receipt would let a delayed event act on a successor. Automatic
+cleanup, idle delivery and independently claiming subagents remain unqualified.
+This increment does not adopt a task table, control adapter or structured
+delivery/approval schema. The latter must precede the mixed-fleet exercise.
+
+**Evidence** — Regression fixtures first failed against the old behavior for
+patch conflicts, native Codex identity and AGENTS change notices. The current
+validation receipt and remaining live gates are recorded in
+`CODEX-ORCHESTRATOR-PLAN.md`. Hermetic fixtures are not installed-hook or
+mixed-fleet qualification. Installation and hook trust remain explicit opt-ins.
+
+## D-069 — Codex lifecycle events carry a captured logical incarnation
+
+2026-10-04. Continued implementation of the accepted Codex orchestrator work order.
+
+**The failure** — a thread id survives resume, while an app-server process can
+host several threads. Resolving the current incarnation when an old event arrives
+lets that event refresh, mark idle, or end the replacement. Merely fencing `bye`
+would leave `hello`, `beat` and `busy` as routes around the guard.
+
+**The bounded change** — `buddy lifecycle begin` returns a `buddy.lifecycle.v1`
+JSON receipt with the native session id and a newly minted incarnation. A live
+registration refuses begin; restarting an ended registration requires its exact
+previous token. Every refresh, beat, busy, idle or end supplies the captured
+token, checked in the same SQLite transaction as its effects. A repeated end
+for the same incarnation is idempotent; stale or absent tokens refuse. End does
+not orphan claims inline. No schema change or task table is needed.
+
+`lifecycle hook --incarnation` maps native top-level Codex events to those
+operations. Stop records idle; SessionEnd records end. It emits `{}` on success,
+never a continuation request. Unfenced Codex `hello`, `beat` and `busy` hooks now
+refuse alongside `idle` and `bye`, including when `hello --session` supplies an
+explicit id. Hook input is classified before the manual-registration path; a
+conflicting explicit id or malformed payload also refuses before writing. The
+no-input manual CLI registration and operator cleanup paths remain explicit
+local acts. The PreToolUse gate remains separate.
+
+**Boundaries** — the adapter owns capture, durable receipt storage, per-thread
+binding and serialized callback delivery. It must never replace an old event's
+token with the current one. A committed begin whose receipt was lost is an
+uncertain outcome requiring reconciliation, not an automatic retry. This token
+does not order turns within one live incarnation. Lifecycle observation does not
+drain inboxes, launch or wake workers, establish approvals, or prove completion.
+The minimum delivery/approval and harness-control interfaces remain Step 2.
+
+**Evidence** — store and CLI regressions include predecessor CAS, delayed
+callbacks, positive controls, concurrent restarts, rollback, preserved claims
+and queued inboxes. Removing token checks or recapturing the current token made
+the regressions fail. Independent source review found that `hello --session`
+skipped hook classification, letting a delayed callback refresh a live successor
+or revive an ended one and orphan its claims. That finding was accepted and
+fixed. All six marker/state regressions failed before the fix; manual, Claude,
+identity-mismatch and malformed-input controls pass afterward. The current
+validation and isolated native-hook receipts
+are in `CODEX-ORCHESTRATOR-PLAN.md`; they are distinct from production adapter,
+provider and mixed-fleet qualification.
+
+## D-070 — Versioned coordination receipts and separate harness adapters control only workers they launch
+
+2026-10-04. Step 2 of the accepted Codex orchestrator work order.
+
+**Consumer and ownership** — the concrete consumer is a native control adapter,
+so the previously cut generic JSON roster is replaced by a bounded
+`buddy.adapter.v1` interface. Buddy keeps claims, messages, waits, READY and run
+outcomes. A separate `buddy-adapter` binary owns one launched worker's native
+transport. No task database, dashboard, attach-to-existing-session, scheduler
+or peer-derived operator authority is introduced.
+
+**Identity and delivery** — adapters durably capture the lifecycle begin JSON
+before sending input; callbacks carry that same incarnation. Schema 15 adds
+sender/recipient incarnation metadata beside existing inbox rows and receiving
+Claude endpoint observations bound to a verified process birth. Legacy drains
+exclude adapter mail. Fetch and explicit recipient-reported delivery are
+separate; native wake acceptance, acknowledgment, results and completion never
+stand in for one another. Unsupported, unknown and observed absence remain
+different. Native IDs, JSON approval IDs (including integers above 2^53) and
+result references retain their values.
+
+**Control** — `buddy.control.v1` supports start, send a queued-message wake,
+inspect and interrupt. Codex resume uses the saved native ID and captured live
+incarnation; Claude resume is unsupported. Neither transport loss nor a model
+turn ends the logical session. The local receipt journal serializes ownership
+and records send intent before touching native input, so an uncertain wake is
+not blindly replayed. A lost registration receipt needs reconciliation.
+Approvals use a separate inherited operator descriptor, disabled by default;
+coordinator stdin cannot answer one. Request-scoped allow/deny never grants a
+session-wide permission policy. Native resolution remains distinct from a
+response being written to the pipe.
+*Corrected 2026-10-07 (review F-41, audit A-11), the way GIVEN 71 was:* startup
+is argv, not a control request; the coordinator's requests on the control
+stream are `inspect`, `reconcile`, `send` and `interrupt`, and approval is the
+separate operator-descriptor path. `reconcile` is since WITHDRAWN (D-075,
+D-077): the request is still accepted, and answered as unsupported for a wake
+with a recorded native turn, or as `unknown` from the transport journal for one
+without — never with a native history read.
+*Superseded by D-075:* "Claude resume is unsupported" above no longer holds.
+Claude resume is admitted, experimentally, when every journalled turn reached a
+terminal result for its exact input and the worker went idle; see D-075 for the
+exact conditions. The sentence stands here as history.
+
+**Compatibility** — Codex checks the installed version and effective native
+hook metadata for the exact trusted synchronous gate command/hash. Claude
+checks its installed version and an explicit gate-only configuration against
+the inspected SDK streaming contract. Mods that can override hook denial must
+be qualified under effective policy; D-071 replaces the original supplied
+absence assertion with an exact built-in profile. Unknown refuses launch. No hook
+trust or global permission configuration is changed by the adapter. The
+receiving Claude environment exports its endpoint; a sender environment and
+the historic `/tmp/cc-socks` convention do not identify an adapter recipient.
+Endpoint observations do not establish liveness, native delivery or permission.
+
+**Evidence** — see the canonical plan's Step 2 receipt for commands, source
+reviews, native local fixtures and outstanding qualification. Fixtures run on
+disposable ledgers; this schema change has not migrated the machine's working
+ledger or installed binaries. Source review is not test or provider evidence.
+
+## D-071 — Claude admission checks a native built-in Mod profile, not an absence assertion
+
+2026-10-04. Step 3 continuation of the accepted Codex orchestrator work order.
+
+**The finding** — the installed Claude 2.1.289 reports built-in plugins even
+with an empty optional plugin map. `cc-plugin-agents-md` contains a Mod;
+`cc-plugin-plugin-authoring` provides authoring guidance. The earlier caller
+field `no_mods: observed_absent` did not describe the effective native profile.
+Mods can override a non-managed PreToolUse denial, so an assertion about empty
+configuration cannot qualify the gate.
+
+**Admission** — Claude requires `hooks.mods: "builtin-only-2.1.289"` and rejects
+the legacy absence assertion. After native initialization and the existing
+effective-settings check, the adapter reloads plugins in its launched child,
+requires exactly those two native built-ins with their expected source/path
+identities and no reload errors, then checks effective settings again before
+capturing the lifecycle identity or accepting input. Unknown, incomplete or
+additional inventory refuses; caller labels do not substitute for native data.
+The profile stays pinned to the checked native version.
+
+**Boundary** — this is a startup snapshot with a native reload, not a
+migration-free/read-only diagnostic, continuous attestation or a claim that no
+Mods exist. Native initialization/reload can execute Mod startup code before
+inventory admission; this is not plugin isolation. The actual claim-denied edit
+and allowed control are separate native
+checks under that profile. Optional or managed Mods outside the profile, native
+hot changes, real-provider workers and mixed-fleet/recovery behavior are not
+qualified by this observation. No global policy, hook trust or installed plugin
+configuration is changed.
+
+**Evidence** — the canonical Step 3 continuation receipt in
+`CODEX-ORCHESTRATOR-PLAN.md` names the native inventory probe, adapter exercise
+and executed regression checks separately. The
+[vendor Mod permission contract](https://code.claude.com/docs/en/plugins/mods/overview#decide-whether-to-trust-a-mod)
+explains why hook configuration alone is insufficient.
+
+### 2026-10-05 version continuation: 2.1.290
+
+2.1.290 retains the same measured built-in
+inventory and effective gate behavior. Admit it only with its own
+`builtin-only-2.1.290` profile, while retaining the exact 2.1.289 pair. A launch
+must match the executable's exact version, including on resume; neither
+cross-profile declarations nor automatic conversation upgrades are supported.
+Native gate/approval, Mod, completed-turn resume and cancellation/crash-refusal
+fixtures passed for 2.1.290. The permissive-Mod control still overrides a user
+hook denial, so the inventory restriction remains necessary. Offline diagnostics
+recognize both exact versions without promoting captures to live readiness.
+See the Step 4 2.1.290 receipt for counts, hashes and unqualified boundaries.
+
+### 2026-10-06 version continuation: 2.1.291
+
+2.1.291 separately passed native effective
+settings, built-in inventory, claim-denial/control, completed-turn resume and
+cancellation/crash-refusal qualification. Add only its exact
+`2.1.291` / `builtin-only-2.1.291` pair. Every start/resume still checks the
+captured version against the executable, and every cross-version/profile pair
+refuses. The native permissive-Mod contrast still overrides the user hook;
+optional Mods remain outside admission. Offline diagnostics recognize the new
+contract without claiming current trust or enforcement. Manual compaction and
+its refusal cases remain qualified only on retained 2.1.290; new regressions
+prevent ordinary 2.1.291 admission from widening those separate gates. See the
+Step 4 2.1.291 receipt for exact evidence and remaining boundaries.
+*Superseded in part by D-075 (marker added 2026-10-07, audit A-11):* the
+"only on retained 2.1.290" limit on manual compaction no longer holds. A later
+2.1.291 compaction receipt measured its boundary and local-command result, and
+`claudeManualCompactionQualified` admits both 2.1.290 and 2.1.291; D-075
+records the widening. The sentence stands here as history.
+
+## D-072 — Offline diagnostics inspect a private ledger snapshot and never promote captures to readiness
+
+2026-10-05. Step 4 continuation of the accepted Codex orchestrator work order.
+
+`buddy diagnose` is the concrete need for the migration-free read path deferred
+by D-037. `adapter inspect` retains ordinary store semantics; the diagnostic
+never calls it or `store.Open`. Even SQLite `mode=ro` can create WAL support
+files, so source files are read using plain read-only descriptors. A bounded
+stable main image with no nonempty WAL/rollback journal is copied privately;
+only that copy is opened by SQLite with `mode=ro&immutable=1`. Active journals,
+changing inputs and unreadable files remain uncertainty. Nothing checkpoints or
+repairs the source. Missing and unreadable ledgers remain distinct.
+
+`buddy.diagnostic.v1` reports schema version compatibility and compares a
+supplied captured receipt to the session snapshot without returning or repairing
+tokens. Adapter capabilities come from the same implementation tables as control
+receipts. Current installed version, effective policy, trust, Mods and enforcement
+are not inferred from supplied launch flags. Optional bounded native captures
+are tied to harness/worktree/configuration hash and labeled `supplied_snapshot`;
+they are historical claims, not authenticated live observations. The diagnostic
+starts no native executable, even for version detection, and cannot run hooks,
+reload plugins, register sessions, drain mail or modify permissions.
+
+Exit 0 means report produced, and readiness always remains `not_established`.
+This closes the bounded offline report slice; fresh native compatibility,
+recovery/resumption and real-provider qualification remain separate gates.
+
+References: [SQLite read-only WAL behavior](https://sqlite.org/wal.html#read_only_databases),
+[SQLite immutable URI semantics](https://sqlite.org/uri.html#uriimmutable),
+and [Codex hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+
+## D-073 — The gate checks every spelling a write can land on; jurisdiction decides before identity; a nested repo adds to the home ledger, never replaces it
+
+2026-10-06. Review of the Codex orchestrator implementation
+(`CODEX-ORCHESTRATOR-FINDINGS.md` F-01, F-03, F-04, F-05, F-06, F-28; Codex's
+`CODEX-ORCHESTRATOR-RESPONSE.md` accepted each and refined the remedies).
+Every item below was a failing gate test against the tree before its fix.
+
+**Shell-routed patches (F-01).** Codex intercepts `apply_patch <<'EOF'`
+(also `applypatch`, and `cd <dir> && apply_patch`) inside its shell tool and
+applies the patch in-process with the tool's own engine, while the hook says
+`tool_name: "Bash"`. The gate saw a pause-only shell call: a peer-held delete
+passed in all three spellings while the same patch through the tool was denied.
+The gate now refuses `apply_patch`/`applypatch` in shell COMMAND position
+wherever a ledger governs the call, and says to use the tool. It does not parse
+and adjudicate such a patch, because exec_command's workdir is not in the
+payload and a misplaced path is a wrong verdict. Mentions of the word in
+argument position (`grep apply_patch`) pass. From a cwd with no ledger, the
+refusal applies only when the `cd` directory or a path in a parseable embedded
+patch lies in a governed repo. Cooperative, like the rest of the gate: an
+obfuscated spelling, a nested `bash -c`, or a workdir passed outside the
+command still reaches the engine unseen.
+
+**Jurisdiction before identity (F-04).** `readHook` used to refuse a
+conflicting identity before discovery, so a Claude session that inherited a
+Codex parent's `CODEX_THREAD_ID` had every Write denied in every directory on
+the machine. That is the D-044 fleet-wide-deny class, and it breaks invariant 3.
+The gate now decodes the hook, classifies identity, and refuses a conflict only
+where a home or TARGET ledger governs the call. An unreadable governing ledger
+still denies. Read-only tools pass, as they already do on an unreadable ledger.
+Malformed patch input still refuses everywhere (D-068); that is structure, not
+identity.
+
+**Every spelling (F-05, F-06).** The gate checked one spelling,
+`EvalSymlinks(path)`. Codex resolves `..` lexically, so
+`<repo>/docs/link/../core.go` deletes `docs/core.go` while the gate checked
+`src/core.go`. The kernel resolves `..` physically. Codex's Delete File, and a
+move's source, unlink the link ENTRY, while the gate checked only where the
+link points. `gateTargets` now yields the lexical and physical spellings, each
+with the final link followed and as the entry itself, plus a dangling link's
+would-be target. Any one held refuses. That is at most five per path and
+usually one, so the 128-path bound still bounds the work. This is checked for
+every operation, rather than threading operation metadata out of the parser:
+the deliberately conservative policy Codex's response allowed. The `..` case
+predates the Codex work for an absolute Claude `Edit`; which spelling Claude's
+tools act on was not measured, and both are checked.
+
+**Nested repositories (F-03).** The Codex work routed a target inside a
+nested `.git` to that repo's ledger INSTEAD of the home ledger. A `git init`ed
+or submodule directory with no ledger, or a stale `.git` file from a pruned
+worktree (git calls it "not a git repository", read as feature-off), then let a
+Claude Edit or a patch through a peer's claim on the enclosing directory. HEAD
+denied both. The home claim covering the path is now always checked, and the
+nested ledger is consulted in addition.
+
+**A target repo's brake (F-28).** A cross-repo edit consulted the target
+ledger's claims but not its pause, so `buddy pause all` in repo X did not stop
+a session whose cwd was elsewhere. The target ledger's pause now applies. The
+label is the one that ledger knows the session by, never one borrowed from
+another ledger.
+
+**Evidence.** `internal/cli/gatetargets_test.go`: every test failed against the
+pre-fix snapshot (`refs/snapshots/orchestrator-pre-fixes-20261006`). Ten
+mutations, one per guard (the shell detector, its governed and ungoverned arms,
+nested-replaces-home, the lexical, entry and dangling spellings, identity
+refused before discovery, the governed identity arm, and the foreign pause),
+each killed its test. These are hermetic fixtures. The shell-routing claim rests
+on Codex source at `rust-v0.160.1` and still needs a native case in
+`qualify-codex.py` on the admitted version.
+
+### 2026-10-07 independent verification continuation
+
+The [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md) supersedes
+the native-owed and nested-shell statements above. Retained Codex 0.160.0
+reproduced the shell route, including `bash -lc`. Admission must cover `Bash`
+and `apply_patch` (V-01). A bounded shell syntax tree now recognizes static
+command words, substitutions, common launch wrappers and nested literal shell
+scripts, while preserving ordinary quoted arguments (V-04). The same tree
+collects literal working directories for jurisdiction. Limits do not create
+ledger jurisdiction: an uncertain route refuses where a discovered ledger
+governs; unmanaged scope remains feature-off. Dynamic names, undisclosed
+workdirs and placements beyond analysis bounds remain cooperative limits.
+
+Dangling links now resolve component by component, with at most 40 link
+traversals, preserving physical `..` within link contents (V-03). An error in
+one spelling does not prevent discovery of another governed spelling. All
+applicable home and target reservations remain additive. Native Codex controls
+measured entry deletion, lexical `..`, dangling-target creation and moves;
+Claude Write controls measured lexical normalization and refusal of symlinks.
+Those measurements do not make general shell side effects claim-enforced.
+
+### 2026-10-07 audit continuation: shell recognition inverted, uncertainty refuses (A-01, A-12)
+
+The [audit](CODEX-ORCHESTRATOR-AUDIT.md) found the continuation above stronger
+than the code (A-01, A-13). "Common launch wrappers" was a list of programs
+known to run an operand, and every other program passed. In a governed temp
+repo, real bash and zsh ran `apply_patch` past the gate through `bash -c --`,
+`bash +x -c`, `bash +o posix -c`, `eval`, `trap`, a shell fed a here-document,
+here-string or pipe, `bash <(...)`, brace expansion, `csh`/`tcsh -c`, `nice`,
+`caffeinate`, `arch`, `stdbuf`, `env -P`, `xargs -S`, zsh's `noglob`,
+`nocorrect`, `repeat 1`, `=apply_patch` and anonymous functions, `coproc`,
+`find -exec` and `script`. From an ungoverned cwd, `pushd`, `cd ~/...`,
+`bash -c -- 'cd ...'` and a here-document holding `cd` were not placed. "Literal
+heredoc bodies are not commands" was false for a here-document fed to a shell.
+
+Two constrained Codex design passes reviewed the replacement: a REJECT, then a
+PASS WITH CHANGES after the scope was split. Nine rounds of constrained code
+review followed (the first two in two passes each), and every round was a REJECT
+on exact inputs. Each finding got a regression that was watched to fail and then
+fixed: 15, 7, 4, 4, 4, 3, 4, 4 and 4 findings by round. The findings moved from
+structural gaps to edges. The structural gaps were a compound statement's
+stdin, descriptor duplication and moves, run-time-produced script text, and
+nested scripts' inherited descriptors. The edges were `env -S` escapes and
+comments, `-vC` clusters, fish's `-C`/`-capply_patch`, `sudo -s` fed a
+here-document, 2^63-field brace counts, and quadratic descriptor and
+here-document rebuilds (each measured by bytes allocated, up to 4.15 GB, then
+bounded). From round five on, Codex ranked findings by realism; most it labelled
+crafted. **Open, by decision:** a persistent `exec <<'SH'` redirection that a
+LATER statement's shell inherits (round 9, crafted P2). The walker scopes
+redirections to their statement. Round 9's own fixes have not been re-reviewed.
+The verdicts are source evidence only, kept apart from the test evidence below. The REJECT named forms whose
+script is PRODUCED at run time (`printf 'apply_%s' patch | bash`,
+`bash -c "$(...)"`, a local function piped to a shell), which no list of
+spellings closes. The decision:
+
+- **The default is inverted.** An unknown program's operands are all possible
+  command positions. A data program (`echo`, `grep`, `cat`, `which`, `make`, ...)
+  stops the scan only at an ESTABLISHED command position: the first word, or
+  the one a known wrapper's option grammar lands on. `git` is data except
+  `bisect run`, `submodule foreach` and `rebase --exec`. `man` and `sort` stay
+  unknown programs, because `-P` and `--compress-program` run one. Each
+  `find -exec` action is read on its own.
+- **Script text a shell will run is read in turn:** `-c` in any option cluster
+  of either sign, `fish --command`, `eval`, `trap`, `env -S`, GNU `script -c`,
+  and a here-document or here-string on a stdin-reading shell. A here-document
+  on `cat` stays data.
+- **Uncertain text refuses where a ledger governs, and only there.** That means
+  script text produced at run time (a pipeline, a process substitution, an
+  expansion in a `-c`, `eval` or here-document text), a command the bash-mode
+  parser rejects, and an exhausted budget. One request-wide budget is shared
+  across every script: depth 8, 128 KiB per script, 512 KiB and 64 parses in all,
+  and brace fields counted before expansion (256 per word, 1,024 in all).
+  `mvdan.cc/sh` has no zsh mode, so zsh-only syntax is uncertain rather than
+  guessed at.
+- **Speculative text** (an unknown program's operand that looks like shell,
+  as with `su -c`, `watch` or `flock -c`) is read at command positions only. A
+  parse failure there means it is not readable shell, so it stays cooperative.
+  Reading its operands too would refuse prose such as
+  `curl -d 'please run apply_patch now'`.
+- **Jurisdiction** adds `pushd`, zsh `chdir`, zsh `cd old new`, `sudo -D` and
+  `--chdir`, and an unquoted `~` or `~/...`. A tilde is read against the hook's
+  `HOME` and against every literal `HOME` the command assigns
+  (`env HOME=x zsh -c 'cd ~'`). A script that does not parse still has its
+  literal `cd` operands recovered lexically.
+
+**Cost, measured** (2026-10-07, counts only, this machine's Claude Code and
+Codex transcripts). The old recognizer would have refused none of 109,990
+unique agent commands where a ledger governs. The new one refuses 87 (0.08%),
+all but one of the uncertain class: 31 do not parse, 37 run a shell `-c` script
+built at run time, 13 run `eval` on run-time text, 4 feed a shell from a
+pipeline and 1 from a process substitution. The single direct find was a probe
+command from this work, which did run `coproc apply_patch`.
+
+**Cooperative, by decision.** Dynamic command names; script files
+(`bash file.sh`, `source file`, `bash < file`); aliases and functions defined
+outside the command; programs that run another language's text (awk
+`system()`, `sed e`, `python -c`, make recipes, git aliases and config); command
+names read from stdin (`xargs` with no command); `CDPATH`, `OLDPWD`, the pushd
+stack and `~user`; and a workdir outside the command. These are the same class
+as the cooperative boundary the gate already had: text the gate cannot see.
+Running an embedded shell interpreter was not considered.
+
+**Dependency (A-12).** `mvdan.cc/sh/v3` v3.12.0, pure Go, is linked into the
+claims binary for this parser. Nothing in it is used to expand or execute. It
+breaks no stated rule (no cgo); CLAUDE.md now names it.
+
+**Evidence.** `internal/cli/shellroute_test.go`. Every refused form carries a
+kernel control where this box can run it: the same command under the named
+real shell, with a fake `apply_patch` first on PATH, must run it. Three controls
+caught wrong cases before the gate was trusted: zsh keeps `{apply_patch,}`'s
+comma, and macOS bash 3.2 has no `coproc` and reads nothing from
+`source <(...)`. These forms all failed on the tree before this change. The
+false-denial controls are the audit's ten, plus the ones this repo runs daily.
+The jurisdiction forms each have a kernel `pwd -P` control and a plain-
+directory twin that must pass. The A-14 grammar tests pin the option-value
+table, `sudo -D`, `env -S` and the budget.
+
+**Mutations** (private copies, one guard at a time, applied by script, build
+failures never counted). 110 mutants are defined against the final code. (This
+said 111 until 2026-10-11: the count was taken before the closed-on-move code
+below was removed, and its mutant with it.)
+Earlier sweeps on intermediate code ran 49 and then 45 of them. They found three
+equivalent or untested pieces of code, each resolved: the dead `pipeReader`
+(removed, since the parser nests pipelines on the left), a closed-on-move
+descriptor (removed, since it was unobservable and only over-refuses), and a
+`csh` entry that needed a stdin-fed case. Those sweeps also exposed two
+mutants of mine that failed to build, and a wall-clock test that failed its own
+control under load (replaced by a resolution count). The final sweep ran 71 of
+the 110 before Claude Code stopped it for low system memory: 70 killed, 1
+survived. The survivor, `over-budget-command`, showed that no test put an
+over-budget brace word at the command position. `TestGateShellRouteOverBudgetCommandWord`
+now does.
+
+*2026-10-11, the rest.* The other 39 ran, with `over-budget-command` again, in
+two private copies, each behind an unmutated control. `over-budget-command` is
+killed by its regression. `dup-stdin` was re-targeted first: the closed-on-move
+removal took the `from` variable it matched, so it would have matched nothing.
+34 more were killed outright. `brace-budget` is what ran memory out on
+2026-10-08. Without the field count, the budget test's `foo
+{1..99999999}{1..99999999}` expands without end: 5.4 GB in 100 s in the sweep,
+ended by hand. Alone, under `-v -timeout 60s` and an RSS guard, it is killed by
+`deny/foo {1..5000}`, which it allows. The expansion then reaches 8.9 GB before
+the guard ends it, so a sweep that runs this mutant unbounded will exhaust
+memory again. Four survived the whole package. Each was a guard no test
+reached. Each now has a regression, which passes on the tree and was watched to
+kill its mutant in a copy taken after it landed:
+
+- `data-skip-expansion`. A data program's operands spent the field budget the
+  whole command shares, so `touch x{1..1100}; {ls,-l}` refused.
+  `TestGateShellRouteDataOperandsSpendNoFieldBudget`, with a kernel-controlled
+  refusal proving the later brace word is read.
+- `scriptOf-overbudget`. An over-budget word in text a command runs as shell
+  was refused as "built at run time", which is false of a static brace word
+  and names the wrong fix. `TestGateShellRouteOverBudgetScriptWordSaysBudget`;
+  its kernel control is bash running `eval {apply_patch,x{1..300}} < p.patch`.
+- `envS-builder-cap`. The `env -S` builder kept a 7.4 MB script built from a
+  60 KB command. `TestShellRetainedScriptsAreBounded/env-S-tail`.
+- `unparsed-bound`. Scripts refused as over budget were retained past the
+  lexing bound: 63 MB, against a 34 MB limit, when four shells read one
+  here-document whose `eval` joins 256 fields of 60 KB.
+  `TestShellRetainedScriptsAreBounded/eval-fields-read-by-many-shells`. A first
+  version fed 8,000 shells an 80 KB here-document and did not kill: a
+  here-document read is budgeted before analysis and never reaches this bound.
+  Retention costs scan work, not allocation (the strings are shared), which is
+  why the allocation checks could not see it.
+
+All 110 have now run on the final `patch.go`. Every one is killed by a test's
+assertion.
+
+## D-074 — `buddy-adapter` is the one opt-in exception to "buddy launches, wakes and ends nothing"
+
+2026-10-06. Records a reversal that D-070 made without saying so (review F-15).
+
+D-056 cut `buddy spawn` and `exit` because a verb that launched would make buddy
+a supervisor, and because #20 named the hazard of a launch reachable from a
+relayed instruction. D-039 and D-033 say buddy wakes nothing. D-070 then added a
+binary that launches one worker, resumes it, writes wake input to its owned
+stream, interrupts it and kills it on close. No line reconciled the two, and a
+constrained reviewer was handed both GIVENs side by side.
+
+**The exception, bounded.**
+
+- `cmd/buddy-adapter` is a SEPARATE, opt-in binary. `buddy`, the claims binary,
+  still launches, wakes, schedules and ends nothing, and gains no verb that does.
+  Hooks still run `buddy`.
+- The adapter acts only on argv typed by the operator, or by a coordinator that
+  already holds the operator's authorization for that launch. Argv is a
+  transport, not proof of authority. Nothing in the ledger, a message body,
+  chat, a claim description or worker output can start, wake or approve
+  anything: the queued body stays in the ledger, a wake is the fixed text
+  naming an id, and approvals enter only through the separate operator
+  descriptor (D-070, as hardened by D-077).
+- It controls only the worker it launched, over that worker's own stdio. No
+  attach to an existing session, no pane injection, no `/tmp/cc-socks` wake for
+  an adapter recipient (D-076), no lane management.
+
+**Why #20 does not apply.** #20 was a launch or exit reachable from peer text.
+Here the launch path starts only from typed argv, and the only inputs the running
+adapter takes from peers are message ids that it resolves against its own
+captured identity.
+
+Ending a lane is still the operator's act, and so is closing an adapter. The
+adapter's own kill of its owned process group on close is cleanup of what it
+started, not an exit verb.
+
+## D-075 — Recovery admission is exact-version and terminal-evidence-bound; it supersedes D-070's "Claude resume is unsupported"
+
+2026-10-06. Records behaviour decisions whose only record was the plan's
+receipts (review F-18).
+
+**What the code admits.**
+
+- **Codex** `resume` resumes the captured native thread id with the captured
+  incarnation. `reconcile` is WITHDRAWN (unsupported) until a bounded history
+  read is qualified (D-077). It read the full thread history over the live
+  control transport, and one reply past the 4 MiB frame bound ended the worker
+  mid-turn. While it existed it read only the journalled turn, never replayed a
+  wake or approval, and never inferred tool effects; its earlier native fixtures
+  are history.
+- **Claude** `resume` (experimental) is admitted only when every journalled
+  turn reached a terminal result for its exact input and the worker went idle
+  after it. The result must be `completed`, `aborted_streaming` (cancelled
+  while awaiting a response) or `aborted_tools` (cancelled at an approval). An
+  unfinished turn, a missing or unknown `terminal_reason`, a late approval or
+  busy event, a disconnect mid-turn, or an uncertain wake refuses before the
+  ledger refresh and before native launch. SDK conversation history
+  supplies no qualified terminal receipt (Step 4 history receipt), so history
+  never substitutes for one. Claude `reconcile` is unsupported.
+- **Claude manual compaction** is admitted for resume only on exact versions
+  whose boundary and local-command result were separately measured
+  (`claudeManualCompactionQualified`: 2.1.290 and 2.1.291). Its boundary UUID
+  and its exact-input local result plus idle are both required. A lost boundary
+  or result, cancellation, or an active-response crash refuses.
+- Every start and resume re-checks the executable's exact version against the
+  captured one, so a cross-version resume refuses (D-071).
+
+This supersedes the "Claude resume is unsupported" sentence in D-070. It also
+supersedes the sentence in D-071's 2026-10-06 continuation that limits manual
+compaction to 2.1.290; the later 2.1.291 compaction receipt widened it. Both
+stand as history. Automatic compaction thresholds, arbitrary crash timing, tool
+side effects and real-provider recovery are not admitted.
+
+## D-076 — Adapter mail is its own register in every legacy view; no legacy wake or correction crosses channels; a lifecycle beat renews the paths it observed
+
+2026-10-06. Review findings F-12, F-24, F-25, F-26 and F-27; each was a failing
+test against the tree before its fix.
+
+Legacy drains exclude adapter rows by design (D-070), because a legacy hook
+carries no captured token. The legacy VIEWS did not know that:
+
+- `who`/`status` printed `INBOX 0 undelivered` over a full adapter queue.
+- `msg` told the sender delivery "waits for its next tool call", and no adapter
+  worker runs a legacy drain.
+- `sent` and `msg` offered a D-039 socket wake: the endpoint registration put
+  the receiving pid in the process register, and "run buddy inbox" cannot show
+  adapter mail.
+- A plain `msg --supersedes` "corrected" an adapter message into the legacy
+  inbox, which never shows the original.
+
+**Now.**
+
+- `who`/`status` print an `ADAPTER` line beside `INBOX`. It shows the queue for
+  the current incarnation with its oldest age, mail captured for an earlier
+  incarnation, and whether a receiving endpoint is registered. It prints
+  `(none)` rather than being omitted.
+- A send's result line counts adapter mail separately. For a session the ledger
+  positively records as an adapter recipient, the mechanism clause says that its
+  adapter never fetches a plain message.
+- `wakeAddr` never offers a socket wake to an adapter recipient. Its adapter's
+  journal serializes wakes. `sent` labels an adapter message as such.
+- A legacy correction of an adapter message refuses, in the send and its dry
+  run alike, until the adapter channel has a correction of its own.
+
+Absence of adapter rows is not proof a session has a legacy drain. Without a
+schema change the ledger cannot mark a logical session that has no adapter mail
+yet, and none was made.
+
+**Lifecycle beats (F-26).** `lifecycle hook` used to pass no path, so a Codex
+worker patching its claimed file every ten minutes showed that claim STALE.
+A PostToolUse now passes every path its tool names, extracted with the gate's
+bounded parser, and `BeatLogical` renews only claims covering those paths, in
+the identity check's transaction. A busy or idle event renews nothing. Workers
+launched by `buddy-adapter` install only the PreToolUse gate, and an attempted
+write is not an observed one. Their renewal route needs its own PostToolUse
+observation; it is not provided here.
+
+**Manual `hello --session` (F-27).** It still reads non-TTY stdin as a hook's
+and refuses what is not one. Treating stray bytes as "no hook" would reopen the
+delayed-hook path D-069 closed. The refusal and the usage line now name the
+hand-run recipe, `</dev/null`.
+
+### 2026-10-07 independent verification continuation
+
+Delivered adapter mail remains positive evidence for its captured current
+incarnation (V-05). Earlier-incarnation mail and endpoints do not classify a
+new legacy recipient (V-10). `sent` independently excludes adapter messages
+from both legacy-wake paths, even after a legacy successor registers. A logical
+session without such evidence still has no process address to wake. This does
+not add the missing adapter PostToolUse renewal route.
+
+## D-077 — The adapter owns its worker's process group, validates the operator descriptor before any child, and records a definite refusal as `not_submitted`
+
+2026-10-06. Review findings F-02, F-07, F-08, F-09, F-10, F-11, F-21, F-22,
+F-23, F-29 and F-30. Each was a failing probe or entry test against the tree
+before its fix, and each guard was mutated out and watched to fail its test
+(35 mutants, all killed).
+*Corrected 2026-10-07 by the audit (A-04):* "all killed" was true of the
+verifier's working copy, not of the tree. Replayed against the tree's own
+tests, fourteen kills in this family — the descriptor lower bound, the group
+TERM and KILL, the SIGPIPE ignore, the six Claude and three Codex
+`not_submitted` refusals, and the endpoint budget — rested on nine
+`TestVerification*` tests that were kept only as `.txt` files in the evidence
+directory and never landed. The audit landed tests that kill those fourteen
+(its "Landed here" table); the count is true of the tree only since then.
+
+**The operator descriptor (F-02).** `--operator-fd` was wrapped with
+`os.NewFile` after the native child had started, and never marked
+close-on-exec. A descriptor handed over by a shell redirect or `pass_fds`
+arrives inheritable, so the worker held the approval channel: a Codex shell
+tool read the operator's line. A FIFO opened read-write let the worker write an
+`approve` request that `OperatorApprove` accepted, so the model answered its
+own approval. Now, right after flag parsing and before any file is opened or
+child started (the version probe included), the descriptor must be open, have
+access mode exactly `O_RDONLY`, and be a FIFO, character device or regular
+file. It is then marked close-on-exec. An unopened number, a write end, a
+read-write FIFO, a socket or a directory refuses with no child started and no
+journal written.
+
+**Process ownership (F-07, F-08).**
+- **Process group.** The worker runs in its own process group. Close sends
+  SIGTERM to the group, waits for the LEADER to exit (2 s at most), sends
+  SIGKILL to the group and the leader,
+  reaps once, and closes our stdout read end, so a descendant holding stdout
+  cannot keep the reader alive. The grace is the leader's, not its tools': a
+  leader that exits on TERM at once, or by itself (`watchExit` runs the same
+  path), ends the wait, so a tool still running gets TERM and KILL back to
+  back. (Wording corrected 2026-10-07, audit A-13; `process.go`'s header had
+  it right.) The group is signalled only while its leader is
+  unreaped: the zombie reserves the pgid, so the id cannot be reused. Exit is
+  detected without reaping (kqueue on darwin, `waitid(WNOWAIT)` on linux).
+- **Signals.** INT, TERM and HUP run Close; SIGPIPE is ignored.
+- **Limits.** A descendant that re-groups itself escapes. SIGKILL of the
+  adapter runs no cleanup, so a free journal lock proves only that the adapter
+  exited, never that its worker did.
+- **Native denies.** A well-formed Claude subagent or no-active-input permission
+  request now gets a native deny instead of a transport teardown.
+- **Oversized frames.** A frame past the 4 MiB bound still fails the transport,
+  as uncertainty: the pending-approval state becomes unknown, never absent.
+  Codex `reconcile` is withdrawn (D-075). The pinned 0.160.0 `thread/read` has no
+  bound, and the paged `thread/turns/list` is unqualified.
+
+**Definite refusals (F-10).** A wake refused before any byte reached the native
+stream (busy, interrupt uncertain, closed, text bounds) used to be journalled
+as `unknown`. Its message could never be woken again, and Claude resume
+refused permanently, after the ordinary case of waking a busy worker. Such
+refusals are now `ErrNotSubmitted`. The controller journals `not_submitted` and
+frees the duplicate-suppression slot. Replay frees it only after an open intent
+with no turn, and otherwise refuses the journal. A failed or partial write
+stays uncertain. If recording the refusal itself fails, the wake stays unknown
+and the journal refuses further effects.
+
+**Observation gaps (F-11, F-30).** An event the ledger could not record used to
+leave the receipt reporting `pending_approval: observed_absent` from stale
+state. Any failure after the identity check now records a gap and sets state
+unknown. Known approvals stay listed as a possibly incomplete set, and only a
+recorded idle or end clears the gap. Each ledger call made by `Observe` is
+bounded at 10 s, and Close cancels before it takes the lock.
+
+**Admission strictness (F-09, F-21, F-23).**
+- **Matchers.** Claude's gate matcher was read as an unanchored Go regexp.
+  `Edit|Write` "covered" NotebookEdit, which natively it does not. The matcher
+  must now be `""`, `*`, `.*`, an exact `|`/`,` list, or the anchored literal
+  alternation `^(A|B|…)$` that the native fixtures use, naming Edit, Write and
+  NotebookEdit.
+- **Keys.** Settings are decoded with exact, case-sensitive key allowlists that
+  refuse duplicates (Go folds key case; the native JSON.parse does not).
+  `async` must be absent or false, and `timeout` must be 10-600 s.
+- **Executables.** `NewClaude`/`NewCodex` require an absolute path, resolve
+  symlinks once, and re-check file identity before exec. The same-user rewrite
+  race is documented, not claimed closed.
+
+**Presentation and budgets (F-22, F-29).** Pending approvals in receipts carry
+a digest and a fenced 512-byte summary. Exact detail travels once, in
+`native_event`, up to 16 KiB, and is marked omitted beyond that. The hook's
+advisory endpoint step has its own 250 ms budget (reasoned, not measured
+under load), so it can no longer spend the gate's 3 s and turn a slow ledger
+into a denial.
+
+**Native qualification still owed.** Each of the following needs a native
+check on each admitted version:
+- Claude's deny shape for subagent and no-active-input requests;
+- whether native tool jobs re-group themselves;
+- SIGTERM behaviour inside the grace;
+- `thread/turns/list` bounds, before reconcile returns;
+- native matcher and timeout semantics;
+- the endpoint budget under load.
+
+### 2026-10-07 verification continuation
+
+The independent verification found further counterexamples after the initial
+remediation. Its report is `CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md`; the
+original receipts above remain historical evidence.
+
+- **Codex hook coverage (V-01):** on retained 0.160.0, a shell `apply_patch`
+  changes a peer-held file when the trusted matcher covers only `apply_patch`.
+  Native hooks identify that operation as `Bash`. Adapter admission and the
+  offline diagnostic now require both, through `^(apply_patch|Bash)$`, its
+  reversed literal union, or the already-admitted empty/`.*` wildcard. The
+  qualification runner has a shell-patch case and a permitted direct-tool
+  control. Updating a temporary fixture's trust remains distinct from editing
+  installed hooks.
+- **Definite refusal (V-02):** neither the prior intent nor the refusal row may
+  contain a native turn ID or result reference. Contradictory rows refuse
+  replay; a contradictory live result remains uncertain rather than releasing
+  the wake's deduplication reservation.
+- **Executable identity (V-06):** resolving Claude's launcher symlink leaves a
+  version-number basename, which the hook's ancestry check cannot recognize.
+  The adapter executes the same resolved, identity-checked file with `argv[0]`
+  set to `claude`. The executable path and process birth fence are unchanged.
+- **Reconciliation decision:** retain the withdrawal. This verification slice
+  does not introduce `thread/turns/list` or another native history operation.
+  Revise dependent qualification cases to require an explicit unsupported
+  result for a wake with a known turn, no adapter history request, and preserved
+  claims, mail and replay guards. A wake without a recorded turn may still
+  project `unknown` from its transport journal without a native query. Earlier
+  full-history receipts do not qualify current reconciliation. Reintroducing
+  bounded native history requires its own implementation and qualification.
+- **Fixture process ownership:** an adapter and its worker now have distinct
+  groups. Crash fixtures must capture both through the verified live ancestry
+  before the fault and record which groups they deliberately kill. A cleanup
+  fallback is still a failure, never evidence that the adapter cleaned up.
+  The new native job probe also requires an empty forced-cleanup record for
+  PASS, retaining that record on close exceptions (V-13).
+- **Startup and shutdown (V-07, V-08, V-11):** receipt output uses a serialized
+  writer with cancelable acknowledgment, so a full consumer pipe cannot prevent
+  signal cleanup. Version probes have their own bounded output and owned group;
+  the leader remains unreaped through final group cleanup. Expected shutdown
+  cancels the event pump before closing the controller; unexpected transport
+  loss still reports uncertainty.
+- **Approval gaps (V-09):** listed approvals after an unrecorded event are last
+  observations, possibly stale as well as incomplete. Pending approval state
+  stays `unknown`; a historical list cannot establish that approval is still
+  required.
+- **Native cleanup limit (V-12 / F-07):** retained Claude 2.1.291 actually put a
+  tool job in a separate process group. Adapter Close exited successfully while
+  that job remained alive. The disposable fixture recorded this as a failure
+  and cleaned only its captured, identity-matching group. The group-only runtime
+  contract above is unchanged; complete native descendant cleanup is not
+  qualified. A leftover endpoint socket was also observed after its receiver
+  exited; exact process-birth eligibility, not pathname disappearance, prevents
+  reuse. Subagent/no-active-input native deny branches remain unqualified.
+- **Measured settings and budget:** native 2.1.291 uppercase literal/anchored
+  matchers fired while a lowercase control did not. A ten-second hook timeout
+  led to native permission handling rather than an automatic deny. Under a
+  700 ms SQLite writer lock the advisory endpoint step yielded around 250 ms;
+  held and unheld gate controls still behaved correctly. This does not qualify
+  other versions, the 600-second upper bound, or production load.
+
+### 2026-10-07 continuation: ownership record and fail-closed resume (A-02)
+
+The audit's A-02 reproduced the gap D-077 stated and nothing enforced: SIGKILL
+the adapter while its Codex worker is mid-turn, and the worker and its tool
+stay alive (their own process group; the adapter's death closes only their
+stdin). `--resume` then took the now-free journal flock, passed every check,
+and launched a SECOND app-server that received `thread/resume` while the first
+was still running (measured: 52349 launched while 51299 lived; the entry-level
+regression reproduced it on this tree as 17695 while 17655 lived). Neither the
+receipt nor the journal named a native pid, so nothing could have refused. A
+constrained Codex design review of the proposed fix returned PASS WITH CHANGES
+(scratchpad `codex/a02-design-verdict.md`); its changes are applied below.
+
+**The contract.**
+- `<receipt>.proc` is the ownership record, schema `buddy.ownership.v1`:
+  attempt id, operation (`start`/`resume`), phase (`intent`/`spawned`), the
+  bound journal (device and inode of the flocked `.events`) and receipt path,
+  the captured identity, the recording adapter's pid and kernel start time,
+  and for `spawned` the leader's pid, start time, pgid and sid plus the
+  resolved executable's identity. It is published crash-consistently
+  (`.proc.tmp`, fsync, rename, fsync dir); a leftover `.tmp` is removed under
+  the flock before anything reads the record.
+- Every worker spawn goes through ONE path, `startJSONProcess`, which takes an
+  explicit, mandatory `*LaunchAuthorization` (never a context value): the
+  controller mints it under its lock and the flock; `Spawn` consumes it
+  before `cmd.Start` (a second launch on the same authorization is refused
+  before any child exists; a nil one is refused), publishes the intent for a
+  fresh attempt, starts the child, pins it (`kern.proc.pid` on darwin,
+  `/proc/<pid>/stat` field 22 after the last `)` on linux; other platforms
+  cannot pin and refuse the launch), and publishes the spawned record before
+  the process is returned, so before the adapter's first native byte. If the
+  record cannot be published the child is ended while its leader is unreaped
+  (the group id is still ours) and the launch fails. The version probe stays
+  a separate, unauthorized child. After the backend returns, the controller
+  still asserts the authorization was published exactly once and closes a
+  backend that returned an unrecorded worker: an extra assertion, not the
+  guard.
+- Start republishes the spawned record for the same attempt with the captured
+  identity once the receipt is published, BEFORE `.start` is removed, so
+  admission requires `identity == saved identity` for every record, and a
+  crash in that window leaves `.start` (already refused).
+- Resume admission is passive and decides once after every check: record
+  present, parsed, bound to this journal and receipt, naming the saved
+  identity, phase `spawned` with `pgid == leader pid > 1`; then the recorded
+  adapter gone, the recorded leader gone (a pid with another start time is
+  recycled: not ours, never signalled, counts as gone), and the recorded group
+  empty by `kill(-pgid, 0)`, where ONLY `ESRCH` is absence (measured: a group
+  whose only member is an unreaped zombie answers `EPERM`). An observation
+  that cannot be made refuses and is not waitable. The one exemption: a
+  recorded adapter that is THIS process (pid and start time), which holds the
+  flock and closed the controller that wrote the record; the leader and group
+  checks still decide.
+- An intent-only record refuses, naming the receipt, the attempt and the
+  recording adapter's pid and start, saying a worker may have started before
+  its pid was published and the adapter has verified nothing; the operator's
+  recourse, after their own check, is to abandon the receipt and start a fresh
+  worker with a NEW receipt; never delete the record or resume the same
+  captured session.
+- No record refuses, naming the file: a receipt from before this change gets
+  no automatic resume; a free journal lock proves nothing.
+- `buddy-adapter --resume --wait-prior DURATION` (cap 10m; negative, larger,
+  or without `--resume` refused before any child) re-runs the whole admission
+  every 250 ms while the only refusals are alive verdicts, waiting through
+  `ErrJournalOwned` (a sentinel now) for a prior adapter still holding the
+  lock. Timeout, a non-waitable refusal or an observation error refuses with
+  the last reason, on stderr like every pre-controller refusal. It waits
+  before the 30 s start context; it signals nothing and writes no ledger row.
+- The flock is held from `NewController` through admission, refresh, intent,
+  spawn and the controller's lifetime; admission and spawn run under `c.mu`.
+
+**The `.start` answer.** `.start` fences only Start, until the receipt is
+published. Every spawn, resume included, is fenced by the flock plus durable
+intent-before-spawn: a later admission always sees the most recent attempt,
+never an older record naming a dead leader. Two resumes cannot both launch.
+
+**Excluded, and why.**
+- Rollback of the record (restoring an older `.proc` over a newer one while
+  the newer worker lives) admits a resume. That is the machine user's
+  deliberate tampering with their own artifact; the ledger trusts the machine
+  user (invariant 6), so no journal attempt row is kept to detect it and the
+  bindings make no such claim. Said in `ownership.go`.
+- Descendants that leave the group (`setsid`, a shell's job control) are not
+  visible to the group check; stated as a limit, not claimed covered.
+- Killing anything the adapter cannot pin, `--end-prior`, descendant sampling,
+  any new signal path, and `Setsid` (kept on `Setpgid`): the operator's open
+  choice and native qualification (Q1/Q3) respectively. Resume admits only
+  what is observed gone.
+- A failed launch does not unpublish its intent: an uncertain intent is never
+  deleted as error cleanup, and an older record is never fallen back to.
+
+**Tests (hermetic, darwin; each refusal with a positive control).**
+`internal/harness/ownership_test.go`: the record exists, phase spawned, right
+pid, durable, before the worker's first byte (the helper child reads `.proc`
+before blocking on stdin); single-use authorization and nil authorization
+refused before any child; persistence failure of intent (no child) and of the
+spawned record (child ended, launch fails, intent on disk); the pure
+classifier over fixed observations (18 rows); the resume matrix through real
+processes (gone admits; no record, another journal, another identity, unbound
+identity, intent-only, a newer intent over an older spawned record, adapter
+alive, leader alive, leader exited with an in-group tool alive, recycled pid
+whose numeric group exists); recycled pid admitted when its group is gone;
+crash at each boundary (after intent, after spawn before the record, after
+the record) with the next resume's verdict; unrecorded backend launch refused
+on start and resume; start-written record carries the identity and a record
+without a receipt refuses a fresh start; `NewControllerAfterPrior` admits once
+the leader exits, refuses at its bound without a ledger write, refuses a
+non-waitable refusal at once, and waits through flock contention; stale
+`.proc.tmp` removal; the zombie-only group's `EPERM`.
+`cmd/buddy-adapter/resume_test.go` (built binary): SIGKILL the adapter
+mid-turn with the fake worker alive, `--resume` refuses naming the leader and
+`--wait-prior`, launches no second app-server, signals nothing, and resumes
+once the group is ended by hand; `--wait-prior` admits once the worker is gone
+and refuses at its bound; the flag's bounds. Fail-before on the tree before
+this change: the entry test observed the second app-server and `thread/resume`
+(`scratchpad/a02-logs/entry-fail-before.log`); the harness-level tests could
+not compile against the old API, so their fail-before is the mutation table.
+
+**Mutation evidence (private rsync'd copies, python-applied, `go test
+-buildvcs=false` over `internal/harness` and `cmd/buddy-adapter`; a build
+failure is not a kill; scratchpad `a02-mut/`).** 28 mutants, 27 killed, 1
+equivalent.
+
+| Mutant | Guard | Killed by |
+| --- | --- | --- |
+| M01 consume guard off | second launch on one authorization | TestLaunchAuthorizationIsSingleUse |
+| M02 intent not published | durable intent before `cmd.Start` | PersistenceFailure/intent, /spawned; CrashAtEachBoundary/after-intent, /after-spawn |
+| M03 spawned record not published | record before the process is returned | RecordPrecedesFirstNativeByte; PersistenceFailure/spawned, /control; CrashAtEachBoundary/after-spawned-record |
+| M04 `Published()` always true | post-return assertion | RefusesUnrecordedBackendLaunch/start, /resume; PersistenceFailure/spawned |
+| M05 load refusal admits | no record / bad binding refuses | OwnershipMatrix/no-record, /other-journal, /other-identity, /unbound-identity; AfterPrior/non-waitable |
+| M06 journal binding off | record bound to this journal and receipt | OwnershipMatrix/other-journal |
+| M07 identity binding off | record identity == saved | OwnershipMatrix/other-identity, /unbound-identity |
+| M08 intent phase not special | intent-only diagnostic | ClassifyOwnership/intent-only; OwnershipMatrix/intent-only, /newer-intent-supersedes; CrashAtEachBoundary |
+| M09 leader alive ignored | leader alive refuses | ClassifyOwnership; OwnershipMatrix/leader-alive; CrashAtEachBoundary/after-spawned-record; AfterPrior/timeout; entry: ResumeRefusesWhileRecordedWorkerLives, ResumeWaitPrior/refuses-at-bound |
+| M10 `kill(-pgid,0)` success read as empty | group members refuse | OwnershipMatrix/leader-exited-tool-alive, /recycled-group-id; ObserveProcessPinsByStartTime; ProbeGroupZombieOnlyIsNotAbsence |
+| M11 EPERM read as empty | only ESRCH is absence | ProbeGroupZombieOnlyIsNotAbsence |
+| M12 pgid validation off | `pgid == leader pid > 1` | ClassifyOwnership/group_not_the_leader's_own, /group_id_1, /group_id_0 |
+| M13 adapter alive ignored | adapter alive refuses | ClassifyOwnership/adapter_alive; OwnershipMatrix/adapter-alive |
+| M14 leader observation error ignored | observation error refuses | ClassifyOwnership/leader_observation_error, /error_outranks_alive |
+| M15 wait ignores non-waitable | `--wait-prior` refuses at once | AfterPrior/non-waitable, 5/5 runs |
+| M16 wait ignores its bound | `--wait-prior` refuses at the bound | AfterPrior/timeout; entry ResumeWaitPrior/refuses-at-bound, 5/5 runs |
+| M17 start bind skipped | start-written record carries identity | StartWrittenRecordCarriesIdentity; OwnershipMatrix/gone; every resume-after-start test (14) |
+| M18 resume post-return check off | resume refuses an unrecorded launch | RefusesUnrecordedBackendLaunch/resume |
+| M19 `--wait-prior` cap raised 100x | cap 10m | entry WaitPriorFlagBounds/11m (after its assertion was tightened: the first version matched "wait-prior" in the fixture's temp path and let this survive) |
+| M20 stale `.proc.tmp` kept | removed under the flock | OwnershipRecorderCrashConsistency |
+| M21 self-exemption for any live adapter | only this exact process is exempt | OwnershipMatrix/adapter-alive |
+| M22 reaped pid read as error | ESRCH after EIO is gone | ObserveProcessPinsByStartTime; OwnershipMatrix/gone; and every resume whose recorded worker is gone (22 tests, DuplicateWakeSurvivesRestart among them) |
+| M23 changed start time read as alive | recycled is not ours | ControllerResumeAdmitsRecycledLeaderPid; ObserveProcessPinsByStartTime |
+| M24 start over a record with no receipt | refused | StartWrittenRecordCarriesIdentity |
+| M25 ownership admission skipped | the whole process check (A-02) | entry ResumeRefusesWhileRecordedWorkerLives; OwnershipMatrix; CrashAtEachBoundary; AfterPrior |
+| M26 nil authorization replaced by a zero one in `startJSONProcess` | nil refused at the launch path | SURVIVED, then made equivalent: it exposed that a zero-value authorization launched and published `.proc` in the cwd; `Spawn` now refuses an unminted authorization (M27), so this substitution is refused the same way. The launch-path nil guard is belt-and-braces over `Spawn`'s own (M28). |
+| M27 unminted guard off | zero-value authorization refused before a child | StartJSONProcessRefusesUnauthorizedLaunch/zero-value |
+| M28 `Spawn` nil check off | nil refuses, not panics | LaunchAuthorizationIsSingleUse |
+
+Mutants M10-M16 ran while the coordinator's concurrent `internal/cli` edit did
+not build, so their adapter-level kills were discounted and only harness-level
+kills counted; all seven were killed by harness tests. The timing-sensitive
+tests (`AfterPrior`, entry `ResumeWaitPrior`, `RefusesWhileRecordedWorkerLives`,
+`PersistenceFailure`, `ZombieOnly`) were run repeatedly on the real tree under
+load average 7-8; one run of ten lost the entry fixture's START receipt to a
+15 s fixture deadline before any resume logic ran (the adapter had not yet
+emitted its first receipt), the rest passed.
+
+**Codex code review (constrained, gpt-6-astra, xhigh; source evidence only,
+not test evidence; scratchpad `codex/a02-code-verdict.md`): PASS WITH
+CHANGES.** Q1-Q6 found no interleaving that admits beside a live leader or
+in-group tool, judged the self-exemption sound under the flock, the
+signal-before-reap order kept on every failure arm, no observation error read
+as absence, and no crash-induced false acceptance in publication or binding.
+Its one confirmed P2: `AwaitPrior` returned success without consulting
+`ctx.Err()`, so `--wait-prior=1ns` would proceed after its bound. Reproduced
+first by `TestNewControllerAfterPrior/expired-admissible` (failed: "an expired
+bound admitted"), then fixed: the bound is checked before every attempt and
+again before returning success, in both the constructor loop and the
+admission loop. Its ordering note (the group was probed with signal 0 before
+the record's shape was validated) is fixed by `recordShape` running before any
+probe; no false admission followed from it. Its residual question (pipe
+cleanup on a refused spawn) is answered by the code it could not see: `in`,
+`out` and `outWrite` are all closed on that arm.

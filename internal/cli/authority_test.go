@@ -46,61 +46,67 @@ func touch(t *testing.T, p string, at time.Time) {
 }
 
 func TestBeatAnnouncesAChangedAuthorityFileOnce(t *testing.T) {
-	boundedParallel(t)
-	f := newFixture(t)
-	f.initAndHello(t) // started at f.clock
-	claude := filepath.Join(f.repo, "CLAUDE.md")
-	// Written BEFORE the session started: not a change it missed.
-	touch(t, claude, f.clock.Add(-time.Hour))
-	beat := func() string {
-		t.Helper()
-		out, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
-		if code != 0 {
-			t.Fatalf("beat: %s", errw)
-		}
-		return additionalContext(t, out)
-	}
-	if ctx := beat(); strings.Contains(ctx, "changed on disk") {
-		t.Fatalf("a file older than the session is not stale:\n%s", ctx)
-	}
-	// Corrected on disk two hours into the session.
-	f.clock = f.clock.Add(2 * time.Hour)
-	touch(t, claude, f.clock)
-	f.clock = f.clock.Add(10 * time.Minute)
-	ctx := beat()
-	want := "BUDDY: CLAUDE.md changed on disk 10m ago, AFTER this session started (2h ago) — the copy in your context may be stale; re-read it before quoting or acting on it."
-	if !strings.Contains(ctx, want) {
-		t.Fatalf("want the one-shot notice:\n%q", ctx)
-	}
-	// ONCE: the next tool call carries nothing.
-	if ctx := beat(); strings.Contains(ctx, "changed on disk") {
-		t.Fatalf("the notice must not repeat:\n%s", ctx)
-	}
-	// A second change is a second notice; the same mtime is not.
-	f.clock = f.clock.Add(time.Hour)
-	touch(t, claude, f.clock)
-	if ctx := beat(); !strings.Contains(ctx, "CLAUDE.md changed on disk 0s ago") {
-		t.Fatalf("a second change warns again:\n%s", ctx)
-	}
-	// Status shows it as long as it is true; a revived incarnation (started
-	// after the change) sees nothing.
-	out, _, code := f.run(t, f.repo, "", "status", "--session", "sess-a")
-	if code != 0 || !strings.Contains(out, "AUTHORITY    CLAUDE.md changed on disk 0s ago, AFTER this session started") {
-		t.Fatalf("status must carry the block:\n%s", out)
-	}
-	if _, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "", ""), "bye"); code != 0 {
-		t.Fatal(errw)
-	}
-	f.clock = f.clock.Add(time.Minute)
-	if _, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "", ""), "hello"); code != 0 {
-		t.Fatal(errw)
-	}
-	if ctx := beat(); strings.Contains(ctx, "changed on disk") {
-		t.Fatalf("a session started after the change did not miss it:\n%s", ctx)
-	}
-	out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
-	if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (every watched file was read)") {
-		t.Fatalf("status after revival:\n%s", out)
+	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
+		t.Run(name, func(t *testing.T) {
+			boundedParallel(t)
+			f := newFixture(t)
+			f.initAndHello(t) // started at f.clock
+			changedPath := filepath.Join(f.repo, name)
+			// Written BEFORE the session started: not a change it missed.
+			for _, p := range []string{"CLAUDE.md", "AGENTS.md"} {
+				touch(t, filepath.Join(f.repo, p), f.clock.Add(-time.Hour))
+			}
+			beat := func() string {
+				t.Helper()
+				out, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
+				if code != 0 {
+					t.Fatalf("beat: %s", errw)
+				}
+				return additionalContext(t, out)
+			}
+			if ctx := beat(); strings.Contains(ctx, "changed on disk") {
+				t.Fatalf("a file older than the session is not stale:\n%s", ctx)
+			}
+			// Corrected on disk two hours into the session.
+			f.clock = f.clock.Add(2 * time.Hour)
+			touch(t, changedPath, f.clock)
+			f.clock = f.clock.Add(10 * time.Minute)
+			ctx := beat()
+			want := "BUDDY: " + name + " changed on disk 10m ago, AFTER this session started (2h ago) — the copy in your context may be stale; re-read it before quoting or acting on it."
+			if !strings.Contains(ctx, want) {
+				t.Fatalf("want the one-shot notice:\n%q", ctx)
+			}
+			// ONCE: the next tool call carries nothing.
+			if ctx := beat(); strings.Contains(ctx, "changed on disk") {
+				t.Fatalf("the notice must not repeat:\n%s", ctx)
+			}
+			// A second change is a second notice; the same mtime is not.
+			f.clock = f.clock.Add(time.Hour)
+			touch(t, changedPath, f.clock)
+			if ctx := beat(); !strings.Contains(ctx, name+" changed on disk 0s ago") {
+				t.Fatalf("a second change warns again:\n%s", ctx)
+			}
+			// Status shows it as long as it is true; a revived incarnation (started
+			// after the change) sees nothing.
+			out, _, code := f.run(t, f.repo, "", "status", "--session", "sess-a")
+			if code != 0 || !strings.Contains(out, "AUTHORITY    "+name+" changed on disk 0s ago, AFTER this session started") {
+				t.Fatalf("status must carry the block:\n%s", out)
+			}
+			if _, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "", ""), "bye"); code != 0 {
+				t.Fatal(errw)
+			}
+			f.clock = f.clock.Add(time.Minute)
+			if _, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "", ""), "hello"); code != 0 {
+				t.Fatal(errw)
+			}
+			if ctx := beat(); strings.Contains(ctx, "changed on disk") {
+				t.Fatalf("a session started after the change did not miss it:\n%s", ctx)
+			}
+			out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
+			if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (every watched file was read)") {
+				t.Fatalf("status after revival:\n%s", out)
+			}
+		})
 	}
 }
 
@@ -109,21 +115,23 @@ func TestAuthorityListIsEditedAndBounded(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
 	out, _, code := f.run(t, f.repo, "", "authority")
-	if code != 0 || strings.TrimSpace(out) != "watching CLAUDE.md  (always)" {
+	if code != 0 || strings.TrimSpace(out) != "watching CLAUDE.md  (always)\nwatching AGENTS.md  (always)" {
 		t.Fatalf("default list:\n%s", out)
 	}
 	if _, errw, code := f.run(t, f.repo, "", "authority", "add", "docs/playbook.md"); code != 0 {
 		t.Fatal(errw)
 	}
-	// Adding CLAUDE.md again does not list it twice; a traversal is refused.
-	if _, _, code := f.run(t, f.repo, "", "authority", "add", "./CLAUDE.md"); code != 0 {
-		t.Fatal("adding CLAUDE.md is a no-op, not an error")
+	// Built-in paths use the same fold as configured paths and cost no slots.
+	for _, p := range []string{"./claude.md", "./agents.md"} {
+		if _, _, code := f.run(t, f.repo, "", "authority", "add", p); code != 0 {
+			t.Fatalf("adding %s is a no-op, not an error", p)
+		}
 	}
 	if _, errw, code := f.run(t, f.repo, "", "authority", "add", "../etc/passwd"); code == 0 || !strings.Contains(errw, "escapes") {
 		t.Fatalf("traversal must refuse: %d %q", code, errw)
 	}
 	out, _, _ = f.run(t, f.repo, "", "authority")
-	if strings.Count(out, "CLAUDE.md") != 1 || !strings.Contains(out, "docs/playbook.md") {
+	if strings.TrimSpace(out) != "watching CLAUDE.md  (always)\nwatching AGENTS.md  (always)\nwatching docs/playbook.md" {
 		t.Fatalf("list after add:\n%s", out)
 	}
 	// The listed file is watched; a change is announced with its path.
@@ -137,8 +145,10 @@ func TestAuthorityListIsEditedAndBounded(t *testing.T) {
 	if _, _, code := f.run(t, f.repo, "", "authority", "rm", "docs/playbook.md"); code != 0 {
 		t.Fatal("rm")
 	}
-	if _, errw, code := f.run(t, f.repo, "", "authority", "rm", "CLAUDE.md"); code == 0 || !strings.Contains(errw, "always watched") {
-		t.Fatalf("CLAUDE.md cannot be removed: %d %q", code, errw)
+	for _, p := range []string{"./claude.md", "./agents.md"} {
+		if _, errw, code := f.run(t, f.repo, "", "authority", "rm", p); code == 0 || !strings.Contains(errw, "always watched") {
+			t.Fatalf("%s cannot be removed: %d %q", p, code, errw)
+		}
 	}
 	if _, errw, code := f.run(t, f.repo, "", "authority", "rm", "docs/playbook.md"); code == 0 || !strings.Contains(errw, "not on the list") {
 		t.Fatalf("rm of an unlisted path refuses: %d %q", code, errw)
@@ -151,6 +161,90 @@ func TestAuthorityListIsEditedAndBounded(t *testing.T) {
 	}
 	if _, errw, code := f.run(t, f.repo, "", "authority", "add", "docs/i.md"); code == 0 || !strings.Contains(errw, "remove one first") {
 		t.Fatalf("the ninth must refuse naming the bound: %d %q", code, errw)
+	}
+}
+
+// An older binary could store AGENTS.md as an extension. Listing and notices
+// must not duplicate that row when it becomes built-in, regardless of case.
+func TestAuthorityListDeduplicatesExistingBuiltIns(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(f.repo, ".git", "buddy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, p := range []string{"claude.md", "agents.md"} {
+		if _, err := db.Exec(`INSERT INTO authority (path, folded, added) VALUES (?, ?, ?)`, p, p, f.clock.Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Extensions still deduplicate using NFC and case, retaining first spelling.
+	for _, p := range []string{"docs/Cafe\u0301.md", "docs/caf\u00e9.md"} {
+		if _, errw, code := f.run(t, f.repo, "", "authority", "add", p); code != 0 {
+			t.Fatal(errw)
+		}
+	}
+	out, errw, code := f.run(t, f.repo, "", "authority")
+	if want := "watching CLAUDE.md  (always)\nwatching AGENTS.md  (always)\nwatching docs/Cafe\u0301.md\n"; code != 0 || out != want {
+		t.Fatalf("built-in and folded extension duplicates must collapse: code=%d out=%q err=%q", code, out, errw)
+	}
+	touch(t, filepath.Join(f.repo, "AGENTS.md"), f.clock.Add(time.Hour))
+	f.clock = f.clock.Add(2 * time.Hour)
+	out, errw, code = f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
+	ctx := additionalContext(t, out)
+	if code != 0 || strings.Count(ctx, "changed on disk") != 1 || !strings.Contains(ctx, "AGENTS.md changed on disk 1h ago") {
+		t.Fatalf("one canonical notice for an existing built-in row: code=%d context=%q err=%q", code, ctx, errw)
+	}
+}
+
+// Promoting an extension to a built-in must not trap one of the eight slots:
+// an explicit rm may remove its redundant stored row without stopping watches.
+func TestAuthorityRemoveRedundantBuiltInFreesConfiguredSlot(t *testing.T) {
+	for _, builtIn := range []string{"CLAUDE.md", "AGENTS.md"} {
+		t.Run(builtIn, func(t *testing.T) {
+			boundedParallel(t)
+			f := newFixture(t)
+			f.initAndHello(t)
+			db, err := sql.Open("sqlite", "file:"+filepath.Join(f.repo, ".git", "buddy.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			legacy := strings.ToLower(builtIn)
+			if _, err := db.Exec(`INSERT INTO authority (path, folded, added) VALUES (?, ?, ?)`, legacy, legacy, f.clock.Unix()); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 7; i++ {
+				if _, errw, code := f.run(t, f.repo, "", "authority", "add", "docs/"+string(rune('a'+i))+".md"); code != 0 {
+					t.Fatal(errw)
+				}
+			}
+			if _, errw, code := f.run(t, f.repo, "", "authority", "add", "docs/next.md"); code == 0 || !strings.Contains(errw, "remove one first") {
+				t.Fatalf("legacy row must fill the eighth slot: %d %q", code, errw)
+			}
+			out, errw, code := f.run(t, f.repo, "", "authority", "rm", legacy)
+			if want := "removed redundant configured entry for " + builtIn + "; remains always watched\n"; code != 0 || out != want {
+				t.Fatalf("explicit removal must free the redundant row: code=%d out=%q err=%q", code, out, errw)
+			}
+			if _, errw, code := f.run(t, f.repo, "", "authority", "add", "docs/next.md"); code != 0 {
+				t.Fatalf("explicit removal must free one slot: %d %q", code, errw)
+			}
+			out, _, _ = f.run(t, f.repo, "", "authority")
+			if strings.Count(out, builtIn) != 1 || !strings.Contains(out, "watching "+builtIn+"  (always)") {
+				t.Fatalf("removing redundancy must not remove the built-in watch: %q", out)
+			}
+			if _, errw, code := f.run(t, f.repo, "", "authority", "rm", legacy); code == 0 || !strings.Contains(errw, "always watched") {
+				t.Fatalf("a built-in without redundancy still cannot be removed: %d %q", code, errw)
+			}
+			touch(t, filepath.Join(f.repo, builtIn), f.clock.Add(time.Hour))
+			f.clock = f.clock.Add(2 * time.Hour)
+			out, _, _ = f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
+			if ctx := additionalContext(t, out); !strings.Contains(ctx, builtIn+" changed on disk 1h ago") {
+				t.Fatalf("a removed redundant built-in remains watched: %q", ctx)
+			}
+		})
 	}
 }
 
@@ -233,17 +327,17 @@ func TestAuthorityListingAndAllClearDoNotOverclaim(t *testing.T) {
 	if !strings.Contains(out, "watching BUDDY: forged.md") {
 		t.Fatalf("still listed:\n%s", out)
 	}
-	// Neither watched file exists: the report must not say nothing changed.
+	// None of the three watched files exists: the report must not say nothing changed.
 	out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
 	if strings.Contains(out, "nothing on the watch list has changed") {
 		t.Fatalf("the all-clear overclaims:\n%s", out)
 	}
-	if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (2 watched path(s) could not be read as a file and were not checked)") {
+	if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (3 watched path(s) could not be read as a file and were not checked)") {
 		t.Fatalf("want the measured wording with the unread count:\n%s", out)
 	}
 	touch(t, filepath.Join(f.repo, "CLAUDE.md"), f.clock.Add(-time.Hour))
 	out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
-	if !strings.Contains(out, "(1 watched path(s) could not be read") {
-		t.Fatalf("one read, one not:\n%s", out)
+	if !strings.Contains(out, "(2 watched path(s) could not be read") {
+		t.Fatalf("one read, two not:\n%s", out)
 	}
 }

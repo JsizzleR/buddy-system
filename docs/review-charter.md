@@ -249,7 +249,7 @@ ledger row entered through the CLI (D-006).
 
 31. **Authority files are watched by mtime, announced ONCE per change on the next tool
     call, and the wording is an advisory (D-028).** The list is in the ledger (`buddy
-    authority`, at most 8; `CLAUDE.md` always), never git config on the hot path. The
+    authority`, at most 8 configured paths; `CLAUDE.md` and `AGENTS.md` always), never git config on the hot path. The
     check is `os.Stat` mtime > session `started`; dedup key is (session, incarnation,
     folded path, mtime ns). It says the file on disk changed after the session started —
     not that contents differ, not that the session has not re-read them, not that main
@@ -373,7 +373,9 @@ ledger row entered through the CLI (D-006).
     ledger. One observation serves the
     result line and the wake line. No send from buddy, no pane injection, no broadcast wake, no
     name mapping. Do not propose buddy calling the harness, carrying the body in the wake, or
-    deriving the address from anything but a live, birth-time-checked registered pid.
+    deriving the address from anything but a live, birth-time-checked registered pid. The one
+    exception is the separate opt-in `buddy-adapter`, which writes wake input only to the worker
+    it launched (D-074, see 75), and no socket wake is ever offered for an adapter recipient (D-076).
 
 43. **`busy` drains the inbox into the prompt that opens a turn (D-040).** UserPromptSubmit
     runs beat's drain (the same bound, fence, and order of write first, mark after) as ONE
@@ -525,7 +527,9 @@ ledger row entered through the CLI (D-006).
     permissive mode than the launcher's own. The brief rides the launch; `msg` waits for the
     lane's hello (a premature one is refused, loudly); ending a lane is the operator's act; the
     successor handoff runs on a file named in the `orchestrator` claim, `msg` + wake, release.
-    Do not propose `buddy spawn`/`exit`, or `buddy expect` (a brief queued before hello).
+    Do not propose `buddy spawn`/`exit`, or `buddy expect` (a brief queued before hello). The
+    separate opt-in `buddy-adapter` is the one recorded exception, for the worker it launches
+    from typed argv (D-074, see 75); `buddy` itself still launches and ends nothing.
 
 59. **The test suite never runs with git's local environment (D-057, #49).** MEASURED (git
     2.54): a push from a linked worktree hands the pre-push hook an ABSOLUTE `GIT_DIR`, and the fixtures'
@@ -637,6 +641,143 @@ ledger row entered through the CLI (D-006).
     `NormalizeScope`. Comma look-alikes (U+FF0C and the rest) and spaces are accepted: neither was
     measured as a mistaken list.
 
+69. **Codex participation begins with the patch gate and native thread identity
+    (D-068).** Authorized driver/worker roles are in `AGENTS.md`; constrained
+    reviews remain read-only through `codex-review.sh`. Local `apply_patch` checks
+    every affected path, including both ends of moves, before one allow/deny
+    result. Malformed or unsupported routing refuses. `CODEX_THREAD_ID` is the
+    locally observed native identity; ordinary explicit overrides retain
+    precedence, but `wait check` requires native identity and rejects a conflicting
+    override. Codex hooks must not borrow a Claude ancestor or identify a logical
+    session by app-server pid. Unfenced Codex lifecycle hooks refuse (D-069 below).
+    As of D-068, production lifecycle integration and a mixed fleet were unqualified, and it
+    introduced no task table or structured adapter schema; D-073 (see 74) since refuses
+    shell-routed patches where a ledger governs and checks every spelling of a target, and the
+    plan's status table says what is qualified now. `AGENTS.md` joins `CLAUDE.md`
+    as always watched, with eight additional configured paths.
+
+70. **Codex lifecycle observations require the adapter's captured incarnation
+    (D-069).** `lifecycle begin` returns `buddy.lifecycle.v1` JSON. Live registrations
+    refuse begin; an ended registration requires the exact previous token before
+    a new one is minted. Every event checks the captured token transactionally;
+    no handler may look up the current token to repair a late event. Native
+    `lifecycle hook --incarnation` maps Stop to idle and SessionEnd to end, emits
+    `{}`, drains no inbox, and rejects subagents. An explicit `hello --session`
+    must still classify supplied hook input before writing; it cannot turn a
+    delayed hook into a manual registration. Unfenced Codex hello/beat/busy
+    refuse alongside idle/bye. Manual local/operator paths retain their authority.
+    The adapter must durably capture receipts and serialize events within an
+    incarnation; failed receipt publication is an uncertain outcome, not a reason
+    to retry begin blindly. This increment added no schema change, process binding, worker
+    launcher, automatic wake or inferred completion (D-070 and D-074 later add the opt-in
+    adapter; D-076 lets a PostToolUse renew the claims covering the paths it observed). Installed-hook qualification with a
+    local deterministic provider is distinct from production/provider/mixed-fleet
+    evidence; consult the current plan receipt for what actually ran.
+
+71. **Minimal structured adapters preserve captured identity and separate
+    delivery stages (D-070).** `buddy.adapter.v1` exposes bounded ledger
+    projections and incarnation-bound peer inbox operations. Schema 15 adds
+    message identity and receiving endpoint metadata, not tasks. Legacy drains
+    cannot consume adapter mail. `buddy-adapter` is a separate control binary
+    for one worker it launches (startup is argv; coordinator requests are inspect,
+    reconcile, send and interrupt; approval is the separate operator path); native IDs,
+    raw JSON approval IDs and result references stay exact. Its journal records intent before wake input,
+    refuses concurrent ownership and never repairs a missing receipt by looking
+    up the current token. Native turn result, body delivery, acknowledgment,
+    completion, validation and landing remain distinct. Only a separate
+    operator input descriptor may answer pending approvals; peer/coordinator
+    input cannot. Codex checks effective gate hash/trust; Claude checks bounded
+    gate settings and the pinned built-in Mod profile (D-071). No install, trust
+    mutation, existing-session attach or task table. See the plan receipt for
+    actual executed and native qualification rather than inferring it here.
+
+72. **Claude admission uses a pinned native built-in Mod profile (D-071).**
+    `hooks.mods: "builtin-only-<version>"` selects the separately checked profile
+    matching the exact declared and observed native version. The admitted pairs are
+    the code's table (`claudeModProfileForVersion` in `internal/harness/claude.go`),
+    not this GIVEN; each new version joins only after its own qualification. Start and resume reject a cross-version/profile pair;
+    no semver range or automatic conversation upgrade is admitted. Legacy
+    `no_mods` evidence refuses. The adapter checks effective settings, reloads
+    plugins in its owned child before input, requires exactly the two expected
+    native built-ins with their source/path identities and no reload errors,
+    then checks effective settings again. Missing/additional inventory refuses.
+    The agents-md built-in contains a Mod, so empty optional configuration is
+    not evidence of Mod absence. This is a startup snapshot, not continuous
+    attestation, plugin startup isolation or a read-only diagnostic. Native
+    initialization/reload precedes inventory admission. Actual native claim denial is a
+    separate check; optional/managed Mods outside the profile and later native
+    configuration changes remain unqualified.
+
+73. **Offline compatibility diagnostics do not open the source ledger with
+    SQLite (D-072).** `buddy diagnose` reads a bounded stable main-file image
+    through read-only descriptors and opens only a private immutable copy.
+    Nonempty WAL/rollback journals, unreadable inputs and changing files report
+    uncertainty; they never trigger checkpointing, recovery or migration.
+    Receipt comparisons never return or repair an incarnation token. Native
+    commands, hooks, plugin reloads and inbox drains are not run. Supplied native
+    version/trust captures are historical snapshots, even when their input hash
+    matches; current installed version and enforcement remain unknown. Exit 0
+    means report produced, not readiness or authority. This is the concrete
+    read-only consumer deferred by D-037, separate from `adapter inspect`.
+
+74. **The gate checks every spelling a write can land on, decides jurisdiction before
+    identity, and adds a nested repo's ledger to the home one (D-073).** Shell-routed
+    `apply_patch`/`applypatch` (command position, Codex's in-process engine) refuses wherever
+    a ledger governs, naming the tool; it is never parsed and adjudicated, because the
+    payload omits the workdir. An identity conflict refuses only where a home or target
+    ledger governs; read-only tools pass. Lexical and physical spellings, each followed and as
+    the link entry, plus a dangling link's target, are all checked; any held refuses. A home
+    claim covering a path inside a nested repo still refuses. A target repo's pause applies to
+    a cross-repo edit. Do not propose parsing shell-routed patches, refusing identity
+    conflicts machine-wide, or checking one spelling.
+
+75. **`buddy-adapter` is the one opt-in exception to "buddy launches, wakes and ends nothing"
+    (D-074).** A separate binary, acting only on typed argv from the operator or an
+    already-authorized coordinator, on the one worker it launched, over that worker's own
+    stdio. Ledger rows, message bodies, chat, claim descriptions and worker output start,
+    wake and approve nothing. `buddy` gains no launch, wake or exit verb. Do not cite D-056
+    or D-039 against the adapter, or the adapter as precedent for a `buddy` verb.
+
+76. **Recovery admission is exact-version and terminal-evidence-bound (D-075).** Codex
+    resumes the captured thread; Codex `reconcile` is withdrawn until a bounded history
+    read is qualified (D-077). Claude resume
+    needs every journalled turn's terminal result for its exact input (`completed`,
+    `aborted_streaming`, `aborted_tools`) and idle; anything unfinished or unknown refuses
+    before ledger refresh and launch, and SDK history never substitutes. Manual compaction
+    is admitted only on versions where its boundary and local result were measured. D-075
+    supersedes D-070's "Claude resume is unsupported".
+
+77. **Adapter mail is its own register in the legacy views (D-076).** `who`/`status` print
+    an `ADAPTER` line beside `INBOX`; a send counts adapter mail separately and never claims
+    a legacy drain for an adapter recipient; no socket wake is offered to one; a legacy
+    correction of adapter mail refuses. A lifecycle PostToolUse renews only claims covering
+    the paths it names. `hello --session` still refuses non-hook stdin and names `</dev/null`.
+
+78. **The adapter owns its worker's process group and validates the operator descriptor
+    before any child (D-077).** `--operator-fd` must be open, `O_RDONLY`, a FIFO/char
+    device/regular file, and is marked close-on-exec before the version probe; anything else
+    refuses with no child and no journal. Close ends the worker's process group (TERM, then
+    KILL as soon as the leader exits or after 2 s at most — the grace is the leader's, so a
+    tool can get TERM and KILL back to back) while its leader is unreaped, and closes the
+    stdout reader; INT/TERM/HUP run
+    Close. A refusal before any native byte is `not_submitted` and retryable; a write that
+    may have happened stays uncertain. An unrecorded event makes state unknown, never
+    `observed_absent`. Claude gate settings use exact case-sensitive keys, no duplicates, a
+    matcher that is `""`, `*` or `.*`, or a literal list (plain or `^(…)$`-anchored) naming
+    all three tools, `timeout` 10-600 s. Executables are absolute,
+    resolved once, identity-checked before exec. Do not propose discarding oversized
+    frames, reading full Codex history on the live transport, or treating a free journal
+    lock as proof the worker exited. **Resume is fail-closed on an ownership record
+    (D-077, 2026-10-07 continuation, audit A-02):** every spawn publishes `<receipt>.proc`
+    (intent before the child, the leader's pid/start/pgid/sid before the first native
+    byte) through a single-use launch authorization consumed before `cmd.Start`; resume
+    refuses with no record, a record bound to another journal/receipt/identity, an
+    intent-only record, or while the recorded adapter, leader or group lives (`kill(-pgid,
+    0)`, ESRCH alone is absence); `--wait-prior` is a bounded passive re-check. `.start`
+    fences only Start; the flock plus intent-before-spawn fence every spawn. Excluded, do
+    not re-propose: record rollback detection (invariant 6), killing what the adapter
+    cannot pin, `--end-prior`, descendant sampling, Setsid.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
@@ -693,8 +834,11 @@ ledger row entered through the CLI (D-006).
 
 ## Review conventions
 
-- **Codex cannot build or test.** A Codex pass is never test evidence. Its findings become
-  evidence only once a reproducing test is written and watched to fail.
+- **A constrained Codex reviewer cannot build or test.** This charter is prepended to
+  that read-only workflow by `scripts/codex-review.sh`. Authorized drivers and workers
+  follow `AGENTS.md` and may build and test within their assigned scope. A review
+  verdict is never test evidence; report executed checks separately, and watch a
+  defect's reproducing test fail without the fix.
 - Report findings ranked by severity, and separate CONFIRMED defects from residual
   questions. A ranking resting on an adjective rather than a number is a hypothesis.
 - Prefer naming the exact failing input and the resulting wrong behavior over describing a

@@ -13,8 +13,8 @@ import (
 // had been corrected on disk seven hours earlier. The list of files worth
 // that check lives HERE and not in git config, because the check runs on
 // the beat hook and reading git config is a fork (7-9 ms against a 100 ms
-// budget) while the ledger is already open. CLAUDE.md is watched whether or
-// not it is listed (internal/cli decides that); this is the extension list.
+// budget) while the ledger is already open. CLAUDE.md and AGENTS.md are watched
+// whether or not listed (internal/cli decides that); this is the extension list.
 
 // MaxAuthority bounds the list, because every entry is one Stat on every
 // tool call of every session. Three is the measured need (a constitution,

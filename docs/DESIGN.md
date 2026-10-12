@@ -164,6 +164,28 @@ recording them:
 
 ## Security posture
 
+The separate `buddy-adapter` control process owns one worker it launches, with
+native input, interruption, approval presentation and event translation. Buddy
+continues to own coordination. Its `buddy.adapter.v1` interface projects the
+existing ledger and adds only captured-incarnation metadata beside inbox rows
+and receiving endpoint observations. A delayed callback carries its original
+`buddy.lifecycle.v1` identity; it never asks which incarnation is current.
+
+`buddy.control.v1` separates native wake acceptance from body delivery, worker
+acknowledgment, native turn results and work completion. Assignment bodies stay
+in the ledger. A durable local transport journal prevents blindly replaying an
+uncertain wake; it is not a task database. Approval replies have a separate
+operator-owned descriptor, disabled by default, and are never parsed from peer
+messages or model output. Missing native observations remain unknown.
+
+Only an explicit bounded gate configuration is compatible with these adapters.
+Codex checks effective hook trust/hash metadata. Claude checks supplied and
+effective gate settings plus the native plugin inventory against a pinned
+built-in profile. An empty optional plugin map does not mean no Mods are loaded;
+configured hooks and inventory do not prove enforcement. Actual native denial
+and production qualification are recorded independently from source review and
+hermetic fixtures (D-070, D-071).
+
 Loopback by default, everywhere. The chat servers run unauthenticated only
 under that condition; leaving loopback means turning on real auth first. The
 ledger trusts the machine's user account: this is a single-operator

@@ -158,11 +158,17 @@ func cmdWaitDeclare(args []string, env Env) error {
 	// that waits: a `--session B` from session A's shell would otherwise tell
 	// A to arm a loop whose checks speak for A (Codex code pass).
 	where, self := "THIS session", true
-	if env.getenv(EnvClaudeSession) != si.SessionID {
+	nativeID, nativeSource, nativeErr := nativeSession(env)
+	if nativeErr != nil || nativeID != si.SessionID {
 		where, self = "session "+fence.Line(si.Label, 64)+" (a check speaks only for the session whose harness runs it)", false
 	}
 	fmt.Fprintf(env.Stdout, "WAITING on %s — deadline in %s%s%s\n", targetsPhrase(now, w.Targets), span(w.Deadline.Sub(now)), readyPhrase(w), notePhrase(w))
-	fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where))
+	codex := nativeSource == EnvCodexThread || env.getenv(EnvCodexThread) != ""
+	if codex {
+		fmt.Fprintln(env.Stdout, "Codex: run `buddy wait check` in "+where+" to read its wait; automatic scheduling is unsupported and cache timing is unknown")
+	} else {
+		fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where))
+	}
 	if len(w.Targets) == 0 {
 		// A timer never lands, so no verdict ever ends it early: the park it
 		// covers (a session's own run, a lane waiting for its orchestrator,
@@ -172,6 +178,9 @@ func cmdWaitDeclare(args []string, env Env) error {
 		// forgotten timer checks on until its deadline and shows the session
 		// as waiting while it works.
 		_, pays, _ := cacheTier(c, observed)
+		if codex {
+			pays = false
+		}
 		fmt.Fprintln(env.Stdout, timerEndAdvice(pays, self, si))
 	}
 	if replaced != nil {
@@ -186,7 +195,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 // was just made on this session's cache, `last_check` is the keep-alive's
 // heartbeat, a LANDED verdict is being handed to the session that waited — is
 // true only when this session's own model ran it through its own harness, and
-// the harness says which session that is in $CLAUDE_CODE_SESSION_ID. A
+// the harness says which logical session that is in its native environment. A
 // `--session X` from another shell would stamp a keep-alive that never
 // happened on X's row, and could CLEAR X's LANDED before X ever saw it (Fable
 // design pass). So there is no --session here; `buddy who <target>` and
@@ -199,10 +208,13 @@ func cmdWaitCheck(args []string, env Env) error {
 	if err := noStray("wait check", fs, usageWait); err != nil {
 		return err
 	}
-	id := env.getenv(EnvClaudeSession)
+	id, source, err := nativeSession(env)
+	if err != nil {
+		return err
+	}
 	if id == "" {
-		return fmt.Errorf("wait check is a session's own keep-alive, run by its model through its harness, and $%s is unset here — from outside, `buddy who <target>` or `buddy wait ls` reports a wait without touching it",
-			EnvClaudeSession)
+		return fmt.Errorf("wait check is a session's own check, run by its model through its harness, and native identity ($%s or $%s) is unset here — from outside, `buddy who <target>` or `buddy wait ls` reports a wait without touching it",
+			EnvClaudeSession, EnvCodexThread)
 	}
 	if b := env.getenv(EnvSession); b != "" && b != id {
 		// Not silently ignored: an override that is not honoured, with
@@ -220,7 +232,7 @@ func cmdWaitCheck(args []string, env Env) error {
 		return err
 	}
 	if !known || !si.Live() {
-		return assertedNotLive(st, id, EnvClaudeSession, known, nil)
+		return assertedNotLive(st, id, source, known, nil)
 	}
 	r, err := st.WaitCheck(si.SessionID, si.Incarnation)
 	if err != nil {
@@ -233,6 +245,9 @@ func cmdWaitCheck(args []string, env Env) error {
 	now := nowOf(env)
 	c, observed := sampleOf(st, si)
 	stop := "stop the /loop that runs this check (schedule no further check)"
+	if source == EnvCodexThread {
+		stop = "schedule no further check"
+	}
 	var b strings.Builder
 	w := r.Wait
 	switch {
@@ -261,8 +276,12 @@ func cmdWaitCheck(args []string, env Env) error {
 			fmt.Fprintf(&b, "note: %s\n", fence.Line(w.Note, maxWaitNote))
 		}
 	default:
+		pacing := nextCheck(now, w.Deadline, c, observed)
+		if source == EnvCodexThread {
+			pacing = "Codex scheduling is unsupported; cache timing is unknown"
+		}
 		fmt.Fprintf(&b, "STILL WAITING on %s — %s so far, deadline in %s; %s\n",
-			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)), nextCheck(now, w.Deadline, c, observed))
+			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)), pacing)
 	}
 	b.WriteString(observedRequest(now, c, observed) + "\n")
 	// ONE write, so "the verdict was written" is one fact and not three.
@@ -314,8 +333,12 @@ func cmdWaitClear(args []string, env Env) error {
 		return nil
 	}
 	now := nowOf(env)
-	fmt.Fprintf(env.Stdout, "cleared the wait of %s on %s (declared %s ago, %d check(s)) — its next `buddy wait check` says NO WAIT; stop the /loop that runs it\n",
-		fence.Line(si.Label, 64), targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), w.Checks)
+	stop := "stop the /loop that runs it"
+	if env.getenv(EnvCodexThread) != "" || env.getenv(EnvHarness) == "codex" {
+		stop = "schedule no further check"
+	}
+	fmt.Fprintf(env.Stdout, "cleared the wait of %s on %s (declared %s ago, %d check(s)) — its next `buddy wait check` says NO WAIT; %s\n",
+		fence.Line(si.Label, 64), targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), w.Checks, stop)
 	return nil
 }
 
@@ -766,7 +789,7 @@ func openWaitOf(st *store.Store, si store.SessionInfo) (store.Wait, bool, error)
 // Only LANDED is announced here, and only for the current incarnation's open
 // row: EXPIRED is the check's to say, and nothing here closes the row — the
 // check that reads the verdict does.
-func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, func() error) {
+func waitNotice(st *store.Store, me store.SessionInfo, now time.Time, codex bool) (string, func() error) {
 	nothing := func() error { return nil }
 	w, ok, err := openWaitOf(st, me)
 	if err != nil || !ok || w.Told || w.Verdict(now) != store.WaitLanded {
@@ -776,8 +799,12 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, f
 	if caveat != "" {
 		caveat = " " + caveat
 	}
-	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s. `buddy wait check` clears it; then stop the /loop that runs it.%s\n",
-		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), notePhrase(w), caveat)
+	stop := "then stop the /loop that runs it"
+	if codex {
+		stop = "schedule no further check"
+	}
+	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s. `buddy wait check` clears it; %s.%s\n",
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), notePhrase(w), stop, caveat)
 	return line, func() error { return st.MarkWaitTold(me.SessionID, w.Decl) }
 }
 
@@ -796,7 +823,7 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, f
 // named as the earlier run's, never as this session's, with the line that
 // would declare it again — only the claims still open, because the others
 // have landed.
-func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time) string {
+func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex bool) string {
 	w, ok, err := st.WaitOf(si.SessionID)
 	if err != nil || !ok {
 		return ""
@@ -810,6 +837,8 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time) string
 		// pay there is nothing to re-arm.
 		label, pays, _ := cacheTier(sampleOf(st, si))
 		switch {
+		case codex:
+			return head + " Run `buddy wait check` in this Codex thread to read the verdict; automatic scheduling is unsupported and cache timing is unknown.\n"
 		case w.Verdict(now) != store.WaitPending:
 			return head + " Run `buddy wait check` once to take the verdict; no loop needs arming.\n"
 		case !pays:
@@ -847,7 +876,7 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time) string
 		return head + fmt.Sprintf(" Its %d open claims are too many to write here as one command; `buddy ls` lists them.\n", len(open))
 	}
 	arm := ""
-	if _, pays, _ := cacheTier(sampleOf(st, si)); pays {
+	if _, pays, _ := cacheTier(sampleOf(st, si)); pays && !codex {
 		arm = ", then /loop buddy wait check"
 	}
 	return head + " To wait again: buddy wait" + flags + " --until " + span(left) + arm + unpastableNote(unpastable) + "\n"

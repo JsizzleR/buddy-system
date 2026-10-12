@@ -14,6 +14,7 @@ answer.
 ## Contents
 
 - [Hooks in detail](#hooks-in-detail)
+- [Codex participation](#codex-participation)
 - [Upgrading and the ledger's schema](#upgrading-and-the-ledgers-schema)
 - [Claims in depth](#claims-in-depth)
 - [The operator's brake — `pause`, `resume`, `sweep`](#the-operators-brake--pause-resume-sweep)
@@ -31,6 +32,8 @@ answer.
 - [Chat internals](#chat-internals)
 - [Language servers — what `buddy init` reports](#language-servers--what-buddy-init-reports)
 - [Measuring context cost](#measuring-context-cost)
+- [Structured adapters (experimental)](#structured-adapters-experimental)
+- [Offline compatibility diagnostic](#offline-compatibility-diagnostic)
 
 ## Hooks in detail
 
@@ -65,6 +68,232 @@ turn's first tool call. Wire `Stop` and skip `busy` if you want one line
 instead of two. The cost: a text-only answer reads as `idle` while it is being
 written, never sees mail queued while the session was at rest, and never hears
 that it has grown past a declared handoff size (`BUDDY_HANDOFF_AT`, below).
+
+## Codex participation
+
+The first participation increment supports Codex patch gates and native thread
+identity. The shared orchestration workflow is in
+[the Buddy skill](../skills/buddy/SKILL.md#harness-boundaries); repository driver,
+worker and constrained-review roles are in [AGENTS.md](../AGENTS.md).
+
+**Identity.** Shell commands can use `CODEX_THREAD_ID`; this was observed in the
+implementation session with installed `codex-cli 0.160.0` on 2026-10-04, not
+qualified across all Codex deployments. Keep it identical to hook `session_id`.
+Ordinary CLI precedence remains explicit `--session`, then `BUDDY_SESSION`,
+then the native harness identity. A native identity that is unknown or ended
+does not fall back to another session in the directory. `wait check` requires
+the native identity and refuses a conflicting override. Do not set Claude's
+environment variable for Codex. If both harnesses export different native IDs,
+resolve that ambiguity before calling Buddy.
+
+**Gate.** Canonical `apply_patch` carries patch text in `tool_input.command`.
+Buddy checks every add, update, delete and both sides of a move, using each
+target repository's claims and the existing path normalization. Any conflict
+denies the whole call. Parsing is capped at 128 distinct path spellings per
+patch; split larger calls. Malformed patches and remote environment routing
+are refused rather than treated as pathless edits. A valid call with no governed target and no home ledger remains
+feature-off. See the official
+[Codex hooks contract](https://learn.chatgpt.com/docs/hooks).
+
+Every spelling a write can land on is checked (D-073). That is the lexical
+spelling (Codex resolves `..` lexically) and the physical one (the kernel
+resolves `..` after a symlink), each with the final link followed and as the link
+entry itself (a delete or a move's source unlinks the entry), plus a dangling
+link's would-be target. Any one held refuses. A home claim covering a path
+inside a nested repository still refuses; the nested repository's own ledger is
+consulted as well.
+
+**Shell-routed patches are refused, not checked.** Codex also applies
+`apply_patch <<'EOF' … EOF`, `applypatch`, and `cd <dir> && apply_patch …` from
+its SHELL tool, in-process, while the hook reports `tool_name: "Bash"`. The
+hook payload omits that command's working directory, so the gate cannot place
+the patch's paths. Wherever a ledger governs the call, it refuses a shell
+command that runs `apply_patch`/`applypatch`, or that it cannot rule out, and
+says to use the tool. From a cwd with no ledger, it refuses only when a literal
+directory change (`cd`, `pushd`, zsh `chdir` and `cd old new`, `env -C`,
+`sudo -D`, `git -C`, with an unquoted `~` read against every `HOME` the command
+could run with), or a path in a parseable embedded patch, lies in a governed
+repo.
+
+The gate parses the command (bash syntax; nothing is executed or expanded)
+and reads it this way (D-073, audit A-01):
+
+- Every command position counts, including those inside substitutions,
+  functions, `if`/`for`/`case`, `coproc`, and each `find -exec` action. Quoting,
+  escapes, line continuation, brace expansion (`{apply_patch,}`) and zsh's
+  `=apply_patch` are decoded.
+- An UNKNOWN program's operands are all treated as command positions. This is how
+  `nice`, `timeout 60`, `caffeinate -i`, `script -q f`, `noglob` and `repeat 1`
+  are caught without a list. Known wrappers (`env`, `sudo`, `xargs`, `nice`,
+  `timeout`, `stdbuf`, `exec`, `command`, …) are read by their option grammar,
+  so `xargs -n 1 grep apply_patch` lands on `grep`.
+- A data program at a command position (`echo`, `printf`, `grep`, `rg`, `cat`,
+  `which`, `make`, `tee`, …) passes with its operands, so `grep apply_patch`,
+  `git commit -m "apply_patch fix"` and `command -v apply_patch` pass. `git`
+  passes too, except `bisect run`, `submodule foreach` and `rebase --exec`;
+  `rg` passes except its `--pre` program. A function the command itself
+  defines shadows every name.
+- Script text a shell will run is read in turn: a `-c` operand (any option
+  cluster, either sign: `bash -c --`, `bash +x -c`, csh, tcsh and fish
+  included, and fish's `-C`), `eval`'s and `trap`'s text, `env -S`, and a
+  here-document, here-string or duplicated descriptor that reaches a shell's
+  stdin, including `sudo -s` and a function wrapping `bash -s`. A
+  here-document fed to `cat` is data. A nested script inherits its command's
+  descriptors.
+- **Uncertain text refuses where a ledger governs, and only there.** That
+  covers script text produced at run time (`… | bash`, `bash -c "$(…)"`,
+  `bash <(…)`, `eval "$x"`), a command that does not parse as bash (zsh's
+  anonymous functions, for example), and a command beyond the analysis budget.
+  Measured on one machine's transcripts (2026-10-07): 31 of 109,729 unique
+  agent commands did not parse, and 50 fed a shell or `eval` produced text.
+
+The cooperative boundary is: dynamic command names (`$x`, `${U:-apply_patch}`),
+script files (`bash file.sh`, `source file`, `bash < file`), aliases and
+functions defined outside the command, programs that run text in another
+language (`awk` `system()`, `sed e`, `python -c`, make recipes, git aliases and
+config), command names read from stdin (`xargs` with no command), `CDPATH`,
+`OLDPWD`, the `pushd` stack, `~user`, a persistent `exec <<…` redirection
+that a later statement's shell reads, and a workdir passed outside the command.
+Other shell side effects and specialized tool paths keep that same boundary.
+
+**An identity conflict refuses only where a ledger governs.** The gate checks
+identity when the hook carries a harness marker (`BUDDY_HARNESS`, or the
+payload's `buddy_harness`) or `CODEX_THREAD_ID` is set. It then refuses the call,
+where a home or target ledger governs it, if `session_id` disagrees with the
+harness's own variable (`CODEX_THREAD_ID` for Codex, `CLAUDE_CODE_SESSION_ID`
+for Claude) or with `BUDDY_SESSION`, or if the marker names an unsupported
+harness. Elsewhere it stays silent, like every other feature-off path.
+Read-only tools pass. A plain Claude hook, with no marker and no
+`CODEX_THREAD_ID`, is not compared: its `session_id` is the identity. A Claude
+session launched from a Codex shell inherits `CODEX_THREAD_ID`; clear it in the
+launcher.
+
+**Opt-in wiring.** After building the intended Buddy binary, use its absolute
+path in a Codex hook definition. This example deliberately wires only the gate;
+replace `/absolute/path/to/buddy` before installing it in the appropriate
+`hooks.json` layer:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "^(apply_patch|Bash)$",
+      "hooks": [{
+        "type": "command",
+        "command": "BUDDY_HARNESS=codex /absolute/path/to/buddy gate"
+      }]
+    }]
+  }
+}
+```
+
+The explicit `BUDDY_HARNESS=codex` marker identifies a Codex hook even if the
+hook process lacks the shell's native thread variable. It does not grant
+permissions. Review the exact definition through Codex `/hooks`: new or changed
+untrusted hooks are skipped. Configuration, trust and observed enforcement are
+separate facts. The repository installer does not change Codex permissions or
+hook trust. After opting in, run an actual Codex patch against a peer-held
+scope and a non-conflicting control, and confirm the former wrote nothing.
+A direct `buddy gate` fixture is not proof the installed harness invoked it.
+
+Manual participation can still register an independent top-level worker with
+`buddy hello` from its own shell before claiming. That is an explicit local
+registration, not an automatic lifecycle adapter. Codex hooks remain unbound to
+a harness process: a shared app-server process cannot identify one logical
+thread, and a Claude ancestor must not become its process anchor. **Do not wire
+Codex lifecycle events to the unfenced `hello`, `beat`, `busy`, `idle` or `bye`
+hook verbs.** They refuse marked Codex hook input, including `hello --session`.
+An explicit session flag does not make supplied hook input a manual registration;
+manual registration requires no hook input. Run it with an empty stdin,
+`buddy hello --session <id> </dev/null`: any bytes on a non-terminal stdin are
+read as a hook's and refused when they are not one (D-069, D-076), and a pipe
+that stays open — the stdin a tool shell or a script loop hands down — is
+refused after 2 s with the same recipe rather than waited on (audit A-10). The
+bound is never charged to a hook: its payload arrives and closes at spawn.
+
+**Captured lifecycle identity.** An adapter which owns a native worker first
+calls `buddy lifecycle begin --session <native-id> [--label <label>]`. It must
+durably capture the returned JSON before delivering events:
+
+```json
+{"schema":"buddy.lifecycle.v1","harness":"codex","session_id":"native-id","incarnation":"captured-token","event":"begin","state":"live"}
+```
+
+The token identifies one logical registration, not a process or one turn.
+`state` describes the committed lifecycle operation, not worker availability or
+validation success. A failed output write can leave registration committed
+without a captured receipt; stop and reconcile that uncertainty. Do not retry
+begin by guessing or looking up a current token.
+
+| Operation | Required input and meaning |
+| --- | --- |
+| `lifecycle begin` | Explicit `--session`; optional `--label` and `--harness codex\|claude` (default `codex`); a never-seen id needs no predecessor. An ended id requires its exact `--previous` token. A live id always refuses. |
+| `lifecycle refresh` | `--session` and `--incarnation`; refreshes that live registration without reviving it or clearing idle. |
+| `lifecycle beat` | Same identity; optional `--path` is one normalized repo-relative path. Refreshes seen, clears idle and renews only covering claims of this incarnation. |
+| `lifecycle busy` | Same identity; records prompt activity and clears idle without renewing claims. |
+| `lifecycle idle` | Same identity; records an idle observation dated when Buddy received it, without reading Claude transcripts. |
+| `lifecycle end` | Same identity; marks only that incarnation ended. Repeating the same end is idempotent. Claims remain for existing cleanup paths. |
+
+Each direct command returns the same versioned receipt with its operation in
+`event`. These explicit adapter commands may name a worker from a coordinator's
+shell; they do not infer the caller from the directory or native environment.
+They are local operator/adapter acts, never authority derived from peer text.
+
+For native hooks, `buddy lifecycle hook --incarnation <captured-token>` reads
+native JSON and maps SessionStart to refresh, UserPromptSubmit to busy,
+PostToolUse to beat, Stop to idle, and SessionEnd to end. It returns `{}` on
+success, including feature-off, so Stop gets valid JSON without an instruction
+to continue. Missing tokens, unknown events, mismatched harness identities and
+subagent identities refuse. An unreadable ledger remains an error. Keep the
+original capture attached to every callback; do not load a mutable "current"
+receipt by thread id when an old event arrives. Register before enabling these
+callbacks: the hook mapper never begins or revives a registration on its own.
+
+The adapter must serialize callbacks within one incarnation and distinguish
+turn completion, disconnect, logical session end and process exit. The token
+fences old incarnations; it does not order delayed turns within a live one.
+The hook mapper does not drain inboxes. A PostToolUse renews only the claims
+covering the paths its tool input names, read with the gate's bounded parser
+(D-076); an event whose paths cannot be read still records the beat and renews
+nothing, and busy/idle events renew nothing. Workers launched by
+`buddy-adapter` install only the PreToolUse gate, so their claims are not
+renewed this way. Use deliberate inbox retrieval and own-thread wait checks. It neither records
+Claude usage nor supplies a Codex scheduler. Production worker launch/resume,
+automatic wake and independently claiming subagents remain unqualified.
+
+The opt-in native qualification command is:
+
+```sh
+python3 scripts/qualify-codex.py --lifecycle --app-server --edge-cases --shell-patch \
+    --codex /absolute/path/to/codex-0.160.0
+```
+
+`--shell-patch` is the V-01 case (a held-path patch routed through the native
+shell); without it the shell route goes unexercised. `--codex` must name the
+retained 0.160.0 binary, the only version the adapter admits: the default is
+whichever `codex` is first on PATH, and the runner records that version in its
+result but does not refuse a newer one.
+It requires that Codex binary, Python, Go and loopback access. It builds
+Buddy into a fresh temporary directory, creates disposable repositories and
+temporary Codex configuration, trusts only its exact fixture hooks, and drives
+native tools with deterministic local Responses events. It does not use real
+provider inference, credentials or global hook settings. `--prepare-only`
+builds and inspects the fixture without trusting or executing its hooks. The
+result and event logs stay under the printed temporary root. This manual
+exercise is separate from `check.sh hermetic`; its recorded result is in the
+[orchestrator plan](CODEX-ORCHESTRATOR-PLAN.md#lifecycle-continuation-receipt-2026-10-04).
+
+To install the shared skill for Codex when requested, the existing installer
+accepts a destination; its backup and locking behavior applies unchanged:
+
+```sh
+BUDDY_SKILL_DIR="$HOME/.agents/skills/buddy" sh scripts/install-skill.sh
+```
+
+That user skill directory follows the current
+[Codex skill discovery guide](https://learn.chatgpt.com/docs/build-skills).
+Default installation still targets Claude. Installing a skill does not install
+or trust a hook, start a worker, or qualify a mixed fleet.
 
 ## Upgrading and the ledger's schema
 
@@ -410,6 +639,7 @@ buddy who <id|label|s-id|slug>    # the same report for any name a session answe
 # DIRTY PATHS  3 recorded to this session (observations, not locks): internal/api/x.go, …
 # BASE         079dd6a7 (3 behind main, 12m ago) — an observation at the end of its last reported turn
 # INBOX        1 undelivered
+# ADAPTER      (none) — no adapter mail queued and no adapter endpoint recorded
 # JOBS         1 shell(s) running directly under its harness process (pid 30479) when sampled: pid 81311 12m — the ledger does not track them, and closing its pane may end them
 # EXIT         ending now would leave 2 claim(s) held — freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: api-work, docs-pass
 ```
@@ -604,11 +834,11 @@ The annotations after the id are what an orchestrator picks on:
 ## Authority files — `buddy authority`
 
 ```sh
-buddy authority                       # CLAUDE.md  (always)
+buddy authority                       # CLAUDE.md and AGENTS.md (always)
 buddy authority add docs/playbook.md  # at most 8; every entry is a stat per tool call
 ```
 
-A session's copy of `CLAUDE.md` is a snapshot from session start, and a
+A session's copy of `CLAUDE.md` or `AGENTS.md` is a snapshot from session start, and a
 compaction carries it forward faithfully. A coordinator nine hours into a run
 quoted a sentence that had been corrected on disk seven hours earlier, and
 every check it could run said current — main had moved zero commits, because
@@ -1147,3 +1377,915 @@ linked worktree are included too.
 The minutes are an upper bound, since they include your own turns. The `lsp`
 line says whether sessions use the tool at all. It takes the same
 `BUDDY_COST_DAYS` knob, and prints counts and bytes only.
+
+## Structured adapters (experimental)
+
+Step 2 adds `buddy.adapter.v1` ledger receipts and a separate `buddy-adapter`
+executable speaking newline-delimited `buddy.control.v1` JSON. It controls one
+worker it launches. The claims binary neither launches processes nor sends
+native input. This does not install anything; build an opt-in copy with
+`go build -o /absolute/private/bin/buddy-adapter ./cmd/buddy-adapter`, alongside
+the matching `buddy` binary. Schema 15 is required for adapter inbox metadata.
+Older binaries refuse a migrated ledger, so qualify on disposable repositories
+before an explicitly authorized installation/migration.
+
+The native contracts are pinned to Codex 0.160.0 and Claude Code 2.1.289,
+2.1.290 or 2.1.291, as separate exact version/profile pairs. Claude
+uses the streaming wire contract inspected in installed Agent SDK 0.3.202;
+there is no npm runtime dependency. Native versions are checked at launch.
+Capabilities return `supported`, `experimental`, `unsupported` or `unknown`.
+All provider-backed control remains experimental. Attaching to existing sessions
+is unsupported. Claude resume requires an accepted wake, a journalled terminal
+result (`completed` without error, `aborted_streaming`, or `aborted_tools`) and
+subsequent idle for every input. On 2.1.290 or 2.1.291, a manual compaction boundary plus
+its exact-input `local_compact_completed` result and idle also admits resume.
+Cancellation errors stay visible; unfinished
+or uncertain recovery refuses before ledger refresh or native launch. The isolated recovery fixture exercises
+Codex resume after a completed turn with preserved receipt/journal artifacts;
+the interrupted recovery fixture covers the bounded Codex faults described below.
+Bounded Codex compaction and Claude completed-turn fixtures are described below.
+Arbitrary tool-effect recovery remains unqualified. Context/cache telemetry is
+unknown; no Claude cache timing is applied to Codex.
+
+### Captured identity and ledger input
+
+Save the exact `buddy.lifecycle.v1` begin receipt once. Direct lifecycle calls
+accept `--harness codex|claude` (default Codex); pass the captured harness on
+subsequent calls so their receipts stay correctly labeled. An adapter never
+parses `hello`, `msg`, `who` or `sent` output and never reads a successor's token
+to repair a delayed event.
+
+```sh
+buddy adapter inspect --session NATIVE_ID --incarnation CAPTURED_TOKEN
+buddy adapter queue --session SENDER_ID --incarnation SENDER_TOKEN \
+  --to RECIPIENT_ID --to-incarnation RECIPIENT_TOKEN --body 'Work brief; scope authorized separately by the operator'
+buddy adapter inbox --session RECIPIENT_ID --incarnation RECIPIENT_TOKEN
+buddy adapter inbox --session RECIPIENT_ID --incarnation RECIPIENT_TOKEN --message 42
+buddy adapter delivered --session RECIPIENT_ID --incarnation RECIPIENT_TOKEN --message 42
+```
+
+The sender and recipient must both be live under their captured incarnations
+when queueing. Once queued, the sender may end without losing the message.
+Fetch returns at most 20 messages with fenced bodies and explicit peer
+provenance; `more` means another fetch is needed after marking ingested items.
+Point lookup is independent of the first page. Fetch does not mark delivery.
+The recipient explicitly reports delivery after successful ingestion. Retries
+of that exact delivery are idempotent. Legacy `buddy inbox`/hook drains exclude
+this separate incarnation-bound channel, preventing a successor from consuming
+an old assignment. Operator/legacy mail keeps its existing behavior.
+
+The legacy views keep the two channels apart rather than hiding one (D-076).
+- `who`/`status` print an `ADAPTER` line beside `INBOX`. It shows mail queued
+  for the current incarnation and its oldest age, mail captured for an earlier
+  incarnation, and whether a receiving endpoint is registered.
+- A `buddy msg` result counts adapter mail separately. For a session the ledger
+  records as an adapter recipient, the line says that its adapter never fetches
+  a plain message, rather than predicting delivery at its next tool call.
+- No socket wake is ever offered to an adapter recipient; its adapter wakes it.
+  `buddy sent` labels an adapter message as such.
+- `buddy msg --supersedes` refuses to correct an adapter message.
+
+`inspect` returns identity, worktree, lifecycle observation, queued-message
+metadata, READY SHA, run outcomes and endpoint observations. Ledger absence of
+an idle report or approval telemetry is `unknown`. No READY or outcome is a
+claim of native completion. Acknowledgment and work completion are `unknown`
+unless a separate consumer has evidence; this slice exposes no operation that
+turns a model turn into either. Native result references are emitted separately.
+
+### Preparing one launch
+
+Choose an absolute receipt path in a private artifact directory. The file must
+not exist on a new launch. A `.events` journal beside it records transport
+intent/results and holds an exclusive lock. Keep both for reconciliation.
+Missing begin receipts and uncertain sends are never retried blindly. These
+files contain native approval details and must remain private to the operator.
+Before native launch, a synced `.start` intent is created. It remains if launch
+or registration becomes uncertain, preventing an automatic fresh start even
+when no receipt was published. Reconcile it; do not delete it to force a retry.
+
+The gate command must exactly match the running binary and selected paths,
+with each path enclosed in POSIX single quotes:
+
+```text
+'/absolute/private/bin/buddy-adapter' hook --receipt '/absolute/private/worker.json' --buddy '/absolute/private/bin/buddy'
+```
+
+For Claude, put that exact command in an explicit settings JSON file, with a
+synchronous `PreToolUse` matcher naming `Edit`, `Write` and `NotebookEdit`. The
+matcher must be `""`, `*`, `.*`, an exact `|`/`,` list naming all three, or
+the anchored literal alternation `^(Edit|Write|NotebookEdit)$`. Any other
+pattern refuses, because native Claude compares a plain matcher as an exact list
+while Go's regexp matches anywhere, so `Edit|Write` "covered" NotebookEdit for
+Go and natively gates nothing for it (D-077). Keys are exact and
+case-sensitive, with no duplicates (native `JSON.parse` keeps the last key, and
+Go folds key case). `async` must be absent or `false`, and `timeout` must be
+10-600 seconds. The bounded settings contract accepts only `hooks`, false `disableAllHooks` and
+`allowManagedHooksOnly`, and an `enabledPlugins` map whose values are false.
+It refuses other settings, enabled plugins/Mods, asynchronous hooks and native
+lifecycle handlers. The controller owns lifecycle translation. Claude is
+launched with empty user/project setting sources and explicit empty MCP config.
+After native initialization and before input, the adapter requests `get_settings`
+and applies that same bounded contract to the effective settings. This includes
+managed policy: `allowManagedHooksOnly: true` refuses even when the flag hooks
+still appear configured. Missing/unsupported native settings also refuse. The
+check establishes a configuration observation, not that a hook ran. Claude also
+requires `hooks.mods: "builtin-only-2.1.289"`, `"builtin-only-2.1.290"` or
+`"builtin-only-2.1.291"`,
+matching the declared and observed native version exactly. Before admitting input, the
+adapter reloads the launched child's plugins, checks the native inventory for
+exactly `cc-plugin-agents-md@builtin` and `cc-plugin-plugin-authoring@builtin`
+at their built-in paths, and checks effective settings again. Missing or
+unexpected inventory and reload errors refuse. The first built-in includes a
+Mod; an empty optional plugin map never meant that all Mods were absent.
+The legacy `no_mods` assertion now refuses instead of granting admission.
+
+These profiles are pinned to their respective versions and are startup compatibility snapshots.
+The reload is a native child operation, not a read-only diagnostic. Actual
+Buddy hook denial needs separate native evidence under this exact profile.
+The check refuses worker input, not startup code from an already loaded Mod.
+Optional/managed Mods and later changes to the loaded configuration remain
+outside the qualified profile; a Mod can override a user PreToolUse refusal.
+
+For Codex, use an isolated `config.toml` with the exact gate command and a
+`^(apply_patch|Bash)$` PreToolUse matcher. Shell-routed patches arrive as `Bash`,
+so an `apply_patch`-only matcher is refused. The reversed literal union, an
+empty matcher and `.*` are also admitted. Inspect and authorize the exact hook hash in
+that temporary/native configuration before launch. Supply that `currentHash`
+as `gate_hash`. The adapter calls native `hooks/list`: it requires the exact
+trusted synchronous command/hash, both patch and shell coverage, and no configuration
+diagnostics or other enabled hooks. It never edits hook trust. Configured and
+trusted metadata do not themselves prove observed enforcement.
+
+A launch JSON file has this shape (replace paths and supply actual evidence):
+
+```json
+{
+  "worktree": "/absolute/repository/worktree",
+  "permission_mode": "workspace-write",
+  "harness_version": "0.160.0",
+  "hook_config": "/absolute/private/codex/config.toml",
+  "gate_command": "'/absolute/private/bin/buddy-adapter' hook --receipt '/absolute/private/worker.json' --buddy '/absolute/private/bin/buddy'",
+  "gate_hash": "EXACT_NATIVE_HOOK_HASH",
+  "hooks": {
+    "configured": "observed",
+    "trusted": "observed",
+    "observed": "unknown"
+  }
+}
+```
+
+For Claude use `harness_version: "2.1.291"`, its settings JSON path, omit
+`gate_hash`, and add `"mods": "builtin-only-2.1.291"` inside `hooks`.
+The retained 2.1.289 and 2.1.290 contracts require their matching
+`builtin-only-2.1.289` and `builtin-only-2.1.290` profiles instead.
+Start and resume refuse a different installed version, including another
+supported version; a captured 2.1.289 conversation is not automatically upgraded.
+`native_session_id` may
+name a fresh UUID; otherwise the Claude adapter generates one. Permission modes
+are `read-only` and `workspace-write`, mapped to Codex sandbox modes and Claude
+plan/manual modes. Choose only permissions already authorized for the launcher.
+There is no bypass/auto-approval mode or arbitrary extra-arguments field.
+
+```sh
+/absolute/private/bin/buddy-adapter --harness codex \
+  --executable /absolute/path/to/codex --buddy /absolute/private/bin/buddy \
+  --launch /absolute/private/launch.json --receipt /absolute/private/worker.json \
+  --label worker-label
+```
+
+The first output contains the immutable lifecycle identity. Keep stdin open for
+controls; EOF closes the owned transport and does not mark the logical session
+ended. Supply `--resume` instead of `--launch` only with the preserved receipt
+and its complete `.events` journal. A missing or empty journal, malformed journal
+record, or unresolved `.start` intent refuses before native control. Recover the
+original artifacts and reconcile uncertainty; deleting them is not a retry
+procedure. Resume never begins a new incarnation or resumes a native ID from
+peer text. The journal is local recovery state, not a tamper-evident audit log:
+it cannot detect every valid-prefix truncation or deliberate same-user rewrite.
+
+**The ownership record and what resume refuses (A-02).** Beside the receipt,
+`<receipt>.proc` records who last spawned a worker for it: the adapter's pid and
+start time, the worker leader's pid, kernel start time, process group and
+session, and the executable's identity, bound to the `.events` journal (device
+and inode) and the receipt path. Every spawn, start or resume, publishes an
+intent for a fresh attempt BEFORE the child is created and the spawned record
+before the adapter writes its first native byte. `--resume` is refused, with
+nothing signalled and nothing written, while:
+
+- the record is missing (a receipt from before ownership records, or a removed
+  record; a free journal lock proves only that the adapter exited, never that
+  its worker did);
+- the record is bound to another journal or receipt, or names another identity;
+- the record is intent-only: a worker may have started before its pid was
+  published and nothing identifies it. The refusal names the receipt, the
+  attempt and the recording adapter. The adapter has verified nothing; after
+  their own check for a stray worker, the operator's recourse is to abandon
+  this receipt and start a fresh worker with a NEW receipt. Never delete the
+  record or resume the same captured session;
+- the recorded adapter, the recorded worker leader (by pid AND start time), or
+  the recorded process group is still there (`kill(-pgid, 0)`; only "no such
+  process" is absence, so an unreaped zombie member or a permission error also
+  refuses). A pid that exists with another start time is recycled: not ours,
+  never signalled, counted as gone, although its numeric group still refuses
+  while it exists.
+
+Only an observation that could not be made at all refuses outright. The alive
+verdicts clear with time: `--wait-prior DURATION` (at most `10m`, only with
+`--resume`) re-runs the whole admission every 250 ms, waiting through a prior
+adapter that still holds the journal lock, and resumes once everything recorded
+is gone; it refuses at its bound, at a non-waitable refusal, or at an
+observation error, naming the last reason. It sends no signal and writes no
+ledger row while waiting, and it runs before the 30 s start budget. Descendants
+that left the worker's group (a `setsid` tool, a shell's job control) are not
+checked, and no option ends a worker the adapter cannot pin; end it by hand
+after checking, or wait for it.
+
+Claude additionally requires at least one accepted wake and, for every recorded
+wake, an exact native input UUID, a terminal result (`completed`, or the measured
+cancellations `aborted_streaming` and `aborted_tools`, D-075) and a subsequent
+idle event. Missing results, unresolved approvals, unknown wake delivery and
+interrupted turns refuse before ledger refresh or native launch. Preserve the
+native conversation in its original Claude state directory as well as Buddy's
+artifacts. Resume uses exactly `--resume <captured-id>`, rechecks the pinned
+version, permission mode, effective gate settings and built-in Mod inventory,
+and never substitutes `--continue`, a new session or a fork. Native initialization
+with missing conversation history refuses; receipt files cannot recreate it.
+
+### Control and approval channels
+
+Each stdin request supplies `schema`, a caller request `id`, `operation` and
+the complete captured `identity` object. `send` takes a queued `message_id`,
+never an assignment body; the native input is a bounded peer wake asking for
+explicit adapter-inbox retrieval. `inspect` projects native and ledger
+observations. `interrupt` requires the exact native `turn_id` and reports a
+request, not completion. Native events carry result references and statuses;
+transport loss remains unknown, not a logical session end.
+Continuously consume adapter stdout. If a stalled consumer fills the bounded
+native output queue, the adapter closes native input and its owned child;
+output EOF, malformed native frames and a frame past the 4 MiB bound also close
+that transport, as uncertainty: pending approval becomes unknown, never absent.
+
+The worker runs in its own process group, so a terminal `^C` does not reach it
+directly. Close, and INT/TERM/HUP to the adapter, end that group: SIGTERM, then
+SIGKILL as soon as the leader has exited or after 2 s at most, while the leader
+is still unreaped. The grace is the leader's, not its tools': a leader that
+exits on TERM at once, or by itself, ends the wait, so a tool still running
+gets TERM and KILL back to back. A descendant that put
+itself in another group escapes; an isolated Claude 2.1.291 tool fixture
+reproduced this limit. Complete descendant cleanup is not qualified; see the
+[verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md). SIGKILL of the adapter runs no cleanup, so a
+released journal lock shows the adapter exited, not that its worker did. Treat
+prior native ownership as uncertain before resuming. A wake refused before any
+byte reached the native stream (busy, interrupt uncertain, closed, text bounds)
+is `not_submitted` and can be retried. A write that may have happened stays
+`unknown` and is never replayed. An event the ledger could not record makes
+the observed state unknown, never `observed_absent`, until a recorded idle or
+end. Listed approvals then represent last observations that may be stale or
+incomplete; they do not establish that approval is still pending. Pending work
+and approval outcomes remain unknown until reconciled, even if event reporting
+is delayed by the stalled consumer.
+
+```json
+{"schema":"buddy.control.v1","id":"wake-42","operation":"send","identity":{"schema":"buddy.lifecycle.v1","harness":"codex","session_id":"NATIVE_ID","incarnation":"CAPTURED_TOKEN"},"message_id":42}
+```
+
+The receipt distinguishes `wake_delivery` from body delivery, acknowledgment,
+completion and pending approval. Both adapters use a textual peer marker;
+authenticated native peer identity is unsupported. The installed Claude
+2.1.289 stream drops the supplied `origin` from replay and result frames.
+Replay of the exact input UUID establishes native acceptance. A Claude result
+matches a turn only when `user_message_uuid` and the singleton
+`user_message_uuids` both name that active input and `queued_turn_count` is
+explicitly zero. Missing, coalesced or contradictory evidence leaves it
+unresolved and does not admit another wake. These fields were observed natively;
+the cached SDK declarations do not describe them. Neither adapter can expand
+operator authority.
+
+Approval observations preserve the native request JSON ID (string or integer),
+native approval ID, session and turn/item references. The pending list in a
+receipt carries a `detail_sha256` and a fenced summary of at most 512 bytes.
+Exact detail travels once, in the `native_event`, up to 16 KiB; beyond that it
+is marked `detail_omitted`. Coordinator stdin cannot approve. An operator UI may
+explicitly pass an inherited descriptor with `--operator-fd N` (N at least 3);
+keep it separate from peer/model streams. The descriptor must be open READ-ONLY
+(a pipe, FIFO, character device or regular file), and is checked and marked
+close-on-exec before any child starts, the version probe included. An unopened
+number, a write end, a socket, a directory, or a FIFO opened read-write
+(`3<>fifo`, which would let the worker write approvals) refuses with no child
+started (D-077). Open a FIFO read-only, `3<fifo`.
+That channel accepts an `approve` request with the captured identity and
+`approval: {id, native_session_id, turn_id, decision: "allow"|"deny"}`. Only a
+pending matching request is eligible. No session-wide policy grants are emitted.
+The response reports submission separately from native resolution; uncertain
+outcomes are not retried. Without that operator channel, approvals stay pending.
+A definite pre-send refusal is `not_submitted` and leaves a pending request
+answerable (for example, denying a request whose allowance is unsupported).
+Approval-attempt protection is reconstructed from the durable journal on resume.
+Once a response is attempted, its prompt leaves the actionable `approvals` list;
+its native resolution remains unknown. Re-emitting the same native request after
+resume does not make it answerable again. Only `not_submitted` retains the prompt.
+Disconnection removes the old connection's actionable approvals and reports
+pending approval as unknown. Old prompts remain historical journal evidence;
+only fresh native requests can be answered after reconnecting.
+
+### Reconcile a lost native turn result
+
+**Codex `reconcile` is withdrawn: its capability reports `unsupported`, and the
+request refuses before touching the native stream (D-075, D-077).** The pinned
+0.160.0 `thread/read` returns full history with no bound, over the live control
+transport, and one reply past the 4 MiB frame bound ended the worker mid-turn.
+The paged `thread/turns/list` is unqualified. The text below records the
+contract as it was, for when a bounded read is qualified.
+
+Send `reconcile` on the control channel with the original `message_id`:
+
+```json
+{"schema":"buddy.control.v1","id":"recover-42","operation":"reconcile","identity":{"schema":"buddy.lifecycle.v1","harness":"codex","session_id":"NATIVE_ID","incarnation":"CAPTURED_TOKEN"},"message_id":42}
+```
+
+The adapter derives the native turn from its durable wake journal. An optional
+`turn_id` must match that record; it cannot substitute another turn. Codex reads
+that exact thread/turn from native history and returns `turn_observation` with
+`source: "native_thread_read"` and status `completed`, `interrupted`, `failed`,
+`inProgress`, or `unknown`. The installed 0.160.0 contract uses `thread/read`
+with `includeTurns`; a response exceeding the transport's 4 MiB frame limit or
+unsupported full-history storage fails visibly. Missing history stays unknown.
+Claude turn reconciliation is explicitly unsupported. The separately qualified
+SDK history lookup can correlate input UUIDs, but its conversation messages do
+not supply the native terminal result and subsequent idle required for resume.
+An assistant `end_turn` is insufficient, and an early crash may leave no history
+despite native acceptance. See the isolated history fixture below.
+
+If the wake intent has no recorded turn ID, reconciliation returns unknown
+from `transport_journal` without making a native query. Retain the original
+artifacts for investigation; do not infer the turn from the latest thread entry.
+Reconciliation never resends input, consumes mail, resolves approvals, changes
+lifecycle or releases claims. Completed native history does not establish tool
+effects, validation or landing. Duplicate `send` still returns the original wake
+receipt. Request-scoped approval submission and native turn results remain
+separate observations.
+
+### Compaction observations
+
+Codex `contextCompaction` item notifications are retained as `native_event`
+records with kind `compaction_started` or `compaction_completed` and exact
+`native_session_id`, `turn_id` and `item_id`. The captured incarnation still
+must be current. These observations change no lifecycle, inbox, approval or
+claim state. In particular, an item finishing does not mean the native turn
+is idle or an assignment is complete. Later turn events remain separate.
+
+Claude 2.1.290 and 2.1.291 manual `compact_boundary` frames are retained with kind
+`compaction_boundary` and the native boundary UUID in `item_id`. The native
+frame has no input UUID, so `turn_id` stays absent. A boundary alone neither
+completes a turn nor changes an approval. Its later, exactly correlated
+`local_command: compact` success result has zero native turns and no
+`terminal_reason`; the adapter records `local_compact_completed` only with an
+accepted input, a manual boundary observed during that input, an empty native
+queue and no pending approvals. That result names the boundary in `item_id`.
+Resume additionally requires the same boundary, result and subsequent idle in
+the original journal. Missing evidence refuses before native launch or ledger
+refresh. Compaction summaries and conversation history cannot replace it.
+
+Cancellation during the summary response on 2.1.290 and 2.1.291 emits that same
+zero-turn local-command `success` shape, but without a boundary or terminal
+reason. The wake can already have timed out before the native acknowledgment
+arrives. Its outcome stays unknown; neither that late acknowledgment nor the
+local result repairs uncertain delivery. Interrupted and incomplete compaction
+journals refuse resume before ledger refresh, native launch or journal mutation.
+
+The `compaction_observation` capability is experimental for Codex and Claude
+2.1.290 and 2.1.291; it remains unsupported for Claude 2.1.289. The adapter adds
+no compaction command, automatic threshold or scheduler. Preserve the receipt and journal across compaction; neither native
+history rewriting nor an absent historical turn authorizes replay.
+An interrupted compaction can leave only `compaction_started` in the journal.
+After resume, missing completion notifications stay missing: native history and
+new activity are separate observations, not permission to repeat prior work.
+
+### Claude endpoint discovery and qualification
+
+The receipt-bound PreToolUse hook captures the receiving process's
+`CLAUDE_CODE_MESSAGING_SOCKET` via `buddy adapter endpoint`, bound to the captured
+identity and verified PID/start time. Missing export is observed absence;
+unavailable process binding is unknown. Endpoint metadata never includes
+`CLAUDE_CODE_MESSAGING_TOKEN`, and a launched worker does not inherit its
+coordinator's endpoint/token. A custom socket path is preserved. This is an
+observation, not a claim that the socket is live or a wake was delivered.
+The owned streaming transport is the adapter's wake path. The isolated native
+endpoint exercise measures a custom export under `CLAUDE_CODE_TMPDIR` and a
+genuinely absent inbox while the receipt-bound hook remains active. The latter
+uses a restrictive sandbox only on the disposable native child, denying socket
+binding without changing the host. Both cases verify native identity and kernel
+process birth, hook denial/allowed controls and an unchanged queued assignment.
+Bare mode is not an absence control for this contract because it skips hooks.
+
+The separate peer fixture uses native `SendMessage` between its own disposable
+sessions, with captured socket addresses. Native transport acceptance is not
+delivery: held and refused sends still return `success: true`, followed by
+notices bound to the exact recipient and native message ID. The fixture checks
+those notices and whether the marker reaches the receiving provider input.
+It leaves the Buddy body queued in all cases. This does not add socket sending
+to the adapter or qualify attachment to existing sessions.
+Both endpoint and peer cases have separate native receipts for 2.1.289 and
+2.1.291; newer admission alone does not qualify these transport boundaries.
+
+Run the isolated opt-in Codex exercise with
+`python3 scripts/qualify-adapters.py`. It builds temporary binaries, creates a
+disposable ledger and exact-hash test configuration, and uses a deterministic
+loopback provider. It does not install anything, use real provider inference,
+or establish Claude/mixed-fleet/recovery readiness. The canonical receipt in
+`CODEX-ORCHESTRATOR-PLAN.md` names the exact checks that have run.
+
+Run the isolated Claude exercise with `python3 scripts/qualify-claude.py`.
+It builds temporary binaries, uses a disposable ledger and Claude configuration,
+and supplies deterministic loopback Messages responses with an inert fixture
+key. It measures native handshake, approval separation, actual hook refusal and
+positive control, result/input correlation, a second idle assignment and endpoint
+capture. A temporary native parent-policy argument supplies the managed-hook
+suppression negative case; it edits no machine policy. Optional `--trace-native`
+forwards native stdio unchanged through a temporary metadata observer. Every
+attempt retains a `result.json`, including failures and explicit unqualified
+cases. The fixture selects the pinned built-in Mod profile and independently
+measures gate denial and an allowed control under it. This is local
+contract evidence, not production or real-provider qualification.
+
+The additional manual fixtures are:
+
+```sh
+python3 scripts/qualify-claude-mods.py
+python3 scripts/qualify-claude-endpoints.py
+python3 scripts/qualify-claude-peers.py
+```
+
+The Mod fixture checks the pinned profile and refusal of optional Mods before
+input, then independently demonstrates an optional permissive Mod overriding
+an actual Buddy gate denial in a disposable repository. It installs no plugin.
+The endpoint fixture is macOS-specific and uses the native process table plus
+`sandbox-exec` for its absence control. All fixtures use loopback deterministic
+providers, retain artifact hashes and failure receipts, and clean up their owned
+processes. See the canonical plan for current results and remaining gates.
+
+The gate, Mod, completed-turn resume and cancellation runners default to the
+original 2.1.289 contract. To exercise the separately qualified 2.1.291 pair:
+
+```sh
+python3 scripts/qualify-claude.py --claude-version 2.1.291 --trace-native
+python3 scripts/qualify-claude-mods.py --claude-version 2.1.291
+python3 scripts/qualify-claude-resume.py --claude-version 2.1.291
+python3 scripts/qualify-claude-interrupted.py --claude-version 2.1.291
+python3 scripts/qualify-claude-endpoints.py --claude-version 2.1.291
+python3 scripts/qualify-claude-peers.py --claude-version 2.1.291
+```
+
+Select `--claude-version 2.1.290` for the retained contract.
+`--claude` selects the existing executable; the fixture refuses a version other
+than the explicit contract. The option does not bypass adapter admission.
+Endpoint and peer runners also retain the 2.1.289 default. Their explicit
+2.1.291 exercises passed separately; accepting `--claude-version 2.1.290` as a
+probe does not establish a measured endpoint/peer contract for that version.
+Mixed-fleet and SDK history fixtures now also qualify retained 2.1.291; their
+defaults remain 2.1.289. Manual compaction and its refusal fixtures separately qualify
+2.1.290 and 2.1.291; their default remains 2.1.290.
+The Mod fixture retains original native frames and effective settings before and after
+reload alongside actual denial/allow and permissive-Mod controls.
+
+New endpoint/peer receipts include original version, socket, native, provider
+and inbox observations for the independent, read-only checker:
+
+```sh
+python3 scripts/check-claude-delivery.py /path/to/result.json
+python3 scripts/check-claude-delivery.py /path/to/result.json --self-test
+```
+
+It ignores the fixture's summary flags, checks artifact hashes and exact
+version/identity/message correlations, and rejects missing cases. Its self-test
+damages evidence in memory without changing the receipt files. It starts no
+native process and opens no Buddy ledger; hashes bind captured evidence, not
+production readiness. Older receipts lacking these captures cannot pass this
+checker. Native fixtures and their receipt checkers remain opt-in, separate
+from the hermetic tier.
+
+### Isolated mixed-fleet exercise
+
+Run `python3 scripts/qualify-mixed-fleet.py` to build temporary binaries and
+launch a Codex coordinator, one Claude worker and one independent Codex worker
+through `buddy-adapter`. Each has its own linked worktree and native
+configuration; all three use one disposable ledger. The script requires the
+pinned native versions above and Python 3. Providers return deterministic local
+responses, with no real inference or credentials. Native tools execute fixed
+fixture programs; this does not measure a model's ability to coordinate work.
+
+The exercise queues assignments from the native coordinator, wakes idle
+workers, fetches their exact inbox messages and records explicit body delivery.
+Workers commit and declare READY, then report back to the idle coordinator.
+An intentionally failing shared validation is routed to its worker with the
+failed commit ID. The worker repairs it, and the coordinator validates the new
+integration commit before advancing the disposable main branch to that exact
+commit and publishing the run outcome and landing notices. Claim refusal in
+both harness directions includes a whole-patch negative case and permitted
+edits. Only exact fixture calls can be approved through the separate operator
+descriptor; no persistent permission is granted.
+
+Every attempt retains `result.json`, native/control observations, source and
+binary hashes, per-turn tool outputs, coherent ledger snapshots and validation
+logs beneath a new `/private/tmp/buddy-mixed-fleet-*` directory. The independent
+receipt validator cross-checks native delivery evidence, captured identities,
+READY/run rows, Git ancestry and the landing ref:
+
+```sh
+python3 scripts/check-mixed-fleet.py --receipt /private/tmp/buddy-mixed-fleet-EXAMPLE/result.json
+python3 scripts/check-mixed-fleet.py --self-test
+python3 scripts/mixed_fleet_provider.py --self-test
+```
+
+These Python qualification checks are separate from the toolchain-and-Git
+hermetic tier. The exercise changes no installed configuration, production
+ledger or source-checkout Git ref. It does not qualify real providers,
+model-directed assignments, resume/compaction or coordinator succession.
+
+### Isolated recovery and coordinator succession
+
+```sh
+python3 scripts/qualify-recovery.py
+python3 scripts/check-recovery.py /private/tmp/buddy-recovery-EXAMPLE/result.json
+python3 scripts/check-recovery.py /private/tmp/buddy-recovery-EXAMPLE/result.json --self-test
+```
+
+This opt-in fixture starts a Codex coordinator, independent Claude and Codex
+workers, and a Codex successor in separate temporary worktrees. It closes the
+coordinator's transport after a completed turn, resumes the exact captured
+native identity/incarnation, suppresses an old wake, refuses an old approval
+response and explicitly retrieves queued mail. Native conflicting and permitted
+patches check the resumed gate; new request-scoped approvals remain usable.
+
+Both workers remain READY while the outgoing coordinator transfers the open
+orchestrator/run claims using `release --to`. The handoff names original claim
+IDs, READY commits, identity receipts, the integration SHA, a running validation
+job's output locations and its successor result-reader. The qualification
+fixture owns that local subprocess; it continues across the outgoing adapter's
+exit. The successor reads its result, lands the exact validated commit in the
+temporary repository and delivers both landing notices. Buddy does not adopt
+or supervise the job. Subsequent CLI injections of the old incarnation refuse,
+leave the new incarnation's claim open, and cannot resume the stale receipt.
+
+The independent checker reads preserved native receipts, delivery rows,
+immutable ledger copies, Git objects and validation output. Its self-test first
+requires a passing receipt, then rejects damaged evidence without changing the
+original files. Every native attempt retains source/binary hashes, a handoff,
+result-reader assignment and cleanup observations, including failed attempts.
+No chat, real provider inference, production ledger migration or installation is
+involved. The following fixture extends the bounded Codex recovery evidence.
+Claude completed-turn and cancellation resume have separate fixtures below;
+unfinished Claude and model-directed recovery remain open gates. Successful manual
+Codex compaction is covered by the separate compaction fixture below.
+
+### Isolated interrupted Codex recovery
+
+```sh
+python3 scripts/qualify-interrupted.py
+python3 scripts/check-interrupted.py /private/tmp/buddy-interrupted-EXAMPLE/result.json --self-test
+```
+
+Four disposable Codex worktrees exercise exact-turn interruption while approval
+is pending, abrupt adapter/native process-group loss during a held provider
+request, process-group loss before answering an approval, and a dropped
+`turn/completed` notification followed by process loss. The last case uses an
+explicit fixture proxy seam; original adapter journals are never edited.
+
+After resume, reconciliation reads the original turn without inference or input
+replay. Claims retain their IDs, original bodies stay queued until explicit
+native retrieval, old approvals refuse, and fresh exact fixture approvals work.
+The dropped-result case checks that its fixture file was written once. This
+proves that specific effect only, not general exactly-once tool execution.
+The independent checker compares protocol captures, receipts, claim IDs and
+immutable ledger copies; its self-test rejects damaged evidence in memory.
+
+All responses come from deterministic loopback fixtures. No real inference,
+installation, global hook trust or production ledger changes occur. The following
+fixture extends this evidence to lost wake replies and two approval delivery seams.
+
+### Isolated uncertain wake and approval recovery
+
+```sh
+python3 scripts/qualify-uncertain.py
+python3 scripts/check-uncertain.py /private/tmp/buddy-uncertain-EXAMPLE/result.json --self-test
+```
+
+Three disposable Codex worktrees exercise a dropped `turn/start` reply with no
+journalled turn ID, a partial approval response forwarded to native stdin, and a
+complete approval response whose native resolution/result is withheld. The
+fixture then kills only its owned adapter/native process group and resumes with
+the original identity and journal. Original journals are never edited.
+
+The lost wake stays unknown without a native history query or guessed turn ID.
+The partial response leaves the fixture command unexecuted; the complete response
+produces one observed fixture write. Both had already been written to the proxy
+pipe, so the adapter's `submitted` receipt cannot establish native acceptance or
+tool effects. Reconciliation projects only the exact recorded turn's history.
+Old wakes and approval replies do not replay; fresh approval and explicit inbox
+retrieval are positive controls. Claims remain open until explicitly released.
+
+The independent checker reads journals, bidirectional wire captures, immutable
+ledger snapshots and fixture effects, and checks artifact hashes. Its self-test
+damages receipt fields in memory. Separate Go tests stop before a backend call
+returns to qualify recovery from an intent-only journal; that crash boundary is
+hermetic evidence, not a native crash measurement. See the next fixture for
+bounded compaction evidence; unfinished Claude recovery, arbitrary crash offsets/tool effects
+and real-provider recovery remain unqualified.
+
+### Isolated compaction and resume
+
+```sh
+python3 scripts/qualify-compaction.py
+python3 scripts/check-compaction.py /private/tmp/buddy-compaction-EXAMPLE/result.json --self-test
+```
+
+One disposable Codex worker, using fixed loopback responses, performs a native
+tool approval, manual compaction and a clean adapter restart/resume. A fixture
+proxy sends the single `thread/compact/start` request and records both wire
+directions; that testing seam is separate from the adapter's control API.
+The independent checker matches item observations to native frames and the
+durable journal, verifies artifact hashes and reads immutable ledger snapshots.
+
+The fixture preserves the captured identity, claim IDs, READY commit and wait
+targets, and keeps the original body queued until an explicit native retrieval.
+Old wakes and approval replies do not replay. Fresh approval, a whole-patch
+claim denial and a permitted edit demonstrate that controls remain armed after
+compaction and resume. Native history reconciliation still names the original
+turn; missing history must remain unknown. Claims close only on explicit release.
+
+This qualifies successful manual compaction with a deterministic summary, not
+automatic thresholds, interrupted compaction, summary quality, model-directed
+recovery, Claude compaction/resume or production installation. The script is
+opt-in; it does not run in the toolchain-and-Git hermetic tier.
+
+### Isolated interrupted compaction
+
+```sh
+python3 scripts/qualify-interrupted-compaction.py
+python3 scripts/check-interrupted-compaction.py /private/tmp/buddy-interrupted-compaction-EXAMPLE/result.json --self-test
+```
+
+Three separate disposable Codex fixtures exercise cancellation while the
+compaction response is held, an owned process-group crash at that same barrier,
+and a crash after the native compaction completes but its item/turn completion
+notifications are dropped by the fixture proxy. Each resumes the captured
+identity with the original receipt and journal. The independent checker matches
+the exact fault to native frames, reads immutable ledger snapshots, verifies
+artifact hashes, and checks that the old wake and approval are never replayed.
+
+On pinned Codex 0.160.0, native history reported the cancelled and crashed
+compaction turns as `interrupted`, and the dropped-notification case as
+`completed`. That history capture is a fixture-only `thread/read`; adapter
+`reconcile` did read only the original Buddy wake's recorded turn in that
+historical fixture; it is now withdrawn. Neither
+observation proves work completion or tool effects. Missing notifications are
+not synthesized into the journal, and manual compaction is never retried.
+
+Claims, READY commit/wait targets and queued mail survive all three seams. Each
+case requires fresh approval, an actual whole-patch denial with a permitted
+edit as its control, explicit retrieval of the old body, explicit claim release
+and observed shutdown of every owned native child. These opt-in checks use
+fixed loopback responses. They do not qualify automatic thresholds, arbitrary
+crash offsets or effects, summary quality, model-directed recovery, Claude
+resume/compaction or production installation.
+
+### Isolated Claude manual compaction and resume
+
+```sh
+python3 scripts/qualify-claude-compaction.py --claude-version 2.1.291
+python3 scripts/check-claude-compaction.py /private/tmp/buddy-claude-compaction-EXAMPLE/result.json --self-test
+```
+
+This opt-in fixture accepts the separately qualified 2.1.290 and 2.1.291
+contracts. The default remains 2.1.290; select the matching retained executable
+with `--claude` when needed. It uses a disposable linked worktree and fixed
+loopback Messages responses, and records original native frames,
+journal, history copies and immutable ledger snapshots. Its private proxy
+substitutes one explicitly armed `/compact` input while preserving the input
+UUID; that seam is fixture code, not a Buddy command or permission granted by
+peer text. The queued body remains in Buddy.
+
+The independent checker verifies the boundary and separate local result,
+captured-identity resume, the native summary in history and the first resumed
+provider request, unchanged claims/READY targets, duplicate-wake and old-approval
+suppression, explicit inbox retrieval, fresh approval and actual hook denial
+with an allowed-write control. Missing native history refuses. Go regressions
+also require incomplete compaction journals to refuse before native launch,
+ledger refresh or journal mutation. Native child cleanup is observed explicitly.
+
+This measures successful manual compaction and clean resume, not summary
+quality, automatic thresholds, interrupted compaction, uncertain-turn recovery,
+real-provider work or production installation. It adds no compaction support
+to the separately retained 2.1.289 contract.
+
+### Isolated Claude interrupted manual compaction
+
+```sh
+python3 scripts/qualify-claude-interrupted-compaction.py --claude-version 2.1.291
+python3 scripts/check-claude-interrupted-compaction.py /private/tmp/buddy-claude-interrupted-compaction-EXAMPLE/result.json --self-test
+```
+
+Five disposable cases compare successful manual compaction/resume with
+cancellation while the summary response is held, an owned-process crash at that
+barrier, a dropped boundary, and a dropped local result. The proxy records the
+original native frames before loss; a boundary-only journal is observed before
+the lost-result case crashes. No fixture repairs a journal or retries compaction.
+
+The four uncertain cases must refuse resume without a ledger refresh, native
+launch or journal mutation, even where native history contains a completed
+summary. Native `success` after cancellation remains an unknown outcome. The
+successful control checks captured identity, summary preservation, duplicate
+wake and old approval suppression, fresh approval, inbox retrieval, and actual
+hook denial with an allowed-write control. All cases preserve claims, READY
+commit/targets and queued bodies, and observe owned native child cleanup.
+
+The checker reads original wire, journals, history, immutable SQLite captures
+and hashes independently of the runner's verdict. `--self-test` rejects damaged
+receipts and missing cases. This qualifies bounded refusal and the successful
+control on separately measured 2.1.290 and 2.1.291. The default remains
+2.1.290; `--claude` selects the matching executable. It does not add unfinished
+recovery, compaction control, automatic thresholds, real-provider work or production
+installation. Like the other native fixtures, this stays opt-in and outside
+the hermetic tier.
+
+### Isolated Claude completed-turn resume
+
+```sh
+python3 scripts/qualify-claude-resume.py
+python3 scripts/check-claude-resume.py /private/tmp/buddy-claude-resume-EXAMPLE/result.json
+python3 scripts/check-claude-resume.py /private/tmp/buddy-claude-resume-EXAMPLE/result.json --self-test
+```
+
+This opt-in fixture uses the selected exact Claude contract and a deterministic loopback
+Messages provider in disposable state and worktrees. After a completed turn and
+clean transport shutdown it resumes the same conversation and captured Buddy
+incarnation. A separate empty-state attempt refuses before provider input.
+The intact resume preserves conversation history, claim IDs, READY commit/wait
+targets and queued mail; old wakes and approval replies are not replayed.
+Fresh native approval, explicit body retrieval, a conflicting Write denial and
+an allowed Write verify the resumed control and gate. Native results remain
+separate from body delivery, acknowledgment, completed work and validation.
+
+The independent checker reads original bidirectional wire captures, journals,
+immutable ledger snapshots, provider tool results and artifact hashes. This
+qualifies completed-turn local transport recovery only. The following fixture
+extends cancellation evidence; unfinished-turn recovery, compaction, arbitrary crash offsets or tool effects,
+real-provider/model-directed recovery and production installation remain open.
+
+### Isolated Claude cancellation and unfinished-crash refusal
+
+```sh
+python3 scripts/qualify-claude-interrupted.py
+# Optional when IPv4 ephemeral ports are occupied by other local work:
+python3 scripts/qualify-claude-interrupted.py --ipv6
+python3 scripts/check-claude-interrupted.py /private/tmp/buddy-claude-interrupted-EXAMPLE/result.json
+python3 scripts/check-claude-interrupted.py /private/tmp/buddy-claude-interrupted-EXAMPLE/result.json --self-test
+```
+
+Four disposable fixtures exercise interruption during a held provider response,
+interruption while approval is pending, and process-group crashes at each seam.
+The qualified 2.1.289, 2.1.290 and 2.1.291 probes emitted `aborted_streaming` and
+`aborted_tools` respectively, with exact input UUIDs, an empty queue and subsequent adapter idle.
+These remain native error results, never successful work or rollback evidence.
+
+The runner requires cancellation resume to preserve captured identity, claims,
+READY and queued mail; old wakes and approval responses must not replay. Fresh
+approval, explicit body retrieval and denied/permitted native Writes are controls.
+Fresh provider requests must retain the original tool result or cancellation
+record in native history. The optional `--ipv6` selects literal `::1`; the default
+is `127.0.0.1`. Neither changes host network settings or permits an external bind.
+Crashes without terminal evidence must refuse before native launch, ledger
+refresh or journal changes. The independent checker reads original wire frames,
+journals, immutable ledger snapshots and artifact hashes, and mutates receipt
+copies in its self-test. See the latest plan receipt for actual executed results.
+
+These checks use fixed loopback responses with chat absent. They do not qualify
+unfinished/uncertain recovery, native history reconciliation, Claude compaction,
+arbitrary tool effects, real-provider recovery or production installation.
+
+### Isolated Claude history lookup
+
+```sh
+# Use explicit existing installations; no package or native binary is installed.
+python3 scripts/qualify-claude-history.py --claude /absolute/path/to/claude-2.1.291 --claude-version 2.1.291 --sdk /absolute/path/to/claude-agent-sdk-0.3.202
+python3 scripts/check-claude-history.py /private/tmp/buddy-claude-history-EXAMPLE/result.json --self-test
+```
+
+The SDK directory must contain the inspected package's `package.json`, `sdk.mjs`
+and `sdk.d.ts`. The runner invokes Node (`--node` may select its executable) and
+the lookup helper calls only `getSessionMessages`, for the captured session and
+worktree. Native state is disposable. `--ipv6` selects literal IPv6 loopback;
+the default is `127.0.0.1`.
+
+`--claude-version` selects the exact contract to probe; its default remains
+2.1.289. A mismatched executable refuses before builds, providers or workers.
+The runner captures the native version and executable hash before building and
+rechecks them before launch. SDK 0.3.202's package, module and declaration hashes
+are captured before the exercise and by each lookup. The checker binds those
+observations to the declared contract, saved launch, matching built-in Mod
+profile and captured identity, and requires one source/build/version pair across
+all five cases. A probe option alone does not qualify another version pair.
+
+Five cases compare completed, dropped-result, dropped-acknowledgment,
+active-response crash and pending-approval crash evidence. Both default and
+`includeSystemMessages` reads are captured, with missing-session and empty-state
+controls. The completed journal must admit resume and suppress an old wake;
+all four incomplete journals must refuse before native launch, ledger refresh
+or journal mutation. Input UUIDs, transcript availability and assistant
+`end_turn` never repair an incomplete adapter journal or authorize replay.
+
+The checker reads original wire frames, SDK output, journals, ledger snapshots
+and hashes. It keeps input correlation separate from missing history and unknown
+terminal status; claims, exact READY and queued mail must survive. These
+measurements qualify lookup and conservative refusal, not recovery of unfinished
+work. The adapter gains no Node/SDK dependency. The separate 2.1.289 and 2.1.291
+history receipts use SDK 0.3.202. History lookup on other native/SDK pairs or after compaction,
+arbitrary tool effects, real-provider recovery and production installation remain
+unqualified. See the latest work-order receipt for actual versions and results.
+
+## Offline compatibility diagnostic
+
+`buddy diagnose` returns `buddy.diagnostic.v1` JSON without opening the source
+ledger through Buddy's migrating store. Run from the worktree being inspected:
+
+```sh
+buddy diagnose
+buddy diagnose --harness codex
+buddy diagnose --harness claude --launch /absolute/worker-launch.json
+buddy diagnose --receipt /absolute/saved-adapter-receipt.json
+buddy diagnose --receipt /absolute/saved-adapter-receipt.json --evidence /absolute/native-capture.json
+```
+
+`--receipt` accepts the saved `buddy.control.v1` object containing `identity`
+and `launch`, not a single lifecycle CLI result. `--launch` uses the existing
+adapter launch schema and requires `--harness`. The two inputs are exclusive.
+All input paths must be absolute regular files, at most 1 MiB; final symlinks,
+FIFOs, unknown JSON fields and trailing JSON documents are refused. Files and
+versions are hashed or bounded; settings, peer bodies, secrets and observed
+incarnation tokens are never echoed. Inputs are observations, never authority.
+
+The report separates:
+
+- **Ledger:** absent, unreadable, invalid, too large, changing, journal present,
+  migration required, newer than this binary, or current schema. The binary's
+  supported schema and the snapshot's version/hash are reported when available.
+  `current_schema` describes the version and the small session projection read
+  here, not every table's compatibility or runtime readiness.
+- **Identity:** only a supplied captured token can match. Absent registrations,
+  ended sessions, wrong incarnations and wrong worktrees remain distinct. No
+  token is looked up to repair a stale receipt. A match is against the snapshot,
+  not evidence that a process or native thread is alive.
+- **Harness:** the adapter's implementation capabilities and pinned version
+  contract, separate from installed version and live capability observations.
+  The diagnostic never executes a native binary, including `--version`.
+- **Hooks:** supplied file configuration, historical trust metadata and observed
+  enforcement are different fields. Claude's bounded settings can be checked
+  offline, but effective policy and Mods remain unknown. Codex's file presence
+  and SHA256 do not establish its layered native hook configuration. Launch
+  fields asserting `observed` never become diagnostic evidence.
+
+The source ledger is read twice through read-only, nonblocking descriptors
+(maximum 64 MiB), with identity/mtime/content and journal checks. Only a private
+0600 temporary copy in a 0700 temporary directory is opened by SQLite, using
+`mode=ro&immutable=1`; the copy is removed afterward. A nonempty WAL or rollback
+journal produces `journal_present`, and an unreadable or special journal file
+produces `unreadable`. Nothing checkpoints, locks, migrates or recovers the source
+ledger. This conservative observation can report uncertainty while writers are
+active; it does not claim an atomic snapshot of a continuously changing ledger.
+No ledger, session, claim, inbox row or native configuration is created or
+changed. The existing bounded Git discovery locates the shared ledger for linked
+worktrees. Ordinary `adapter inspect` still uses store opening and may migrate.
+
+Optional historical evidence has this schema:
+
+```json
+{
+  "schema": "buddy.compatibility-evidence.v1",
+  "harness": "codex",
+  "captured_at": "2026-10-05T00:00:00Z",
+  "worktree": "/absolute/worktree",
+  "config_sha256": "SHA256 of the exact hook_config file bytes at capture time",
+  "version": "codex-cli 0.160.0",
+  "codex_hooks": {"data": []}
+}
+```
+
+Replace the example values with an existing capture; `codex_hooks` is the
+unwrapped native `hooks/list` result. The empty example proves no gate exists.
+For Claude, omit `codex_hooks` and use its exact captured version output, for
+example `2.1.289 (Claude Code)`. Captures must name the same harness, worktree and
+configuration hash and carry an RFC3339 timestamp. The file hash binds only that
+file, not every layered or imported hook source. The report labels matching
+captures `supplied_snapshot`; it does not authenticate their origin or freshness.
+Codex trust is checked against exact gate command/hash, synchronous patch and
+shell coverage, and absence of competing enabled hooks or native diagnostics, only
+for the pinned captured version. Changed configuration invalidates the capture.
+Installed version, present trust and enforcement remain unknown even when a
+historical capture matches. No native capture is acquired by this command.
+
+Exit 0 means the report was produced; `readiness` is always `not_established`.
+Malformed arguments/inputs or a failed output write exit nonzero. Configuration
+or ledger problems are report data, not an implicit install or repair action.
+Fresh native version/trust/Mod observation and real denial/allow controls remain
+separate qualification work. See the Step 4 receipt in
+[CODEX-ORCHESTRATOR-PLAN.md](CODEX-ORCHESTRATOR-PLAN.md).

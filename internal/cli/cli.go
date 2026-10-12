@@ -129,6 +129,9 @@ var verbs = map[string]verb{
 	"authority":   {usageAuthority, errVerb("authority", cmdAuthority)},
 	"ids":         {idsUsage, errVerb("ids", cmdIDs)},
 	"wait":        {usageWait, errVerb("wait", cmdWait)},
+	"lifecycle":   {usageLifecycle, errVerb("lifecycle", cmdLifecycle)},
+	"adapter":     {usageAdapter, errVerb("adapter", cmdAdapter)},
+	"diagnose":    {usageDiagnose, errVerb("diagnose", cmdDiagnose)},
 }
 
 func Run(args []string, env Env) int {
@@ -225,7 +228,8 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
               who <target>          the same report for ANY name a session answers to
                                     (id, label, s-<id>, an open claim slug): the
                                     cross-reference, since a session has four names
-              who is calling: --session <id>, else $BUDDY_SESSION, else $CLAUDE_CODE_SESSION_ID,
+              who is calling: --session <id>, else $BUDDY_SESSION, else native
+              $CLAUDE_CODE_SESSION_ID or $CODEX_THREAD_ID (must agree if both set),
               else the worktree — and that only when it names the one live session there is
 operator      pause <target> [--note <text>]             deny the target's next mutating tool
               resume <target>                            clear pause
@@ -259,10 +263,10 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     and ask what is reserved HERE — it never reads prose
               wait [--on <slug>]... [--until 3h] [--note <text>]   declare what you are
                                     waiting on (a deadline is required: default 3h, at most
-                                    12h); then arm THIS session's own keep-alive with
-                                    /loop buddy wait check — one check (~3 cache reads) per
-                                    ~50m that keeps the 1h prompt cache warm and drains the
-                                    inbox, and says STILL WAITING / LANDED / EXPIRED / NO WAIT.
+                                    12h). Claude: arm this session's /loop buddy wait check
+                                    (~50m on its 1h cache tier). Codex: run buddy wait check
+                                    in its own thread; scheduling unsupported, cache unknown.
+                                    Checks report STILL WAITING / LANDED / EXPIRED / NO WAIT.
                                     wait clear · wait ls.  A wait reserves nothing.
                                     --ready HEAD|<commit>: your work is in on the run the
                                     awaited claim guards, ready at that commit (one long
@@ -270,12 +274,19 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     who is READY)
               authority [add|rm <path>]   the files whose on-disk change after a session
                                     started is announced to it ONCE, on its next tool
-                                    call (CLAUDE.md always; the copy in a long session's
+                                    call (CLAUDE.md and AGENTS.md always; a long session's
                                     context is a snapshot, and nothing else says it rotted)
 setup         init                  create the ledger for this repo
+adapter       lifecycle             captured Codex incarnation events and JSON receipts;
+                                    lifecycle --help lists the explicit adapter contract
+              adapter               versioned captured-identity inbox and endpoint receipts;
+                                    adapter --help lists the coordination interface
+              diagnose              offline compatibility JSON; never migrates a ledger or
+                                    runs hooks; a report is not a readiness verdict
 every verb answers --help (or -h) with its usage line and does nothing else; an argument a
 verb does not know is REFUSED, never ignored (sweep --help used to sweep)
-hooks         hello · gate · beat · idle · bye   (wired in .claude/settings; hook JSON on stdin)
+hooks         hello · gate · beat · idle · bye   (hook JSON on stdin; Codex wiring and
+              lifecycle limits: docs/USAGE.md#codex-participation)
               busy   OPTIONAL, on UserPromptSubmit: only a turn that runs no tool at all
                      needs it — every other turn's first beat retracts the idle mark
 git hook      commit-gate [--deny]  staged paths vs. other sessions' claims (pre-commit;
@@ -293,7 +304,7 @@ edit. They exist so that a message about a file can be ADDRESSED to someone.
 // table to that, so a verb cannot be added with the wrong line or none.
 const (
 	usageInit       = "usage: buddy init   (create the ledger for this repo, and say whether its main languages have a language server; takes no arguments)"
-	usageHello      = "usage: buddy hello [--session <id>] [--label <text>]   (SessionStart hook; hook JSON on stdin)"
+	usageHello      = "usage: buddy hello [--session <id>] [--label <text>]   (SessionStart hook; hook JSON on stdin; by hand, give it </dev/null)"
 	usageBye        = "usage: buddy bye <session> [--force]  (or pipe SessionEnd hook JSON)"
 	usageBeat       = "usage: buddy beat   (PostToolUse hook; hook JSON on stdin)"
 	usageIdle       = "usage: buddy idle   (Stop hook; hook JSON on stdin)"
@@ -314,15 +325,25 @@ const (
 	usageWhose     = "usage: buddy whose <path>"
 	usageStatus    = "usage: buddy status [--session <id>]"
 	usageWho       = "usage: buddy who <session|label|s-id|slug>  (any name a session answers to; prints the rest)"
-	usageAuthority = "usage: buddy authority [add <path> | rm <path>]   (repo-relative; CLAUDE.md is always watched)"
+	usageAuthority = "usage: buddy authority [add <path> | rm <path>]   (repo-relative; CLAUDE.md and AGENTS.md are always watched)"
 )
 
 // ---- hook input ----
 
 type hookInput struct {
 	SessionID string `json:"session_id"`
-	Cwd       string `json:"cwd"`
-	ToolName  string `json:"tool_name"`
+	// Lifecycle adapters use the native event kind, never turn completion as
+	// an inferred session end. Parent/subagent identifiers are rejection guards
+	// until independently claiming native workers have been qualified.
+	HookEventName   string `json:"hook_event_name"`
+	AgentID         string `json:"agent_id"`
+	ParentSessionID string `json:"parent_session_id"`
+	ParentThreadID  string `json:"parent_thread_id"`
+	// Harness is an optional Buddy adapter extension. BUDDY_HARNESS on the
+	// hook command provides the same classification without rewriting JSON.
+	Harness  string `json:"buddy_harness"`
+	Cwd      string `json:"cwd"`
+	ToolName string `json:"tool_name"`
 	// TranscriptPath is the session's own JSONL transcript. The only thing
 	// that reads it is beat's context accounting (internal/cli/transcript.go);
 	// nothing in the safety path has any business in a file the harness owns.
@@ -357,14 +378,79 @@ var errNoHookInput = errors.New("no hook input on stdin")
 // not be truncated into invalid JSON and waved through.
 const maxHookInput = 16 << 20
 
+// hookInputWait bounds how long a hook verb waits for its stdin to arrive
+// WHOLE — the bytes and the EOF that says they are all there. A harness writes
+// the payload at spawn and closes the pipe, so a real hook never waits out
+// this bound: the read returns the moment stdin closes, and the hook latency
+// budget (100 ms, measured 13-20 ms) is untouched. What does wait it out is a
+// pipe nobody will close — the stdin a hand-run `buddy hello --session <id>`
+// inherits from a tool shell or a script loop. Measured (audit A-10,
+// 2026-10-07): that read had no bound, so the registration hung until the
+// writer closed, 3.0 s in the probe and a tool's whole timeout in practice,
+// and the `</dev/null` recipe was never shown. Two seconds is twenty times
+// the latency budget, so a false "did not arrive" needs a harness that was
+// descheduled for 2 s between spawning the hook and writing to it.
+//
+// The verdict at the bound is a REFUSAL, never errNoHookInput: a pipe still
+// open may yet carry a delayed hook's payload, and reading "not yet" as "no
+// hook" would hand that hook the manual path D-069 closed (review F-27, which
+// rejects any fallback from unreadable input to manual authority). For gate,
+// the refusal is a deny, like every other unreadable input.
+const hookInputWait = 2 * time.Second
+
+// errHookInputOpen is the bound above running out: stdin was still open with
+// no complete payload. Distinct from errNoHookInput on purpose (see there).
+var errHookInputOpen = fmt.Errorf("stdin stayed open for %v without a complete hook payload", hookInputWait)
+
+// readHookInput reads stdin whole, under hookInputWait. The read runs in a
+// goroutine because os.Stdin is a blocking descriptor and takes no deadline
+// (SetReadDeadline returns ErrNoDeadline on it); on the bound the goroutine is
+// abandoned to the process's exit — a hook verb reads stdin once and exits.
+func readHookInput(env Env) ([]byte, error) {
+	type result struct {
+		data []byte
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		data, err := io.ReadAll(io.LimitReader(env.Stdin, maxHookInput+1))
+		done <- result{data, err}
+	}()
+	timer := time.NewTimer(hookInputWait)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.data, r.err
+	case <-timer.C:
+		return nil, errHookInputOpen
+	}
+}
+
+// readHook is decodeHook plus harness identity classification, for every hook
+// whose whole job is to act AS the session. The gate decodes and classifies in
+// two steps instead, because an identity conflict is a verdict only where a
+// ledger governs the call (invariant 3; see cmdGate).
 func readHook(env Env) (hookInput, error) {
+	h, err := decodeHook(env)
+	if err != nil {
+		return h, err
+	}
+	if err := classifyHook(&h, env); err != nil {
+		return h, err
+	}
+	return h, nil
+}
+
+// decodeHook is the STRUCTURAL half of reading a hook: bounded stdin, JSON, a
+// session id, the cwd default. Nothing here depends on which harness sent it.
+func decodeHook(env Env) (hookInput, error) {
 	var h hookInput
 	if stdinIsTTY(env) {
 		// Never block a human at a terminal waiting for hook JSON that is
 		// not coming (`buddy hello --session <id>` used to hang here).
 		return h, errNoHookInput
 	}
-	data, err := io.ReadAll(io.LimitReader(env.Stdin, maxHookInput+1))
+	data, err := readHookInput(env)
 	if err != nil {
 		return h, fmt.Errorf("read hook input: %w", err)
 	}
@@ -722,9 +808,20 @@ func placeInRepo(top, cwd, p string) (rel, cased string, outside bool) {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(cwd, p)
 	}
+	return placeCanonical(top, canon(p))
+}
+
+// placeCanonical is placeInRepo for a target that is ALREADY canonical and must
+// not be resolved again. The gate needs that for a symlink's own directory
+// entry: canon would follow the link and place its target instead, and a
+// delete unlinks the entry (gateTargets).
+func placeCanonical(top, cp string) (rel, cased string, outside bool) {
+	if top == "" {
+		return "", "", true
+	}
 	// Two canon walks, not four. repoRel and repoRelCased were separate
 	// functions always called as a pair, each resolving both sides again.
-	cp, ct := canon(p), canon(top)
+	ct := canon(top)
 	r, err := filepath.Rel(store.Fold(ct), store.Fold(cp))
 	if err != nil || r == ".." || strings.HasPrefix(r, "../") {
 		return "", "", true
@@ -841,7 +938,7 @@ func (e errUncorroborated) Error() string {
 //
 //  1. --session <id>        the caller said so explicitly
 //  2. BUDDY_SESSION         buddy's own override
-//  3. CLAUDE_CODE_SESSION_ID  the harness's ground truth (see above)
+//  3. the native harness identity (Claude or Codex, refusing disagreement)
 //  4. the working directory — and ONLY when exactly one live session claims it
 //
 // The first three are assertions of identity: if the named session is not live
@@ -870,8 +967,16 @@ func whoAmI(st *store.Store, env Env, explicit string) (store.SessionInfo, error
 		{explicit, "--session"},
 		{env.getenv(EnvSession), EnvSession},
 		{env.getenv(EnvClaudeSession), EnvClaudeSession},
+		{env.getenv(EnvCodexThread), EnvCodexThread},
 	}
 	for i, src := range sources {
+		if i == 2 {
+			// Explicit assertions keep their precedence; only the native
+			// fallback must refuse an inherited, conflicting harness identity.
+			if _, _, err := nativeSession(env); err != nil {
+				return store.SessionInfo{}, err
+			}
+		}
 		if src.id == "" {
 			continue
 		}
@@ -966,7 +1071,7 @@ func clearing(from string) string {
 
 // sessionFlag registers the standard --session override on an agent verb.
 func sessionFlag(fs *flag.FlagSet, into *string) {
-	fs.StringVar(into, "session", "", "session id (default: $"+EnvSession+", else $"+EnvClaudeSession+", else the worktree if unambiguous)")
+	fs.StringVar(into, "session", "", "session id (default: $"+EnvSession+", else native $"+EnvClaudeSession+" or $"+EnvCodexThread+", else the worktree if unambiguous)")
 }
 
 // SessionLabelFor best-effort resolves the calling session's label for a
@@ -1077,28 +1182,53 @@ func cmdHello(args []string, env Env) error {
 	var proc store.ProcRef
 	terminal := ""
 	hookDriven := false
-	if session == "" {
-		// Only consult stdin when the flag didn't already answer; hello with
-		// --session at a terminal must not wait on hook JSON.
-		if h, err := readHook(env); err == nil {
-			session, dir = h.SessionID, h.Cwd
-			a, _ := env.anchor()
-			proc = a.Ref
-			// A RETITLED anchor is a `claude --bg` lane (D-058): it runs in
-			// the claude daemon's environment, so HERDR_PANE_ID / TMUX_PANE
-			// there name whoever started the daemon — measured, the
-			// launcher's pane, which an operator winding down the fleet
-			// would close. No handle is honest; a wrong one is not.
-			if !a.Retitled {
-				terminal = terminalHandle(env)
-			}
-			hookDriven = true
+	codex := env.getenv(EnvCodexThread) != "" || env.getenv(EnvHarness) == "codex"
+	// A supplied --session does not turn hook input into a manual act. Skipping
+	// this read let a delayed Codex SessionStart refresh a live successor or
+	// revive an ended one and orphan its claims (D-069 review). readHook checks
+	// for a terminal before reading, so a manual hello still never waits there.
+	h, herr := decodeHook(env)
+	switch {
+	case herr == nil:
+		herr = classifyHook(&h, env)
+	case session != "" && !errors.Is(herr, errNoHookInput):
+		// Still refused: reading arbitrary bytes as "no hook" would hand a
+		// delayed hook the manual path D-069 closed. But a script loop's
+		// stdin or an inherited pipe reaches here with no hint of why, so say
+		// what a hand-run registration takes (review F-27, 2026-10-06).
+		herr = fmt.Errorf("%w; a hand-run `hello --session` takes no hook input, so give it an empty stdin (</dev/null): bytes there are read as a hook's and refused when they are not one", herr)
+	}
+	if herr == nil {
+		if h.Harness == "codex" {
+			return unsupportedCodexLifecycle("hello")
 		}
+		if session != "" && session != h.SessionID {
+			return errors.New("hello --session and hook session_id disagree; refusing to redirect a lifecycle event")
+		}
+		session, dir = h.SessionID, h.Cwd
+		codex = false
+		a, _ := hookAnchor(h, env)
+		proc = a.Ref
+		// A RETITLED anchor is a `claude --bg` lane (D-058): it runs in
+		// the claude daemon's environment, so HERDR_PANE_ID / TMUX_PANE
+		// there name whoever started the daemon — measured, the
+		// launcher's pane, which an operator winding down the fleet
+		// would close. No handle is honest; a wrong one is not.
+		if !a.Retitled {
+			terminal = terminalHandle(env)
+		}
+		hookDriven = true
+	} else if !errors.Is(herr, errNoHookInput) {
+		return herr // malformed/mismatched hook input is not a manual hello
 	}
 	if session == "" {
 		// Not hook-driven: take the harness's own id so a hand-run hello
 		// registers the session that is actually running, never a new one.
-		session = firstNonEmpty(env.getenv(EnvSession), env.getenv(EnvClaudeSession))
+		var err error
+		session, _, err = environmentSession(env)
+		if err != nil {
+			return err
+		}
 	}
 	if session == "" {
 		return fmt.Errorf("no session id (pipe hook JSON, pass --session, or set %s)", EnvSession)
@@ -1132,7 +1262,11 @@ func cmdHello(args []string, env Env) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n",
 		fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
-	b.WriteString(helloHelpLine)
+	if codex {
+		b.WriteString(codexHelloHelpLine)
+	} else {
+		b.WriteString(helloHelpLine)
+	}
 	// A LABEL WORN TWICE (issue #17). Default labels are unique by
 	// construction (<worktree-base>/s-<8hex>), so only a hand-chosen --label
 	// collides — and when it does, every pause or msg addressed to it is
@@ -1191,7 +1325,7 @@ func cmdHello(args []string, env Env) error {
 	// A declared wait (D-033): this incarnation's, restated with its verdict
 	// and the keep-alive questioned; or a predecessor's that ended with its
 	// run, named as the earlier run's with the line that declares it again.
-	tail.WriteString(waitHelloLines(st, si, now))
+	tail.WriteString(waitHelloLines(st, si, now, codex))
 	// Read before the claims list, because the list must leave room for the
 	// line that counts undelivered messages. That line is written after
 	// everything else, whether or not any message fits, and the list's room
@@ -1276,10 +1410,15 @@ func cmdBye(args []string, env Env) error {
 	var from store.ProcRef
 	hookDriven := false
 	if h, err := readHook(env); err == nil {
+		if h.Harness == "codex" {
+			return unsupportedCodexLifecycle("bye")
+		}
 		session, dir = h.SessionID, h.Cwd
 		hookDriven = true
-		a, _ := env.anchor()
+		a, _ := hookAnchor(h, env)
 		from = a.Ref
+	} else if !errors.Is(err, errNoHookInput) {
+		return err
 	} else {
 		for _, a := range args {
 			switch {
@@ -1358,6 +1497,9 @@ func cmdIdle(args []string, env Env) error {
 	if err != nil {
 		return fmt.Errorf("idle is a hook verb; pipe Stop JSON (%v)", err)
 	}
+	if h.Harness == "codex" {
+		return unsupportedCodexLifecycle("idle")
+	}
 	st, _, err := openRepo(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return nil
@@ -1423,6 +1565,9 @@ func cmdBusy(args []string, env Env) error {
 	if err != nil {
 		return fmt.Errorf("busy is a hook verb; pipe UserPromptSubmit JSON (%v)", err)
 	}
+	if h.Harness == "codex" {
+		return unsupportedCodexLifecycle("busy")
+	}
 	st, _, err := openRepo(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return nil
@@ -1450,7 +1595,9 @@ func cmdBusy(args []string, env Env) error {
 	// it is buddy's own observation, so it must not sit inside the block the
 	// inbox header marks as operator/peer text. It prints with nothing
 	// queued, which is the one case busy used to be silent in.
-	resampleFootprint(st, h, me, known, env) // the turn that just ended (D-060)
+	if h.Harness != "codex" {
+		resampleFootprint(st, h, me, known, env) // Claude's turn that just ended (D-060)
+	}
 	note := busyHandoff(st, me, known, env)
 	if note == "" && len(msgs) == 0 {
 		return nil
@@ -1486,6 +1633,9 @@ func cmdBeat(args []string, env Env) error {
 	if err != nil {
 		return fmt.Errorf("beat is a hook verb; pipe PostToolUse JSON (%v)", err)
 	}
+	if h.Harness == "codex" {
+		return unsupportedCodexLifecycle("beat")
+	}
 	st, rc, err := openRepo(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return nil
@@ -1520,7 +1670,7 @@ func cmdBeat(args []string, env Env) error {
 	// registered nothing is bound by its first hook-driven tool call, and a
 	// second process on the same id registers itself the moment it acts. Two
 	// sysctls, no fork; measured under the 100 ms budget with room to spare.
-	a, _ := env.anchor()
+	a, _ := hookAnchor(h, env)
 	if err := st.BeatFrom(h.SessionID, rel, a.Ref); err != nil {
 		return err
 	}
@@ -1547,7 +1697,7 @@ func cmdBeat(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	if known && me.Live() {
+	if known && me.Live() && h.Harness != "codex" {
 		if u, ok := lastUsage(h.TranscriptPath); ok {
 			_ = st.RecordContext(h.SessionID, me.Incarnation, store.ContextSample{
 				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Effort: u.Effort,
@@ -1584,7 +1734,7 @@ func cmdBeat(args []string, env Env) error {
 	// whichever comes first.
 	landed, commitLanded := "", func() error { return nil }
 	if known && me.Live() {
-		landed, commitLanded = waitNotice(st, me, nowOf(env))
+		landed, commitLanded = waitNotice(st, me, nowOf(env), h.Harness == "codex")
 	}
 
 	// Drain the inbox: write first, mark delivered only after the write
@@ -1828,7 +1978,10 @@ const helloInboxCountLine = 128
 // Every `buddy <verb> --flag` it names is checked against that verb's usage
 // line (TestHelloHelpLineNamesOnlyWhatHelpAnswers), so a renamed flag fails a
 // test rather than teaching every session a refusal.
-const helloHelpLine = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim --dry-run` (forecast a refusal) `--shared` (lanes co-hold a file); `buddy wait --on <slug>` (declare a wait on a peer) or `--until 2h` alone (before you park on your own long run, or on the orchestrator), then arm your own `/loop buddy wait check`; `buddy msg --measured|--lead|--relay` (what a claim rests on) `--supersedes <id>` (correct one); `buddy sent`; `buddy ids take`.\n"
+const helloHelpLead = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim --dry-run` (forecast a refusal) `--shared` (lanes co-hold a file); `buddy wait --on <slug>` (declare a wait on a peer) or `--until 2h` alone (before you park on your own long run, or on the orchestrator)"
+const helloHelpTail = "; `buddy msg --measured|--lead|--relay` (what a claim rests on) `--supersedes <id>` (correct one); `buddy sent`; `buddy ids take`.\n"
+const helloHelpLine = helloHelpLead + ", then arm your own `/loop buddy wait check`" + helloHelpTail
+const codexHelloHelpLine = helloHelpLead + "; read the wait with `buddy wait check` in your own Codex thread (automatic scheduling unsupported; cache timing unknown)" + helloHelpTail
 
 // writeHelloClaims renders the digest's claims list inside room bytes
 // (D-036, issue #30).
@@ -1969,7 +2122,7 @@ var readOnlyTools = map[string]bool{
 }
 
 func cmdGate(args []string, env Env) int {
-	h, err := readHook(env)
+	h, err := decodeHook(env)
 	if err != nil {
 		// The gate cannot prove an unreadable call safe: malformed, oversized,
 		// or absent hook JSON fails CLOSED, matching the posture for ledger
@@ -1977,6 +2130,14 @@ func cmdGate(args []string, env Env) int {
 		deny(env, fmt.Sprintf("buddy gate could not read hook input (%v); refusing the tool call", err))
 		return 0
 	}
+	// Identity is classified now and adjudicated only where a ledger governs
+	// the call. It used to be refused inside readHook, before discovery, so a
+	// Claude session that inherited a Codex parent's CODEX_THREAD_ID had every
+	// Write denied in every directory on the machine, ledger or none (review
+	// F-04, 2026-10-06, reproduced outside any repo): the D-044 fleet-wide-deny
+	// class, and a breach of invariant 3. A conflict still refuses wherever a
+	// home or TARGET ledger governs the call.
+	idErr := classifyHook(&h, env)
 	if h.ToolName == "" {
 		// Structurally valid JSON that is semantically not a PreToolUse
 		// payload (no tool_name) is schema drift, not a pass (Codex finding:
@@ -1985,49 +2146,99 @@ func cmdGate(args []string, env Env) int {
 		return 0
 	}
 	if readOnlyTools[h.ToolName] {
+		// Read-only tools pass even when the ledger is unreadable or the
+		// session paused, so an ambiguous identity does not stop them either:
+		// who is reading attributes nothing.
+		return 0
+	}
+	paths, err := gatePaths(h)
+	if err != nil {
+		deny(env, fmt.Sprintf("buddy gate %v; refusing %s", err, h.ToolName))
 		return 0
 	}
 	st, rc, err := openRepo(h.Cwd, env)
-	if errors.Is(err, errNoLedger) {
-		return 0 // feature off: provably no repo or never inited
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, errNoLedger) {
 		// Ambiguous discovery failure or unreadable ledger: fail closed.
 		deny(env, fmt.Sprintf("buddy ledger unavailable (%v); refusing %s until it is fixed (or remove <repo>/.git/buddy.db to turn fleet off)", err, h.ToolName))
 		return 0
 	}
-	defer st.Close()
-
-	label, err := sessionLabel(st, h.SessionID)
-	if err != nil {
-		deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
-		return 0
+	if st != nil {
+		defer st.Close()
 	}
-	if note, paused, err := st.PausedFor(h.SessionID, label); err != nil {
-		deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
-		return 0
-	} else if paused {
-		msg := "the operator paused this session (buddy pause)"
-		if note != "" {
-			msg += ": " + fence.Line(note, 512)
+	// Reuse target-repo discovery for a multi-file patch. Distinct files in
+	// one foreign worktree must not each fork git and reopen its ledger.
+	targetRepos := make(map[string]gateRepo)
+	defer func() {
+		for _, repo := range targetRepos {
+			if repo.st != nil {
+				repo.st.Close()
+			}
 		}
-		deny(env, msg+" — stop current work; wait for `buddy resume`.")
-		return 0
-	}
-
-	if h.path() == "" {
-		if pathTools[h.ToolName] {
-			// A mutating path tool without its path field is schema drift,
-			// not a pass: fail closed rather than silently un-gate every
-			// future edit.
-			deny(env, fmt.Sprintf("buddy gate could not find the target path in %s's hook input (schema drift?); refusing", h.ToolName))
+	}()
+	route := shellPatchRoute(h)
+	shellPatch := route.refuses()
+	if idErr != nil || (st == nil && shellPatch) {
+		// Two refusals that hold only where a ledger governs. With a home
+		// ledger that is settled; without one, the call is governed exactly
+		// when one of its targets lies in a buddy-governed repo.
+		why := shellPatchReason(h, route)
+		if idErr != nil {
+			why = fmt.Sprintf("buddy gate: the hook's session identity is ambiguous (%v); refusing %s where a buddy ledger governs it", idErr, h.ToolName)
+		}
+		if st != nil {
+			deny(env, why)
 			return 0
 		}
-		// Path-blind tools (Bash, unknown forwards): pause-only — Bash
-		// contents are an accepted bypass.
+		dirs := make([]string, 0, len(paths)+1)
+		for _, p := range paths {
+			// This arm refuses every governed call already. Even when target
+			// resolution fails, its known entries still establish jurisdiction.
+			targets, _ := gateTargets(h.Cwd, p)
+			for _, cp := range targets {
+				dirs = append(dirs, existingDir(cp))
+			}
+		}
+		if shellPatch {
+			shellDirs, routeErr := shellPatchDirs(h, env.getenv("HOME"))
+			dirs = append(dirs, shellDirs...)
+			if routeErr != nil {
+				// An exhausted routing budget cannot invent jurisdiction.
+				// Refuse only where a discovered directory has a ledger; deeper
+				// unseen placements remain outside the cooperative observation.
+				why = fmt.Sprintf("buddy gate cannot place shell patch routing (%s); use the apply_patch tool", fence.Line(routeErr.Error(), 512))
+			}
+		}
+		if reason := governedAny(h, env, dirs, why, targetRepos); reason != "" {
+			deny(env, reason)
+		}
 		return 0
 	}
-	if rc.top == "" {
+	if st != nil {
+		label, err := sessionLabel(st, h.SessionID)
+		if err != nil {
+			deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
+			return 0
+		}
+		if note, paused, err := st.PausedFor(h.SessionID, label); err != nil {
+			deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
+			return 0
+		} else if paused {
+			msg := "the operator paused this session (buddy pause)"
+			if note != "" {
+				msg += ": " + fence.Line(note, 512)
+			}
+			deny(env, msg+" — stop current work; wait for `buddy resume`.")
+			return 0
+		}
+		if shellPatch {
+			deny(env, shellPatchReason(h, route))
+			return 0
+		}
+	}
+	if len(paths) == 0 {
+		return 0
+	}
+	if st != nil && rc.top == "" {
 		// git named a ledger and would not name a root (a bare repo). Nothing
 		// can be placed, so nothing can be adjudicated: refuse rather than
 		// treat an unplaceable path as an unclaimed one.
@@ -2035,14 +2246,93 @@ func cmdGate(args []string, env Env) int {
 			fence.Line(h.Cwd, 512), h.ToolName))
 		return 0
 	}
-	rel, _, outside := placeInRepo(rc.top, h.Cwd, h.path())
-	if outside {
-		// The target lives outside THIS repo — but it may live inside another
-		// buddy-governed repo, whose own claims must be consulted (Codex
-		// finding: cross-repo absolute edits bypassed the target's ledger).
-		return gateForeignRepo(h, env)
+	homeTop := store.Fold(canon(rc.top))
+	homeKey := filepath.Join(homeTop, ".git")
+	for _, path := range paths {
+		targets, err := gateTargets(h.Cwd, path)
+		if err != nil {
+			why := fmt.Sprintf("buddy gate could not resolve the target (%s); refusing %s where a buddy ledger governs it", fence.Line(err.Error(), 512), h.ToolName)
+			if st != nil {
+				deny(env, why)
+				return 0
+			}
+			var dirs []string
+			for _, cp := range targets {
+				dirs = append(dirs, existingDir(cp))
+			}
+			if reason := governedAny(h, env, dirs, why, targetRepos); reason != "" {
+				deny(env, reason)
+				return 0
+			}
+			continue // feature off for every known spelling of this target
+		}
+		for _, cp := range targets {
+			if reason := gateTarget(st, rc, h, env, cp, homeTop, homeKey, targetRepos); reason != "" {
+				// All checks precede the tool call. One denial refuses the whole
+				// patch; multiple JSON documents would be invalid hook output.
+				deny(env, reason)
+				return 0
+			}
+		}
 	}
-	return denyIfHeld(st, h, env, rel, "")
+	return 0
+}
+
+// gateTarget adjudicates ONE canonical spelling of a target (gateTargets).
+//
+// The home ledger's claims are checked whenever the spelling lies inside the
+// home worktree, and a nested repository's own ledger is consulted IN ADDITION,
+// never instead. The nested arm used to replace the home check (review F-03,
+// 2026-10-06): a `git init`ed or submodule directory with no ledger, or a stale
+// `.git` file left by a pruned worktree (which git calls "not a git
+// repository", read as feature-off), let a Claude Edit or a patch through a
+// peer's claim on the enclosing directory. HEAD before the Codex work denied
+// both. Lexical containment says the home reservation applies; the nearest
+// .git says which OTHER ledger may also apply.
+func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeTop, homeKey string, repos map[string]gateRepo) string {
+	dir, targetKey := gateRepoKey(cp)
+	// An alias that placement folds into the home repo may not exist
+	// literally on a case-sensitive volume. Only a discovered nested
+	// entry can override that placement; a fallback ancestor cannot.
+	nested := targetKey != homeKey && strings.HasPrefix(targetKey, homeTop+"/")
+	if st != nil {
+		if rel, _, outside := placeCanonical(rc.top, cp); !outside {
+			if reason := denyIfHeld(st, h, rel, ""); reason != "" || !nested {
+				return reason
+			}
+		}
+	}
+	// No home ledger is not proof that the TARGET is ungoverned: a patch
+	// launched from a plain directory still consults each target.
+	return gateForeignRepo(h, env, cp, dir, targetKey, repos)
+}
+
+type gateRepo struct {
+	st  *store.Store
+	rc  repoContext
+	err error
+	// paused is the deny text when the operator's brake in THIS ledger
+	// stops the caller, computed once per repo per gate call.
+	paused string
+}
+
+// gateRepoKey is only a discovery/cache hint. Failure to find a .git entry
+// never means feature-off: openRepo still decides off versus unreadable.
+// A linked worktree's own .git is the key, since its root differs even though
+// the ledger is shared. cp is ALREADY canonical (gateTargets), and is not
+// resolved again: a symlink's own entry must key on the directory holding it.
+func gateRepoKey(cp string) (dir, key string) {
+	return repoKeyForDir(existingDir(cp))
+}
+
+// repoKeyForDir is gateRepoKey for a directory that already exists.
+func repoKeyForDir(dir string) (string, string) {
+	if entry, ok := nearestGitEntry(dir); ok {
+		// dir is canonical already. Keep the .git ENTRY's location as the
+		// key even when it is a symlink to an external git directory.
+		return dir, store.Fold(entry)
+	}
+	return dir, store.Fold(dir)
 }
 
 // existingDir returns the deepest existing ancestor directory of p.
@@ -2060,32 +2350,67 @@ func existingDir(p string) string {
 	}
 }
 
-// gateForeignRepo adjudicates a target outside the session's own repo: if it
-// falls inside another buddy-governed repo, that repo's claims apply (the
-// session id won't match any session there, so every open scope is foreign).
-func gateForeignRepo(h hookInput, env Env) int {
-	target := h.path()
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(h.Cwd, target)
+// openGateRepo discovers (once per gate call) the repo holding dir, keyed as
+// gateRepoKey keys it, and reads the operator's brake there.
+//
+// The brake is read here because a cross-repo edit used to consult only the
+// target ledger's CLAIMS (review F-28): `buddy pause all` in repo X did not stop
+// a session whose cwd was another repo, or no repo, from editing X. The label
+// is the one THIS ledger knows the session by, or none; a label borrowed from
+// another ledger could name somebody else here.
+func openGateRepo(h hookInput, env Env, dir, key string, repos map[string]gateRepo) gateRepo {
+	if repo, ok := repos[key]; ok {
+		return repo
 	}
-	dir := existingDir(canon(target))
-	st, rc, err := openRepo(dir, env)
+	var repo gateRepo
+	repo.st, repo.rc, repo.err = openRepo(dir, env)
+	if repo.st != nil {
+		label, err := sessionLabel(repo.st, h.SessionID)
+		var note string
+		var paused bool
+		if err == nil {
+			note, paused, err = repo.st.PausedFor(h.SessionID, label)
+		}
+		switch {
+		case err != nil:
+			repo.paused = fmt.Sprintf("buddy: target repo ledger read failed (%s); refusing %s",
+				fence.Line(err.Error(), 512), h.ToolName)
+		case paused:
+			msg := fmt.Sprintf("the operator paused edits in %s (buddy pause)", fence.Line(repo.rc.top, 512))
+			if note != "" {
+				msg += ": " + fence.Line(note, 512)
+			}
+			repo.paused = msg + " — stop current work there; wait for `buddy resume`."
+		}
+	}
+	repos[key] = repo
+	return repo
+}
+
+// gateForeignRepo adjudicates a target outside the session's own repo: if it
+// falls inside another buddy-governed repo, that repo's brake and claims apply
+// (the session id won't match any session there, so every open scope is
+// foreign). target is canonical (gateTargets) and is placed without resolving
+// it again.
+func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[string]gateRepo) string {
+	repo := openGateRepo(h, env, dir, key, repos)
+	st, rc, err := repo.st, repo.rc, repo.err
 	if errors.Is(err, errNoLedger) {
-		return 0 // not buddy-governed → genuinely outside our jurisdiction
+		return "" // not buddy-governed → genuinely outside our jurisdiction
 	}
 	if err != nil {
-		deny(env, fmt.Sprintf("buddy: target %s is in a repo whose ledger is unavailable (%s); refusing %s",
-			fence.Line(target, 512), fence.Line(err.Error(), 512), h.ToolName))
-		return 0
+		return fmt.Sprintf("buddy: target %s is in a repo whose ledger is unavailable (%s); refusing %s",
+			fence.Line(target, 512), fence.Line(err.Error(), 512), h.ToolName)
 	}
-	defer st.Close()
+	if repo.paused != "" {
+		return repo.paused
+	}
 	top := rc.top
 	if top == "" {
-		deny(env, fmt.Sprintf("buddy: could not resolve the target repo root for %s; refusing %s",
-			fence.Line(target, 512), h.ToolName))
-		return 0
+		return fmt.Sprintf("buddy: could not resolve the target repo root for %s; refusing %s",
+			fence.Line(target, 512), h.ToolName)
 	}
-	rel, _, outside := placeInRepo(top, dir, target)
+	rel, _, outside := placeCanonical(top, target)
 	if outside {
 		// A ledger was found under the target, so this repo IS governed — and
 		// the path could still not be placed inside its root. That is a
@@ -2093,21 +2418,41 @@ func gateForeignRepo(h hookInput, env Env) int {
 		// is a disagreement between how git spells the root and how the tool
 		// spelled the target, and a disagreement the gate cannot resolve must
 		// not resolve to allow. This arm was the exit the NFD spelling took.
-		deny(env, fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
-			fence.Line(target, 512), fence.Line(top, 512), h.ToolName))
-		return 0
+		return fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
+			fence.Line(target, 512), fence.Line(top, 512), h.ToolName)
 	}
-	return denyIfHeld(st, h, env, rel, top)
+	return denyIfHeld(st, h, rel, top)
+}
+
+// governedAny is the jurisdiction test for a refusal that applies only where a
+// ledger governs (an ambiguous identity, a shell-routed patch) when the cwd has
+// no ledger of its own. dirs are existing directories. It returns why when any
+// lies in a buddy-governed repo, the unavailable-ledger refusal when one cannot
+// be read (invariant 3: that is DENY, never off), and "" when every one is
+// provably ungoverned.
+func governedAny(h hookInput, env Env, dirs []string, why string, repos map[string]gateRepo) string {
+	for _, d := range dirs {
+		dir, key := repoKeyForDir(d)
+		repo := openGateRepo(h, env, dir, key, repos)
+		switch {
+		case errors.Is(repo.err, errNoLedger):
+			continue
+		case repo.err != nil:
+			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",
+				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), h.ToolName)
+		}
+		return why
+	}
+	return ""
 }
 
 // denyIfHeld is the shared adjudication tail for the home-repo and
 // foreign-repo gates: one deny wording, so the texts cannot drift apart
 // again. where names the foreign repo root ("" for the session's own repo).
-func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) int {
+func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 	c, held, err := st.OwnerOf(rel, h.SessionID)
 	if err != nil {
-		deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
-		return 0
+		return fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName)
 	}
 	if held {
 		loc := rel
@@ -2120,18 +2465,17 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) int {
 		// so its deny names the one move that clears it, and the residual the
 		// word "shared" does not remove.
 		if c.Shared {
-			deny(env, fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. A shared claim admits edits from any session holding its own claim covering the path: buddy claim <your-slug> --shared --scope <path>. Two holders that read the same version and both write can still lose one edit.",
+			return fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. A shared claim admits edits from any session holding its own claim covering the path: buddy claim <your-slug> --shared --scope <path>. Two holders that read the same version and both write can still lose one edit.",
 				fence.Line(loc, 512), scopeList(c.Scopes),
-				fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix))
-			return 0
+				fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix)
 		}
 		// permissionDecisionReason is shown to the model on every deny, so it
 		// is a context-injection sink like the digest above.
-		deny(env, fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s. Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
+		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s. Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
 			fence.Line(loc, 512), scopeList(c.Scopes),
-			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix))
+			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix)
 	}
-	return 0
+	return ""
 }
 
 func deny(env Env, reason string) {
@@ -2821,6 +3165,9 @@ func cmdMsg(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	if _, _, err := environmentSession(env); err != nil {
+		return err // an ambiguous native sender must not queue an operator message
+	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
 		return err
@@ -2992,6 +3339,17 @@ func sendNote(st *store.Store, r recipient, t store.Target, now time.Time) strin
 		return ""
 	}
 	si, idle, gone := r.si, r.idle, r.gone
+	// The mechanism each arm ends in. For an adapter recipient the legacy one
+	// is false: its adapter fetches only adapter messages and runs no legacy
+	// drain, so "its next tool call" delivers nothing (review F-24). Said as
+	// what the ledger records about how it reads mail, not as a forecast.
+	idleWhy := "a session waiting at its prompt runs no tool, so delivery waits for its next tool call"
+	staleWhy := "delivery waits for its next tool call and nothing in the ledger says one is coming"
+	why := "delivery waits for its next tool call"
+	if r.adapterRecipient() {
+		why = "it reads mail through an adapter, which never fetches a plain message; only a `buddy inbox` run there shows this one"
+		idleWhy, staleWhy = why, why
+	}
 	var b strings.Builder
 	switch {
 	case !si.Live():
@@ -3007,18 +3365,18 @@ func sendNote(st *store.Store, r recipient, t store.Target, now time.Time) strin
 		fmt.Fprintf(&b, "its registered harness process (pid %s) is GONE and it was last seen %s ago; no hook will come from a process that is not there",
 			strings.Join(gone, ","), age(now, si.LastSeen))
 	case idle != nil:
-		fmt.Fprintf(&b, "%s last reported idle %s ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call",
-			fence.Line(t.String(), 128), age(now, *idle))
+		fmt.Fprintf(&b, "%s last reported idle %s ago; %s",
+			fence.Line(t.String(), 128), age(now, *idle), idleWhy)
 	case now.Sub(si.LastSeen) > store.StaleAfter:
-		fmt.Fprintf(&b, "NOT SEEN FOR %s, past the %s stale mark; delivery waits for its next tool call and nothing in the ledger says one is coming",
-			age(now, si.LastSeen), age(now, now.Add(-store.StaleAfter)))
+		fmt.Fprintf(&b, "NOT SEEN FOR %s, past the %s stale mark; %s",
+			age(now, si.LastSeen), age(now, now.Add(-store.StaleAfter)), staleWhy)
 	// Whole seconds in the ledger, so a beat inside the registration second
 	// is indistinguishable from none — which is why this says "not seen
 	// since" and not "no tool call yet".
 	case si.LastSeen.Equal(si.Started):
-		fmt.Fprintf(&b, "registered %s ago and not seen since; delivery waits for its next tool call", age(now, si.Started))
+		fmt.Fprintf(&b, "registered %s ago and not seen since; %s", age(now, si.Started), why)
 	default:
-		fmt.Fprintf(&b, "last seen %s ago; delivery waits for its next tool call", age(now, si.LastSeen))
+		fmt.Fprintf(&b, "last seen %s ago; %s", age(now, si.LastSeen), why)
 	}
 	// A DECLARED WAIT (D-033), after the arm so D-032's most-alarming-first
 	// order stands: what the recipient said it is waiting on and when its
@@ -3027,6 +3385,23 @@ func sendNote(st *store.Store, r recipient, t store.Target, now time.Time) strin
 	b.WriteString(waiterNote(st, si, now))
 	if msgs, err := st.Undelivered(si.SessionID, si.Label); err == nil && len(msgs) > 0 {
 		fmt.Fprintf(&b, "; %d earlier message(s) to it still undelivered, the oldest %s old", len(msgs), age(now, oldestOf(msgs)))
+	}
+	// The adapter channel's backlog, counted apart: Undelivered excludes it
+	// by design, and "nothing earlier" over a full adapter queue told the
+	// sender the channel was draining when it was a different channel.
+	b.WriteString(adapterBacklogNote(r.adapter, now))
+	return b.String()
+}
+
+// adapterBacklogNote renders the adapter register for a send's result line;
+// "" when it holds nothing.
+func adapterBacklogNote(a store.AdapterBacklog, now time.Time) string {
+	var b strings.Builder
+	if a.Current > 0 {
+		fmt.Fprintf(&b, "; %d adapter message(s) queued for its adapter, the oldest %s old", a.Current, age(now, a.CurrentOldest))
+	}
+	if a.Earlier > 0 {
+		fmt.Fprintf(&b, "; %d adapter message(s) captured for an earlier incarnation, which no fetch by the current one returns", a.Earlier)
 	}
 	return b.String()
 }
@@ -3098,6 +3473,18 @@ type recipient struct {
 	idle  *time.Time
 	alive []store.ProcRef // registered harness processes that answered the probe
 	gone  []string        // the registered pids when NONE is alive; empty otherwise
+	// adapter is its adapter-channel register (schema 15): queued adapter
+	// mail, and whether a receiving endpoint is registered. Zero when unread.
+	adapter store.AdapterBacklog
+}
+
+// adapterRecipient: the ledger positively records this session as reached
+// through an adapter. Such a session reads mail with its adapter's inbox
+// fetch, which never returns a plain message, and runs no legacy hook that
+// would drain one. Absence is not proof of the opposite (a logical session
+// with no adapter mail yet looks like any other row).
+func (r recipient) adapterRecipient() bool {
+	return r.adapter.Known || r.adapter.Endpoint || r.adapter.Current > 0
 }
 
 // observe reads the target's row, its idle report and its process register,
@@ -3109,6 +3496,9 @@ func observe(st *store.Store, env Env, sessionID string) recipient {
 		return recipient{}
 	}
 	r := recipient{ok: true, si: si, idle: idleSince(st, si)}
+	if ab, err := st.AdapterBacklogOf(si.SessionID, si.Incarnation); err == nil {
+		r.adapter = ab
+	}
 	procs, err := st.SessionProcs()
 	if err != nil {
 		return r
@@ -3273,7 +3663,7 @@ func msgBody(args []string, env Env) (string, error) {
 // label is kept as a tag AFTER it: `alpha (r1701-console-quoting)`. Label
 // first, because the inbox fences the sender to 64 bytes and truncation must
 // cost the tag, never the address. Identity comes from the environment only
-// (BUDDY_SESSION, then CLAUDE_CODE_SESSION_ID) — never whoAmI's cwd inference,
+// (BUDDY_SESSION, then native Claude/Codex identity) — never whoAmI's cwd inference,
 // which can refuse or guess, and a message must never be refused for want of a
 // signature. No session in the environment is the operator at a terminal, and
 // the sender is what they typed or "operator", as before.
@@ -3319,28 +3709,25 @@ func msgKind(fs *flag.FlagSet, lead bool, measured, relay string) (kind, note st
 // design pass, D-043). A session id in the environment that is not a live
 // session is UNKNOWN; no id at all is the operator at a bare terminal.
 func senderSession(st *store.Store, env Env) (id string, known bool) {
-	for _, id := range []string{env.getenv(EnvSession), env.getenv(EnvClaudeSession)} {
-		if id == "" {
-			continue
-		}
-		if si, ok, err := st.Session(id); err == nil && ok && si.Live() {
-			return si.SessionID, true
-		}
+	id, _, err := environmentSession(env)
+	if err != nil {
 		return "", false
 	}
-	return "", true
+	if id == "" {
+		return "", true
+	}
+	if si, ok, err := st.Session(id); err == nil && ok && si.Live() {
+		return si.SessionID, true
+	}
+	return "", false
 }
 
 func senderFor(st *store.Store, env Env, from string) string {
 	label := ""
-	for _, id := range []string{env.getenv(EnvSession), env.getenv(EnvClaudeSession)} {
-		if id == "" {
-			continue
-		}
+	if id, _, err := environmentSession(env); err == nil && id != "" {
 		if si, ok, err := st.Session(id); err == nil && ok && si.Live() {
 			label = si.Label
 		}
-		break
 	}
 	switch {
 	case label == "" && from == "":

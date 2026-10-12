@@ -119,6 +119,14 @@ func wakeAddr(env Env, r recipient, now time.Time) string {
 	if !r.ok {
 		return ""
 	}
+	// An adapter recipient is woken by its adapter, whose journal records the
+	// wake before the native effect and suppresses a duplicate. A socket wake
+	// from here bypasses that, and its text ("run buddy inbox") cannot surface
+	// adapter mail at all: the endpoint's registered pid made the legacy rule
+	// fire for it (review F-12, 2026-10-06).
+	if r.adapterRecipient() {
+		return ""
+	}
 	si := r.si
 	quiet := r.idle != nil || now.Sub(si.LastSeen) > store.StaleAfter || si.LastSeen.Equal(si.Started)
 	if !quiet || len(r.alive) != 1 {

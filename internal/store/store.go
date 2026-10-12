@@ -137,6 +137,26 @@ CREATE TABLE IF NOT EXISTS inbox_delivery (
 	delivered  INTEGER NOT NULL,
 	PRIMARY KEY (msg_id, session_id)
 );
+-- Adapter messages retain the two incarnations captured at queue time. Their
+-- bodies still live in inbox; this is delivery identity, never a task table.
+-- Legacy hooks lack a captured recipient token and must not drain these rows.
+CREATE TABLE IF NOT EXISTS adapter_messages (
+	msg_id INTEGER PRIMARY KEY,
+	sender_incarnation TEXT NOT NULL,
+	recipient_incarnation TEXT NOT NULL
+);
+-- Only the receiving harness may report its exported endpoint, bound to the
+-- same captured incarnation and process birth. No authentication data belongs
+-- here. Missing is unknown; an explicit absent report is a different fact.
+CREATE TABLE IF NOT EXISTS session_endpoints (
+	session_id TEXT PRIMARY KEY,
+	incarnation TEXT NOT NULL,
+	pid INTEGER NOT NULL,
+	born INTEGER NOT NULL,
+	state TEXT NOT NULL CHECK (state IN ('observed','observed_absent')),
+	socket TEXT NOT NULL,
+	observed INTEGER NOT NULL
+);
 -- A broadcast addresses the sessions that are live WHEN it is sent. Without
 -- this audience snapshot, target='all' matches every session created later
 -- until a manual sweep removes the row: a one-line interjection becomes
@@ -337,6 +357,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 15 adds captured adapter message identities and receiving endpoint reports.
 // 14 adds claims.outcome, claims.outcome_note and session_waits.ready_sha
 // (D-049), ALTER arms.
 // 13 adds inbox.kind and inbox.kind_note (D-045), ALTER arms.
@@ -355,7 +376,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 14
+const schemaVersion = 15
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -1632,6 +1653,10 @@ func (s *Store) Sweep(ttl, forceAfter time.Duration, opts SweepOpts) (SweepResul
 		if _, err := tx.Exec(`DELETE FROM inbox WHERE created < ?`, cutoff); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(`DELETE FROM adapter_messages WHERE NOT EXISTS
+			(SELECT 1 FROM inbox m WHERE m.msg_id=adapter_messages.msg_id)`); err != nil {
+			return err
+		}
 		if err := sweepDirty(tx, now, cutoff); err != nil {
 			return err
 		}
@@ -1786,6 +1811,7 @@ func (s *Store) Undelivered(sessionID, label string) ([]InboxMsg, error) {
 			WHERE ((m.target<>'all' AND m.target IN (?, ?)) OR (m.target='all' AND m.created>=? AND EXISTS
 				(SELECT 1 FROM inbox_recipient r WHERE r.msg_id=m.msg_id AND r.session_id=?)))
 			AND NOT EXISTS (SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=?)
+			AND NOT EXISTS (SELECT 1 FROM adapter_messages a WHERE a.msg_id=m.msg_id)
 			ORDER BY m.msg_id`, sessionID, label, s.now().Add(-BroadcastKeep).Unix(), sessionID, sessionID)
 	if err != nil {
 		return nil, err
@@ -1812,6 +1838,15 @@ func (s *Store) MarkDelivered(sessionID string, ids []int64) error {
 	return s.tx(func(tx *sql.Tx) error {
 		now := s.now().Unix()
 		for _, id := range ids {
+			// Tokenless hooks cannot certify an adapter delivery, even when
+			// handed an id by a caller that bypassed Undelivered's filter.
+			var adapter int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM adapter_messages WHERE msg_id=?`, id).Scan(&adapter); err != nil {
+				return err
+			}
+			if adapter != 0 {
+				return errors.New("adapter messages require captured-incarnation delivery")
+			}
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO inbox_delivery (msg_id, session_id, delivered) VALUES (?,?,?)`,
 				id, sessionID, now); err != nil {
 				return err
