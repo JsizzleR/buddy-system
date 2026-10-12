@@ -90,12 +90,15 @@ class Fleet:
         return self.buddy_call(sender, "queue", "--to", target["session_id"],
                                "--to-incarnation", target["incarnation"], "--body", body)
 
-    def preflight(self):
+    def preflight(self, harnesses=("codex", "claude")):
         # PATH upgrades must refuse before builds, providers or native workers.
         # Retained executables are explicit inputs; never substitute a newer
         # version or turn a qualification option into adapter admission.
+        # harnesses: the ones this runner launches. A Codex-only runner takes
+        # no --claude, and it still records the executable it ran (F-37).
         versions = {}
-        for harness, contract in (("codex", "0.160.0"), ("claude", self.args.claude_version)):
+        contracts = {"codex": "0.160.0", "claude": getattr(self.args, "claude_version", None)}
+        for harness, contract in ((h, contracts[h]) for h in harnesses):
             native = pathlib.Path(getattr(self.args, harness)).resolve(strict=True)
             setattr(self.args, harness, str(native))
             env = dict(self.env, CODEX_HOME=str(self.root / "version-codex"),

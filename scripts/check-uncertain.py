@@ -23,10 +23,30 @@ spec.loader.exec_module(reconcile_checks)
 ROLES = ("lost_wake", "approval_partial", "approval_forwarded")
 
 
+def evidence_paths(r):
+    """Every original this checker reads (F-37: none was bound before)."""
+    paths = ["native-versions.json", "source-manifest.json", r["ledger"]]
+    for role in ROLES:
+        c, worktree, state = r["cases"][role], Path(r["sessions"][role]["worktree"]), role + "-state/"
+        paths += [state + "identity.json.events", state + "native-observations.jsonl", worktree / ".fixture/fresh.txt",
+                  c["ledger_before"], c["ledger_after_crash"], c["ledger_after_reconcile"]]
+        if role == "lost_wake":
+            paths += [state + "dropped-wake.json", state + "native-completed.json"]
+        else:
+            paths.append(state + "approval-delivery.json")
+        if role == "approval_forwarded":
+            paths += [state + "native-completed.json", worktree / ".fixture/effect.txt"]
+    return paths
+
+
 def validate(r):
     e = base.Evidence(r)
     e.check("schema_roles_provider", lambda: r["schema"] == "buddy.uncertain.v1" and
         r["provider"] == "deterministic-loopback" and set(r["cases"]) == set(r["sessions"]) == set(ROLES))
+    # F-37: the originals and the native executables are bound, as the build was.
+    e.check("original_evidence_hashes", lambda: all(hashlib.sha256(e.path(p).read_bytes()).hexdigest() ==
+        r["evidence_sha256"][str(e.path(p).relative_to(e.root))] for p in evidence_paths(r)))
+    e.check("native_executables", lambda: base.native_binding(e, ROLES))
     e.check("artifact_hashes", lambda: all(hashlib.sha256(e.path(path).read_bytes()).hexdigest() == r[key]
         for path, key in (("source-manifest.json", "source_manifest_sha256"), ("bin/buddy", "buddy_sha256"),
                           ("bin/buddy-adapter", "adapter_sha256"))))
@@ -154,7 +174,12 @@ def validate(r):
 def self_test(receipt):
     if not validate(receipt)["passed"]:
         raise AssertionError("positive receipt failed")
-    changes = [(("provider",), "real"), (("cleanup_errors",), ["failed"]), (("adapter_sha256",), "wrong")]
+    changes = [(("provider",), "real"), (("cleanup_errors",), ["failed"]), (("adapter_sha256",), "wrong"),
+               # F-37: the native executables and the originals.
+               (("native_versions", "codex", "executable_sha256"), "0" * 64),
+               (("evidence_sha256", "native-versions.json"), "changed"),
+               (("evidence_sha256", ROLES[0] + "-state/identity.json.events"), "changed")]
+    changes += [(("sessions", role, "native_sha256"), "0" * 64) for role in ROLES]
     for role in ROLES:
         prefix = ("cases", role)
         changes += [(prefix + path, value) for path, value in (
@@ -261,7 +286,8 @@ def synthetic(root):
                                "adapter_exit": 0, "unparsed": [], "native_child_exit": {"status": "observed_absent"}}
     r["ledger"] = s.ledger("final", sessions=sessions, claims=final_claims, delivered=final_delivered)
     s.built(r)
-    return s.seal(r, [])
+    base.synthetic_natives(s, r, ("codex",))
+    return s.seal(r, evidence_paths(r))
 
 
 def synthetic_self_test():
@@ -298,6 +324,7 @@ def synthetic_self_test():
             edit(role, "identity.json.events", lambda rows: rows.pop(3), "native_delivery_fault_seam")
         if not validate(r)["passed"]:
             raise AssertionError("synthetic control did not restore")
+        out["damaged_cases_rejected"] += base.native_self_test(r, validate, evidence_paths)
         out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
         return out
 

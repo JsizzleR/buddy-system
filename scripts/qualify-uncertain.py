@@ -157,6 +157,7 @@ def main():
     result["fixture_sources"] = {name: common.digest(REPO / "scripts" / name) for name in sources}
     fleet = mixed.Fleet(root, result, args)
     try:
+        fleet.preflight(("codex",))  # F-37: native-versions.json, bound by the checker
         fleet.prepare(roles=tuple((role, "codex", role) for role in ROLES), observer=observer)
         exercise(fleet)
     except Exception:
@@ -168,6 +169,8 @@ def main():
         if "error" not in result:
             try:
                 validator = mixed.module("uncertain_validator", "check-uncertain.py")
+                result["evidence_sha256"] = {str((root / path).relative_to(root)): common.digest(root / path)
+                    for path in validator.evidence_paths(result)}
                 result["validation"] = validator.validate(result)
                 result["passed"] = result["validation"]["passed"] and not result["cleanup_errors"]
             except Exception:

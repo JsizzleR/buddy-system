@@ -8,6 +8,7 @@ evidence leg in memory. It leaves the original artifact directory unchanged.
 
 import argparse
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -20,6 +21,17 @@ base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
 
+def evidence_paths(r):
+    """Every original this checker reads (F-37: none was bound before). Repository
+    objects are content-addressed already; ledgers and fetches are not."""
+    job = r["handoff"]["job"]
+    worktree = Path(r["sessions"]["coordinator"]["worktree"])
+    return (["native-versions.json", "source-manifest.json", r["ledger"], r["before_resume"], r["restart"]["ledger"],
+             r["before_transfer"], r["after_transfer"], r["landed_ledger"], r["before_delayed"], r["after_delayed"],
+             job["result"], job["stdout"], job["stderr"], worktree / ".fixture/approved-control.txt",
+             worktree / ".fixture/resumed.txt"] + [m["native_fetch"] for m in r["messages"]])
+
+
 def validate(receipt):
     e = base.Evidence(receipt)
     r = receipt
@@ -27,6 +39,11 @@ def validate(receipt):
     successor = e.pair("successor")
     workers = ("claude_worker", "codex_worker")
     e.check("schema_and_provider", lambda: r["schema"] == "buddy.recovery.v1" and r["provider"] == "deterministic-loopback")
+    # F-37: the originals, the build and the native executables are bound.
+    e.check("original_evidence_hashes", lambda: all(hashlib.sha256(e.path(p).read_bytes()).hexdigest() ==
+        r["evidence_sha256"][str(e.path(p).relative_to(e.root))] for p in evidence_paths(r)))
+    e.check("artifact_hashes", lambda: base.built_artifacts(e))
+    e.check("native_executables", lambda: base.native_binding(e, tuple(r["sessions"])))
     e.check("separate_worktrees", lambda: len({str(e.path(s["worktree"])) for s in r["sessions"].values()}) == 4 and
             len({base.git(e.path(s["worktree"]), "rev-parse", "--path-format=absolute", "--git-common-dir")
                  for s in r["sessions"].values()}) == 1)
@@ -181,6 +198,11 @@ def self_test(receipt):
         raise AssertionError(positive)
     changes = [
         (("provider",), "real"),
+        # F-37: the native executables, the build and the originals.
+        (("native_versions", "claude", "executable_sha256"), "0" * 64),
+        (("sessions", "claude_worker", "native_sha256"), "0" * 64),
+        (("sessions", "successor", "native_version"), "codex-cli 0.161.0"),
+        (("adapter_sha256",), "wrong"), (("evidence_sha256", "native-versions.json"), "changed"),
         (("restart", "resume", "identity", "incarnation"), "wrong"),
         (("restart", "before", "exit"), 1),
         (("restart", "requests_after_duplicate"), -1),
@@ -336,7 +358,9 @@ def synthetic(root):
     r["ledger"] = s.ledger("final", sessions=[(renewed["session_id"], renewed["incarnation"], None)],
                            claims=[guard[:4] + ("released", "pass")], delivered=delivered_rows,
                            inbox=inbox_rows, adapter=adapter_rows)
-    return s.seal(r, [])
+    s.built(r)
+    base.synthetic_natives(s, r, ("codex", "claude"))
+    return s.seal(r, evidence_paths(r))
 
 
 def synthetic_self_test():
@@ -369,6 +393,7 @@ def synthetic_self_test():
         stdout.write_text("both worker changes validated\n")
         if not validate(r)["passed"]:
             raise AssertionError("synthetic control did not restore: " + str(validate(r)["errors"]))
+        out["rejected_mutations"] += base.native_self_test(r, validate, evidence_paths)
         out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
         return out
 

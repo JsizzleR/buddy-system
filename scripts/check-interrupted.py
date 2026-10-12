@@ -6,6 +6,7 @@ need an actual passing receipt and change only an in-memory copy of its claims.
 """
 import argparse
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -43,11 +44,30 @@ def reconcile_boundary(response, identity, message_id, delivery, wire):
             not observation.get("turn_id") and observation.get("status", {}).get("state") == "unknown")
 
 
+def evidence_paths(r):
+    """Every original this checker reads (F-37: none was bound before)."""
+    paths = ["native-versions.json", "source-manifest.json", r["ledger"]]
+    for role in ROLES:
+        c, worktree = r["cases"][role], Path(r["sessions"][role]["worktree"])
+        paths += [role + "-state/native-observations.jsonl", c["ledger_before"], c["ledger_after_reconcile"],
+                  worktree / ".fixture/fresh.txt"]
+        if "ledger_after_crash" in c:
+            paths.append(c["ledger_after_crash"])
+        if role == "lost_result":
+            paths.append(worktree / ".fixture/once.txt")
+    return paths
+
+
 def validate(receipt):
     e = base.Evidence(receipt)
     r = receipt
     e.check("schema_roles_provider", lambda: r["schema"] == "buddy.interrupted.v1" and
         r["provider"] == "deterministic-loopback" and set(r["cases"]) == set(r["sessions"]) == set(ROLES))
+    # F-37: the originals, the build and the native executables are bound.
+    e.check("original_evidence_hashes", lambda: all(hashlib.sha256(e.path(p).read_bytes()).hexdigest() ==
+        r["evidence_sha256"][str(e.path(p).relative_to(e.root))] for p in evidence_paths(r)))
+    e.check("artifact_hashes", lambda: base.built_artifacts(e))
+    e.check("native_executables", lambda: base.native_binding(e, ROLES))
     for role in ROLES:
         c = r["cases"].get(role, {})
         pair = e.pair(role)
@@ -128,9 +148,14 @@ def validate(receipt):
 def self_test(receipt):
     if not validate(receipt)["passed"]:
         raise AssertionError("positive receipt failed")
-    changes = [(("provider",), "real"), (("cleanup_errors",), ["failed"])]
+    changes = [(("provider",), "real"), (("cleanup_errors",), ["failed"]),
+               # F-37: the native executables, the build and the originals.
+               (("native_versions", "codex", "executable_sha256"), "0" * 64), (("adapter_sha256",), "wrong"),
+               (("evidence_sha256", "native-versions.json"), "changed"),
+               (("evidence_sha256", ROLES[0] + "-state/native-observations.jsonl"), "changed")]
     for role in ROLES:
         prefix = ("cases", role)
+        changes.append((("sessions", role, "native_sha256"), "0" * 64))
         changes += [(prefix + path, value) for path, value in (
             (("wake", "wake_delivery", "turn_id"), "other"),
             (("requests_after",), -1),
@@ -213,7 +238,9 @@ def synthetic(root):
                                "native_version": "codex-cli 0.160.0", "events": events, "adapter_exit": 0, "unparsed": [],
                                "native_child_exit": {"status": "observed_absent"}}
     r["ledger"] = s.ledger("final", sessions=sessions, claims=final_claims, delivered=final_delivered)
-    return s.seal(r, [])
+    s.built(r)
+    base.synthetic_natives(s, r, ("codex",))
+    return s.seal(r, evidence_paths(r))
 
 
 def synthetic_self_test():
@@ -228,7 +255,10 @@ def synthetic_self_test():
             original = path.read_bytes()
             path.write_bytes(original + (json.dumps({"type": "adapter_frame", "frame": {"id": 9, "method": "thread/read"}}) + "\n").encode())
             try:
-                verdict = validate(r)
+                # Hash re-recorded: the refusal must be the semantic check alone.
+                bad = copy.deepcopy(r)
+                bad["evidence_sha256"][role + "-state/native-observations.jsonl"] = hashlib.sha256(path.read_bytes()).hexdigest()
+                verdict = validate(bad)
                 failed = sorted(k for k, v in verdict["checks"].items() if not v)
                 if failed != [role + ":reconcile_withdrawn_without_native_query"]:
                     raise AssertionError("a native history query in " + role + "'s wire failed " + str(failed))
@@ -237,6 +267,7 @@ def synthetic_self_test():
             out["damaged_cases_rejected"] += 1
         if not validate(r)["passed"]:
             raise AssertionError("synthetic control did not restore")
+        out["damaged_cases_rejected"] += base.native_self_test(r, validate, evidence_paths)
         out["evidence"] = "synthetic: tests the checker, qualifies no native harness"
         return out
 

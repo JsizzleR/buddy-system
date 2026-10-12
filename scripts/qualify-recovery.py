@@ -263,6 +263,7 @@ def main():
     result["fixture_sources"] = {name: common.digest(REPO / "scripts" / name) for name in sources}
     fleet = mixed.Fleet(root, result, args)
     try:
+        fleet.preflight()  # F-37: both executables in native-versions.json, bound by the checker
         fleet.prepare(roles=(("coordinator", "codex", "integration"), ("claude_worker", "claude", "claude-work"),
                              ("codex_worker", "codex", "codex-work"), ("successor", "codex", "successor")))
         exercise(fleet)
@@ -284,6 +285,8 @@ def main():
         if "error" not in result:
             try:
                 validator = mixed.module("recovery_validator", "check-recovery.py")
+                result["evidence_sha256"] = {str((root / path).relative_to(root)): common.digest(root / path)
+                    for path in validator.evidence_paths(result)}
                 result["validation"] = validator.validate(result)
                 result["passed"] = result["validation"]["passed"] and not result["cleanup_errors"]
             except Exception:

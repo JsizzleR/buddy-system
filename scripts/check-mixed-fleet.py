@@ -220,6 +220,91 @@ SYNTHETIC_BUILT_KEYS = {"source-manifest.json": "source_manifest_sha256", "bin/b
                         "bin/buddy-adapter": "adapter_sha256"}
 
 
+# NATIVE BINDING (review F-37). Only this checker and check-claude-history
+# bound the executables a run used; check-interrupted, check-recovery and
+# check-uncertain took a session's native_version from the receipt alone, so a
+# receipt naming one build could carry a run of another.
+NATIVE_CONTRACTS = {"codex": ("codex-cli 0.160.0",),
+                    "claude": tuple(v + " (Claude Code)" for v in ("2.1.289", "2.1.290", "2.1.291"))}
+
+
+def native_binding(evidence, roles):
+    """Each session ran the executable the HASHED native-versions.json names."""
+    capture = evidence.read("native-versions.json")
+    if capture != evidence.receipt["native_versions"]:
+        return False
+    for role in roles:
+        session = evidence.session(role)
+        native = capture[session["harness"]]
+        if (native["version"] not in NATIVE_CONTRACTS[session["harness"]] or
+                session["native_version"] != native["version"] or
+                session["native_sha256"] != native["executable_sha256"] or
+                not re.fullmatch(r"[0-9a-f]{64}", native["executable_sha256"])):
+            return False
+    return True
+
+
+def built_artifacts(evidence):
+    """The source manifest and both built binaries are the bytes the receipt names."""
+    return all(hashlib.sha256(evidence.path(name).read_bytes()).hexdigest() == evidence.receipt[key]
+               for name, key in SYNTHETIC_BUILT_KEYS.items())
+
+
+def synthetic_natives(synthetic, receipt, harnesses):
+    """native-versions.json for the harnesses a synthetic run used; sessions name it."""
+    versions = {h: {"version": NATIVE_CONTRACTS[h][-1], "executable_sha256": ("a" if h == "claude" else "b") * 64}
+                for h in harnesses}
+    synthetic.write("native-versions.json", versions)
+    receipt["native_versions"] = versions
+    for session in receipt["sessions"].values():
+        native = versions[session["harness"]]
+        session.update(native_version=native["version"], native_sha256=native["executable_sha256"])
+    return receipt
+
+
+def native_self_test(receipt, validate, paths):
+    """F-37 against a synthetic receipt (edited in place, always restored).
+
+    Two forgeries of native-versions.json with its hash RE-RECORDED, so the
+    hash guard passes and native_executables must refuse: a capture that
+    disagrees with the receipt, and a consistent capture of an unqualified
+    build. Then one changed byte in every bound file must fail the hashes.
+    """
+    target = Path(receipt["root"]) / "native-versions.json"
+    original = target.read_bytes()
+    count = 0
+    def forged(edit_file, edit_receipt):
+        nonlocal count
+        versions = json.loads(original)
+        edit_file(versions)
+        target.write_text(json.dumps(versions))
+        bad = copy.deepcopy(receipt)
+        bad["evidence_sha256"]["native-versions.json"] = hashlib.sha256(target.read_bytes()).hexdigest()
+        edit_receipt(bad, versions)
+        try:
+            checks = validate(bad)["checks"]
+            if checks.get("original_evidence_hashes") is not True or checks.get("native_executables") is not False:
+                raise AssertionError("forged native-versions.json: hashes=%r native=%r" % (
+                    checks.get("original_evidence_hashes"), checks.get("native_executables")))
+        finally:
+            target.write_bytes(original)
+        count += 1
+    harness = sorted(json.loads(original))[0]
+    def other_build(v):
+        v[harness]["executable_sha256"] = "c" * 64
+    forged(other_build, lambda bad, v: None)
+    def unqualified(v):
+        v[harness]["version"] = v[harness]["version"].replace("0.160.0", "0.161.0").replace("2.1.291", "2.1.292")
+    def follow(bad, v):
+        bad["native_versions"] = v
+        for session in bad["sessions"].values():
+            session["native_version"] = v[session["harness"]]["version"]
+    forged(unqualified, follow)
+    with tempfile.TemporaryDirectory(prefix="buddy-hash-binding-") as scratch:
+        count += hash_binding_self_test(receipt, validate, paths, scratch, relocate=False)
+    return count
+
+
 def control(operation, ident, **fields):
     """A buddy.control.v1 receipt that claims nothing: every effect unknown."""
     return dict({"schema": "buddy.control.v1", "operation": operation, "identity": ident,
