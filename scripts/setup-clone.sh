@@ -70,7 +70,24 @@ if [ -n "$BUDDY" ]; then
 fi
 
 existing=$(git config --get core.hooksPath || true)
-if [ -n "$existing" ] && [ "$existing" != ".githooks" ]; then
+
+# ANOTHER SPELLING OF OUR OWN DIRECTORY IS NOT SOMEBODY ELSE'S PATH. Comparing
+# the literal against ".githooks" refused this checkout's own hooks spelled
+# absolute ('/Users/.../buddy-system/.githooks', set by hand), and since
+# install.sh runs this as step 5, every install on that machine ended "FAILED"
+# after rebuilding everything, and the hook and handoff reports never printed
+# (measured 2026-10-13). Both sides are resolved physically (`pwd -P`; a relative
+# path resolves from $ROOT, where git resolves it for a hook run here) and an
+# equal one is LEFT AS SET: an absolute path also covers this checkout's linked
+# worktrees, where ".githooks" would name each worktree's own copy, and
+# rewriting it would change which hooks they run.
+own=$(pwd -P)/.githooks
+same=""
+if [ -n "$existing" ] && [ -d "$existing" ]; then
+	resolved=$(CDPATH= cd -- "$existing" 2>/dev/null && pwd -P || true)
+	[ "$resolved" != "$own" ] || same=1
+fi
+if [ -n "$existing" ] && [ "$existing" != ".githooks" ] && [ -z "$same" ]; then
 	# Never silently steal a hooks path somebody else configured — that would
 	# disable their hooks and look like this script had simply worked.
 	echo "setup-clone: core.hooksPath is already set to '$existing', not .githooks." >&2
@@ -78,9 +95,13 @@ if [ -n "$existing" ] && [ "$existing" != ".githooks" ]; then
 	echo "    git config core.hooksPath .githooks" >&2
 	exit 1
 fi
-git config core.hooksPath .githooks
+if [ -n "$same" ] && [ "$existing" != ".githooks" ]; then
+	echo "setup-clone: core.hooksPath = $existing (this checkout's .githooks; left as set)"
+else
+	git config core.hooksPath .githooks
+	echo "setup-clone: core.hooksPath = .githooks"
+fi
 chmod +x "$ROOT/.githooks/"* 2>/dev/null || true
-echo "setup-clone: core.hooksPath = .githooks"
 
 # The user-level skill (skills/buddy/SKILL.md) is how a session in ANY repo
 # learns how the verbs fit; it is loaded from ~/.claude/skills, so a copy that
