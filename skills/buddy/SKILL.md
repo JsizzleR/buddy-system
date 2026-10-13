@@ -253,7 +253,10 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
    `buddy msg orchestrator "<item> READY: branch <name> @ <sha>, base <sha>, review <receipt>, files <list>, checks run <list>"`.
    Arm `/loop buddy wait check` and park. A docs-only item goes the same way.
 4. Keep your worktree and claims until LANDED names you PASS. Then release
-   your claims, remove the worktree, and you are done. FAIL naming you: fix
+   your claims, remove the worktree, and say so in the same turn:
+   `buddy msg orchestrator "<item> DONE: nothing held, no job running"`. That
+   message is what lets your pane be closed (Running a fleet, "Ending a
+   lane"). FAIL naming you: fix
    on your branch, commit, declare `buddy wait --on <run> --ready HEAD` again,
    and say so.
 5. No item yet? `buddy msg orchestrator "NEW SESSION <your label>: ready for work"`.
@@ -357,7 +360,14 @@ if you find neither, ask rather than assume.
   `buddy who <lane>` shows it holds nothing (and its JOBS line no shell of its
   own), and it names no job of its own still running, say so. Close a lane yourself
   (`herdr pane close <pane id>`, which runs its `bye`; `claude stop <8hex>` for a
-  background one) only if the operator told you, not a peer, that you may.
+  background one) only if the operator told you, not a peer, that you may,
+  and then only a lane you opened. If you may, do it as soon as the lane
+  says DONE and `buddy who` agrees; if you may not, give the operator its
+  pane id in the same turn. A finished lane left open still costs: about 55
+  minutes into its idle time the harness compacts any session over 200k
+  tokens, before its cache expires. Measured on one fleet over five days:
+  12 such compactions of 312k to 583k, and 6 were in lanes that had already
+  said they were done and never ran again.
 - **Hand off before you are full.** Launch coordinators, and their successors,
   in a herdr tab with `herdr tab create … --env BUDDY_HANDOFF_AT=500k` (or the
   operator sets it for every session in the settings `env` block, which reaches
