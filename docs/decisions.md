@@ -5885,7 +5885,19 @@ is byte-for-byte the input path, one `tool_result` in the frame, and an
 `claudeWriteOmissionVersions` is `2.1.291, 2.1.299`. Edit stays unqualified: 3
 samples on 2.1.299, all omitted with no `type`, and still no failed-Edit
 control. This is a parse rule keyed by version, not an admission: 2.1.299 has
-no record until its release run earns one.
+no record until its release run earns one. It earned one the same day:
+`qualify-release.py` at 784ec7b (this rule, with the witness amendment), from
+the retained copy, granted all three tiers with every suite and checker green
+(claude 49/49 and 29/29, claude-mods 75/75 and 11/11, resume 22/22 twice,
+interrupted 98/98 twice, compaction 26/26 twice, interrupted-compaction
+113/113 twice). Record `internal/harness/admissions/claude/2.1.299-ba5ab7b8`,
+evidence `docs/admissions/2026-10-14-claude-2.1.299-ba5ab7b8/`. The release
+notes were read first: the changelog has one section after 2.1.296. Its hook
+changes are to mods, plugin hooks, managed settings, Windows and
+UserPromptSubmit ordering (no adapter launch wires that hook), and one to plan
+mode, which the adapter's read-only launch uses: plan mode no longer runs a
+write a PreToolUse hook allowed. That is stricter, in the direction a
+read-only launch wants, and no default the adapter relies on weakened.
 
 The set is written three times, in Go and as `WRITE_RENEWAL_QUALIFIED` in
 `qualify-claude.py` (what the runner expects) and `check-claude-gate.py` (what

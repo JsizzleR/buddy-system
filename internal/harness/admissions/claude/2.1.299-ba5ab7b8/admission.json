@@ -1,0 +1,151 @@
+{
+ "schema": "buddy.admission.v1",
+ "harness": "claude",
+ "version": "2.1.299",
+ "version_output": "2.1.299 (Claude Code)",
+ "os": "darwin",
+ "arch": "arm64",
+ "adapter_contract": "claude-stream-json.1",
+ "tiers": [
+  "start",
+  "resume",
+  "compaction_observation"
+ ],
+ "executable": {
+  "path": "claude",
+  "sha256": "ba5ab7b8c195fa03ab8d5bf3915c76153b576a2c40e79a5c46e265e7ed9744b3",
+  "size": 247931696
+ },
+ "claude": {
+  "mod_profile": "builtin-only-2.1.299",
+  "builtins": [
+   "cc-plugin-agents-md",
+   "cc-plugin-plugin-authoring"
+  ]
+ },
+ "gate": {
+  "command": "'<adapter>' hook --receipt '<receipt>' --buddy '<buddy>'",
+  "hash": "none: get_settings must show exactly this command for Edit|Write|NotebookEdit"
+ },
+ "suites": [
+  {
+   "tier": "start",
+   "suite": "claude",
+   "runner": "qualify-claude.py",
+   "runner_sha256": "b4db019dd828cd6566fcec194b1b5dd4a37a091825849057fb9f99f45886326a",
+   "receipt_sha256": "8050933721b28ab37d1da9d8d5d2c3b458c458d7addb2c0bac71df8eb0dc39aa",
+   "checks_passed": 49,
+   "checks_total": 49,
+   "checker": "check-claude-gate.py",
+   "checker_sha256": "911f3664e3a58f80988c4eee2c9b213b7b0eafb3f2364958f00368c00fdf39d3",
+   "checker_log_sha256": "5fea7e1c34fe9f1c9ece0acf9c4bf61708ff84cff94c2db85293b00bad5dc2be",
+   "checker_passed": true,
+   "checker_checks_passed": 29,
+   "checker_checks_total": 29,
+   "buddy_sha256": "4aa39c0794e934707927375e085ffb6e377182e10679fbb9f3d4f754a4985227",
+   "adapter_sha256": "97b43c463c6b722263422a99028aae0a53a2eeaa822a3809cc9f82eab4484664",
+   "source_head": "784ec7bfb21cf82028b97451ce9d7b45bdba423d",
+   "summary": "docs/admissions/2026-10-14-claude-2.1.299-ba5ab7b8/summary.json"
+  },
+  {
+   "tier": "start",
+   "suite": "claude-mods",
+   "runner": "qualify-claude-mods.py",
+   "runner_sha256": "6db5a594e4a6011f5f1504d5f646cdcd51380bf8415bc378f32b94ad4a14faad",
+   "receipt_sha256": "f6bcee36377fc57a37aecaa43f847e9a50e43e9e2faa06950ab90b31b3663f01",
+   "checks_passed": 75,
+   "checks_total": 75,
+   "checker": "check-claude-mods.py",
+   "checker_sha256": "276c4630818fbf19614793fc3e65f057f1cd09f27d736e76b2b0638fb7e968d1",
+   "checker_log_sha256": "96f4b7c572553afd3f1a03bf5e08532fd69fcc836d35366b03eac8a2b2ab93cb",
+   "checker_passed": true,
+   "checker_checks_passed": 11,
+   "checker_checks_total": 11,
+   "buddy_sha256": "4aa39c0794e934707927375e085ffb6e377182e10679fbb9f3d4f754a4985227",
+   "adapter_sha256": "97b43c463c6b722263422a99028aae0a53a2eeaa822a3809cc9f82eab4484664",
+   "source_head": "784ec7bfb21cf82028b97451ce9d7b45bdba423d",
+   "summary": "docs/admissions/2026-10-14-claude-2.1.299-ba5ab7b8/summary.json"
+  },
+  {
+   "tier": "resume",
+   "suite": "claude-resume",
+   "runner": "qualify-claude-resume.py",
+   "runner_sha256": "0819afebc83526279c5ed079737263aeb469a411104b0cd2b9d7db840e50ef66",
+   "receipt_sha256": "21cd7d96d27e7dbff722b7dceba864d6caa939137050ab2c1a0d3a68e479d75f",
+   "checks_passed": 22,
+   "checks_total": 22,
+   "checker": "check-claude-resume.py",
+   "checker_sha256": "d6d75550a9b4bd14d011eed58b462257ce1bfe85ad9515b9f02094746c69748d",
+   "checker_log_sha256": "742095970beb43d4562d5db00f5ce513dbbf101a4f7fa05ce406057c11ea8c5f",
+   "checker_passed": true,
+   "checker_checks_passed": 22,
+   "checker_checks_total": 22,
+   "buddy_sha256": "4aa39c0794e934707927375e085ffb6e377182e10679fbb9f3d4f754a4985227",
+   "adapter_sha256": "97b43c463c6b722263422a99028aae0a53a2eeaa822a3809cc9f82eab4484664",
+   "source_head": "784ec7bfb21cf82028b97451ce9d7b45bdba423d",
+   "summary": "docs/admissions/2026-10-14-claude-2.1.299-ba5ab7b8/summary.json"
+  },
+  {
+   "tier": "resume",
+   "suite": "claude-interrupted",
+   "runner": "qualify-claude-interrupted.py",
+   "runner_sha256": "4d08663114ac0c762bead362c39f5cf76d3e668a80f28842ae771828d191a50e",
+   "receipt_sha256": "3a88f762e4c397a140ea74c9e1c007159faa4208e34eeb89cf27966369c1f87a",
+   "checks_passed": 98,
+   "checks_total": 98,
+   "checker": "check-claude-interrupted.py",
+   "checker_sha256": "c93d08a5178a6d444a2de11100aeace36bcae50abd330e43a5a9e28183ec7474",
+   "checker_log_sha256": "6952cf8dbe69c0abdb4431c42847e6b417423c097d4ccf155111a34305c6d540",
+   "checker_passed": true,
+   "checker_checks_passed": 98,
+   "checker_checks_total": 98,
+   "buddy_sha256": "4aa39c0794e934707927375e085ffb6e377182e10679fbb9f3d4f754a4985227",
+   "adapter_sha256": "97b43c463c6b722263422a99028aae0a53a2eeaa822a3809cc9f82eab4484664",
+   "source_head": "784ec7bfb21cf82028b97451ce9d7b45bdba423d",
+   "summary": "docs/admissions/2026-10-14-claude-2.1.299-ba5ab7b8/summary.json"
+  },
+  {
+   "tier": "compaction_observation",
+   "suite": "claude-compaction",
+   "runner": "qualify-claude-compaction.py",
+   "runner_sha256": "45c67e77871dcdf251e33c8a8d71b3ea02ea691a14363b7bfa493eb7a27891d8",
+   "receipt_sha256": "0c5ed1fec31360afea4b699a5c9c1c15f750316b5a16adb238436a68e1e108ff",
+   "checks_passed": 26,
+   "checks_total": 26,
+   "checker": "check-claude-compaction.py",
+   "checker_sha256": "8e6b4591e628602bbb1749dc25b9d5703748f53bd525cb5ae8d3b5d0ca54be3b",
+   "checker_log_sha256": "3000a6b4b5568f4b9d864b72123d3fac701cbf5483b1228e9220a0462626c9b4",
+   "checker_passed": true,
+   "checker_checks_passed": 26,
+   "checker_checks_total": 26,
+   "buddy_sha256": "4aa39c0794e934707927375e085ffb6e377182e10679fbb9f3d4f754a4985227",
+   "adapter_sha256": "97b43c463c6b722263422a99028aae0a53a2eeaa822a3809cc9f82eab4484664",
+   "source_head": "784ec7bfb21cf82028b97451ce9d7b45bdba423d",
+   "summary": "docs/admissions/2026-10-14-claude-2.1.299-ba5ab7b8/summary.json"
+  },
+  {
+   "tier": "compaction_observation",
+   "suite": "claude-interrupted-compaction",
+   "runner": "qualify-claude-interrupted-compaction.py",
+   "runner_sha256": "79ecaa2520d2218febea13b3dde191fc0582c28fb7ccf4df66f85e5b1a10fbf1",
+   "receipt_sha256": "03450324bffee5689f750eae7f6d31de792eb5ecab1e62e0698d16da2ac93566",
+   "checks_passed": 113,
+   "checks_total": 113,
+   "checker": "check-claude-interrupted-compaction.py",
+   "checker_sha256": "d87fba11a2fe9f1589f102e58d7f492f4e7233a0968d9db6a3b020c09cd979f8",
+   "checker_log_sha256": "e9496615a8c334abe9304d00caf2eead244b25be8d8dda12b51cba89c041faa1",
+   "checker_passed": true,
+   "checker_checks_passed": 113,
+   "checker_checks_total": 113,
+   "buddy_sha256": "4aa39c0794e934707927375e085ffb6e377182e10679fbb9f3d4f754a4985227",
+   "adapter_sha256": "97b43c463c6b722263422a99028aae0a53a2eeaa822a3809cc9f82eab4484664",
+   "source_head": "784ec7bfb21cf82028b97451ce9d7b45bdba423d",
+   "summary": "docs/admissions/2026-10-14-claude-2.1.299-ba5ab7b8/summary.json"
+  }
+ ],
+ "evidence": {
+  "qualified_on": "2026-10-14",
+  "source": "a retained copy at ~/.buddy/harness/claude/2.1.299-ba5ab7b8 of ~/.local/share/claude/versions/2.1.299",
+  "note": "scripts/qualify-release.py at 784ec7bfb21cf82028b97451ce9d7b45bdba423d; every suite run from the retained copy as a D-080 candidate and passed by its checker with --candidate. Tiers not listed were not earned."
+ }
+}

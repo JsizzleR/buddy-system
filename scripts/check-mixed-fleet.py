@@ -926,10 +926,12 @@ def self_test():
                 "native_sha256": receipt["native_versions"][harness]["executable_sha256"],
                 "adapter_exit": 0, "unparsed": [], "native_child_exit": {"status": "observed_absent",
                     "observed_pids": [100], "remaining_or_unknown_pids": []}}
+            # The profile names the run's own Claude version: a 2.1.291 literal
+            # stopped matching once the newest record was 2.1.299 (2026-10-14).
             launch = {"worktree": str(root / role), "harness_version": receipt[harness + "_version"],
                 "permission_mode": "workspace-write", "gate_command": "fixture gate", "gate_hash": "fixture-hash",
                 "hooks": {"configured": "observed", "trusted": "observed", "observed": "unknown",
-                          "mods": "builtin-only-2.1.291"}}
+                          "mods": "builtin-only-" + receipt["claude_version"]}}
             artifact(role + "-state/launch.json", launch)
             artifact(role + "-state/identity.json", {"schema": "buddy.control.v1", "identity": ident, "launch": launch})
             db.execute("INSERT INTO sessions VALUES (?,?,?)", (role, role + "-token", str(root / role)))
