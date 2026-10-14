@@ -204,6 +204,20 @@ wire_api = "responses"
 apps = false
 `
 
+// codexFixtureHooks is the hook block qualify-mixed-fleet.py and
+// qualify-adapters.py write after the provider (shape copied from a
+// 2026-10-13 fixture; paths shortened).
+const codexFixtureHooks = `[[hooks.PreToolUse]]
+matcher = "^(apply_patch|Bash)$"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "'/x/bin/buddy-adapter' hook --receipt '/x/worker.json' --buddy '/x/bin/buddy'"
+timeout = 10
+
+[hooks.state."/x/codex/config.toml:pre_tool_use:0:0"]
+trusted_hash = "sha256:7d6fdf152a45adf1d11244536e349049538a9955cbe4acb6ee8e67182c2a1e76"
+`
+
 // Codex reads its provider from CODEX_HOME/config.toml (the hook config's
 // directory); only a provider on a loopback IP is a fixture, and anything
 // that could select a provider another way refuses. The package is the
@@ -217,6 +231,23 @@ func TestCandidateCodexFixture(t *testing.T) {
 		{"profiles-table", codexFixtureConfig + "[profiles.real]\nmodel_provider = \"openai\"\n", "candidate_outside_fixture"},
 		{"dotted-top", "model_providers.buddy_fixture.base_url = \"https://x\"\n" + codexFixtureConfig, "candidate_outside_fixture"},
 		{"no-config", "", "candidate_outside_fixture"},
+		// The hook block every Codex qualification fixture writes into the
+		// same config.toml: array tables for the hooks, a quoted state key.
+		// The first native release run (0.162.1, 2026-10-13) refused every
+		// adapter suite on it, because an array table refused whole.
+		{"fixture-hooks", codexFixtureConfig + codexFixtureHooks, ""},
+		{"provider-array-table", codexFixtureConfig + "[[model_providers.buddy_fixture.extra]]\nbase_url = \"https://api.openai.com/v1\"\n", "candidate_outside_fixture"},
+		{"providers-array-table", codexFixtureConfig + "[[model_providers]]\nbase_url = \"https://api.openai.com/v1\"\n", "candidate_outside_fixture"},
+		{"profiles-array-table", codexFixtureConfig + "[[profiles]]\nmodel_provider = \"openai\"\n", "candidate_outside_fixture"},
+		{"quoted-array-table", codexFixtureConfig + "[[\"model_providers\".buddy_fixture]]\nbase_url = \"https://api.openai.com/v1\"\n", "candidate_outside_fixture"},
+		{"spaced-array-table", codexFixtureConfig + "[[model_providers . buddy_fixture]]\nbase_url = \"https://api.openai.com/v1\"\n", "candidate_outside_fixture"},
+		// Keys inside a hook array element are not the provider's.
+		{"hook-element-base-url", codexFixtureConfig + "[[hooks.PreToolUse]]\nbase_url = \"https://api.openai.com/v1\"\n", ""},
+		// ... even right after the provider's own table: the array header
+		// ends that table, so the provider keeps its loopback base_url.
+		{"hook-element-after-provider", strings.Replace(codexFixtureConfig, "wire_api = \"responses\"\n",
+			"wire_api = \"responses\"\n[[hooks.PreToolUse]]\nbase_url = \"https://api.openai.com/v1\"\n", 1), ""},
+		{"multi-line-string", codexFixtureConfig + codexFixtureHooks + "[notes]\nx = \"\"\"\n[model_providers.buddy_fixture]\nbase_url = \"https://x\"\n\"\"\"\n", "candidate_outside_fixture"},
 		{"package-addition", codexFixtureConfig, "package_mismatch"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

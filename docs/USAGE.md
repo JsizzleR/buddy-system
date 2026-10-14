@@ -1647,7 +1647,9 @@ committed records with one synthesized record for exactly those bytes (so that
 process launches nothing else), and refuses every start and resume whose provider
 is not on a loopback IP: `ANTHROPIC_BASE_URL` for Claude, the selected
 `model_provider`'s `base_url` in the `config.toml` beside Codex's hook config
-(a profile, a dotted top-level key or an array table refuses). `--executable` may
+(a profile, a dotted top-level key, a multi-line string, or an array table under
+`model_providers` or `profiles` refuses; the hooks' `[[hooks.PreToolUse]]` array
+tables are read as tables of their own). `--executable` may
 be an observer, hashed with the flags and required unchanged. Every control
 receipt carries `qualification_candidate` (the sha256), the captured receipt
 records the binding, and a resume in the other mode, or under another

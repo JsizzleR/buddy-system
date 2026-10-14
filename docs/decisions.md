@@ -6041,3 +6041,31 @@ bound to other bytes or not bound, no record without start, on a dirty tree or a
 moved HEAD, a retained package never overwritten, and a torn copy or a moving
 source refused. 25 of 25 mutants of its guards and the library's were killed.
 Both self-tests and all 17 checker self-tests run in `check.sh hermetic`.
+
+**The first native release runs (2026-10-13, Claude 2.1.299 and Codex 0.162.1,
+loopback)** found four defects in this route. None was a native change. Each
+was reproduced by a failing case before its fix:
+
+- Claude resume, interrupted, compaction and interrupted-compaction validate
+  their own result in-process with their checker's `validate`. That process
+  had no `--candidate`, so `schema_provider` failed in the runner while the
+  independent checker passed the same receipt (22/22, 98/98, 26/26, 113/113).
+  `bind` now sets the process's expectation to exactly the bound bytes. That is
+  the checker's own expectation, never a wider one (`admission_lib`:
+  `bound_candidate_*`).
+- `qualify-claude-mods.py` printed only a JSON summary, so a 38/38 run counted
+  as "no receipt". It now prints `RECEIPT=`, and the self-test requires that
+  line of every runner `admissionSuites` names.
+- The direct Codex gate suite runs no adapter, so it could never be green: the
+  record wants an adapter digest per suite. It now takes the one adapter digest
+  all the run's adapter suites report, and only when its buddy digest is
+  theirs. The builds are reproducible: one buddy digest and one adapter digest
+  across seven suites. The backfill did the same by hand (`settle_direct`).
+- D-080's Codex config reader refused any array table. But every fixture
+  writes its hooks into that same `config.toml` as `[[hooks.PreToolUse]]`, so
+  every Codex adapter suite refused at start (`candidate_outside_fixture`). An
+  array table is now read as a table of its own, whose keys are never the top
+  level's or a provider's. One under `model_providers` or `profiles`, or with
+  a quoted or spaced name, still refuses. Multi-line strings still refuse.
+  `TestCandidateCodexFixture` has the fixture block as a positive control and
+  those refusals; 4 of 4 mutants killed.

@@ -251,8 +251,34 @@ func codexFixtureProvider(name string) (string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "[[") || strings.Contains(line, `"""`) || strings.Contains(line, "'''") {
-			return "", errors.New("Codex fixture config has an array table or multi-line string")
+		if strings.Contains(line, `"""`) || strings.Contains(line, "'''") {
+			return "", errors.New("Codex fixture config has a multi-line string")
+		}
+		// An array table is how every fixture writes its hooks
+		// ([[hooks.PreToolUse]], [[hooks.PreToolUse.hooks]]) into this same
+		// file, so refusing them whole refused every Codex adapter suite
+		// (first native release run, 0.162.1, 2026-10-13). Its keys belong to
+		// an array element, never to the top level or to a provider table, so
+		// it is read as a table no case below matches. One under
+		// model_providers or profiles still refuses: those are the names a
+		// provider could be selected or defined through.
+		if strings.HasPrefix(line, "[[") {
+			if !strings.HasSuffix(line, "]]") {
+				return "", errors.New("Codex fixture config has a malformed array table header")
+			}
+			name := strings.TrimSpace(line[2 : len(line)-2])
+			// A quoted or spaced segment could spell model_providers
+			// another way; the fixtures use bare dotted names only.
+			if name == "" || strings.ContainsAny(name, "\"' \t") {
+				return "", errors.New("Codex fixture config has an array table name that is not bare and dotted")
+			}
+			for _, p := range []string{"model_providers", "profiles"} {
+				if name == p || strings.HasPrefix(name, p+".") {
+					return "", fmt.Errorf("Codex fixture config has an array table under %s", p)
+				}
+			}
+			table = "[[" + name + "]]"
+			continue
 		}
 		if strings.HasPrefix(line, "[") {
 			if !strings.HasSuffix(line, "]") {

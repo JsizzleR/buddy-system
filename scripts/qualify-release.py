@@ -298,6 +298,34 @@ def first_key(value, key):
     return None
 
 
+def settle_direct(results):
+    """Give a green DIRECT suite the adapter digest the record wants for it.
+
+    The direct Codex gate suite runs codex with no adapter, so its receipt
+    names none, and D-079 wants buddy and adapter digests on every suite. It
+    takes the ONE adapter digest every adapter suite of this run reported,
+    and only when its buddy digest is the one they all reported: every runner
+    builds from the same HEAD and the builds are reproducible (measured
+    2026-10-13 on 0.162.1: one buddy and one adapter digest across all seven
+    suites). Two adapter digests, another buddy build, or no adapter suite at
+    all leave it not green. The 2026-10-13 backfill did the same by hand."""
+    others = [x for x in results if x["suite"] not in DIRECT and x.get("receipt_sha256")]
+    adapters = {x.get("adapter_sha256") for x in others}
+    buddies = {x.get("buddy_sha256") for x in others}
+    for x in results:
+        if x["suite"] not in DIRECT or not x.get("green"):
+            continue
+        one = next(iter(adapters)) if len(adapters) == 1 else None
+        if (x.get("adapter_sha256") is None and isinstance(one, str) and len(one) == 64 and
+                buddies == {x.get("buddy_sha256")}):
+            x["adapter_sha256"] = one
+            x["adapter_sha256_from"] = "the run's adapter suites, built with the same buddy bytes"
+        else:
+            x["green"] = False
+            x["refused"] = "a direct suite needs one adapter digest across the run's adapter suites, built with its buddy"
+    return results
+
+
 def judge_receipt(harness, suite, receipt, binding):
     """Why this receipt is not evidence for the binding, or None. The bytes the
     run bound must be the retained copy's, by the adapter's own word."""
@@ -414,7 +442,10 @@ def qualify(harness, executable, home, out_root, peer=None, today=None, git=None
                                      row["checker_checks_passed"] == row["checker_checks_total"])
             row["green"] = (not row.get("refused") and rc == 0 and r.get("passed", r.get("success", True)) is not False and
                             row["checks_total"] > 0 and row["checks_passed"] == row["checks_total"] and row["checker_passed"] and
-                            all(isinstance(row[k], str) and len(row[k]) == 64 for k in ("buddy_sha256", "adapter_sha256")))
+                            isinstance(row["buddy_sha256"], str) and len(row["buddy_sha256"]) == 64 and
+                            (row["adapter_sha256"] is None if suite in DIRECT else
+                             isinstance(row["adapter_sha256"], str) and len(row["adapter_sha256"]) == 64))
+    settle_direct(results)
     granted = [t for t in TIER_ORDER if all(x.get("green") for x in results if x["tier"] == t)]
     if "start" not in granted:
         granted = []
@@ -488,6 +519,23 @@ def self_test():
     case("receipt_line_parsed", receipt_from_log("x\nROOT=/r\nRECEIPT=/r/result.json\n") == pathlib.Path("/r/result.json") and
          receipt_from_log("ROOT=/r\n") == pathlib.Path("/r/result.json") and
          receipt_from_log('{"receipt": "/r/result.json"}\n') is None)
+    # The direct Codex gate suite runs no adapter, so its receipt names no
+    # adapter digest; the record wants one per suite. Before this, a Codex
+    # release could never earn start (0.162.1, 2026-10-13: 15/15 and 13/13,
+    # not green).
+    def rows(direct_adapter=None, adapters=("c" * 64, "c" * 64), buddies=("b" * 64, "b" * 64, "b" * 64)):
+        out = [{"suite": "codex-shell-lifecycle-edge", "green": True, "receipt_sha256": "1" * 64,
+                "buddy_sha256": buddies[0], "adapter_sha256": direct_adapter}]
+        for i, a in enumerate(adapters):
+            out.append({"suite": "s%d" % i, "green": True, "receipt_sha256": "2" * 64, "buddy_sha256": buddies[i + 1],
+                        "adapter_sha256": a})
+        return settle_direct(out)
+    settled = rows()
+    case("direct_suite_takes_the_run_adapter_digest", settled[0]["green"] and settled[0]["adapter_sha256"] == "c" * 64)
+    case("direct_suite_refused_when_adapter_builds_differ", not rows(adapters=("c" * 64, "d" * 64))[0]["green"])
+    case("direct_suite_refused_on_another_buddy_build", not rows(buddies=("e" * 64, "b" * 64, "b" * 64))[0]["green"])
+    case("direct_suite_refused_without_adapter_suites", not rows(adapters=())[0]["green"])
+    case("direct_suite_naming_an_adapter_refused", not rows(direct_adapter="c" * 64)[0]["green"])
     with tempfile.TemporaryDirectory(prefix="qualify-release-self-") as tmp:
         tmp = pathlib.Path(tmp)
         home = tmp / "home"
