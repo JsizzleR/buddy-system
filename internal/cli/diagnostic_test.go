@@ -169,13 +169,13 @@ func TestDiagnoseCodexHookMarkers(t *testing.T) {
 		noFinding bool
 	}{
 		{"marked gate", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=codex /abs/bin/buddy gate"}}, "marked", 0, "", true},
-		{"marked through env", map[string][]string{"PreToolUse": {"env BUDDY_HARNESS='codex' buddy gate"}}, "marked", 0, "", true},
+		{"marked through env", map[string][]string{"PreToolUse": {"env BUDDY_HARNESS='codex' /abs/bin/buddy gate"}}, "marked", 0, "", true},
 		{"unmarked gate", map[string][]string{"PreToolUse": {"/abs/bin/buddy gate"}}, "unmarked", 1, "classified as a Claude hook", false},
 		{"one of two unmarked", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=codex /abs/bin/buddy gate", "/abs/bin/buddy gate"}}, "unmarked", 1, "classified as a Claude hook", false},
 		{"unmarked lifecycle", map[string][]string{"PostToolUse": {"/abs/bin/buddy beat"}}, "unmarked", 1, "without its captured token", false},
 		{"marked lifecycle is refused by design", map[string][]string{"Stop": {"BUDDY_HARNESS=codex /abs/bin/buddy bye"}}, "marked", 0, "refused", false},
 		{"marked claude in a Codex layer", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=claude /abs/bin/buddy gate"}}, "unmarked", 1, "names claude", false},
-		{"no buddy command", map[string][]string{"PreToolUse": {"/usr/bin/true"}}, "no_buddy_command_recognized", 0, "", true},
+		{"no buddy command", map[string][]string{"PreToolUse": {"/usr/bin/true"}}, "no_buddy_command_recognized", 0, "no PreToolUse buddy gate", false},
 		{"a command word that is not a fixed literal", map[string][]string{"PreToolUse": {`"$BUDDY" gate`}}, "unrecognized", 0, "not a fixed literal", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -213,4 +213,91 @@ func TestDiagnoseCodexHookMarkers(t *testing.T) {
 			}
 		}
 	})
+}
+
+// A marker-only report can look healthy while no gate sees writes. Each
+// missing-coverage case keeps its marker verdict and has a working absolute,
+// marked, dual-route gate as the positive control. Unknown wrappers remain
+// unknown; an offline layer never proves that Codex loaded or ran its gate.
+func TestDiagnoseCodexHookGateCoverage(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	const absoluteGate = "BUDDY_HARNESS=codex /abs/bin/buddy gate"
+	const missingGate = "no PreToolUse buddy gate"
+	const badMatcher = "matcher does not satisfy the apply_patch and Bash coverage contract"
+	const relativeCommand = "buddy command word is not an absolute path"
+	for _, tc := range []struct {
+		name     string
+		event    string
+		matcher  string
+		command  string
+		verdict  string
+		findings []string
+	}{
+		{"positive control", "PreToolUse", "^(apply_patch|Bash)$", absoluteGate, "marked", nil},
+		{"reverse order", "PreToolUse", "^(Bash|apply_patch)$", absoluteGate, "marked", nil},
+		{"empty matcher covers all", "PreToolUse", "", absoluteGate, "marked", nil},
+		{"dot star covers all", "PreToolUse", ".*", absoluteGate, "marked", nil},
+		{"env absolute control", "PreToolUse", ".*", "env BUDDY_HARNESS=codex '/abs path/buddy' gate", "marked", nil},
+		{"no hooks", "", "", "", "no_buddy_command_recognized", []string{missingGate}},
+		{"no buddy command", "PreToolUse", ".*", "/usr/bin/true", "no_buddy_command_recognized", []string{missingGate}},
+		{"wrong event", "PostToolUse", ".*", absoluteGate, "marked", []string{missingGate}},
+		{"event case matters", "preToolUse", ".*", absoluteGate, "marked", []string{missingGate}},
+		{"other buddy verb", "PreToolUse", ".*", "BUDDY_HARNESS=codex /abs/bin/buddy status", "marked", []string{missingGate}},
+		{"wrapper not inspected", "PreToolUse", ".*", "sh -c 'BUDDY_HARNESS=codex /abs/bin/buddy gate'", "no_buddy_command_recognized", []string{missingGate}},
+		{"patch only", "PreToolUse", "^apply_patch$", absoluteGate, "marked", []string{badMatcher}},
+		{"bash only", "PreToolUse", "^Bash$", absoluteGate, "marked", []string{badMatcher}},
+		{"plain alternation not admitted", "PreToolUse", "apply_patch|Bash", absoluteGate, "marked", []string{badMatcher}},
+		{"star not admitted", "PreToolUse", "*", absoluteGate, "marked", []string{badMatcher}},
+		{"broader regex not guessed", "PreToolUse", "^(apply_patch|Bash|Write)$", absoluteGate, "marked", []string{badMatcher}},
+		{"bare buddy", "PreToolUse", ".*", "BUDDY_HARNESS=codex buddy gate", "marked", []string{relativeCommand}},
+		{"relative buddy", "PreToolUse", ".*", "BUDDY_HARNESS=codex ./bin/buddy gate", "marked", []string{relativeCommand}},
+		{"env bare buddy", "PreToolUse", ".*", "env BUDDY_HARNESS=codex buddy gate", "marked", []string{relativeCommand}},
+		{"both command findings", "PreToolUse", "apply_patch", "BUDDY_HARNESS=codex buddy gate", "marked", []string{relativeCommand, badMatcher}},
+		{"marker finding preserved", "PreToolUse", "apply_patch", "buddy gate", "unmarked", []string{"classified as a Claude hook", relativeCommand, badMatcher}},
+		{"non gate relative command", "Stop", "", "BUDDY_HARNESS=codex buddy bye", "marked", []string{"refused it by design", relativeCommand, missingGate}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hooks := map[string]any{}
+			if tc.event != "" {
+				hooks[tc.event] = []any{map[string]any{"matcher": tc.matcher, "hooks": []any{map[string]any{"type": "command", "command": tc.command}}}}
+			}
+			b, err := json.Marshal(map[string]any{"hooks": hooks})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "hooks.json")
+			if err := os.WriteFile(path, b, 0600); err != nil {
+				t.Fatal(err)
+			}
+			d := diagnosticOK(t, f, f.repo, "--codex-hooks", path).CodexHooks
+			if d == nil || d.Verdict != tc.verdict {
+				t.Fatalf("marker verdict changed: %+v, want %s", d, tc.verdict)
+			}
+			var findings []string
+			for _, c := range d.Commands {
+				if c.Finding != "" {
+					findings = append(findings, c.Finding)
+				}
+			}
+			joined := strings.Join(findings, " | ")
+			if len(tc.findings) == 0 && joined != "" {
+				t.Fatalf("positive control has findings: %s", joined)
+			}
+			for _, want := range tc.findings {
+				if !strings.Contains(joined, want) {
+					t.Errorf("findings %q missing %q", joined, want)
+				}
+			}
+			for _, finding := range []string{missingGate, badMatcher, relativeCommand} {
+				want := false
+				for _, expected := range tc.findings {
+					want = want || expected == finding
+				}
+				if strings.Contains(joined, finding) != want {
+					t.Errorf("finding %q presence differs: %s", finding, joined)
+				}
+			}
+		})
+	}
 }

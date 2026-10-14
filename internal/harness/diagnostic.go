@@ -142,6 +142,13 @@ func Diagnose(kind string, launch *Launch, evidence *DiagnosticEvidence) Harness
 	return r
 }
 
+// CodexGateCoversWrites reports whether a matcher satisfies the same narrow
+// apply_patch and Bash coverage contract used by native admission. Offline
+// hook-layer diagnostics must not guess broader regexp coverage independently.
+func CodexGateCoversWrites(matcher string) bool {
+	return codexGateCoversWrites(matcher)
+}
+
 func diagnoseCodexHooks(raw []byte, launch Launch) (Observation, Observation) {
 	unknown := Observation{State: "unknown"}
 	bad := Observation{State: "unsupported_snapshot", Detail: "capture does not match the adapter's exact synchronous apply_patch and Bash gate"}
@@ -173,7 +180,7 @@ func diagnoseCodexHooks(raw []byte, launch Launch) (Observation, Observation) {
 		if h.EventName != "preToolUse" || h.HandlerType != "command" || h.Async || h.Command != launch.GateCommand || h.CurrentHash != launch.GateHash {
 			return bad, unknown
 		}
-		if !codexGateCoversWrites(h.Matcher) {
+		if !CodexGateCoversWrites(h.Matcher) {
 			return bad, unknown
 		}
 		count++

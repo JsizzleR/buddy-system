@@ -46,7 +46,7 @@ func cmdDiagnose(args []string, env Env) error {
 	launchPath := fs.String("launch", "", "launch configuration; requires harness")
 	receiptPath := fs.String("receipt", "", "saved buddy.control.v1 receipt with captured identity")
 	evidencePath := fs.String("evidence", "", "optional historical native version/hook capture")
-	codexHooks := fs.String("codex-hooks", "", "a hand-wired Codex hooks.json layer to check for the BUDDY_HARNESS=codex marker")
+	codexHooks := fs.String("codex-hooks", "", "a hand-wired Codex hooks.json layer to check for the BUDDY_HARNESS=codex marker and gate coverage")
 	if help, err := parseFlags(fs, args, usageDiagnose, env); help || err != nil {
 		return err
 	}
@@ -186,6 +186,10 @@ func diagnosticJSON(path string, dst any) (string, error) {
 // fixed-literal command word is buddy, optionally after `env` and NAME=value
 // words. A wrapper (a script, `sh -c`) is not inspected, and a command word
 // that is not a fixed literal is reported as unrecognized rather than guessed.
+// Marker verdicts are unchanged by coverage findings: a marked command alone
+// does not establish a PreToolUse gate, coverage of both write routes, or an
+// absolute buddy executable. Keep those findings beside the command, and use
+// the native admission matcher contract rather than a second regexp policy.
 // Exit 0 still means only that a report was produced: a layer on disk is not
 // the effective configuration Codex loaded, trusted or ran.
 
@@ -214,7 +218,8 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 	}
 	var layer struct {
 		Hooks map[string][]struct {
-			Hooks []struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
 				Type    string `json:"type"`
 				Command string `json:"command"`
 			} `json:"hooks"`
@@ -232,6 +237,7 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 	}
 	sort.Strings(events)
 	found := 0
+	gateFound := false
 	for _, event := range events {
 		for _, group := range layer.Hooks[event] {
 			for _, h := range group.Hooks {
@@ -239,6 +245,12 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 					continue
 				}
 				for _, c := range codexHookCalls(event, h.Command) {
+					if event == "PreToolUse" && c.Verb == "gate" {
+						gateFound = true
+						if !harness.CodexGateCoversWrites(group.Matcher) {
+							c.addFinding("the PreToolUse gate matcher does not satisfy the apply_patch and Bash coverage contract")
+						}
+					}
 					switch {
 					case c.Verb == "":
 						d.Unrecognized++
@@ -253,6 +265,9 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 			}
 		}
 	}
+	if !gateFound {
+		d.Commands = append(d.Commands, codexHookCommand{Event: "PreToolUse", Finding: "no PreToolUse buddy gate recognized in this layer"})
+	}
 	switch {
 	case d.Unmarked > 0:
 		d.Verdict = "unmarked"
@@ -264,6 +279,13 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 		d.Verdict = "no_buddy_command_recognized"
 	}
 	return d, nil
+}
+
+func (c *codexHookCommand) addFinding(finding string) {
+	if c.Finding != "" {
+		c.Finding += "; "
+	}
+	c.Finding += finding
 }
 
 // codexHookCalls returns one entry per buddy call in a hook command, and one
@@ -343,6 +365,9 @@ func codexHookCalls(event, command string) []codexHookCommand {
 			c.Finding = "BUDDY_HARNESS names " + c.Marker + " in a Codex hook layer"
 		case buddyHookVerbs[c.Verb] && c.Verb != "gate":
 			c.Finding = "an unfenced Codex lifecycle hook: buddy refused it by design (D-069); lifecycle goes through the adapter's captured token"
+		}
+		if !filepath.IsAbs(first.text) {
+			c.addFinding("the buddy command word is not an absolute path; executable selection depends on PATH or the working directory")
 		}
 		out = append(out, c)
 		return true

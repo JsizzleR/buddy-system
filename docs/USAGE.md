@@ -2399,7 +2399,14 @@ under `codex_hooks`, every `buddy` command its hooks run, by event, with the
 process happens to inherit `CODEX_THREAD_ID`, and a lifecycle verb then changes a
 logical session without its captured token), `unrecognized` when a command word
 is not a fixed literal, `marked`, or `no_buddy_command_recognized`. A marked
-lifecycle verb is listed as refused by design (D-069). Commands are parsed with
+lifecycle verb is listed as refused by design (D-069). Findings also report no
+recognized `PreToolUse` buddy gate, a gate matcher outside the shared
+`apply_patch` and `Bash` coverage contract, and a buddy command word that is not
+an absolute path. The admitted matchers are empty, `.*`, `^(apply_patch|Bash)$`
+and `^(Bash|apply_patch)$`; broader regular expressions are not guessed. A
+missing gate appears as a `PreToolUse` finding without a verb. These findings
+do not change the marker verdicts: `marked` alone does not mean gate coverage.
+Commands are parsed with
 the gate's shell parser, parse only; `env NAME=value` prefixes are read, a
 wrapper script or `sh -c` is not inspected. Unknown fields in the layer are
 allowed (it is Codex's file, not Buddy's schema). It describes the file, not the
