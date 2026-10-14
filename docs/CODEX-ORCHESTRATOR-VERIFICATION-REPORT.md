@@ -14,6 +14,11 @@ were not reached by the native fixture. Those gaps are not green qualifications.
 Four redundant adapter mutations and two known injector daemon/join mutations
 also survived; the brief's literal every-mutant-killed criterion was not met.
 
+*Updated 2026-10-13:* the native suites were rerun on the final bytes (HEAD
+`316b337`, A-07); see [the section at the end](#native-rerun-on-the-final-bytes-2026-10-13).
+The tree was committed on 2026-10-12 and installed on 2026-10-13 at the operator's
+request. Newer-version admission remains on hold.
+
 The checkout remained on `main`, HEAD
 `6938fbebb5b5d0d44baf7015fbffa72e2a02606e`, with substantial pre-existing
 uncommitted work. No commit, branch switch, install, global hook/trust change or
@@ -52,13 +57,13 @@ independent closure evidence. The final state is stated separately.
 
 | ID | Disposition | Evidence and final state |
 | --- | --- | --- |
-| F-01 | REFUTED; repaired | Patch-only trusted matcher missed native Bash routing (V-01); nested shell and static quoting missed detection (V-04). Fail-before, permanent regressions, mutations and retained Codex native deny/control now pass. Dynamic/unseen shell routing remains cooperative. *Corrected 2026-10-07 by the audit (A-01):* partial, not repaired. The final recognizer still passed static forms bash and zsh run (`bash -c --`, `eval`, a shell fed a here-document or pipe, `nice`, brace expansion, zsh precommand modifiers, `coproc`, `find -exec`), plus four jurisdiction forms (`pushd`, `~`, nested). The native F-01 runs used a buddy built before the final `patch.go`/`cli.go` edits, so the final recognizer had hermetic evidence only. Since repaired in the working tree: the default is inverted and uncertain text refuses where a ledger governs (D-073 audit continuation, `shellroute_test.go`). No native rerun yet (A-07). |
+| F-01 | REFUTED; repaired | Patch-only trusted matcher missed native Bash routing (V-01); nested shell and static quoting missed detection (V-04). Fail-before, permanent regressions, mutations and retained Codex native deny/control now pass. Dynamic/unseen shell routing remains cooperative. *Corrected 2026-10-07 by the audit (A-01):* partial, not repaired. The final recognizer still passed static forms bash and zsh run (`bash -c --`, `eval`, a shell fed a here-document or pipe, `nice`, brace expansion, zsh precommand modifiers, `coproc`, `find -exec`), plus four jurisdiction forms (`pushd`, `~`, nested). The native F-01 runs used a buddy built before the final `patch.go`/`cli.go` edits, so the final recognizer had hermetic evidence only. Since repaired in the working tree: the default is inverted and uncertain text refuses where a ledger governs (D-073 audit continuation, `shellroute_test.go`). No native rerun yet (A-07). *Updated 2026-10-13:* rerun on the final bytes: the plain heredoc (within shell/lifecycle/edge 15/15) and `bash -lc` heredoc (7/7) are DENIED through the Bash hook, with direct-patch controls written. A-01 was reopened on 2026-10-12 by a re-review; its open forms (`env -S` jurisdiction, `script` with no command, an over-budget brace word as an option value, fish) and `exec <<'SH'` have no native runner. Still partial. |
 | F-02 | VERIFIED | Built entry tests reject unopened, write-only, read-write FIFO, socket and directory descriptors before children/journal; read-only control approves exactly one request. Helper-only historical probes are not entry evidence. |
 | F-03 | VERIFIED | Snapshot failure; home reservation retained with nested and linked worktrees; holder control allowed. Mutation replacing home enforcement dies. |
 | F-04 | VERIFIED, with repaired regression | Mixed managed/unmanaged patch, pathless unmanaged call, conflicting identity and unreadable/corrupt target controls pass. A new over-budget shell analysis regression was reproduced and repaired under V-04. |
 | F-05 | REFUTED; repaired | Multi-link dangling target and early resolution-error counterexamples (V-03). Distinct-spelling regressions kill each placement guard. Native entry deletion, dangling creation and move controls pass on Codex. |
 | F-06 | REFUTED; repaired | Physical `..` inside symlink content was lost (V-03). Component traversal repaired. Native Codex and Claude Write lexical controls measured; conservative checking of both spellings retained. |
-| F-07 | REFUTED for complete cleanup; partial | Group ownership, signal, stdout-holder and leader-exit hermetic cases pass, including new startup fixes. Native Claude regrouped tool survives Close (V-12). Native subagent/no-active-input deny branch NOT CHECKED: attempt did not arm it. *Corrected 2026-10-07 by the audit (A-02):* the closure requirement "refuse or reconcile uncertain prior native ownership before launching a second controller" was not met. After an adapter SIGKILL, `--resume` launched a second app-server while the first lived. Since repaired in the working tree for the shared core: a durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives (D-077 A-02 continuation). Descendants that leave the group, `--end-prior`, unpinned killing and `Setsid` remain open; no native rerun yet. |
+| F-07 | REFUTED for complete cleanup; partial | Group ownership, signal, stdout-holder and leader-exit hermetic cases pass, including new startup fixes. Native Claude regrouped tool survives Close (V-12). Native subagent/no-active-input deny branch NOT CHECKED: attempt did not arm it. *Corrected 2026-10-07 by the audit (A-02):* the closure requirement "refuse or reconcile uncertain prior native ownership before launching a second controller" was not met. After an adapter SIGKILL, `--resume` launched a second app-server while the first lived. Since repaired in the working tree for the shared core: a durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives (D-077 A-02 continuation). Descendants that leave the group, `--end-prior`, unpinned killing and `Setsid` remain open; no native rerun yet. *Updated 2026-10-13:* the operator chose the narrow contract (D-077, 2026-10-11): descendants that leave the group are recorded and reported, never signalled, and `--end-prior` and unpinned killing are out. Built 2026-10-12; observed natively on the final bytes (V-12 row). `Setsid`, Q1-Q7 and the deny branches remain open. |
 | F-08 | VERIFIED by withdrawal | Oversized frames fail visibly as uncertainty. Codex native reconciliation stays unsupported; four dependent runners/checkers revised and rerun. Paged native history is not implemented or qualified. *Corrected 2026-10-07 by the audit (A-09):* verified for the withdrawal of `reconcile` only, which removes the history-read trigger. Any live frame over the 4 MiB transport bound still closes the transport and ends the worker's tree, by design (`process.go`); the response's "preservation of the live worker" is not met for that case, and the Claude image/PDF trigger is unqualified. |
 | F-09 | VERIFIED within measured scope | Exact-key/duplicate/matcher/async/timeout admission tests and mutations pass. Native matcher semantics checked on 2.1.291 only. Escaped duplicate test typo corrected to actual `comm\u0061nd`. |
 | F-10 | REFUTED; repaired | Contradictory `not_submitted` rows/live results could discard native evidence (V-02). New journal compatibility and contradiction tests pass; ordinary pre-write refusal remains retryable. |
@@ -77,7 +82,7 @@ independent closure evidence. The final state is stated separately.
 | F-23 | VERIFIED after V-06/V-08 repairs | Absolute resolved identity and changed-file refusal tests pass. Canonical Claude argv label preserves endpoint ancestry; version probe now bounds inherited output holders. Same-user replacement race remains documented. |
 | F-24 | REFUTED; repaired | Delivered adapter mail lost recipient evidence (V-05); old incarnation evidence suppressed a legitimate legacy successor (V-10). Current-incarnation evidence and both sent paths repaired. |
 | F-25 | VERIFIED | Adapter correction refuses both real send and dry run; snapshot failure and guard mutation reproduced. |
-| F-26 | VERIFIED partial; open | Observed lifecycle paths renew only covering claims; both under- and over-renewal mutations die. Adapter-launched workers still lack a PostToolUse renewal route. |
+| F-26 | VERIFIED partial; open | Observed lifecycle paths renew only covering claims; both under- and over-renewal mutations die. Adapter-launched workers still lack a PostToolUse renewal route. *Updated 2026-10-13:* route B is decided: the controller renews from observed native completion events (Claude's matched, explicitly successful Edit/Write/NotebookEdit results; Codex's completed `fileChange` items) and stays the only lifecycle owner, with the gate contract unchanged. Implementation in progress; open until it lands with its own native check. |
 | F-27 | VERIFIED | Non-hook stdin refuses with `</dev/null` recipe; no manual fallback. Snapshot failure and wording mutation reproduced. *Corrected 2026-10-07 by the audit (A-10):* the response also asked to "cover an open pipe as well as malformed bytes", and the permanent test covered malformed bytes and EOF only; `decodeHook` read stdin to EOF with no bound, so `hello --session` on an inherited open pipe blocked until the writer closed (3.0 s measured). Landed 2026-10-07: hook stdin must arrive whole within 2 s (`hookInputWait`), after which the verb refuses — never the manual path — and `hello --session` names the recipe; a hook payload, written and closed at spawn, is never charged the bound. `TestHelloSessionOpenPipeIsRefusedWithinTheBound` failed on the tree before the fix (blocked past 15 s) and kills both the unbounded read and a fallback to `errNoHookInput`. |
 | F-28 | VERIFIED | Target ledger's own pause/label applies across repo boundary; snapshot failure and pause-read mutation reproduced. |
 | F-29 | VERIFIED locally | Split endpoint/gate budget regression and mutation pass. Native SQLite writer-lock case passed 31/31: advisory step yielded around 250 ms and actual held/unheld gate controls worked. No production load claim. |
@@ -86,9 +91,9 @@ independent closure evidence. The final state is stated separately.
 | F-32 | VERIFIED | Hermetic tier registers Python compile/assert rejection, proxy/provider/checker tests and Node syntax checks. Assert-gate mutation killed. Final tier result below. |
 | F-33 | VERIFIED partial; open | Claude-resume and mixed synthetic self-tests run; receipt-dependent self-tests also rerun. Synthetic fixtures for remaining checkers are still incomplete. *Fixed 2026-10-12 (hermetic):* all 12 checkers self-test on synthetic evidence, and `check.sh` runs them all. Synthetic evidence tests a checker; it qualifies no harness. |
 | F-34 | VERIFIED, source/commands | Qualification Git reads disable optional locks and build environments carry `GIT_OPTIONAL_LOCKS=0`. This does not prove every possible future command is read-only. |
-| F-35 | REFUTED original fixture assumption; repaired partial | Native child no longer shares adapter pgid. Capture verified ancestry and both groups before fault, then signal recorded ownership. Two real-group tests and four mutations pass. Sixteen suites reran, but Mods/peers close helpers still lack explicit forced-signal receipts; their passing exit codes do not close that gap. New job-probe fallback reporting repaired as V-13; regrouped-job qualification remains red. *Updated 2026-10-12:* the TERM/HUP test has its no-handler control; the Mods and peers runners record a forced signal, and the delivery checker refuses one. The runner side is unproven until the native rerun (A-07). Under the narrow contract (D-077, 2026-10-11) the regrouped job is reported, not ended. |
-| F-36 | NOT CHECKED; open | No independent recount is possible without provider sequence/stage markers. Not implemented in this verification. *Partial 2026-10-12:* the provider keeps its own timeline, and `check-interrupted` recounts the replay window and the held request from it. Still open: interrupted-compaction's barrier and released flags, the request counts in compaction, interrupted-compaction, uncertain and recovery, the Claude checkers, and recovery's job liveness. The runner side is unproven until A-07. |
-| F-37 | VERIFIED partial; open | Shared contract/splice checks and updated reconcile boundaries exercised. Complete receipt/evidence/native-executable binding across all checkers remains open. *Fixed 2026-10-12 (hermetic):* `check-interrupted`, `check-recovery` and `check-uncertain` bind their original files, the build and the native executables; the runners write `native-versions.json` and `evidence_sha256`. Receipts written before this fail the new checks. The runner side is unproven until A-07. |
+| F-35 | REFUTED original fixture assumption; repaired partial | Native child no longer shares adapter pgid. Capture verified ancestry and both groups before fault, then signal recorded ownership. Two real-group tests and four mutations pass. Sixteen suites reran, but Mods/peers close helpers still lack explicit forced-signal receipts; their passing exit codes do not close that gap. New job-probe fallback reporting repaired as V-13; regrouped-job qualification remains red. *Updated 2026-10-12:* the TERM/HUP test has its no-handler control; the Mods and peers runners record a forced signal, and the delivery checker refuses one. The runner side is unproven until the native rerun (A-07). Under the narrow contract (D-077, 2026-10-11) the regrouped job is reported, not ended. *Updated 2026-10-13:* the runner side ran natively: Mods 38/38 and peers 50/50 on the final bytes, and `check-claude-delivery.py` passes the peers receipt (no forced signal) and rejects 60 damaged cases. The Mods suite has no independent checker yet. Broader cleanup stays open. |
+| F-36 | NOT CHECKED; open | No independent recount is possible without provider sequence/stage markers. Not implemented in this verification. *Partial 2026-10-12:* the provider keeps its own timeline, and `check-interrupted` recounts the replay window and the held request from it. Still open: interrupted-compaction's barrier and released flags, the request counts in compaction, interrupted-compaction, uncertain and recovery, the Claude checkers, and recovery's job liveness. The runner side is unproven until A-07. *Updated 2026-10-13:* the runner side ran natively; `check-interrupted` passes 59/59 on a fresh receipt and rejects 54 damaged cases. The other items stay open. |
+| F-37 | VERIFIED partial; open | Shared contract/splice checks and updated reconcile boundaries exercised. Complete receipt/evidence/native-executable binding across all checkers remains open. *Fixed 2026-10-12 (hermetic):* `check-interrupted`, `check-recovery` and `check-uncertain` bind their original files, the build and the native executables; the runners write `native-versions.json` and `evidence_sha256`. Receipts written before this fail the new checks. The runner side is unproven until A-07. *Updated 2026-10-13:* on fresh receipts from the final bytes, `check-interrupted` 59/59, `check-recovery` 29/29 and `check-uncertain` 42/42 pass, and every manifest-bearing receipt names the one source manifest. The other checkers' complete binding stays open. |
 | F-38 | VERIFIED within test scope | Non-daemon injectors, explicit stop/join, concurrent input relay and child-stops-reading controls exercised. Equivalent join/daemon mutants and their limits are retained in adapter evidence; not every join is independently observable. |
 | F-39 | VERIFIED | Fixtures isolate global/system Git config, use bounded commands and `require`; AST assert gate is active and mutated. |
 | F-40 | VERIFIED | Exactly-one history rewrite is required; all five proxy modes exercised. Guard removal killed its regression; an initial import-layout error was excluded. |
@@ -229,6 +234,10 @@ hashes and full commands are in `native-summary.json`. Newer PATH versions
 were not admitted. Loopback providers emit scripted responses; these counts
 measure harness/adapter behavior, not autonomous planning or real providers.
 
+*[2026-10-13: these 2026-10-07 counts are from source that predates the final
+bytes (A-07). The rerun on the final bytes is in
+[its own section](#native-rerun-on-the-final-bytes-2026-10-13).]*
+
 | Suite | Checks passed | Checker damaged-evidence cases rejected |
 | --- | ---: | ---: |
 | Claude Mods | 33/33 | — |
@@ -291,7 +300,7 @@ names in examples stand for fresh fixture directories.
 | V-09 | Record approval `"pending"`, then deliver `approval_resolved` while ledger Inspect fails. Pending list still had `state:"observed"`. | Historical approval remains listed but pending state is unknown, with stale/incomplete detail. |
 | V-10 | End adapter incarnation after queuing mail or registering endpoint; register same native session as a legacy successor with live socket. Earlier evidence suppressed its wake; merely removing that classifier then offered legacy wake for old adapter `sent` rows. | Current-incarnation evidence only; both `sent` list/row paths explicitly exclude adapter messages. |
 | V-11 | Complete native Codex work, close control stdin normally; deferred controller Close produces disconnected event before event-loop cancellation. Mixed checker reports worker error despite completed work. | Cancel event observation before controller Close; ordinary unexpected disconnect still reports uncertainty. Final mixed fixture passes. |
-| V-12 | Native Claude Bash starts a long-running local Python job; captured job pgid differs from both adapter and native pgid. Close exits zero and job remains alive. | **Unresolved native cleanup qualification.** Confirms documented regrouping limit; durable red probe and exact-identity cleanup retained. No general descendant supervisor added. |
+| V-12 | Native Claude Bash starts a long-running local Python job; captured job pgid differs from both adapter and native pgid. Close exits zero and job remains alive. | **Unresolved native cleanup qualification.** Confirms documented regrouping limit; durable red probe and exact-identity cleanup retained. No general descendant supervisor added. *Updated 2026-10-13:* under the narrow contract (D-077) the escaped job is recorded and reported, not ended. On the final bytes the contract held natively twice (recorded in `.proc`, reported on stderr, not signalled, adapter exit 0), and the probe stays RED 3/4 only on `native_tool_job_exited_on_close`, a criterion that predates the contract. Its criteria are being updated. |
 | V-13 | New job probe sees EOF timeout, fallback `SIGTERM`, adapter exit 0 and job absent. Ignoring `client.forced` produced a passing receipt; a throwing close could also prevent its receipt. | Record forced cleanup on success and exception paths; final predicate requires none. Mocked failure/positive/exception controls pass, guard mutant dies. Native rerun remains red for the actual regrouped job. |
 
 ## Remaining work and plan decision
@@ -314,3 +323,82 @@ Landing still needs a concrete branch/commit split and coordinated schema-15
 installation plan before any real-ledger access. This verification did not
 choose or execute that irreversible operation. The [plan](CODEX-ORCHESTRATOR-PLAN.md#next)
 now points here for the next bounded work.
+
+*[2026-10-13: the tree landed on `main` on 2026-10-12, and at the operator's
+explicit request the schema-15 installation was performed on 2026-10-13 (the plan's
+"Production installation" row). This verification still did not choose it.]*
+
+## Native rerun on the final bytes, 2026-10-13
+
+Audit item A-07: the 2026-10-07 suites ran source that predated the final bytes.
+This rerun was authorized by the operator on 2026-10-13. Compact evidence is in
+[verification-evidence/2026-10-13](verification-evidence/2026-10-13/README.md); the
+raw evidence is archived at
+`~/Archives/buddy-system/2026-10-13-a07-rerun/evidence.tar.zst` (sha256
+`5cb549c7c6bbc99687cb54cd03b13de00317e9a01962246dc9e0b1d4cc1a96fa`, re-checked
+against the `.sha256` beside it). The `/private/tmp` paths in its summary are
+ephemeral.
+
+**Bytes.** HEAD `316b337`, clean before and after every step; go1.27.1; buddy
+`d1cfb880…f290`, buddy-adapter `e6ee0108…41be` (full digests in the summary), the
+same digests from the runners that build their own; one source manifest
+`ee1a4482…` on all 20 manifest-bearing receipts. Retained inputs, hashes verified:
+Claude 2.1.291 (`9a1d2ed6…6690`, restored from the A-08 archive), Codex 0.160.0
+(`112fae7a…4b4b`), Claude Agent SDK 0.3.202. Disposable roots, ledgers and
+configuration, deterministic loopback providers; no real provider, installation,
+settings or trust change, repo edit or commit within the run.
+
+| Suite | Checks | Independent checker | Rejected | 2026-10-07 |
+| --- | ---: | --- | ---: | --- |
+| Claude Mods | 38/38 | pending | — | 33/33 |
+| Claude peers | 50/50 | 30/30 | 60 | 50/50, 54 |
+| Claude resume | 22/22 | 22/22 | 21 | 22/22, 21 |
+| Claude interrupted | 98/98 | 98/98 | 86 | 98/98, 86 |
+| Claude compaction | 26/26 | 26/26 | 30 | 26/26, 30 |
+| Claude endpoints | 38/38 | 19/19 | 32 | 38/38, 32 |
+| Codex recovery | 29/29 | 29/29 | 31 | 26/26, 26 |
+| Codex interrupted | 59/59 | 59/59 | 54 | 52/52, 46 |
+| Codex uncertain | 42/42 | 42/42 | 44 | 40/40, 38 |
+| Codex compaction | 23/23 | 23/23 | 34 | 23/23, 34 |
+| Codex interrupted compaction | 75/75 | 75/75 | 90 | 75/75, 90 |
+| Claude SDK history | 130/130 | 130/130 | 175 | 130/130, 175 |
+| Mixed fleet | 37/37 | 37/37 | 41 | 37/37, 41 |
+| Claude interrupted compaction | 113/113 | 113/113 | 222 | 113/113, 222 |
+| Codex shell/lifecycle/edge | 15/15 | pending | — | 15/15 |
+| Standalone Codex adapter | 9/9 | pending | — | 9/9 |
+
+- All 16 passed on the first attempt. The 13 independent checkers pass both their
+  validation and their receipt self-test, so the 2026-10-12 tightening (F-13/F-33
+  suite binding, F-35 forced-signal record, F-36 timeline, F-37 binding) now holds on
+  receipts the current runners wrote, not only on synthetic evidence. The higher
+  counts are those added checks.
+- **Pending:** claude-mods, codex-shell-lifecycle-edge and standalone-adapters have
+  no independent checker. Their counts are the runner's own; the checkers are being
+  written separately, and nothing here claims them.
+- **V-12, `qualify-claude-jobs.py`: RED 3/4 on both attempts**, only on
+  `native_tool_job_exited_on_close`, which predates the narrow contract. The contract
+  held: Claude 2.1.291 ran the Bash tool shell (4515) as its own group leader under
+  the native `claude`, with the python job (4516) as its child; both left the
+  worker's group, were captured by the close-time scan, recorded in
+  `<receipt>.proc`, reported on one adapter stderr line, and not signalled. The
+  adapter exited 0 with no fallback kill; the fixture then ended only the
+  identity-matching group. The suite checks neither the record nor the report; its
+  criteria are being updated separately.
+- **A-01 native cases:** the plain `apply_patch <<'EOF'` through Codex's
+  `exec_command` (inside the 15/15) and `bash -lc '<heredoc>'` (7/7; 6/6 on
+  2026-10-07 from a stale fork) were DENIED through the Bash hook, held file
+  unchanged and collateral absent, with direct-patch controls written. Codex paths
+  10/10 (delete-link, both `..` spellings, dangling link, move; each held and
+  control) and Claude Write paths 6/6. The forms the 2026-10-12 re-review left open
+  and the decided-open `exec <<'SH'` have no native runner: **A-01 stays REOPENED.**
+- **Q2, Q4, Q5: not observable** with the current runners: no runner double-forks
+  (Q2); all 39 adapter close reports have trigger `close`, none a leader self-exit
+  (Q4); every fault seam kills the adapter and its native groups together, so stdin
+  EOF is never isolated (Q5). Observation only. `Setsid` is not built; Q1 and Q3 were
+  not run. All Codex adapter closes reported 0 escaped descendants, which is not Q3.
+- A first pass of the 17 extra cases failed in 0 s on a driver bug (relative paths)
+  and is kept in the archive, not counted.
+
+What this changes: A-07 is done for the suites that exist. It does not admit a newer
+version, qualify a real provider, close A-01, or qualify `Setsid` or Q1-Q7. Newer
+PATH versions are now Claude 2.1.296 and Codex 0.162.1, and the adapter refuses both.

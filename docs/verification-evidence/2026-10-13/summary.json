@@ -1,0 +1,1920 @@
+{
+  "scope": "A-07 operator-authorized native rerun, 2026-10-13. Retained Claude 2.1.291, Codex 0.160.0 and Claude Agent SDK 0.3.202; disposable roots, ledgers and configuration; deterministic loopback providers. No real provider, installation, global settings or hook-trust change, no repo edit, no commit. Fixture evidence only, not production proof.",
+  "source": {
+    "repo": "~/Projects/buddy-system",
+    "head": "316b3372bc027f463698aaf6c05be973161c6525",
+    "tree": "clean (git status --porcelain empty) before and after"
+  },
+  "native_versions": {
+    "claude": "2.1.291",
+    "claude_path": "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+    "claude_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+    "claude_source": "~/Archives/buddy-system/2026-10-07-orchestrator-verification/evidence.tar.zst member buddy-verification-retained-bin/claude; archive sha256 79be515873cd7101bdf86ce1d2e9163d911eb8b9e57655314b5208d043ef3991 verified (shasum -c)",
+    "codex": "0.160.0",
+    "codex_path": "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex",
+    "codex_sha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+    "sdk": "0.3.202",
+    "sdk_path": "~/.npm/_npx/c59c72de5188656c/node_modules/@anthropic-ai/claude-agent-sdk",
+    "sdk_package_sha256": "c4f86b54930b68cf4814f94dde0ee1580e0f6b0adf4b74ae6def2233d2f6c7e9"
+  },
+  "built": {
+    "go": "go1.27.1 darwin/arm64",
+    "vcs.revision": "316b3372bc027f463698aaf6c05be973161c6525",
+    "vcs.modified": false,
+    "buddy": "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+    "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+    "adapter": "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter",
+    "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be"
+  },
+  "suites": [
+    {
+      "suite": "claude-mods",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 10.2,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-mods.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-mods-a1.log",
+      "log_sha256": "e96f3932a59a0bb3fed2488034580ea8d893941c25ab65acb3cf984ab6b1bee6",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-mods-8ooykk5d/result.json",
+      "receipt_sha256": "4912ad529b3927b488af08a9bf5500154abb6e3652883a81d8217083b7c5be45",
+      "passed": true,
+      "receipt_copy": null,
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 38,
+      "checks_total": 38,
+      "failed_checks": [],
+      "headline": "38/38",
+      "previous_2026_10_07": {
+        "checks_passed": 33,
+        "checks_total": 33,
+        "rejected_mutations": null,
+        "receipt": "/private/tmp/buddy-claude-mods-wbb_n7gj/result.json"
+      }
+    },
+    {
+      "suite": "claude-peers",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 12.2,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-peers.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-peers-a1.log",
+      "log_sha256": "0e191c74b3f49afa2ad6323956045848a69dc02db96025c02240ac894ced48fc",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-peers-l1nv5x_7/result.json",
+      "receipt_sha256": "391a1dc15e53364b1c5966a2a06ebb6dd86628b761e0d8d9f8ce33184ceec207",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-peers-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "7f1c3432eeec0362807dbda607b03aeb422a8a4756639a0390fbe61eae7b537d",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 50,
+      "checks_total": 50,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-claude-delivery.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-peers-a1.validate.log",
+        "log_sha256": "78a2d8e50a16c27b15f22fba8cb3d00005efe56ed2a9974f2a6a3019f7ba558a",
+        "passed": true,
+        "checks_passed": 30,
+        "checks_total": 30,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-claude-delivery.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-peers-a1.self-test.log",
+        "log_sha256": "3491029bc4d4ac20f706ebb0e1c83bfc6ba16d8826d1e8dcec3255fdb800db4c",
+        "positive": "passed",
+        "rejected_mutations": 60
+      },
+      "headline": "50/50",
+      "previous_2026_10_07": {
+        "checks_passed": 50,
+        "checks_total": 50,
+        "rejected_mutations": 54,
+        "receipt": "/private/tmp/buddy-claude-peers-yyz80iwc/result.json"
+      }
+    },
+    {
+      "suite": "claude-resume",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 7.5,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-resume.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-resume-a1.log",
+      "log_sha256": "0def55649c25a5812f04bed238df82928217350bd5bbaa4414e46dec8d197855",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-resume-3dlfdr9s/result.json",
+      "receipt_sha256": "7a0f815cf5a046c93be3d1b853e1e0e1e3b70b212d7663d58747bcd4df82c56f",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-resume-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "checks_passed": 22,
+      "checks_total": 22,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-claude-resume.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-resume-a1.validate.log",
+        "log_sha256": "048319ad400e1c31ce7fb9108525efc94a47e4b77865219ffffa54bbb3feb740",
+        "passed": true,
+        "checks_passed": 22,
+        "checks_total": 22,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-claude-resume.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-resume-a1.self-test.log",
+        "log_sha256": "cc5563c99ec3bfa245e738c23a5d47493ab46be6f7f50f62a23fd94d411446d3",
+        "positive": "passed",
+        "rejected_mutations": 21
+      },
+      "headline": "22/22",
+      "previous_2026_10_07": {
+        "checks_passed": 22,
+        "checks_total": 22,
+        "rejected_mutations": 21,
+        "receipt": "/private/tmp/buddy-claude-resume-620shi4x/result.json"
+      }
+    },
+    {
+      "suite": "claude-interrupted",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 14.0,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-interrupted.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-interrupted-a1.log",
+      "log_sha256": "420639b8a944574e6c4347cc25fc41c0b09b360c4e6e7823b20ce496fd7039bf",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-interrupted-k_c958q9/result.json",
+      "receipt_sha256": "2217364f816363781bd9fccd6510a370427368232154f761790c68492945399b",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-interrupted-a1",
+      "checks_passed": 98,
+      "checks_total": 98,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-claude-interrupted.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-interrupted-a1.validate.log",
+        "log_sha256": "02486782f23eb60ff454a8bd69505c6350c721299bba5c85a690463f868289ca",
+        "passed": true,
+        "checks_passed": 98,
+        "checks_total": 98,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-claude-interrupted.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-interrupted-a1.self-test.log",
+        "log_sha256": "d0aa06f9d7d0bffa50a49245ffdf9c23da45261825836215b43ab8429d643aaa",
+        "positive": "passed",
+        "rejected_mutations": 86
+      },
+      "headline": "98/98",
+      "previous_2026_10_07": {
+        "checks_passed": 98,
+        "checks_total": 98,
+        "rejected_mutations": 86,
+        "receipt": "/private/tmp/buddy-claude-interrupted-rljgi7q3/result.json"
+      }
+    },
+    {
+      "suite": "claude-compaction",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 3.6,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-compaction.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-compaction-a1.log",
+      "log_sha256": "9b4d6eaa0508130c89b2f4837fa6819934b5f612f7e3a207f960883708356f8e",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-compaction-tmmttwu9/result.json",
+      "receipt_sha256": "03f9f189e98b123e06bb1092dfeeddbeedd414c4fb01167b3f6081e45e440065",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-compaction-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "checks_passed": 26,
+      "checks_total": 26,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-claude-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-compaction-a1.validate.log",
+        "log_sha256": "e8287ff584595ab56e2024ff1d6acd0f2318f05c4a9c1f0072223b21a40e0705",
+        "passed": true,
+        "checks_passed": 26,
+        "checks_total": 26,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-claude-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-compaction-a1.self-test.log",
+        "log_sha256": "e8bb2ca2108aa143ef9b84caa50f47fe6adfe2f36c06c0e049184027e660c195",
+        "positive": "passed",
+        "rejected_mutations": 30
+      },
+      "headline": "26/26",
+      "previous_2026_10_07": {
+        "checks_passed": 26,
+        "checks_total": 26,
+        "rejected_mutations": 30,
+        "receipt": "/private/tmp/buddy-claude-compaction-s449mxiq/result.json"
+      }
+    },
+    {
+      "suite": "claude-endpoints",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 3.2,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-endpoints.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-endpoints-a1.log",
+      "log_sha256": "9290bc4a15de95209f79cd5644212d274b1a7c27f7d848218bae35d474ce7db4",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-endpoints-_4g1by47/result.json",
+      "receipt_sha256": "63515a3aaa8584d15787e95dd5c1f7b16848deb7813ab9aae81fcaeb761acea0",
+      "passed": true,
+      "receipt_copy": null,
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "42e36f75adb34cf246ee91797d69d45c3c417b13150f0cc05e33551ef21f1f6e",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 38,
+      "checks_total": 38,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-claude-delivery.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-endpoints-a1.validate.log",
+        "log_sha256": "20df2d1760d3d36cbf1cfc15692e34804eb73d8a006a8dc3957b2c0511a5a716",
+        "passed": true,
+        "checks_passed": 19,
+        "checks_total": 19,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-claude-delivery.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-endpoints-a1.self-test.log",
+        "log_sha256": "d01945f7105e79e98c7dab6df22a60c4da6be91767d4ebd60c8b7f61d7bc17fc",
+        "positive": "passed",
+        "rejected_mutations": 32
+      },
+      "headline": "38/38",
+      "previous_2026_10_07": {
+        "checks_passed": 38,
+        "checks_total": 38,
+        "rejected_mutations": 32,
+        "receipt": "/private/tmp/buddy-claude-endpoints-e83_4aek/result.json"
+      }
+    },
+    {
+      "suite": "recovery",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 9.7,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-recovery.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/recovery-a1.log",
+      "log_sha256": "c51a7cfe173ba10eff2597fbc96573515fca2a6d5a0f02b28a6e30b13205cefd",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-recovery-wn26fktn/result.json",
+      "receipt_sha256": "1d3a308f0f95faf2b114bc390357bcb42c13ef6e4bf53dac12cb89aeff3f5b00",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/recovery-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "checks_passed": 29,
+      "checks_total": 29,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-recovery.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/recovery-a1.validate.log",
+        "log_sha256": "a456cab6fab27e1a0afbe4b7eb233bc6baa921fa7ce430f09d598fa1cf560c74",
+        "passed": true,
+        "checks_passed": 29,
+        "checks_total": 29,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-recovery.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/recovery-a1.self-test.log",
+        "log_sha256": "eb48d739c0ad260ab3df2c7cbe82fb245722897838219f0f48c8df73ad178f17",
+        "positive": true,
+        "rejected_mutations": 31
+      },
+      "headline": "29/29",
+      "previous_2026_10_07": {
+        "checks_passed": 26,
+        "checks_total": 26,
+        "rejected_mutations": 26,
+        "receipt": "/private/tmp/buddy-recovery-ihxkvd6j/result.json"
+      }
+    },
+    {
+      "suite": "interrupted",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 8.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-interrupted.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/interrupted-a1.log",
+      "log_sha256": "64c0c75f18b3a8762e6e9b17cdc5413c9eb14488ce7dd5b271206b027d3b027d",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-interrupted-038hp0yf/result.json",
+      "receipt_sha256": "19dc949f7a6c486d30af32f6322f732da60a10b35610d2b448d73340ddfa8048",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/interrupted-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "checks_passed": 59,
+      "checks_total": 59,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-interrupted.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/interrupted-a1.validate.log",
+        "log_sha256": "46225c46b7574fcac92848625e4e684b66e341f589cb178bb4f2d8b5778e1793",
+        "passed": true,
+        "checks_passed": 59,
+        "checks_total": 59,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-interrupted.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/interrupted-a1.self-test.log",
+        "log_sha256": "a8a6b26437d21d32da42be670143226d2466352f0501c822c6a6559d75e3f888",
+        "positive": "passed",
+        "rejected_mutations": 54
+      },
+      "headline": "59/59",
+      "previous_2026_10_07": {
+        "checks_passed": 52,
+        "checks_total": 52,
+        "rejected_mutations": 46,
+        "receipt": "/private/tmp/buddy-interrupted-5vibh80e/result.json"
+      }
+    },
+    {
+      "suite": "uncertain",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 5.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-uncertain.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/uncertain-a1.log",
+      "log_sha256": "81c65722f45b1d4fb836f7d78a261b340d3f672c75c249f0b58069eb7cd44eb8",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-uncertain-mux63vzv/result.json",
+      "receipt_sha256": "ae398c17331f87ddbb9566b4537e33c59ab83465f0bae7659ddaed6444f40340",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/uncertain-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "checks_passed": 42,
+      "checks_total": 42,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-uncertain.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/uncertain-a1.validate.log",
+        "log_sha256": "49e3ec06dd8df2d19f01ec829f2da24ca57592a49734c952f7956f677230d051",
+        "passed": true,
+        "checks_passed": 42,
+        "checks_total": 42,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-uncertain.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/uncertain-a1.self-test.log",
+        "log_sha256": "b24ad5748ec8442232a1264db1ca90b7ebff14fef2cf26f770e740e5041e07f2",
+        "positive": "passed",
+        "rejected_mutations": 44
+      },
+      "headline": "42/42",
+      "previous_2026_10_07": {
+        "checks_passed": 40,
+        "checks_total": 40,
+        "rejected_mutations": 38,
+        "receipt": "/private/tmp/buddy-uncertain-kriee1yu/result.json"
+      }
+    },
+    {
+      "suite": "compaction",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 3.0,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-compaction.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/compaction-a1.log",
+      "log_sha256": "01ae1d81626ad92d2f1e710e642e9d802c0d239928da02c34cebf21fc1b5a500",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-compaction-s46ay5h5/result.json",
+      "receipt_sha256": "c741235431903eb02f7772c11a09bc1c8901fc00ff1578e7819194452fd6c418",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/compaction-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "checks_passed": 23,
+      "checks_total": 23,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/compaction-a1.validate.log",
+        "log_sha256": "29e737ae371a0648116cd1101e4281116fc1dac93a159e00fc72914d583ab340",
+        "passed": true,
+        "checks_passed": 23,
+        "checks_total": 23,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/compaction-a1.self-test.log",
+        "log_sha256": "85e758d2936f9f4386094fcb9d10f5025d9f68af7b47f0fc2deb7255de5b5980",
+        "positive": "passed",
+        "rejected_mutations": 34
+      },
+      "headline": "23/23",
+      "previous_2026_10_07": {
+        "checks_passed": 23,
+        "checks_total": 23,
+        "rejected_mutations": 34,
+        "receipt": "/private/tmp/buddy-compaction-hetr0rln/result.json"
+      }
+    },
+    {
+      "suite": "interrupted-compaction",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 13.2,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-interrupted-compaction.py",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/interrupted-compaction-a1.log",
+      "log_sha256": "31ddd5dd9f9fda0f46ab362e7505016e7506e13d2109649620567076d1419c9a",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-interrupted-compaction-3bh166bg/result.json",
+      "receipt_sha256": "f27142ecd75ecf90159bbb1449651b33acf7a9f78d58fff981c2e1e4165c092b",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/interrupted-compaction-a1",
+      "checks_passed": 75,
+      "checks_total": 75,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-interrupted-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/interrupted-compaction-a1.validate.log",
+        "log_sha256": "ff713e529a7f1ca22d7f70344e6c6cbe878a8932e483164b1c8794daa50e520e",
+        "passed": true,
+        "checks_passed": 75,
+        "checks_total": 75,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-interrupted-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/interrupted-compaction-a1.self-test.log",
+        "log_sha256": "ee7f4a3b857880c70d9882d1fd2f988eb7d4645f03c236ddc01b5edfb8111415",
+        "positive": "passed",
+        "rejected_mutations": 90
+      },
+      "headline": "75/75",
+      "previous_2026_10_07": {
+        "checks_passed": 75,
+        "checks_total": 75,
+        "rejected_mutations": 90,
+        "receipt": "/private/tmp/buddy-interrupted-compaction-32_w3vmg/result.json"
+      }
+    },
+    {
+      "suite": "claude-history",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 13.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-history.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--sdk",
+        "~/.npm/_npx/c59c72de5188656c/node_modules/@anthropic-ai/claude-agent-sdk"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-history-a1.log",
+      "log_sha256": "1384dc59e6f54de8d0dc18556a76a34b8c5369eeab20ad5ccfac109ba019b827",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-history-dl3ygfe6/result.json",
+      "receipt_sha256": "984844c527411027678af8f63fa3b874802465246fa604751e47473f5572503f",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-history-a1",
+      "checks_passed": 130,
+      "checks_total": 130,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-claude-history.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-history-a1.validate.log",
+        "log_sha256": "d83565d322723c1b6a1a57c0c47fa190ccc6426902f3f80280216dbb6cebaf38",
+        "passed": true,
+        "checks_passed": 130,
+        "checks_total": 130,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-claude-history.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-history-a1.self-test.log",
+        "log_sha256": "43f8c92d53a585635632adf53ae4fac87120126d5ec5783d93626332582a325c",
+        "positive": "passed",
+        "rejected_mutations": 175
+      },
+      "count_note": "receipt nests checks twice (260/260 recursive); checker recount used, as 2026-10-07 did",
+      "headline": "130/130",
+      "previous_2026_10_07": {
+        "checks_passed": 130,
+        "checks_total": 130,
+        "rejected_mutations": 175,
+        "receipt": "/private/tmp/buddy-claude-history-x8bf3bx9/result.json"
+      }
+    },
+    {
+      "suite": "mixed-fleet",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 12.1,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-mixed-fleet.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/mixed-fleet-a1.log",
+      "log_sha256": "2bd349d63f69ffbe12758cd09f55bbcf598ec430ede29eab04e213e3f584109f",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-mixed-fleet-_515uxh3/result.json",
+      "receipt_sha256": "f82e163cf8bf5c72e34633ac8ab3556587f0aeac2a7b5b4dc07c6e34d9df9f5b",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/mixed-fleet-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "e79406711fb73da62f633c973c6ce6e7f63202a11868da32290038d4140c47f3",
+      "codex_version": "0.160.0",
+      "checks_passed": 37,
+      "checks_total": 37,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-mixed-fleet.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/mixed-fleet-a1.validate.log",
+        "log_sha256": "9145411fe7aa5ad8458d7500eb8aaa837bad05a5c42b74183e6e34bcc2efbc51",
+        "passed": true,
+        "checks_passed": 37,
+        "checks_total": 37,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-mixed-fleet.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/mixed-fleet-a1.self-test.log",
+        "log_sha256": "f886b7180b55df064d5706daa8596ee7b68fde4b9c9fba5c900c6404793c6dc2",
+        "positive": "passed",
+        "rejected_mutations": 41
+      },
+      "headline": "37/37",
+      "previous_2026_10_07": {
+        "checks_passed": 37,
+        "checks_total": 37,
+        "rejected_mutations": 41,
+        "receipt": "/private/tmp/buddy-mixed-fleet-2nxrxh7k/result.json"
+      }
+    },
+    {
+      "suite": "claude-interrupted-compaction",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 46.5,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-interrupted-compaction.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-interrupted-compaction-a1.log",
+      "log_sha256": "2ac90f63971fa149e4ea7f98f67d777e7c992898201247635f563fac6fbbcaca",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-interrupted-compaction-hf308lul/result.json",
+      "receipt_sha256": "a0c30c0010c6722fede0635514325650f18146bae9d240cfecd2e1f8c465a081",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-interrupted-compaction-a1",
+      "checks_passed": 113,
+      "checks_total": 113,
+      "failed_checks": [],
+      "checker_validate": {
+        "checker": "check-claude-interrupted-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-interrupted-compaction-a1.validate.log",
+        "log_sha256": "ff9a0e2ad8867ddf05c041ea176b6762ee1861c53ef20b0505a17a543d49ddaf",
+        "passed": true,
+        "checks_passed": 113,
+        "checks_total": 113,
+        "failed_checks": []
+      },
+      "checker_self-test": {
+        "checker": "check-claude-interrupted-compaction.py",
+        "rc": 0,
+        "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-interrupted-compaction-a1.self-test.log",
+        "log_sha256": "a5f90941a608a90e6309fa27738eabb7517cdd19921074824906ddad157895c2",
+        "positive": true,
+        "rejected_mutations": 222
+      },
+      "headline": "113/113",
+      "previous_2026_10_07": {
+        "checks_passed": 113,
+        "checks_total": 113,
+        "rejected_mutations": 222,
+        "receipt": "/private/tmp/buddy-claude-interrupted-compaction-c_glu0md/result.json"
+      }
+    },
+    {
+      "suite": "codex-shell-lifecycle-edge",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.3,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-codex.py",
+        "--app-server",
+        "--lifecycle",
+        "--edge-cases",
+        "--shell-patch",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/codex-shell-lifecycle-edge-a1.log",
+      "log_sha256": "24e6b70b866261ab4cc137f117f68ed7740b93a94293a156a016be23ff3c2bfc",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-ofqc7fyc/result.json",
+      "receipt_sha256": "abd7f10a159eea9a2fcd5dd653a2c546701cdde1ce096cac8085dcdad2959c08",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/codex-shell-lifecycle-edge-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "a513a1afaebeba4dfa043e776a2093a8f2294ad5139f2bcce68f89d58cecac7e",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 15,
+      "checks_total": 15,
+      "failed_checks": [],
+      "headline": "15/15",
+      "previous_2026_10_07": {
+        "checks_passed": 15,
+        "checks_total": 15,
+        "rejected_mutations": null,
+        "receipt": "/private/tmp/buddy-codex-contract-qualification-38n2tpxc/result.json"
+      }
+    },
+    {
+      "suite": "standalone-adapters",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-adapters.py"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/standalone-adapters-a1.log",
+      "log_sha256": "ee7a0c14b2b151a4806b489cde00df49f20fae542086dfea908bc8659afc8730",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-step2-native-zmmya_gr/result.json",
+      "receipt_sha256": "fd493cb58901c431f0192864fbd5dd2306d76c84047f9c1ff16f4ce79dba72a4",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/standalone-adapters-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "fixture_sha256": "7add0b493fa1ab28ea14943d9e5858cd810d6de7aad4b729172b94665c457cd4",
+      "native_version": "0.160.0",
+      "checks_passed": 9,
+      "checks_total": 9,
+      "failed_checks": [],
+      "headline": "9/9",
+      "previous_2026_10_07": {
+        "checks_passed": 9,
+        "checks_total": 9,
+        "rejected_mutations": null,
+        "receipt": "/private/tmp/buddy-step2-native-lqi8g020/result.json"
+      }
+    },
+    {
+      "suite": "claude-jobs",
+      "attempt": 1,
+      "rc": 1,
+      "elapsed_s": 1.7,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-jobs.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-jobs-a1.log",
+      "log_sha256": "5c0b7f7b458bfa04b2b6237238b00912ea11a20bf3db1a8d173c81e968f1bbca",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-jobs-vbibny02/result.json",
+      "receipt_sha256": "3ed768638908112721d26b3611305da0cee7e5bd10577607296b8ab4b4a91ce3",
+      "passed": false,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-jobs-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "fixture_sha256": "7ac9e7212a6913672978ad0a36682bed47ef48b4e17201793d1346c2edf830e2",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 3,
+      "checks_total": 4,
+      "failed_checks": [
+        "native_tool_job_exited_on_close"
+      ],
+      "headline": "3/4"
+    },
+    {
+      "suite": "claude-jobs",
+      "attempt": 2,
+      "rc": 1,
+      "elapsed_s": 1.6,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "scripts/qualify-claude-jobs.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/claude-jobs-a2.log",
+      "log_sha256": "bb2287847cbf0b5133c3987f56ceb1589e7ae217e152742a2a16e7ffdb49c275",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-jobs-kzvx4t5l/result.json",
+      "receipt_sha256": "6bf0f25897a577edb02f6097c8128634fe0a9b611ff63aaa1435d3f6c52d6f83",
+      "passed": false,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/claude-jobs-a2",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "fixture_sha256": "7ac9e7212a6913672978ad0a36682bed47ef48b4e17201793d1346c2edf830e2",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 3,
+      "checks_total": 4,
+      "failed_checks": [
+        "native_tool_job_exited_on_close"
+      ],
+      "headline": "3/4"
+    }
+  ],
+  "extra_native_cases": [
+    {
+      "suite": "extra:codex-shell-bash-lc",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-shell-bash-lc.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex",
+        "--shell-patch"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-shell-bash-lc-a1.log",
+      "log_sha256": "6a52ace089fb35be210a5edf263debcf181353cceb53266a9a721030f0764238",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-5ccbdkof/result.json",
+      "receipt_sha256": "74c999f03f5e3ef55ac91dd6f0f4823762d8e5f6e36c541771fd7d969fd1a013",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-shell-bash-lc-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "2b5e60cf092b89c170ca5c946ff534ca2456605ae7688d2cb8f87dd12b096bf4",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 7,
+      "checks_total": 7,
+      "failed_checks": [],
+      "headline": "7/7"
+    },
+    {
+      "suite": "extra:codex-path-delete_link-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-delete_link-held.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-delete_link-held-a1.log",
+      "log_sha256": "591048ef025a847d104feddbe6ea6ee7c7690c7f9287815bdf984eb3c32fb363",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-dq5rvjjw/result.json",
+      "receipt_sha256": "cf43e2c644ef5a4dc0af1f28b818e28e3c3bf7ea3822e165c4605b0012c9f647",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-delete_link-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "dc26231d9e5178e2153b5b1bec29e9bb98a3c204c704ec4272dd83326e144a8f",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-delete_link-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-delete_link-control.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-delete_link-control-a1.log",
+      "log_sha256": "9427d2c4a539e753b953b70504ea18be80e998f6e28baf2e45794d4b5ed53b4c",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-rxhb79ps/result.json",
+      "receipt_sha256": "e4ceea8cb387690766167e3bc2264ff629b680763fb3ebcb5668c0bc4ab48fcc",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-delete_link-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "0be95c97888c37570220be7abe8a1214325c1380e4c6854d6fdcfc0437edfdb3",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-dotdot_physical-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-dotdot_physical-held.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-dotdot_physical-held-a1.log",
+      "log_sha256": "8a58c2864f8c2538bc1075f3ab0749a42c9d6e24a7ef302c60aeaddf344d6cc2",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-tf1u29wj/result.json",
+      "receipt_sha256": "95d179b6da520a5cade4ebb0cab7f6e18d66409b530c2320ccb275372bf1f75c",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-dotdot_physical-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "a722f9437045ab60bb55122c40a48b89e28555ea911459c7a72b51d895e78516",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-dotdot_physical-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-dotdot_physical-control.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-dotdot_physical-control-a1.log",
+      "log_sha256": "74dafebb5e480bf5ea9007ad8950328d7127affb95c7ede44878eae2253cfbad",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-blecwavj/result.json",
+      "receipt_sha256": "a4f595843ccdfa28ddbd0ddbd1370546563ba7046e1a067c2a4cad94e83eaa1b",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-dotdot_physical-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "fa9e4b080a204e7be864fe873574ae789638b46bb536aff030a14170b4998480",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-dotdot_lexical-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-dotdot_lexical-held.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-dotdot_lexical-held-a1.log",
+      "log_sha256": "59656c50f9f3d1d91a4df80ffe6da5c813964126363f9bf6e6901847ba70d019",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-w8nrlejp/result.json",
+      "receipt_sha256": "88d98c0743a2752617207a2079842670dd4fdc8218aa9d295492df9e92d49ded",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-dotdot_lexical-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "1a21ebfafb7d7f23e3820270c78e60f56e786dd92d9752c1727bec2c36fa6fab",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-dotdot_lexical-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-dotdot_lexical-control.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-dotdot_lexical-control-a1.log",
+      "log_sha256": "e9ad31d7f8864135b2f36f31e9a4225035713680a8abf838c3169460dcd47cff",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-xyxsk2fj/result.json",
+      "receipt_sha256": "f29c48e4aeb19bddc6202e265418a01b12319d1615ef005ee646c797d394d49a",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-dotdot_lexical-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "fa9e4b080a204e7be864fe873574ae789638b46bb536aff030a14170b4998480",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-dangling_link-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-dangling_link-held.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-dangling_link-held-a1.log",
+      "log_sha256": "e68c79b8ec582ffd6549ffac252bfd2ebd95a800859e01a9636bda1374174883",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-wud_cq5e/result.json",
+      "receipt_sha256": "28881d7f133ef72ffa3564f4d731ff1cb26f9cf959b9f0414c61560196be2fd9",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-dangling_link-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "ec3cb46eca8b29aa96efb4cb52f9139fb61c77e8b0bad2f44ab4e76807f14422",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-dangling_link-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-dangling_link-control.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-dangling_link-control-a1.log",
+      "log_sha256": "dd60c01ea6025eaf25fe6c858b4c6cf79af39449f7dcbb0c1bc7818296701ab4",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-7z9vrmat/result.json",
+      "receipt_sha256": "eabe236faf8fa3595e7803d697bb25b149c1d5aaf7c39e0b1fc7d3540abe92d7",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-dangling_link-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "f5e30fa9fd1c763ba901422e260fce514915219f11196112466bf59efe86f511",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-move-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-move-held.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-move-held-a1.log",
+      "log_sha256": "5c3a7b891ab734b8bae0110c2bd375d1440e7c8996855a359da56f7fbe2570fe",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-2r4m2l4a/result.json",
+      "receipt_sha256": "cccb8bffe4aba851853f757002f4e46be611f3a754141b4cd7c6c774e46a813a",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-move-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "90263ba49dcf3134c3dad2c9bc7c76f566e93dc4c8ef5513cbf9f7be4823521e",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:codex-path-move-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 0.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/codex-path-move-control.py",
+        "--app-server",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--codex",
+        "~/.codex/packages/standalone/releases/0.160.0-aarch64-apple-darwin/bin/codex"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-codex-path-move-control-a1.log",
+      "log_sha256": "ec5811e646aaca56e92179a13970264988d0efeb745c955f26fe4c177f792781",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-codex-contract-qualification-g_xdwdpo/result.json",
+      "receipt_sha256": "6a9eff703d74e056b65449bce9eefb02a20691dcdc8eb29004af3e0b53109d56",
+      "passed": null,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-codex-path-move-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "fixture_sha256": "a91f22f080164119de3d97994b8f8ad42a9ad81196f9a64c1b08e816cf375bef",
+      "codex_version": "codex-cli 0.160.0",
+      "checks_passed": 3,
+      "checks_total": 3,
+      "failed_checks": [],
+      "headline": "3/3"
+    },
+    {
+      "suite": "extra:claude-path-symlink-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/claude-path-symlink-held.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-claude-path-symlink-held-a1.log",
+      "log_sha256": "6b33115c12e09bbd7ed78affc3b21347a2d8e3fa79abc398f34ec5630447937c",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-native-zi7llixl/result.json",
+      "receipt_sha256": "5a64b47089efa6acf05da659cb92db6c5214140029b322e74a6a6937a636a570",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-claude-path-symlink-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "1a1d9cc8264fb821115d171d43f7fe0bc5f3f460cd46ad99eaa8c1e57e43f69b",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 28,
+      "checks_total": 28,
+      "failed_checks": [],
+      "headline": "28/28"
+    },
+    {
+      "suite": "extra:claude-path-symlink-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/claude-path-symlink-control.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-claude-path-symlink-control-a1.log",
+      "log_sha256": "21e3992ff28e9bd421ccd876004c10fc9305aa81185a19837ab72042f0b61a4c",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-native-5w5zbuei/result.json",
+      "receipt_sha256": "fafd8c8839c1c058cc90495662464da969d52c645b50a36c8b8d93241653af15",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-claude-path-symlink-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "65caf068ffa7f0827da1d68af3223ec0db061cff81f18e1ae488f31fae787aeb",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 28,
+      "checks_total": 28,
+      "failed_checks": [],
+      "headline": "28/28"
+    },
+    {
+      "suite": "extra:claude-path-dotdot-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.9,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/claude-path-dotdot-held.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-claude-path-dotdot-held-a1.log",
+      "log_sha256": "6785c99909372c68d32ecbcfc3cea8852de157d8ce308ea13d3b38a200d5049e",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-native-sbqcezvz/result.json",
+      "receipt_sha256": "db68e0e6a6ae0d8cd84e7e48bae1299f1036a7e9788aa6ce0cb335cb78f6f545",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-claude-path-dotdot-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "f9c29ac1d6113020178ee5c51d06470f6f236b66a327121142ecbbb2fdb5fd84",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 28,
+      "checks_total": 28,
+      "failed_checks": [],
+      "headline": "28/28"
+    },
+    {
+      "suite": "extra:claude-path-dotdot-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/claude-path-dotdot-control.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-claude-path-dotdot-control-a1.log",
+      "log_sha256": "c88009c0df3795ec6ff32e7b6b4eaf036e3d29a7d0b58eb00a90638699c44ccc",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-native-js_410iu/result.json",
+      "receipt_sha256": "302ccf139a3239e5a7703d37aeb1c8fc225e8aed5d33bf4803e5aaffac20099b",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-claude-path-dotdot-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "9a973d66fbba239231ad2922cce5512179caad4c2216f8effb90ba0ffabfbef8",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 29,
+      "checks_total": 29,
+      "failed_checks": [],
+      "headline": "29/29"
+    },
+    {
+      "suite": "extra:claude-path-dangling-held",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/claude-path-dangling-held.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-claude-path-dangling-held-a1.log",
+      "log_sha256": "f9da9019dd512a3cac452e4c7e9b43d3bf048deb6f391b08b8c5216aeee72129",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-native-s7om74as/result.json",
+      "receipt_sha256": "b7f7a8b780bea04081d5bf0edd307513b05a11ced01b7342343c90ab401a9ff1",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-claude-path-dangling-held-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "c3ca36ffc1174310a41ab3c3e221df3545c01ee88d278210546330abf6142bf9",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 28,
+      "checks_total": 28,
+      "failed_checks": [],
+      "headline": "28/28"
+    },
+    {
+      "suite": "extra:claude-path-dangling-control",
+      "attempt": 1,
+      "rc": 0,
+      "elapsed_s": 1.8,
+      "timed_out": false,
+      "command": [
+        "python3",
+        "-B",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/generated/claude-path-dangling-control.py",
+        "--claude",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/inputs/claude-extract/buddy-verification-retained-bin/claude",
+        "--claude-version",
+        "2.1.291",
+        "--buddy",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy",
+        "--adapter",
+        "/private/tmp/buddy-a07-rerun-2026-10-13/bin/buddy-adapter"
+      ],
+      "log": "/private/tmp/buddy-a07-rerun-2026-10-13/logs/extra-claude-path-dangling-control-a1.log",
+      "log_sha256": "36f127206a2e39d80860351fbb119ee0c65dcbd99e23c448f1d06217997e5811",
+      "head_before": "316b3372bc027f463698aaf6c05be973161c6525",
+      "head_after": "316b3372bc027f463698aaf6c05be973161c6525",
+      "ledger_header_after": {
+        "user_version": 15,
+        "size": 413696
+      },
+      "receipt": "/private/tmp/buddy-claude-native-ejwff1n2/result.json",
+      "receipt_sha256": "94e0313698c225bca5f2023094fb6f8d9a15cf3e729cd180c5ff99f5e028bfb2",
+      "passed": true,
+      "receipt_copy": "/private/tmp/buddy-a07-rerun-2026-10-13/receipts/extra-claude-path-dangling-control-a1",
+      "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+      "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+      "native_sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+      "source_manifest_sha256": "ee1a4482caeb3c74158f71d60687a9dbfb655fbb057952a6fe10c2ba858ce1f5",
+      "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+      "fixture_sha256": "5c4673e526007f87a8d4ec2309a85ad1580dd26c8631497d78feb8db8c5a199a",
+      "native_version": "2.1.291 (Claude Code)",
+      "checks_passed": 28,
+      "checks_total": 28,
+      "failed_checks": [],
+      "headline": "28/28"
+    }
+  ],
+  "jobs_vs_narrow_contract": {
+    "verdict": "Narrow contract (D-077 2026-10-12) OBSERVED on both attempts: the Bash tool shell (pgid=own pid, ppid=native claude) and its python job left the worker group; both were captured by the close-time final scan, recorded in <receipt>.proc descendants.alive and close.captured/survivors, reported on ONE adapter stderr line, and not signalled (alive at observed_at). Adapter exit 0, no fallback kill. The suite stays RED 3/4 because its criterion native_tool_job_exited_on_close predates the narrow contract (it asserts the job ENDED on close, which the narrow contract deliberately does not do), and the suite checks neither the .proc record nor the stderr report. Not changed. The fixture then SIGKILLed only the identity-matching job group; afterwards none of the recorded pids was alive.",
+    "suite_criterion_mismatch": "qualify-claude-jobs.py checks {job_ancestry_captured, adapter_exit_zero, native_tool_job_exited_on_close, adapter_exited_without_fallback}; under the narrow contract the expected value of native_tool_job_exited_on_close is false, and the contract's own obligations (.proc record, close report) are unchecked by the suite.",
+    "attempts": [
+      {
+        "attempt": 1,
+        "receipt": "/private/tmp/buddy-claude-jobs-vbibny02/result.json",
+        "receipt_sha256": "3ed768638908112721d26b3611305da0cee7e5bd10577607296b8ab4b4a91ce3",
+        "proc": "/private/tmp/buddy-claude-jobs-vbibny02/worker.json.proc",
+        "proc_sha256": "fecb946bd71125b9afb0a81ad4022d68150ca80fe3fab86cc0cb64afd733cdb9",
+        "adapter_stderr": "buddy-adapter: worker closed (close): 2 escaped descendant(s) captured, 0 ended, 2 still running (pid 4515, 4516; not signalled: they left the worker's group), 0 unknown; descendants never observed: unknown",
+        "process_groups": {
+          "adapter": {
+            "pid": 4457,
+            "pgid": 4457,
+            "start": [
+              1791937076,
+              571263
+            ]
+          },
+          "job": {
+            "pid": 4516,
+            "pgid": 4515,
+            "start": [
+              1791937077,
+              211500
+            ]
+          },
+          "natives": [
+            {
+              "pid": 4461,
+              "pgid": 4460,
+              "start": [
+                1791937076,
+                778720
+              ]
+            }
+          ]
+        },
+        "leader": {
+          "pid": 4460,
+          "start": 1791937076758188,
+          "pgid": 4460,
+          "sid": 4457
+        },
+        "recorded_alive": [
+          {
+            "pid": 4515,
+            "start": 1791937077208782,
+            "ppid": 4461,
+            "pgid": 4515,
+            "first_seen": "2026-10-13T20:17:57.314945-04:00"
+          },
+          {
+            "pid": 4516,
+            "start": 1791937077211500,
+            "ppid": 4515,
+            "pgid": 4515,
+            "first_seen": "2026-10-13T20:17:57.314945-04:00"
+          }
+        ],
+        "close": {
+          "trigger": "close",
+          "group": "SIGTERM to group 4460, a 2s grace for the leader, SIGKILL to the group and the leader, leader reaped",
+          "ended": [],
+          "survivors": [
+            {
+              "pid": 4515,
+              "start": 1791937077208782,
+              "ppid": 4461,
+              "pgid": 4515,
+              "first_seen": "2026-10-13T20:17:57.314945-04:00"
+            },
+            {
+              "pid": 4516,
+              "start": 1791937077211500,
+              "ppid": 4515,
+              "pgid": 4515,
+              "first_seen": "2026-10-13T20:17:57.314945-04:00"
+            }
+          ],
+          "unknown": [],
+          "unattributable": "unknown"
+        },
+        "suite_checks": {
+          "job_ancestry_captured": true,
+          "adapter_exit_zero": true,
+          "native_tool_job_exited_on_close": false,
+          "adapter_exited_without_fallback": true
+        },
+        "adapter_forced_cleanup": [],
+        "fixture_cleanup_groups": [
+          4515
+        ]
+      },
+      {
+        "attempt": 2,
+        "receipt": "/private/tmp/buddy-claude-jobs-kzvx4t5l/result.json",
+        "receipt_sha256": "6bf0f25897a577edb02f6097c8128634fe0a9b611ff63aaa1435d3f6c52d6f83",
+        "proc": "/private/tmp/buddy-claude-jobs-kzvx4t5l/worker.json.proc",
+        "proc_sha256": "dc62fe8dda0ea97198b31c99a266cf7d97e845f1047315fcc7e3a02491dc005a",
+        "adapter_stderr": "buddy-adapter: worker closed (close): 2 escaped descendant(s) captured, 0 ended, 2 still running (pid 4615, 4616; not signalled: they left the worker's group), 0 unknown; descendants never observed: unknown",
+        "process_groups": {
+          "adapter": {
+            "pid": 4557,
+            "pgid": 4557,
+            "start": [
+              1791937078,
+              344366
+            ]
+          },
+          "job": {
+            "pid": 4616,
+            "pgid": 4615,
+            "start": [
+              1791937078,
+              889979
+            ]
+          },
+          "natives": [
+            {
+              "pid": 4561,
+              "pgid": 4560,
+              "start": [
+                1791937078,
+                473122
+              ]
+            }
+          ]
+        },
+        "leader": {
+          "pid": 4560,
+          "start": 1791937078453639,
+          "pgid": 4560,
+          "sid": 4557
+        },
+        "recorded_alive": [
+          {
+            "pid": 4615,
+            "start": 1791937078887306,
+            "ppid": 4561,
+            "pgid": 4615,
+            "first_seen": "2026-10-13T20:17:58.987058-04:00"
+          },
+          {
+            "pid": 4616,
+            "start": 1791937078889979,
+            "ppid": 4615,
+            "pgid": 4615,
+            "first_seen": "2026-10-13T20:17:58.987058-04:00"
+          }
+        ],
+        "close": {
+          "trigger": "close",
+          "group": "SIGTERM to group 4560, a 2s grace for the leader, SIGKILL to the group and the leader, leader reaped",
+          "ended": [],
+          "survivors": [
+            {
+              "pid": 4615,
+              "start": 1791937078887306,
+              "ppid": 4561,
+              "pgid": 4615,
+              "first_seen": "2026-10-13T20:17:58.987058-04:00"
+            },
+            {
+              "pid": 4616,
+              "start": 1791937078889979,
+              "ppid": 4615,
+              "pgid": 4615,
+              "first_seen": "2026-10-13T20:17:58.987058-04:00"
+            }
+          ],
+          "unknown": [],
+          "unattributable": "unknown"
+        },
+        "suite_checks": {
+          "job_ancestry_captured": true,
+          "adapter_exit_zero": true,
+          "native_tool_job_exited_on_close": false,
+          "adapter_exited_without_fallback": true
+        },
+        "adapter_forced_cleanup": [],
+        "fixture_cleanup_groups": [
+          4615
+        ]
+      }
+    ]
+  },
+  "a01_shell_routed_and_path_cases": {
+    "codex-shell-lifecycle-edge": "15/15. Case 1: native exec_command `apply_patch <<'EOF' ... EOF` arrived as a Bash PreToolUse hook and was DENIED by the final patch.go (\"this Bash command invokes, or cannot safely rule out, apply_patch through the shell\"); guarded.txt unchanged, collateral.txt absent. Malformed patch denied; unreadable-ledger target denied; direct apply_patch positive control allowed and written. Lifecycle 6 hooks: same captured incarnation, Stop idle, SessionEnd ended.",
+    "extra:codex-shell-bash-lc": "7/7. `bash -lc '<apply_patch heredoc>'` via exec_command: Bash hook DENIED, held file unchanged, collateral absent, later direct apply_patch control written. (2026-10-07 ran this as 6/6 from a stale fork; here it is generated from the current qualify-codex.py with --shell-patch, adding shell_routed_patch_hook_denied.)",
+    "codex_paths": "10/10 (5 cases x held/control). delete_link: held denied, link kept; control removes the link entry, target kept. dotdot_physical/lexical: held (either spelling) denied; control changes the lexical leaf only (leaf.txt), physical real/leaf.txt unchanged. dangling_link: held (target) denied, link left dangling; control creates the target through the link. move: held destination denied, source kept; control deletes source, writes destination.",
+    "claude_write_paths": "6/6. symlink and dangling: Write through a link is refused even when only an unrelated path is held (control) - the file is unchanged in both held and control. dotdot: held lexical leaf refused; control writes leaf.txt lexically, physical real/leaf.txt unchanged.",
+    "not_exercised": "The A-01 re-review's open forms (env -S jurisdiction paths, `script` without a command, over-budget brace word as an option value, fish) and the decided-open persistent `exec <<'SH'` case have no native runner; none was run."
+  },
+  "q_observations": {
+    "label": "OBSERVATION ONLY with current code and existing runners; Setsid not built, Q1/Q3 not run.",
+    "Q2_double_fork": "Not observable: no existing runner launches a double-forking tool. Adjacent observation only: Claude 2.1.291 runs the Bash tool as its own session/group leader (shell pid 4515 = pgid, ppid native 4461) with the job as its child; the scan attributed both (single fork, parent alive), report says unattributable 'unknown'.",
+    "Q4_leader_self_exit": "Not observable: every one of 39 adapter close reports across all receipts has trigger 'close' (37 with 0 escaped descendants, the 2 jobs runs with 2 each); no runner lets the leader exit by itself with a tool running.",
+    "Q5_stdin_eof_after_adapter_sigkill": "Not observable: every fault seam (crash_owned in claude-interrupted, claude-interrupted-compaction, interrupted, interrupted-compaction, history) SIGKILLs the adapter AND its captured native groups together, so the leader's own behaviour on stdin EOF is never isolated.",
+    "codex_escaped_descendants": "All Codex adapter closes in this run (standalone, mixed, recovery family) reported 0 escaped descendants captured; this is not Q3 (no Setsid)."
+  },
+  "binding": {
+    "source_manifest_sha256_all_receipts": "ee1a4482caeb3c74... (one value in all 20 manifest-bearing receipts)",
+    "buddy_sha256_all_receipts": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+    "adapter_sha256_all_receipts": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+    "note": "Runners that build their own binaries from the captured manifest produced byte-identical buddy and buddy-adapter to the scratch build (reproducible go build at a clean HEAD)."
+  },
+  "extra_inputs": {
+    "archived_generators": {
+      "buddy-verification-claude-paths.py": "abab33eb8caef78c228d70277a2d046653f33c43e6e6021de189f2355eb61a76",
+      "buddy-verification-native-paths.py": "4cff27bb417c0bb7eb2a3593e4b48344f1b6236a335ca1c82957f40e5d0be4db",
+      "buddy-verification-shell-bash.py": "68333b446e43d30d7fec9758cd588ea1c1f966a34a7282f3fc14eb0eecf413bc"
+    },
+    "generated_variants": {
+      "claude-path-dangling-control.py": "5c4673e526007f87a8d4ec2309a85ad1580dd26c8631497d78feb8db8c5a199a",
+      "claude-path-dangling-held.py": "c3ca36ffc1174310a41ab3c3e221df3545c01ee88d278210546330abf6142bf9",
+      "claude-path-dotdot-control.py": "9a973d66fbba239231ad2922cce5512179caad4c2216f8effb90ba0ffabfbef8",
+      "claude-path-dotdot-held.py": "f9c29ac1d6113020178ee5c51d06470f6f236b66a327121142ecbbb2fdb5fd84",
+      "claude-path-symlink-control.py": "65caf068ffa7f0827da1d68af3223ec0db061cff81f18e1ae488f31fae787aeb",
+      "claude-path-symlink-held.py": "1a1d9cc8264fb821115d171d43f7fe0bc5f3f460cd46ad99eaa8c1e57e43f69b",
+      "codex-path-dangling_link-control.py": "f5e30fa9fd1c763ba901422e260fce514915219f11196112466bf59efe86f511",
+      "codex-path-dangling_link-held.py": "ec3cb46eca8b29aa96efb4cb52f9139fb61c77e8b0bad2f44ab4e76807f14422",
+      "codex-path-delete_link-control.py": "0be95c97888c37570220be7abe8a1214325c1380e4c6854d6fdcfc0437edfdb3",
+      "codex-path-delete_link-held.py": "dc26231d9e5178e2153b5b1bec29e9bb98a3c204c704ec4272dd83326e144a8f",
+      "codex-path-dotdot_lexical-control.py": "fa9e4b080a204e7be864fe873574ae789638b46bb536aff030a14170b4998480",
+      "codex-path-dotdot_lexical-held.py": "1a21ebfafb7d7f23e3820270c78e60f56e786dd92d9752c1727bec2c36fa6fab",
+      "codex-path-dotdot_physical-control.py": "fa9e4b080a204e7be864fe873574ae789638b46bb536aff030a14170b4998480",
+      "codex-path-dotdot_physical-held.py": "a722f9437045ab60bb55122c40a48b89e28555ea911459c7a72b51d895e78516",
+      "codex-path-move-control.py": "a91f22f080164119de3d97994b8f8ad42a9ad81196f9a64c1b08e816cf375bef",
+      "codex-path-move-held.py": "90263ba49dcf3134c3dad2c9bc7c76f566e93dc4c8ef5513cbf9f7be4823521e",
+      "codex-shell-bash-lc.py": "2b5e60cf092b89c170ca5c946ff534ca2456605ae7688d2cb8f87dd12b096bf4"
+    },
+    "generator": "0d02ea3834d37b34d0337ef3b6c04a4c37b2885ffa2b4e54c75f143e61f70ae9",
+    "driver": "218b2ffcdce90c9a4b92f0d177fea0f457534a8bda4126237add5c24511b7e02",
+    "summarizer": "faedc4c571c747bc50942791a4c63074092f3bab0aec20f5d3d6ad46d56f1f2f"
+  },
+  "notes": [
+    "Real ledger ~/Projects/buddy-system/.git/buddy.db was ALREADY user_version 15 before this run (~/bin/buddy is vcs.revision 316b337, installed 14:34 today, not by this lane). Header (bytes, not SQLite) re-read after every step: 15 throughout. No built binary was run with cwd in a real repo; every fixture git-inits its own temp work tree.",
+    "HEAD 316b337 and a clean tree before and after every step.",
+    "Pass 1 of the 17 extra cases failed rc=2 in 0s because of a DRIVER bug (variants.json held relative script paths, resolved against the repo cwd). Logs kept in logs/pass1-extras-driver-bug/ and runs-pass1.jsonl; regenerated with absolute paths and rerun; that rerun is what is reported.",
+    "claude-mods prints its receipt as a JSON line rather than ROOT=, so the driver did not copy its root automatically; copied afterwards.",
+    "Every suite passed on attempt 1; only claude-jobs was reproduced (attempt 2, same result)."
+  ],
+  "wall_time": {
+    "suites_driver_s": 245,
+    "extras_driver_s": 22,
+    "sum_runner_elapsed_s": 190.9
+  }
+}

@@ -41,10 +41,20 @@ F-31 (D-072 continuation), and integrated a lane's F-33, F-13, F-37, F-35 and pa
 of F-36. A re-review of A-01 reopened it; see the A-01 bullet below. Nothing native
 ran.
 
+On 2026-10-13, at the operator's request, the native suites were rerun on the final
+bytes (A-07, HEAD `316b337`): 16/16 green on the first attempt, the 13 independent
+checkers passing on fresh receipts, V-12's job probe RED 3/4 on a criterion that
+predates the narrow contract while the contract itself held natively. See the
+[report section](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md#native-rerun-on-the-final-bytes-2026-10-13)
+and [its evidence](verification-evidence/2026-10-13/README.md). Separately, also at
+the operator's explicit request, `install.sh` installed `316b337`, migrating this
+checkout's ledger to schema 15.
+
 | Item | State | Where |
 | --- | --- | --- |
-| A-01 static shell forms | **Closed, hermetic.** Every static form listed under A-01 is refused where a ledger governs, each with a kernel control that the real shell runs it. `pushd`, `~` and the nested forms are placed. The ten false-denial controls pass. The borderline forms are decided: covered, or recorded as the cooperative limit. One crafted case stays open by decision: a persistent `exec <<'SH'` redirection read by a later statement's shell. Native rerun still owed (A-07). | `internal/cli/patch.go`, `shellroute_test.go`; D-073 audit continuation; USAGE "Shell-routed patches" |
-| A-02 shared core | **Closed, hermetic; the narrow contract built 2026-10-12** (escaped descendants observed, recorded, reported at close and on stderr, never signalled; resume refuses while a recorded one lives; D-077 2026-10-12 continuation). **Shared core, 2026-10-08:** A durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives. Also: `--wait-prior` and a single-use launch authorization. `.start` fences only Start; every spawn is fenced by the flock plus intent-before-spawn. Out by the operator's choice (2026-10-11, Codex's narrower contract): unpinned killing and `--end-prior`. Still owed: `Setsid` once Q1/Q3 pass, and the native rerun. | `internal/harness/ownership.go`, `ownership_test.go`, `cmd/buddy-adapter/resume_test.go`; D-077 A-02 continuation |
+| A-01 static shell forms | **Closed, hermetic.** Every static form listed under A-01 is refused where a ledger governs, each with a kernel control that the real shell runs it. `pushd`, `~` and the nested forms are placed. The ten false-denial controls pass. The borderline forms are decided: covered, or recorded as the cooperative limit. One crafted case stays open by decision: a persistent `exec <<'SH'` redirection read by a later statement's shell. Native rerun still owed (A-07). **REOPENED 2026-10-12** by a re-review (bullet below). *2026-10-13, native on the final bytes:* the plain heredoc and `bash -lc` heredoc DENIED (15/15, 7/7), Codex paths 10/10, Claude Write paths 6/6. The re-review's open forms and `exec <<'SH'` have no native runner, so it stays reopened. | `internal/cli/patch.go`, `shellroute_test.go`; D-073 audit continuation; USAGE "Shell-routed patches" |
+| A-02 shared core | **Closed, hermetic; the narrow contract built 2026-10-12** (escaped descendants observed, recorded, reported at close and on stderr, never signalled; resume refuses while a recorded one lives; D-077 2026-10-12 continuation). **Shared core, 2026-10-08:** A durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives. Also: `--wait-prior` and a single-use launch authorization. `.start` fences only Start; every spawn is fenced by the flock plus intent-before-spawn. Out by the operator's choice (2026-10-11, Codex's narrower contract): unpinned killing and `--end-prior`. Still owed: `Setsid` once Q1/Q3 pass, and the native rerun. *2026-10-13:* the native rerun is done, and the narrow contract held in V-12's job probe on both attempts (escaped shell and job recorded in `.proc`, reported on stderr, not signalled, adapter exit 0); the probe stays RED 3/4 on its pre-contract criterion, which is being updated. Still owed: `Setsid` and Q1-Q7; Q2, Q4 and Q5 are not observable with the current runners. |
+| A-07 native rerun | **Done 2026-10-13, operator-authorized.** All 16 suites on the final bytes, green on the first attempt; 13 independent checkers pass on the fresh receipts. Three suites (claude-mods, codex-shell-lifecycle-edge, standalone-adapters) have no independent checker yet: pending. | [Report section](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md#native-rerun-on-the-final-bytes-2026-10-13); `verification-evidence/2026-10-13/` | `internal/harness/ownership.go`, `ownership_test.go`, `cmd/buddy-adapter/resume_test.go`; D-077 A-02 continuation |
 | 3. Correct the record | **Done.** Report rows F-01, F-07, F-08, F-13, F-14, F-18, F-27 and F-41, and the mutation table. A-11 markers and anchors. A-13 sentences. A-10 test, with a 2 s stdin bound found necessary. A-14: tests for the target ledger's own label, and new guards for each patch.go guard the rewrite kept. | Report; `decisions.md` D-070, D-071, D-077; `review-charter.md` GIVEN 78; USAGE; CLAUDE.md |
 | A-12 dependency | **Done.** | D-073 audit continuation; CLAUDE.md |
 
@@ -242,6 +252,9 @@ first is alive (F-07 closure requirement).**
 - `codex-shell-lifecycle-edge` and `standalone-adapters` recorded no source manifest.
 - The report's "did not all run final source bytes" understates this: none did.
 - Any native claim for the final code needs a rerun on the final bytes.
+- *Done 2026-10-13:* all 16 suites, V-12's probe and the 17 extra path cases reran on
+  HEAD `316b337`, a clean tree, and all 20 manifest-bearing receipts name one source
+  manifest (`ee1a4482…`). Results in the report's 2026-10-13 section.
 
 **A-08: the durable evidence does not identify its receipts (F-19; report lines 33–35).**
 
@@ -602,7 +615,8 @@ processes is a native question.
 5. **A-08.** Done: archived 2026-10-07. Restore it before re-running a checker against
    the native receipts.
 6. **Native rerun.** After 1 and 2, an operator-authorized native rerun on the final
-   bytes (A-07).
+   bytes (A-07). *Done 2026-10-13 (see Status). A-01's reopened forms still have no
+   native runner.*
 
 The open backlog, as of 2026-10-12:
 - F-13: no runner-generated run id binds every case.
@@ -614,7 +628,22 @@ The open backlog, as of 2026-10-12:
 - F-35, F-36, F-37: the runner side is compiled, not run, until A-07.
 - F-31, F-33 and F-37 are closed hermetically (report rows).
 
+*Updated 2026-10-13:*
+- F-26: route B is decided, renewal from observed native completion events, with the
+  controller the only lifecycle owner and the gate contract unchanged. Implementation
+  is in progress; it needs its own native check on the retained versions.
+- F-35, F-36, F-37: the runner side ran natively in A-07, and the checkers pass on the
+  fresh receipts. F-36's remaining recounts, F-35's broader cleanup and F-13's run id
+  stay open.
+
 ## Where the raw results are
+
+The 2026-10-13 A-07 rerun is archived at
+`~/Archives/buddy-system/2026-10-13-a07-rerun/`: `evidence.tar.zst` (sha256
+`5cb549c7c6bbc99687cb54cd03b13de00317e9a01962246dc9e0b1d4cc1a96fa`, in
+`evidence.tar.zst.sha256` beside it) and an uncompressed `compact/` copy of its
+summary, README, `runs.jsonl` and drivers. The compact repo copy, with both digests
+of its summary, is `docs/verification-evidence/2026-10-13/`.
 
 The 2026-10-12 work is archived outside the repo, each directory with a
 `SHA256SUMS`:

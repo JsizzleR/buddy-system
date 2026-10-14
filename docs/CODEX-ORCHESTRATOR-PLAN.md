@@ -4,7 +4,9 @@ This plan describes what Buddy needs for Codex to coordinate both Claude Code
 and Codex workers: keep Buddy's coordination primitives and add an explicit
 integration for each coding harness. It was written on 2026-10-04 against source
 baseline `6938fbe`. As of 2026-10-07 the implementation is uncommitted
-working-tree change on that baseline. Everything from here to "Qualification
+working-tree change on that baseline. [Superseded 2026-10-12: committed on
+`main` (D-068..D-077); 2026-10-13 native rerun on the final bytes at `316b337`.]
+Everything from here to "Qualification
 boundary" is the current plan. The
 [appendix](#appendix-implementation-receipts-historical) holds each increment's
 receipt. Receipts are historical, append-only evidence, kept as written apart
@@ -16,11 +18,17 @@ authorizes nothing now: authority comes from the operator's request in the
 current session ([AGENTS.md](../AGENTS.md),
 [D-068](decisions.md#d-068--codex-participation-starts-with-path-enforcement-and-native-identity-driver-and-worker-roles-are-explicit)).
 No installation, global hook-trust change, production ledger migration or
-deployment has been performed.
+deployment has been performed. [Superseded 2026-10-13: at the operator's explicit
+request, `sh scripts/install.sh` installed `316b337` and this checkout's ledger
+migrated to schema 15; see "Production installation" below. No global hook-trust
+change and no deployment beyond this machine.]
 
 ## Current status
 
-As of 2026-10-07. In this document, "qualified" always names an exact version,
+As of 2026-10-07, with dated 2026-10-13 updates from the native rerun on the
+final bytes (A-07; [report section](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md#native-rerun-on-the-final-bytes-2026-10-13),
+[evidence](verification-evidence/2026-10-13/README.md)) and the production
+installation. In this document, "qualified" always names an exact version,
 an operation and an evidence category. A result in one category says nothing
 about another. The categories are:
 
@@ -36,18 +44,18 @@ about another. The categories are:
 
 | Area | State | Evidence category | Where |
 | --- | --- | --- | --- |
-| Codex patch gate and identity | Verified and further repaired: shell routing requires both Bash/apply_patch hook coverage, bounded static shell recognition, jurisdiction before denial, all lexical/physical/link placements and additive home claims. Dynamic or unseen shell placement remains cooperative. | Final hermetic checks, guard mutations, constrained gate review and retained Codex 0.160.0 native controls: shell/lifecycle/edge 15/15, native paths 10/10. | D-073; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-01/V-03/V-04 |
-| Codex lifecycle | Implemented. `buddy lifecycle` carries a captured incarnation; raw Codex hello/beat/busy/idle/bye hooks refuse. A PostToolUse beat now renews the claims covering the paths it names (F-26). | Hermetic. Native fixture: Codex 0.160.0 lifecycle hooks, 14/14 (2026-10-04). Source review: one P1 found and fixed, focused re-review PASS (2026-10-04). | D-069, D-076; [lifecycle receipt](#lifecycle-continuation-receipt-2026-10-04) |
-| Structured adapters | Experimental schema 15. Startup output, version-probe cleanup, definite-refusal replay and normal-close event races repaired. Native Claude tool jobs can escape the owned group; complete descendant cleanup is not qualified. | Hermetic and constrained source review; standalone Codex 9/9 and final mixed 37/37. Separate Claude job-cleanup fixture RED. | D-074/D-077; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-02/V-07 to V-12 |
-| Harness admission (exact versions) | Claude: exactly 2.1.289, 2.1.290 and 2.1.291, each with its own `builtin-only-<version>` Mod profile. Every start and resume checks the executable's version against the captured one. Codex: exactly `codex-cli 0.160.0` with the exact trusted synchronous gate hash. Findings F-09, F-21 and F-23 concern these checks. | Native fixture, per Claude version: gate, effective settings and approval separation 32/32, and built-in Mod profile with optional-Mod refusals 33/33, on each of 2.1.289, 2.1.290 and 2.1.291. Codex 0.160.0 hook trust and gate hash in the 14/14 and 9/9 runs. | D-071; `internal/harness/claude.go`, `codex.go`; [Step 3 Mod receipt](#step-3-mod-and-delivery-continuation-receipt-2026-10-04), [2.1.290](#step-4-claude-21290-admission-qualification-2026-10-05) and [2.1.291](#step-4-claude-21291-admission-qualification-2026-10-06) admission receipts |
-| Claude endpoints and peer delivery | Exact process-birth endpoint captured after canonical argv-label repair. Adapter never sends on peer socket. Receiver death and stale socket pathname are distinct; held-message release/expiry remain unexercised. | Retained Claude 2.1.291 loopback rerun: endpoints 38/38, peers 50/50; loaded endpoint/gate 31/31. | D-076/D-077; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-06 |
-| Mixed fleet | Deterministic Codex coordinator and Codex/Claude workers in separate worktrees; scripted delivery, READY, validation routing and landing. A normal-close event race was repaired. | Final retained Claude 2.1.291 + Codex 0.160.0 loopback rerun 37/37; checker synthetic controls reject 41 mutations. No model planning measured. | [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-11 |
+| Codex patch gate and identity | Verified and further repaired: shell routing requires both Bash/apply_patch hook coverage, bounded static shell recognition, jurisdiction before denial, all lexical/physical/link placements and additive home claims. Dynamic or unseen shell placement remains cooperative. | Final hermetic checks, guard mutations, constrained gate review and retained Codex 0.160.0 native controls: shell/lifecycle/edge 15/15, native paths 10/10. *2026-10-13, on the final bytes (`316b337`):* the plain heredoc `apply_patch` (inside shell/lifecycle/edge 15/15) and the `bash -lc` heredoc (7/7) are DENIED through the Bash hook; Codex paths 10/10, Claude Write paths 6/6. The forms the 2026-10-12 A-01 re-review left open and `exec <<'SH'` have no native runner, so A-01 stays REOPENED. | D-073; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-01/V-03/V-04; [audit](CODEX-ORCHESTRATOR-AUDIT.md) A-01 |
+| Codex lifecycle | Implemented. `buddy lifecycle` carries a captured incarnation; raw Codex hello/beat/busy/idle/bye hooks refuse. A PostToolUse beat now renews the claims covering the paths it names (F-26). Workers the adapter launches still have no renewal route; *2026-10-13:* route B (renewal from observed native completion events, the controller the only lifecycle owner) is decided and being implemented. | Hermetic. Native fixture: Codex 0.160.0 lifecycle hooks, 14/14 (2026-10-04). Source review: one P1 found and fixed, focused re-review PASS (2026-10-04). | D-069, D-076; [lifecycle receipt](#lifecycle-continuation-receipt-2026-10-04) |
+| Structured adapters | Experimental schema 15. Startup output, version-probe cleanup, definite-refusal replay and normal-close event races repaired. Native Claude tool jobs can escape the owned group; complete descendant cleanup is not qualified. The narrow contract (D-077, 2026-10-12) records and reports such descendants and never signals them. | Hermetic and constrained source review; standalone Codex 9/9 and final mixed 37/37. Separate Claude job-cleanup fixture RED. *2026-10-13, final bytes:* standalone 9/9 and mixed 37/37 again; claude-jobs RED 3/4 only on `native_tool_job_exited_on_close`, a criterion that predates the narrow contract, while the contract held natively (escaped shell and job recorded in `.proc`, reported on stderr, not signalled, adapter exit 0). The suite's criteria are being updated. `Setsid` is not built; Q1-Q7 not run. | D-074/D-077; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-02/V-07 to V-12 |
+| Harness admission (exact versions) | Claude: exactly 2.1.289, 2.1.290 and 2.1.291, each with its own `builtin-only-<version>` Mod profile. Every start and resume checks the executable's version against the captured one. Codex: exactly `codex-cli 0.160.0` with the exact trusted synchronous gate hash. Findings F-09, F-21 and F-23 concern these checks. | Native fixture, per Claude version: gate, effective settings and approval separation 32/32, and built-in Mod profile with optional-Mod refusals 33/33, on each of 2.1.289, 2.1.290 and 2.1.291. Codex 0.160.0 hook trust and gate hash in the 14/14 and 9/9 runs. *2026-10-13, final bytes:* Mods 38/38 on 2.1.291 (its runner now records a forced close, F-35) and standalone Codex 9/9; neither has an independent checker yet. | D-071; `internal/harness/claude.go`, `codex.go`; [Step 3 Mod receipt](#step-3-mod-and-delivery-continuation-receipt-2026-10-04), [2.1.290](#step-4-claude-21290-admission-qualification-2026-10-05) and [2.1.291](#step-4-claude-21291-admission-qualification-2026-10-06) admission receipts |
+| Claude endpoints and peer delivery | Exact process-birth endpoint captured after canonical argv-label repair. Adapter never sends on peer socket. Receiver death and stale socket pathname are distinct; held-message release/expiry remain unexercised. | Retained Claude 2.1.291 loopback rerun: endpoints 38/38, peers 50/50; loaded endpoint/gate 31/31. *2026-10-13, final bytes:* endpoints 38/38, peers 50/50; `check-claude-delivery.py` passes both and rejects 32 and 60 damaged-evidence cases. | D-076/D-077; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-06 |
+| Mixed fleet | Deterministic Codex coordinator and Codex/Claude workers in separate worktrees; scripted delivery, READY, validation routing and landing. A normal-close event race was repaired. | Final retained Claude 2.1.291 + Codex 0.160.0 loopback rerun 37/37; checker synthetic controls reject 41 mutations. No model planning measured. *2026-10-13, final bytes:* 37/37, checker 37/37, 41 rejected. | [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md), V-11 |
 | Offline diagnostic | `buddy diagnose` reads a private snapshot and never migrates. It starts no native executable, and readiness is always `not_established`. | Hermetic, with five mutations. A read-only run against this checkout's schema-14 ledger left its files unchanged; that is a local observation, not a native exercise. | D-072; [diagnostic receipt](#step-4-offline-diagnostic-receipt-2026-10-05) |
-| Codex recovery | Captured-thread/incarnation resume and replay fences; compaction remains observation. Reconcile stays unsupported for known turns; no-turn journal projection may return unknown. Four dependent suites now require that withdrawal. | Retained 0.160.0 loopback reruns: recovery 26/26, interruption 52/52, uncertainty 40/40, compaction 23/23, interrupted compaction 75/75. | D-075/D-077; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md) |
-| Claude recovery | Experimental terminal-evidence-bound resume; unfinished/uncertain turns refuse before ledger refresh or launch. SDK history never substitutes for terminal result. Compaction admission remains exact-version; reconcile unsupported. | Retained 2.1.291 loopback reruns: resume 22/22, interrupted 98/98, compaction 26/26, interrupted compaction 113/113, SDK 0.3.202 history 130/130. Older version receipts remain historical. | D-075; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md) |
+| Codex recovery | Captured-thread/incarnation resume and replay fences; compaction remains observation. Reconcile stays unsupported for known turns; no-turn journal projection may return unknown. Four dependent suites now require that withdrawal. | Retained 0.160.0 loopback reruns: recovery 26/26, interruption 52/52, uncertainty 40/40, compaction 23/23, interrupted compaction 75/75. *2026-10-13, final bytes, with the tightened F-36/F-37 checks:* recovery 29/29, interruption 59/59, uncertainty 42/42, compaction 23/23, interrupted compaction 75/75; each independent checker passes. | D-075/D-077; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md) |
+| Claude recovery | Experimental terminal-evidence-bound resume; unfinished/uncertain turns refuse before ledger refresh or launch. SDK history never substitutes for terminal result. Compaction admission remains exact-version; reconcile unsupported. | Retained 2.1.291 loopback reruns: resume 22/22, interrupted 98/98, compaction 26/26, interrupted compaction 113/113, SDK 0.3.202 history 130/130. Older version receipts remain historical. *2026-10-13, final bytes:* the same five counts again, each independent checker passing. | D-075; [verification report](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md) |
 | Real-provider or model-directed fleet | Not qualified. Every native fixture uses fixed loopback responses and scripted tool calls. | Not qualified. | Needs explicit provider-spend authorization; [Next](#next) item 5 |
-| Production installation | Not done. No binary, hook or trust setting from this work is installed, and no production ledger was migrated; the review read this machine's ledger header as schema 14. Schema 15 makes every installed schema-14 binary deny (D-037). | Not qualified. | [Findings: landing risk](CODEX-ORCHESTRATOR-FINDINGS.md#landing-risk); [response](CODEX-ORCHESTRATOR-RESPONSE.md#recommended-implementation-and-landing-order) step 6 |
-| Newer versions on PATH | Not admitted. PATH reports Claude 2.1.292 and Codex 0.160.1. The adapter refuses both, and neither inherits a retained binary's results. | Not qualified. Version-mismatch controls refused both before any build or worker launch (2026-10-06). | [2.1.291 mixed-fleet](#step-4-claude-21291-mixed-fleet-requalification-2026-10-06) and [SDK history](#step-4-claude-21291-sdk-history-requalification-2026-10-06) receipts |
+| Production installation | **Done 2026-10-13, at the operator's explicit request:** `sh scripts/install.sh` at `316b337` (`~/bin/buddy` reports `vcs.revision` 316b337, unmodified). This checkout's ledger migrated to schema 15; ledgers of other repositories on this machine migrate on their first hook touch. Each migration leaves the schema-14 ledger at `<repo>/.git/buddy.db.pre-schema15.bak`. Schema 15 makes any schema-14 binary still running deny (D-037). `buddy-adapter` is not installed (D-074). [Until 2026-10-13: not done; no production ledger migrated, and this machine's ledger header read schema 14.] | Not qualified: an operation, not a qualification. | [Findings: landing risk](CODEX-ORCHESTRATOR-FINDINGS.md#landing-risk); [response](CODEX-ORCHESTRATOR-RESPONSE.md#recommended-implementation-and-landing-order) step 6 |
+| Newer versions on PATH | Not admitted. PATH reports Claude 2.1.296 and Codex 0.162.1 (2026-10-13). The adapter refuses both, and neither inherits a retained binary's results. [Until 2026-10-13: Claude 2.1.292 and Codex 0.160.1.] | Not qualified. Version-mismatch controls refused both before any build or worker launch (2026-10-06). [Those controls ran on 2.1.292 and 0.160.1; 2.1.296 and 0.162.1 are outside the code's exact table and no control was run on them.] | [2.1.291 mixed-fleet](#step-4-claude-21291-mixed-fleet-requalification-2026-10-06) and [SDK history](#step-4-claude-21291-sdk-history-requalification-2026-10-06) receipts |
 | Constrained source review | Design and scoped code passes performed; confirmed defects reproduced and repaired with follow-up verdicts. Native cleanup qualification remains separate and red. | Source evidence only; no build/test result inferred. | [verification report and verdicts](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md#constrained-source-reviews) |
 
 **2026-10-06 review.** An independent review of the working tree
@@ -63,7 +71,9 @@ repairs in the working tree and dated D-073/D-076/D-077 continuations. Results
 in the historical appendix predate that verification. Sixteen retained-version
 suites passed, but the separate native job-cleanup qualification failed and
 unsupported native permission branches remain unverified. Newer-version
-admission and installation remain on hold.
+admission and installation remain on hold. [2026-10-13: the tree was committed
+on 2026-10-12, rerun natively on the final bytes and installed at the operator's
+request on 2026-10-13. Newer-version admission remains on hold.]
 
 **Evidence locations.** The receipts cite `/private/tmp` paths for receipts,
 logs, transcripts and mutation artifacts. That directory is ephemeral and is
@@ -88,11 +98,28 @@ that the evidence can be re-read (F-19).
    complete descendant cleanup is not established. Subagent/no-active-input
    permission branches were not armed by the attempted fixture. Choose and
    qualify the appropriate bounded runtime contract before treating F-07 closed.
+   *Updated 2026-10-13:* the operator chose the narrow contract on 2026-10-11
+   (D-077), built 2026-10-12. The native rerun on the final bytes (A-07) is done:
+   16/16 suites green on the first attempt, and the narrow contract held natively
+   in `qualify-claude-jobs.py`, which stays RED 3/4 on a criterion that predates
+   it (its criteria are being updated). Still open: A-01, reopened by the
+   2026-10-12 re-review, whose open forms have neither a test nor a native runner;
+   `Setsid` and Q1-Q7 (Q2, Q4 and Q5 are not observable with the current runners);
+   the subagent/no-active-input branches. See the
+   [report section](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md#native-rerun-on-the-final-bytes-2026-10-13).
 2. **Keep the partial/open backlog explicit:** F-13 per-run binding, F-26 adapter
    claim renewal, F-31 harness-marker diagnostic, F-33 remaining synthetic
    checker fixtures, F-35 broader cleanup qualification, F-36 provider sequence
    evidence and F-37 complete contract/artifact binding. These remain partial or
    open, even though existing guard tests and native suites passed.
+   *Updated 2026-10-13:* F-31 and F-33 closed hermetically on 2026-10-12. The
+   F-35, F-36 and F-37 runner sides ran natively in A-07 and their checkers pass on
+   fresh receipts; F-36's remaining recounts, F-35's broader cleanup and F-13's run
+   id stay open. F-26: route B is decided (renewal from observed native completion
+   events: Claude's matched, explicitly successful Edit/Write/NotebookEdit results,
+   Codex's completed `fileChange` items; the controller stays the only lifecycle
+   owner and the gate contract is unchanged). Its implementation is in progress,
+   and it needs its own native check on the retained versions.
 3. **Recheck affected evidence after subsequent changes.** Foreground constrained
    design/code reviews and retained-version native reruns were performed for
    this verification. Follow-up changes need their own regression, review and
@@ -103,11 +130,35 @@ that the evidence can be re-read (F-19).
    separate exact-version slice: Claude 2.1.292 and Codex 0.160.1. Neither
    inherits retained-version fixture results. The six surviving redundant or
    equivalent mutation cases are explicit in the report, not an all-killed claim.
+   [2026-10-13: PATH now has Claude 2.1.296 and Codex 0.162.1, both refused.]
+   **The plan for tracking new versions (decided 2026-10-13, not yet built).**
+   Admission stays exact-version; what changes is the hand-run per-version loop.
+   One qualification runner, operator-authorized and loopback-only, qualifies a
+   candidate end to end, runs independent checkers, and emits an exact-artifact
+   admission record: harness, exact `--version` text, executable digest and, for
+   Codex, the whole package manifest; the granted tiers (start, resume, compaction
+   observation; an omitted tier is denied); and a code-owned adapter contract id.
+   The record is committed and compiled into the adapter with `//go:embed`, so
+   authority stays reviewed and gated by `check.sh`; it is to be recorded as D-078,
+   superseding D-071's literal "from the code's table" sentence. Every launch still
+   runs today's live checks. Workers launch a retained, hash-pinned copy of a qualified binary
+   kept outside the updater's storage, with the updater off, while the operator's
+   own harness updates freely. Detection never authorizes a launch, and promotion
+   is an explicit act. Order: F-26; independent checkers for the four start-tier
+   suites; the record, embedding, retention and tiers; then 2.1.296 and 0.162.1
+   through the runner.
 5. **Real providers and landing require their concrete authorized operation.**
    No real-provider/model-directed fleet has been qualified. Decide the branch
    and commit split before landing; schema-15 installation and every installed
    binary/hook update must be one coordinated operation. No development binary
    opens the real schema-14 ledger before that operation.
+   [Superseded 2026-10-13 for landing and installation: the tree landed on `main`
+   (committed 2026-10-12), and at the operator's explicit request `install.sh`
+   installed `316b337`. This checkout's ledger is schema 15; other
+   repositories' ledgers on this machine migrate on their first hook touch, each
+   keeping its schema-14 copy at `<repo>/.git/buddy.db.pre-schema15.bak`. Still
+   open: no real-provider or model-directed fleet is qualified, and that needs
+   explicit provider-spend authorization.]
 
 ## Agreed direction and next-session entry point
 
@@ -459,7 +510,8 @@ The original assessment was source/documentation work only. The implementation
 receipts in the appendix supersede that original no-tests/no-native-exercise
 boundary for the exact checks they name, including the bounded local recovery
 drill. No real-provider mixed fleet, production installation/deployment or
-general crash-recovery workflow has been qualified. Vendor documents establish
+general crash-recovery workflow has been qualified. [2026-10-13: the installation
+was performed at the operator's request; performing it qualified nothing.] Vendor documents establish
 interface contracts, not this machine's readiness; recheck contracts against the
 installed version at each integration boundary.
 
