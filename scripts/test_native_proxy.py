@@ -405,20 +405,40 @@ class ForcedCloseIsRecorded(unittest.TestCase):
 
 
 class JobProbeCleanup(unittest.TestCase):
-    """A forced adapter exit is failed qualification, even with no live job."""
+    """A forced adapter exit is failed qualification, even with no live job.
 
-    def exercise(self, forced, close_error=False):
+    The probe's criteria are the D-077 narrow contract (2026-10-13): the
+    escaped job is recorded in <receipt>.proc, named on one stderr close line
+    as not signalled, and still alive after Close; only the pinned native group
+    ends. The fake adapter here writes what a conforming adapter writes, and the
+    negative cases remove one obligation each.
+    """
+
+    JOB = {"pid": 43, "pgid": 7, "start": [1, 2]}
+    NATIVE = {"pid": 44, "pgid": 40, "start": [1, 1]}
+
+    def exercise(self, forced, close_error=False, job_alive=True, proc=True, report=True):
         module = load("qualify-claude-jobs.py")
         with tempfile.TemporaryDirectory(prefix="buddy-job-probe-test-") as tmp:
             root = Path(tmp)
             identity = {"session_id": "fixture", "incarnation": "captured"}
-            client = mock.Mock(owned={"pid": 42}, process=SimpleNamespace(returncode=0), events=[], forced=[])
+            client = mock.Mock(owned={"pid": 42, "pgid": 42, "start": [1, 0]}, process=SimpleNamespace(returncode=0),
+                               events=[], forced=[])
             client.wait.side_effect = [
                 {"identity": identity}, {},
                 {"native_event": {"approval": {"id": "request", "native_session_id": "fixture", "turn_id": "turn"}}}, {},
             ]
+            job = dict(self.JOB, start=1000002)
             def close():
                 client.forced[:] = forced
+                if proc:
+                    (root / "worker.json.proc").write_text(json.dumps({"leader": {"pid": 40, "pgid": 40},
+                        "descendants": {"alive": [job]}, "close": {"trigger": "close", "captured": [job],
+                        "ended": [], "survivors": [job], "unknown": [], "unattributable": "unknown"}}))
+                if report:
+                    (root / "adapter.stderr").write_text("buddy-adapter: worker closed (close): 1 escaped descendant(s) "
+                        "captured, 0 ended, 1 still running (pid 43; not signalled: they left the worker's group), "
+                        "0 unknown; descendants never observed: unknown\n")
                 if close_error:
                     raise RuntimeError("fixture close failed after forced signal")
             client.close.side_effect = close
@@ -429,11 +449,15 @@ class JobProbeCleanup(unittest.TestCase):
                 if argv[-1] == "--version":
                     return "2.1.291 (Claude Code)"
                 return json.dumps({**identity, "delivery": {"message_id": 1}})
+            cleaned = []
             common = SimpleNamespace(QUALIFICATION_VERSIONS=("2.1.291",), SCHEMA="buddy.control.v1",
                 MessagesFixture=object, exit_on_signals=lambda: None, clean_env=lambda: {}, run=run,
                 digest=lambda path: "fixture-hash", native_observer=lambda *args: None,
-                Adapter=adapter, owned_process=lambda pid: {"pid": pid}, descendant_of=lambda *args: True,
-                owned_natives=lambda *args: [], still_owned=lambda job: False, signal_owned_groups=lambda jobs: [],
+                Adapter=adapter, owned_process=lambda pid: dict(self.JOB), descendant_of=lambda *args: True,
+                owned_natives=lambda *args: [dict(self.NATIVE)],
+                still_owned=lambda p: p["pid"] == 43 and job_alive and not cleaned,
+                signal_owned_groups=lambda jobs: cleaned.append(jobs[0]["pgid"]) or [jobs[0]["pgid"]],
+                process_start=lambda pid: None if cleaned or pid != 43 else [1, 2],
                 write_json=module.common.write_json)
             server = mock.Mock(server_address=("127.0.0.1", 1), requests=[])
             args = SimpleNamespace(claude=Path("/fixture/claude"), buddy=Path("/fixture/buddy"),
@@ -458,9 +482,25 @@ class JobProbeCleanup(unittest.TestCase):
 
     def test_unforced_close_positive_control(self):
         status, result = self.exercise([])
-        self.assertEqual(status, 0)
+        self.assertEqual(status, 0, json.dumps(result.get("checks")))
         self.assertTrue(result["passed"])
         self.assertEqual(result.get("adapter_forced_cleanup", []), [])
+        self.assertEqual(result["fixture_cleanup_groups"], [7])
+
+    def test_signalled_job_is_not_success(self):
+        status, result = self.exercise([], job_alive=False)
+        self.assertEqual(status, 1, "an adapter that signalled the escaped job passed the narrow contract")
+        self.assertFalse(result["checks"]["job_not_signalled"])
+
+    def test_missing_proc_record_is_not_success(self):
+        status, result = self.exercise([], proc=False)
+        self.assertEqual(status, 1, "a close with no .proc record passed")
+        self.assertFalse(result["checks"]["escaped_job_recorded"])
+
+    def test_missing_close_report_is_not_success(self):
+        status, result = self.exercise([], report=False)
+        self.assertEqual(status, 1, "a close with no stderr report passed")
+        self.assertFalse(result["checks"]["close_report_names_job_not_signalled"])
 
     def test_close_failure_still_preserves_forced_receipt(self):
         status, result = self.exercise(["SIGTERM"], close_error=True)

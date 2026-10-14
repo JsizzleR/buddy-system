@@ -286,6 +286,17 @@ print(" ".join(sorted(hits)))
   python3 -I -B scripts/check-interrupted.py --self-test
   python3 -I -B scripts/check-recovery.py --self-test
   python3 -I -B scripts/check-uncertain.py --self-test
+  # The start-tier checkers (consensus "Harness version tracking", Codex P1):
+  # the four suites a new harness version's admission record rests on, plus
+  # the jobs suite under the D-077 narrow contract. Each refuses, on synthetic
+  # evidence, a denied edit that happened, a missing allowed control, a
+  # receipt or file spliced from a second run, and passed:true over a failing
+  # case; the Mod checker also an altered inventory.
+  python3 -I -B scripts/check-claude-gate.py --self-test
+  python3 -I -B scripts/check-claude-mods.py --self-test
+  python3 -I -B scripts/check-codex-gate.py --self-test
+  python3 -I -B scripts/check-adapters.py --self-test
+  python3 -I -B scripts/check-claude-jobs.py --self-test
   # node --check, with a planted control so a check that accepts everything
   # cannot pass for one that checked.
   mjs_skipped=
