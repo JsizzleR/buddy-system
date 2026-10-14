@@ -44,3 +44,4 @@ status line saying what became of it.
 | --- | --- |
 | [../CLAUDE.md](../CLAUDE.md) | Rules and invariants for agents working on this repo |
 | [review-charter.md](review-charter.md) | The settled facts prepended to every automated code review (`scripts/codex-review.sh`), so a review spends its budget on the change and not on re-deriving the project |
+| [history-rewrite-2026-10-14.md](history-rewrite-2026-10-14.md) | What the 2026-10-14 history rewrite changed, and the old -> new table for a commit hash cited before it |
