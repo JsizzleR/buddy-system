@@ -153,6 +153,14 @@ def bind(harness, native, probe=version_text):
     if prior is not None and prior != binding:
         raise RuntimeError("a run binds one " + harness + " candidate; already bound " + prior["artifact"])
     CANDIDATES[harness] = binding
+    # The process that bound a candidate expects exactly it. Several runners
+    # validate their own result in-process with their checker's validate
+    # (qualify-claude-resume.py and siblings), and without this an unrecorded
+    # build's first run failed schema_provider in the runner while the
+    # independent checker, handed --candidate, passed the same receipt
+    # (measured 2026-10-13 on 2.1.299). It is the same expectation the
+    # checker gets, never a wider one: other bytes and an unbound run refuse.
+    EXPECTED[harness] = (binding["version"], digest)
     return binding
 
 
@@ -382,6 +390,14 @@ def self_test():
         b = bind("claude", link, probe=lambda h, p: "2.1.296 (Claude Code)")
         case("bind_resolves_link_and_hashes", b["artifact"] == str(exe.resolve()) and b["sha256"] == sha256(exe) and
              b["version"] == "2.1.296")
+        # A runner validates its own result in-process with the checker's
+        # validate (qualify-claude-resume.py and its siblings). That must accept
+        # a run bound to exactly the bytes this process bound, as the
+        # independent checker does when handed --candidate, and nothing else.
+        own = run("own", {"worker.json": saved("2.1.296", b["sha256"]), "adapter-events.json": events(b["sha256"])})
+        case("bound_candidate_admitted_in_process", admits("claude", "2.1.296", own, records_root=rec))
+        case("bound_candidate_other_bytes_refused_in_process", not admits("claude", "2.1.296", new, records_root=rec))
+        case("bound_candidate_legacy_run_refused_in_process", not admits("claude", "2.1.291", legacy, records_root=rec))
         flags = candidate_flags(["adapter", "--harness", "claude", "--executable", "obs"])
         case("flags_typed_after_adapter", flags[:5] == ["adapter", "--qualify-candidate", str(exe.resolve()),
                                                         "--qualify-sha256", sha256(exe)])

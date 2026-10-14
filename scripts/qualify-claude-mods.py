@@ -359,6 +359,8 @@ def main():
         base.write_json(root / "result.json", result)
     print(json.dumps({"receipt": str(root / "result.json"), "success": result["success"],
                       "checks": f"{sum(result['checks'].values())}/{len(result['checks'])}", "error": result.get("error")}))
+    # The runner protocol qualify-release.py reads (receipt_from_log).
+    print("RECEIPT=" + str(root / "result.json"), flush=True)
     return 0 if result["success"] else 1
 
 

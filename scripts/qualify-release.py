@@ -237,13 +237,18 @@ def run_suite(harness, suite, runner, artifact, peer, logs):
     with open(log, "w") as out:
         p = subprocess.run(runner_argv(harness, suite, runner, artifact, peer), cwd=REPO, stdout=out,
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, timeout=4 * 3600)
+    return p.returncode, receipt_from_log(log.read_text(errors="replace"))
+
+
+def receipt_from_log(text):
+    """The receipt a runner's log names: its RECEIPT= line, else ROOT=/result.json."""
     receipt = None
-    for line in log.read_text(errors="replace").splitlines():
+    for line in text.splitlines():
         if line.startswith("RECEIPT="):
             receipt = pathlib.Path(line.removeprefix("RECEIPT="))
         elif line.startswith("ROOT=") and receipt is None:
             receipt = pathlib.Path(line.removeprefix("ROOT=")) / "result.json"
-    return p.returncode, receipt
+    return receipt
 
 
 def run_checker(checker, receipt, candidate, logs, suite):
@@ -472,6 +477,17 @@ def self_test():
          len(suites["codex"]["resume"]) == 3)
     contracts, builtins, gate = code_constants(go)
     case("code_constants_parsed", contracts["claude"] and builtins and gate["codex"]["command"].startswith("'<adapter>'"))
+    # run_suite finds a receipt only by a RECEIPT= or ROOT= line. The first
+    # native release run (2.1.299, 2026-10-13) found none for claude-mods,
+    # which printed only a JSON summary: its 38/38 run counted as "no
+    # receipt". So every runner the code requires must speak that protocol,
+    # and a log line spelled any other way names no receipt.
+    runners = sorted({x[1] for h in suites.values() for t in h.values() for x in t})
+    case("every_required_runner_prints_receipt_line",
+         runners and all('"RECEIPT="' in (SCRIPTS / n).read_text() or "'RECEIPT='" in (SCRIPTS / n).read_text() for n in runners))
+    case("receipt_line_parsed", receipt_from_log("x\nROOT=/r\nRECEIPT=/r/result.json\n") == pathlib.Path("/r/result.json") and
+         receipt_from_log("ROOT=/r\n") == pathlib.Path("/r/result.json") and
+         receipt_from_log('{"receipt": "/r/result.json"}\n') is None)
     with tempfile.TemporaryDirectory(prefix="qualify-release-self-") as tmp:
         tmp = pathlib.Path(tmp)
         home = tmp / "home"
