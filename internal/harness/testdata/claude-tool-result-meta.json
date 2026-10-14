@@ -2743,8 +2743,10 @@
     "uuid": "18cc897a-26a7-40a1-8f23-b3f3fcc0530a"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
    },
    "source": "buddy-claude-compaction-1r0rafd9",
    "uses": [
@@ -2953,8 +2955,10 @@
     "uuid": "555fd2dc-1fec-4e7e-932f-d42df2d16410"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/completed/claude_worker/claude.txt"
+    ]
    },
    "source": "buddy-claude-interrupted-compaction-2tslikjz/completed",
    "uses": [
@@ -3584,8 +3588,10 @@
     "uuid": "aa4a1857-6dd0-4576-8def-a4928b6f7ec6"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/interrupt_active/claude_worker/claude.txt"
+    ]
    },
    "source": "buddy-claude-interrupted-xsv974v4/interrupt_active",
    "uses": [
@@ -3691,8 +3697,10 @@
     "uuid": "2f036609-a5af-483f-a76b-a6ee4b3f8e69"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/interrupt_approval/claude_worker/claude.txt"
+    ]
    },
    "source": "buddy-claude-interrupted-xsv974v4/interrupt_approval",
    "uses": [
@@ -3889,8 +3897,10 @@
     "uuid": "d638dfda-12c5-40f7-aa0d-582b77f76fba"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/native-gate-control/work/allowed.txt"
+    ]
    },
    "source": "buddy-claude-mods-wqyht_jh/native-gate-control",
    "uses": [
@@ -3944,8 +3954,10 @@
     "uuid": "7df1079e-73af-4e7a-9931-8342ce8a3e97"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/allowed.txt"
+    ]
    },
    "source": "buddy-claude-mods-wqyht_jh/native-mod-override",
    "uses": [
@@ -3999,8 +4011,10 @@
     "uuid": "843b0f7e-57d0-49a4-8958-451052e985e4"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/held.txt"
+    ]
    },
    "source": "buddy-claude-mods-wqyht_jh/native-mod-override",
    "uses": [
@@ -4207,8 +4221,10 @@
     "uuid": "fc454d01-80f5-40a0-bfa3-f47c18203b4a"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
    },
    "source": "buddy-claude-native-5akqffom",
    "uses": [
@@ -4261,8 +4277,10 @@
     "uuid": "4ea65032-28e9-4602-b406-eee8ee9302cb"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
    },
    "source": "buddy-claude-native-job1wipi",
    "uses": [
@@ -4518,8 +4536,10 @@
     "uuid": "5dc37b64-c00a-4435-a5eb-1aa0b0fcc37f"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
    },
    "source": "buddy-claude-native-pbdxdzk0",
    "uses": [
@@ -4833,8 +4853,10 @@
     "uuid": "c8a97996-2a26-490d-b70c-0770532ae111"
    },
    "outcome": {
-    "lost": true,
-    "renews": []
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
    },
    "source": "buddy-claude-resume-yktkmy0s",
    "uses": [

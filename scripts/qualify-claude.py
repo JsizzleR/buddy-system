@@ -30,8 +30,9 @@ import traceback
 
 
 # Where a successful native Write's omitted is_error renews (D-078); this
-# mirrors claudeWriteOmissionQualified in internal/harness/claude_renewal.go.
-WRITE_RENEWAL_QUALIFIED = ("2.1.291",)
+# mirrors claudeWriteOmissionVersions in internal/harness/claude_renewal.go,
+# and a Go test refuses any other spelling or set (2.1.299 joined 2026-10-14).
+WRITE_RENEWAL_QUALIFIED = ("2.1.291", "2.1.299")
 SCHEMA = "buddy.control.v1"
 # The files check-claude-gate.py reads (hashed into result.json, F-37).
 EVIDENCE = ("adapter-events.json", "adapter.stderr", "launch.json", "settings.json", "source-manifest.json",
@@ -576,7 +577,7 @@ def renewal_evidence(work, root, receipt, before, identity, checks, version):
 
     A successful Write OMITS is_error natively; the adapter renews it only on a
     version where that omission was measured with its create/update witness
-    (WRITE_RENEWAL_QUALIFIED, mirroring claudeWriteOmissionQualified). On any
+    (WRITE_RENEWAL_QUALIFIED, mirroring claudeWriteOmissionVersions). On any
     other version the expected outcome is the conservative one: the written
     claim does not move and the journal reports renewal coverage unknown.
     The Edit appended after the Write omits is_error on every measured

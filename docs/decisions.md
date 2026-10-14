@@ -5849,8 +5849,10 @@ the reader reads (ids, `is_error`, `tool_use_result`'s type and filePath,
 and replayed alone through a backend of its version after the tool uses that
 preceded it. `before` was produced by the same replay against 447387b (the
 first rule); `outcome` is this code's. On all 38 2.1.291 frames they are
-equal, and the test fails if one moves. On 2.1.299, 14 accepted Write and Edit
-results moved from a silent skip to coverage unknown, and nothing else moved.
+equal, and the test fails if one moves. On 2.1.299, under R' alone, 14
+accepted Write and Edit results moved from a silent skip to coverage unknown,
+and nothing else moved; with 2.1.299's Write omission qualified (below), its 11
+Writes renew and its 3 Edits stay unknown.
 An independent Python derivation of both columns from the rule text agreed on
 all 79. Three measured 2.1.291 frames with `tool_result_meta` were traced as
 key names only (the A-07 mixed-fleet worker, and two in a qualify-claude run
@@ -5869,6 +5871,31 @@ dropped while writing the mutants, as equivalent (a leading-bracket test, a
 leading-brace test and a missing-decision refusal each repeated a later
 check's verdict), and the first sweep's one survivor, dropping the
 decision-object check, gained the end-to-end row that names its reason.
+
+**2.1.299 joins the qualified Write omission (same day, its own commit).**
+From its own frames in the replay fixture: 11 successful main-thread Writes,
+each with `is_error` OMITTED, a `tool_use_result` of type `create` (5, the
+qualify-claude and claude-mods runs) or `update` (6, the compaction,
+interrupted-compaction, interrupted and resume worker traces) whose `filePath`
+is byte-for-byte the input path, one `tool_result` in the frame, and an
+`accept` entry that R' reads as proceed. That is 2.1.291's witness, so
+`claudeWriteOmissionVersions` is `2.1.291, 2.1.299`. Edit stays unqualified: 3
+samples on 2.1.299, all omitted with no `type`, and still no failed-Edit
+control. This is a parse rule keyed by version, not an admission: 2.1.299 has
+no record until its release run earns one.
+
+The set is written three times, in Go and as `WRITE_RENEWAL_QUALIFIED` in
+`qualify-claude.py` (what the runner expects) and `check-claude-gate.py` (what
+the checker re-derives), and a version in one but not another surfaces only in
+an operator-authorized native run. `TestClaudeWriteOmissionVersionsMatchThePythonMirrors`
+reads every `scripts/*.py` that names the set and requires exactly one
+`WRITE_RENEWAL_QUALIFIED = ("x", ...)` line equal to the Go set, no second
+assignment or extension, and both known mirrors present. Its positive controls:
+the exact spelling reads as the Go set, and a short, an extra, a list-respelled,
+a doubled, an extended, a reassigned and an absent set are each refused.
+Mutation: 8 mutants (the Go set short or long, the predicate ignoring it, each
+Python set short, respelled as a list, extended or renamed) were all killed;
+dropping 2.1.299 from the Go set fails the 11 replay rows of its Writes.
 
 ## D-079 — Native admission is a committed, exact-artifact record compiled into the adapter; it supersedes D-071's "from the code's table"
 

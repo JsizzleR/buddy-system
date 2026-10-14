@@ -616,8 +616,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **An adapter worker's claims renew from COMPLETED native writes (D-078):** the controller,
   not a hook; a non-blocking bounded mailbox, then `lifecycle renew` (claims only, never
   idle or lifecycle state) under the captured token. Claude: a matched main-thread
-  tool_result with explicit `is_error:false`, or on 2.1.291 a Write with the measured
-  create/update witness. Codex: a completed `fileChange`, both ends of a move. Bash
+  tool_result with explicit `is_error:false`, or on 2.1.291 and 2.1.299 a Write with the
+  measured create/update witness (one set in Go and in both Python mirrors, test-held). Codex: a completed `fileChange`, both ends of a move. Bash
   renews nothing. `lifecycle beat --path` repeats. `tool_result_meta` (addendum, R'): an
   entry is "not run" only as a measured non-execution kind, an `accept` with no kind
   proceeds, and any other shape renews nothing and reports coverage unknown; never presence.

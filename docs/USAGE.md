@@ -1519,8 +1519,8 @@ changes no lifecycle state. What renews:
 - **Claude.** Only a non-replay, main-thread (`parent_tool_use_id: null`)
   `tool_result` whose `tool_use_id` matches an Edit, Write or NotebookEdit use
   recorded in this launch, from the assistant block or the `can_use_tool`
-  request. It renews when `is_error` is explicitly `false`. On 2.1.291 a
-  successful Write OMITS `is_error`, as measured. There, and only for Write, it
+  request. It renews when `is_error` is explicitly `false`. On 2.1.291 and
+  2.1.299 a successful Write OMITS `is_error`, as measured. There, and only for Write, it
   also renews when the frame's single `tool_use_result` is an object with
   `type` `create` or `update` and a `filePath` equal to the recorded input.
   `is_error: true`, a gate or operator denial, a use with no result, a

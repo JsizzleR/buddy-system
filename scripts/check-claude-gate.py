@@ -838,8 +838,10 @@ def validate(r, receipt_path):
 CLAUDE_RENEWAL_CLAIMS = {"worker-allowed": ("allowed.txt", True), "worker-denied": ("operator-denied.txt", True),
                          "worker-control": ("control.txt", True), "held": ("guarded.txt", False)}
 # Where a successful Write's OMITTED is_error renews (D-078), written down here
-# apart from claudeWriteOmissionQualified and the runner's copy of it.
-WRITE_RENEWAL_QUALIFIED = ("2.1.291",)
+# apart from claudeWriteOmissionVersions and the runner's copy of it; a Go
+# test (TestClaudeWriteOmissionVersionsMatchThePythonMirrors) refuses any
+# disagreement, and any spelling of this line but this one.
+WRITE_RENEWAL_QUALIFIED = ("2.1.291", "2.1.299")
 RENEWAL_CHECKS = {"claim_renewal_capability_declared", "renewal_written_claim_moved", "renewal_denied_write_claim_unmoved",
                   "renewal_control_claim_unmoved", "renewal_held_claim_unmoved", "renewal_journalled_after_write_before_idle",
                   "renewal_placed_only_the_written_path", "renewal_write_coverage_observed",
@@ -1569,10 +1571,10 @@ META_2_1_299 = {"toolu_buddy_0": {"non_execution_kind": "permission-rule",
 
 def meta_self_test():
     """meta_verdict against the table claude_renewal.go is tested with (the
-    fixture's arms and its measured frames' verdicts), then a run whose trace
-    carries the measured 2.1.299 entries: it passes (the accepted Write still
-    witnesses its omission), and the same run with the allowed Write's entry
-    reduced to its id is refused. Returns the refusals counted."""
+    fixture's arms and its measured frames' verdicts), then a 2.1.299 run whose
+    trace carries that version's measured entries: it passes (the accepted
+    Write still witnesses its omission), and the same run with the allowed
+    Write's entry reduced to its id is refused. Returns the refusals counted."""
     doc = json.loads(META_FIXTURE.read_text())
     for arm in doc["arms"]:
         target = next(b for b in arm["results"] if b["id"] == arm["id"])
@@ -1592,7 +1594,7 @@ def meta_self_test():
         raise AssertionError("the tool_result_meta fixture lost rows")
     with tempfile.TemporaryDirectory(prefix="buddy-claude-gate-meta-") as tmp:
         root = Path(tmp).resolve() / "run"
-        r = synthetic(root, "m")
+        r = synthetic(root, "m", version="2.1.299")
         trace = root / "native-observations.jsonl"
         rows = [json.loads(v) for v in trace.read_text().splitlines()]
         for v in rows:

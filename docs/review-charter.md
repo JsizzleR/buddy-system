@@ -795,8 +795,8 @@ ledger row entered through the CLI (D-006).
     last_seen, no idle, no lifecycle state, never the approval gap. First observation at
     once, then at most once per path per 30 s; idle/end apply what is due first. Claude
     renews only a matched non-replay main-thread tool_result with explicit `is_error:false`,
-    or on 2.1.291 a Write whose omitted `is_error` carries the measured create/update
-    witness; Codex only a completed `fileChange` in the active turn (every path and move
+    or on 2.1.291 and 2.1.299 a Write whose omitted `is_error` carries the measured
+    create/update witness (Edit omission stays unqualified); Codex only a completed `fileChange` in the active turn (every path and move
     destination). Bash, attempts, denials, subagents, replays and other launch generations
     renew nothing; correlations never cross a resume. Do not propose renewing through
     `BeatLogical` (it erased idle), one event per tool result (it blocks the reader), or

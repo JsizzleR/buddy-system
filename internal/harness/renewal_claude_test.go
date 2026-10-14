@@ -1,8 +1,13 @@
 package harness
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -53,6 +58,11 @@ func TestClaudeRenewalOnlyForAMatchedCompletedMainThreadWrite(t *testing.T) {
 		{"a string tool_use_result is no witness", "2.1.291", []map[string]any{assistant("Write", "u1", write, nil),
 			result("u1", "omit", map[string]any{"tool_use_result": "Error: Denied"})}, nil, true},
 		{"omission is unqualified on 2.1.290", "2.1.290", []map[string]any{assistant("Write", "u1", write, nil), result("u1", "omit", witness)}, nil, true},
+		{"omitted is_error with the 2.1.299 witness and its accept entry renews", "2.1.299", []map[string]any{assistant("Write", "u1", write, nil),
+			result("u1", "omit", map[string]any{"tool_use_result": map[string]any{"type": "update", "filePath": path},
+				"tool_result_meta": []any{map[string]any{"id": "u1", "permission_decision": map[string]any{"decision": "accept", "source": "user_temporary"}}}})},
+			[]string{path}, false},
+		{"omission is unqualified for Edit on 2.1.299 too", "2.1.299", []map[string]any{assistant("Edit", "u1", map[string]any{"file_path": path}, nil), result("u1", "omit", witness)}, nil, true},
 		{"omission is unqualified for Edit", "2.1.291", []map[string]any{assistant("Edit", "u1", map[string]any{"file_path": path}, nil), result("u1", "omit", witness)}, nil, true},
 		{"an unknown tool_use_id renews nothing", "2.1.291", []map[string]any{assistant("Write", "u1", write, nil), result("u2", false, nil)}, nil, false},
 		{"a subagent's result renews nothing", "2.1.291", []map[string]any{assistant("Write", "u1", write, nil), result("u1", false, map[string]any{"parent_tool_use_id": "toolu_parent"})}, nil, false},
@@ -313,5 +323,95 @@ func TestClaudeRenewalFloodNeverBlocksTheReader(t *testing.T) {
 	batch, _, unreported, _ := m.take("gen-1", func(string) bool { return true }, 1<<20)
 	if len(batch) != renewMaxPending || !unreported {
 		t.Fatalf("mailbox held %d paths (lost=%v), want its bound %d and a reported overflow", len(batch), unreported, renewMaxPending)
+	}
+}
+
+// The Write omission set lives in three places: claudeWriteOmissionVersions
+// here, and WRITE_RENEWAL_QUALIFIED in qualify-claude.py (which outcome the
+// runner expects) and check-claude-gate.py (which outcome the checker
+// re-derives). A version added to one and not the others is a native run
+// whose runner, checker and adapter disagree, found only by an
+// operator-authorized launch. So every script that names the set must spell it
+// as exactly one `WRITE_RENEWAL_QUALIFIED = ("x", ...)` line equal to the Go
+// set: a second assignment or an extension is refused (a new occurrence), and
+// so is a respelled one (a list, a computed value), which would otherwise read
+// as "no set here" and pass by saying nothing.
+var (
+	pyQualifiedLine    = regexp.MustCompile(`(?m)^WRITE_RENEWAL_QUALIFIED = \(((?:"[0-9][0-9.]*",? ?)*)\)$`)
+	pyQualifiedWrites  = regexp.MustCompile(`WRITE_RENEWAL_QUALIFIED\s*(?:[-+|&]?=[^=]|\.\s*(?:append|extend|add|update)\b)`)
+	pyQualifiedVersion = regexp.MustCompile(`"([0-9][0-9.]*)"`)
+)
+
+func pyWriteRenewalQualified(src []byte) ([]string, error) {
+	lines := pyQualifiedLine.FindAllSubmatch(src, -1)
+	if len(lines) != 1 {
+		return nil, fmt.Errorf("want exactly one `WRITE_RENEWAL_QUALIFIED = (\"x\", ...)` line, found %d", len(lines))
+	}
+	if n := len(pyQualifiedWrites.FindAll(src, -1)); n != 1 {
+		return nil, fmt.Errorf("WRITE_RENEWAL_QUALIFIED is assigned or extended %d times, want once", n)
+	}
+	var versions []string
+	for _, m := range pyQualifiedVersion.FindAllSubmatch(lines[0][1], -1) {
+		versions = append(versions, string(m[1]))
+	}
+	return versions, nil
+}
+
+func TestClaudeWriteOmissionVersionsMatchThePythonMirrors(t *testing.T) {
+	spell := func(vs []string) string {
+		q := make([]string, len(vs))
+		for i, v := range vs {
+			q[i] = `"` + v + `"`
+		}
+		if len(q) == 1 {
+			return "WRITE_RENEWAL_QUALIFIED = (" + q[0] + ",)\n"
+		}
+		return "WRITE_RENEWAL_QUALIFIED = (" + strings.Join(q, ", ") + ")\n"
+	}
+	exact := spell(claudeWriteOmissionVersions)
+	// Positive controls: the exact spelling is read as the Go set, and each
+	// way a mirror can drift or hide is refused or read as different.
+	if got, err := pyWriteRenewalQualified([]byte("x = 1\n" + exact + "if v in WRITE_RENEWAL_QUALIFIED:\n")); err != nil || !reflect.DeepEqual(got, claudeWriteOmissionVersions) {
+		t.Fatalf("the exact spelling read as %q (%v)", got, err)
+	}
+	for name, src := range map[string]string{
+		"a version short":      spell(claudeWriteOmissionVersions[:len(claudeWriteOmissionVersions)-1]),
+		"a version extra":      spell(append(append([]string{}, claudeWriteOmissionVersions...), "9.9.9")),
+		"respelled as a list":  strings.Replace(strings.Replace(exact, "(", "[", 1), ")", "]", 1),
+		"assigned twice":       exact + exact,
+		"extended":             exact + "WRITE_RENEWAL_QUALIFIED += (\"9.9.9\",)\n",
+		"reassigned elsewhere": exact + "WRITE_RENEWAL_QUALIFIED = tuple(sorted(WRITE_RENEWAL_QUALIFIED))\n",
+		"absent":               "WRITE_QUALIFIED = ()\n",
+	} {
+		got, err := pyWriteRenewalQualified([]byte(src))
+		if err == nil && reflect.DeepEqual(got, claudeWriteOmissionVersions) {
+			t.Errorf("the gate did not fire on a mirror %s: %q", name, src)
+		}
+	}
+	scripts, err := filepath.Glob("../../scripts/*.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mirrors := map[string]bool{}
+	for _, path := range scripts {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(src, []byte("WRITE_RENEWAL_QUALIFIED")) {
+			continue
+		}
+		mirrors[filepath.Base(path)] = true
+		got, err := pyWriteRenewalQualified(src)
+		if err != nil {
+			t.Errorf("%s: %v", filepath.Base(path), err)
+		} else if !reflect.DeepEqual(got, claudeWriteOmissionVersions) {
+			t.Errorf("%s says Write omission is qualified on %q; claude_renewal.go says %q", filepath.Base(path), got, claudeWriteOmissionVersions)
+		}
+	}
+	for _, want := range []string{"qualify-claude.py", "check-claude-gate.py"} {
+		if !mirrors[want] {
+			t.Errorf("%s no longer names WRITE_RENEWAL_QUALIFIED: renamed, and so no longer checked", want)
+		}
 	}
 }

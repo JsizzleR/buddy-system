@@ -18,7 +18,7 @@ package harness
 //     the Bash result carries `is_error:false`, the Write result carries none).
 //     The adopted design said "explicit false only" until a version's omission
 //     semantics were qualified; it is qualified for Write only on the versions
-//     claudeWriteOmissionQualified names, and only with a positive witness: the
+//     claudeWriteOmissionVersions names, and only with a positive witness: the
 //     frame's structured tool_use_result is an object whose type is create or
 //     update and whose filePath is byte-for-byte the recorded input path, the
 //     frame carries exactly one tool_result, and its tool_result_meta reading
@@ -79,6 +79,7 @@ package harness
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -86,11 +87,18 @@ type claudeFileTool struct {
 	name, path, turn string
 }
 
-// claudeWriteOmissionQualified names the versions on which a successful Write
+// claudeWriteOmissionVersions names the versions on which a successful Write
 // was measured to omit is_error and carry the structured create/update
-// witness. A new version joins only after its own native measurement.
+// witness. A new version joins only after its own native measurement, and
+// WRITE_RENEWAL_QUALIFIED in qualify-claude.py and check-claude-gate.py must
+// name the same set (TestClaudeWriteOmissionVersionsMatchThePythonMirrors).
+// 2.1.291: the D-078 receipts. 2.1.299 (2026-10-14): 11 traced Writes in the
+// replay fixture, each with is_error omitted, a create or update
+// tool_use_result naming the input path, one block, and an accept entry.
+var claudeWriteOmissionVersions = []string{"2.1.291", "2.1.299"}
+
 func claudeWriteOmissionQualified(version string) bool {
-	return version == "2.1.291"
+	return slices.Contains(claudeWriteOmissionVersions, version)
 }
 
 func (c *claudeBackend) observeRenewals(m *renewalMailbox) {
@@ -425,8 +433,9 @@ func (m claudeResultMeta) verdict(id string, isError json.RawMessage) (claudeMet
 	return claudeMetaUnknown, unclear
 }
 
-// claudeWriteWitness is the measured 2.1.291 success shape of a Write's
-// tool_use_result: {"type":"create"|"update","filePath":<the input path>,...}.
+// claudeWriteWitness is the measured 2.1.291 and 2.1.299 success shape of a
+// Write's tool_use_result: {"type":"create"|"update","filePath":<the input
+// path>,...}.
 // A denial's tool_use_result is a string ("Error: ...") and never matches.
 func claudeWriteWitness(raw json.RawMessage, path string) bool {
 	var w map[string]json.RawMessage
