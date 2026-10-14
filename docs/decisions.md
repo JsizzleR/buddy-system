@@ -5800,12 +5800,15 @@ report renewal coverage `unknown`):
       `decision` and optionally a string `source` and a string `reason_type`,
       nothing else: otherwise unknown;
    c. `non_execution_kind` present: `permission-rule` or `user-rejected`, with
-      no `permission_decision` or a decision of `reject`, on a result whose
-      `is_error` is not an explicit `false`, is UNEXECUTED (renews nothing,
-      coverage complete). Anything else is unknown: another kind, an empty or
-      non-string kind, a kind beside `accept` or `cancelled`, a kind beside
-      explicit `is_error:false` (Codex, round 2: completion and non-execution
-      contradict each other);
+      no `permission_decision` or a decision of `reject`, on a result that
+      carries no completion signal, is UNEXECUTED (renews nothing, coverage
+      complete). Anything else is unknown: another kind, an empty or
+      non-string kind, a kind beside `accept` or `cancelled`, a kind beside a
+      completion signal (Codex, round 2: completion and non-execution
+      contradict each other). A completion signal is an explicit
+      `is_error:false`, or an omitted `is_error` beside the Write success
+      witness (create/update naming the recorded path, one result in the
+      frame; the code-pass amendment below);
    d. no `non_execution_kind`: decision `accept` proceeds to the existing rule
       (meta never renews by itself: acceptance permits a run, it does not
       complete one, and an accepted tool can still fail); an id-only entry or
@@ -5857,7 +5860,7 @@ An independent Python derivation of both columns from the rule text agreed on
 all 79. Three measured 2.1.291 frames with `tool_result_meta` were traced as
 key names only (the A-07 mixed-fleet worker, and two in a qualify-claude run
 at 316b337, before the observer projected tool blocks) and cannot be replayed. The rule's 50
-arms are a table in the same file, read by the Go test and by
+arms (56 after the witness amendment below) are a table in the same file, read by the Go test and by
 `check-claude-gate.py`'s mirror (`meta_verdict`, used by `matched_write`), so
 the two readings are held to one table, and each measured frame's per-result
 verdict is recorded there and checked by both.
@@ -5907,7 +5910,8 @@ Six answers; two defects were reproduced by a failing test before their fix:
 2. Go and the Python mirror agree on every input class asked about. No change.
 3. A kind of `permission-rule` beside an omitted `is_error` and a success
    witness reads unexecuted, silently. R' prescribes it and no build sent it;
-   it is the one silent arm left, and it is the operator's to revisit.
+   it is the one silent arm left. Amended the same day (the orchestrator's
+   decision, below).
 4. The replay runs each frame alone, so a frame taking the frame-level path
    (rules 0 and 1) could report a use another frame left outstanding in a real
    stream and not in the replay. No measured frame takes that path, and
@@ -5923,6 +5927,34 @@ Six answers; two defects were reproduced by a failing test before their fix:
    the observer projects a missing `is_error` as the string `"<absent>"`, so a
    native string of that value is indistinguishable from omission; fixing it
    changes the runner's trace format, which recorded receipts were checked in.
+   It stays as it is: a recorded known gap.
+
+**The witness arm is unknown (same day, the orchestrator's decision on finding
+3).** A `permission-rule` or `user-rejected` entry beside an omitted `is_error`
+AND the Write success witness is contradictory evidence, exactly like a kind
+beside explicit `is_error:false`, so it renews nothing and reports coverage
+unknown, in the Go reader and in `check-claude-gate.py`'s `meta_verdict`. The
+witness counts on every version: what it proves depends on the version's
+qualification, but that it contradicts "did not run" does not. `is_error:
+true` beside the witness stays unexecuted (the failure outranks it, as it does
+with no metadata). Six arms joined the table (56 now): the arm in three
+shapes (`permission-rule`, `user-rejected`, the 2.1.299 gate denial's entry),
+and on its other side `is_error: true`, no entry, and an `accept`, each beside
+the witness. No
+measured frame takes it: every measured kind entry sits on `is_error: true`
+and a string `tool_use_result`, and `TestClaudeMetaVerdictsOfMeasuredFrames`
+(and the mirror's self-test) now fail if a measured verdict differs with the
+witness from without it, with the witness found on all 30 measured successful
+Writes as the control. So every measured outcome is unchanged and D-079's
+no-bump reading still holds. Mutation (a private rsync'd copy, edits in
+python): 9 mutants, 8 killed by an assertion. The killed: the witness
+dropped from the completion signal (Go, and the mirror), the witness counted
+beside `is_error: true` (both), the reader's witness passed as false, its
+tool-name or block-count term dropped, and a measured 2.1.291 denial edited
+to take the arm (the Go and Python measured-frame checks and the replay row
+all failed). The
+survivor is equivalent: `matched_write` accepts only `proceed`, so
+unexecuted and unknown refuse alike there.
 
 ## D-079 — Native admission is a committed, exact-artifact record compiled into the adapter; it supersedes D-071's "from the code's table"
 

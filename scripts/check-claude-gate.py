@@ -862,19 +862,25 @@ UNQUALIFIED_RENEWAL_CHECKS = {"claim_renewal_capability_declared", "unqualified_
 # Only an entry of a measured non-execution shape is UNEXECUTED; an accepted
 # permission with no kind PROCEEDS to the is_error / witness rule (meta never
 # renews by itself); every other shape is UNKNOWN: renew nothing and report
-# coverage unknown. The field is @internal in the native schema, and relying
-# on it is acceptable only because admission is per exact build.
+# coverage unknown. A non-execution kind beside a completion signal (explicit
+# is_error false, or an omitted is_error beside the Write success witness) is
+# contradictory evidence and UNKNOWN too; the witness arm was R's last silent
+# one, read unexecuted until the orchestrator's 2026-10-14 decision, and no
+# measured frame takes it. The field is @internal in the native schema, and
+# relying on it is acceptable only because admission is per exact build.
 META_ENTRY_KEYS = frozenset(("id", "non_execution_kind", "permission_decision"))
 META_DECISION_KEYS = frozenset(("decision", "source", "reason_type"))
 META_UNEXECUTED_KINDS = ("permission-rule", "user-rejected")
 ABSENT = "<absent>"
 
 
-def meta_verdict(meta, result_ids, tid, is_error=ABSENT):
+def meta_verdict(meta, result_ids, tid, is_error=ABSENT, witness=False):
     """'proceed', 'unexecuted' or 'unknown' for result `tid` of a frame whose
     tool_result_meta is `meta` (None when absent or null, as the Go reader)
     and whose tool_result ids are `result_ids`. `is_error` is the result's
-    value, ABSENT when the key is missing (the observer's own spelling)."""
+    value, ABSENT when the key is missing (the observer's own spelling).
+    `witness` is True when the frame carries the Write success witness for
+    `tid` (create/update naming the recorded path, one result block)."""
     if meta is None:
         return "proceed"
     # R' 0 and 1, for the whole frame: a list of objects with string ids,
@@ -899,8 +905,9 @@ def meta_verdict(meta, result_ids, tid, is_error=ABSENT):
             return "unknown"
     if "non_execution_kind" in entry:
         kind = entry["non_execution_kind"]
+        completed = is_error is False or (is_error == ABSENT and witness)
         if (kind in META_UNEXECUTED_KINDS and
-                (not decided or entry["permission_decision"]["decision"] == "reject") and is_error is not False):
+                (not decided or entry["permission_decision"]["decision"] == "reject") and not completed):
             return "unexecuted"
         return "unknown"
     if decided and entry["permission_decision"]["decision"] == "accept":
@@ -933,10 +940,12 @@ def matched_write(e, path):
     i, v = results[0]
     end = next(j for j, x in enumerate(rows) if j > at and x.get("type") == "result")
     witness = v.get("tool_use_result")
+    witnessed = (len(v["tool_blocks"]) == 1 and isinstance(witness, dict) and witness.get("type") in ("create", "update") and
+                 witness.get("filePath") == path)
     if not (at < i < end and v.get("isReplay") is not True and v.get("parent_tool_use_id") is None and
             len(v["tool_blocks"]) == 1 and (v["tool_blocks"][0]["is_error"] is False or v["tool_blocks"][0]["is_error"] == ABSENT) and
-            meta_verdict(v.get("tool_result_meta"), frame_result_ids(v), tid, v["tool_blocks"][0]["is_error"]) == "proceed" and
-            isinstance(witness, dict) and witness.get("type") in ("create", "update") and witness.get("filePath") == path):
+            meta_verdict(v.get("tool_result_meta"), frame_result_ids(v), tid, v["tool_blocks"][0]["is_error"], witnessed) == "proceed" and
+            witnessed):
         raise ValueError("the allowed Write's result is not a renewable success")
     return tid
 
@@ -1584,17 +1593,28 @@ def meta_self_test():
     for arm in doc["arms"]:
         target = next(b for b in arm["results"] if b["id"] == arm["id"])
         ids = frame_result_ids({"tool_blocks": [{"type": "tool_result", "id": b["id"]} for b in arm["results"]]})
-        got = meta_verdict(arm.get("meta"), ids, arm["id"], target.get("is_error", ABSENT))
+        got = meta_verdict(arm.get("meta"), ids, arm["id"], target.get("is_error", ABSENT), arm.get("witness", False))
         if got != arm["verdict"]:
             raise AssertionError("meta_verdict(%s) = %s, the Go table says %s" % (arm["name"], got, arm["verdict"]))
+    witnessed = 0
     for row in doc["measured"]:
         frame = row["frame"]
         blocks = [b for b in frame["message"]["content"] if b.get("type") == "tool_result"]
         ids = {b["tool_use_id"] for b in blocks if b.get("tool_use_id")}
+        tur = frame.get("tool_use_result")
         for b in blocks:
-            got = meta_verdict(frame.get("tool_result_meta"), ids, b["tool_use_id"], b.get("is_error", ABSENT))
+            uses = [u for u in row["uses"] if u["id"] == b["tool_use_id"] and u["name"] == "Write"]
+            witness = (len(uses) == 1 and len(blocks) == 1 and isinstance(tur, dict) and
+                       tur.get("type") in ("create", "update") and tur.get("filePath") == uses[0]["path"])
+            witnessed += witness
+            got = meta_verdict(frame.get("tool_result_meta"), ids, b["tool_use_id"], b.get("is_error", ABSENT), witness)
             if got != row["verdicts"][b["tool_use_id"]]:
                 raise AssertionError("meta_verdict of measured %s %s = %s" % (row["source"], b["tool_use_id"], got))
+            # No measured result takes the witness arm (the Go test asserts the same).
+            if meta_verdict(frame.get("tool_result_meta"), ids, b["tool_use_id"], b.get("is_error", ABSENT)) != got:
+                raise AssertionError("measured %s %s takes the witness arm" % (row["source"], b["tool_use_id"]))
+    if witnessed < 30:
+        raise AssertionError("the success witness was found on %d measured results, want at least 30" % witnessed)
     if len(doc["arms"]) < 40 or len(doc["measured"]) < 79:
         raise AssertionError("the tool_result_meta fixture lost rows")
     with tempfile.TemporaryDirectory(prefix="buddy-claude-gate-meta-") as tmp:

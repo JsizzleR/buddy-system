@@ -52,13 +52,21 @@ package harness
 //     whose permission_decision (when present) holds a string decision and
 //     optionally a string source and reason_type and nothing else:
 //     non_execution_kind "permission-rule" or "user-rejected", with no
-//     decision or a "reject", on a result whose is_error is not an explicit
-//     false, is UNEXECUTED (renews nothing, and nothing was missed); no
+//     decision or a "reject", on a result that carries no completion signal,
+//     is UNEXECUTED (renews nothing, and nothing was missed); no
 //     non_execution_kind and decision "accept" PROCEEDS (meta never renews by
 //     itself: acceptance permits a run, it does not complete one);
 //   - anything else (two entries, another kind, a kind with "accept", an
-//     id-only entry, a `remedy`, a kind beside explicit false) renews nothing
-//     and reports coverage unknown.
+//     id-only entry, a `remedy`, a kind beside a completion signal) renews
+//     nothing and reports coverage unknown.
+//
+// A completion signal is an explicit is_error:false, or an OMITTED is_error
+// beside the Write success witness (create/update naming the recorded path,
+// one result in the frame). Either one contradicts "did not run", and
+// contradictory evidence is unknown, never a silent skip. The witness arm was
+// the last silent one (Codex code pass on R'; the orchestrator's decision,
+// 2026-10-14): R' as agreed read it unexecuted. No measured frame takes it,
+// and the replay fails if one does, so no measured outcome moved.
 //
 // "unknown" is the fallback because its cost is a report, never a renewal of
 // a write that did not run, and never a silent skip of one that did. Measured
@@ -312,7 +320,8 @@ func (c *claudeBackend) toolResults(raw json.RawMessage) {
 		}
 		delete(c.fileTools, b.ToolUseID)
 		c.fileBytes -= len(tool.path)
-		switch verdict, why := meta.verdict(b.ToolUseID, b.IsError); verdict {
+		witness := tool.name == "Write" && results == 1 && claudeWriteWitness(f.ToolUseResult, tool.path)
+		switch verdict, why := meta.verdict(b.ToolUseID, b.IsError, witness); verdict {
 		case claudeMetaUnexecuted:
 			continue // native says it did not run: nothing to renew, nothing missed
 		case claudeMetaUnknown:
@@ -328,7 +337,7 @@ func (c *claudeBackend) toolResults(raw json.RawMessage) {
 			}
 			continue
 		}
-		if tool.name == "Write" && claudeWriteOmissionQualified(version) && results == 1 && claudeWriteWitness(f.ToolUseResult, tool.path) {
+		if witness && claudeWriteOmissionQualified(version) {
 			paths = append(paths, tool.path)
 			continue
 		}
@@ -382,8 +391,11 @@ func readClaudeResultMeta(raw json.RawMessage, results map[string]bool) (claudeR
 }
 
 // verdict applies R' rule 2 to the result with tool_use_id id, whose block
-// carried isError (nil when omitted).
-func (m claudeResultMeta) verdict(id string, isError json.RawMessage) (claudeMetaVerdict, string) {
+// carried isError (nil when omitted), in a frame that carried the Write
+// success witness for it when witness is true. The witness counts on every
+// version: what it would prove depends on the version's qualification, but
+// that it contradicts a non-execution kind does not.
+func (m claudeResultMeta) verdict(id string, isError json.RawMessage, witness bool) (claudeMetaVerdict, string) {
 	const (
 		shape   = "a file tool's tool_result_meta entry had an unmeasured shape"
 		unclear = "a file tool's tool_result_meta entry did not establish whether it ran"
@@ -420,9 +432,11 @@ func (m claudeResultMeta) verdict(id string, isError json.RawMessage) (claudeMet
 	}
 	if raw, ok := entry["non_execution_kind"]; ok {
 		kind, _ := jsonString(raw)
+		// A completion signal contradicts "did not run" (the header): an
+		// explicit false, or an omitted is_error beside the success witness.
 		failed, isBool := jsonBool(isError)
-		explicitFalse := isBool && !failed // a completion signal: contradicts "did not run"
-		if (kind == "permission-rule" || kind == "user-rejected") && (!decided || decision == "reject") && !explicitFalse {
+		completed := isBool && !failed || isError == nil && witness
+		if (kind == "permission-rule" || kind == "user-rejected") && (!decided || decision == "reject") && !completed {
 			return claudeMetaUnexecuted, ""
 		}
 		return claudeMetaUnknown, unclear

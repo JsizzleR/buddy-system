@@ -1532,7 +1532,8 @@ changes no lifecycle state. What renews:
   `reject`) means the call did not run; an entry with no kind and a
   `permission_decision` of `accept` changes nothing, so the rules above decide;
   any other shape (two entries, an unknown kind or key, an id-only entry, a
-  kind beside explicit `is_error:false`, an entry naming a result the frame
+  kind beside explicit `is_error:false` or beside an omitted `is_error` and
+  the Write's create/update witness, an entry naming a result the frame
   does not hold) renews nothing and reports coverage `unknown`. The rule and
   the measured frames it is replayed against are in D-078's 2026-10-14
   addendum.

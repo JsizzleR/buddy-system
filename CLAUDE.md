@@ -619,8 +619,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   tool_result with explicit `is_error:false`, or on 2.1.291 and 2.1.299 a Write with the
   measured create/update witness (one set in Go and in both Python mirrors, test-held). Codex: a completed `fileChange`, both ends of a move. Bash
   renews nothing. `lifecycle beat --path` repeats. `tool_result_meta` (addendum, R'): an
-  entry is "not run" only as a measured non-execution kind, an `accept` with no kind
-  proceeds, and any other shape renews nothing and reports coverage unknown; never presence.
+  entry is "not run" only as a measured non-execution kind with no completion signal beside
+  it, an `accept` with no kind proceeds, and any other shape renews nothing and reports
+  coverage unknown; never presence.
   A committed replay of every measured frame pins each version's outcomes.
 - **Native admission is a committed exact-artifact record (D-079):**
   `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`, embedded, strictly

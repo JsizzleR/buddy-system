@@ -1,5 +1,5 @@
 {
- "about": "tool_result_meta (D-078 addendum, 2026-10-14). `arms`: one row per arm of the agreed rule R', each read by claude_renewal.go and by scripts/check-claude-gate.py. `measured`: every native user frame that carried tool_result_meta or answered a main-thread Write or Edit, in the 2.1.291 and 2.1.299 evidence (the 2026-10-13 A-07 rerun receipts and the lane runs of 2026-10-13/14), keeping only what the renewal reader reads; fixture roots are spelled /fixture and content is elided. `before` is the outcome of the first rule (any entry = unexecuted), replayed at 447387b; `outcome` is this code's. They must be equal on every 2.1.291 frame (D-079: no contract bump).",
+ "about": "tool_result_meta (D-078 addendum, 2026-10-14). `arms`: one row per arm of the agreed rule R', each read by claude_renewal.go and by scripts/check-claude-gate.py. `measured`: every native user frame that carried tool_result_meta or answered a main-thread Write or Edit, in the 2.1.291 and 2.1.299 evidence (the 2026-10-13 A-07 rerun receipts and the lane runs of 2026-10-13/14), keeping only what the renewal reader reads; fixture roots are spelled /fixture and content is elided. `before` is the outcome of the first rule (any entry = unexecuted), replayed at 447387b; `outcome` is this code's. An arm's `witness` says the frame carries the Write success witness for the judged result (create/update naming the recorded path, one result block); absent is false. They must be equal on every 2.1.291 frame (D-079: no contract bump).",
  "arms": [
   {
    "id": "toolu_x",
@@ -497,6 +497,113 @@
     }
    ],
    "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "permission-rule with is_error omitted, beside the Write success witness",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown",
+   "witness": true
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "user-rejected"
+    }
+   ],
+   "name": "user-rejected with is_error omitted, beside the Write success witness",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown",
+   "witness": true
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": {
+      "decision": "reject",
+      "reason_type": "hook",
+      "source": "hook"
+     }
+    }
+   ],
+   "name": "the 2.1.299 gate denial's entry with is_error omitted, beside the Write success witness",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown",
+   "witness": true
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "permission-rule with is_error true, beside the Write success witness",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unexecuted",
+   "witness": true
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.291 executed Writes",
+   "name": "no tool_result_meta, beside the Write success witness",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "proceed",
+   "witness": true
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.299 executed Writes",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "source": "user_temporary"
+     }
+    }
+   ],
+   "name": "2.1.299 accept with is_error omitted, beside the Write success witness",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "proceed",
+   "witness": true
   },
   {
    "id": "toolu_x",

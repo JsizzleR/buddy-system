@@ -19,20 +19,23 @@ type claudeMetaArm struct {
 		ID      string          `json:"id"`
 		IsError json.RawMessage `json:"is_error"`
 	} `json:"results"`
-	ID       string          `json:"id"`
-	Meta     json.RawMessage `json:"meta"`
-	Verdict  string          `json:"verdict"`
-	Measured string          `json:"measured"`
+	ID   string          `json:"id"`
+	Meta json.RawMessage `json:"meta"`
+	// Witness: the frame carries the Write success witness for the judged
+	// result (create/update naming the recorded path, one result block).
+	Witness  bool   `json:"witness"`
+	Verdict  string `json:"verdict"`
+	Measured string `json:"measured"`
 }
 
 // claudeMetaVerdictFor is the whole rule for one result: the frame-level read
 // (R' 0 and 1), then the result's entry (R' 2).
-func claudeMetaVerdictFor(meta json.RawMessage, results map[string]bool, id string, isError json.RawMessage) (string, string) {
+func claudeMetaVerdictFor(meta json.RawMessage, results map[string]bool, id string, isError json.RawMessage, witness bool) (string, string) {
 	m, bad := readClaudeResultMeta(meta, results)
 	if bad != "" {
 		return "unknown", bad
 	}
-	v, why := m.verdict(id, isError)
+	v, why := m.verdict(id, isError, witness)
 	return map[claudeMetaVerdict]string{claudeMetaProceed: "proceed", claudeMetaUnexecuted: "unexecuted", claudeMetaUnknown: "unknown"}[v], why
 }
 
@@ -60,7 +63,7 @@ func TestClaudeMetaArms(t *testing.T) {
 					isError = res.IsError
 				}
 			}
-			got, why := claudeMetaVerdictFor(arm.Meta, results, arm.ID, isError)
+			got, why := claudeMetaVerdictFor(arm.Meta, results, arm.ID, isError, arm.Witness)
 			if got != arm.Verdict {
 				t.Fatalf("verdict %s (%s), want %s", got, why, arm.Verdict)
 			}
@@ -76,8 +79,17 @@ func TestClaudeMetaArms(t *testing.T) {
 
 // The measured frames, read result by result: each verdict the fixture
 // records (the checker's mirror computed it) is the Go reader's too.
+//
+// And no measured result takes the witness arm (a non-execution kind beside
+// an omitted is_error and the Write success witness, unknown since the
+// 2026-10-14 decision; R' as agreed read it unexecuted): every verdict is the
+// same with the witness as without it. That is what lets the arm change
+// without moving a measured outcome (D-079's no-bump reading). The witness
+// count is the positive control: the witness is computed here, and found on
+// every measured successful Write.
 func TestClaudeMetaVerdictsOfMeasuredFrames(t *testing.T) {
 	_, rows := loadClaudeMetaFixture(t)
+	witnessed := 0
 	for _, row := range rows {
 		frame, _ := json.Marshal(row.Frame)
 		var f struct {
@@ -88,15 +100,19 @@ func TestClaudeMetaVerdictsOfMeasuredFrames(t *testing.T) {
 					IsError   json.RawMessage `json:"is_error"`
 				} `json:"content"`
 			} `json:"message"`
-			Meta json.RawMessage `json:"tool_result_meta"`
+			Meta          json.RawMessage `json:"tool_result_meta"`
+			ToolUseResult json.RawMessage `json:"tool_use_result"`
 		}
 		if err := json.Unmarshal(frame, &f); err != nil {
 			t.Fatal(err)
 		}
-		results := map[string]bool{}
+		results, blocks := map[string]bool{}, 0
 		for _, b := range f.Message.Content {
-			if b.Type == "tool_result" && b.ToolUseID != "" {
-				results[b.ToolUseID] = true
+			if b.Type == "tool_result" {
+				blocks++
+				if b.ToolUseID != "" {
+					results[b.ToolUseID] = true
+				}
 			}
 		}
 		if len(row.Verdicts) != len(results) {
@@ -112,11 +128,27 @@ func TestClaudeMetaVerdictsOfMeasuredFrames(t *testing.T) {
 			t.Errorf("%s: a measured frame takes the frame-level path (%s); replay it in its stream, not alone", row.Source, bad)
 		}
 		for _, b := range f.Message.Content {
-			got, why := claudeMetaVerdictFor(f.Meta, results, b.ToolUseID, b.IsError)
+			witness := false
+			for _, u := range row.Uses {
+				if u.ID == b.ToolUseID && u.Name == "Write" {
+					witness = blocks == 1 && claudeWriteWitness(f.ToolUseResult, u.Path)
+				}
+			}
+			if witness {
+				witnessed++
+			}
+			got, why := claudeMetaVerdictFor(f.Meta, results, b.ToolUseID, b.IsError, witness)
 			if got != row.Verdicts[b.ToolUseID] {
 				t.Errorf("%s %s: Go reads %s (%s), the checker's mirror %s", row.Source, b.ToolUseID, got, why, row.Verdicts[b.ToolUseID])
 			}
+			if bare, _ := claudeMetaVerdictFor(f.Meta, results, b.ToolUseID, b.IsError, false); bare != got {
+				t.Errorf("%s %s: a measured result takes the witness arm (%s without the witness, %s with it)", row.Source, b.ToolUseID, bare, got)
+			}
 		}
+	}
+	// 30 successful main-thread Writes were measured: 19 on 2.1.291, 11 on 2.1.299.
+	if witnessed < 30 {
+		t.Fatalf("the success witness was found on %d measured results, want at least 30", witnessed)
 	}
 }
 
@@ -139,6 +171,10 @@ func TestClaudeMetaVerdictOutcomes(t *testing.T) {
 		}
 		return f
 	}
+	withWitness := func(f map[string]any, w any) map[string]any {
+		f["tool_use_result"] = w
+		return f
+	}
 	withBlock := func(f map[string]any, block map[string]any) map[string]any {
 		msg := f["message"].(map[string]any)
 		msg["content"] = append(msg["content"].([]any), block)
@@ -157,8 +193,21 @@ func TestClaudeMetaVerdictOutcomes(t *testing.T) {
 		{"accepted, omitted, the 2.1.291 witness: renews", result("omit", accept), true, false, ""},
 		{"accepted, is_error true: renews nothing", result(true, accept), false, false, ""},
 		{"denied, is_error true: renews nothing and says nothing", result(true, denied), false, false, ""},
-		// The kind outranks a witness: not measured, but it is R's reading.
-		{"denied, is_error omitted, with a witness: renews nothing", result("omit", denied), false, false, ""},
+		// A witness beside a kind is contradictory evidence, like explicit
+		// false beside one: unknown (the 2026-10-14 decision; R' as agreed
+		// read it unexecuted, silently). Not measured. Its controls: without
+		// the witness, with a witness of another path, or beside is_error
+		// true (the row above, which carries the witness too), the kind
+		// stands and nothing is reported.
+		{"denied, is_error omitted, with a witness: unknown", result("omit", denied), false, true, "did not establish whether it ran"},
+		{"denied, is_error omitted, no witness: renews nothing and says nothing", withWitness(result("omit", denied), "<str>"), false, false, ""},
+		{"denied, is_error omitted, a witness of another path: says nothing", withWitness(result("omit", denied),
+			map[string]any{"type": "create", "filePath": "/w/other.txt"}), false, false, ""},
+		{"user-rejected, is_error omitted, with a witness: unknown", result("omit", []any{map[string]any{"id": "u1",
+			"non_execution_kind": "user-rejected"}}), false, true, "did not establish whether it ran"},
+		{"the 2.1.299 gate denial, is_error omitted, with a witness: unknown", result("omit", []any{map[string]any{"id": "u1",
+			"non_execution_kind": "permission-rule", "permission_decision": map[string]any{"decision": "reject", "source": "hook", "reason_type": "hook"}}}),
+			false, true, "did not establish whether it ran"},
 		{"denied beside explicit false: unknown", result(false, denied), false, true, "did not establish whether it ran"},
 		{"an id-only entry beside explicit false: unknown", result(false, []any{map[string]any{"id": "u1"}}), false, true, "did not establish whether it ran"},
 		{"an accept carrying remedy: unknown", result(false, []any{map[string]any{"id": "u1", "remedy": "x",

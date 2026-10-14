@@ -806,7 +806,8 @@ ledger row entered through the CLI (D-006).
     result, two entries are unknown; one entry with only `id`, `non_execution_kind`,
     `permission_decision` (string `decision`, optional string `source`, `reason_type`) is
     UNEXECUTED when its kind is `permission-rule` or `user-rejected` with no decision or
-    `reject` and `is_error` is not explicit false, PROCEEDS to the is_error/witness rule when
+    `reject` and the result carries no completion signal (explicit `is_error:false`, or an
+    omitted `is_error` beside the Write success witness), PROCEEDS to the is_error/witness rule when
     it has no kind and decision `accept`, and is otherwise unknown (renew nothing, coverage
     unknown). Do not propose reading an entry's presence as "not executed" (2.1.299 puts one
     on executed results) or treating `accept` as completion. The field is `@internal`;
