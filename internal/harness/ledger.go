@@ -50,6 +50,36 @@ func (l CLILedger) Event(ctx context.Context, i Identity, event string) error {
 	_, err := l.call(ctx, "lifecycle", event, "--harness", i.Harness, "--session", i.SessionID, "--incarnation", i.Incarnation)
 	return err
 }
+
+// Renew passes the native spellings through unchanged: buddy places them the
+// way its gate adjudicates a write, from this worktree as cwd (D-078).
+func (l CLILedger) Renew(ctx context.Context, i Identity, paths []string) (RenewResult, error) {
+	args := []string{"lifecycle", "renew", "--harness", i.Harness, "--session", i.SessionID, "--incarnation", i.Incarnation}
+	for _, p := range paths {
+		args = append(args, "--path", p)
+	}
+	b, err := l.call(ctx, args...)
+	if err != nil {
+		return RenewResult{}, err
+	}
+	var v struct {
+		Schema        string   `json:"schema"`
+		SessionID     string   `json:"session_id"`
+		Incarnation   string   `json:"incarnation"`
+		Event         string   `json:"event"`
+		RenewedClaims *int     `json:"renewed_claims"`
+		PlacedPaths   []string `json:"placed_paths"`
+		Unresolved    []string `json:"unresolved_paths"`
+	}
+	if err = json.Unmarshal(b, &v); err != nil {
+		return RenewResult{}, err
+	}
+	if v.Schema != "buddy.lifecycle.v1" || v.SessionID != i.SessionID || v.Incarnation != i.Incarnation || v.Event != "renew" || v.RenewedClaims == nil {
+		return RenewResult{}, errors.New("Buddy renewal receipt is not the captured identity's")
+	}
+	return RenewResult{Renewed: *v.RenewedClaims, Placed: v.PlacedPaths, Unresolved: v.Unresolved}, nil
+}
+
 func (l CLILedger) Inspect(ctx context.Context, i Identity) (json.RawMessage, error) {
 	b, err := l.call(ctx, "adapter", "inspect", "--session", i.SessionID, "--incarnation", i.Incarnation)
 	if err != nil {

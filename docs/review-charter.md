@@ -786,6 +786,22 @@ ledger row entered through the CLI (D-006).
     cannot pin (a pid and start-time re-read is not a pin), `--end-prior`. Setsid waits on
     native qualification Q1/Q3.
 
+79. **An adapter-launched worker's claims renew from COMPLETED native writes, through the
+    controller (D-078).** No PostToolUse joins the adapter's gate contract (that route is a
+    fallback only). The backend's reader offers paths to a bounded mailbox that never
+    blocks (256 paths / 64 KiB; overflow drops renewal candidates with a coverage gap, never
+    control traffic). The controller applies them via `buddy lifecycle renew`, which checks
+    the captured incarnation in the same transaction and renews only covering claims: no
+    last_seen, no idle, no lifecycle state, never the approval gap. First observation at
+    once, then at most once per path per 30 s; idle/end apply what is due first. Claude
+    renews only a matched non-replay main-thread tool_result with explicit `is_error:false`,
+    or on 2.1.291 a Write whose omitted `is_error` carries the measured create/update
+    witness; Codex only a completed `fileChange` in the active turn (every path and move
+    destination). Bash, attempts, denials, subagents, replays and other launch generations
+    renew nothing; correlations never cross a resume. Do not propose renewing through
+    `BeatLogical` (it erased idle), one event per tool result (it blocks the reader), or
+    renewal from attempts or patch text. `lifecycle beat --path` is repeatable.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

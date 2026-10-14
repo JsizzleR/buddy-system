@@ -31,7 +31,18 @@ import traceback
 
 VERSION = "2.1.289"
 QUALIFICATION_VERSIONS = ("2.1.289", "2.1.290", "2.1.291")
+# Where a successful native Write's omitted is_error renews (D-078); this
+# mirrors claudeWriteOmissionQualified in internal/harness/claude_renewal.go.
+WRITE_RENEWAL_QUALIFIED = ("2.1.291",)
 SCHEMA = "buddy.control.v1"
+# The files check-claude-gate.py reads (hashed into result.json, F-37).
+EVIDENCE = ("adapter-events.json", "adapter.stderr", "launch.json", "settings.json", "source-manifest.json",
+            "worker.json", "worker.json.events", "worker.json.proc", "provider-observations.json",
+            "ledger-inspection.json", "unparsed-output.json", "work/guarded.txt", "work/allowed.txt",
+            "native-observations.jsonl", "bin/claude-observer", "managed-hook-refusal/result.json",
+            "managed-hook-refusal/adapter-events.json", "managed-hook-refusal/adapter.stderr",
+            "managed-hook-refusal/claude-managed-fixture", "managed-hook-refusal/launch.json",
+            "managed-hook-refusal/native-observations.jsonl")
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -449,16 +460,91 @@ with open(TRACE,'a') as log:
  for line in p.stdout:
   try:
    v=json.loads(line)
-   if v.get('type') in ('user','result','system','control_response'):
+   if v.get('type') in ('user','result','system','control_response','assistant'):
     keys=('type','subtype','session_id','uuid','isReplay','origin','parent_tool_use_id','terminal_reason','is_error','plugins','state','user_message_uuid','user_message_uuids','result_index','queued_turn_count','messaging_socket_path')
     projection={k:v[k] for k in keys if k in v}
     projection['native_keys']=sorted(v)
+    # Claim renewal (D-078) classifies tool results by shape: record ids,
+    # whether is_error is present, the tool_use_result type and filePath,
+    # and each tool_use's name and path keys. Never content or input bodies.
+    content=(v.get('message') or {}).get('content')
+    if isinstance(content,list):
+     projection['tool_blocks']=[{'type':b.get('type'),'id':b.get('id',b.get('tool_use_id')),'name':b.get('name'),
+      'is_error':b.get('is_error','<absent>') if b.get('type')=='tool_result' else None,
+      'path':(b.get('input') or {}).get('file_path') if isinstance(b.get('input'),dict) else None}
+      for b in content if isinstance(b,dict) and b.get('type') in ('tool_use','tool_result')]
+    shape=v.get('tool_use_result')
+    if isinstance(shape,dict):projection['tool_use_result']={'type':shape.get('type'),'filePath':shape.get('filePath')}
+    elif shape is not None:projection['tool_use_result']='<'+type(shape).__name__+'>'
+    if 'tool_result_meta' in v:projection['tool_result_meta']=v['tool_result_meta']
     log.write(json.dumps(projection)+'\\n');log.flush()
   except ValueError:pass
   sys.stdout.buffer.write(line);sys.stdout.buffer.flush()
 sys.exit(p.wait())
 '''.replace('NATIVE', repr(str(native))).replace('TRACE', repr(str(trace))).replace('EXTRA', repr(list(extra_args))))
     path.chmod(0o700)
+
+
+def claim_renewals(work, root):
+    """{slug: renewed} for open claims, from an immutable private copy of the
+    fixture's own ledger, read only once no buddy connection holds a WAL."""
+    import sqlite3
+    db = work / ".git" / "buddy.db"
+    wal = pathlib.Path(str(db) + "-wal")
+    for _ in range(50):
+        if not wal.exists() or wal.stat().st_size == 0:
+            break
+        time.sleep(.1)
+    else:
+        raise RuntimeError("fixture ledger WAL stayed nonempty; refusing an immutable read")
+    fd, snapshot = tempfile.mkstemp(prefix="renewal-", suffix=".db", dir=root)
+    os.close(fd)
+    shutil.copyfile(db, snapshot)
+    with sqlite3.connect("file:" + snapshot + "?mode=ro&immutable=1", uri=True) as conn:
+        return {slug: renewed for slug, renewed in conn.execute("SELECT slug, renewed FROM claims WHERE state='open'")}
+
+
+def renewal_evidence(work, root, receipt, before, identity, checks, version):
+    """Claim renewal from a completed native Write (F-26, D-078), read from the
+    ledger and the adapter's journal after the turn's idle. The journal order
+    shows the renewal after the operator's allow was submitted (the Write could
+    not complete before it) and before the turn's idle.
+
+    A successful Write OMITS is_error natively; the adapter renews it only on a
+    version where that omission was measured with its create/update witness
+    (WRITE_RENEWAL_QUALIFIED, mirroring claudeWriteOmissionQualified). On any
+    other version the expected outcome is the conservative one: the written
+    claim does not move and the journal reports renewal coverage unknown."""
+    if version not in WRITE_RENEWAL_QUALIFIED:
+        after = claim_renewals(work, root)
+        journal = [json.loads(x) for x in pathlib.Path(str(receipt) + ".events").read_text().splitlines()]
+        renewals = [r for r in journal if r.get("renewal")]
+        checks["unqualified_write_renews_nothing"] = all(after.get(s) == before.get(s) is not None
+                                                         for s in ("worker-allowed", "worker-denied", "worker-control", "held"))
+        checks["unqualified_write_reports_coverage_unknown"] = bool(renewals) and all(
+            r["renewal"]["coverage"]["state"] == "unknown" and r["renewal"]["result"]["state"] == "not_attempted" for r in renewals)
+        return {"before": before, "after": after, "journal": [r["renewal"] for r in renewals],
+                "unqualified": "Write omission semantics are measured only on " + ", ".join(WRITE_RENEWAL_QUALIFIED)}
+    after = claim_renewals(work, root)
+    journal = [json.loads(x) for x in pathlib.Path(str(receipt) + ".events").read_text().splitlines()]
+    renewals = [(i, r) for i, r in enumerate(journal) if r.get("renewal")]
+    applied = [(i, r) for i, r in renewals if r["renewal"]["result"]["state"] == "applied"]
+    placed = sorted({x for _, r in applied for x in r["renewal"].get("placed_paths") or []})
+    allow_at = next((i for i, r in enumerate(journal) if (r.get("approval_response") or {}).get("decision") == "allow"
+                     and (r.get("approval_delivery") or {}).get("state") == "submitted"), None)
+    idle_at = next((i for i, r in enumerate(journal) if (r.get("native_event") or {}).get("kind") == "idle"), None)
+    first = next((i for i, r in applied if "allowed.txt" in (r["renewal"].get("placed_paths") or [])), None)
+    checks["renewal_written_claim_moved"] = after.get("worker-allowed", 0) > before.get("worker-allowed", 0)
+    checks["renewal_denied_write_claim_unmoved"] = after.get("worker-denied") == before.get("worker-denied") is not None
+    checks["renewal_control_claim_unmoved"] = after.get("worker-control") == before.get("worker-control") is not None
+    checks["renewal_held_claim_unmoved"] = after.get("held") == before.get("held") is not None
+    checks["renewal_journalled_after_write_before_idle"] = None not in (allow_at, idle_at, first) and allow_at < first < idle_at
+    checks["renewal_placed_only_the_written_path"] = placed == ["allowed.txt"]
+    checks["renewal_coverage_complete"] = bool(renewals) and all(r["renewal"]["coverage"]["state"] == "observed" for _, r in renewals)
+    checks["renewal_same_identity"] = bool(renewals) and all(r["identity"] == identity for _, r in renewals)
+    return {"before": before, "after": after, "journal": [r["renewal"] for _, r in renewals],
+            "observed_native_spellings": sorted({x for _, r in renewals for x in r["renewal"].get("paths") or []}),
+            "placed_paths": placed}
 
 
 def managed_hook_refusal(root, binary, buddy, claude, work, env, launch, server):
@@ -619,6 +705,15 @@ def main():
         checks["captured_native_identity"] = bool(identity["session_id"] and identity["incarnation"])
         checks["handshake_without_inference"] = len(server.requests) == 0
         checks["unsupported_telemetry_remains_unknown"] = start["capabilities"]["telemetry"]["support"] == "unknown"
+        renewal_capability = start["capabilities"].get("claim_renewal", {}).get("support") == "experimental"
+        # F-26 (D-078): the worker's own claims. allowed.txt is written and its
+        # claim must renew; operator-denied.txt is attempted and denied, and
+        # control.txt is never named, so theirs must not; the holder's
+        # guarded.txt claim stands behind the gate-denied write.
+        for slug, scope in (("worker-allowed", "allowed.txt"), ("worker-denied", "operator-denied.txt"), ("worker-control", "control.txt")):
+            run([buddy, "claim", slug, "--session", identity["session_id"], "--scope", scope, "--desc", "renewal qualification only"], work, env)
+        renewal_before = claim_renewals(work, root)
+        time.sleep(1.2)  # renewed is whole seconds
         sender = json.loads(run([buddy, "lifecycle", "begin", "--session", "fixture-coordinator"], work, env))
         queued = json.loads(run([buddy, "adapter", "queue", "--session", sender["session_id"], "--incarnation", sender["incarnation"],
             "--to", identity["session_id"], "--to-incarnation", identity["incarnation"], "--body", "Fixture assignment is peer data."], work, env))
@@ -666,6 +761,11 @@ def main():
         checks["native_idle_translated"] = idle["state"]["detail"] == "idle"
         checks["idle_clears_pending_approvals"] = idle["pending_approval"]["state"] == "observed_absent"
         checks["result_bound_to_accepted_input"] = native_result["native_event"].get("turn_id") == wake["wake_delivery"]["turn_id"]
+        # Renewal verdicts are kept apart from `checks`, whose exact set
+        # check-claude-gate.py requires, and are folded into `passed` below.
+        renewal_checks = {"claim_renewal_capability_declared": renewal_capability}
+        result["renewal"] = renewal_evidence(work, root, receipt, renewal_before, identity, renewal_checks, args.claude_version)
+        result["renewal"]["checks"] = renewal_checks
         before = len(server.requests)
         adapter.send(dict(request, id="wake-duplicate"))
         adapter.wait(lambda x: x.get("request_id") == "wake-duplicate")
@@ -684,7 +784,7 @@ def main():
             and second_result["native_event"]["result_ref"] != native_result["native_event"]["result_ref"]
             and second_idle["state"]["detail"] == "idle")
         checks["fixture_only_expected_requests"] = not server.unexpected
-        result["passed"] = all(checks.values())
+        result["passed"] = all(checks.values()) and all(renewal_checks.values())
         exit_code = 0 if result["passed"] else 1
     except BaseException as exc:
         result["failure"] = str(exc)
@@ -713,12 +813,16 @@ def main():
             server.server_close()
             write_json(root / "provider-observations.json", server.requests)
         result["fixture_sha256"] = digest(__file__)
+        # F-37: every file check-claude-gate.py reads, bound to this receipt.
+        result["evidence_sha256"] = {name: digest(root / name) for name in EVIDENCE if (root / name).is_file()}
         result["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        result["passed"] = bool(result["passed"] and all(checks.values()) and
+        renewal_ok = bool(result.get("renewal", {}).get("checks")) and all(result["renewal"]["checks"].values())
+        result["passed"] = bool(result["passed"] and all(checks.values()) and renewal_ok and
                                 not result.get("failure") and not result.get("cleanup_failure"))
         exit_code = 0 if result["passed"] else 1
         write_json(root / "result.json", result)
-        print(json.dumps({"passed": result["passed"], "checks": checks, "failure": result.get("failure")}, indent=2), flush=True)
+        print(json.dumps({"passed": result["passed"], "checks": checks, "renewal_checks": result.get("renewal", {}).get("checks"),
+                          "failure": result.get("failure")}, indent=2), flush=True)
         print("RECEIPT=" + str(root / "result.json"), flush=True)
     return exit_code
 

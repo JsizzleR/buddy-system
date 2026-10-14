@@ -84,6 +84,13 @@ type claudeBackend struct {
 	approvals          map[string]claudePermission
 	seenApprovals      map[string]string
 	results            map[string]bool
+	// Completed-write observation (claude_renewal.go, D-078): the mailbox,
+	// this launch's generation, and the outstanding main-thread file-tool
+	// uses awaiting their tool_result, bounded in count and bytes.
+	renewals   *renewalMailbox
+	generation string
+	fileTools  map[string]claudeFileTool
+	fileBytes  int
 }
 
 type claudeReply struct {
@@ -153,11 +160,12 @@ func (c *claudeBackend) Capabilities() Capabilities {
 		"start":                  {Support: "experimental", Reason: r}, "send": {Support: "experimental", Reason: r},
 		"inspect":   {Support: "supported", Reason: "adapter's captured stream observations only"},
 		"interrupt": {Support: "experimental", Reason: r}, "approval": {Support: "experimental", Reason: r},
-		"reconcile": {Support: "unsupported", Reason: "native turn history reconciliation is not implemented"},
-		"resume":    {Support: "experimental", Reason: "captured identity after journalled completed or aborted_streaming/aborted_tools results and idle; unfinished recovery unsupported"},
-		"attach":    {Support: "unsupported", Reason: "only adapter-launched workers are controlled"},
-		"wake":      {Support: "experimental", Reason: "textually peer-framed input on the owned stream; native peer provenance is unsupported"},
-		"telemetry": {Support: "unknown", Reason: "no telemetry translation in this bounded adapter"},
+		"reconcile":     {Support: "unsupported", Reason: "native turn history reconciliation is not implemented"},
+		"resume":        {Support: "experimental", Reason: "captured identity after journalled completed or aborted_streaming/aborted_tools results and idle; unfinished recovery unsupported"},
+		"attach":        {Support: "unsupported", Reason: "only adapter-launched workers are controlled"},
+		"wake":          {Support: "experimental", Reason: "textually peer-framed input on the owned stream; native peer provenance is unsupported"},
+		"telemetry":     {Support: "unknown", Reason: "no telemetry translation in this bounded adapter"},
+		"claim_renewal": {Support: "experimental", Reason: "a matched main-thread Edit/Write/NotebookEdit tool_result with is_error:false, or on 2.1.291 a Write whose omitted is_error has the structured create/update witness; Bash and subagents renew nothing"},
 	}
 }
 
@@ -266,6 +274,7 @@ func (c *claudeBackend) launch(ctx context.Context, launch Launch, resumeID stri
 		return "", err
 	}
 	c.proc, c.nativeID, c.state, c.version = proc, id, "unknown", launch.HarnessVersion
+	c.generation = auth.generation()
 	go c.read()
 	// Initialization does not spend a model turn. Unlock while awaiting the
 	// native response; the reader must be able to route it to this waiter.
@@ -527,6 +536,7 @@ func (c *claudeBackend) finishLocked() claudeProcess {
 	}
 	c.state, c.active = "unknown", ""
 	c.approvals = make(map[string]claudePermission)
+	c.fileTools, c.fileBytes = nil, 0
 	for _, ch := range c.waiters {
 		select {
 		case ch <- claudeReply{err: errors.New("Claude transport disconnected")}:
@@ -708,8 +718,18 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 		if existed {
 			c.emit(Event{Kind: "approval_resolved", NativeSessionID: c.nativeID, TurnID: approval.turnID, ResultStatus: "cancelled", Approval: &Approval{ID: approval.id, NativeSessionID: c.nativeID, TurnID: approval.turnID, ItemID: approval.toolID, NativeApprovalID: key, Kind: "can_use_tool"}})
 		}
+	case "assistant":
+		if !f.IsReplay && f.SessionID == c.nativeID {
+			c.assistantToolUses(raw)
+		}
 	case "user":
-		if !f.IsReplay || f.SessionID != c.nativeID {
+		if !f.IsReplay {
+			// A tool's result is a non-replay user frame. Classifying it
+			// changes no control state; it can only offer a renewal.
+			c.toolResults(raw)
+			return nil
+		}
+		if f.SessionID != c.nativeID {
 			return nil
 		}
 		c.mu.Lock()
@@ -770,6 +790,8 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 			c.compactBoundary, c.compactInput = "", ""
 			c.active, c.state = "", "idle"
 			c.approvals = make(map[string]claudePermission)
+			// A use with no result by the turn's end never completed here.
+			c.fileTools, c.fileBytes = nil, 0
 		}
 		c.mu.Unlock()
 		errText := ""
@@ -874,7 +896,12 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 	}
 	c.approvals[key] = claudePermission{id: append(json.RawMessage(nil), id...), input: append(json.RawMessage(nil), req.Input...), toolID: req.ToolUseID, turnID: turn, requiresInteraction: req.RequiresInteraction}
 	c.state = "waiting_approval"
+	lost := c.recordFileToolLocked(req.ToolUseID, req.ToolName, req.Input)
+	renewals := c.renewals
 	c.mu.Unlock()
+	if lost != "" {
+		renewals.unknown(lost)
+	}
 	c.emit(Event{Kind: "approval", NativeSessionID: c.nativeID, TurnID: turn, Approval: &Approval{
 		ID: append(json.RawMessage(nil), id...), NativeSessionID: c.nativeID, TurnID: turn, ItemID: req.ToolUseID,
 		NativeApprovalID: key, Kind: "can_use_tool", Detail: append(json.RawMessage(nil), raw...)}})

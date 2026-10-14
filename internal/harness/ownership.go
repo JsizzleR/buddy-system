@@ -282,6 +282,17 @@ func (a *LaunchAuthorization) Spawn(executable string, start func() (int, error)
 // Published reports whether a worker was spawned and recorded through this
 // authorization. The controller refuses a backend that returned a worker
 // without it.
+// generation names this launch for renewal correlation (D-078). The attempt id
+// is fresh for every authorization, so a resume that keeps the captured token
+// is still a different generation, and nothing correlated under one launch
+// can be applied under another.
+func (a *LaunchAuthorization) generation() string {
+	if a == nil {
+		return ""
+	}
+	return a.template.Attempt
+}
+
 func (a *LaunchAuthorization) Published() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()

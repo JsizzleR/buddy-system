@@ -230,7 +230,8 @@ begin by guessing or looking up a current token.
 | --- | --- |
 | `lifecycle begin` | Explicit `--session`; optional `--label` and `--harness codex\|claude` (default `codex`); a never-seen id needs no predecessor. An ended id requires its exact `--previous` token. A live id always refuses. |
 | `lifecycle refresh` | `--session` and `--incarnation`; refreshes that live registration without reviving it or clearing idle. |
-| `lifecycle beat` | Same identity; optional `--path` is one normalized repo-relative path. Refreshes seen, clears idle and renews only covering claims of this incarnation. |
+| `lifecycle beat` | Same identity; optional, repeatable `--path`, each one normalized repo-relative path (a single string flag used to keep only the last, F-26). Refreshes seen, clears idle and renews only covering claims of this incarnation. |
+| `lifecycle renew` | Same identity; one to 128 `--path` flags, each a NATIVE spelling (absolute, or relative to the cwd). Renews only this incarnation's open claims covering any spelling the gate would adjudicate for that path (lexical and physical, a link's entry and its target, D-073); a path outside the repo renews nothing. Changes nothing else: not seen, not idle, no lifecycle state (D-078). An empty `--path` refuses. The receipt adds `renewed_claims`, the fenced `placed_paths`, and `unresolved_paths` for any path one of whose spellings could not be resolved. `buddy-adapter` sends it; it is not a hook. |
 | `lifecycle busy` | Same identity; records prompt activity and clears idle without renewing claims. |
 | `lifecycle idle` | Same identity; records an idle observation dated when Buddy received it, without reading Claude transcripts. |
 | `lifecycle end` | Same identity; marks only that incarnation ended. Repeating the same end is idempotent. Claims remain for existing cleanup paths. |
@@ -258,7 +259,9 @@ covering the paths its tool input names, read with the gate's bounded parser
 (D-076); an event whose paths cannot be read still records the beat and renews
 nothing, and busy/idle events renew nothing. Workers launched by
 `buddy-adapter` install only the PreToolUse gate, so their claims are not
-renewed this way. Use deliberate inbox retrieval and own-thread wait checks. It neither records
+renewed this way: the adapter renews them from completed native writes with
+`lifecycle renew` (D-078, "Claim renewal" under Structured adapters). Use
+deliberate inbox retrieval and own-thread wait checks. It neither records
 Claude usage nor supplies a Codex scheduler. Production worker launch/resume,
 automatic wake and independently claiming subagents remain unqualified.
 
@@ -274,6 +277,13 @@ shell); without it the shell route goes unexercised. `--codex` must name the
 retained 0.160.0 binary, the only version the adapter admits: the default is
 whichever `codex` is first on PATH, and the runner records that version in its
 result but does not refuse a newer one.
+`--adapter /absolute/path/to/buddy-adapter` (with `--buddy`, and none of the
+other mode flags) is the claim-renewal case (D-078). The real adapter drives
+the worker, and the run checks the ledger itself. The claims covering the
+written file and both ends of a move must move. The held claim behind the
+denied patch and a never-named control claim must not. The journal must hold
+the renewal after the wake and before idle, with the native path spellings it
+observed.
 It requires that Codex binary, Python, Go and loopback access. It builds
 Buddy into a fresh temporary directory, creates disposable repositories and
 temporary Codex configuration, trusts only its exact fixture hooks, and drives
@@ -1485,6 +1495,48 @@ Go folds key case). `async` must be absent or `false`, and `timeout` must be
 It refuses other settings, enabled plugins/Mods, asynchronous hooks and native
 lifecycle handlers. The controller owns lifecycle translation. Claude is
 launched with empty user/project setting sources and explicit empty MCP config.
+
+**Claim renewal (D-078).** The controller renews the worker's claims from
+COMPLETED native writes, with no hook added to the gate contract. The backend's
+reader classifies each completion and hands its paths to a bounded,
+non-blocking mailbox. The controller then runs `buddy lifecycle renew` under the
+captured identity. The mailbox holds at most 256 paths and 64 KiB; overflow
+drops renewal candidates with a coverage gap, never an approval, result, idle
+or control response. A path renews at once the first time and then at most once
+every 30 s. Paths are coalesced and sent with empty and `.` components
+removed; `..` is kept. A turn's idle or end first applies one batch of what is
+due, so the journal records that renewal before the idle. Each lock hold runs
+at most one batch (128 paths, one 10 s ledger bound), so a waiting approval
+waits for at most two. A path whose spellings
+Buddy could not all resolve comes back in `unresolved_paths` and makes coverage
+`unknown`. Each batch journals one `renewal` receipt:
+the launch generation, the fenced native paths, where Buddy placed them, the
+count renewed, and `coverage` `observed` or `unknown`. Renewal receipts are never
+written to stdout. A renewal never clears the approval observation gap and
+changes no lifecycle state. What renews:
+
+- **Claude.** Only a non-replay, main-thread (`parent_tool_use_id: null`)
+  `tool_result` whose `tool_use_id` matches an Edit, Write or NotebookEdit use
+  recorded in this launch, from the assistant block or the `can_use_tool`
+  request. It renews when `is_error` is explicitly `false`. On 2.1.291 a
+  successful Write OMITS `is_error`, as measured. There, and only for Write, it
+  also renews when the frame's single `tool_use_result` is an object with
+  `type` `create` or `update` and a `filePath` equal to the recorded input.
+  `is_error: true`, a gate denial marked in `tool_result_meta`, an operator
+  denial, a use with no result, a subagent's or replayed result, Bash (even
+  `sed -i`) and an unknown id renew nothing. A missing provenance field or an
+  unwitnessed omission reports coverage `unknown`.
+- **Codex.** Only `item/completed` for a `fileChange` with `status`
+  `completed`, in the active turn, and only in a turn this launch started
+  with its own `turn/start`. It renews every
+  `changes[].path` and every `kind.move_path`, or none of the item if any
+  change is malformed. `failed`, `declined`, `inProgress`, `item/started` and
+  every `commandExecution` (even exit 0) renew nothing.
+
+Correlations die with the backend, so nothing pairs a tool use with a result
+across a resume. A completion queued under another launch generation is
+discarded as lost coverage. Buddy's transaction refuses any token but the
+captured live one.
 After native initialization and before input, the adapter requests `get_settings`
 and applies that same bounded contract to the effective settings. This includes
 managed policy: `allowManagedHooksOnly: true` refuses even when the flag hooks
@@ -1830,7 +1882,14 @@ It builds temporary binaries, uses a disposable ledger and Claude configuration,
 and supplies deterministic loopback Messages responses with an inert fixture
 key. It measures native handshake, approval separation, actual hook refusal and
 positive control, result/input correlation, a second idle assignment and endpoint
-capture. A temporary native parent-policy argument supplies the managed-hook
+capture. It also checks claim renewal (D-078), on the worker's own claims read
+from the ledger. On 2.1.291, the claim covering the allowed Write moves. The
+operator-denied Write's claim, a never-named control claim and the holder's
+claim behind the gate-denied Write do not. The journal holds the renewal after
+the allow and before idle. On a version without the measured Write witness,
+nothing moves and coverage reads `unknown`. With `--trace-native`, the observer
+also records each tool block's id, name, path and `is_error` presence, and the
+`tool_use_result` type and `filePath`. It never records bodies. A temporary native parent-policy argument supplies the managed-hook
 suppression negative case; it edits no machine policy. Optional `--trace-native`
 forwards native stdio unchanged through a temporary metadata observer. Every
 attempt retains a `result.json`, including failures and explicit unqualified

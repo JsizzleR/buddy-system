@@ -5105,6 +5105,9 @@ the identity check's transaction. A busy or idle event renews nothing. Workers
 launched by `buddy-adapter` install only the PreToolUse gate, and an attempted
 write is not an observed one. Their renewal route needs its own PostToolUse
 observation; it is not provided here.
+*Superseded in part 2026-10-13 by D-078:* that route is now the controller's own
+observation of completed native writes, not a PostToolUse in the adapter's
+settings.
 
 **Manual `hello --session` (F-27).** It still reads non-TTY stdin as a hook's
 and refuses what is not one. Treating stray bytes as "no hook" would reopen the
@@ -5591,3 +5594,142 @@ closed before this one: a `known` set that the visited set made redundant
 still had the process in its table; the close-error case matched an earlier
 publication error's wording), and a join that timing alone could not catch (a
 scan hook now holds the sampler mid-scan, and Close must wait for it).
+
+## D-078 — An adapter-launched worker's claims renew from COMPLETED native writes, through a renewal-only transaction the controller owns
+
+2026-10-13. Review finding F-26, reopened: D-076 renewed a Codex lifecycle
+hook's claims, but "workers launched by `buddy-adapter` install only the
+PreToolUse gate" and their route was "not provided here". Fable and a
+constrained Codex pass agreed on route B (the controller observes completions);
+Codex's five stricter points were adopted. Three defects were reproduced as
+failing tests first:
+
+- `lifecycle beat --path a --path b` kept only `b` (a plain string flag).
+  `TestLifecycleBeatRenewsEveryRepeatedPath`: `a-work` stayed at its claim
+  time while `b-work` moved.
+- Nothing renewed an adapter worker's claim after a completed Write.
+  `TestControllerRenewsTheCompletedClaudeWrite`: "reached no renewal ...
+  (ledger events [busy idle])".
+- A renewal routed through `BeatLogical` after idle erased the idle row,
+  because `BeatLogical` runs `logicalBusy` (`internal/store/logical.go`).
+  `TestLogicalRenewalAfterIdleKeepsIdle`, against `BeatLogical`: "erased the
+  idle observation: map[]".
+
+**Route.** The controller stays the only lifecycle owner. The gate contract,
+Mod profiles, hook settings and the gate hash are unchanged. A PostToolUse in
+the adapter's settings (route A) remains only a fallback, for a harness that
+cannot expose completion provenance. The backend's reader classifies each
+completion and offers its paths to a bounded mailbox that never blocks:
+256 paths, 64 KiB, coalesced by launch generation and path. Overflow drops
+candidates with a coverage gap, never an approval, result, idle, end or control
+response. One goroutine applies what is due, under the controller lock with the
+10 s ledger bound. That is the first observation of a path at once, then at
+most once per path per 30 s. A timer flushes deferred paths and manufactures
+nothing. Idle, end and disconnect apply what is due first, so the journal shows
+the renewal before the idle. The route is `buddy lifecycle renew`
+(`RenewLogical`). In one transaction it checks the captured incarnation and
+renews that incarnation's open claims covering the paths. It does nothing else:
+no last_seen, no idle, no lifecycle state. It never clears the approval gap.
+Paths are the native spellings, placed as the gate adjudicates them (D-073); a
+path outside the repo renews nothing. Each batch journals one `renewal` receipt
+(generation, fenced paths, placement, count, coverage). It never goes to
+stdout, and recovery ignores it. A failed call is journalled as unconfirmed,
+since it may have committed, and is not replayed.
+
+**What renews.** Claude: a non-replay, main-thread tool_result matched to an
+Edit, Write or NotebookEdit use recorded in this launch, with `is_error: false`
+explicitly. Codex: `item/completed`, `fileChange`, `status: completed`, in the
+active turn; every `changes[].path` and `kind.move_path`, or none of a
+malformed item. Nothing else renews: Bash (`sed -i` included), a
+commandExecution of any exit, a subagent or replayed result, an unknown id, a
+denial, or a started, failed, declined or in-progress item.
+
+**A premise the evidence contradicted.** The design said Claude renews on an
+EXPLICIT `is_error: false`. Native 2.1.291 sends none on a successful Write;
+it sends `is_error: false` on Bash. Measured in the 2026-10-13 rerun receipts
+(`claude-interrupted-compaction`, `native-observations.jsonl`). The
+conservative choice is the design's own fallback: an omission renews only once
+qualified for that exact version. It is qualified for Write on 2.1.291 alone,
+and only with a positive witness. The single tool_result in the frame must
+have a `tool_use_result` object whose `type` is `create` or `update` and whose
+`filePath` equals the recorded input. A denial sends `is_error: true` and a
+string. An unwitnessed omission renews nothing and reports coverage `unknown`.
+Edit and NotebookEdit success shapes were not measured; they renew only on an
+explicit false. A native Edit on 2.1.291 therefore renews nothing until it is
+measured.
+
+**Fences.** Correlations live in the backend and die with it, and a turn's end
+discards uses without results. So nothing pairs a tool_use with a tool_result
+across a resume, and no current token is looked up (D-069). Each launch has its
+own generation (the authorization's attempt id). A completion queued under
+another generation is discarded as lost coverage. The ledger refuses any token
+but the captured live one in the same transaction as the update.
+
+**Cut.** One ordinary controller event per tool result: the 65th Claude or
+129th Codex result behind a stalled consumer blocks the reader that also routes
+control. Renewing through `BeatLogical`, which erased idle. Renewing from an
+attempt (tool_use, can_use_tool, item/started) or from patch text. Route A as
+the primary route: a second lifecycle writer, re-opened admission, and two
+process starts per tool call on the hook budget.
+
+**Limit.** A stalled renewal holds the controller lock for up to its 10 s
+bound, like any stalled ledger call. Each hold applies at most one batch of
+128 paths; more due paths re-signal the loop after the lock is released, so a
+waiter waits for at most two holds (Go's mutex lets the loop take it once more,
+then hands it to a waiter that has waited over 1 ms). The
+native reader never waits on it. For more than one batch of due paths at idle,
+only the first batch is guaranteed to land before the idle.
+
+**Code review** (one constrained Codex pass, source only). Seven findings
+(six P2, one P3) and one residual question. Each was reproduced by a failing
+test before its fix:
+
+1. A non-file sighting of a recorded id kept the Write correlated. A Bash
+   can_use_tool with the Write's id then renewed a file nothing wrote. Any
+   disagreeing sighting now drops the correlation and loses coverage.
+2. A rejected (subagent) result consumed the correlation, so the genuine
+   result after it renewed nothing. Provenance is now checked before the
+   correlation is consumed.
+3. Two batches, or a reader refilling the mailbox, ran under one lock hold,
+   so a waiting approval waited for all of them. Now each hold runs one batch,
+   and a waiter gets the lock within two holds
+   (`TestControllerRenewalReleasesTheLockBetweenBatches`).
+4. `/w/a`, `/w/./a` and `/w//a` each renewed at once. Paths are now coalesced,
+   paced and sent with empty and `.` components removed. `..` is kept, since
+   it is physically different after a symlinked directory.
+5. A path whose gate spellings could not all be resolved was journalled as
+   applied with complete coverage. `lifecycle renew` now names such paths in
+   `unresolved_paths`, and the batch's coverage becomes `unknown`.
+6. A result frame of an unexpected shape returned silently. This covered
+   content that was an object, and a `tool_result_meta` that was not a list.
+   Either now loses coverage while any use is outstanding. A text input does
+   not.
+7. `--path ""` was a successful renewal of nothing; it is refused.
+
+Residual question: `activeTurn` is set by any `turn/started`, so a turn
+replayed into a resumed thread could renew. A fileChange now renews only in a
+turn this launch started. That is recorded from its own `turn/start` reply on
+the reader goroutine, before any later frame is read, and dropped at
+`turn/completed`.
+
+**Mutation evidence.** In a private rsync'd copy, each mutant was applied in
+python, one at a time. A build failure is not a kill. Against the final code,
+62 mutants were all killed by an assertion. Two mutants were respelled after
+their first form failed to compile. Two survived an earlier sweep and gained a
+killing test or a fix: a witness that ignored `type`, and an unobservable
+re-signal, now the only path for due paths past a batch.
+
+**Native** (2026-10-13, operator-authorized, loopback providers): retained
+Claude 2.1.291 and Codex 0.160.0, scratch-built binaries.
+
+- `qualify-claude.py --trace-native`: 32/32 checks and 9/9 renewal checks. The
+  allowed Write's claim moved. The operator-denied Write, the control claim and
+  the holder's claim did not. The journal renewal sits between the allow and
+  the idle.
+- `qualify-codex.py --adapter`: 17/17. The written file and both ends of a move
+  renewed; the held and control claims did not.
+- `check-claude-gate.py`, `check-codex-gate.py` (on the gate-mode receipt) and
+  `check-adapters.py`: pass.
+
+Observed spellings: the Claude `file_path` and `tool_use_result.filePath`, and
+the Codex `changes[].path` and `kind.move_path`, are all absolute.

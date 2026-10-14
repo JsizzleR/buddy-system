@@ -111,46 +111,77 @@ func (s *Store) BeatLogical(sessionID, incarnation string, relPaths ...string) e
 		if err := logicalBusy(tx, sessionID, incarnation, now); err != nil {
 			return err
 		}
-		var rels []string
-		for _, p := range relPaths {
-			if p != "" {
-				rels = append(rels, fold(p))
-			}
-		}
-		if len(rels) == 0 {
-			return nil
-		}
-		rows, err := tx.Query(`SELECT c.claim_id, cs.folded FROM claims c JOIN claim_scopes cs ON cs.claim_id=c.claim_id
-			WHERE c.session_id=? AND c.incarnation=? AND c.state='open'`, sessionID, incarnation)
-		if err != nil {
-			return err
-		}
-		renew := map[string]bool{}
-		for rows.Next() {
-			var id, scope string
-			if err := rows.Scan(&id, &scope); err != nil {
-				rows.Close()
-				return err
-			}
-			for _, rel := range rels {
-				if scopeCovers(scope, rel) {
-					renew[id] = true
-				}
-			}
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		for id := range renew {
-			if _, err := tx.Exec(`UPDATE claims SET renewed=? WHERE claim_id=? AND incarnation=? AND state='open'`, now, id, incarnation); err != nil {
-				return err
-			}
-		}
-		return nil
+		_, err := renewCovering(tx, sessionID, incarnation, relPaths, now)
+		return err
 	})
+}
+
+// RenewLogical renews this incarnation's open claims covering relPaths, and
+// does NOTHING else: no last_seen, no idle row, no lifecycle state. It is the
+// route an adapter's completed-write observation takes (D-078). That route is
+// drained off the native reader, so a batch can be applied after the turn's
+// idle was recorded; through BeatLogical it ran logicalBusy and erased that
+// idle row (Codex's review of F-26, reproduced by
+// TestLogicalRenewalAfterIdleKeepsIdle), and the roster read a worker waiting
+// for its coordinator as mid-turn. The captured-incarnation check is the same
+// one, in the same transaction as the update, so a batch queued under I1 can
+// never renew I2's claims; nothing here looks up the current token (D-069).
+// It returns how many claims it renewed.
+func (s *Store) RenewLogical(sessionID, incarnation string, relPaths ...string) (int, error) {
+	var n int
+	err := s.tx(func(tx *sql.Tx) error {
+		if _, err := logicalSession(tx, sessionID, incarnation, false); err != nil {
+			return err
+		}
+		var err error
+		n, err = renewCovering(tx, sessionID, incarnation, relPaths, s.now().Unix())
+		return err
+	})
+	return n, err
+}
+
+// renewCovering stamps renewed=now on this incarnation's open claims that
+// cover any of relPaths ("" skipped), and returns how many it stamped.
+func renewCovering(tx *sql.Tx, sessionID, incarnation string, relPaths []string, now int64) (int, error) {
+	var rels []string
+	for _, p := range relPaths {
+		if p != "" {
+			rels = append(rels, fold(p))
+		}
+	}
+	if len(rels) == 0 {
+		return 0, nil
+	}
+	rows, err := tx.Query(`SELECT c.claim_id, cs.folded FROM claims c JOIN claim_scopes cs ON cs.claim_id=c.claim_id
+		WHERE c.session_id=? AND c.incarnation=? AND c.state='open'`, sessionID, incarnation)
+	if err != nil {
+		return 0, err
+	}
+	renew := map[string]bool{}
+	for rows.Next() {
+		var id, scope string
+		if err := rows.Scan(&id, &scope); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		for _, rel := range rels {
+			if scopeCovers(scope, rel) {
+				renew[id] = true
+			}
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for id := range renew {
+		if _, err := tx.Exec(`UPDATE claims SET renewed=? WHERE claim_id=? AND incarnation=? AND state='open'`, now, id, incarnation); err != nil {
+			return 0, err
+		}
+	}
+	return len(renew), nil
 }
 
 // BusyLogical covers turns that run no tool. Absence of an idle row remains

@@ -40,6 +40,9 @@ type Ledger interface {
 	Event(context.Context, Identity, string) error
 	Inspect(context.Context, Identity) (json.RawMessage, error)
 	Queued(context.Context, Identity, int64) (bool, error)
+	// Renew renews the captured incarnation's claims covering the paths a
+	// completed native write named, and nothing else (D-078).
+	Renew(context.Context, Identity, []string) (RenewResult, error)
 }
 type Saved struct {
 	Schema   string   `json:"schema"`
@@ -75,6 +78,9 @@ type Receipt struct {
 	ApprovalResponse *ApprovalDecision `json:"approval_response,omitempty"`
 	ApprovalDelivery *Observation      `json:"approval_delivery,omitempty"`
 	TurnObservation  *TurnObservation  `json:"turn_observation,omitempty"`
+	// Renewal is set only on a "renewal" receipt, which is journalled and
+	// never written to the coordinator's stream (D-078).
+	Renewal *RenewalObservation `json:"renewal,omitempty"`
 }
 
 // observeLedgerTimeout bounds each ledger call an Observe makes (F-30). Observe
@@ -121,6 +127,12 @@ type Controller struct {
 	// launched is the authorization the running worker was spawned through:
 	// it holds the canonical ownership record, close report included.
 	launched *LaunchAuthorization
+	// renewals carries completed-write observations from the backend's reader
+	// (renewal.go). renewedAt paces them per path; now is the clock both use.
+	renewals     *renewalMailbox
+	renewedAt    map[string]time.Time
+	now          func() time.Time
+	renewStarted bool
 }
 
 func NewController(b Backend, l Ledger, receiptPath string) (*Controller, error) {
@@ -160,7 +172,12 @@ func NewController(b Backend, l Ledger, receiptPath string) (*Controller, error)
 	recorder.removeStaleTemp()
 	life, endLife := context.WithCancel(context.Background())
 	c := &Controller{backend: b, ledger: l, receiptPath: receiptPath, journal: j, recorder: recorder, state: Observation{State: "unknown"}, approvals: map[string]Approval{}, sent: map[int64]Delivery{}, approvalSent: map[string]bool{},
-		life: life, endLife: endLife, ledgerTimeout: observeLedgerTimeout}
+		life: life, endLife: endLife, ledgerTimeout: observeLedgerTimeout,
+		renewals: newRenewalMailbox(), renewedAt: map[string]time.Time{}, now: time.Now}
+	// Attached before any launch, so no completion can precede its mailbox.
+	if source, ok := b.(renewalSource); ok {
+		source.observeRenewals(c.renewals)
+	}
 	dec := json.NewDecoder(j)
 	for {
 		var r Receipt
@@ -375,7 +392,10 @@ func (c *Controller) Start(ctx context.Context, harness string, launch Launch, l
 	}
 	c.state = Observation{State: "unknown", Detail: "registered; no native activity observation"}
 	r := c.receipt("start")
-	return r, c.persist(r)
+	if err = c.persist(r); err == nil {
+		c.startRenewals()
+	}
+	return r, err
 }
 
 func (c *Controller) Resume(ctx context.Context) (Receipt, error) {
@@ -413,7 +433,10 @@ func (c *Controller) Resume(ctx context.Context) (Receipt, error) {
 	c.saved = saved
 	c.state = Observation{State: "unknown", Detail: "resumed captured incarnation; pending native state unknown"}
 	r := c.receipt("resume")
-	return r, c.persist(r)
+	if err = c.persist(r); err == nil {
+		c.startRenewals()
+	}
+	return r, err
 }
 
 // resumeAdmission is every passive resume check, in order, with the lock
@@ -702,6 +725,14 @@ func (c *Controller) observe(ctx context.Context, e Event) (Receipt, error) {
 	if c.broken != nil {
 		return r, c.broken
 	}
+	switch e.Kind {
+	case "idle", "ended", "disconnected":
+		// A boundary applies every renewal already due first, so a write the
+		// turn completed is renewed before its idle (or end) is recorded,
+		// and before an end makes the incarnation refuse it. It has its own
+		// ledger bound and touches no field this observation reports.
+		c.applyRenewalsLocked(c.life)
+	}
 	ctx, done := c.ledgerScoped(ctx)
 	defer done()
 	if _, err := c.ledger.Inspect(ctx, c.saved.Identity); err != nil {
@@ -777,6 +808,130 @@ func (c *Controller) observe(ctx context.Context, e Event) (Receipt, error) {
 	r = c.receipt("event")
 	r.NativeEvent = presentEvent(e)
 	return r, c.persist(r)
+}
+
+// startRenewals starts the one goroutine that applies renewals off the native
+// reader. It runs only once a worker is bound to a captured identity, and ends
+// with the controller's lifetime. Callers hold c.mu.
+func (c *Controller) startRenewals() {
+	if c.renewStarted {
+		return
+	}
+	c.renewStarted = true
+	go c.renewLoop()
+}
+
+// renewLoop waits for a completed-write observation or for a deferred path to
+// fall due, and applies what is due under the controller lock. The ledger call
+// is bounded like every other one, and Close cancels it before taking the lock.
+func (c *Controller) renewLoop() {
+	timer := time.NewTimer(renewInterval)
+	timer.Stop()
+	defer timer.Stop()
+	for {
+		select {
+		case <-c.life.Done():
+			return
+		case <-c.renewals.wake:
+		case <-timer.C:
+		}
+		c.mu.Lock()
+		next := c.applyRenewalsLocked(c.life)
+		now := c.now()
+		c.mu.Unlock()
+		timer.Stop()
+		if !next.IsZero() {
+			timer.Reset(max(next.Sub(now), 0))
+		}
+	}
+}
+
+// applyRenewalsLocked renews at most ONE batch (renewBatchMax paths, one
+// bounded ledger call) of due observed paths, journals its receipt (or one for
+// newly lost coverage), and returns when the earliest deferred path falls due
+// (zero when none). More due paths re-signal the loop, which runs again after
+// the lock is released, so an approval or control call waiting on the lock
+// waits for at most two holds' ledger bounds: Go's mutex lets this loop take
+// it once more, then hands it to a waiter that has waited over 1 ms (Codex
+// review of the code pass, finding 3: two batches, or a reader refilling the
+// mailbox, held it for every call).
+// Callers hold c.mu. It refuses to act for a controller that is closed,
+// broken or unbound; observations then stay unapplied, never misattributed.
+func (c *Controller) applyRenewalsLocked(ctx context.Context) time.Time {
+	if c.renewals == nil || c.closed || c.broken != nil || !c.saved.Identity.Valid() || c.launched == nil {
+		return time.Time{}
+	}
+	generation := c.launched.generation()
+	{
+		now := c.now()
+		due := func(p string) bool {
+			last, ok := c.renewedAt[p]
+			return !ok || now.Sub(last) >= renewInterval
+		}
+		batch, gap, unreported, rest := c.renewals.take(generation, due, renewBatchMax)
+		// Deadlines come only from paths already renewed and waiting out
+		// their interval; due paths past this batch's bound are the
+		// re-signal's, below.
+		var next time.Time
+		for _, p := range rest {
+			last, ok := c.renewedAt[p]
+			if !ok {
+				continue
+			}
+			if d := last.Add(renewInterval); next.IsZero() || d.Before(next) {
+				next = d
+			}
+		}
+		if len(batch) == 0 && !unreported {
+			return next
+		}
+		obs := RenewalObservation{Generation: generation, Coverage: Observation{State: "observed"}, Result: Observation{State: "not_attempted"}}
+		if gap != "" {
+			obs.Coverage = Observation{State: "unknown", Detail: fence.Line(gap, 256)}
+		}
+		for _, p := range batch {
+			obs.Paths = append(obs.Paths, fence.Line(p, 512))
+		}
+		r := c.receipt("renewal")
+		if len(batch) > 0 {
+			lctx, done := c.ledgerScoped(ctx)
+			res, err := c.ledger.Renew(lctx, c.saved.Identity, batch)
+			done()
+			if err != nil {
+				// Not confirmed is not refused: a bounded call that timed out
+				// may have committed. Either way coverage is now unknown.
+				r.Error = fence.Line(err.Error(), 512)
+				obs.Result = Observation{State: "unknown", Detail: "renewal not confirmed; it may or may not have committed"}
+				c.renewals.lostReported("a renewal was not confirmed by the ledger")
+				obs.Coverage = Observation{State: "unknown", Detail: fence.Line(c.renewals.reason(), 256)}
+			} else {
+				obs.Result = Observation{State: "applied"}
+				obs.Renewed = res.Renewed
+				for _, p := range res.Placed {
+					obs.Placed = append(obs.Placed, fence.Line(p, 512))
+				}
+				for _, p := range res.Unresolved {
+					obs.Unresolved = append(obs.Unresolved, fence.Line(p, 512))
+				}
+				if len(res.Unresolved) > 0 {
+					// Placed by some spellings, not all (finding 5).
+					c.renewals.lostReported("a renewed path's placement could not be fully resolved")
+					obs.Coverage = Observation{State: "unknown", Detail: fence.Line(c.renewals.reason(), 256)}
+				}
+				for _, p := range batch {
+					c.renewedAt[p] = now
+				}
+			}
+		}
+		r.Renewal = &obs
+		if err := c.persist(r); err != nil {
+			return time.Time{}
+		}
+		if len(batch) == renewBatchMax {
+			c.renewals.signal()
+		}
+		return next
+	}
 }
 
 // Close ends the controller's lifetime BEFORE taking the lock, so a ledger or

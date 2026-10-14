@@ -611,6 +611,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   strict Claude gate settings; executables resolved once. Codex `reconcile` is withdrawn.
   Narrow contract (operator's choice, 2026-10-11): descendants that left the group are
   recorded and reported, never signalled, and a resume refuses while a recorded one lives.
+- **An adapter worker's claims renew from COMPLETED native writes (D-078):** the controller,
+  not a hook; a non-blocking bounded mailbox, then `lifecycle renew` (claims only, never
+  idle or lifecycle state) under the captured token. Claude: a matched main-thread
+  tool_result with explicit `is_error:false`, or on 2.1.291 a Write with the measured
+  create/update witness. Codex: a completed `fileChange`, both ends of a move. Bash
+  renews nothing. `lifecycle beat --path` repeats.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

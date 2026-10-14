@@ -50,6 +50,24 @@ type codexBackend struct {
 	stop          chan struct{}
 	closeOnce     sync.Once
 	stopOnce      sync.Once
+	// Completed-write observation (D-078): the mailbox and this launch's
+	// generation. A fileChange renews only inside the turn this launch has
+	// active, so a completion replayed from an earlier launch never does.
+	renewals   *renewalMailbox
+	generation string
+	// pendingMethod names each outstanding request's method, so the reader
+	// can record, from turn/start's own reply and before it reads any later
+	// frame, the turns this launch started (ownTurns). Codex review of the
+	// code pass: activeTurn alone is set by any turn/started, so a turn
+	// replayed into a resumed thread renewed under the new generation.
+	pendingMethod map[string]string
+	ownTurns      map[string]bool
+}
+
+func (c *codexBackend) observeRenewals(m *renewalMailbox) {
+	c.mu.Lock()
+	c.renewals = m
+	c.mu.Unlock()
 }
 
 type codexReply struct {
@@ -80,7 +98,8 @@ func NewCodex(executable string) (Backend, error) {
 func newCodex(executable string, start codexStarter) *codexBackend {
 	return &codexBackend{executable: executable, start: start, state: "unknown", version: probeNativeVersion,
 		pending: make(map[string]chan codexReply), approvals: make(map[string]Approval), seenApprovals: make(map[string]Approval),
-		finished: make(map[string]bool), events: make(chan Event, 128), done: make(chan struct{}), stop: make(chan struct{})}
+		finished: make(map[string]bool), events: make(chan Event, 128), done: make(chan struct{}), stop: make(chan struct{}),
+		pendingMethod: make(map[string]string), ownTurns: make(map[string]bool)}
 }
 
 func (c *codexBackend) Capabilities() Capabilities {
@@ -98,6 +117,7 @@ func (c *codexBackend) Capabilities() Capabilities {
 		"wake":                   {Support: "experimental", Reason: "bounded peer inbox notification over the owned thread input transport"},
 		"telemetry":              {Support: "unknown", Reason: "no usage or cache translation in this bounded adapter"},
 		"compaction_observation": {Support: "experimental", Reason: "contextCompaction item lifecycle only; no automatic retry or compaction control"},
+		"claim_renewal":          {Support: "experimental", Reason: "item/completed fileChange with status completed, in the active turn: every changes[].path and kind.move_path; commandExecution renews nothing"},
 	}
 }
 
@@ -151,6 +171,7 @@ func (c *codexBackend) launch(ctx context.Context, launch Launch, resumeID strin
 	}
 	c.started = true
 	c.nativeID = resumeID
+	c.generation = auth.generation()
 	c.mu.Unlock()
 	// The caller supplies the isolated home. No user configuration or hook trust
 	// is installed or rewritten by a control adapter.
@@ -549,9 +570,10 @@ func (c *codexBackend) call(ctx context.Context, method string, params any) (jso
 	id := strconv.FormatUint(c.seq, 10)
 	ch := make(chan codexReply, 1)
 	c.pending["s:"+id] = ch
+	c.pendingMethod["s:"+id] = method
 	proc := c.process
 	c.mu.Unlock()
-	defer func() { c.mu.Lock(); delete(c.pending, "s:"+id); c.mu.Unlock() }()
+	defer func() { c.mu.Lock(); delete(c.pending, "s:"+id); delete(c.pendingMethod, "s:"+id); c.mu.Unlock() }()
 	if err := proc.WriteContext(ctx, map[string]any{"id": id, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
@@ -607,6 +629,16 @@ func (c *codexBackend) readLoop(proc codexProcess) {
 			}
 			c.mu.Lock()
 			ch := c.pending[key]
+			if c.pendingMethod[key] == "turn/start" && (len(envelope.Error) == 0 || string(envelope.Error) == "null") {
+				var started struct {
+					Turn struct {
+						ID string `json:"id"`
+					} `json:"turn"`
+				}
+				if json.Unmarshal(envelope.Result, &started) == nil && started.Turn.ID != "" {
+					c.ownTurns[started.Turn.ID] = true
+				}
+			}
 			c.mu.Unlock()
 			if ch != nil {
 				reply := codexReply{result: envelope.Result}
@@ -645,8 +677,10 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 		ApprovalID string          `json:"approvalId"`
 		RequestID  json.RawMessage `json:"requestId"`
 		Item       struct {
-			ID   string `json:"id"`
-			Type string `json:"type"`
+			ID      string          `json:"id"`
+			Type    string          `json:"type"`
+			Status  string          `json:"status"`
+			Changes json.RawMessage `json:"changes"`
 		} `json:"item"`
 		Turn struct {
 			ID     string `json:"id"`
@@ -677,6 +711,24 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 			}
 			c.mu.Unlock()
 			c.emit(Event{Kind: kind, NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: p.Item.ID})
+			return
+		}
+		if envelope.Method == "item/completed" && p.Item.Type == "fileChange" {
+			// Only an observation for renewal (D-078): no control state
+			// changes, and nothing is emitted on the event channel.
+			active := p.TurnID != "" && p.TurnID == c.activeTurn && c.ownTurns[p.TurnID]
+			m, generation := c.renewals, c.generation
+			c.mu.Unlock()
+			if !active {
+				return
+			}
+			paths, renew, lost := codexFileChangePaths(p.Item.Status, p.Item.Changes)
+			if renew {
+				m.offer(generation, paths)
+			}
+			if lost != "" {
+				m.unknown(lost)
+			}
 			return
 		}
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request":
@@ -732,6 +784,7 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 			return
 		}
 		c.finished[p.Turn.ID] = true
+		delete(c.ownTurns, p.Turn.ID)
 		active := c.activeTurn == "" || c.activeTurn == p.Turn.ID
 		if active {
 			c.activeTurn, c.state = "", "idle"
@@ -770,6 +823,53 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 		return
 	}
 	c.mu.Unlock()
+}
+
+// codexFileChangePaths classifies one fileChange item/completed. Measured on
+// 0.160.0 (receipts of the 2026-10-13 rerun): changes[].path is absolute, a
+// move's destination is kind.move_path on the same change, and kind.type is
+// add, update or delete. Only status "completed" renews, and then every path
+// and destination of the item, or none: a change whose shape is not that one
+// means the item cannot be attributed, and nothing of it renews. failed,
+// declined and inProgress are expected non-renewals; any other status is an
+// unexpected shape, reported as lost coverage.
+func codexFileChangePaths(status string, raw json.RawMessage) (paths []string, renew bool, lost string) {
+	switch status {
+	case "completed":
+	case "failed", "declined", "inProgress":
+		return nil, false, ""
+	default:
+		return nil, false, "a fileChange completed with an unrecognized status"
+	}
+	var changes []struct {
+		Path string `json:"path"`
+		Kind struct {
+			Type     string          `json:"type"`
+			MovePath json.RawMessage `json:"move_path"`
+		} `json:"kind"`
+	}
+	if json.Unmarshal(raw, &changes) != nil || len(changes) == 0 {
+		return nil, false, "a completed fileChange named no readable changes"
+	}
+	for _, ch := range changes {
+		switch ch.Kind.Type {
+		case "add", "update", "delete":
+		default:
+			return nil, false, "a completed fileChange carried an unrecognized change kind"
+		}
+		if ch.Path == "" {
+			return nil, false, "a completed fileChange named an empty path"
+		}
+		paths = append(paths, ch.Path)
+		if ch.Kind.MovePath != nil && string(ch.Kind.MovePath) != "null" {
+			dest, ok := jsonString(ch.Kind.MovePath)
+			if !ok || dest == "" {
+				return nil, false, "a completed fileChange carried an unreadable move destination"
+			}
+			paths = append(paths, dest)
+		}
+	}
+	return paths, true, ""
 }
 
 func (c *codexBackend) finish() {

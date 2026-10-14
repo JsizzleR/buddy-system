@@ -39,7 +39,11 @@ Logical sessions, adapters and recovery (`buddy lifecycle`, `buddy adapter`, and
 the separate opt-in `buddy-adapter` binary) are implementer surface, documented
 with what recovery admits and refuses in `docs/USAGE.md` ("Structured adapters").
 Adapter mail is its own channel: `buddy inbox` never shows it, and `buddy who`
-prints it on its own `ADAPTER` line. For an offline compatibility report, run
+prints it on its own `ADAPTER` line. A worker that `buddy-adapter` launched has
+its claims renewed from its COMPLETED file writes (`buddy lifecycle renew`,
+D-078): a Claude Edit/Write/NotebookEdit or a Codex patch. A write made from
+Bash renews nothing, so a lane that only writes from a shell refreshes its claim
+by claiming it again. For an offline compatibility report, run
 `buddy diagnose --harness codex --launch <json>` before a launch, or
 `buddy diagnose --receipt <saved-receipt> --evidence <capture>` afterwards;
 exit 0 means a report was produced, never readiness. Wiring Codex hooks by

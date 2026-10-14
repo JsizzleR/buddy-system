@@ -227,12 +227,135 @@ def app_server_run(work,env,root):
     return subprocess.CompletedProcess(p.args,p.returncode,stdout,stderr)
 
 
+# CLAIM RENEWAL THROUGH THE ADAPTER (F-26, D-078). The modes above drive the
+# app-server directly, so they never exercise buddy-adapter's controller, and
+# the controller is what renews a worker's claims from a completed fileChange.
+# This mode runs the real adapter with its receipt-bound gate and checks the
+# ledger itself: the claims covering a written file and both ends of a move
+# moved, the held claim behind the denied patch and a never-named control claim
+# did not, and the journal recorded the renewal after the wake and before idle.
+MOVE_PATCH='*** Begin Patch\n*** Update File: source.txt\n*** Move to: moved.txt\n@@\n-original\n+changed\n*** End Patch'
+
+def claim_renewals(work,root):
+    """{slug: renewed} for open claims, read from an immutable private copy.
+
+    The ledger is read only with every buddy connection closed (an empty or
+    absent WAL), the lifecycle wrapper's rule: never read immutable over a live
+    WAL. It is the fixture's own ledger, never a real one."""
+    import sqlite3
+    db=work/'.git/buddy.db';wal=pathlib.Path(str(db)+'-wal')
+    for _ in range(50):
+        if not wal.exists() or wal.stat().st_size==0:break
+        time.sleep(.1)
+    else:
+        raise RuntimeError('fixture ledger WAL stayed nonempty; refusing an immutable read')
+    fd,snap=tempfile.mkstemp(prefix='renewal-',suffix='.db',dir=root);os.close(fd);shutil.copyfile(db,snap)
+    with sqlite3.connect('file:'+snap+'?mode=ro&immutable=1',uri=True) as conn:
+        return {slug:renewed for slug,renewed in conn.execute("SELECT slug,renewed FROM claims WHERE state='open'")}
+
+def adapter_main(args,root,work,state,env,buddy):
+    adapter=args.adapter.resolve();receipt=root/'worker.json';checks={}
+    (work/'source.txt').write_text('original\n')
+    server=http.server.HTTPServer(('127.0.0.1',0),Fixture);server.requests=[];server.patches=[DENY_PATCH,ALLOW_PATCH,MOVE_PATCH];server.work=work;server.shell_patch=False
+    quote=lambda s:"'"+str(s).replace("'","'\"'\"'")+"'"
+    gate=quote(adapter)+' hook --receipt '+quote(receipt)+' --buddy '+quote(buddy)
+    config=state/'config.toml'
+    base=config_text(server.server_address[1],root/'unused.py').replace(json.dumps(shlex.quote(PYTHON)+' '+shlex.quote(str(root/'unused.py'))),json.dumps(gate))
+    config.write_text(base)
+    hooks=list_hooks(state,work,env);(root/'hooks-untrusted.json').write_text(json.dumps(hooks,indent=2));h=hooks['data'][0]['hooks'][0]
+    require(h['trustStatus']=='untrusted','hook must be discovered UNTRUSTED before trust: '+json.dumps(hooks))
+    config.write_text(base+'\n[hooks.state.'+json.dumps(h['key'])+']\ntrusted_hash = '+json.dumps(h['currentHash'])+'\n')
+    hooks=list_hooks(state,work,env);(root/'hooks-trusted.json').write_text(json.dumps(hooks,indent=2));h=hooks['data'][0]['hooks'][0]
+    require(h['trustStatus']=='trusted','exact-hash trust did not take: '+json.dumps(hooks))
+    launch={'worktree':str(work),'permission_mode':'workspace-write','hook_config':str(config),'harness_version':'0.160.0','gate_command':gate,'gate_hash':h['currentHash'],'hooks':{'configured':'observed','trusted':'observed','observed':'unknown','no_mods':'unknown'}}
+    (root/'launch.json').write_text(json.dumps(launch,indent=2))
+    threading.Thread(target=server.serve_forever,daemon=True).start()
+    events=[];q=queue.Queue()
+    p=subprocess.Popen([str(adapter),'--harness','codex','--executable',CODEX,'--buddy',str(buddy),'--launch',str(root/'launch.json'),'--receipt',str(receipt),'--label','renewal-native-fixture'],cwd=work,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=(root/'adapter.stderr').open('w'),text=True)
+    def reader():
+        for line in p.stdout:
+            try:v=json.loads(line)
+            except ValueError:continue
+            events.append(v);q.put(v)
+    threading.Thread(target=reader,daemon=True).start()
+    def wait(pred):
+        until=time.monotonic()+60
+        while time.monotonic()<until:
+            try:v=q.get(timeout=.2)
+            except queue.Empty:
+                if p.poll() is not None:raise RuntimeError('adapter exited '+str(p.returncode)+' '+(root/'adapter.stderr').read_text())
+                continue
+            if v.get('error'):raise RuntimeError(json.dumps(v))
+            if pred(v):return v
+        raise RuntimeError('adapter timeout')
+    def send(obj):p.stdin.write(json.dumps(obj)+'\n');p.stdin.flush()
+    result={'qualification':'installed native Codex through buddy-adapter, deterministic local provider fixture; no real inference','root':str(root)}
+    try:
+        start=wait(lambda v:v.get('operation')=='start');ident=start['identity']
+        checks['captured_native_identity']=bool(ident['session_id'] and ident['incarnation'])
+        checks['claim_renewal_capability_declared']=start['capabilities'].get('claim_renewal',{}).get('support')=='experimental'
+        for slug,scope in (('worker-allowed','allowed.txt'),('worker-move-source','source.txt'),('worker-move-destination','moved.txt'),('worker-control','control.txt')):
+            run([str(buddy),'claim',slug,'--session',ident['session_id'],'--scope',scope,'--desc','renewal qualification only'],cwd=work,env=env)
+        before=claim_renewals(work,root)
+        time.sleep(1.2)  # renewed is whole seconds
+        sender=json.loads(run([str(buddy),'lifecycle','begin','--session','fixture-coordinator'],cwd=work,env=env).stdout)
+        queued=json.loads(run([str(buddy),'adapter','queue','--session',sender['session_id'],'--incarnation',sender['incarnation'],'--to',ident['session_id'],'--to-incarnation',ident['incarnation'],'--body','Fixture assignment remains peer data.'],cwd=work,env=env).stdout)
+        send({'schema':'buddy.control.v1','id':'wake-1','operation':'send','identity':ident,'message_id':queued['delivery']['message_id']})
+        wake=wait(lambda v:v.get('request_id')=='wake-1');checks['native_wake_accepted']=wake['wake_delivery']['state']=='delivered'
+        wait(lambda v:v.get('native_event',{}).get('kind')=='result')
+        idle=wait(lambda v:v.get('native_event',{}).get('kind')=='idle');checks['native_idle_translated']=idle['state']['detail']=='idle'
+    finally:
+        p.stdin.close()
+        try:p.wait(timeout=10)
+        except subprocess.TimeoutExpired:p.terminate();p.wait(timeout=5)
+        server.shutdown();server.server_close()
+        (root/'events.json').write_text(json.dumps(events,indent=2));(root/'requests.json').write_text(json.dumps(server.requests,indent=2))
+    checks['adapter_exit_zero']=p.returncode==0
+    checks['conflict_patch_denied']=(work/'guarded.txt').read_text()=='original\n' and not (work/'collateral.txt').exists()
+    checks['positive_patch_allowed']=(work/'allowed.txt').exists() and (work/'allowed.txt').read_text()=='allowed-control\n'
+    checks['move_patch_applied']=not (work/'source.txt').exists() and (work/'moved.txt').exists() and (work/'moved.txt').read_text()=='changed\n'
+    after=claim_renewals(work,root)
+    journal=[json.loads(x) for x in pathlib.Path(str(receipt)+'.events').read_text().splitlines()]
+    renewals=[(i,r) for i,r in enumerate(journal) if r.get('renewal')]
+    applied=[(i,r) for i,r in renewals if r['renewal']['result']['state']=='applied']
+    placed=sorted({x for _,r in applied for x in r['renewal'].get('placed_paths') or []})
+    wake_at=next((i for i,r in enumerate(journal) if r.get('request_id')=='wake-1'),None)
+    idle_at=next((i for i,r in enumerate(journal) if (r.get('native_event') or {}).get('kind')=='idle'),None)
+    first=next((i for i,r in applied if 'allowed.txt' in (r['renewal'].get('placed_paths') or [])),None)
+    checks['renewal_written_claim_moved']=after.get('worker-allowed',0)>before.get('worker-allowed',0)
+    checks['renewal_move_source_claim_moved']=after.get('worker-move-source',0)>before.get('worker-move-source',0)
+    checks['renewal_move_destination_claim_moved']=after.get('worker-move-destination',0)>before.get('worker-move-destination',0)
+    checks['renewal_control_claim_unmoved']=after.get('worker-control')==before.get('worker-control') is not None
+    checks['renewal_held_claim_unmoved']=after.get('guarded')==before.get('guarded') is not None
+    checks['renewal_journalled_after_wake_before_idle']=None not in (wake_at,idle_at,first) and wake_at<first<idle_at
+    checks['renewal_placed_only_written_paths']=bool(placed) and set(placed)<={'allowed.txt','source.txt','moved.txt'}
+    checks['renewal_coverage_complete']=bool(renewals) and all(r['renewal']['coverage']['state']=='observed' for _,r in renewals)
+    checks['renewal_same_identity']=bool(renewals) and all(r['identity']==ident for _,r in renewals)
+    result.update({'checks':checks,'renewal':{'before':before,'after':after,'journal':[r['renewal'] for _,r in renewals],
+        'observed_native_spellings':sorted({x for _,r in renewals for x in r['renewal'].get('paths') or []}),'placed_paths':placed},
+        'codex_version':run([CODEX,'--version'],cwd=work,env=env).stdout.strip(),
+        'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),'adapter_sha256':hashlib.sha256(adapter.read_bytes()).hexdigest(),
+        'codex_path':str(pathlib.Path(CODEX).resolve()),
+        'codex_sha256':hashlib.sha256(pathlib.Path(CODEX).resolve().read_bytes()).hexdigest(),'mode':{'adapter':True},
+        'fixture_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'requests':len(server.requests),
+        'passed':all(checks.values()) and len(checks)==17})
+    # F-37: every file this receipt's evidence rests on, bound to it.
+    names=['worker.json','worker.json.events','worker.json.proc','events.json','requests.json','launch.json','adapter.stderr',
+           'hooks-untrusted.json','hooks-trusted.json','state/config.toml','work/guarded.txt','work/allowed.txt','work/moved.txt']
+    result['evidence_sha256']={n:hashlib.sha256((root/n).read_bytes()).hexdigest() for n in names if (root/n).is_file()}
+    (root/'result.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2));print('RECEIPT='+str(root/'result.json'),flush=True)
+    if not result['passed']:raise SystemExit(1)
+
+
 def main():
     global CODEX
     ap=argparse.ArgumentParser();ap.add_argument('--prepare-only',action='store_true');ap.add_argument('--buddy',type=pathlib.Path);ap.add_argument('--lifecycle',action='store_true');ap.add_argument('--app-server',action='store_true');ap.add_argument('--edge-cases',action='store_true')
     ap.add_argument('--repo',type=pathlib.Path,default=pathlib.Path.cwd());ap.add_argument('--codex',default=CODEX)
     ap.add_argument('--shell-patch',action='store_true',help='route the first held-path patch through native exec_command; requires Bash gate coverage')
+    ap.add_argument('--adapter',type=pathlib.Path,help='run the worker through this buddy-adapter and check claim renewal from completed fileChanges (D-078)')
     args=ap.parse_args()
+    if args.adapter and (args.lifecycle or args.app_server or args.edge_cases or args.shell_patch or args.prepare_only):
+        ap.error('--adapter is its own mode: the adapter owns lifecycle and the app-server')
     exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
     CODEX=args.codex
     if not CODEX:ap.error('codex is not on PATH; provide --codex')
@@ -247,6 +370,10 @@ def main():
     run([str(buddy),'hello','--session','qualification-holder','--label','holder'],cwd=work,env=env)
     run([str(buddy),'claim','guarded','--session','qualification-holder','--scope','guarded.txt','--desc','qualification only'],cwd=work,env=env)
     (work/'guarded.txt').write_text('original\n')
+    if args.adapter:
+        print('ROOT='+str(root),flush=True)
+        adapter_main(args,root,work,state,env,buddy)
+        return
     patches=[DENY_PATCH,ALLOW_PATCH]
     if args.edge_cases:
         broken=work/'broken';broken.mkdir();run(['git','init','-q',str(broken)],cwd=work,env=env)
@@ -328,8 +455,17 @@ sys.stdout.write(p.stdout);sys.stderr.write(p.stderr);sys.exit(p.returncode)
     result={'qualification':'installed native Codex with deterministic local provider fixture; no real inference',
             'codex_version':run([CODEX,'--version'],cwd=work,env=env).stdout.strip(),
             'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),
+            # The executable's bytes, not only its --version text (check-codex-gate "unbound").
+            'codex_path':str(pathlib.Path(CODEX).resolve()),
+            'codex_sha256':hashlib.sha256(pathlib.Path(CODEX).resolve().read_bytes()).hexdigest(),
+            'mode':{'app_server':args.app_server,'lifecycle':args.lifecycle,'edge_cases':args.edge_cases,'shell_patch':args.shell_patch},
             'fixture_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
             'checks':checks,'codex_returncode':p.returncode,'requests':len(server.requests),'root':str(root)}
+    # F-37: every file check-codex-gate.py reads, bound to this receipt.
+    names=['captured-receipt.json','hook-invocations.jsonl','lifecycle-invocations.jsonl','requests.json','codex.stdout.jsonl',
+           'hooks-untrusted.json','hooks-trusted.json','state/config.toml','gate-wrapper.py','lifecycle-wrapper.py',
+           'work/guarded.txt','work/allowed.txt','work/broken/.git/buddy.db']
+    result['evidence_sha256']={n:hashlib.sha256((root/n).read_bytes()).hexdigest() for n in names if (root/n).is_file()}
     (root/'result.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2))
     if not all(checks.values()):raise SystemExit(1)
 if __name__=='__main__':main()

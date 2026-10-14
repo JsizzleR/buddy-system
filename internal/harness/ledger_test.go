@@ -124,6 +124,15 @@ func TestCLILedgerRealBinaryCapturedQueueAndLifecycle(t *testing.T) {
 	if !refreshed.Same(worker) {
 		t.Fatalf("lifecycle changed captured identity/harness: %+v", refreshed)
 	}
+	// Renew hands buddy the native absolute spelling and reads back what it
+	// placed and renewed (D-078); a path outside the repo places nothing.
+	if err := st.Claim(worker.SessionID, worker.Incarnation, "worker-pkg", "", []string{"pkg"}); err != nil {
+		t.Fatal(err)
+	}
+	renewed, err := l.Renew(ctx, worker, []string{filepath.Join(repo, "pkg", "a.go"), filepath.Join(dir, "outside.go")})
+	if err != nil || renewed.Renewed != 1 || len(renewed.Placed) != 1 || renewed.Placed[0] != "pkg/a.go" {
+		t.Fatalf("renewal through the real binary: %+v %v", renewed, err)
+	}
 	if err := l.Event(ctx, worker, "end"); err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +145,9 @@ func TestCLILedgerRealBinaryCapturedQueueAndLifecycle(t *testing.T) {
 	}
 	if err := l.Event(ctx, worker, "busy"); err == nil {
 		t.Fatal("late bridge event acquired successor token")
+	}
+	if _, err := l.Renew(ctx, worker, []string{filepath.Join(repo, "pkg", "a.go")}); err == nil {
+		t.Fatal("late bridge renewal acquired successor token")
 	}
 	if _, err := l.Queued(ctx, worker, last-1); err == nil {
 		t.Fatal("late bridge inbox read acquired successor token")

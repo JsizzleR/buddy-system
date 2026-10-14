@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -60,6 +61,42 @@ type fakeLedger struct {
 	stale    bool
 	queued   bool
 	beginErr error
+	// renewals records every renewal batch, in order, with the identity it
+	// carried; renewMu guards it because renewals arrive off the event path.
+	renewMu    sync.Mutex
+	renewals   []fakeRenewal
+	renewErr   error
+	renewing   func(context.Context) error
+	unresolved []string
+}
+
+type fakeRenewal struct {
+	identity Identity
+	paths    []string
+}
+
+func (l *fakeLedger) Renew(ctx context.Context, i Identity, paths []string) (RenewResult, error) {
+	if l.renewing != nil {
+		if err := l.renewing(ctx); err != nil {
+			return RenewResult{}, err
+		}
+	}
+	l.renewMu.Lock()
+	defer l.renewMu.Unlock()
+	if l.stale || !i.Same(l.identity) {
+		return RenewResult{}, errors.New("stale incarnation")
+	}
+	if l.renewErr != nil {
+		return RenewResult{}, l.renewErr
+	}
+	l.renewals = append(l.renewals, fakeRenewal{i, append([]string(nil), paths...)})
+	return RenewResult{Renewed: len(paths), Placed: paths, Unresolved: l.unresolved}, nil
+}
+
+func (l *fakeLedger) renewed() []fakeRenewal {
+	l.renewMu.Lock()
+	defer l.renewMu.Unlock()
+	return append([]fakeRenewal(nil), l.renewals...)
 }
 
 func (l *fakeLedger) Begin(_ context.Context, h, id, _ string) (Identity, error) {
