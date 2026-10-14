@@ -280,7 +280,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	// Restart on the same ports: chatd reconnects and rejoins on its own.
 	startServer(t, bin, dir, ports)
 	waitHealthy(true)
-	peer2, _ := newPeer("jay2")
+	peer2, _ := newPeer("ana2")
 	_ = peer2
 	if _, err := call(Request{Op: "say", Room: "lobby", From: "alpha", Text: "back online"}); err != nil {
 		// The daemon may report connected before the room join lands; retry briefly.
