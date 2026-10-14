@@ -117,7 +117,7 @@ def receipt_mutations(r):
             (("checks", "conflict_patch_denied"), False, "runner_verdict"),
             (("checks", "duplicate_wake_not_replayed"), g.DELETE, "runner_verdict"),
             (("adapter_exit",), 1, "runner_verdict"),
-            (("native_version",), "0.162.1", "contract"),
+            (("native_version",), "0.0.1", "contract"),
             (("adapter_sha256",), "0" * 64, "artifact_hashes"),
             (("buddy_sha256",), "0" * 64, "artifact_hashes"),
             (("codex_sha256",), "0" * 64, "artifact_hashes"),

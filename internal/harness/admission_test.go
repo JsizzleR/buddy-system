@@ -573,9 +573,16 @@ func TestEmbeddedAdmissions(t *testing.T) {
 		}
 	}
 	want := map[string]string{"claude 2.1.291": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
-		"codex 0.160.0": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b"}
-	if len(got) != len(want) || got["claude 2.1.291"] != want["claude 2.1.291"] || got["codex 0.160.0"] != want["codex 0.160.0"] {
+		"codex 0.160.0": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+		// The first record qualify-release.py wrote (D-081, 2026-10-14).
+		"codex 0.162.1": "74c6a6d263f40d65f99c27a815275f5b4ed0bcc2baecc396b4cf3255498bdfc0"}
+	if len(got) != len(want) {
 		t.Fatalf("embedded records %v", got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("embedded records %v", got)
+		}
 	}
 	previous := admissionRecords
 	admissionRecords = func(string, string) ([]AdmissionRecord, error) { return embeddedAdmissions() }

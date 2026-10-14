@@ -1,0 +1,514 @@
+{
+ "schema": "buddy.admission.v1",
+ "harness": "codex",
+ "version": "0.162.1",
+ "version_output": "codex-cli 0.162.1",
+ "os": "darwin",
+ "arch": "arm64",
+ "adapter_contract": "codex-app-server-v2.1",
+ "tiers": [
+  "start",
+  "resume",
+  "compaction_observation"
+ ],
+ "executable": {
+  "path": "bin/codex",
+  "sha256": "74c6a6d263f40d65f99c27a815275f5b4ed0bcc2baecc396b4cf3255498bdfc0",
+  "size": 246642624
+ },
+ "package": [
+  {
+   "path": "bin",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "bin/codex",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "74c6a6d263f40d65f99c27a815275f5b4ed0bcc2baecc396b4cf3255498bdfc0",
+   "size": 246642624
+  },
+  {
+   "path": "bin/codex-code-mode-host",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "0960435a104cf926e18bb938b8f6f8fcdf7e27be0c8d88e1911bc22a1de7d3e6",
+   "size": 65374704
+  },
+  {
+   "path": "codex",
+   "type": "symlink",
+   "target": "bin/codex"
+  },
+  {
+   "path": "codex-package.json",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "d932d8aed7d2cd6aee5dedccad6c30ddfa8ca10bce945f19c5780ab21291eb29",
+   "size": 200
+  },
+  {
+   "path": "codex-path",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-path/rg",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "cdd3c7bcc328730ac6bfbc04d19c0cfa1d23c1a3a838a8dc45ea7d84fda11b15",
+   "size": 4030432
+  },
+  {
+   "path": "codex-resources",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/voice",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/voice/NOTICE.md",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "40097a1799441051aa0b6645cdc819cceb19be73cdd265eb602aa2b15e0b1f48",
+   "size": 2403
+  },
+  {
+   "path": "codex-resources/voice/bin",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/voice/bin/codex-voice-host",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "6eb49dab10fc05f194c00756983322cec2ea8616167e1ba211fd7644eccdbea0",
+   "size": 9994272
+  },
+  {
+   "path": "codex-resources/voice/lib",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/voice/lib/libffi.8.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "b1ff1b3991077b5ef07b48086a606b6721b389bd6d80a7e9fc272ff6e0a2a6b2",
+   "size": 136768
+  },
+  {
+   "path": "codex-resources/voice/lib/libgio-2.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "52961a6a07771ab291c935681c11271e4ddcaa91c6e6b8844a269dee9fbf8471",
+   "size": 1866272
+  },
+  {
+   "path": "codex-resources/voice/lib/libglib-2.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "22dd7861eafb255f2e3c9df68c135b814ff7cc7e2df62c43eca4057a8566af38",
+   "size": 1310992
+  },
+  {
+   "path": "codex-resources/voice/lib/libgmodule-2.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "04c54d4ed33a9c6da84f0fbf4eed886c7831bace1072292ef1a6d1d92ca2a212",
+   "size": 68912
+  },
+  {
+   "path": "codex-resources/voice/lib/libgobject-2.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "7fe9dcb3d46a895d9603a9649d1869a7ccbcb22e1146cb388cad23ff7a959131",
+   "size": 403088
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstapp-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "60d292a0244fdcdc151697a588aff85ce2c694fbffbeba4064d33ec3d528098a",
+   "size": 152608
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstaudio-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "001d3e530bfedd96525c8f17316bc9f1a5404b90bde624ffce715dad2dc331ec",
+   "size": 530400
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstbase-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "c3daea12ac920f150a2dff1ec04fe5df5b62afcb91c26fd19e35298ec6422d22",
+   "size": 505968
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstnet-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "3a4d0a4548a855da4a3177452bdb6aa241dbff6c897f70bdf4899b18076dbe4f",
+   "size": 117008
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstpbutils-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "7ea144e47caa6a86a985caf52e9e22d534af83ff78cc1c96169f47362deca2db",
+   "size": 309856
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstreamer-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "dacb18af857dad90289996d081daf6d5e2cb620849c1e3a67736442ef2185ed5",
+   "size": 1304704
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstrtp-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "2730a668bd74836f4ad41db905cc3cf8dccc4640694c499106fa4588aa20959e",
+   "size": 205696
+  },
+  {
+   "path": "codex-resources/voice/lib/libgsttag-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "9ce4b251fa369a31f66699ca5c81f3f9d96b1fec6caa70b7ce2ef65d14396cef",
+   "size": 283696
+  },
+  {
+   "path": "codex-resources/voice/lib/libgstvideo-1.0.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "8cb30bf7e78aba49349651b30ec69481c74515e89841ece32b8197673d273836",
+   "size": 903664
+  },
+  {
+   "path": "codex-resources/voice/lib/libintl.8.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "5830221d765ec70c4665d12f6793577ffa195dcf2d48ac817bab467c9b96196d",
+   "size": 50112
+  },
+  {
+   "path": "codex-resources/voice/lib/libopus.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "ff22818e6e37234273ea66b1b1c05b0264af69155f47aba4b8a3410317ef4726",
+   "size": 504080
+  },
+  {
+   "path": "codex-resources/voice/lib/libpcre2-8.0.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "4fadca0cf338adca06f7dc5740d62d923d09f995b9b642b79a48acc6e6969b25",
+   "size": 456816
+  },
+  {
+   "path": "codex-resources/voice/lib/libz.1.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "3d66fd4454918261655f939812ccbc6577b39d6a45663906a61164f2fb770359",
+   "size": 123312
+  },
+  {
+   "path": "codex-resources/voice/licenses",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/voice/licenses/LGPL-2.1.txt",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db",
+   "size": 26431
+  },
+  {
+   "path": "codex-resources/voice/licenses/Opus.txt",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551",
+   "size": 1945
+  },
+  {
+   "path": "codex-resources/voice/licenses/PCRE2.md",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811",
+   "size": 4011
+  },
+  {
+   "path": "codex-resources/voice/licenses/libffi.txt",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "17b64dc60f3b6897a60f971e288b973f655c2edcdf08b25f3c3dd5549857881c",
+   "size": 1132
+  },
+  {
+   "path": "codex-resources/voice/licenses/proxy-libintl.txt",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "d245807f90032872d1438d741ed21e2490e1175dc8aa3afa5ddb6c8e529b58e5",
+   "size": 25292
+  },
+  {
+   "path": "codex-resources/voice/licenses/sljit.txt",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "5f216505c0f6ea3273caec89e766eef93cdeb7bbb0c429f9360116d7c938feeb",
+   "size": 1444
+  },
+  {
+   "path": "codex-resources/voice/licenses/zlib.txt",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2",
+   "size": 1002
+  },
+  {
+   "path": "codex-resources/voice/manifest.json",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "0cb5bbc51080939d07e78ee373185f61a82067877e0186bea236a07cbc862893",
+   "size": 4637
+  },
+  {
+   "path": "codex-resources/voice/plugins",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/voice/plugins/libgstapp.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "955b942b351fd80766b6324500b1e27e8c95040ba9fc62e505041758df39dac0",
+   "size": 49872
+  },
+  {
+   "path": "codex-resources/voice/plugins/libgstaudioconvert.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "04984ebf169f844da1eab0a3708cfc9402217c27702baf710fad9caa28f389f6",
+   "size": 93824
+  },
+  {
+   "path": "codex-resources/voice/plugins/libgstaudioresample.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "e9dd49f4a7384ce41111ddb911650e9726c7cbcd9729073e1f8cfc0ffc7f9688",
+   "size": 91840
+  },
+  {
+   "path": "codex-resources/voice/plugins/libgstcoreelements.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "679206e939d10cc75dc4b007af4c4617fa286150ea4a61e3a37fa56ab981617a",
+   "size": 446608
+  },
+  {
+   "path": "codex-resources/voice/plugins/libgstopus.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "28e7fe4a1e4396b142d87472a4ed4478c79fa7ff8c70c3500c51f0a39c74d183",
+   "size": 131680
+  },
+  {
+   "path": "codex-resources/voice/plugins/libgstrtp.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "b1f641047adaeb4c84c22fc29239b79b9588273ceecf8f887e3202247e14726d",
+   "size": 673888
+  },
+  {
+   "path": "codex-resources/voice/plugins/libgstrtpmanager.dylib",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "470b47cbb797dd57672565158e2ec90d92afe6a112cb4a2ee71042a86d8a2ed6",
+   "size": 527568
+  },
+  {
+   "path": "codex-resources/voice/runtime.json",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "e7bcd873e4bcaf6c4f0410c55485157d3d557a76b0d0ab5fd41cca0aadff1bbb",
+   "size": 14915
+  },
+  {
+   "path": "codex-resources/voice/sources.json",
+   "type": "file",
+   "mode": "0644",
+   "sha256": "e2f6b124f6277e7c3c4f5c7cc8830c66190f671ad65e972bb2cc9507dbfcb937",
+   "size": 4911
+  },
+  {
+   "path": "codex-resources/zsh",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/zsh/bin",
+   "type": "dir",
+   "mode": "0755"
+  },
+  {
+   "path": "codex-resources/zsh/bin/zsh",
+   "type": "file",
+   "mode": "0755",
+   "sha256": "78baefdeac8715fe8a99b60d112f45daa2feaeb5068cd7b116c75300f1402d50",
+   "size": 754208
+  }
+ ],
+ "gate": {
+  "command": "'<adapter>' hook --receipt '<receipt>' --buddy '<buddy>'",
+  "hash": "per launch: hooks/list currentHash equals the launch gate_hash, trusted"
+ },
+ "suites": [
+  {
+   "tier": "start",
+   "suite": "codex-shell-lifecycle-edge",
+   "runner": "qualify-codex.py",
+   "runner_sha256": "0df476ab1ee9a2e9ed956cc3958cf36628a70f810aa44afc410ffd5317d12d70",
+   "receipt_sha256": "647eb7c97a6df93288f7ad2893720339b881a1956b6894e861ada7354bd1bf97",
+   "checks_passed": 15,
+   "checks_total": 15,
+   "checker": "check-codex-gate.py",
+   "checker_sha256": "2ed6b75d9549d183d383da4e3b25345c5c631ada544dd3779ab285b770fdb27c",
+   "checker_log_sha256": "75cd126d3e8b9cec20a9094d4df6514306ce26b743315d5c118c4aa51d77181b",
+   "checker_passed": true,
+   "checker_checks_passed": 13,
+   "checker_checks_total": 13,
+   "buddy_sha256": "6eee07eb3ed48ed4a5cbdd890aef29763d3aa3187caabe3a5647d68530682e31",
+   "adapter_sha256": "53dbcac48d1a7d992a4fc8ebf682c16b6604ce97e9e6234be7fa6555de0d2f10",
+   "source_head": "95d4683b652ad1d798487b8efd04b946bc242f50",
+   "summary": "docs/admissions/2026-10-14-codex-0.162.1-74c6a6d2/summary.json"
+  },
+  {
+   "tier": "start",
+   "suite": "standalone-adapters",
+   "runner": "qualify-adapters.py",
+   "runner_sha256": "a8adbaedb83daf7a557988076fca75f8770ea368b805ee12575cfdf3e3d61a46",
+   "receipt_sha256": "6493af91bb99e950153d67bc6b0e4398eaf9d20091c58c3b3a29270b031ecefe",
+   "checks_passed": 9,
+   "checks_total": 9,
+   "checker": "check-adapters.py",
+   "checker_sha256": "e0ccc4711b4fb2be8ee375160ac91c31195536a79a6a40ddca2cc7e18ba39714",
+   "checker_log_sha256": "0ec1cdee890e63dd01ddc8615c859012e7289799ab9b38fa3980b9e2b5161150",
+   "checker_passed": true,
+   "checker_checks_passed": 13,
+   "checker_checks_total": 13,
+   "buddy_sha256": "6eee07eb3ed48ed4a5cbdd890aef29763d3aa3187caabe3a5647d68530682e31",
+   "adapter_sha256": "53dbcac48d1a7d992a4fc8ebf682c16b6604ce97e9e6234be7fa6555de0d2f10",
+   "source_head": "95d4683b652ad1d798487b8efd04b946bc242f50",
+   "summary": "docs/admissions/2026-10-14-codex-0.162.1-74c6a6d2/summary.json"
+  },
+  {
+   "tier": "resume",
+   "suite": "recovery",
+   "runner": "qualify-recovery.py",
+   "runner_sha256": "896db31cb7bbbf1bb33a478e2a5a825e0fd71ea2d2043f9112744396c2a26d0b",
+   "receipt_sha256": "9b04851c442f121ffbdabbcd46d69cb69c44b8f91c3335facb3ccd1ace0e5c02",
+   "checks_passed": 29,
+   "checks_total": 29,
+   "checker": "check-recovery.py",
+   "checker_sha256": "46a12eca6422f0cd85094063bca9bb02c2671989f4b3d7fa449183d4678df593",
+   "checker_log_sha256": "3c4a83704bc538c5ac656d6edd6be0d88af37ba42fae2cbf3d66f53f780dbb92",
+   "checker_passed": true,
+   "checker_checks_passed": 29,
+   "checker_checks_total": 29,
+   "buddy_sha256": "6eee07eb3ed48ed4a5cbdd890aef29763d3aa3187caabe3a5647d68530682e31",
+   "adapter_sha256": "53dbcac48d1a7d992a4fc8ebf682c16b6604ce97e9e6234be7fa6555de0d2f10",
+   "source_head": "95d4683b652ad1d798487b8efd04b946bc242f50",
+   "summary": "docs/admissions/2026-10-14-codex-0.162.1-74c6a6d2/summary.json"
+  },
+  {
+   "tier": "resume",
+   "suite": "interrupted",
+   "runner": "qualify-interrupted.py",
+   "runner_sha256": "879bcbf2e903685412e2f6997380e5c518f0de916855324f2d16d90c224d3757",
+   "receipt_sha256": "d331a9fc240292eca3d6224d47fc0c8fe401f8653a190ade380af975ee8b1ea7",
+   "checks_passed": 59,
+   "checks_total": 59,
+   "checker": "check-interrupted.py",
+   "checker_sha256": "0bca65ed2325817fb6e42dcecb23d12e3baf58b0065fecdadd9a658c70ee95f1",
+   "checker_log_sha256": "3a18858e5215144a68048438e663c24435d81866bfb31a9a35befa2b937239e1",
+   "checker_passed": true,
+   "checker_checks_passed": 59,
+   "checker_checks_total": 59,
+   "buddy_sha256": "6eee07eb3ed48ed4a5cbdd890aef29763d3aa3187caabe3a5647d68530682e31",
+   "adapter_sha256": "53dbcac48d1a7d992a4fc8ebf682c16b6604ce97e9e6234be7fa6555de0d2f10",
+   "source_head": "95d4683b652ad1d798487b8efd04b946bc242f50",
+   "summary": "docs/admissions/2026-10-14-codex-0.162.1-74c6a6d2/summary.json"
+  },
+  {
+   "tier": "resume",
+   "suite": "uncertain",
+   "runner": "qualify-uncertain.py",
+   "runner_sha256": "5d6c6e93ae1a1e2238ee141ceb7325ee3088cd8f9f55028b09317d633d9d71d9",
+   "receipt_sha256": "b8688df2ec489d32b5ed25fd09bbca685527c61963706c6b10a70c504a456752",
+   "checks_passed": 42,
+   "checks_total": 42,
+   "checker": "check-uncertain.py",
+   "checker_sha256": "ca688de27b436eca605a179f48360511aa6da56921d38a1dfc8e5d701c8c044a",
+   "checker_log_sha256": "c5dbda3906a491703fde6b7bddfa5cc18525c89d431d2606f1e17b13fe0b02d2",
+   "checker_passed": true,
+   "checker_checks_passed": 42,
+   "checker_checks_total": 42,
+   "buddy_sha256": "6eee07eb3ed48ed4a5cbdd890aef29763d3aa3187caabe3a5647d68530682e31",
+   "adapter_sha256": "53dbcac48d1a7d992a4fc8ebf682c16b6604ce97e9e6234be7fa6555de0d2f10",
+   "source_head": "95d4683b652ad1d798487b8efd04b946bc242f50",
+   "summary": "docs/admissions/2026-10-14-codex-0.162.1-74c6a6d2/summary.json"
+  },
+  {
+   "tier": "compaction_observation",
+   "suite": "compaction",
+   "runner": "qualify-compaction.py",
+   "runner_sha256": "a1d563dc676493a9c1787ecb49786078406daf2c55d20e2cff21ff02d84c123c",
+   "receipt_sha256": "95b330af89af6b413cc59c684828330ef74b05277146d0172ef9ed0722a32330",
+   "checks_passed": 23,
+   "checks_total": 23,
+   "checker": "check-compaction.py",
+   "checker_sha256": "24c682854a1827caecdec8764299a62747b4c4155b146e0e64e372fcc6962c8f",
+   "checker_log_sha256": "7297a9ee17cdbad9e17447cba0de5a0dbb8ec27f9603a9a4cc8e9ef5d7a58df5",
+   "checker_passed": true,
+   "checker_checks_passed": 23,
+   "checker_checks_total": 23,
+   "buddy_sha256": "6eee07eb3ed48ed4a5cbdd890aef29763d3aa3187caabe3a5647d68530682e31",
+   "adapter_sha256": "53dbcac48d1a7d992a4fc8ebf682c16b6604ce97e9e6234be7fa6555de0d2f10",
+   "source_head": "95d4683b652ad1d798487b8efd04b946bc242f50",
+   "summary": "docs/admissions/2026-10-14-codex-0.162.1-74c6a6d2/summary.json"
+  },
+  {
+   "tier": "compaction_observation",
+   "suite": "interrupted-compaction",
+   "runner": "qualify-interrupted-compaction.py",
+   "runner_sha256": "7da9ee22071a4de68b82216fd09937b0aa269c3eb7cd696fef7f89f594702839",
+   "receipt_sha256": "860b6e72f17a9b217672aa691c31ce4ebd5a109ae8891d3112b95eeb020fdd03",
+   "checks_passed": 75,
+   "checks_total": 75,
+   "checker": "check-interrupted-compaction.py",
+   "checker_sha256": "c7c5476cc82b72af24118299ffaef2f2f932ea9ac66fe766f3228066bbdbda82",
+   "checker_log_sha256": "56b19e12050e136f7f6072166b95a5bd585bf69d802ce8d2e26650a2868cd667",
+   "checker_passed": true,
+   "checker_checks_passed": 75,
+   "checker_checks_total": 75,
+   "buddy_sha256": "6eee07eb3ed48ed4a5cbdd890aef29763d3aa3187caabe3a5647d68530682e31",
+   "adapter_sha256": "53dbcac48d1a7d992a4fc8ebf682c16b6604ce97e9e6234be7fa6555de0d2f10",
+   "source_head": "95d4683b652ad1d798487b8efd04b946bc242f50",
+   "summary": "docs/admissions/2026-10-14-codex-0.162.1-74c6a6d2/summary.json"
+  }
+ ],
+ "evidence": {
+  "qualified_on": "2026-10-14",
+  "source": "a retained copy at ~/.buddy/harness/codex/0.162.1-74c6a6d2 of ~/.codex/packages/standalone/releases/0.162.1-aarch64-apple-darwin",
+  "note": "scripts/qualify-release.py at 95d4683b652ad1d798487b8efd04b946bc242f50; every suite run from the retained copy as a D-080 candidate and passed by its checker with --candidate. Tiers not listed were not earned."
+ }
+}

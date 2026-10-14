@@ -317,7 +317,11 @@ def native_self_test(receipt, validate, paths):
         v[harness]["executable_sha256"] = "c" * 64
     forged(other_build, lambda bad, v: None)
     def unqualified(v):
-        v[harness]["version"] = v[harness]["version"].replace("0.160.0", "0.161.0").replace("2.1.291", "2.1.292")
+        # A version no record can name. Replacing the literal 0.160.0 forged
+        # nothing once the synthetic run used the newest record (0.162.1, the
+        # first qualify-release.py record, 2026-10-14).
+        import re
+        v[harness]["version"] = re.sub(r"\d+\.\d+\.\d+", "0.0.1", v[harness]["version"], count=1)
     def follow(bad, v):
         bad["native_versions"] = v
         for session in bad["sessions"].values():

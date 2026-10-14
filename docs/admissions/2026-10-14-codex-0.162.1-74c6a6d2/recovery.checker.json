@@ -1,0 +1,40 @@
+{
+ "checker": "check-recovery.py",
+ "exit": 0,
+ "verdict": {
+  "passed": true,
+  "checks": {
+   "schema_and_provider": true,
+   "original_evidence_hashes": true,
+   "artifact_hashes": true,
+   "native_executables": true,
+   "separate_worktrees": true,
+   "native_result_identity_and_idle": true,
+   "native_inbox_delivery_rows": true,
+   "closed_before_resume": true,
+   "same_captured_identity": true,
+   "transport_exit_not_logical_end": true,
+   "duplicate_keeps_native_turn": true,
+   "native_approval_was_pending": true,
+   "old_approval_refused_after_resume": true,
+   "fresh_approval_control": true,
+   "queued_body_retrieved_after_resume": true,
+   "resumed_gate_denial_and_control": true,
+   "claim_ids_survive_transfer": true,
+   "ready_declarations_survive_transfer": true,
+   "handoff_names_result_reader": true,
+   "job_outlives_coordinator": true,
+   "job_checks_exact_commit": true,
+   "validated_blobs_and_landing": true,
+   "run_released_by_successor": true,
+   "landing_notices_delivered": true,
+   "delayed_old_incarnation_refused": true,
+   "delayed_events_preserve_new_claim": true,
+   "stale_resume_before_native_launch": true,
+   "closed_claims_and_children": true,
+   "native_results_not_completion": true
+  },
+  "errors": []
+ },
+ "stderr": ""
+}

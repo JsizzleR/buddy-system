@@ -1,0 +1,43 @@
+{
+ "checker": "check-adapters.py",
+ "exit": 0,
+ "verdict": {
+  "passed": true,
+  "checks": {
+   "receipt_location": true,
+   "contract": true,
+   "runner_verdict": true,
+   "artifact_hashes": true,
+   "hook_trust_reviewed_then_exact": true,
+   "gate_configuration": true,
+   "captured_identity": true,
+   "claim_denial_held": true,
+   "allowed_control": true,
+   "one_turn": true,
+   "duplicate_not_replayed": true,
+   "clean_close": true,
+   "evidence_hashes": true
+  },
+  "errors": [],
+  "evidence": "unhashed",
+  "read": [
+   "adapter.stderr",
+   "codex/config.toml",
+   "events.json",
+   "hooks-trusted.json",
+   "hooks-untrusted.json",
+   "launch.json",
+   "work/allowed.txt",
+   "work/guarded.txt",
+   "worker.json",
+   "worker.json.events",
+   "worker.json.proc"
+  ],
+  "unbound": [],
+  "runner_only": [
+   "assignment_still_queued_after_result",
+   "body_delivery_explicit"
+  ]
+ },
+ "stderr": ""
+}
