@@ -4,6 +4,7 @@ package harness
 // watched to fail before its fix, each with a positive control.
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -147,4 +148,75 @@ func statOf(t *testing.T, name string) os.FileInfo {
 		t.Fatal(err)
 	}
 	return info
+}
+
+// Second constrained review (2026-10-13), P3: the package ROOT's special bits
+// were never inspected (buildPackageManifest returned before looking), so a
+// sticky or setgid root verified as the plain tree it was recorded as.
+func TestReviewPackageRootSpecialBits(t *testing.T) {
+	for _, bits := range []os.FileMode{0, os.ModeSticky, os.ModeSetgid} {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "bin"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "bin", "codex"), []byte("x"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		want, err := buildPackageManifest(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(root, 0755|bits); err != nil {
+			t.Fatal(err)
+		}
+		err = verifyPackage(root, want)
+		if bits == 0 {
+			if err != nil {
+				t.Fatalf("positive control: %v", err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("root with %v verified as the recorded tree", bits)
+		}
+	}
+}
+
+// Second constrained review, P1 residual: a rename AFTER the post-hash
+// identity re-check and before the --version probe is the window F-23
+// states (path-based exec; only a sealed copy closes it, and --retained is a
+// path no updater writes). What the boundary does promise is measured here:
+// the replacement may answer --version, but no worker ever starts on it,
+// because the launch re-checks identity before the spawn.
+func TestReviewRenameBeforeProbeStartsNoWorker(t *testing.T) {
+	for _, swap := range []bool{false, true} {
+		b, launch, ctx := claudeFixture(t)
+		c := b.(*claudeBackend)
+		marker := filepath.Join(t.TempDir(), "runs")
+		countingClaude(t, b, marker)
+		withAdmissions(t, testRecord(t, "claude", claudeContractVersion, c.executable, TierStart))
+		if swap {
+			other := c.executable + ".new"
+			if err := os.WriteFile(other, []byte(strings.Replace(mustRead(t, c.executable), "flush=True", "flush=1==1", 1)), 0700); err != nil {
+				t.Fatal(err)
+			}
+			probe := c.probe
+			c.probe = func(ctx context.Context, name string) (string, error) {
+				if err := os.Rename(other, name); err != nil {
+					t.Error(err)
+				}
+				return probe(ctx, name)
+			}
+		}
+		_, err := b.Start(ctx, launch, testAuthorization(t))
+		if !swap {
+			if err != nil || executions(t, marker) < 2 {
+				t.Fatalf("positive control: %v runs=%d", err, executions(t, marker))
+			}
+			continue
+		}
+		if err == nil || executions(t, marker) > 1 || c.proc != nil {
+			t.Fatalf("replaced before the probe: %v with %d executions, worker %v", err, executions(t, marker), c.proc)
+		}
+	}
 }

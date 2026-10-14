@@ -98,6 +98,8 @@ func run(args []string) error {
 	kind := fs.String("harness", "", "codex or claude")
 	executable := fs.String("executable", "", "absolute native harness binary")
 	retained := fs.Bool("retained", false, "instead of --executable, launch the retained copy of the one admitted build of the declared version, ~/.buddy/harness/<harness>/<version>-<sha8>/ (D-079); nothing is copied or fetched")
+	candidate := fs.String("qualify-candidate", "", "qualification only (D-080): the absolute candidate artifact (Claude's Mach-O, or bin/codex in its release tree) the record set is replaced by; needs --qualify-sha256 and a loopback fixture provider; --executable may be its observer")
+	candidateSum := fs.String("qualify-sha256", "", "with --qualify-candidate: the candidate's sha256, typed by the operator or the qualification runner")
 	buddy := fs.String("buddy", "", "absolute Buddy binary")
 	config := fs.String("launch", "", "launch JSON file (explicit worktree, permissions and hook compatibility)")
 	receipt := fs.String("receipt", "", "absolute immutable lifecycle receipt output")
@@ -142,6 +144,12 @@ func run(args []string) error {
 	if *retained && *executable != "" {
 		return errors.New("--retained names the executable; do not also pass --executable")
 	}
+	if (*candidate == "") != (*candidateSum == "") {
+		return errors.New("--qualify-candidate and --qualify-sha256 go together")
+	}
+	if *candidate != "" && *retained {
+		return errors.New("--retained launches an admitted build; a qualification candidate names its artifact")
+	}
 	if !*retained && !filepath.IsAbs(*executable) || !filepath.IsAbs(*buddy) || !filepath.IsAbs(*receipt) {
 		return errors.New("executable, buddy and receipt require absolute paths")
 	}
@@ -182,6 +190,14 @@ func run(args []string) error {
 			return err
 		}
 		*executable = path
+	}
+	// The candidate binding replaces the record set before any backend
+	// exists or any child runs (D-080).
+	if *candidate != "" {
+		if _, err := harness.EnableQualificationCandidate(harness.QualificationCandidate{Harness: *kind, Version: launch.HarnessVersion,
+			Artifact: *candidate, SHA256: *candidateSum, Executable: *executable}); err != nil {
+			return err
+		}
 	}
 	self, err := os.Executable()
 	if err != nil {

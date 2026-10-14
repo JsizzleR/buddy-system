@@ -198,3 +198,59 @@ func mustReadFile(t *testing.T, name string) string {
 	}
 	return string(b)
 }
+
+// D-080, against the INSTALLED (untagged) build: the candidate binding admits
+// an unrecorded fake only inside a loopback fixture, and every receipt names
+// it. The regression Codex's migration step 4 names, the binding feeding an
+// ordinary launch, is the no-fixture case: refused before anything runs.
+func TestUntaggedAdapterCandidateOnlyInsideFixture(t *testing.T) {
+	f := newEntryFixture(t, "")
+	untagged := filepath.Join(t.TempDir(), "buddy-adapter")
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	build := exec.CommandContext(ctx, "go", "build", "-o", untagged, "./cmd/buddy-adapter")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+	var launch map[string]any
+	if err := json.Unmarshal([]byte(mustReadFile(t, f.launch)), &launch); err != nil {
+		t.Fatal(err)
+	}
+	launch["gate_command"] = quote(untagged) + " hook --receipt " + quote(f.receipt) + " --buddy " + quote(f.buddy)
+	if err := os.WriteFile(f.launch, mustMarshal(t, launch), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(mustReadFile(t, f.codex)))
+	for _, fixture := range []bool{false, true} {
+		config := "# no provider: an ordinary launch\n"
+		if fixture {
+			config = "model_provider = \"fixture\"\n[model_providers.fixture]\nbase_url = \"http://127.0.0.1:1/v1\"\n"
+		}
+		if err := os.WriteFile(launch["hook_config"].(string), []byte(config), 0600); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Remove(f.marker)
+		_ = os.Remove(f.receipt + ".start")
+		cmd := exec.Command(untagged, "--harness", "codex", "--executable", f.codex, "--qualify-candidate", f.codex,
+			"--qualify-sha256", hex.EncodeToString(sum[:]), "--buddy", f.buddy, "--launch", f.launch, "--receipt", f.receipt, "--label", "worker")
+		cmd.Env = f.env
+		cmd.Stdin = strings.NewReader("")
+		out, err := cmd.CombinedOutput()
+		runs := mustReadFile(t, f.marker)
+		if fixture {
+			if !strings.Contains(runs, `"kind": "version"`) || !strings.Contains(string(out), `"qualification_candidate":"`+hex.EncodeToString(sum[:])+`"`) {
+				t.Fatalf("positive control: candidate never ran or its receipt hid it: %v runs=%q\n%s", err, runs, out)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(string(out), "candidate_outside_fixture") || runs != "" {
+			t.Fatalf("candidate outside a fixture: err=%v runs=%q\n%s", err, runs, out)
+		}
+	}
+}

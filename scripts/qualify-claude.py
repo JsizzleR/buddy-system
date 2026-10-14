@@ -29,8 +29,6 @@ import time
 import traceback
 
 
-VERSION = "2.1.289"
-QUALIFICATION_VERSIONS = ("2.1.289", "2.1.290", "2.1.291")
 # Where a successful native Write's omitted is_error renews (D-078); this
 # mirrors claudeWriteOmissionQualified in internal/harness/claude_renewal.go.
 WRITE_RENEWAL_QUALIFIED = ("2.1.291",)
@@ -44,6 +42,38 @@ EVIDENCE = ("adapter-events.json", "adapter.stderr", "launch.json", "settings.js
             "managed-hook-refusal/claude-managed-fixture", "managed-hook-refusal/launch.json",
             "managed-hook-refusal/native-observations.jsonl")
 REPO = pathlib.Path(__file__).resolve().parent.parent
+
+
+def recorded_versions(harness):
+    """The versions the committed admission records name (D-079), oldest
+    first, plus a qualification candidate's declared version (D-080) when the
+    release runner names one. A hard-coded list went stale the day 2.1.289
+    and 2.1.290 were retired."""
+    root = pathlib.Path(__file__).resolve().parent.parent / "internal" / "harness" / "admissions" / harness
+    found = {json.loads(p.read_text())["version"] for p in root.glob("*/admission.json")}
+    if os.environ.get("BUDDY_QUALIFY_HARNESS") == harness and os.environ.get("BUDDY_QUALIFY_VERSION"):
+        found.add(os.environ["BUDDY_QUALIFY_VERSION"])
+    return tuple(sorted(found, key=lambda v: tuple(int(x) for x in v.split("."))))
+
+
+def candidate_flags(argv):
+    """D-080: insert the adapter's candidate binding when the release runner
+    (scripts/qualify-release.py) named one. The binding stays typed on the
+    adapter's command line; the environment only carries it from the runner
+    to here. A hook invocation never takes it."""
+    argv = [str(x) for x in argv]
+    artifact, digest = os.environ.get("BUDDY_QUALIFY_CANDIDATE", ""), os.environ.get("BUDDY_QUALIFY_SHA256", "")
+    if not artifact and not digest:
+        return argv
+    if not artifact or not digest:
+        raise RuntimeError("BUDDY_QUALIFY_CANDIDATE and BUDDY_QUALIFY_SHA256 go together")
+    if len(argv) > 1 and argv[1] == "hook":
+        return argv
+    return argv[:1] + ["--qualify-candidate", artifact, "--qualify-sha256", digest] + argv[1:]
+
+
+QUALIFICATION_VERSIONS = recorded_versions("claude")
+VERSION = QUALIFICATION_VERSIONS[-1]
 
 
 def digest(path):
@@ -346,7 +376,7 @@ class Adapter:
         operator_read, operator_write = os.pipe()
         self.operator = os.fdopen(operator_write, "w")
         try:
-            self.process = subprocess.Popen([str(x) for x in argv] + ["--operator-fd", str(operator_read)],
+            self.process = subprocess.Popen(candidate_flags(argv) + ["--operator-fd", str(operator_read)],
                 cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=self.stderr, text=True, pass_fds=(operator_read,), start_new_session=True)
         except BaseException:

@@ -31,11 +31,11 @@ hooks=fixture.list_hooks(state,work,env);(root/'hooks-untrusted.json').write_tex
 fixture.require(h['trustStatus']=='untrusted','hook must be discovered UNTRUSTED before trust: '+json.dumps(hooks))
 config.write_text(base+'\n[hooks.state.'+json.dumps(h['key'])+']\ntrusted_hash = '+json.dumps(h['currentHash'])+'\n')
 hooks=fixture.list_hooks(state,work,env);(root/'hooks-trusted.json').write_text(json.dumps(hooks,indent=2));h=hooks['data'][0]['hooks'][0];fixture.require(h['trustStatus']=='trusted','exact-hash trust did not take: '+json.dumps(hooks))
-launch={'worktree':str(work),'permission_mode':'workspace-write','hook_config':str(config),'harness_version':'0.160.0','gate_command':gate,'gate_hash':h['currentHash'],'hooks':{'configured':'observed','trusted':'observed','observed':'unknown','no_mods':'unknown'}}
+launch={'worktree':str(work),'permission_mode':'workspace-write','hook_config':str(config),'harness_version':fixture.CODEX_VERSION,'gate_command':gate,'gate_hash':h['currentHash'],'hooks':{'configured':'observed','trusted':'observed','observed':'unknown','no_mods':'unknown'}}
 (root/'launch.json').write_text(json.dumps(launch,indent=2))
 threading.Thread(target=server.serve_forever,daemon=True).start()
 events=[];q=queue.Queue();checks={}
-p=subprocess.Popen([str(adapter),'--harness','codex','--executable',fixture.CODEX,'--buddy',str(buddy),'--launch',str(root/'launch.json'),'--receipt',str(receipt),'--label','adapter-native-fixture'],cwd=work,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=(root/'adapter.stderr').open('w'),text=True)
+p=subprocess.Popen(fixture.candidate_flags([str(adapter),'--harness','codex','--executable',fixture.CODEX,'--buddy',str(buddy),'--launch',str(root/'launch.json'),'--receipt',str(receipt),'--label','adapter-native-fixture']),cwd=work,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=(root/'adapter.stderr').open('w'),text=True)
 def reader():
  for line in p.stdout:
   try:v=json.loads(line)
@@ -75,7 +75,7 @@ finally:
  except subprocess.TimeoutExpired:p.terminate();p.wait(timeout=5)
  server.shutdown()
  (root/'events.json').write_text(json.dumps(events,indent=2))
- result={'root':str(root),'checks':checks,'passed':all(checks.values()) and len(checks)==9,'adapter_exit':p.returncode,'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),'adapter_sha256':hashlib.sha256(adapter.read_bytes()).hexdigest(),'fixture_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'native_version':'0.160.0','provider':'deterministic loopback fixture; no real inference'}
+ result={'root':str(root),'checks':checks,'passed':all(checks.values()) and len(checks)==9,'adapter_exit':p.returncode,'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),'adapter_sha256':hashlib.sha256(adapter.read_bytes()).hexdigest(),'fixture_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'native_version':fixture.CODEX_VERSION,'provider':'deterministic loopback fixture; no real inference'}
  (root/'result.json').write_text(json.dumps(result,indent=2));print('RECEIPT='+str(root/'result.json'),flush=True)
 # Not `assert`: under `python -O` a failed qualification exited 0 (F-39).
 fixture.require(result['passed'],json.dumps(result))

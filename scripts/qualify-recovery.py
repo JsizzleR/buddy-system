@@ -232,8 +232,8 @@ save("landing.json",{{"sha":handoff["sha"],"worktree":{str(landing)!r},"ref":"re
     state = fleet.root / (role + "-state")
     trace = state / "native-observations.jsonl"
     before = common.digest(trace)
-    rejected = subprocess.run([str(fleet.binary), "--harness", "codex", "--executable", str(state / "native-observer"),
-        "--buddy", str(fleet.buddy), "--receipt", str(fleet.receipts[role]), "--resume"],
+    rejected = subprocess.run(common.candidate_flags([str(fleet.binary), "--harness", "codex", "--executable", str(state / "native-observer"),
+        "--buddy", str(fleet.buddy), "--receipt", str(fleet.receipts[role]), "--resume"]),
         cwd=work, env=fleet.env, input="", capture_output=True, text=True, timeout=40)
     fleet.result["stale_resume"] = {"exit_code": rejected.returncode, "stdout": rejected.stdout,
         "stderr": rejected.stderr, "trace_before": before, "trace_after": common.digest(trace)}

@@ -1636,6 +1636,25 @@ byte-exact copy there first (`ditto` of the file or release directory), and it i
 hashed like any other path. Workers and version probes run with
 `DISABLE_AUTOUPDATER=1`.
 
+**Qualification candidates (D-080).** A record can only be written after a
+build's suites pass, and the suites run before it exists, through a metadata
+observer rather than the native file. `--qualify-candidate <path> --qualify-sha256
+<hex>` is the one route for that, and only for that: the path is the candidate
+artifact (Claude's Mach-O, or `bin/codex` inside its release tree, never a link),
+and the digest is typed by the operator or the qualification runner. The adapter
+hashes it when the flags are read and again at every launch, REPLACES the
+committed records with one synthesized record for exactly those bytes (so that
+process launches nothing else), and refuses every start and resume whose provider
+is not on a loopback IP: `ANTHROPIC_BASE_URL` for Claude, the selected
+`model_provider`'s `base_url` in the `config.toml` beside Codex's hook config
+(a profile, a dotted top-level key or an array table refuses). `--executable` may
+be an observer, hashed with the flags and required unchanged. Every control
+receipt carries `qualification_candidate` (the sha256), the captured receipt
+records the binding, and a resume in the other mode, or under another
+candidate, refuses. Codes: `candidate_mismatch`, `candidate_outside_fixture`.
+Not with `--retained`. The qualification runners pass these flags themselves;
+`scripts/qualify-release.py` is the operator's entry point.
+
 The first output contains the immutable lifecycle identity. Keep stdin open for
 controls; EOF closes the owned transport and does not mark the logical session
 ended. Supply `--resume` instead of `--launch` only with the preserved receipt

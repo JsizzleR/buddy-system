@@ -815,6 +815,14 @@ ledger row entered through the CLI (D-006).
     2.1.290 are retired (no binary or hash). Do not propose a runtime registry, ranges or
     probing alone, a metadata hash cache, or invalidation by adapter hash (an embedded
     record cannot bind its own binary; the contract id is bumped instead).
+81. **A qualification candidate (D-080)** is `buddy-adapter --qualify-candidate <artifact>
+    --qualify-sha256 <hex>` in the shipped binary: the typed digest binds the artifact, the
+    committed records are REPLACED by one synthesized record for those bytes, an observer
+    `--executable` is hashed and must stay unchanged, and every start and resume needs a
+    loopback-IP provider (Claude `ANTHROPIC_BASE_URL`; Codex `config.toml` `model_provider`
+    `base_url`). Every receipt carries `qualification_candidate`; cross-mode resume refuses.
+    The rename window between the post-hash re-check and `--version` is F-23's stated
+    path-exec window (no worker starts on a replacement); `--retained` is the mitigation.
 
 ## Environment facts (measured, do not re-derive)
 

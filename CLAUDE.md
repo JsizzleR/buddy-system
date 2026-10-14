@@ -626,6 +626,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   exact `--version`, and the unchanged live checks. A start-only record never resumes; no
   record grants reconcile. 2.1.289/2.1.290 are retired. `--retained` names
   `~/.buddy/harness/...`; the adapter copies nothing.
+- **A qualification candidate runs only against a loopback provider (D-080):**
+  `buddy-adapter --qualify-candidate <artifact> --qualify-sha256 <hex>` replaces the records
+  with one for exactly those typed bytes (an observer `--executable` is hashed too), refuses
+  any start or resume whose provider is not on a loopback IP, names the candidate in every
+  receipt, and never resumes across modes. It is how a build with no record is qualified.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

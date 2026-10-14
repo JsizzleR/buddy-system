@@ -48,6 +48,9 @@ type Saved struct {
 	Schema   string   `json:"schema"`
 	Identity Identity `json:"identity"`
 	Launch   Launch   `json:"launch"`
+	// Candidate is set when a qualification candidate (D-080) launched this
+	// worker, so a resume in the other mode refuses instead of inheriting it.
+	Candidate *QualificationCandidate `json:"qualification_candidate,omitempty"`
 }
 type Request struct {
 	Schema    string            `json:"schema"`
@@ -81,6 +84,10 @@ type Receipt struct {
 	// Renewal is set only on a "renewal" receipt, which is journalled and
 	// never written to the coordinator's stream (D-078).
 	Renewal *RenewalObservation `json:"renewal,omitempty"`
+	// QualificationCandidate is the bound candidate's sha256 on EVERY receipt
+	// of a candidate adapter (D-080): a coordinator reading any one of them
+	// can tell a qualification fixture from an admitted worker.
+	QualificationCandidate string `json:"qualification_candidate,omitempty"`
 }
 
 // observeLedgerTimeout bounds each ledger call an Observe makes (F-30). Observe
@@ -263,7 +270,11 @@ func (c *Controller) receipt(op string) Receipt {
 			pending.Detail = "the listed approvals are last observations and may be stale; the set may be incomplete: " + c.observationGap
 		}
 	}
-	return Receipt{Schema: Schema, Operation: op, Identity: c.saved.Identity, State: c.state, Capabilities: c.backend.Capabilities(), BodyDelivery: Observation{State: "unknown"}, Acknowledgment: Observation{State: "unknown"}, Completion: Observation{State: "unknown"}, PendingApproval: pending, Approvals: aps}
+	candidate := ""
+	if q := ActiveQualificationCandidate(); q != nil {
+		candidate = q.SHA256
+	}
+	return Receipt{Schema: Schema, QualificationCandidate: candidate, Operation: op, Identity: c.saved.Identity, State: c.state, Capabilities: c.backend.Capabilities(), BodyDelivery: Observation{State: "unknown"}, Acknowledgment: Observation{State: "unknown"}, Completion: Observation{State: "unknown"}, PendingApproval: pending, Approvals: aps}
 }
 
 // scoped ties a call to the controller's lifetime, so Close can end a native
@@ -369,7 +380,7 @@ func (c *Controller) Start(ctx context.Context, harness string, launch Launch, l
 		c.backend.Close()
 		return c.receipt("start"), errors.New("invalid lifecycle receipt; registration outcome uncertain")
 	}
-	c.saved = Saved{Schema: Schema, Identity: identity, Launch: launch}
+	c.saved = Saved{Schema: Schema, Identity: identity, Launch: launch, Candidate: ActiveQualificationCandidate()}
 	f, err := os.OpenFile(c.receiptPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err == nil {
 		err = json.NewEncoder(f).Encode(c.saved)
@@ -474,6 +485,10 @@ func (c *Controller) resumeAdmission() (Saved, error) {
 	var saved Saved
 	if err = json.Unmarshal(b, &saved); err != nil || saved.Schema != Schema || !saved.Identity.Valid() {
 		return Saved{}, errors.New("invalid captured receipt")
+	}
+	// Candidate and production never resume each other's workers (D-080).
+	if err := sameCandidate(saved.Candidate, ActiveQualificationCandidate()); err != nil {
+		return Saved{}, err
 	}
 	// The captured version must be admitted for resume by every record of it,
 	// BEFORE the ledger is refreshed or anything is launched: a start-only

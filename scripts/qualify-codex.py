@@ -10,6 +10,38 @@ import argparse, gzip, hashlib, http.server, json, os, pathlib, queue, shlex
 import subprocess, tempfile, threading, time, zlib, shutil, sys
 
 CODEX=shutil.which('codex')
+
+def recorded_versions(harness):
+    """The versions the committed admission records name (D-079), oldest
+    first, plus a qualification candidate's declared version (D-080) when the
+    release runner names one. A hard-coded list went stale the day 2.1.289
+    and 2.1.290 were retired."""
+    root = pathlib.Path(__file__).resolve().parent.parent / "internal" / "harness" / "admissions" / harness
+    found = {json.loads(p.read_text())["version"] for p in root.glob("*/admission.json")}
+    if os.environ.get("BUDDY_QUALIFY_HARNESS") == harness and os.environ.get("BUDDY_QUALIFY_VERSION"):
+        found.add(os.environ["BUDDY_QUALIFY_VERSION"])
+    return tuple(sorted(found, key=lambda v: tuple(int(x) for x in v.split("."))))
+
+
+def candidate_flags(argv):
+    """D-080: insert the adapter's candidate binding when the release runner
+    (scripts/qualify-release.py) named one. The binding stays typed on the
+    adapter's command line; the environment only carries it from the runner
+    to here. A hook invocation never takes it."""
+    argv = [str(x) for x in argv]
+    artifact, digest = os.environ.get("BUDDY_QUALIFY_CANDIDATE", ""), os.environ.get("BUDDY_QUALIFY_SHA256", "")
+    if not artifact and not digest:
+        return argv
+    if not artifact or not digest:
+        raise RuntimeError("BUDDY_QUALIFY_CANDIDATE and BUDDY_QUALIFY_SHA256 go together")
+    if len(argv) > 1 and argv[1] == "hook":
+        return argv
+    return argv[:1] + ["--qualify-candidate", artifact, "--qualify-sha256", digest] + argv[1:]
+
+
+# The declared version a launch carries: the newest recorded build, or the
+# candidate's (D-080) when the release runner names one.
+CODEX_VERSION = recorded_versions('codex')[-1]
 PYTHON=sys.executable
 LIFECYCLE_WRAPPER = r"""import json,os,pathlib,sqlite3,subprocess,sys,shutil,tempfile
 raw=sys.stdin.read();payload=json.loads(raw)
@@ -267,11 +299,11 @@ def adapter_main(args,root,work,state,env,buddy):
     config.write_text(base+'\n[hooks.state.'+json.dumps(h['key'])+']\ntrusted_hash = '+json.dumps(h['currentHash'])+'\n')
     hooks=list_hooks(state,work,env);(root/'hooks-trusted.json').write_text(json.dumps(hooks,indent=2));h=hooks['data'][0]['hooks'][0]
     require(h['trustStatus']=='trusted','exact-hash trust did not take: '+json.dumps(hooks))
-    launch={'worktree':str(work),'permission_mode':'workspace-write','hook_config':str(config),'harness_version':'0.160.0','gate_command':gate,'gate_hash':h['currentHash'],'hooks':{'configured':'observed','trusted':'observed','observed':'unknown','no_mods':'unknown'}}
+    launch={'worktree':str(work),'permission_mode':'workspace-write','hook_config':str(config),'harness_version':CODEX_VERSION,'gate_command':gate,'gate_hash':h['currentHash'],'hooks':{'configured':'observed','trusted':'observed','observed':'unknown','no_mods':'unknown'}}
     (root/'launch.json').write_text(json.dumps(launch,indent=2))
     threading.Thread(target=server.serve_forever,daemon=True).start()
     events=[];q=queue.Queue()
-    p=subprocess.Popen([str(adapter),'--harness','codex','--executable',CODEX,'--buddy',str(buddy),'--launch',str(root/'launch.json'),'--receipt',str(receipt),'--label','renewal-native-fixture'],cwd=work,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=(root/'adapter.stderr').open('w'),text=True)
+    p=subprocess.Popen(candidate_flags([str(adapter),'--harness','codex','--executable',CODEX,'--buddy',str(buddy),'--launch',str(root/'launch.json'),'--receipt',str(receipt),'--label','renewal-native-fixture']),cwd=work,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=(root/'adapter.stderr').open('w'),text=True)
     def reader():
         for line in p.stdout:
             try:v=json.loads(line)

@@ -703,6 +703,13 @@ func admitExecutable(harness, executable string, observed os.FileInfo, launch La
 	if len(candidates) == 0 {
 		return nil, refuse("admission_missing", "no admission record for %s %q; qualify it and commit its record first", harness, launch.HarnessVersion)
 	}
+	// A bound qualification candidate (D-080) names the file the record
+	// binds; the launched executable may be its bound observer. Without one
+	// the executable is the artifact.
+	executable, observed, err = candidateArtifact(harness, executable, observed, launch)
+	if err != nil {
+		return nil, err
+	}
 	sum, size, err := hashFile(executable)
 	if err != nil {
 		return nil, refuse("artifact_unreadable", "%v", err)
@@ -851,6 +858,15 @@ func buildPackageManifest(root string) ([]PackageEntry, error) {
 		if p == root {
 			if !d.IsDir() {
 				return errors.New("package root is not a directory")
+			}
+			// The root has no manifest entry of its own, so its special
+			// bits must refuse here or nowhere (second review, P3).
+			info, err := os.Lstat(p)
+			if err != nil {
+				return err
+			}
+			if info.Mode()&(fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky) != 0 {
+				return errors.New("package root carries a setuid, setgid or sticky bit")
 			}
 			return nil
 		}

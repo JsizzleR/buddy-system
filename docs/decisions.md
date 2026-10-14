@@ -5823,7 +5823,7 @@ version, because it is a parsing rule, not a grant. Deferred suites (endpoints,
 peers, history, mixed fleet, jobs) grant nothing. Qualifying a candidate without
 production admission (Codex migration step 4) and a retention runner are later
 work. Until then a new version's first start-tier run needs a hand-built
-candidate route, and none ships.
+candidate route, and none ships. (Superseded the same day: D-080 is that route.)
 
 **Tests** — `internal/harness/admission_test.go`: no record is `admission_missing`
 with zero executions; a record for sha256(A) over B, rewritten in place with
@@ -5852,3 +5852,86 @@ a record parsed, because `More()` is false before a closing delimiter; the next
 token must now be EOF. P2: setuid, setgid and sticky bits hashed as the plain
 mode; they now refuse. P2: before a launch, resume and Codex compaction read
 `experimental`; they now read `unknown` until a record is selected.
+
+## D-080 — A qualification candidate is bound by its typed sha256, replaces the record set in that one adapter, and runs only against a loopback provider
+
+2026-10-13. Codex migration step 4 of the harness version tracking consensus.
+A decision of its own rather than a D-079 continuation: D-079 decides what may
+launch for real work, and this decides how evidence for a build with no record
+is produced without widening that. It changes no D-079 rule for an adapter
+started without the flags.
+
+**The failure** — D-079 refuses every unrecorded artifact, and a record needs
+suites that pass first. Measured the same day: the native check of the
+retained 2.1.291 copy failed qualify-claude.py's managed-policy case with
+`artifact_mismatch`, because the suites launch a metadata observer (a wrapper
+that forwards stdio unchanged and logs frame shapes) and D-079 hashed the
+observer. So after D-079 no suite could run through the adapter it was
+qualifying, for a new build or an already-recorded one. D-079 named the gap
+("a new version's first start-tier run needs a hand-built candidate route,
+and none ships").
+
+**The decision** — `buddy-adapter --qualify-candidate <artifact>
+--qualify-sha256 <hex>`, in the same binary `install.sh` builds (Codex asked
+for final adapter bytes, so a build tag is refused). The artifact is Claude's
+Mach-O or `bin/codex` inside its release tree, a regular file and never a link.
+When the flags are read, before any backend or child exists, the artifact is
+hashed and must equal the typed digest. A distinct `--executable` (the observer)
+is hashed too. In that process the committed records are REPLACED by one
+synthesized record for exactly those bytes: every tier, the code's contract
+id and platform, Claude's whole known built-in list, and Codex's manifest built
+from the tree as it was bound. So a candidate adapter can launch nothing else.
+At every start and resume, admission hashes the artifact (not the observer) as
+usual. The observer must be unchanged, and the provider must be on a loopback
+IP: `ANTHROPIC_BASE_URL` for Claude, and for Codex the selected
+`model_provider`'s `base_url` in the `config.toml` beside its hook config. That
+reader takes only the flat shape the fixtures write and refuses a profile, a
+dotted top-level key, an array table and a multi-line string. Every control
+receipt carries `qualification_candidate`, the captured receipt records the
+binding, and a resume in the other mode or under another candidate refuses.
+Codes: `candidate_mismatch`, `candidate_outside_fixture`. It does not combine
+with `--retained`.
+
+**Why loopback is the fixture test** — the danger is a candidate doing real
+work. A worker whose provider is a loopback fixture cannot do real work, so the
+route cannot stand in for a normal start or resume even if someone types it.
+A worktree or path marker says nothing about which model a worker reaches.
+Like the rest of the adapter, this is cooperative (invariant 6): the machine
+user can run a loopback proxy. A candidate shipping a built-in other than the
+code's known pair refuses at `reload_plugins`. That refusal is the finding,
+because a new built-in needs reviewed code first (D-079).
+
+**Refused alternatives** — a build tag (not the shipped bytes; the
+`buddy_admission_fixture` tag stays hermetic-only). A candidate record file
+(D-079's reason against a runtime registry). Hashing only the launched file
+with the observer inlined into the adapter: that would make the frame logging
+part of the adapter contract. Adding the candidate to the embedded records
+instead of replacing them: that process could then also launch recorded builds
+under a flag whose receipts say "candidate".
+
+**Second constrained review of D-079's fixes (2026-10-13)** — the link chain,
+EOF and pre-launch capability fixes were judged sound. P3, reproduced first
+(`TestReviewPackageRootSpecialBits`): the package ROOT's sticky or setgid bit
+was never inspected, so a changed root verified; it now refuses. P1 residual:
+an updater rename after the post-hash identity re-check and before the
+`--version` probe runs the replacement's `--version`. That is the path-based
+exec window F-23 states ("nothing short of executing from a sealed copy closes
+it"), and it is left stated, not closed. `--retained` is the mitigation,
+because no updater writes there. What the boundary promises is now measured
+(`TestReviewRenameBeforeProbeStartsNoWorker`): no worker ever starts on the
+replacement, because the launch re-checks identity before the spawn. A private
+hard link was considered and cut. It would write into the updater's volume
+on every launch, and it cannot pin a Codex tree whose sidecars are executed by
+relative path.
+
+**Tests** — `internal/harness/candidate_test.go`: an unrecorded fake refuses
+without the binding and runs with it (IPv4 and IPv6 loopback). Each refuses
+with nothing executed: a remote, absent, `localhost`-named or https provider,
+another declared version, and the artifact rewritten after binding. Also
+refused: a wrong digest, a link, a relative path, a non-`bin/codex` Codex
+artifact, a second binding, a changed observer, an unbound executable, each
+Codex config shape above, an addition to the bound tree, and both cross-mode
+resumes and another candidate's resume, before any ledger call. Every receipt
+names the candidate. `cmd/buddy-adapter`: the untagged adapter runs an
+unrecorded fake under the flags only with a loopback provider, and refuses it
+without one before anything runs.
