@@ -54,7 +54,8 @@ spec = importlib.util.spec_from_file_location("start_tier", Path(__file__).with_
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
 
-CODEX_VERSIONS = ("0.160.0",)
+# The recorded versions (D-079); a run is judged by g.admission.need.
+CODEX_VERSIONS = g.admission.recorded_versions("codex")
 CHECKS = {"codex_exit_zero", "all_actual_patch_hooks", "guarded_unchanged", "whole_denied_patch_unchanged",
           "allowed_control_written", "deny_envelope_seen", "shell_routed_patch_hook_denied", "malformed_patch_denied",
           "unreadable_ledger_denied", "native_lifecycle_events", "native_lifecycle_hooks_succeeded",
@@ -121,7 +122,8 @@ def validate_gate(r, receipt_path):
                 p["hook_event_name"] == "PreToolUse")
 
     e.check("receipt_location", lambda: g.located(e, receipt_path))
-    e.check("contract", lambda: version in CODEX_VERSIONS and r["codex_version"] == "codex-cli " + version and
+    e.check("contract", lambda: g.admission.need("codex", version, e.root, r.get("codex_sha256")) and
+            r["codex_version"] == "codex-cli " + version and
             "no real inference" in r["qualification"] and r["requests"] == len(e.json("requests.json")) == 5)
     e.check("runner_verdict", lambda: isinstance(r["checks"], dict) and set(r["checks"]) == CHECKS and
             all(v is True for v in r["checks"].values()) and r["codex_returncode"] == 0)
@@ -363,7 +365,8 @@ def validate_adapter(r, receipt_path):
     e.check("receipt_location", lambda: g.located(e, receipt_path))
     e.check("mode_bound", lambda: r["mode"] == {"adapter": True} and not any(k in r for k in GATE_ONLY) and
             "through buddy-adapter" in r["qualification"])
-    e.check("contract", lambda: version in CODEX_VERSIONS and r["codex_version"] == "codex-cli " + version and
+    e.check("contract", lambda: g.admission.need("codex", version, e.root, r.get("codex_sha256")) and
+            r["codex_version"] == "codex-cli " + version and
             "no real inference" in r["qualification"] and r["requests"] == len(e.json("requests.json")) == 4 and
             launch()["harness_version"] == version and launch()["permission_mode"] == "workspace-write")
     e.check("runner_verdict", lambda: r["passed"] is True and isinstance(r["checks"], dict) and
@@ -517,7 +520,7 @@ def synthetic_adapter(root, tag):
          "renewal": {"before": renewed(False), "after": renewed(True), "journal": [v["renewal"] for v in batches]},
          "codex_version": "codex-cli " + CODEX_VERSIONS[-1], "buddy_sha256": g.sha_file(root / "bin/buddy"),
          "adapter_sha256": g.sha_file(root / "bin/buddy-adapter"), "codex_path": str(root / "bin/codex"),
-         "codex_sha256": g.sha_file(root / "bin/codex"), "mode": {"adapter": True}, "fixture_sha256": "0" * 64,
+         "codex_sha256": g.admission.synthetic("codex", CODEX_VERSIONS[-1], root / "bin/codex"), "mode": {"adapter": True}, "fixture_sha256": "0" * 64,
          "requests": 4, "passed": True}
     g.write(root, "result.json", r)
     return r

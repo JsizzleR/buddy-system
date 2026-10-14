@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in Claude 2.1.289 adapter qualification against a loopback Messages fixture.
+"""Opt-in Claude adapter qualification against a loopback Messages fixture.
 
 Only disposable repositories, configuration and binaries are written. The actual
 buddy-adapter controls the installed native Claude process, including its real
@@ -44,36 +44,47 @@ EVIDENCE = ("adapter-events.json", "adapter.stderr", "launch.json", "settings.js
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
-def recorded_versions(harness):
-    """The versions the committed admission records name (D-079), oldest
-    first, plus a qualification candidate's declared version (D-080) when the
-    release runner names one. A hard-coded list went stale the day 2.1.289
-    and 2.1.290 were retired."""
-    root = pathlib.Path(__file__).resolve().parent.parent / "internal" / "harness" / "admissions" / harness
-    found = {json.loads(p.read_text())["version"] for p in root.glob("*/admission.json")}
-    if os.environ.get("BUDDY_QUALIFY_HARNESS") == harness and os.environ.get("BUDDY_QUALIFY_VERSION"):
-        found.add(os.environ["BUDDY_QUALIFY_VERSION"])
-    return tuple(sorted(found, key=lambda v: tuple(int(x) for x in v.split("."))))
+def _admission_lib():
+    """scripts/admission_lib.py, loaded once per process under one name, so a
+    runner and every fixture module it loads share ONE candidate binding."""
+    import importlib.util
+    name = "buddy_admission_lib"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, pathlib.Path(__file__).resolve().with_name("admission_lib.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
 
 
-def candidate_flags(argv):
-    """D-080: insert the adapter's candidate binding when the release runner
-    (scripts/qualify-release.py) named one. The binding stays typed on the
-    adapter's command line; the environment only carries it from the runner
-    to here. A hook invocation never takes it."""
-    argv = [str(x) for x in argv]
-    artifact, digest = os.environ.get("BUDDY_QUALIFY_CANDIDATE", ""), os.environ.get("BUDDY_QUALIFY_SHA256", "")
-    if not artifact and not digest:
-        return argv
-    if not artifact or not digest:
-        raise RuntimeError("BUDDY_QUALIFY_CANDIDATE and BUDDY_QUALIFY_SHA256 go together")
-    if len(argv) > 1 and argv[1] == "hook":
-        return argv
-    return argv[:1] + ["--qualify-candidate", artifact, "--qualify-sha256", digest] + argv[1:]
-
-
-QUALIFICATION_VERSIONS = recorded_versions("claude")
+admission = _admission_lib()
+candidate_flags = admission.candidate_flags
+# The recorded versions (D-079), oldest first. A run's own contract is the
+# binary it was given (bind_claude), never a pick from this list.
+QUALIFICATION_VERSIONS = admission.recorded_versions("claude")
 VERSION = QUALIFICATION_VERSIONS[-1]
+
+
+def bind_claude(args):
+    """D-080: bind the --claude binary as this run's candidate, run the
+    RESOLVED file from here on (the adapter refuses a link, and an updater
+    re-pointing one mid-run would swap the bytes under the binding), and make
+    its version the run's contract. A typed --claude-version that disagrees
+    with the binary refuses, as the version check always did. Before this a
+    plain run needed four BUDDY_QUALIFY_* variables or failed its first case."""
+    if not args.claude:
+        raise RuntimeError("claude is not on PATH; provide --claude")
+    binding = admission.bind("claude", args.claude)
+    if getattr(args, "claude_version", None) not in (None, binding["version"]):
+        raise RuntimeError("--claude-version " + args.claude_version + " is not the binary's " + binding["version_output"])
+    args.claude = binding["artifact"]
+    args.claude_version = binding["version"]
+    return binding
+
+
+def add_claude_version(parser):
+    parser.add_argument("--claude-version",
+                        help="the contract to exercise; defaults to the binary's own version, and a typed one must match it")
 
 
 def digest(path):
@@ -628,8 +639,7 @@ def managed_hook_refusal(root, binary, buddy, claude, work, env, launch, server)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--claude", default=shutil.which("claude"))
-    parser.add_argument("--claude-version", choices=QUALIFICATION_VERSIONS, default=VERSION,
-                        help="exact candidate contract to exercise; does not grant adapter admission")
+    add_claude_version(parser)
     parser.add_argument("--buddy", type=pathlib.Path)
     parser.add_argument("--adapter", type=pathlib.Path)
     parser.add_argument("--trace-native", action="store_true", help="forward native stdio unchanged through a temporary metadata observer")
@@ -650,9 +660,8 @@ def main():
     adapter = None
     exit_code = 1
     try:
-        if not args.claude:
-            raise RuntimeError("claude is not on PATH; provide --claude")
-        claude = pathlib.Path(args.claude).absolute()
+        result["qualification_candidates"] = [bind_claude(args)]
+        claude = pathlib.Path(args.claude)
         env = clean_env()
         work = root / "work"
         state = root / "claude"

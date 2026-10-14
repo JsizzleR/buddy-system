@@ -289,7 +289,7 @@ def synthetic(root):
             s.write(role + "/.fixture/once.txt", "once\n")
         r["cases"][role] = c
         r["sessions"][role] = {"identity": ident, "harness": "codex", "worktree": str(worktree),
-                               "native_version": "codex-cli 0.160.0", "events": events, "adapter_exit": 0, "unparsed": [],
+                               "native_version": base.NATIVE_CONTRACTS["codex"][-1], "events": events, "adapter_exit": 0, "unparsed": [],
                                "native_child_exit": {"status": "observed_absent"}}
     r["ledger"] = s.ledger("final", sessions=sessions, claims=final_claims, delivered=final_delivered)
     s.built(r)
@@ -388,7 +388,9 @@ def main():
     parser.add_argument("receipt", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true",
                         help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
+    base.admission.add_argument(parser)
     args = parser.parse_args()
+    base.admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             parser.error("a receipt is required unless --self-test")

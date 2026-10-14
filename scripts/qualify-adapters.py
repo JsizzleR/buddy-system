@@ -6,11 +6,13 @@ to a new /private/tmp directory. No global installation or real inference.
 Claude/provider/mixed-fleet/recovery qualification are separate gates.
 """
 import argparse, importlib.util, pathlib, tempfile, json, subprocess, http.server, threading, queue, time, hashlib, os, sys
-argparse.ArgumentParser(description=__doc__).parse_args()
+_ap=argparse.ArgumentParser(description=__doc__);_ap.add_argument('--codex',help='the codex binary to qualify (default: codex on PATH)');_args=_ap.parse_args()
 sys.dont_write_bytecode=True
 repo=pathlib.Path(__file__).resolve().parent.parent
 spec=importlib.util.spec_from_file_location('fixture',repo/'scripts/qualify-codex.py'); fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
 fixture.exit_on_signals()  # F-35: TERM/HUP still run the finally below
+# D-080: the binary this run was given is its candidate; every launch below is bound to it.
+binding=fixture.bind_codex(_args.codex or fixture.CODEX)
 root=pathlib.Path(tempfile.mkdtemp(prefix='buddy-step2-native-',dir='/private/tmp'));work=root/'work';work.mkdir();state=root/'codex';state.mkdir();bindir=root/'bin';bindir.mkdir()
 env=fixture.clean_env();buildenv=dict(env,GOCACHE='/private/tmp/buddy-codex-go-cache',GIT_OPTIONAL_LOCKS='0')
 buddy=bindir/'buddy';adapter=bindir/'buddy-adapter';receipt=root/'worker.json'
@@ -75,7 +77,7 @@ finally:
  except subprocess.TimeoutExpired:p.terminate();p.wait(timeout=5)
  server.shutdown()
  (root/'events.json').write_text(json.dumps(events,indent=2))
- result={'root':str(root),'checks':checks,'passed':all(checks.values()) and len(checks)==9,'adapter_exit':p.returncode,'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),'adapter_sha256':hashlib.sha256(adapter.read_bytes()).hexdigest(),'fixture_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'native_version':fixture.CODEX_VERSION,'provider':'deterministic loopback fixture; no real inference'}
+ result={'root':str(root),'checks':checks,'passed':all(checks.values()) and len(checks)==9,'adapter_exit':p.returncode,'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),'adapter_sha256':hashlib.sha256(adapter.read_bytes()).hexdigest(),'fixture_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'native_version':fixture.CODEX_VERSION,'qualification_candidates':[binding],'codex_sha256':binding['sha256'],'provider':'deterministic loopback fixture; no real inference'}
  (root/'result.json').write_text(json.dumps(result,indent=2));print('RECEIPT='+str(root/'result.json'),flush=True)
 # Not `assert`: under `python -O` a failed qualification exited 0 (F-39).
 fixture.require(result['passed'],json.dumps(result))

@@ -426,6 +426,8 @@ def main():
     parser.add_argument("--claude-version", choices=common.QUALIFICATION_VERSIONS, default=common.VERSION)
     parser.add_argument("--buddy", type=pathlib.Path)
     args = parser.parse_args()
+    # D-080: the binaries this run was given are its candidates; every adapter it starts is bound to them.
+    sys.modules["buddy_admission_lib"].bind_args(args)
     common.exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
     root = pathlib.Path(tempfile.mkdtemp(prefix="buddy-claude-peers-", dir="/private/tmp"))
     print("ROOT=" + str(root), flush=True)

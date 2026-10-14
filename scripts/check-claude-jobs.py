@@ -58,7 +58,7 @@ def validate(r, receipt_path):
         return rows[0]
 
     e.check("receipt_location", lambda: g.located(e, receipt_path))
-    e.check("contract", lambda: r["schema"] == "buddy.claude-job-groups.v2" and version in g.CLAUDE_VERSIONS and
+    e.check("contract", lambda: r["schema"] == "buddy.claude-job-groups.v2" and g.admission.need("claude", version, e.root, r["native_sha256"]) and
             r["native_version"] == version + " (Claude Code)" and g.hex64(r["native_sha256"]) and
             r["provider"] == "deterministic-loopback" and launch()["harness_version"] == version and
             launch()["hooks"]["mods"] == "builtin-only-" + version)
@@ -157,7 +157,7 @@ def synthetic(root, tag):
     g.write(root, "work/job.json", {"pid": job[0], "ppid": shell[0], "pgid": shell[0]})
     r = {"schema": "buddy.claude-job-groups.v2", "root": str(root), "passed": True, "provider": "deterministic-loopback",
          "checks": {k: True for k in CHECKS}, "adapter_forced_cleanup": [], "native_version": version + " (Claude Code)",
-         "native_sha256": g.sha_file(root / "bin/claude"), "buddy_sha256": g.sha_file(root / "bin/buddy"),
+         "native_sha256": g.admission.synthetic("claude", version, root / "bin/claude"), "buddy_sha256": g.sha_file(root / "bin/buddy"),
          "adapter_sha256": g.sha_file(root / "bin/buddy-adapter"), "fixture_sha256": "0" * 64,
          "process_groups": {"adapter": {"pid": 4457, "pgid": 4457, "start": [1791937076, 571263]},
                             "job": {"pid": job[0], "pgid": shell[0], "start": [job[1] // 1000000, job[1] % 1000000]},

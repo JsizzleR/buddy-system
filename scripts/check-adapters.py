@@ -36,7 +36,8 @@ spec = importlib.util.spec_from_file_location("start_tier", Path(__file__).with_
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
 
-CODEX_VERSIONS = ("0.160.0",)
+# The recorded versions (D-079); a run is judged by g.admission.need.
+CODEX_VERSIONS = g.admission.recorded_versions("codex")
 CHECKS = {"captured_native_identity", "native_wake_accepted", "native_result_separate", "native_idle_translated",
           "conflict_patch_denied", "positive_patch_allowed", "assignment_still_queued_after_result",
           "duplicate_wake_not_replayed", "body_delivery_explicit"}
@@ -60,7 +61,7 @@ def validate(r, receipt_path):
     def executable(): return Path(e.json("worker.json.proc")["executable"]["path"])
 
     e.check("receipt_location", lambda: g.located(e, receipt_path))
-    e.check("contract", lambda: r["native_version"] in CODEX_VERSIONS and launch()["harness_version"] == r["native_version"] and
+    e.check("contract", lambda: g.admission.need("codex", r["native_version"], e.root, r.get("codex_sha256")) and launch()["harness_version"] == r["native_version"] and
             "loopback" in r["provider"] and executable().name == "codex")
     e.check("runner_verdict", lambda: g.runner_verdict(r, "passed", CHECKS) and r["adapter_exit"] == 0)
     e.check("artifact_hashes", lambda: e.sha(gate()[0]) == r["adapter_sha256"] and e.sha(gate()[2]) == r["buddy_sha256"] and

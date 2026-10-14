@@ -57,7 +57,7 @@ def validate_case(r):
         return [v for v in frames("native_frame") if v.get("method") == "turn/completed" and v["params"]["turn"]["id"] == turn()]
     e.check("schema_provider", lambda: r["schema"] == "buddy.interrupted-compaction.v1" and r["mode"] in MODES and
         r["provider"] == "deterministic-loopback" and set(r["sessions"]) == {ROLE} and
-        r["sessions"][ROLE]["native_version"] == "codex-cli 0.160.0")
+        base.admitted_native("codex", r["sessions"][ROLE]["native_version"], e.root, r["sessions"][ROLE].get("native_sha256")))
     e.check("artifact_hashes", lambda: all(hashlib.sha256(e.path(path).read_bytes()).hexdigest() == r[key]
         for path, key in (("source-manifest.json", "source_manifest_sha256"), ("bin/buddy", "buddy_sha256"), ("bin/buddy-adapter", "adapter_sha256"))))
     e.check("original_evidence_hashes", lambda: all(hashlib.sha256(e.path(path).read_bytes()).hexdigest() ==
@@ -268,7 +268,7 @@ def synthetic_case(root, mode):
     s.jsonl(STATE + "identity.json.events", journal)
     s.jsonl(STATE + "native-observations.jsonl", wire)
     s.write(STATE + "identity.json", {"identity": ident})
-    s.write(STATE + "launch.json", {"harness_version": "0.160.0"})
+    s.write(STATE + "launch.json", {"harness_version": base.NATIVE_CONTRACTS["codex"][-1].removeprefix("codex-cli ")})
     s.write(STATE + "fixture-compact-taken.json", request)
     s.write(STATE + "fixture-compact-reply.json", reply)
     s.write(STATE + "fixture-history-taken.json", {"id": "fixture-history", "method": "thread/read"})
@@ -299,7 +299,7 @@ def synthetic_case(root, mode):
         r[stage] = snap(stage, claims=claims, delivered=[(mid, sid, 1)] if stage == "after_fresh" else [])
     r["ledger"] = snap("final", claims=[c[:4] + ("released", "pass") for c in claims])
     r["sessions"] = {ROLE: {"identity": ident, "harness": "codex", "worktree": str(s.root / ROLE),
-                            "native_version": "codex-cli 0.160.0", "events": after_events, "adapter_exit": 0,
+                            "native_version": base.NATIVE_CONTRACTS["codex"][-1], "events": after_events, "adapter_exit": 0,
                             "unparsed": [], "native_child_exit": {"status": "observed_absent"}}}
     s.built(r)
     base.synthetic_contract(r, r["sessions"].values())
@@ -346,7 +346,9 @@ def main():
     parser.add_argument("receipt", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true",
                         help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
+    base.admission.add_argument(parser)
     args = parser.parse_args()
+    base.admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             parser.error("a receipt is required unless --self-test")

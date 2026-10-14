@@ -148,6 +148,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--codex", default=shutil.which("codex"))
     args = parser.parse_args()
+    # D-080: the binaries this run was given are its candidates; every adapter it starts is bound to them.
+    sys.modules["buddy_admission_lib"].bind_args(args)
     common.exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
     root = Path(tempfile.mkdtemp(prefix="buddy-compaction-", dir="/private/tmp"))
     print("ROOT=" + str(root), flush=True)

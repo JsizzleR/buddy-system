@@ -46,10 +46,24 @@ import tempfile
 
 sys.dont_write_bytecode = True
 
-# The exact native contracts the adapter's own table admits today
-# (internal/harness/claude.go). A new version is added here as part of its
-# admission, never by a range.
-CLAUDE_VERSIONS = ("2.1.289", "2.1.290", "2.1.291")
+def _admission_lib():
+    """scripts/admission_lib.py, loaded once per process under one name, so
+    every checker module a run loads reads ONE --candidate expectation."""
+    name = "buddy_admission_lib"
+    if name not in sys.modules:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().with_name("admission_lib.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+admission = _admission_lib()
+# The recorded versions (D-079). A run is judged by admission.need: its own
+# bound candidate or a record's exact bytes, never a version range or a list
+# typed here (this one named two versions D-079 retired).
+CLAUDE_VERSIONS = admission.recorded_versions("claude")
 # The pinned builtin Mod profile, written down here independently of the Go
 # admission code so a change to either is a disagreement somebody sees.
 BUILTIN_MODS = [{"name": "cc-plugin-agents-md", "path": "builtin", "source": "cc-plugin-agents-md@builtin"},
@@ -665,7 +679,9 @@ def main_for(doc, validate, synthetic_self_test, receipt_mutations):
     parser.add_argument("receipt", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true",
                         help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
+    admission.add_argument(parser)
     args = parser.parse_args()
+    admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             parser.error("a receipt is required unless --self-test")
@@ -723,7 +739,8 @@ def validate(r, receipt_path):
         return Path(observer_native(e, "bin/claude-observer")[0]) if traced else executable()
 
     e.check("receipt_location", lambda: located(e, receipt_path))
-    e.check("contract", lambda: r["schema"] == "buddy.claude-qualification.v1" and version in CLAUDE_VERSIONS and
+    e.check("contract", lambda: r["schema"] == "buddy.claude-qualification.v1" and
+            admission.need("claude", version, e.root, r["native_sha256"]) and
             r["native_version"] == version + " (Claude Code)" and hex64(r["native_sha256"]) and
             "loopback" in r["provider"] and launch()["harness_version"] == version and
             launch()["hooks"]["mods"] == "builtin-only-" + version and
@@ -1058,7 +1075,7 @@ def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
     write(root, MANAGED + "result.json", managed)
     r = {"schema": "buddy.claude-qualification.v1", "root": str(root), "passed": True,
          "checks": {k: True for k in SUITE_CHECKS | TRACE_CHECKS}, "provider": "deterministic loopback Messages fixture",
-         "native_version": version + " (Claude Code)", "native_sha256": sha_file(root / "bin/claude"),
+         "native_version": version + " (Claude Code)", "native_sha256": admission.synthetic("claude", version, root / "bin/claude"),
          "source_manifest_sha256": sha_file(root / "source-manifest.json"),
          "buddy_sha256": sha_file(root / "bin/buddy"), "adapter_sha256": sha_file(root / "bin/buddy-adapter"),
          "configuration_evidence": {"settings_sha256": sha_file(root / "settings.json"), "mods_profile": "builtin-only-" + version},

@@ -81,7 +81,8 @@ def validate(r):
                 raise ValueError("recovery must emit only the fresh input and fresh approval")
             return rows[reply + 1:starts[0]]
         check("captured_identity", lambda: session["identity"] == c["identity"] == c["resume"]["identity"] and
-              session["native_version"] == "codex-cli 0.160.0" and session["harness"] == "codex" and
+              base.admitted_native("codex", session["native_version"], e.root, session.get("native_sha256")) and
+              session["harness"] == "codex" and
               all(v["identity"] == c["identity"] for v in lines("identity.json.events")))
         check("crash_not_end", lambda: c["crash"]["exit"] == -9 and not c["crash"]["unparsed"] and
               c["crash"]["children"]["status"] == "observed_absent" and
@@ -282,7 +283,7 @@ def synthetic(root):
         sessions.append((sid, inc, None))
         r["cases"][role] = c
         r["sessions"][role] = {"identity": ident, "harness": "codex", "worktree": str(s.root / role),
-                               "native_version": "codex-cli 0.160.0", "events": [resume, c["reconcile"]] + tail,
+                               "native_version": base.NATIVE_CONTRACTS["codex"][-1], "events": [resume, c["reconcile"]] + tail,
                                "adapter_exit": 0, "unparsed": [], "native_child_exit": {"status": "observed_absent"}}
     r["ledger"] = s.ledger("final", sessions=sessions, claims=final_claims, delivered=final_delivered)
     s.built(r)
@@ -334,7 +335,9 @@ def main():
     parser.add_argument("receipt", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true",
                         help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
+    base.admission.add_argument(parser)
     args = parser.parse_args()
+    base.admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             parser.error("a receipt is required unless --self-test")

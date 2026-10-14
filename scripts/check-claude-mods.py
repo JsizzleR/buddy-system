@@ -68,7 +68,7 @@ def validate(r, receipt_path):
     def native_path(): return g.observer_native(e, "builtin-admission/claude-observer")[0]
 
     e.check("receipt_location", lambda: g.located(e, receipt_path))
-    e.check("contract", lambda: version in g.CLAUDE_VERSIONS and r["native_version"] == version + " (Claude Code)" and
+    e.check("contract", lambda: g.admission.need("claude", version, e.root, r["native_sha256"]) and r["native_version"] == version + " (Claude Code)" and
             g.hex64(r["native_sha256"]) and "no provider inference" in r["qualification"])
     e.check("runner_verdict", lambda: g.runner_verdict(r, "success", expected_checks()) and
             set(r["cases"]) == set(CASES) and
@@ -216,7 +216,7 @@ def synthetic(root, tag):
         mods[mod] = {f: g.sha_file(root / mod / f) for f in sorted(MOD_FILES)}
         g.write(root, mod + "/validation.txt", "validated")  # written after hashing, as the runner does
     r = {"directory": str(root), "qualification": "native local Mod profile and cooperative gate behavior; no provider inference",
-         "native_version": version + " (Claude Code)", "native_sha256": g.sha_file(root / "bin/claude"),
+         "native_version": version + " (Claude Code)", "native_sha256": g.admission.synthetic("claude", version, root / "bin/claude"),
          "source_manifest_sha256": g.sha_file(root / "source-manifest.json"), "buddy_sha256": g.sha_file(buddy),
          "adapter_sha256": g.sha_file(adapter), "fixture_mod_sha256": mods, "checks": {}, "cases": {}, "success": True}
     pid = [600]

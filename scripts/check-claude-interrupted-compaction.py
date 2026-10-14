@@ -59,7 +59,8 @@ def validate_case(r):
     def digest(path): return hashlib.sha256(e.path(path).read_bytes()).hexdigest()
     version = r.get("claude_version")
     e.check("schema_and_pinned_native", lambda: r["schema"] == "buddy.claude-interrupted-compaction.v1" and mode in MODES and
-        r["provider"] == "deterministic-loopback" and version in ("2.1.290", "2.1.291") and set(r["sessions"]) == {ROLE} and
+        r["provider"] == "deterministic-loopback" and
+        base.admission.need("claude", version, e.root, r["sessions"][ROLE].get("native_sha256")) and set(r["sessions"]) == {ROLE} and
         r["sessions"][ROLE]["native_version"] == version + " (Claude Code)" and
         json.loads(e.path(STATE + "launch.json").read_text())["harness_version"] == version and
         json.loads(e.path(STATE + "launch.json").read_text())["hooks"]["mods"] == "builtin-only-" + version)
@@ -575,7 +576,9 @@ def main():
     p.add_argument("receipt", type=Path, nargs="?")
     p.add_argument("--self-test", action="store_true",
                    help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
+    base.admission.add_argument(p)
     args = p.parse_args()
+    base.admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             p.error("a receipt is required unless --self-test")

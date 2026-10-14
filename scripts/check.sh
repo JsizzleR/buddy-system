@@ -301,6 +301,15 @@ print(" ".join(sorted(hits)))
   python3 -I -B scripts/check-codex-gate.py --self-test
   python3 -I -B scripts/check-adapters.py --self-test
   python3 -I -B scripts/check-claude-jobs.py --self-test
+  # Admission (D-081): which versions the committed records admit and what a
+  # candidate run bound (admission_lib, read by every runner and checker
+  # above), and the release runner's record-writing and refusal logic against
+  # FAKE suites: a tier withheld for a failing checker, a run bound to other
+  # bytes or not bound at all, no record without start or on a dirty tree, a
+  # retained package never overwritten, a torn copy or moving source refused.
+  # Neither launches a harness.
+  python3 -I -B scripts/admission_lib.py --self-test >/dev/null
+  python3 -I -B scripts/qualify-release.py --self-test >/dev/null
   # node --check, with a planted control so a check that accepts everything
   # cannot pass for one that checked.
   mjs_skipped=

@@ -64,6 +64,8 @@ def snapshot(database, path):
 class Fleet:
     def __init__(self, root, result, args):
         self.root, self.result, self.args = root, result, args
+        # D-080: what this run bound (bind_args in its main), for the receipt and qualify-release.py.
+        self.result["qualification_candidates"] = [dict(v) for v in common.admission.CANDIDATES.values()]
         self.env = common.clean_env()
         self.env.update(GIT_AUTHOR_NAME="Buddy fixture", GIT_AUTHOR_EMAIL="fixture@invalid",
                         GIT_COMMITTER_NAME="Buddy fixture", GIT_COMMITTER_EMAIL="fixture@invalid")
@@ -97,7 +99,8 @@ class Fleet:
         # harnesses: the ones this runner launches. A Codex-only runner takes
         # no --claude, and it still records the executable it ran (F-37).
         versions = {}
-        contracts = {"codex": "0.160.0", "claude": getattr(self.args, "claude_version", None)}
+        # The contract is the bound binary's own --version line (D-080), never a literal.
+        contracts = {h: common.admission.CANDIDATES[h]["version_output"] for h in harnesses}
         for harness, contract in ((h, contracts[h]) for h in harnesses):
             native = pathlib.Path(getattr(self.args, harness)).resolve(strict=True)
             setattr(self.args, harness, str(native))
@@ -106,8 +109,7 @@ class Fleet:
             observed = common.run([native, "--version"], self.root, env).strip()
             versions[harness] = {"version": observed.strip(), "executable_sha256": common.digest(native)}
             write_json(self.root / "native-versions.json", versions)
-            expected = "codex-cli " + contract if harness == "codex" else contract + " (Claude Code)"
-            if observed.strip() != expected:
+            if observed.strip() != contract:
                 raise RuntimeError(harness + " native version differs from the qualification contract: " + observed.strip())
         self.result["native_versions"] = versions
 
@@ -159,8 +161,8 @@ class Fleet:
             if harness == "codex":
                 native = pathlib.Path(self.args.codex).resolve()
                 version = self.run([native, "--version"], work).strip()
-                if version != "codex-cli 0.160.0":
-                    raise RuntimeError("unsupported Codex native version: " + version)
+                if version != common.admission.CANDIDATES["codex"]["version_output"]:
+                    raise RuntimeError("Codex native version is not the bound candidate's: " + version)
                 codex.CODEX = str(native)
                 config = native_state / "config.toml"
                 wrapper = state / "unused.py"
@@ -180,7 +182,7 @@ class Fleet:
                 if hook["trustStatus"] != "trusted":
                     raise RuntimeError("exact temporary gate hash was not trusted")
                 launch = {"worktree": str(work), "permission_mode": "workspace-write", "hook_config": str(config),
-                          "harness_version": "0.160.0", "gate_command": gate, "gate_hash": hook["currentHash"],
+                          "harness_version": common.admission.CANDIDATES["codex"]["version"], "gate_command": gate, "gate_hash": hook["currentHash"],
                           "hooks": {"configured": "observed", "trusted": "observed", "observed": "unknown"}}
             else:
                 native = pathlib.Path(self.args.claude).resolve()
@@ -189,9 +191,7 @@ class Fleet:
                     ANTHROPIC_BASE_URL=provider.base_url, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
                     DISABLE_AUTOUPDATER="1", DISABLE_TELEMETRY="1", DISABLE_ERROR_REPORTING="1",
                     CLAUDE_CODE_DISABLE_AUTO_MEMORY="1")
-                contract = getattr(self.args, "claude_version", common.VERSION)
-                if contract not in common.QUALIFICATION_VERSIONS:
-                    raise RuntimeError("unsupported Claude qualification contract")
+                contract = common.admission.CANDIDATES["claude"]["version"]
                 version = common.run([native, "--version"], work, native_env).strip()
                 if version != contract + " (Claude Code)":
                     raise RuntimeError("unsupported Claude native version: " + version)
@@ -493,15 +493,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--codex", default=shutil.which("codex"))
     parser.add_argument("--claude", default=shutil.which("claude"))
-    parser.add_argument("--claude-version", choices=common.QUALIFICATION_VERSIONS, default=common.VERSION,
-                        help="exact native contract to exercise; does not widen adapter admission")
+    parser.add_argument("--claude-version", help="defaults to the binary's own version; a typed one must match it")
     args = parser.parse_args()
+    # D-080: the binaries this run was given are its candidates; every adapter it starts is bound to them.
+    sys.modules["buddy_admission_lib"].bind_args(args)
     common.exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
     root = pathlib.Path(tempfile.mkdtemp(prefix="buddy-mixed-fleet-", dir="/private/tmp"))
     print("ROOT=" + str(root), flush=True)
     result = {"schema": "buddy.mixed-fleet.v1", "root": str(root), "provider": "deterministic-loopback",
         "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "passed": False,
-        "claude_version": args.claude_version, "codex_version": "0.160.0",
+        "claude_version": args.claude_version, "codex_version": common.admission.CANDIDATES["codex"]["version"],
         "sessions": {}, "messages": [], "ready": [], "validations": [],
         "unqualified": ["real-provider inference and model-directed work", "production installation",
             "resume and compaction", "coordinator succession", "native teammates", "read-only diagnostics"]}

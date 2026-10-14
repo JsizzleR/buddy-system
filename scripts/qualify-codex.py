@@ -11,37 +11,36 @@ import subprocess, tempfile, threading, time, zlib, shutil, sys
 
 CODEX=shutil.which('codex')
 
-def recorded_versions(harness):
-    """The versions the committed admission records name (D-079), oldest
-    first, plus a qualification candidate's declared version (D-080) when the
-    release runner names one. A hard-coded list went stale the day 2.1.289
-    and 2.1.290 were retired."""
-    root = pathlib.Path(__file__).resolve().parent.parent / "internal" / "harness" / "admissions" / harness
-    found = {json.loads(p.read_text())["version"] for p in root.glob("*/admission.json")}
-    if os.environ.get("BUDDY_QUALIFY_HARNESS") == harness and os.environ.get("BUDDY_QUALIFY_VERSION"):
-        found.add(os.environ["BUDDY_QUALIFY_VERSION"])
-    return tuple(sorted(found, key=lambda v: tuple(int(x) for x in v.split("."))))
+def _admission_lib():
+    """scripts/admission_lib.py, loaded once per process under one name, so a
+    runner and every fixture module it loads share ONE candidate binding."""
+    import importlib.util
+    name = "buddy_admission_lib"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, pathlib.Path(__file__).resolve().with_name("admission_lib.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
 
 
-def candidate_flags(argv):
-    """D-080: insert the adapter's candidate binding when the release runner
-    (scripts/qualify-release.py) named one. The binding stays typed on the
-    adapter's command line; the environment only carries it from the runner
-    to here. A hook invocation never takes it."""
-    argv = [str(x) for x in argv]
-    artifact, digest = os.environ.get("BUDDY_QUALIFY_CANDIDATE", ""), os.environ.get("BUDDY_QUALIFY_SHA256", "")
-    if not artifact and not digest:
-        return argv
-    if not artifact or not digest:
-        raise RuntimeError("BUDDY_QUALIFY_CANDIDATE and BUDDY_QUALIFY_SHA256 go together")
-    if len(argv) > 1 and argv[1] == "hook":
-        return argv
-    return argv[:1] + ["--qualify-candidate", artifact, "--qualify-sha256", digest] + argv[1:]
+admission = _admission_lib()
+candidate_flags = admission.candidate_flags
+# The declared version a launch carries: the newest recorded build until
+# bind_codex binds the binary this run was given (D-080).
+CODEX_VERSION = admission.recorded_versions('codex')[-1]
 
 
-# The declared version a launch carries: the newest recorded build, or the
-# candidate's (D-080) when the release runner names one.
-CODEX_VERSION = recorded_versions('codex')[-1]
+def bind_codex(path):
+    """D-080: bind the codex binary this run was given as its candidate, then
+    run the RESOLVED bin/codex inside its release tree (the adapter refuses a
+    link and hashes the tree around it), and carry its version on launches."""
+    global CODEX, CODEX_VERSION
+    if not path:
+        raise RuntimeError('codex is not on PATH; provide --codex')
+    binding = admission.bind('codex', path)
+    CODEX, CODEX_VERSION = binding['artifact'], binding['version']
+    return binding
 PYTHON=sys.executable
 LIFECYCLE_WRAPPER = r"""import json,os,pathlib,sqlite3,subprocess,sys,shutil,tempfile
 raw=sys.stdin.read();payload=json.loads(raw)
@@ -365,7 +364,7 @@ def adapter_main(args,root,work,state,env,buddy):
     checks['renewal_same_identity']=bool(renewals) and all(r['identity']==ident for _,r in renewals)
     result.update({'checks':checks,'renewal':{'before':before,'after':after,'journal':[r['renewal'] for _,r in renewals],
         'observed_native_spellings':sorted({x for _,r in renewals for x in r['renewal'].get('paths') or []}),'placed_paths':placed},
-        'codex_version':run([CODEX,'--version'],cwd=work,env=env).stdout.strip(),
+        'codex_version':run([CODEX,'--version'],cwd=work,env=env).stdout.strip(),'qualification_candidates':[admission.summary('codex')],
         'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),'adapter_sha256':hashlib.sha256(adapter.read_bytes()).hexdigest(),
         'codex_path':str(pathlib.Path(CODEX).resolve()),
         'codex_sha256':hashlib.sha256(pathlib.Path(CODEX).resolve().read_bytes()).hexdigest(),'mode':{'adapter':True},
@@ -389,8 +388,8 @@ def main():
     if args.adapter and (args.lifecycle or args.app_server or args.edge_cases or args.shell_patch or args.prepare_only):
         ap.error('--adapter is its own mode: the adapter owns lifecycle and the app-server')
     exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
-    CODEX=args.codex
-    if not CODEX:ap.error('codex is not on PATH; provide --codex')
+    if not args.codex:ap.error('codex is not on PATH; provide --codex')
+    binding=bind_codex(args.codex)
     root=pathlib.Path(tempfile.mkdtemp(prefix='buddy-codex-contract-qualification-',dir='/private/tmp'))
     work=root/'work';work.mkdir();state=root/'state';state.mkdir();env=clean_env()
     buddy=args.buddy.resolve() if args.buddy else root/'buddy'
@@ -485,7 +484,7 @@ sys.stdout.write(p.stdout);sys.stderr.write(p.stderr);sys.exit(p.returncode)
         checks['native_stop_idle_observed']=any(x['payload']['hook_event_name']=='Stop' and x.get('ledger_snapshot') and x['ledger_snapshot'][1] is None and x['ledger_snapshot'][2]==1 for x in life)
         checks['native_end_observed']=any(x['payload']['hook_event_name']=='SessionEnd' and x.get('ledger_snapshot') and x['ledger_snapshot'][1] is not None for x in life)
     result={'qualification':'installed native Codex with deterministic local provider fixture; no real inference',
-            'codex_version':run([CODEX,'--version'],cwd=work,env=env).stdout.strip(),
+            'codex_version':run([CODEX,'--version'],cwd=work,env=env).stdout.strip(),'qualification_candidates':[admission.summary('codex')],
             'buddy_sha256':hashlib.sha256(buddy.read_bytes()).hexdigest(),
             # The executable's bytes, not only its --version text (check-codex-gate "unbound").
             'codex_path':str(pathlib.Path(CODEX).resolve()),

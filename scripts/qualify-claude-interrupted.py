@@ -216,9 +216,11 @@ def run_case(root, mode, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--claude", default=shutil.which("claude"))
-    parser.add_argument("--claude-version", choices=common.QUALIFICATION_VERSIONS, default=common.VERSION)
+    parser.add_argument("--claude-version", help="defaults to the binary's own version; a typed one must match it")
     parser.add_argument("--ipv6", action="store_true", help="use IPv6 loopback if IPv4 ephemeral ports are exhausted")
     args = parser.parse_args()
+    # D-080: the binaries this run was given are its candidates; every adapter it starts is bound to them.
+    sys.modules["buddy_admission_lib"].bind_args(args)
     common.exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
     root = Path(tempfile.mkdtemp(prefix="buddy-claude-interrupted-", dir="/private/tmp"))
     print("ROOT=" + str(root), flush=True)

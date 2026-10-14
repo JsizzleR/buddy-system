@@ -18,6 +18,22 @@ import sys
 import tempfile
 
 
+def _admission_lib():
+    """scripts/admission_lib.py, loaded once per process under one name, so
+    every checker module a run loads reads ONE --candidate expectation."""
+    name = "buddy_admission_lib"
+    if name not in sys.modules:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().with_name("admission_lib.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+admission = _admission_lib()
+
+
 class Evidence:
     def __init__(self, receipt, overrides=None):
         self.receipt = receipt
@@ -213,7 +229,7 @@ def validate(receipt, overrides=None):
     expected = ["custom", "absent"] if endpoint else ["accept", "hold", "refuse"]
     key = "case" if endpoint else "mode"
     e.check("schema_version_and_cases", lambda: kind in ("buddy.claude-endpoint-qualification.v1", "buddy.claude-peer-qualification.v1") and
-            version in ("2.1.289", "2.1.290", "2.1.291") and
+            admission.need("claude", version, e.root, receipt["native_sha256"]) and
             receipt["native_version"] == e.read("native-version.json")["version"] == version + " (Claude Code)" and
             receipt["native_sha256"] == e.read("native-version.json")["executable_sha256"] and
             receipt["provider"] == "deterministic loopback Messages fixture; no real inference" and
@@ -244,7 +260,7 @@ def self_test(receipt):
         raise AssertionError("checker trusted fixture summary")
     mutations = []
     def mutate(path, value, file=None): mutations.append((path, value, file))
-    for path, value in ((["claude_version"], "2.1.292"), (["claude_version"], "2.1.289" if receipt["claude_version"] != "2.1.289" else "2.1.291"),
+    for path, value in ((["claude_version"], "2.1.292"), (["claude_version"], "2.1.290" if receipt["claude_version"] != "2.1.290" else "2.1.291"),
                         (["native_version"], "wrong"), (["native_sha256"], "wrong"), (["buddy_sha256"], "wrong"),
                         (["source_manifest_sha256"], "wrong"),
                         (["evidence_sha256"], {}), (["cases"], [])):
@@ -260,7 +276,7 @@ def self_test(receipt):
             mutate(["cases", i, "endpoint_cleanup", "eligible_delivery"], True)
             mutate(["cases", i, "endpoint_cleanup", "sampled_start"],
                    [case["endpoint"]["born"] // 1000000, case["endpoint"]["born"] % 1000000])
-            mutate(["hooks", "mods"], "builtin-only-2.1.289" if receipt["claude_version"] != "2.1.289" else "builtin-only-2.1.291", folder + "launch.json")
+            mutate(["hooks", "mods"], "builtin-only-2.1.290" if receipt["claude_version"] != "2.1.290" else "builtin-only-2.1.291", folder + "launch.json")
             mutate(["born_after"], 1, folder + "socket-observation.json")
             mutate(["messages", "items", 0, "state"], "delivered", folder + "inbox.json")
             mutate([], [], folder + "provider-observations.json")
@@ -332,7 +348,8 @@ def synthetic(root, kind):
     """A coherent SYNTHETIC endpoint or peer capture under root (check-mixed-fleet.Synthetic says what that is)."""
     base = _base()
     s = base.Synthetic(root)
-    version = "2.1.291"
+    version = admission.recorded_versions("claude")[-1]
+    admission.expect(["claude:" + version + ":" + "a" * 64])  # synthetic bytes are their own candidate
     s.write("native-version.json", {"version": version + " (Claude Code)", "executable_sha256": "a" * 64})
     s.write("source-manifest.json", "{}\n")
     s.write("bin/buddy", "synthetic buddy\n")
@@ -464,7 +481,9 @@ def main():
     parser.add_argument("receipt", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true",
                         help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
+    admission.add_argument(parser)
     args = parser.parse_args()
+    admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             parser.error("a receipt is required unless --self-test")

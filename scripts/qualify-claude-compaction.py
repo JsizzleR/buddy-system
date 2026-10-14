@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in native Claude 2.1.290/2.1.291 manual compaction and captured-identity resume.
+"""Opt-in native Claude manual compaction and captured-identity resume.
 
 A fixture-only proxy substitutes one explicitly armed /compact input, keeping
 its UUID. This is not shipped command control. Fixed native tools exercise the captured incarnation, replay guards and actual
@@ -200,8 +200,10 @@ assert (work/'.fixture/original.txt').read_text()=='once'
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--claude", default=shutil.which("claude"))
-    parser.add_argument("--claude-version", choices=("2.1.290", "2.1.291"), default="2.1.290")
+    parser.add_argument("--claude-version", help="defaults to the binary's own version; a typed one must match it")
     args = parser.parse_args()
+    # D-080: the binaries this run was given are its candidates; every adapter it starts is bound to them.
+    sys.modules["buddy_admission_lib"].bind_args(args)
     common.exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
     root = Path(tempfile.mkdtemp(prefix="buddy-claude-compaction-", dir="/private/tmp"))
     print("ROOT=" + str(root), flush=True)

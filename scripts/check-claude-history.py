@@ -443,7 +443,9 @@ def main():
     parser.add_argument('receipt', type=Path, nargs='?')
     parser.add_argument('--self-test', action='store_true',
                         help='with no receipt, run against synthetic evidence built in a temp dir (hermetic)')
+    base.admission.add_argument(parser)
     args = parser.parse_args()
+    base.admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             parser.error('a receipt is required unless --self-test')

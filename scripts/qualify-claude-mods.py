@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in native Claude 2.1.289 Mod-profile qualification, entirely disposable.
+"""Opt-in native Claude Mod-profile qualification, entirely disposable.
 
 The adapter must admit the pinned builtin profile and refuse even an observing
 optional Mod before input. A separate native fixture measures why permissive
@@ -274,10 +274,12 @@ def admission_case(root, name, claude, buddy, binary, env, mod, version):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--claude", default=shutil.which("claude"))
-    parser.add_argument("--claude-version", choices=base.QUALIFICATION_VERSIONS, default=base.VERSION)
+    parser.add_argument("--claude-version", help="defaults to the binary's own version; a typed one must match it")
     parser.add_argument("--buddy", type=pathlib.Path)
     parser.add_argument("--adapter", type=pathlib.Path)
     args = parser.parse_args()
+    # D-080: the binaries this run was given are its candidates; every adapter it starts is bound to them.
+    sys.modules["buddy_admission_lib"].bind_args(args)
     base.exit_on_signals()  # F-35: TERM/HUP still run the finally blocks
     root = pathlib.Path(tempfile.mkdtemp(prefix="buddy-claude-mods-", dir="/private/tmp"))
     result = {"directory": str(root), "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -289,6 +291,7 @@ def main():
     try:
         if not args.claude:
             raise RuntimeError("claude is not on PATH")
+        result["qualification_candidates"] = [dict(base.admission.CANDIDATES["claude"])]
         claude = pathlib.Path(args.claude).resolve()
         env = dict(base.clean_env(), ANTHROPIC_API_KEY="buddy-loopback-fixture-not-a-provider-key",
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1", DISABLE_AUTOUPDATER="1", DISABLE_TELEMETRY="1",

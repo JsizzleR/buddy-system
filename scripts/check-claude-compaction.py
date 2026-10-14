@@ -37,9 +37,9 @@ def validate(r):
     def pair(): return e.pair(ROLE)
     def mid(): return r["original"]["queue"]["delivery"]["message_id"]
     def turn(): return r["original"]["wake"]["wake_delivery"]["turn_id"]
-    version = r.get("claude_version", "2.1.289")
+    version = r.get("claude_version")
     e.check("schema_provider", lambda: r["schema"] == "buddy.claude-compaction.v1" and r["provider"] == "deterministic-loopback" and
-        version in ("2.1.290", "2.1.291") and set(r["sessions"]) == {ROLE} and
+        base.admission.need("claude", version, e.root, r["sessions"][ROLE].get("native_sha256")) and set(r["sessions"]) == {ROLE} and
         r["sessions"][ROLE]["native_version"] == version + " (Claude Code)" and
         json.loads(e.path(STATE + "launch.json").read_text())["harness_version"] == version and
         json.loads(e.path(STATE + "launch.json").read_text())["hooks"]["mods"] == "builtin-only-" + version)
@@ -318,7 +318,9 @@ def main():
     parser.add_argument("receipt", type=Path, nargs="?")
     parser.add_argument("--self-test", action="store_true",
                         help="with no receipt, run against synthetic evidence built in a temp dir (hermetic)")
+    base.admission.add_argument(parser)
     args = parser.parse_args()
+    base.admission.expect(args.candidate)
     if args.receipt is None:
         if not args.self_test:
             parser.error("a receipt is required unless --self-test")

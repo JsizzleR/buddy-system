@@ -224,8 +224,29 @@ SYNTHETIC_BUILT_KEYS = {"source-manifest.json": "source_manifest_sha256", "bin/b
 # bound the executables a run used; check-interrupted, check-recovery and
 # check-uncertain took a session's native_version from the receipt alone, so a
 # receipt naming one build could carry a run of another.
-NATIVE_CONTRACTS = {"codex": ("codex-cli 0.160.0",),
-                    "claude": tuple(v + " (Claude Code)" for v in ("2.1.289", "2.1.290", "2.1.291"))}
+def _admission_lib():
+    """scripts/admission_lib.py, loaded once per process under one name, so
+    every checker module a run loads reads ONE --candidate expectation."""
+    name = "buddy_admission_lib"
+    if name not in sys.modules:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().with_name("admission_lib.py"))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+admission = _admission_lib()
+# The recorded --version lines (D-079), for synthetic runs. A real run is judged
+# by admission.admits on its bound candidate or a record's exact bytes.
+NATIVE_CONTRACTS = {"codex": tuple("codex-cli " + v for v in admission.recorded_versions("codex")),
+                    "claude": tuple(v + " (Claude Code)" for v in admission.recorded_versions("claude"))}
+
+
+def admitted_native(harness, line, root, sha):
+    """The --version line parses for harness and its run is admissible (D-079/D-080)."""
+    return admission.admits(harness, admission.parse_version(harness, line), root, sha)
 
 
 def native_binding(evidence, roles):
@@ -236,7 +257,7 @@ def native_binding(evidence, roles):
     for role in roles:
         session = evidence.session(role)
         native = capture[session["harness"]]
-        if (native["version"] not in NATIVE_CONTRACTS[session["harness"]] or
+        if (not admitted_native(session["harness"], native["version"], evidence.root, native["executable_sha256"]) or
                 session["native_version"] != native["version"] or
                 session["native_sha256"] != native["executable_sha256"] or
                 not re.fullmatch(r"[0-9a-f]{64}", native["executable_sha256"])):
@@ -254,6 +275,8 @@ def synthetic_natives(synthetic, receipt, harnesses):
     """native-versions.json for the harnesses a synthetic run used; sessions name it."""
     versions = {h: {"version": NATIVE_CONTRACTS[h][-1], "executable_sha256": ("a" if h == "claude" else "b") * 64}
                 for h in harnesses}
+    # A synthetic run's bytes are its own candidate (D-080), never a record's.
+    admission.expect([h + ":" + admission.parse_version(h, v["version"]) + ":" + v["executable_sha256"] for h, v in versions.items()])
     synthetic.write("native-versions.json", versions)
     receipt["native_versions"] = versions
     for session in receipt["sessions"].values():
@@ -397,6 +420,10 @@ def synthetic_contract(receipt, sessions):
     receipt.update(fixture_sources={"fixture.py": "f" * 64}, source_head="e" * 40)
     for session in sessions:
         session.setdefault("native_sha256", "a" * 64)
+        # Synthetic bytes are their own candidate (D-080), never a record's.
+        line = session.get("native_version", "")
+        harness = "claude" if line.endswith(" (Claude Code)") else "codex"
+        admission.EXPECTED[harness] = (admission.parse_version(harness, line), session["native_sha256"])
     return receipt
 
 
@@ -522,11 +549,10 @@ class Evidence:
         session = self.session(role)
         harness = ROLES[role]
         version = self.receipt[harness + "_version"]
-        allowed = ("2.1.289", "2.1.290", "2.1.291") if harness == "claude" else ("0.160.0",)
-        if version not in allowed:
-            return False
         expected = version + " (Claude Code)" if harness == "claude" else "codex-cli " + version
         capture = self.read("native-versions.json")[harness]
+        if not admission.admits(harness, version, self.root, capture["executable_sha256"]):
+            return False
         launch = self.read(role + "-state/launch.json")
         saved = self.read(role + "-state/identity.json")
         if (capture != self.receipt["native_versions"][harness] or
@@ -868,9 +894,11 @@ def self_test():
                    "root": str(root), "ledger": str(database), "sessions": {}, "messages": [],
                    "ready": [], "validations": [], "landing": {"sha": pass_sha,
                    "ref": "refs/heads/main", "worktree": str(work), "ledger": str(database)}}
-        receipt.update(claude_version="2.1.291", codex_version="0.160.0", evidence_sha256={},
-                       native_versions={"claude": {"version": "2.1.291 (Claude Code)", "executable_sha256": "a" * 64},
-                                        "codex": {"version": "codex-cli 0.160.0", "executable_sha256": "b" * 64}})
+        cv, xv = admission.recorded_versions("claude")[-1], admission.recorded_versions("codex")[-1]
+        receipt.update(claude_version=cv, codex_version=xv, evidence_sha256={},
+                       native_versions={"claude": {"version": cv + " (Claude Code)", "executable_sha256": "a" * 64},
+                                        "codex": {"version": "codex-cli " + xv, "executable_sha256": "b" * 64}})
+        admission.expect(["claude:" + cv + ":" + "a" * 64, "codex:" + xv + ":" + "b" * 64])
         def artifact(name, value):
             path = root / name
             path.parent.mkdir(exist_ok=True)
@@ -1085,7 +1113,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--receipt", type=Path)
+    admission.add_argument(parser)
     args = parser.parse_args()
+    admission.expect(args.candidate)
     if args.self_test:
         if args.receipt:
             contract_self_test(json.loads(args.receipt.read_text()))
