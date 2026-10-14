@@ -5768,6 +5768,108 @@ leaves 2.1.291's behavior unchanged. That is a wire-interpretation change for
 reviewed code (and a contract-id question, D-079), not something a record
 can absorb.
 
+**Addendum, 2026-10-14: how `tool_result_meta` is read (R').** The operator's
+rule: change it if Fable and Codex agree. They agreed on R' after two rounds;
+on the contract id they split, and the operator took Fable's reading (no bump,
+with the D-079 sentence below and a committed replay as its evidence).
+
+The field is `@internal` in the retained 2.1.299 binary's own schema, so
+nothing public promises it. That schema says: `non_execution_kind` is one of
+`user-rejected`, `permission-rule`, `automode-blocked`, `automode-unavailable`,
+`automode-parsing-error`, `interrupted`, `cancelled`; absent means the tool ran
+to completion; whether a call ran is read from `non_execution_kind`, never from
+an entry's presence; an entry may carry `remedy` on a result that DID run;
+`decision` is `accept`, `reject` or `cancelled`; and `permission_decision` may
+be absent on results that ran. Relying on an internal field is acceptable here
+only because admission is per exact build (D-079): a new version's shapes are
+measured before it is admitted, and this rule is replayed against them.
+
+The rule, per main-thread file-tool result X ("unknown" = renew nothing and
+report renewal coverage `unknown`):
+
+0. `tool_result_meta` present and not a list of objects each with a string
+   `id`: the whole frame is unexpected, as before (coverage unknown while a
+   use is outstanding). Absent and `null` are no metadata.
+1. An entry whose `id` names no `tool_result` of this frame (an empty id names
+   none): the whole frame is unexpected.
+2. No entry for X: the existing `is_error` / witness rule decides. Two or more:
+   unknown. Exactly one, E:
+   a. a key outside `id`, `non_execution_kind`, `permission_decision` (e.g.
+      `remedy`): unknown;
+   b. `permission_decision`, when present, must be an object of a string
+      `decision` and optionally a string `source` and a string `reason_type`,
+      nothing else: otherwise unknown;
+   c. `non_execution_kind` present: `permission-rule` or `user-rejected`, with
+      no `permission_decision` or a decision of `reject`, on a result whose
+      `is_error` is not an explicit `false`, is UNEXECUTED (renews nothing,
+      coverage complete). Anything else is unknown: another kind, an empty or
+      non-string kind, a kind beside `accept` or `cancelled`, a kind beside
+      explicit `is_error:false` (Codex, round 2: completion and non-execution
+      contradict each other);
+   d. no `non_execution_kind`: decision `accept` proceeds to the existing rule
+      (meta never renews by itself: acceptance permits a run, it does not
+      complete one, and an accepted tool can still fail); an id-only entry or
+      any other decision is unknown.
+
+The measured shapes (every frame in the evidence, below): 2.1.291 puts
+`{id, non_execution_kind: "permission-rule"}` on BOTH denials of a Write, the
+gate's and the operator's (the old comment said only the gate's), and
+`{id, non_execution_kind: "user-rejected"}` on a result whose pending approval
+an interrupt cancelled. That one is a Bash (the A-07 `interrupt_approval`
+case), not a Write: no measured file-tool result carries `user-rejected`. It is
+admitted as unexecuted on the schema's word and because the first rule already
+read it so; reading it as unknown would change no measured outcome either.
+2.1.299 adds `permission_decision` to the denials (`{decision: "reject",
+source: "hook", reason_type: "hook"}` from the gate, `{decision: "reject",
+source: "user_reject"}` from the operator), keeps the bare `user-rejected` on
+the interrupted Bash, and puts `{id, permission_decision: {decision: "accept",
+source: "user_temporary"}}` on executed Write, Edit and Bash results the
+operator allowed, `{decision: "accept", source: "hook", reason_type: "hook"}`
+on Writes the permissive Mod override allowed.
+
+Why unknown is the fallback (Fable and Codex, round 1). A false renewal
+fabricates freshness for a write that did not run. A silent skip marks a
+writing holder stale AND hides that anything was missed, which is what 2.1.299
+did under the first rule. Unknown costs a report, and the report is the
+uncertainty an operator or checker needs. Cut: keying "not executed" on a
+non-empty kind alone (Codex: `{id, permission_decision: {decision:
+"reject"}}` beside explicit false would renew, and a kind beside `accept`
+would skip silently); keying success on `accept` (it permits, it does not
+complete); a version switch around the reader (R' is one rule, and the replay
+shows it equal to the first rule on every 2.1.291 frame).
+
+**The replay** (`internal/harness/testdata/claude-tool-result-meta.json`,
+`renewal_claude_replay_test.go`). Every native user frame that carried
+`tool_result_meta` or answered a main-thread Write or Edit in the 2.1.291 and
+2.1.299 evidence: the A-07 rerun receipts and the lane runs of 2026-10-13/14
+under `/private/tmp`, deduplicated by session and uuid. 79 frames: 38 of
+2.1.291 (17 with `tool_result_meta`) and 41 of 2.1.299. Each is reduced to what
+the reader reads (ids, `is_error`, `tool_use_result`'s type and filePath,
+`tool_result_meta` verbatim, provenance), fixture roots spelled `/fixture`,
+and replayed alone through a backend of its version after the tool uses that
+preceded it. `before` was produced by the same replay against 447387b (the
+first rule); `outcome` is this code's. On all 38 2.1.291 frames they are
+equal, and the test fails if one moves. On 2.1.299, 14 accepted Write and Edit
+results moved from a silent skip to coverage unknown, and nothing else moved.
+An independent Python derivation of both columns from the rule text agreed on
+all 79. Three measured 2.1.291 frames with `tool_result_meta` were traced as
+key names only (the A-07 mixed-fleet worker, and two in a qualify-claude run
+at 316b337, before the observer projected tool blocks) and cannot be replayed. The rule's 50
+arms are a table in the same file, read by the Go test and by
+`check-claude-gate.py`'s mirror (`meta_verdict`, used by `matched_write`), so
+the two readings are held to one table, and each measured frame's per-result
+verdict is recorded there and checked by both.
+
+Mutation evidence (a private rsync'd copy, each mutant applied in python, one
+at a time): 34 mutants, 19 of the Go reader and 15 of the Python mirror, all
+killed by an assertion, none by a build failure. Reverting to the first rule
+fails 14 replay rows (the accepted 2.1.299 Write and Edit results); admitting
+`reason_type` nowhere fails 9 (the 2.1.299 gate denials). Three checks were
+dropped while writing the mutants, as equivalent (a leading-bracket test, a
+leading-brace test and a missing-decision refusal each repeated a later
+check's verdict), and the first sweep's one survivor, dropping the
+decision-object check, gained the end-to-end row that names its reason.
+
 ## D-079 — Native admission is a committed, exact-artifact record compiled into the adapter; it supersedes D-071's "from the code's table"
 
 2026-10-13. Versions step 2 of the harness version tracking consensus (Fable and
@@ -5846,7 +5948,11 @@ hash-to-exec window F-23 states remains. A record is data. It selects an existin
 code-owned contract and may only narrow it; a new plugin name, wire shape or hook
 interpretation needs reviewed code and requalification. Claude's
 `claudeWriteOmissionQualified` (D-078) stays a code-owned wire rule keyed by
-version, because it is a parsing rule, not a grant. Deferred suites (endpoints,
+version, because it is a parsing rule, not a grant. A version-keyed parse rule
+whose outcomes are identical on every measured frame of every recorded
+version, proven by a committed hermetic replay, does not bump the contract id;
+a change that alters any such outcome does, and requalifies (2026-10-14, the
+`tool_result_meta` rule, D-078's addendum). Deferred suites (endpoints,
 peers, history, mixed fleet, jobs) grant nothing. Qualifying a candidate without
 production admission (Codex migration step 4) and a retention runner are later
 work. Until then a new version's first start-tier run needs a hand-built

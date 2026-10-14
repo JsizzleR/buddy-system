@@ -10,17 +10,19 @@ package harness
 //
 //   - `is_error: false`, explicitly: success, on every admitted version.
 //   - `is_error: true`: nothing. A gate denial and an operator denial both look
-//     like this natively (2.1.291 adds tool_result_meta non_execution_kind to
-//     the gate's), and so does a failed edit.
+//     like this natively, and so does a failed edit. On 2.1.291 BOTH denials
+//     also carry a tool_result_meta entry {id, non_execution_kind:
+//     "permission-rule"}; 2.1.299 adds a permission_decision to it.
 //   - `is_error` OMITTED: this is what native 2.1.291 sends for a SUCCESSFUL
 //     Write (receipts of the 2026-10-13 rerun, claude-interrupted-compaction:
 //     the Bash result carries `is_error:false`, the Write result carries none).
 //     The adopted design said "explicit false only" until a version's omission
-//     semantics were qualified; it is qualified here for Write on 2.1.291
-//     only, and only with a positive witness: the frame's structured
-//     tool_use_result is an object whose type is create or update and whose
-//     filePath is byte-for-byte the recorded input path, the frame carries
-//     exactly one tool_result, and no tool_result_meta marks it unexecuted.
+//     semantics were qualified; it is qualified for Write only on the versions
+//     claudeWriteOmissionQualified names, and only with a positive witness: the
+//     frame's structured tool_use_result is an object whose type is create or
+//     update and whose filePath is byte-for-byte the recorded input path, the
+//     frame carries exactly one tool_result, and its tool_result_meta reading
+//     (below) is "proceed".
 //     Anything else with is_error omitted renews nothing and reports renewal
 //     coverage unknown, because a write may have succeeded unseen. A
 //     successful Edit was measured on 2.1.291 and 2.1.299 (2026-10-13,
@@ -30,6 +32,42 @@ package harness
 //     control, so Edit omission stays unqualified: an Edit renews only on an
 //     explicit false, which no measured version sends. NotebookEdit was not
 //     measured.
+//
+// tool_result_meta (D-078 addendum, 2026-10-14). The field is @internal in
+// the native schema; relying on it is acceptable only because admission is
+// per exact build (D-079), and every version's measured frames are replayed
+// in renewal_claude_meta_test.go. 2.1.291 sent it only on results that did not
+// run. 2.1.299 also sends it on EXECUTED results ({id, permission_decision:
+// {decision:"accept", source:"user_temporary"}}), and its own schema says
+// whether a call ran is read from non_execution_kind, never from an entry's
+// presence. Reading every entry as "not executed" (the first rule) skipped a
+// completed 2.1.299 Write SILENTLY: no renewal, and no coverage gap either.
+// The rule now (R', agreed by Fable and Codex):
+//
+//   - the frame's list must hold objects with a string id, each naming a
+//     tool_result of THIS frame; otherwise the whole frame is unexpected
+//     (renew nothing, coverage unknown while a use is outstanding);
+//   - no entry for the result: proceed to the is_error / witness rule;
+//   - one entry, holding only id, non_execution_kind and permission_decision,
+//     whose permission_decision (when present) holds a string decision and
+//     optionally a string source and reason_type and nothing else:
+//     non_execution_kind "permission-rule" or "user-rejected", with no
+//     decision or a "reject", on a result whose is_error is not an explicit
+//     false, is UNEXECUTED (renews nothing, and nothing was missed); no
+//     non_execution_kind and decision "accept" PROCEEDS (meta never renews by
+//     itself: acceptance permits a run, it does not complete one);
+//   - anything else (two entries, another kind, a kind with "accept", an
+//     id-only entry, a `remedy`, a kind beside explicit false) renews nothing
+//     and reports coverage unknown.
+//
+// "unknown" is the fallback because its cost is a report, never a renewal of
+// a write that did not run, and never a silent skip of one that did. Measured
+// shapes: 2.1.291 {id, kind permission-rule} on the gate's and the operator's
+// denials, {id, kind user-rejected} on a Bash whose pending approval an
+// interrupt cancelled; 2.1.299 adds {decision reject, source hook, reason_type
+// hook} and {decision reject, source user_reject} to the denials, and {decision
+// accept, source user_temporary | source hook, reason_type hook} on executed
+// Write, Edit and Bash results.
 //
 // Bash renews nothing, `sed -i` included: no qualified path extraction. A
 // subagent's result (non-null parent_tool_use_id) renews nothing. A result
@@ -217,22 +255,20 @@ func (c *claudeBackend) toolResults(raw json.RawMessage) {
 		unexpected("a user frame's content was neither text nor a list of blocks")
 		return
 	}
-	var meta []struct {
-		ID string `json:"id"`
-	}
-	if len(f.ToolResultMeta) > 0 && string(f.ToolResultMeta) != "null" && json.Unmarshal(f.ToolResultMeta, &meta) != nil {
-		unexpected("a user frame's tool_result_meta was not a list")
-		return
-	}
 	results := 0
+	ids := map[string]bool{}
 	for _, b := range blocks {
 		if b.Type == "tool_result" {
 			results++
+			if b.ToolUseID != "" {
+				ids[b.ToolUseID] = true
+			}
 		}
 	}
-	unexecuted := map[string]bool{}
-	for _, m := range meta {
-		unexecuted[m.ID] = true
+	meta, bad := readClaudeResultMeta(f.ToolResultMeta, ids)
+	if bad != "" {
+		unexpected(bad)
+		return
 	}
 	var paths []string
 	var lost string
@@ -268,8 +304,12 @@ func (c *claudeBackend) toolResults(raw json.RawMessage) {
 		}
 		delete(c.fileTools, b.ToolUseID)
 		c.fileBytes -= len(tool.path)
-		if unexecuted[b.ToolUseID] {
-			continue // native marks it not executed (a gate denial)
+		switch verdict, why := meta.verdict(b.ToolUseID, b.IsError); verdict {
+		case claudeMetaUnexecuted:
+			continue // native says it did not run: nothing to renew, nothing missed
+		case claudeMetaUnknown:
+			note(why)
+			continue
 		}
 		if b.IsError != nil {
 			isError, ok := jsonBool(b.IsError)
@@ -291,6 +331,98 @@ func (c *claudeBackend) toolResults(raw json.RawMessage) {
 	if lost != "" {
 		m.unknown(lost)
 	}
+}
+
+// claudeMetaVerdict is what one result's tool_result_meta says (R', in the
+// header): proceed to the is_error / witness rule, unexecuted, or unknown.
+type claudeMetaVerdict int
+
+const (
+	claudeMetaProceed claudeMetaVerdict = iota
+	claudeMetaUnexecuted
+	claudeMetaUnknown
+)
+
+// claudeResultMeta is one frame's tool_result_meta entries, by the id each
+// names. Empty when the frame carries none.
+type claudeResultMeta map[string][]map[string]json.RawMessage
+
+// readClaudeResultMeta reads a frame's tool_result_meta against the frame's
+// tool_result ids. A non-empty reason means the frame as a whole cannot be
+// classified (R' rules 0 and 1): not a list, an entry that is not an object or
+// names no string id, or an id naming no tool_result of this frame. Absent and
+// JSON null are no metadata, as before.
+func readClaudeResultMeta(raw json.RawMessage, results map[string]bool) (claudeResultMeta, string) {
+	if len(raw) == 0 {
+		return nil, ""
+	}
+	// `null` reads as an empty list, and a `null` entry as an empty map that
+	// names no id: neither needs a case of its own.
+	var list []map[string]json.RawMessage
+	if json.Unmarshal(raw, &list) != nil {
+		return nil, "a user frame's tool_result_meta was not a list of objects"
+	}
+	meta := claudeResultMeta{}
+	for _, entry := range list {
+		id, ok := jsonString(entry["id"])
+		if !ok || !results[id] {
+			return nil, "a user frame's tool_result_meta held an entry naming no tool_result of its frame"
+		}
+		meta[id] = append(meta[id], entry)
+	}
+	return meta, ""
+}
+
+// verdict applies R' rule 2 to the result with tool_use_id id, whose block
+// carried isError (nil when omitted).
+func (m claudeResultMeta) verdict(id string, isError json.RawMessage) (claudeMetaVerdict, string) {
+	const (
+		shape   = "a file tool's tool_result_meta entry had an unmeasured shape"
+		unclear = "a file tool's tool_result_meta entry did not establish whether it ran"
+	)
+	entries := m[id]
+	switch {
+	case len(entries) == 0:
+		return claudeMetaProceed, ""
+	case len(entries) > 1:
+		return claudeMetaUnknown, "a file tool's result had more than one tool_result_meta entry"
+	}
+	entry := entries[0]
+	for k := range entry {
+		if k != "id" && k != "non_execution_kind" && k != "permission_decision" {
+			return claudeMetaUnknown, shape // e.g. `remedy`, which a result that ran may carry
+		}
+	}
+	decision := ""
+	raw, decided := entry["permission_decision"]
+	if decided {
+		// A `null` reads as an empty map, with no decision.
+		var pd map[string]json.RawMessage
+		if json.Unmarshal(raw, &pd) != nil {
+			return claudeMetaUnknown, shape
+		}
+		for k, v := range pd {
+			if _, ok := jsonString(v); !ok || (k != "decision" && k != "source" && k != "reason_type") {
+				return claudeMetaUnknown, shape
+			}
+		}
+		// A missing or non-string decision reads as "", which is neither
+		// "reject" nor "accept" and so lands in unknown below.
+		decision, _ = jsonString(pd["decision"])
+	}
+	if raw, ok := entry["non_execution_kind"]; ok {
+		kind, _ := jsonString(raw)
+		failed, isBool := jsonBool(isError)
+		explicitFalse := isBool && !failed // a completion signal: contradicts "did not run"
+		if (kind == "permission-rule" || kind == "user-rejected") && (!decided || decision == "reject") && !explicitFalse {
+			return claudeMetaUnexecuted, ""
+		}
+		return claudeMetaUnknown, unclear
+	}
+	if decided && decision == "accept" {
+		return claudeMetaProceed, ""
+	}
+	return claudeMetaUnknown, unclear
 }
 
 // claudeWriteWitness is the measured 2.1.291 success shape of a Write's

@@ -1523,10 +1523,19 @@ changes no lifecycle state. What renews:
   successful Write OMITS `is_error`, as measured. There, and only for Write, it
   also renews when the frame's single `tool_use_result` is an object with
   `type` `create` or `update` and a `filePath` equal to the recorded input.
-  `is_error: true`, a gate denial marked in `tool_result_meta`, an operator
-  denial, a use with no result, a subagent's or replayed result, Bash (even
-  `sed -i`) and an unknown id renew nothing. A missing provenance field or an
-  unwitnessed omission reports coverage `unknown`.
+  `is_error: true`, a gate or operator denial, a use with no result, a
+  subagent's or replayed result, Bash (even `sed -i`) and an unknown id renew
+  nothing. A missing provenance field or an unwitnessed omission reports
+  coverage `unknown`. `tool_result_meta` is read by shape, never by presence
+  (2.1.299 puts an entry on executed results too): an entry whose
+  `non_execution_kind` is `permission-rule` or `user-rejected` (no decision, or
+  `reject`) means the call did not run; an entry with no kind and a
+  `permission_decision` of `accept` changes nothing, so the rules above decide;
+  any other shape (two entries, an unknown kind or key, an id-only entry, a
+  kind beside explicit `is_error:false`, an entry naming a result the frame
+  does not hold) renews nothing and reports coverage `unknown`. The rule and
+  the measured frames it is replayed against are in D-078's 2026-10-14
+  addendum.
 - **Codex.** Only `item/completed` for a `fileChange` with `status`
   `completed`, in the active turn, and only in a turn this launch started
   with its own `turn/start`. It renews every

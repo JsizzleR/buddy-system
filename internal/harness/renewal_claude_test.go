@@ -60,7 +60,11 @@ func TestClaudeRenewalOnlyForAMatchedCompletedMainThreadWrite(t *testing.T) {
 		{"a subagent's tool_use is never recorded", "2.1.291", []map[string]any{assistant("Write", "u1", write, "toolu_parent"), result("u1", false, nil)}, nil, false},
 		{"Bash renews nothing, even successful", "2.1.291", []map[string]any{assistant("Bash", "u1", map[string]any{"command": "sed -i s/a/b/ " + path}, nil), result("u1", false, nil)}, nil, false},
 		{"a result native marks unexecuted renews nothing", "2.1.291", []map[string]any{assistant("Write", "u1", write, nil),
-			result("u1", false, map[string]any{"tool_result_meta": []any{map[string]any{"id": "u1", "non_execution_kind": "permission-rule"}}})}, nil, false},
+			result("u1", true, map[string]any{"tool_result_meta": []any{map[string]any{"id": "u1", "non_execution_kind": "permission-rule"}}})}, nil, false},
+		// Explicit false says it completed; the kind says it never ran. R'
+		// (Codex, consult round 2): a contradiction is unknown, not a skip.
+		{"a non-execution kind beside explicit false is lost coverage", "2.1.291", []map[string]any{assistant("Write", "u1", write, nil),
+			result("u1", false, map[string]any{"tool_result_meta": []any{map[string]any{"id": "u1", "non_execution_kind": "permission-rule"}}})}, nil, true},
 		{"a replayed result renews nothing", "2.1.291", []map[string]any{assistant("Write", "u1", write, nil), result("u1", false, map[string]any{"isReplay": true})}, nil, false},
 		{"a synthetic frame renews nothing", "2.1.291", []map[string]any{assistant("Write", "u1", write, nil), result("u1", false, map[string]any{"isSynthetic": true})}, nil, false},
 		{"NotebookEdit names notebook_path", "2.1.289", []map[string]any{assistant("NotebookEdit", "u1", map[string]any{"notebook_path": "/w/n.ipynb"}, nil), result("u1", false, nil)}, []string{"/w/n.ipynb"}, false},

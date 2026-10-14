@@ -801,6 +801,16 @@ ledger row entered through the CLI (D-006).
     renew nothing; correlations never cross a resume. Do not propose renewing through
     `BeatLogical` (it erased idle), one event per tool result (it blocks the reader), or
     renewal from attempts or patch text. `lifecycle beat --path` is repeatable.
+    `tool_result_meta` (D-078 addendum, R', agreed by Fable and Codex): a frame whose list is
+    not objects with string ids each naming a tool_result of that frame is unexpected; for a
+    result, two entries are unknown; one entry with only `id`, `non_execution_kind`,
+    `permission_decision` (string `decision`, optional string `source`, `reason_type`) is
+    UNEXECUTED when its kind is `permission-rule` or `user-rejected` with no decision or
+    `reject` and `is_error` is not explicit false, PROCEEDS to the is_error/witness rule when
+    it has no kind and decision `accept`, and is otherwise unknown (renew nothing, coverage
+    unknown). Do not propose reading an entry's presence as "not executed" (2.1.299 puts one
+    on executed results) or treating `accept` as completion. The field is `@internal`;
+    exact-build admission is why relying on it is acceptable.
 
 80. **Native admission is a committed exact-artifact record, embedded in the adapter
     (D-079).** `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`
@@ -814,7 +824,10 @@ ledger row entered through the CLI (D-006).
     tiers intersected with code support, and reconcile is never granted. 2.1.289 and
     2.1.290 are retired (no binary or hash). Do not propose a runtime registry, ranges or
     probing alone, a metadata hash cache, or invalidation by adapter hash (an embedded
-    record cannot bind its own binary; the contract id is bumped instead).
+    record cannot bind its own binary; the contract id is bumped instead). A version-keyed
+    parse rule whose outcomes are identical on every measured frame of every recorded
+    version, proven by a committed hermetic replay, does not bump the contract id; a change
+    that alters any such outcome does, and requalifies (operator, 2026-10-14).
 81. **A qualification candidate (D-080)** is `buddy-adapter --qualify-candidate <artifact>
     --qualify-sha256 <hex>` in the shipped binary: the typed digest binds the artifact, the
     committed records are REPLACED by one synthesized record for those bytes, an observer

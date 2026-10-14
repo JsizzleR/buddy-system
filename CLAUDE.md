@@ -618,7 +618,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   idle or lifecycle state) under the captured token. Claude: a matched main-thread
   tool_result with explicit `is_error:false`, or on 2.1.291 a Write with the measured
   create/update witness. Codex: a completed `fileChange`, both ends of a move. Bash
-  renews nothing. `lifecycle beat --path` repeats.
+  renews nothing. `lifecycle beat --path` repeats. `tool_result_meta` (addendum, R'): an
+  entry is "not run" only as a measured non-execution kind, an `accept` with no kind
+  proceeds, and any other shape renews nothing and reports coverage unknown; never presence.
+  A committed replay of every measured frame pins each version's outcomes.
 - **Native admission is a committed exact-artifact record (D-079):**
   `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`, embedded, strictly
   parsed. Launch hashes the executable (Codex: the whole release tree, undeclared entries refuse)
@@ -626,7 +629,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `compaction_observation`, each earned by the code's suites with checker passes), profile,
   exact `--version`, and the unchanged live checks. A start-only record never resumes; no
   record grants reconcile. 2.1.289/2.1.290 are retired. `--retained` names
-  `~/.buddy/harness/...`; the adapter copies nothing.
+  `~/.buddy/harness/...`; the adapter copies nothing. A version-keyed parse rule a committed
+  replay proves outcome-identical on every measured frame bumps no contract id; one that
+  moves any such outcome does, and requalifies.
 - **A qualification candidate runs only against a loopback provider (D-080):**
   `buddy-adapter --qualify-candidate <artifact> --qualify-sha256 <hex>` replaces the records
   with one for exactly those typed bytes (an observer `--executable` is hashed too), refuses

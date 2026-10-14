@@ -852,14 +852,72 @@ RENEWAL_CHECKS = {"claim_renewal_capability_declared", "renewal_written_claim_mo
 EDIT_OMISSION_NOTE = "a file tool's result omitted is_error without a qualified success witness"
 UNQUALIFIED_RENEWAL_CHECKS = {"claim_renewal_capability_declared", "unqualified_write_renews_nothing",
                               "unqualified_write_reports_coverage_unknown"}
+# tool_result_meta (D-078 addendum, 2026-10-14), written down here apart from
+# the Go reader (claude_renewal.go, readClaudeResultMeta and verdict) so the
+# two are two readings of one rule. 2.1.299 puts an entry on EXECUTED results
+# too ({id, permission_decision: {decision: "accept", source:
+# "user_temporary"}}), so an entry's presence no longer means "did not run".
+# Only an entry of a measured non-execution shape is UNEXECUTED; an accepted
+# permission with no kind PROCEEDS to the is_error / witness rule (meta never
+# renews by itself); every other shape is UNKNOWN: renew nothing and report
+# coverage unknown. The field is @internal in the native schema, and relying
+# on it is acceptable only because admission is per exact build.
+META_ENTRY_KEYS = frozenset(("id", "non_execution_kind", "permission_decision"))
+META_DECISION_KEYS = frozenset(("decision", "source", "reason_type"))
+META_UNEXECUTED_KINDS = ("permission-rule", "user-rejected")
+ABSENT = "<absent>"
+
+
+def meta_verdict(meta, result_ids, tid, is_error=ABSENT):
+    """'proceed', 'unexecuted' or 'unknown' for result `tid` of a frame whose
+    tool_result_meta is `meta` (None when absent or null, as the Go reader)
+    and whose tool_result ids are `result_ids`. `is_error` is the result's
+    value, ABSENT when the key is missing (the observer's own spelling)."""
+    if meta is None:
+        return "proceed"
+    # R' 0 and 1, for the whole frame: a list of objects with string ids,
+    # each naming a tool_result of this frame.
+    if not isinstance(meta, list) or not all(isinstance(m, dict) and isinstance(m.get("id"), str) for m in meta):
+        return "unknown"
+    if any(m["id"] not in result_ids for m in meta):
+        return "unknown"
+    mine = [m for m in meta if m["id"] == tid]
+    if not mine:
+        return "proceed"
+    if len(mine) > 1:
+        return "unknown"
+    entry = mine[0]
+    if set(entry) - META_ENTRY_KEYS:
+        return "unknown"
+    decided = "permission_decision" in entry
+    if decided:
+        pd = entry["permission_decision"]
+        if (not isinstance(pd, dict) or set(pd) - META_DECISION_KEYS or "decision" not in pd or
+                not all(isinstance(v, str) for v in pd.values())):
+            return "unknown"
+    if "non_execution_kind" in entry:
+        kind = entry["non_execution_kind"]
+        if (kind in META_UNEXECUTED_KINDS and
+                (not decided or entry["permission_decision"]["decision"] == "reject") and is_error is not False):
+            return "unexecuted"
+        return "unknown"
+    if decided and entry["permission_decision"]["decision"] == "accept":
+        return "proceed"
+    return "unknown"
+
+
+def frame_result_ids(v):
+    """The tool_result ids of one observer-projected user frame."""
+    return {b.get("id") for b in v.get("tool_blocks") or [] if b.get("type") == "tool_result" and isinstance(b.get("id"), str) and b.get("id")}
 
 
 def matched_write(e, path):
     """The tool_use id of the one main-thread Write of `path` in the native
     trace, if its single tool_result is the success D-078 renews on: not a
     replay, main thread, the only block in its frame, is_error absent or false,
-    and the structured create/update witness naming the recorded path. The
-    result must come after its use and before the turn's result frame."""
+    no tool_result_meta reading other than 'proceed' (meta_verdict), and the
+    structured create/update witness naming the recorded path. The result must
+    come after its use and before the turn's result frame."""
     rows = e.lines("native-observations.jsonl")
     uses = [(i, b["id"]) for i, v in enumerate(rows) if v.get("type") == "assistant" and v.get("parent_tool_use_id") is None
             for b in v.get("tool_blocks") or [] if b.get("type") == "tool_use" and b.get("name") == "Write" and b.get("path") == path]
@@ -875,6 +933,7 @@ def matched_write(e, path):
     witness = v.get("tool_use_result")
     if not (at < i < end and v.get("isReplay") is not True and v.get("parent_tool_use_id") is None and
             len(v["tool_blocks"]) == 1 and v["tool_blocks"][0]["is_error"] in ("<absent>", False) and
+            meta_verdict(v.get("tool_result_meta"), frame_result_ids(v), tid, v["tool_blocks"][0]["is_error"]) == "proceed" and
             isinstance(witness, dict) and witness.get("type") in ("create", "update") and witness.get("filePath") == path):
         raise ValueError("the allowed Write's result is not a renewable success")
     return tid
@@ -1324,6 +1383,21 @@ def file_mutations(root, r):
          "renewal_matched_result"),
         ("the witness is a delete", edit_lines("native-observations.jsonl",
             lambda rows: allowed_result(rows)["tool_use_result"].update(type="delete")), "renewal_matched_result"),
+        # tool_result_meta on the allowed Write (D-078 addendum): every reading
+        # but 'proceed' leaves the omission unwitnessed. meta_self_test holds
+        # the positive control, the measured 2.1.299 accept, which passes.
+        ("the allowed write's result is marked not executed", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows).update(tool_result_meta=[{"id": "toolu_buddy_1", "non_execution_kind": "permission-rule"}])),
+         "renewal_matched_result"),
+        ("the allowed write's meta entry is id-only", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows).update(tool_result_meta=[{"id": "toolu_buddy_1"}])), "renewal_matched_result"),
+        ("the allowed write's accept carries remedy", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows).update(tool_result_meta=[{"id": "toolu_buddy_1", "remedy": "retry",
+                                                                       "permission_decision": {"decision": "accept"}}])),
+         "renewal_matched_result"),
+        ("the allowed write's meta names a result outside its frame", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows).update(tool_result_meta=[{"id": "toolu_buddy_9", "permission_decision": {"decision": "accept"}}])),
+         "renewal_matched_result"),
         ("the approval names another tool use", edit_json("adapter-events.json",
             lambda rows: [v["native_event"]["approval"].update(item_id="toolu_buddy_7") for v in rows
                           if v.get("native_event", {}).get("kind") == "approval"][:1]), "renewal_matched_result"),
@@ -1482,9 +1556,65 @@ def unhashed_image_self_test(validate, synthetic):
         return 1
 
 
+META_FIXTURE = Path(__file__).resolve().parent.parent / "internal/harness/testdata/claude-tool-result-meta.json"
+# The measured 2.1.299 entries, by tool use of the synthetic run (one gate
+# denial, one operator allow, one operator denial, one Edit allow).
+META_2_1_299 = {"toolu_buddy_0": {"non_execution_kind": "permission-rule",
+                                  "permission_decision": {"decision": "reject", "source": "hook", "reason_type": "hook"}},
+                "toolu_buddy_1": {"permission_decision": {"decision": "accept", "source": "user_temporary"}},
+                "toolu_buddy_2": {"non_execution_kind": "permission-rule",
+                                  "permission_decision": {"decision": "reject", "source": "user_reject"}},
+                "toolu_buddy_3": {"permission_decision": {"decision": "accept", "source": "user_temporary"}}}
+
+
+def meta_self_test():
+    """meta_verdict against the table claude_renewal.go is tested with (the
+    fixture's arms and its measured frames' verdicts), then a run whose trace
+    carries the measured 2.1.299 entries: it passes (the accepted Write still
+    witnesses its omission), and the same run with the allowed Write's entry
+    reduced to its id is refused. Returns the refusals counted."""
+    doc = json.loads(META_FIXTURE.read_text())
+    for arm in doc["arms"]:
+        target = next(b for b in arm["results"] if b["id"] == arm["id"])
+        ids = frame_result_ids({"tool_blocks": [{"type": "tool_result", "id": b["id"]} for b in arm["results"]]})
+        got = meta_verdict(arm.get("meta"), ids, arm["id"], target.get("is_error", ABSENT))
+        if got != arm["verdict"]:
+            raise AssertionError("meta_verdict(%s) = %s, the Go table says %s" % (arm["name"], got, arm["verdict"]))
+    for row in doc["measured"]:
+        frame = row["frame"]
+        blocks = [b for b in frame["message"]["content"] if b.get("type") == "tool_result"]
+        ids = {b["tool_use_id"] for b in blocks if b.get("tool_use_id")}
+        for b in blocks:
+            got = meta_verdict(frame.get("tool_result_meta"), ids, b["tool_use_id"], b.get("is_error", ABSENT))
+            if got != row["verdicts"][b["tool_use_id"]]:
+                raise AssertionError("meta_verdict of measured %s %s = %s" % (row["source"], b["tool_use_id"], got))
+    if len(doc["arms"]) < 40 or len(doc["measured"]) < 79:
+        raise AssertionError("the tool_result_meta fixture lost rows")
+    with tempfile.TemporaryDirectory(prefix="buddy-claude-gate-meta-") as tmp:
+        root = Path(tmp).resolve() / "run"
+        r = synthetic(root, "m")
+        trace = root / "native-observations.jsonl"
+        rows = [json.loads(v) for v in trace.read_text().splitlines()]
+        for v in rows:
+            if v.get("type") == "user" and v.get("tool_blocks"):
+                tid = v["tool_blocks"][0]["id"]
+                v["tool_result_meta"] = [dict({"id": tid}, **META_2_1_299[tid])]
+        write(root, "native-observations.jsonl", jsonl(rows))
+        r["edit_measurement"]["tool_result_meta_present"] = True
+        write(root, "result.json", r)
+        verdict = validate(r, root / "result.json")
+        if not verdict["passed"]:
+            raise AssertionError("the measured 2.1.299 entries were refused: " + json.dumps(verdict["errors"]))
+        allowed_result(rows)["tool_result_meta"] = [{"id": "toolu_buddy_1"}]
+        write(root, "native-observations.jsonl", jsonl(rows))
+        if validate(r, root / "result.json")["checks"].get("renewal_matched_result") is not False:
+            raise AssertionError("an id-only entry on the allowed Write was accepted as a witnessed success")
+    return 1
+
+
 def synthetic_self_test():
     out = self_test_suite("claude-gate", validate, synthetic, receipt_mutations, file_mutations, SPLICE)
-    out["rejected_mutations"] += unqualified_self_test() + unhashed_image_self_test(validate, synthetic)
+    out["rejected_mutations"] += unqualified_self_test() + unhashed_image_self_test(validate, synthetic) + meta_self_test()
     return out
 
 

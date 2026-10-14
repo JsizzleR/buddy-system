@@ -1,0 +1,4853 @@
+{
+ "about": "tool_result_meta (D-078 addendum, 2026-10-14). `arms`: one row per arm of the agreed rule R', each read by claude_renewal.go and by scripts/check-claude-gate.py. `measured`: every native user frame that carried tool_result_meta or answered a main-thread Write or Edit, in the 2.1.291 and 2.1.299 evidence (the 2026-10-13 A-07 rerun receipts and the lane runs of 2026-10-13/14), keeping only what the renewal reader reads; fixture roots are spelled /fixture and content is elided. `before` is the outcome of the first rule (any entry = unexecuted), replayed at 447387b; `outcome` is this code's. They must be equal on every 2.1.291 frame (D-079: no contract bump).",
+ "arms": [
+  {
+   "id": "toolu_x",
+   "measured": "2.1.291 executed Write and Edit results",
+   "name": "no tool_result_meta",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_x",
+   "meta": null,
+   "name": "tool_result_meta null",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [],
+   "name": "tool_result_meta empty list",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_x",
+   "meta": "T",
+   "name": "tool_result_meta is a string",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": {
+    "id": "toolu_x",
+    "non_execution_kind": "permission-rule"
+   },
+   "name": "tool_result_meta is an object",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    "toolu_x"
+   ],
+   "name": "an entry is a string",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    null
+   ],
+   "name": "an entry is null",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "an entry has no id",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": 7,
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "an entry's id is a number",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_other",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "an entry names an id with no tool_result in the frame",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "an entry names an empty id",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "an empty id beside a result block with no id",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": false
+    },
+    {
+     "id": ""
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_y",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "an entry for another result of the frame leaves this one to proceed",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": false
+    },
+    {
+     "id": "toolu_y"
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_y",
+   "meta": [
+    {
+     "id": "toolu_y",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "the other result of that frame is unexecuted",
+   "results": [
+    {
+     "id": "toolu_x"
+    },
+    {
+     "id": "toolu_y"
+    }
+   ],
+   "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule"
+    },
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "two entries for one result",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "remedy": "retry"
+    }
+   ],
+   "name": "a denial carrying remedy",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "source": "user_temporary"
+     },
+     "remedy": "retry"
+    }
+   ],
+   "name": "an accept carrying remedy",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": "reject"
+    }
+   ],
+   "name": "permission_decision a string",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": null
+    }
+   ],
+   "name": "permission_decision null",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "rule": "x",
+      "source": "user_temporary"
+     }
+    }
+   ],
+   "name": "permission_decision with an unmeasured key",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": {
+      "source": "hook"
+     }
+    }
+   ],
+   "name": "permission_decision with no decision",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": true
+     }
+    }
+   ],
+   "name": "permission_decision decision not a string",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "source": 1
+     }
+    }
+   ],
+   "name": "permission_decision source not a string",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": {
+      "decision": "reject",
+      "reason_type": null,
+      "source": "hook"
+     }
+    }
+   ],
+   "name": "permission_decision reason_type not a string",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.291 gate and operator denials of a Write",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "2.1.291 denial: permission-rule",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.291 and 2.1.299, a Bash whose pending approval an interrupt cancelled",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "user-rejected"
+    }
+   ],
+   "name": "2.1.291 interrupted approval: user-rejected",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.299 gate denial of a Write",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": {
+      "decision": "reject",
+      "reason_type": "hook",
+      "source": "hook"
+     }
+    }
+   ],
+   "name": "2.1.299 gate denial: permission-rule, reject by hook",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.299 operator denial of a Write",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": {
+      "decision": "reject",
+      "source": "user_reject"
+     }
+    }
+   ],
+   "name": "2.1.299 operator denial: permission-rule, reject by user",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "permission-rule with is_error omitted",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "user-rejected",
+     "permission_decision": {
+      "decision": "reject"
+     }
+    }
+   ],
+   "name": "user-rejected with a reject",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unexecuted"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule"
+    }
+   ],
+   "name": "permission-rule beside explicit is_error false",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": false
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "user-rejected"
+    }
+   ],
+   "name": "user-rejected beside explicit is_error false",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": false
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": {
+      "decision": "accept",
+      "source": "user_temporary"
+     }
+    }
+   ],
+   "name": "permission-rule with an accept",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "permission-rule",
+     "permission_decision": {
+      "decision": "cancelled"
+     }
+    }
+   ],
+   "name": "permission-rule with a cancelled",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "automode-blocked"
+    }
+   ],
+   "name": "an unmeasured kind: automode-blocked",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "interrupted"
+    }
+   ],
+   "name": "an unmeasured kind: interrupted",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "cancelled"
+    }
+   ],
+   "name": "an unmeasured kind: cancelled",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": ""
+    }
+   ],
+   "name": "an empty kind",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": null
+    }
+   ],
+   "name": "a null kind",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": 5
+    }
+   ],
+   "name": "a numeric kind",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "non_execution_kind": "Permission-Rule"
+    }
+   ],
+   "name": "a kind in another case",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.299 executed Write, Edit and Bash results the operator allowed",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "source": "user_temporary"
+     }
+    }
+   ],
+   "name": "2.1.299 executed: accept by user_temporary",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_x",
+   "measured": "2.1.299 executed Writes a permissive hook allowed (claude-mods override)",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "reason_type": "hook",
+      "source": "hook"
+     }
+    }
+   ],
+   "name": "2.1.299 executed: accept by hook",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "source": "user_temporary"
+     }
+    }
+   ],
+   "name": "accept with explicit is_error false",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": false
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "accept",
+      "source": "user_temporary"
+     }
+    }
+   ],
+   "name": "accept with is_error true",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": true
+    }
+   ],
+   "verdict": "proceed"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "name": "an id-only entry",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "name": "an id-only entry beside explicit is_error false",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": false
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "reject"
+     }
+    }
+   ],
+   "name": "a reject with no kind",
+   "results": [
+    {
+     "id": "toolu_x",
+     "is_error": false
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "cancelled"
+     }
+    }
+   ],
+   "name": "a cancelled with no kind",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  },
+  {
+   "id": "toolu_x",
+   "meta": [
+    {
+     "id": "toolu_x",
+     "permission_decision": {
+      "decision": "ask"
+     }
+    }
+   ],
+   "name": "an unmeasured decision",
+   "results": [
+    {
+     "id": "toolu_x"
+    }
+   ],
+   "verdict": "unknown"
+  }
+ ],
+ "measured": [
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "copies": [
+    "buddy-claude-compaction-tmmttwu9"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_a69c308fdb324fd0abd1fd6bb996b72c_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "fa7aeb10-53cd-412a-ae17-185e9aba5fe3",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_a69c308fdb324fd0abd1fd6bb996b72c_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "8207c49f-34a0-4a88-a740-22f9dc13dc4c"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "a07-rerun/claude-compaction-a1",
+   "uses": [
+    {
+     "id": "toolu_buddy_a69c308fdb324fd0abd1fd6bb996b72c_0",
+     "name": "Write",
+     "path": "/fixture/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_a69c308fdb324fd0abd1fd6bb996b72c_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-compaction-tmmttwu9"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_a69c308fdb324fd0abd1fd6bb996b72c_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "fa7aeb10-53cd-412a-ae17-185e9aba5fe3",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "89952842-894f-4a71-806f-c3a363762354"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-compaction-a1",
+   "uses": [
+    {
+     "id": "toolu_buddy_a69c308fdb324fd0abd1fd6bb996b72c_1",
+     "name": "Write",
+     "path": "/fixture/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_a69c308fdb324fd0abd1fd6bb996b72c_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/interrupt_active/claude_worker/claude.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-interrupted-k_c958q9/interrupt_active"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_19bb66e0a9c5407dbe897fa61852449f_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "307589ff-7536-4b6e-9fba-616a3da02b5f",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/interrupt_active/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "c8234a07-56d1-4fc9-aa76-6bef225bb77b"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/interrupt_active/claude_worker/claude.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-interrupted-a1/interrupt_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_19bb66e0a9c5407dbe897fa61852449f_1",
+     "name": "Write",
+     "path": "/fixture/interrupt_active/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_19bb66e0a9c5407dbe897fa61852449f_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "copies": [
+    "buddy-claude-interrupted-k_c958q9/interrupt_active"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_19bb66e0a9c5407dbe897fa61852449f_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "307589ff-7536-4b6e-9fba-616a3da02b5f",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_19bb66e0a9c5407dbe897fa61852449f_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "f68b336e-2ba9-48e5-bdf6-8b3ca051ce0b"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "a07-rerun/claude-interrupted-a1/interrupt_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_19bb66e0a9c5407dbe897fa61852449f_0",
+     "name": "Write",
+     "path": "/fixture/interrupt_active/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_19bb66e0a9c5407dbe897fa61852449f_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "copies": [
+    "buddy-claude-interrupted-k_c958q9/interrupt_approval"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_c6ee4b80392847fb87b0add12f286bf8_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "2e98abb2-570c-43a3-bc9c-26f432e3d624",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_c6ee4b80392847fb87b0add12f286bf8_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "35881294-9c57-45a6-b672-88f18297e9ad"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "a07-rerun/claude-interrupted-a1/interrupt_approval",
+   "uses": [
+    {
+     "id": "toolu_buddy_c6ee4b80392847fb87b0add12f286bf8_0",
+     "name": "Write",
+     "path": "/fixture/interrupt_approval/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_c6ee4b80392847fb87b0add12f286bf8_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/interrupt_approval/claude_worker/claude.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-interrupted-k_c958q9/interrupt_approval"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_c6ee4b80392847fb87b0add12f286bf8_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "2e98abb2-570c-43a3-bc9c-26f432e3d624",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/interrupt_approval/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "722c0e84-cfc5-463a-aaaf-62a970aab1ce"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/interrupt_approval/claude_worker/claude.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-interrupted-a1/interrupt_approval",
+   "uses": [
+    {
+     "id": "toolu_buddy_c6ee4b80392847fb87b0add12f286bf8_1",
+     "name": "Write",
+     "path": "/fixture/interrupt_approval/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_c6ee4b80392847fb87b0add12f286bf8_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "copies": [
+    "buddy-claude-interrupted-k_c958q9/interrupt_approval"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_26019cbb609e43f696232c17bf71d05f_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "2e98abb2-570c-43a3-bc9c-26f432e3d624",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_26019cbb609e43f696232c17bf71d05f_0",
+      "non_execution_kind": "user-rejected"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "e5b4bdd1-82e8-40a7-bcab-1db8e19ba427"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "a07-rerun/claude-interrupted-a1/interrupt_approval",
+   "uses": [
+    {
+     "id": "toolu_buddy_26019cbb609e43f696232c17bf71d05f_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_26019cbb609e43f696232c17bf71d05f_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "copies": [
+    "buddy-claude-interrupted-compaction-hf308lul/completed"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_b10c8e4f5d434a6c8288c16057e20275_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9ca02c93-75ec-46d0-b37a-83392640b1e6",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_b10c8e4f5d434a6c8288c16057e20275_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "95b4e842-c06d-444f-b06b-7c8d3c66a275"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "a07-rerun/claude-interrupted-compaction-a1/completed",
+   "uses": [
+    {
+     "id": "toolu_buddy_b10c8e4f5d434a6c8288c16057e20275_0",
+     "name": "Write",
+     "path": "/fixture/completed/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_b10c8e4f5d434a6c8288c16057e20275_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/completed/claude_worker/claude.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-interrupted-compaction-hf308lul/completed"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_b10c8e4f5d434a6c8288c16057e20275_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9ca02c93-75ec-46d0-b37a-83392640b1e6",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/completed/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "c229c837-0fa8-4983-899b-50c14d09c5b6"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/completed/claude_worker/claude.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-interrupted-compaction-a1/completed",
+   "uses": [
+    {
+     "id": "toolu_buddy_b10c8e4f5d434a6c8288c16057e20275_1",
+     "name": "Write",
+     "path": "/fixture/completed/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_b10c8e4f5d434a6c8288c16057e20275_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "copies": [
+    "buddy-claude-mods-8ooykk5d/native-gate-control"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "67904400-10da-4624-831d-15f52a38d7d9",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "253ee38e-562e-401e-93e5-e20e32b7fa3b"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "a07-rerun/claude-mods-a1/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-gate-control/work/allowed.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-mods-8ooykk5d/native-gate-control"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "67904400-10da-4624-831d-15f52a38d7d9",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-gate-control/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "4ae7e8e8-105a-4614-95a1-28441944dc17"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-gate-control/work/allowed.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-mods-a1/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/held.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-mods-8ooykk5d/native-mod-override"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "50cfe4e5-8d83-4f75-a979-1dfc40f2a06b",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/held.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "b3ba733c-1e96-45c8-92ce-4ded147541c0"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/held.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-mods-a1/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/allowed.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-mods-8ooykk5d/native-mod-override"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "50cfe4e5-8d83-4f75-a979-1dfc40f2a06b",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "cb168865-d2f3-4ce3-8684-09df34e944be"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/allowed.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-mods-a1/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "copies": [
+    "buddy-claude-resume-3dlfdr9s"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_33245b26c36c43459e6c9382b015e0e9_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "b64f0d11-9ac0-4690-8601-f514c36a7642",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_33245b26c36c43459e6c9382b015e0e9_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "661405cd-035d-4533-ab91-6194985f0bba"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "a07-rerun/claude-resume-a1",
+   "uses": [
+    {
+     "id": "toolu_buddy_33245b26c36c43459e6c9382b015e0e9_0",
+     "name": "Write",
+     "path": "/fixture/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_33245b26c36c43459e6c9382b015e0e9_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
+   },
+   "copies": [
+    "buddy-claude-resume-3dlfdr9s"
+   ],
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_33245b26c36c43459e6c9382b015e0e9_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "b64f0d11-9ac0-4690-8601-f514c36a7642",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "80cb4385-ea19-40aa-b0de-08430cd01633"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
+   },
+   "source": "a07-rerun/claude-resume-a1",
+   "uses": [
+    {
+     "id": "toolu_buddy_33245b26c36c43459e6c9382b015e0e9_1",
+     "name": "Write",
+     "path": "/fixture/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_33245b26c36c43459e6c9382b015e0e9_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "23320211-6aed-4d00-aaaf-8493a77b4e9c",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "9103d877-8666-43ea-b1c1-b7ebb6cdde29"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-mods-o3bq6h7b/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-gate-control/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "23320211-6aed-4d00-aaaf-8493a77b4e9c",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-gate-control/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "9fa7a0f2-e86f-427a-932f-4dbca79a503b"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-gate-control/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-mods-o3bq6h7b/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/held.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "687c515f-01e9-48e5-aace-ec55b68b9d47",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/held.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "0d261cc4-05bd-4116-8349-031e00b1523e"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/held.txt"
+    ]
+   },
+   "source": "buddy-claude-mods-o3bq6h7b/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "687c515f-01e9-48e5-aace-ec55b68b9d47",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "1577e247-c640-4e2f-881d-969e59a6b70a"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-mods-o3bq6h7b/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c134253b-3a00-43f1-bca1-a0fc2a68186a",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "1929e7c4-0e6a-4245-a10a-e21b2a4fd032"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-mods-sqgvqnms/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-gate-control/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c134253b-3a00-43f1-bca1-a0fc2a68186a",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-gate-control/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "2f15f3a5-c4a3-4527-96ca-cda9c413ccb7"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-gate-control/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-mods-sqgvqnms/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/held.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "794db82c-1854-4f8f-921a-05593d37f7b4",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/held.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "06c7f12e-4f47-4a4d-8c20-237bc3b43cc6"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/held.txt"
+    ]
+   },
+   "source": "buddy-claude-mods-sqgvqnms/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "794db82c-1854-4f8f-921a-05593d37f7b4",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "13aea93f-4845-46c6-9f4f-219cb7e70515"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/native-mod-override/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-mods-sqgvqnms/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "762489b4-8c6e-42ef-b41d-d396d67f2f5d",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "31d800a2-d97b-45b3-8ae4-f956eb27b163"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-native-fp6u8nrc",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": true,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_3",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "762489b4-8c6e-42ef-b41d-d396d67f2f5d",
+    "tool_use_result": {
+     "filePath": "/fixture/work/allowed.txt",
+     "newString": "<elided>",
+     "oldString": "<elided>",
+     "originalFile": "<elided>",
+     "replaceAll": "<elided>",
+     "structuredPatch": "<elided>",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "dba21a29-2d7e-4cdc-85fd-99ffc25f0661"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-fp6u8nrc",
+   "uses": [
+    {
+     "id": "toolu_buddy_3",
+     "name": "Edit",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "762489b4-8c6e-42ef-b41d-d396d67f2f5d",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "f71973fe-519a-42df-8442-872b7def1da8"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-fp6u8nrc",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/work/guarded.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "762489b4-8c6e-42ef-b41d-d396d67f2f5d",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "fb7b09ae-fbf0-4887-bba5-cfd4bc929e83"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-fp6u8nrc",
+   "uses": [
+    {
+     "id": "toolu_buddy_2",
+     "name": "Write",
+     "path": "/fixture/work/operator-denied.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "8e89cf72-1f07-4335-9e32-63cd72d7a7ae",
+    "tool_use_result": {
+     "filePath": "/fixture/work/allowed.txt",
+     "type": "create"
+    },
+    "type": "user",
+    "uuid": "1d51f3ef-39b2-4b06-a594-806277b472b7"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-native-gaxfxy2q",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "8e89cf72-1f07-4335-9e32-63cd72d7a7ae",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "7a00e0cb-697a-4bed-ae21-c3ec7b311bd1"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-gaxfxy2q",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/work/guarded.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "8e89cf72-1f07-4335-9e32-63cd72d7a7ae",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "95d22246-8465-4d55-8ced-3e80db1afdea"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-gaxfxy2q",
+   "uses": [
+    {
+     "id": "toolu_buddy_2",
+     "name": "Write",
+     "path": "/fixture/work/operator-denied.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c322fcbb-0983-4095-bc21-fcbdfc318d0a",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "7058d18a-2d80-42d6-8a72-62828c882301"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-llzl5s0v",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/work/guarded.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c322fcbb-0983-4095-bc21-fcbdfc318d0a",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "aab805fe-dc5f-4034-858b-3e9c094f980f"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-native-llzl5s0v",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": true,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_3",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c322fcbb-0983-4095-bc21-fcbdfc318d0a",
+    "tool_use_result": {
+     "filePath": "/fixture/work/allowed.txt",
+     "newString": "<elided>",
+     "oldString": "<elided>",
+     "originalFile": "<elided>",
+     "replaceAll": "<elided>",
+     "structuredPatch": "<elided>",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "b4684d25-d7db-4c7a-840b-8e55206dbecb"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-llzl5s0v",
+   "uses": [
+    {
+     "id": "toolu_buddy_3",
+     "name": "Edit",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c322fcbb-0983-4095-bc21-fcbdfc318d0a",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "c7652fca-8678-461e-a7c9-11d15fb4e934"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-llzl5s0v",
+   "uses": [
+    {
+     "id": "toolu_buddy_2",
+     "name": "Write",
+     "path": "/fixture/work/operator-denied.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "808bcf9f-711c-40dc-86ef-6a6ad2347e92",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "4ec73f17-495d-4cc9-a454-21173e77d892"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-t8gkgw0q",
+   "uses": [
+    {
+     "id": "toolu_buddy_2",
+     "name": "Write",
+     "path": "/fixture/work/operator-denied.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "808bcf9f-711c-40dc-86ef-6a6ad2347e92",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "cca4113d-c0bb-48d2-9f2c-f0340216aad4"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-t8gkgw0q",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/work/guarded.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "808bcf9f-711c-40dc-86ef-6a6ad2347e92",
+    "tool_use_result": {
+     "filePath": "/fixture/work/allowed.txt",
+     "type": "create"
+    },
+    "type": "user",
+    "uuid": "fa4756be-d64c-4659-b014-57c7551961aa"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/work/allowed.txt"
+    ]
+   },
+   "source": "buddy-claude-native-t8gkgw0q",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_d73a738478844107a9a3ca6ab7fefb37_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "108fa489-5f98-4754-9b7d-9dd4d1b2a4f7",
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "7dfc7ae4-0caa-41e8-b532-0a11d0b3f7c7"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": [
+     "/fixture/claude_worker/claude.txt"
+    ]
+   },
+   "source": "buddy-recovery-2pr2uki7",
+   "uses": [
+    {
+     "id": "toolu_buddy_d73a738478844107a9a3ca6ab7fefb37_2",
+     "name": "Write",
+     "path": "/fixture/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_d73a738478844107a9a3ca6ab7fefb37_2": "proceed"
+   },
+   "version": "2.1.291"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "29bf8449-b5a9-4012-8358-4ee40d073856",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "18cc897a-26a7-40a1-8f23-b3f3fcc0530a"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-compaction-1r0rafd9",
+   "uses": [
+    {
+     "id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_1",
+     "name": "Write",
+     "path": "/fixture/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_77282b0d559f4dbf9836c832df314166_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "29bf8449-b5a9-4012-8358-4ee40d073856",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "26206cf2-8ca2-4db6-b0e0-3b5f974b9bde"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-compaction-1r0rafd9",
+   "uses": [
+    {
+     "id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_0",
+     "name": "Write",
+     "path": "/fixture/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_77282b0d559f4dbf9836c832df314166_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_c4f70cd5acc94090bff54ada0706d759_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "29bf8449-b5a9-4012-8358-4ee40d073856",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_c4f70cd5acc94090bff54ada0706d759_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "843d4b43-8eab-4eb8-b9c2-124cc0bd01c9"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-compaction-1r0rafd9",
+   "uses": [
+    {
+     "id": "toolu_buddy_c4f70cd5acc94090bff54ada0706d759_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_c4f70cd5acc94090bff54ada0706d759_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "29bf8449-b5a9-4012-8358-4ee40d073856",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_2",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "c650a9d7-4157-4550-af64-492b8895775b"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-compaction-1r0rafd9",
+   "uses": [
+    {
+     "id": "toolu_buddy_77282b0d559f4dbf9836c832df314166_2",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_77282b0d559f4dbf9836c832df314166_2": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "b84719d8-8112-452f-bbfe-41213e167c84",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/completed/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "555fd2dc-1fec-4e7e-932f-d42df2d16410"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/completed",
+   "uses": [
+    {
+     "id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_1",
+     "name": "Write",
+     "path": "/fixture/completed/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "b84719d8-8112-452f-bbfe-41213e167c84",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "5b871bbc-6669-43dd-be7f-0422ad5c21e7"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/completed",
+   "uses": [
+    {
+     "id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_0",
+     "name": "Write",
+     "path": "/fixture/completed/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "b84719d8-8112-452f-bbfe-41213e167c84",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_2",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "d3994c3d-afbb-4468-bc14-67743255c502"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/completed",
+   "uses": [
+    {
+     "id": "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_2",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_99c0c4ab7c8c47f09f71568692ef81a0_2": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_2f4b92d4e9904e37b9362448f0c51553_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "b84719d8-8112-452f-bbfe-41213e167c84",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2f4b92d4e9904e37b9362448f0c51553_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "f69af824-3bb2-466d-8f5f-1c1e451ea718"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/completed",
+   "uses": [
+    {
+     "id": "toolu_buddy_2f4b92d4e9904e37b9362448f0c51553_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2f4b92d4e9904e37b9362448f0c51553_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_01a65d25cfa44f1cb36578a85b3b38e0_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "fbfcc77b-8b23-49d3-b0c1-87d286d05c52",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_01a65d25cfa44f1cb36578a85b3b38e0_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "ab007994-cb0e-4e4d-b2bd-a068d8e5a49e"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/crash_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_01a65d25cfa44f1cb36578a85b3b38e0_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_01a65d25cfa44f1cb36578a85b3b38e0_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_59145472b1f54c9086e0eef7bdeca213_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "d4781cc0-7ad2-4aff-aa5e-751242b43ae2",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_59145472b1f54c9086e0eef7bdeca213_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "779a1d79-7936-4f58-8056-b7c384220684"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/interrupt_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_59145472b1f54c9086e0eef7bdeca213_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_59145472b1f54c9086e0eef7bdeca213_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_754755b26b47424abbe7de84b5e2e6e7_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "2cc9b41d-7eb4-43cd-a82f-ac6efc76a26a",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_754755b26b47424abbe7de84b5e2e6e7_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "be483f61-1e14-4c94-87d6-5d720a86b3f4"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/lost_boundary",
+   "uses": [
+    {
+     "id": "toolu_buddy_754755b26b47424abbe7de84b5e2e6e7_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_754755b26b47424abbe7de84b5e2e6e7_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_4ff4dadfabb24a0bb0e363c49376f333_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "3f5979fe-590d-4946-ad70-f495cb6ce04f",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_4ff4dadfabb24a0bb0e363c49376f333_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "5a64d036-4952-424c-a7ef-8f25e330b794"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-compaction-2tslikjz/lost_result",
+   "uses": [
+    {
+     "id": "toolu_buddy_4ff4dadfabb24a0bb0e363c49376f333_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_4ff4dadfabb24a0bb0e363c49376f333_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_d44701cfb60742abab5bbfd7e774d3e1_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "e36b66ac-8eb6-418c-bcc9-1c0fce011857",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_d44701cfb60742abab5bbfd7e774d3e1_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "33cf6177-47c4-4b18-91cd-12a2bc5e5f79"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/crash_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_d44701cfb60742abab5bbfd7e774d3e1_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_d44701cfb60742abab5bbfd7e774d3e1_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "064988ab-33c8-4bd8-b617-e02e00ec9768",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_2",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "15b6908b-b88e-4fde-9339-da1732338343"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_2",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_22a9e42c28c845c89baebb105a36476e_2": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_75394758dc6e46c483a2289dbfc3ec25_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "064988ab-33c8-4bd8-b617-e02e00ec9768",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_75394758dc6e46c483a2289dbfc3ec25_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "54d008a8-b5d7-4baa-aaa3-d35b93609e38"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_75394758dc6e46c483a2289dbfc3ec25_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_75394758dc6e46c483a2289dbfc3ec25_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "064988ab-33c8-4bd8-b617-e02e00ec9768",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "76c439bf-fe67-4afc-ae6f-93651b75d972"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_0",
+     "name": "Write",
+     "path": "/fixture/interrupt_active/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_22a9e42c28c845c89baebb105a36476e_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "064988ab-33c8-4bd8-b617-e02e00ec9768",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/interrupt_active/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "aa4a1857-6dd0-4576-8def-a4928b6f7ec6"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_active",
+   "uses": [
+    {
+     "id": "toolu_buddy_22a9e42c28c845c89baebb105a36476e_1",
+     "name": "Write",
+     "path": "/fixture/interrupt_active/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_22a9e42c28c845c89baebb105a36476e_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_feea24929b7644649cab83138b5a3459_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "262b7a46-950b-4370-9898-3cf4d6613ad2",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_feea24929b7644649cab83138b5a3459_2",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "1d025b66-6eb7-4aca-8a70-320f7e161441"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_approval",
+   "uses": [
+    {
+     "id": "toolu_buddy_feea24929b7644649cab83138b5a3459_2",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_feea24929b7644649cab83138b5a3459_2": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_feea24929b7644649cab83138b5a3459_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "262b7a46-950b-4370-9898-3cf4d6613ad2",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_feea24929b7644649cab83138b5a3459_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/interrupt_approval/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "2f036609-a5af-483f-a76b-a6ee4b3f8e69"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_approval",
+   "uses": [
+    {
+     "id": "toolu_buddy_feea24929b7644649cab83138b5a3459_1",
+     "name": "Write",
+     "path": "/fixture/interrupt_approval/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_feea24929b7644649cab83138b5a3459_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_ceebc0a482af4801a98b01f27059ca5b_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "262b7a46-950b-4370-9898-3cf4d6613ad2",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_ceebc0a482af4801a98b01f27059ca5b_0",
+      "non_execution_kind": "user-rejected"
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "ba67dd44-fc81-4c8a-aa6b-950e42690f9e"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_approval",
+   "uses": [
+    {
+     "id": "toolu_buddy_ceebc0a482af4801a98b01f27059ca5b_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_ceebc0a482af4801a98b01f27059ca5b_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_feea24929b7644649cab83138b5a3459_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "262b7a46-950b-4370-9898-3cf4d6613ad2",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_feea24929b7644649cab83138b5a3459_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "fbfdf1c3-f29a-434a-a12e-8cb6de16ad76"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-interrupted-xsv974v4/interrupt_approval",
+   "uses": [
+    {
+     "id": "toolu_buddy_feea24929b7644649cab83138b5a3459_0",
+     "name": "Write",
+     "path": "/fixture/interrupt_approval/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_feea24929b7644649cab83138b5a3459_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "59068ab1-4009-4ee2-9b3b-e5cf802c40c6",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "5522025d-ebdd-426d-8d0e-6cadf95e8c59"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-mods-wqyht_jh/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "59068ab1-4009-4ee2-9b3b-e5cf802c40c6",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-gate-control/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "d638dfda-12c5-40f7-aa0d-582b77f76fba"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-mods-wqyht_jh/native-gate-control",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-gate-control/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c2d90634-8637-4ec1-a3b4-ac8280b19220",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_1",
+      "permission_decision": {
+       "decision": "accept",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "7df1079e-73af-4e7a-9931-8342ce8a3e97"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-mods-wqyht_jh/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "c2d90634-8637-4ec1-a3b4-ac8280b19220",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "permission_decision": {
+       "decision": "accept",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/native-mod-override/work/held.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "843b0f7e-57d0-49a4-8958-451052e985e4"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-mods-wqyht_jh/native-mod-override",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/native-mod-override/work/held.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_3",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "72321693-ac68-49ea-bd89-915a225cbfd4",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_3",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "filePath": "/fixture/work/allowed.txt",
+     "newString": "<elided>",
+     "oldString": "<elided>",
+     "originalFile": "<elided>",
+     "replaceAll": "<elided>",
+     "structuredPatch": "<elided>",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "4d420663-9d46-4bd5-9002-ff4373cfca8c"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-5akqffom",
+   "uses": [
+    {
+     "id": "toolu_buddy_3",
+     "name": "Edit",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "72321693-ac68-49ea-bd89-915a225cbfd4",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "4e336dfe-1693-4ac0-b3bf-1ff8cfb5bdd3"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-5akqffom",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/work/guarded.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "72321693-ac68-49ea-bd89-915a225cbfd4",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "source": "user_reject"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "f35a9eb2-311c-4074-a409-84be8a0d2d66"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-5akqffom",
+   "uses": [
+    {
+     "id": "toolu_buddy_2",
+     "name": "Write",
+     "path": "/fixture/work/operator-denied.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "72321693-ac68-49ea-bd89-915a225cbfd4",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "fc454d01-80f5-40a0-bfa3-f47c18203b4a"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-5akqffom",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "d38ac3d3-b677-46d5-8a4a-97f8c0a785cd",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "4ea65032-28e9-4602-b406-eee8ee9302cb"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-job1wipi",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "d38ac3d3-b677-46d5-8a4a-97f8c0a785cd",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "774131d3-f1df-4943-bf9e-138add176902"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-job1wipi",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/work/guarded.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_3",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "d38ac3d3-b677-46d5-8a4a-97f8c0a785cd",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_3",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "filePath": "/fixture/work/allowed.txt",
+     "newString": "<elided>",
+     "oldString": "<elided>",
+     "originalFile": "<elided>",
+     "replaceAll": "<elided>",
+     "structuredPatch": "<elided>",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "7779622a-b0fb-4b2b-89d1-145b00d71c7a"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-job1wipi",
+   "uses": [
+    {
+     "id": "toolu_buddy_3",
+     "name": "Edit",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "d38ac3d3-b677-46d5-8a4a-97f8c0a785cd",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "source": "user_reject"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "f0664b74-b203-467f-bb05-913891af42b1"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-job1wipi",
+   "uses": [
+    {
+     "id": "toolu_buddy_2",
+     "name": "Write",
+     "path": "/fixture/work/operator-denied.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "bca168f0-71b1-4664-8a3a-52722e3b1430",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_2",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "source": "user_reject"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "176b1a86-dbb0-4505-9092-090d3b5fc313"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-pbdxdzk0",
+   "uses": [
+    {
+     "id": "toolu_buddy_2",
+     "name": "Write",
+     "path": "/fixture/work/operator-denied.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_2": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "bca168f0-71b1-4664-8a3a-52722e3b1430",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/work/allowed.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "create",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "5dc37b64-c00a-4435-a5eb-1aa0b0fcc37f"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-pbdxdzk0",
+   "uses": [
+    {
+     "id": "toolu_buddy_1",
+     "name": "Write",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_1": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "bca168f0-71b1-4664-8a3a-52722e3b1430",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "89af1303-bbbc-42e9-a001-b6362a7a4f5d"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-native-pbdxdzk0",
+   "uses": [
+    {
+     "id": "toolu_buddy_0",
+     "name": "Write",
+     "path": "/fixture/work/guarded.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_3",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "bca168f0-71b1-4664-8a3a-52722e3b1430",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_3",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "filePath": "/fixture/work/allowed.txt",
+     "newString": "<elided>",
+     "oldString": "<elided>",
+     "originalFile": "<elided>",
+     "replaceAll": "<elided>",
+     "structuredPatch": "<elided>",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "a9901c3b-fd65-4fed-8e5a-38382de3529a"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-native-pbdxdzk0",
+   "uses": [
+    {
+     "id": "toolu_buddy_3",
+     "name": "Edit",
+     "path": "/fixture/work/allowed.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_ec6dedbe47d04399be2f52312316c8f0_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "3e4f3857-dc1f-4a42-8d42-9b3c679b09db",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_ec6dedbe47d04399be2f52312316c8f0_0",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "4fc10f06-107c-4756-9434-f1b5f34a5f49"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-resume-yktkmy0s",
+   "uses": [
+    {
+     "id": "toolu_buddy_ec6dedbe47d04399be2f52312316c8f0_0",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_ec6dedbe47d04399be2f52312316c8f0_0": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": true,
+       "tool_use_id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_0",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "3e4f3857-dc1f-4a42-8d42-9b3c679b09db",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_0",
+      "non_execution_kind": "permission-rule",
+      "permission_decision": {
+       "decision": "reject",
+       "reason_type": "hook",
+       "source": "hook"
+      }
+     }
+    ],
+    "tool_use_result": "<str>",
+    "type": "user",
+    "uuid": "6779d218-e3af-485a-8163-98cb2952aaa1"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-resume-yktkmy0s",
+   "uses": [
+    {
+     "id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_0",
+     "name": "Write",
+     "path": "/fixture/claude_worker/codex.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_0": "unexecuted"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "is_error": false,
+       "tool_use_id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_2",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "3e4f3857-dc1f-4a42-8d42-9b3c679b09db",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_2",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "interrupted": "<elided>",
+     "isImage": "<elided>",
+     "noOutputExpected": "<elided>",
+     "stderr": "<elided>",
+     "stdout": "<elided>"
+    },
+    "type": "user",
+    "uuid": "b54dd51e-c8fe-4a32-837f-7f2880b9acca"
+   },
+   "outcome": {
+    "lost": false,
+    "renews": []
+   },
+   "source": "buddy-claude-resume-yktkmy0s",
+   "uses": [
+    {
+     "id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_2",
+     "name": "Bash"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_2": "proceed"
+   },
+   "version": "2.1.299"
+  },
+  {
+   "before": {
+    "lost": false,
+    "renews": []
+   },
+   "frame": {
+    "message": {
+     "content": [
+      {
+       "tool_use_id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_1",
+       "type": "tool_result"
+      }
+     ],
+     "role": "user"
+    },
+    "parent_tool_use_id": null,
+    "session_id": "3e4f3857-dc1f-4a42-8d42-9b3c679b09db",
+    "tool_result_meta": [
+     {
+      "id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_1",
+      "permission_decision": {
+       "decision": "accept",
+       "source": "user_temporary"
+      }
+     }
+    ],
+    "tool_use_result": {
+     "content": "<elided>",
+     "filePath": "/fixture/claude_worker/claude.txt",
+     "originalFile": "<elided>",
+     "structuredPatch": "<elided>",
+     "type": "update",
+     "userModified": "<elided>"
+    },
+    "type": "user",
+    "uuid": "c8a97996-2a26-490d-b70c-0770532ae111"
+   },
+   "outcome": {
+    "lost": true,
+    "renews": []
+   },
+   "source": "buddy-claude-resume-yktkmy0s",
+   "uses": [
+    {
+     "id": "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_1",
+     "name": "Write",
+     "path": "/fixture/claude_worker/claude.txt"
+    }
+   ],
+   "verdicts": {
+    "toolu_buddy_3cf2f6a16dbf4e2586ee24db68e89021_1": "proceed"
+   },
+   "version": "2.1.299"
+  }
+ ]
+}
