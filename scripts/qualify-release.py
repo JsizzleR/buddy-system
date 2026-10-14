@@ -214,7 +214,12 @@ def retain(harness, package, version, sha, home, copier=ditto):
 # ------------------------------------------------------------------ the runs
 
 DIRECT = {"codex-shell-lifecycle-edge"}  # runs codex itself, no adapter
-EXTRA = {"codex-shell-lifecycle-edge": ["--app-server", "--lifecycle", "--edge-cases", "--shell-patch"]}
+# The Claude gate suite runs traced: the frame shapes D-078 renews on (a
+# Write's witness, the Edit's omitted is_error) are only in the observer's
+# trace, and check-claude-gate.py refuses an untraced run on a version where
+# Write omission is qualified (renewal_matched_result).
+EXTRA = {"codex-shell-lifecycle-edge": ["--app-server", "--lifecycle", "--edge-cases", "--shell-patch"],
+         "claude": ["--trace-native"]}
 
 
 def runner_argv(harness, suite, runner, artifact, peer):

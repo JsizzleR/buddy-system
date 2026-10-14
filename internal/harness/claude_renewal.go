@@ -22,9 +22,14 @@ package harness
 //     filePath is byte-for-byte the recorded input path, the frame carries
 //     exactly one tool_result, and no tool_result_meta marks it unexecuted.
 //     Anything else with is_error omitted renews nothing and reports renewal
-//     coverage unknown, because a write may have succeeded unseen. Edit and
-//     NotebookEdit success shapes were not measured: they renew only on an
-//     explicit false.
+//     coverage unknown, because a write may have succeeded unseen. A
+//     successful Edit was measured on 2.1.291 and 2.1.299 (2026-10-13,
+//     qualify-claude.py): is_error OMITTED, and a tool_use_result with no
+//     `type` (filePath, oldString, newString, originalFile, structuredPatch,
+//     replaceAll, userModified). One sample per version and no failed-Edit
+//     control, so Edit omission stays unqualified: an Edit renews only on an
+//     explicit false, which no measured version sends. NotebookEdit was not
+//     measured.
 //
 // Bash renews nothing, `sed -i` included: no qualified path extraction. A
 // subagent's result (non-null parent_tool_use_id) renews nothing. A result

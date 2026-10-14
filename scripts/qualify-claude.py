@@ -506,8 +506,8 @@ with open(TRACE,'a') as log:
     projection={k:v[k] for k in keys if k in v}
     projection['native_keys']=sorted(v)
     # Claim renewal (D-078) classifies tool results by shape: record ids,
-    # whether is_error is present, the tool_use_result type and filePath,
-    # and each tool_use's name and path keys. Never content or input bodies.
+    # whether is_error is present, the tool_use_result type, filePath and key
+    # names, and each tool_use's name and path keys. Never content or input bodies.
     content=(v.get('message') or {}).get('content')
     if isinstance(content,list):
      projection['tool_blocks']=[{'type':b.get('type'),'id':b.get('id',b.get('tool_use_id')),'name':b.get('name'),
@@ -515,7 +515,7 @@ with open(TRACE,'a') as log:
       'path':(b.get('input') or {}).get('file_path') if isinstance(b.get('input'),dict) else None}
       for b in content if isinstance(b,dict) and b.get('type') in ('tool_use','tool_result')]
     shape=v.get('tool_use_result')
-    if isinstance(shape,dict):projection['tool_use_result']={'type':shape.get('type'),'filePath':shape.get('filePath')}
+    if isinstance(shape,dict):projection['tool_use_result']={'type':shape.get('type'),'filePath':shape.get('filePath'),'keys':sorted(shape)}
     elif shape is not None:projection['tool_use_result']='<'+type(shape).__name__+'>'
     if 'tool_result_meta' in v:projection['tool_result_meta']=v['tool_result_meta']
     log.write(json.dumps(projection)+'\\n');log.flush()
@@ -545,6 +545,29 @@ def claim_renewals(work, root):
         return {slug: renewed for slug, renewed in conn.execute("SELECT slug, renewed FROM claims WHERE state='open'")}
 
 
+def edit_shape(trace, path):
+    """The native shape of the one main-thread Edit of `path` and its result,
+    from the metadata observer's trace (D-078's open question): whether the
+    tool_result carries is_error (and its value), the frame's tool_use_result
+    type and filePath, how many tool blocks share the frame, and whether
+    tool_result_meta is present. Shapes only, never content. None untraced."""
+    if not trace.is_file():
+        return None
+    rows = [json.loads(x) for x in trace.read_text().splitlines() if x.strip()]
+    uses = [b["id"] for v in rows if v.get("type") == "assistant" and v.get("parent_tool_use_id") is None
+            for b in v.get("tool_blocks") or [] if b.get("type") == "tool_use" and b.get("name") == "Edit" and b.get("path") == path]
+    frames = [v for v in rows if v.get("type") == "user" and len(uses) == 1
+              for b in v.get("tool_blocks") or [] if b.get("type") == "tool_result" and b.get("id") == uses[0]]
+    if len(uses) != 1 or len(frames) != 1:
+        return {"edit_uses": len(uses), "result_frames": len(frames)}
+    v = frames[0]
+    block = next(b for b in v["tool_blocks"] if b.get("id") == uses[0])
+    return {"edit_uses": 1, "result_frames": 1, "tool_use_id": uses[0], "is_error": block.get("is_error"),
+            "tool_use_result": v.get("tool_use_result"), "tool_blocks_in_frame": len(v["tool_blocks"]),
+            "tool_result_meta_present": "tool_result_meta" in v, "is_replay": v.get("isReplay"),
+            "parent_tool_use_id": v.get("parent_tool_use_id")}
+
+
 def renewal_evidence(work, root, receipt, before, identity, checks, version):
     """Claim renewal from a completed native Write (F-26, D-078), read from the
     ledger and the adapter's journal after the turn's idle. The journal order
@@ -555,14 +578,17 @@ def renewal_evidence(work, root, receipt, before, identity, checks, version):
     version where that omission was measured with its create/update witness
     (WRITE_RENEWAL_QUALIFIED, mirroring claudeWriteOmissionQualified). On any
     other version the expected outcome is the conservative one: the written
-    claim does not move and the journal reports renewal coverage unknown."""
+    claim does not move and the journal reports renewal coverage unknown.
+    The Edit appended after the Write omits is_error on every measured
+    version and renews on none (Edit omission is unqualified)."""
     if version not in WRITE_RENEWAL_QUALIFIED:
         after = claim_renewals(work, root)
         journal = [json.loads(x) for x in pathlib.Path(str(receipt) + ".events").read_text().splitlines()]
         renewals = [r for r in journal if r.get("renewal")]
         checks["unqualified_write_renews_nothing"] = all(after.get(s) == before.get(s) is not None
                                                          for s in ("worker-allowed", "worker-denied", "worker-control", "held"))
-        checks["unqualified_write_reports_coverage_unknown"] = bool(renewals) and all(
+        # One row for the Write's result and one for the Edit's, each unknown.
+        checks["unqualified_write_reports_coverage_unknown"] = len(renewals) == 2 and all(
             r["renewal"]["coverage"]["state"] == "unknown" and r["renewal"]["result"]["state"] == "not_attempted" for r in renewals)
         return {"before": before, "after": after, "journal": [r["renewal"] for r in renewals],
                 "unqualified": "Write omission semantics are measured only on " + ", ".join(WRITE_RENEWAL_QUALIFIED)}
@@ -581,7 +607,16 @@ def renewal_evidence(work, root, receipt, before, identity, checks, version):
     checks["renewal_held_claim_unmoved"] = after.get("held") == before.get("held") is not None
     checks["renewal_journalled_after_write_before_idle"] = None not in (allow_at, idle_at, first) and allow_at < first < idle_at
     checks["renewal_placed_only_the_written_path"] = placed == ["allowed.txt"]
-    checks["renewal_coverage_complete"] = bool(renewals) and all(r["renewal"]["coverage"]["state"] == "observed" for _, r in renewals)
+    # The Write's renewal is observed coverage. The Edit that follows it
+    # OMITS is_error too (measured 2026-10-13 on 2.1.291 and 2.1.299, with a
+    # tool_use_result that has no `type`), and Edit omission is not qualified
+    # (D-078), so its row must say coverage unknown and renew nothing: one
+    # applied row, then one not-attempted row, in that order.
+    unknown = [(i, r) for i, r in renewals if r["renewal"]["coverage"]["state"] == "unknown"]
+    checks["renewal_write_coverage_observed"] = bool(applied) and all(r["renewal"]["coverage"]["state"] == "observed" for _, r in applied)
+    checks["renewal_edit_omission_reports_coverage_unknown"] = (len(applied) == 1 and len(unknown) == 1 and
+        len(renewals) == 2 and unknown[0][1]["renewal"]["result"]["state"] == "not_attempted" and
+        unknown[0][1]["renewal"]["renewed_claims"] == 0 and idle_at is not None and applied[0][0] < unknown[0][0] < idle_at)
     checks["renewal_same_identity"] = bool(renewals) and all(r["identity"] == identity for _, r in renewals)
     return {"before": before, "after": after, "journal": [r["renewal"] for _, r in renewals],
             "observed_native_spellings": sorted({x for _, r in renewals for x in r["renewal"].get("paths") or []}),
@@ -710,6 +745,12 @@ def main():
         server.sequence = [("Write", {"file_path": str(work / name), "content": body}) for name, body in
             (("guarded.txt", "conflicting-write\n"), ("allowed.txt", "allowed-control\n"),
              ("operator-denied.txt", "must-not-exist\n"))]
+        # D-078's open question: what a SUCCESSFUL Edit's tool_result looks like
+        # natively (is_error explicitly false, or omitted like Write's), and so
+        # whether the adapter renews from it. One Edit of the file the allowed
+        # Write created, appended last so toolu_buddy_0..2 keep their meaning.
+        server.sequence.append(("Edit", {"file_path": str(work / "allowed.txt"), "old_string": "allowed-control",
+                                         "new_string": "allowed-edited"}))
         native_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{server.server_address[1]}"
         receipt = root / "worker.json"
         # main.go captures POSIX single quoting even for uncomplicated paths.
@@ -761,31 +802,38 @@ def main():
         adapter.send(request)
         wake = adapter.wait(lambda x: x.get("request_id") == "wake-1")
         checks["native_wake_replay_accepted"] = wake["wake_delivery"]["state"] == "delivered"
-        approvals = []
-        for expected, decision in (("allowed.txt", "allow"), ("operator-denied.txt", "deny")):
-            event = adapter.wait(lambda x: x.get("native_event", {}).get("kind") == "approval")
+        approvals, seen = [], []
+        for expected, decision, rid, check in (("allowed.txt", "allow", "operator-allow", "allowed.txt_waiting_approval"),
+                                               ("operator-denied.txt", "deny", "operator-deny", "operator-denied.txt_waiting_approval"),
+                                               ("allowed.txt", "allow", "operator-allow-edit", "edit_waiting_approval")):
+            event = adapter.wait(lambda x: x.get("native_event", {}).get("kind") == "approval" and
+                                 x["native_event"]["approval"]["id"] not in seen)
             approval = event["native_event"]["approval"]
+            seen.append(approval["id"])
             if pathlib.Path(approval["detail"]["input"]["file_path"]).name != expected:
                 raise RuntimeError("unexpected approval tool or path: " + json.dumps(approval))
             approvals.append(approval)
-            checks[expected + "_waiting_approval"] = event["state"] == {"state": "observed", "detail": "waiting_for_approval"}
-            operator_request = {"schema": SCHEMA, "id": "operator-" + decision, "operation": "approve", "identity": identity,
+            checks[check] = event["state"] == {"state": "observed", "detail": "waiting_for_approval"}
+            operator_request = {"schema": SCHEMA, "id": rid, "operation": "approve", "identity": identity,
                 "approval": {"id": approval["id"], "native_session_id": approval["native_session_id"],
                              "turn_id": approval["turn_id"], "decision": decision}}
-            if decision == "allow":
+            if rid == "operator-allow":
                 peer_request = dict(operator_request, id="peer-approval-refused")
                 adapter.send(peer_request)
                 peer = adapter.wait(lambda x: x.get("request_id") == "peer-approval-refused", permit_error=True)
                 checks["peer_cannot_approve"] = "unsupported control operation" in peer.get("error", "")
             adapter.send(operator_request, operator=True)
-            approved = adapter.wait(lambda x: x.get("request_id") == "operator-" + decision)
-            checks["operator_" + decision + "_submitted"] = approved["approval_delivery"]["state"] == "submitted"
+            approved = adapter.wait(lambda x: x.get("request_id") == rid)
+            checks[rid.replace("-", "_") + "_submitted"] = approved["approval_delivery"]["state"] == "submitted"
         native_result = adapter.wait(lambda x: x.get("native_event", {}).get("kind") == "result")
         checks["native_result_separate_from_completion"] = native_result["completion"]["state"] == "unknown" and bool(native_result["native_event"]["result_ref"])
         checks["conflicting_write_denied"] = (work / "guarded.txt").read_text() == "original\n"
-        checks["positive_write_allowed"] = (work / "allowed.txt").read_text() == "allowed-control\n"
-        checks["operator_denied_write_absent"] = not (work / "operator-denied.txt").exists()
         tool_outputs = {x["tool_use_id"]: x for request in server.requests for x in request["tool_outputs"]}
+        # The Write created the file and the Edit then changed it; an Edit
+        # cannot succeed on a file the Write did not create.
+        checks["positive_write_allowed"] = (work / "allowed.txt").read_text() == "allowed-edited\n"
+        checks["positive_edit_allowed"] = "toolu_buddy_3" in tool_outputs and not tool_outputs["toolu_buddy_3"].get("is_error")
+        checks["operator_denied_write_absent"] = not (work / "operator-denied.txt").exists()
         checks["denial_names_buddy_claim"] = "inside scope" in str(tool_outputs["toolu_buddy_0"].get("content")) and bool(tool_outputs["toolu_buddy_0"].get("is_error"))
         checks["operator_denial_reached_native"] = "Denied by the operator control interface" in str(tool_outputs["toolu_buddy_2"].get("content"))
         inspection = json.loads(run([buddy, "adapter", "inspect", "--session", identity["session_id"], "--incarnation", identity["incarnation"]], work, env))
@@ -805,6 +853,7 @@ def main():
         renewal_checks = {"claim_renewal_capability_declared": renewal_capability}
         result["renewal"] = renewal_evidence(work, root, receipt, renewal_before, identity, renewal_checks, args.claude_version)
         result["renewal"]["checks"] = renewal_checks
+        result["edit_measurement"] = edit_shape(root / "native-observations.jsonl", str(work / "allowed.txt"))
         before = len(server.requests)
         adapter.send(dict(request, id="wake-duplicate"))
         adapter.wait(lambda x: x.get("request_id") == "wake-duplicate")

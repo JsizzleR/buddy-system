@@ -706,7 +706,7 @@ SUITE_CHECKS = {
     "native_idle_translated", "idle_clears_pending_approvals", "result_bound_to_accepted_input",
     "duplicate_wake_not_replayed", "body_delivery_explicit", "second_idle_assignment_accepted",
     "second_result_has_own_input_identity", "fixture_only_expected_requests", "adapter_exited_successfully",
-    "adapter_stdout_fully_parsed"}
+    "adapter_stdout_fully_parsed", "edit_waiting_approval", "operator_allow_edit_submitted", "positive_edit_allowed"}
 TRACE_CHECKS = {"observed_native_children_exited"}
 MANAGED = "managed-hook-refusal/"
 
@@ -767,15 +767,22 @@ def validate(r, receipt_path):
             outputs()["toolu_buddy_0"].get("is_error") is True and
             'guarded.txt is inside scope "guarded.txt"' in str(outputs()["toolu_buddy_0"]["content"]) and
             not any(approval_file(v).name == "guarded.txt" for v in native("approval")))
-    e.check("allowed_control", lambda: e.text("work/allowed.txt") == "allowed-control\n" and
+    # The allowed Write creates the file and the allowed Edit (toolu_buddy_3,
+    # the last tool use) changes it, so the final text is the Edit's.
+    e.check("allowed_control", lambda: e.text("work/allowed.txt") == "allowed-edited\n" and
             not outputs()["toolu_buddy_1"].get("is_error") and
             str(e.root / "work/allowed.txt") in str(outputs()["toolu_buddy_1"]["content"]) and approval_file(native("approval")[0]) == e.root / "work/allowed.txt" and
             reply("operator-allow")["approval_delivery"]["state"] == "submitted")
     e.check("operator_denial", lambda: e.absent("work/operator-denied.txt") and
             outputs()["toolu_buddy_2"].get("is_error") is True and
             "Denied by the operator control interface" in str(outputs()["toolu_buddy_2"]["content"]) and
-            approval_file(native("approval")[1]) == e.root / "work/operator-denied.txt" and len(native("approval")) == 2 and
+            approval_file(native("approval")[1]) == e.root / "work/operator-denied.txt" and len(native("approval")) == 3 and
             reply("operator-deny")["approval_delivery"]["state"] == "submitted")
+    e.check("allowed_edit", lambda: "toolu_buddy_3" in outputs() and not outputs()["toolu_buddy_3"].get("is_error") and
+            approval_file(native("approval")[2]) == e.root / "work/allowed.txt" and
+            native("approval")[2]["native_event"]["approval"]["item_id"] == "toolu_buddy_3" and
+            reply("operator-allow-edit")["approval_delivery"]["state"] == "submitted" and
+            ev().index(reply("operator-deny")) < ev().index(reply("operator-allow-edit")))
     e.check("peer_cannot_approve", lambda: "unsupported control operation" in reply("peer-approval-refused")["error"] and
             "approval_delivery" not in reply("peer-approval-refused") and
             ev().index(reply("peer-approval-refused")) < ev().index(reply("operator-allow")))
@@ -789,15 +796,15 @@ def validate(r, receipt_path):
                 results[0]["native_event"]["result_status"] == "completed" and
                 ev().index(wake) < ev().index(results[0]) < ev().index(idles[0]) and
                 idles[0]["state"]["detail"] == "idle" and idles[0]["pending_approval"]["state"] == "observed_absent")
-    e.check("first_turn", lambda: turn("wake-1") and len(native("approval")) == 2 and
+    e.check("first_turn", lambda: turn("wake-1") and len(native("approval")) == 3 and
             all(v["native_event"]["approval"]["turn_id"] == reply("wake-1")["wake_delivery"]["turn_id"] for v in native("approval")))
     e.check("second_turn", lambda: turn("wake-2") and
             reply("wake-2")["wake_delivery"]["turn_id"] != reply("wake-1")["wake_delivery"]["turn_id"] and
             len({v["native_event"]["result_ref"] for v in native("result")}) == 2 == len(native("result")))
-    # Four requests for the first turn (0..3 tool results), one for the second;
+    # Five requests for the first turn (0..4 tool results), one for the second;
     # a replayed duplicate wake or a managed case that reached the provider adds one.
     e.check("duplicate_not_replayed", lambda: reply("wake-duplicate")["wake_delivery"] == reply("wake-1")["wake_delivery"] and
-            [len(v["tool_outputs"]) for v in e.json("provider-observations.json")] == [0, 1, 2, 3, 3])
+            [len(v["tool_outputs"]) for v in e.json("provider-observations.json")] == [0, 1, 2, 3, 4, 4])
     e.check("managed_refusal", lambda: "allowManagedHooksOnly" in e.json(MANAGED + "result.json")["refusal"] and
             e.json(MANAGED + "result.json")["adapter_exit"] == 1 and e.absent(MANAGED + "worker.json") and
             [v.get("error") for v in e.json(MANAGED + "adapter-events.json")] == [e.json(MANAGED + "result.json")["refusal"]] and
@@ -835,7 +842,14 @@ CLAUDE_RENEWAL_CLAIMS = {"worker-allowed": ("allowed.txt", True), "worker-denied
 WRITE_RENEWAL_QUALIFIED = ("2.1.291",)
 RENEWAL_CHECKS = {"claim_renewal_capability_declared", "renewal_written_claim_moved", "renewal_denied_write_claim_unmoved",
                   "renewal_control_claim_unmoved", "renewal_held_claim_unmoved", "renewal_journalled_after_write_before_idle",
-                  "renewal_placed_only_the_written_path", "renewal_coverage_complete", "renewal_same_identity"}
+                  "renewal_placed_only_the_written_path", "renewal_write_coverage_observed",
+                  "renewal_edit_omission_reports_coverage_unknown", "renewal_same_identity"}
+# A successful Edit OMITS is_error and its tool_use_result has no `type`
+# (measured 2026-10-13 on 2.1.291 and 2.1.299: keys filePath, newString,
+# oldString, originalFile, replaceAll, structuredPatch, userModified). Edit
+# omission is not qualified (D-078), so the Edit renews nothing and its result
+# is one coverage-unknown row, on every version.
+EDIT_OMISSION_NOTE = "a file tool's result omitted is_error without a qualified success witness"
 UNQUALIFIED_RENEWAL_CHECKS = {"claim_renewal_capability_declared", "unqualified_write_renews_nothing",
                               "unqualified_write_reports_coverage_unknown"}
 
@@ -866,6 +880,24 @@ def matched_write(e, path):
     return tid
 
 
+def edit_shape(e, path):
+    """qualify-claude.edit_shape, re-derived from the native trace: the one
+    main-thread Edit of `path`, its one result frame, and that frame's shape."""
+    rows = e.lines("native-observations.jsonl")
+    uses = [b["id"] for v in rows if v.get("type") == "assistant" and v.get("parent_tool_use_id") is None
+            for b in v.get("tool_blocks") or [] if b.get("type") == "tool_use" and b.get("name") == "Edit" and b.get("path") == path]
+    frames = [v for v in rows if v.get("type") == "user" and len(uses) == 1
+              for b in v.get("tool_blocks") or [] if b.get("type") == "tool_result" and b.get("id") == uses[0]]
+    if len(uses) != 1 or len(frames) != 1:
+        return {"edit_uses": len(uses), "result_frames": len(frames)}
+    v = frames[0]
+    block = next(b for b in v["tool_blocks"] if b.get("id") == uses[0])
+    return {"edit_uses": 1, "result_frames": 1, "tool_use_id": uses[0], "is_error": block.get("is_error"),
+            "tool_use_result": v.get("tool_use_result"), "tool_blocks_in_frame": len(v["tool_blocks"]),
+            "tool_result_meta_present": "tool_result_meta" in v, "is_replay": v.get("isReplay"),
+            "parent_tool_use_id": v.get("parent_tool_use_id")}
+
+
 def claude_renewal(e, r, version, traced, identity, ev):
     """Re-derive the receipt's renewal verdicts (F-26, D-078). Returns what the
     files could not show."""
@@ -886,17 +918,37 @@ def claude_renewal(e, r, version, traced, identity, ev):
     still = ["worker-denied", "worker-control", "held"] + ([] if qualified else ["worker-allowed"])
     e.check("renewal_unwritten_claims_unmoved", lambda: renewal_unmoved(*images(), still))
     # Never on the adapter's stdout (D-078): the journal is its only record.
-    e.check("renewal_journal", lambda: not any("renewal" in v or v.get("operation") == "renewal" for v in ev()) and (
-            renewal_applied(e, journal(), identity(), generation(), ["allowed.txt"], 1) if qualified else
-            renewal_not_applied(journal(), identity(), generation())))
+    # The Edit's result is the LAST renewal row, coverage unknown with the
+    # adapter's omission note, renewing nothing; every row before it is the
+    # Write's (applied when qualified, unknown otherwise).
+    def edit_row_last():
+        rows = renewal_rows(journal())
+        if not rows:
+            return False
+        i, last = rows[-1]
+        return (journal()[i].get("identity") == identity() and last.get("launch_generation") == generation() and
+                last["coverage"] == {"state": "unknown", "detail": EDIT_OMISSION_NOTE} and
+                last["result"] == {"state": "not_attempted"} and last["renewed_claims"] == 0)
+    def write_rows():
+        last = renewal_rows(journal())[-1][0]
+        return [v for i, v in enumerate(journal()) if i != last]
+    e.check("renewal_journal", lambda: not any("renewal" in v or v.get("operation") == "renewal" for v in ev()) and
+            edit_row_last() and (
+            renewal_applied(e, write_rows(), identity(), generation(), ["allowed.txt"], 1) if qualified else
+            renewal_not_applied(journal(), identity(), generation()) and len(renewal_rows(journal())) == 2))
+    # The runner's recorded Edit shape is the trace's, and it is the omission
+    # this suite expects; an untraced run records none.
+    e.check("edit_measurement", lambda: r.get("edit_measurement") == (edit_shape(e, allowed()) if traced else None) and
+            (not traced or r["edit_measurement"]["is_error"] == "<absent>"))
     if not qualified:
         return ["renewal: Write omission unqualified on " + version + "; the conservative outcome was checked"]
     e.check("renewal_written_claim_moved", lambda: renewal_moved(*images(), identity(), ["worker-allowed"]))
     def tool_id():
         approvals = [v["native_event"]["approval"] for v in ev() if v.get("native_event", {}).get("kind") == "approval" and
                      v["native_event"]["approval"]["detail"]["input"]["file_path"] == allowed()]
-        if len(approvals) != 1:
-            raise ValueError("want one approval for the allowed write")
+        # Two for the allowed path: the Write's, then the Edit's.
+        if len(approvals) != 2 or approvals[1]["item_id"] != "toolu_buddy_3":
+            raise ValueError("want the Write's and then the Edit's approval for the allowed path")
         return approvals[0]
     # The witness D-078 renews an omitted is_error on is in the native trace
     # alone, so an untraced receipt cannot show why its Write renewed: refused.
@@ -940,6 +992,9 @@ def receipt_mutations(r):
     return [(("passed",), False, "runner_verdict"),
             (("checks", "conflicting_write_denied"), False, "runner_verdict"),
             (("checks", "positive_write_allowed"), DELETE, "runner_verdict"),
+            (("checks", "positive_edit_allowed"), DELETE, "runner_verdict"),
+            (("edit_measurement", "is_error"), False, "edit_measurement"),
+            (("edit_measurement",), None, "edit_measurement"),
             (("failure",), "boom", "runner_verdict"),
             (("native_version",), "2.1.292 (Claude Code)", "contract"),
             (("schema",), "buddy.claude-qualification.v0", "contract"),
@@ -984,7 +1039,7 @@ def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
     write(root, "bin/claude-observer", observer_source(root / "bin/claude"))
     write(root, "worker.json", {"schema": "buddy.control.v1", "identity": identity, "launch": launch})
     write(root, "work/guarded.txt", "original\n")
-    write(root, "work/allowed.txt", "allowed-control\n")
+    write(root, "work/allowed.txt", "allowed-edited\n")
     t1, t2 = "turn-1-" + tag, "turn-2-" + tag
     def event(op, **fields):
         return dict({"schema": "buddy.control.v1", "operation": op, "identity": identity, "state": {"state": "unknown"},
@@ -1008,6 +1063,9 @@ def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
               approval("operator-denied.txt", 2),
               dict(event("approve"), request_id="operator-deny", approval_delivery={"state": "submitted"},
                    approval_response={"id": "ap-2", "decision": "deny"}),
+              approval("allowed.txt", 3),
+              dict(event("approve"), request_id="operator-allow-edit", approval_delivery={"state": "submitted"},
+                   approval_response={"id": "ap-3", "decision": "allow"}),
               nat("result", t1, result_ref="res-1", result_status="completed"), nat("idle", t1),
               dict(event("send"), request_id="wake-duplicate", wake_delivery={"state": "delivered", "turn_id": t1}),
               dict(event("send"), request_id="wake-2", wake_delivery={"state": "delivered", "turn_id": t2}),
@@ -1021,22 +1079,31 @@ def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
                {"launch_generation": generation, "renewed_claims": 0, "result": {"state": "not_attempted"},
                 "coverage": {"state": "unknown"}})
     intent = dict(events[5], approval_delivery={"state": "unknown", "detail": "approval response intent"})
-    journal = events[:5] + [intent, events[5], dict(event("renewal"), renewal=renewal)] + events[6:]
+    # The Edit's result renews nothing on any version: one unknown row after
+    # its allow and before the idle (EDIT_OMISSION_NOTE).
+    edit_renewal = {"launch_generation": generation, "renewed_claims": 0, "result": {"state": "not_attempted"},
+                    "coverage": {"state": "unknown", "detail": EDIT_OMISSION_NOTE}}
+    journal = (events[:5] + [intent, events[5], dict(event("renewal"), renewal=renewal)] + events[6:10] +
+               [dict(event("renewal"), renewal=edit_renewal)] + events[10:])
     write(root, "worker.json.events", jsonl(journal))
     out = [{"type": "tool_result", "tool_use_id": "toolu_buddy_0", "is_error": True,
             "content": 'PreToolUse:Write hook error: guarded.txt is inside scope "guarded.txt" claimed by session work/s-fixtureh'},
            {"type": "tool_result", "tool_use_id": "toolu_buddy_1", "content": "File created successfully at: %s" % (root / "work/allowed.txt")},
-           {"type": "tool_result", "tool_use_id": "toolu_buddy_2", "is_error": True, "content": "Denied by the operator control interface"}]
-    write(root, "provider-observations.json", [{"path": "/v1/messages", "tool_outputs": out[:n]} for n in (0, 1, 2, 3, 3)])
+           {"type": "tool_result", "tool_use_id": "toolu_buddy_2", "is_error": True, "content": "Denied by the operator control interface"},
+           {"type": "tool_result", "tool_use_id": "toolu_buddy_3",
+            "content": "The file %s has been updated successfully." % (root / "work/allowed.txt")}]
+    write(root, "provider-observations.json", [{"path": "/v1/messages", "tool_outputs": out[:n]} for n in (0, 1, 2, 3, 4, 4)])
     write(root, "ledger-inspection.json", {"identity": {"session_id": sid, "incarnation": inc}, "worktree": str(root / "work"),
                                            "endpoint": {"status": "observed", "pid": 4242, "born": 1}})
     write(root, "unparsed-output.json", [])
     write(root, "adapter.stderr", close_report())
     write(root, "worker.json.proc", dict(proc_source(receipt, identity, root / "bin/claude-observer"), attempt=generation))
     init = {"type": "system", "subtype": "init", "session_id": sid, "plugins": BUILTIN_MODS}
-    def use(n, name):
+    edit_witness = {"type": None, "filePath": str(root / "work/allowed.txt"), "keys": ["filePath", "newString", "oldString",
+                    "originalFile", "replaceAll", "structuredPatch", "userModified"]}
+    def use(n, name, tool="Write"):
         return {"type": "assistant", "session_id": sid, "parent_tool_use_id": None, "tool_blocks": [
-                {"type": "tool_use", "id": "toolu_buddy_%d" % n, "name": "Write", "is_error": None, "path": str(root / "work" / name)}]}
+                {"type": "tool_use", "id": "toolu_buddy_%d" % n, "name": tool, "is_error": None, "path": str(root / "work" / name)}]}
     def result(n, error, witness):
         return {"type": "user", "session_id": sid, "parent_tool_use_id": None, "tool_use_result": witness, "tool_blocks": [
                 {"type": "tool_result", "id": "toolu_buddy_%d" % n, "name": None, "is_error": error, "path": None}]}
@@ -1045,7 +1112,8 @@ def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
         {"type": "user", "session_id": sid, "isReplay": True, "parent_tool_use_id": None},
         use(0, "guarded.txt"), result(0, True, "<str>"), use(1, "allowed.txt"),
         result(1, "<absent>", {"type": "create", "filePath": str(root / "work/allowed.txt")}),
-        use(2, "operator-denied.txt"), result(2, True, "<str>"), {"type": "result", "subtype": "success", "session_id": sid},
+        use(2, "operator-denied.txt"), result(2, True, "<str>"), use(3, "allowed.txt", "Edit"),
+        result(3, "<absent>", edit_witness), {"type": "result", "subtype": "success", "session_id": sid},
         init, {"type": "result", "subtype": "success", "session_id": sid}]))
     # The runner's two ledger copies: before the wake (no idle row) and after
     # the turn's idle; only the written claim moved, at or before the idle.
@@ -1082,11 +1150,14 @@ def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
          "managed_hook_refusal": managed, "native_metadata_observer": {"sha256": sha_file(root / "bin/claude-observer")},
          "cleanup_observation": {"status": "observed_absent", "observed_pids": [501, 503], "remaining_or_unknown_pids": []},
          "adapter_exit": 0,
+         "edit_measurement": {"edit_uses": 1, "result_frames": 1, "tool_use_id": "toolu_buddy_3", "is_error": "<absent>",
+                              "tool_use_result": edit_witness, "tool_blocks_in_frame": 1, "tool_result_meta_present": False,
+                              "is_replay": None, "parent_tool_use_id": None},
          "renewal": {"before": {"held": 1791000000, "worker-allowed": 1791000001, "worker-control": 1791000001,
                                 "worker-denied": 1791000001},
                      "after": {"held": 1791000000, "worker-allowed": moved, "worker-control": 1791000001,
                                "worker-denied": 1791000001},
-                     "journal": [renewal],
+                     "journal": [renewal, edit_renewal],
                      "checks": {k: True for k in (RENEWAL_CHECKS if qualified else UNQUALIFIED_RENEWAL_CHECKS)}}}
     write(root, "result.json", r)
     return r
@@ -1115,6 +1186,26 @@ def file_mutations(root, r):
             "claim_denial_held"),
         ("missing allowed control", lambda: (root / "work/allowed.txt").unlink(), "allowed_control"),
         ("operator-denied write happened", lambda: write(root, "work/operator-denied.txt", "must-not-exist\n"), "operator_denial"),
+        # The Edit (D-078's open question): its approval, its renewal row, and
+        # the shape the runner says it measured.
+        ("edit approval not submitted", edit_json("adapter-events.json",
+            lambda rows: [v.update(approval_delivery={"state": "unknown"}) for v in rows if v.get("request_id") == "operator-allow-edit"]),
+            "allowed_edit"),
+        ("edit result renewed its claim", edit_lines("worker.json.events",
+            lambda rows: [v["renewal"].update(result={"state": "applied"}, renewed_claims=1, coverage={"state": "observed"})
+                          for v in rows if v.get("renewal", {}).get("coverage", {}).get("detail") == EDIT_OMISSION_NOTE]),
+            "renewal_journal"),
+        ("edit result carried explicit is_error false", edit_lines("native-observations.jsonl",
+            lambda rows: [b.update(is_error=False) for v in rows if v.get("type") == "user"
+                          for b in v.get("tool_blocks") or [] if b.get("id") == "toolu_buddy_3"]),
+            "edit_measurement"),
+        # Receipt and trace AGREE on an explicit false: consistent, but not the
+        # omission this suite's renewal expectations rest on.
+        ("edit measured with explicit is_error false", lambda: (
+            edit_lines("native-observations.jsonl", lambda rows: [b.update(is_error=False) for v in rows if v.get("type") == "user"
+                       for b in v.get("tool_blocks") or [] if b.get("id") == "toolu_buddy_3"])(),
+            mutate(r, ("edit_measurement", "is_error"), False))[-1],
+            "edit_measurement"),
         ("duplicate wake replayed", edit_json("provider-observations.json", lambda rows: rows.append(rows[-1])), "duplicate_not_replayed"),
         ("second turn reuses the first result", edit_json("adapter-events.json",
             lambda rows: rows[-2]["native_event"].update(result_ref="res-1")), "second_turn"),

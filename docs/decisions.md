@@ -5741,6 +5741,33 @@ Claude 2.1.291 and Codex 0.160.0, scratch-built binaries.
 Observed spellings: the Claude `file_path` and `tool_use_result.filePath`, and
 the Codex `changes[].path` and `kind.move_path`, are all absolute.
 
+**The Edit shape (measured 2026-10-13, after D-081).** `qualify-claude.py` now
+makes one successful Edit of the allowed file after the three Writes
+(`toolu_buddy_3`, operator-allowed) and records its result frame's shape as
+`edit_measurement`. Measured on retained 2.1.291 and on 2.1.299, traced, the
+result is the same: `is_error` is OMITTED, `tool_use_result` has no `type`
+(its keys are `filePath`, `newString`, `oldString`, `originalFile`,
+`replaceAll`, `structuredPatch`, `userModified`), `filePath` equals the input
+path, and the frame has one block. So D-078's open question is answered with
+"omitted, like Write", and the Edit renews nothing. On 2.1.291 it is the one
+`not_attempted` row with coverage unknown after the Write's applied row (runner
+and checker green). That is one sample per version and no failed-Edit control,
+so the qualified omission stays Write-only on 2.1.291 and nothing in Go
+widened. `check-claude-gate.py` requires that row, the Edit's approval, and a
+recorded shape equal to the trace's.
+
+Also measured: on 2.1.299, `tool_result_meta` is on EXECUTED results too
+(`{"id", "permission_decision": {"decision": "accept", "source":
+"user_temporary"}}`, no `non_execution_kind`). On 2.1.291 it appeared only with
+`non_execution_kind`. `toolResults` treats any listed id as unexecuted. So on
+2.1.299 a completed Write or Edit is skipped SILENTLY: no renewal row at all,
+and coverage is not reported unknown. The suite is red there
+(`unqualified_write_reports_coverage_unknown`, `renewal_journal`). The
+conservative reading would key "unexecuted" on `non_execution_kind`, which
+leaves 2.1.291's behavior unchanged. That is a wire-interpretation change for
+reviewed code (and a contract-id question, D-079), not something a record
+can absorb.
+
 ## D-079 — Native admission is a committed, exact-artifact record compiled into the adapter; it supersedes D-071's "from the code's table"
 
 2026-10-13. Versions step 2 of the harness version tracking consensus (Fable and
