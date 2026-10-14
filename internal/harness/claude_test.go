@@ -18,6 +18,7 @@ import (
 // native Claude's peer provenance handling, or real model execution.
 const claudeFake = `#!/usr/bin/env python3
 import json,sys
+if __import__('os').environ.get('DISABLE_AUTOUPDATER')!='1': sys.exit(7)
 if '--version' in sys.argv:
  print('2.1.289 (Claude Code)'); sys.exit(0)
 def emit(v):
@@ -440,7 +441,7 @@ func TestClaudeIdentityFramesAndUnknownCapability(t *testing.T) {
 	if err := c.frame(json.RawMessage(`{"type":"result","session_id":"native"}`)); err == nil {
 		t.Fatal("result without native reference accepted")
 	}
-	if c.Capabilities()["resume"].Support != "experimental" || c.Capabilities()["attach"].Support != "unsupported" || c.Capabilities()["telemetry"].Support != "unknown" {
+	if c.Capabilities()["resume"].Support != "unknown" || c.Capabilities()["attach"].Support != "unsupported" || c.Capabilities()["telemetry"].Support != "unknown" {
 		t.Fatal("unsupported and unknown capability conflated")
 	}
 	if _, err := c.Resume(context.Background(), Launch{}, "native", testAuthorization(t)); err == nil {

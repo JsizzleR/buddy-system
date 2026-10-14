@@ -694,8 +694,8 @@ ledger row entered through the CLI (D-006).
 72. **Claude admission uses a pinned native built-in Mod profile (D-071).**
     `hooks.mods: "builtin-only-<version>"` selects the separately checked profile
     matching the exact declared and observed native version. The admitted pairs are
-    the code's table (`claudeModProfileForVersion` in `internal/harness/claude.go`),
-    not this GIVEN; each new version joins only after its own qualification. Start and resume reject a cross-version/profile pair;
+    the committed admission records (D-079), not this GIVEN; each new build joins
+    only after its own qualification. Start and resume reject a cross-version/profile pair;
     no semver range or automatic conversation upgrade is admitted. Legacy
     `no_mods` evidence refuses. The adapter checks effective settings, reloads
     plugins in its owned child before input, requires exactly the two expected
@@ -801,6 +801,20 @@ ledger row entered through the CLI (D-006).
     renew nothing; correlations never cross a resume. Do not propose renewing through
     `BeatLogical` (it erased idle), one event per tool result (it blocks the reader), or
     renewal from attempts or patch text. `lifecycle beat --path` is repeatable.
+
+80. **Native admission is a committed exact-artifact record, embedded in the adapter
+    (D-079).** `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`
+    (`buddy.admission.v1`), strict parse (unknown, duplicate or missing keys, a malformed
+    hash, an unearned tier, a `reconcile` grant: each its own refusal; one bad record
+    refuses every launch). Before anything runs, the executable is hashed and matched by
+    bytes, and Codex's whole release tree is matched to its manifest (an undeclared entry
+    refuses). Then contract id, platform, tier and profile, the exact version text, and
+    the live checks, unchanged. Tiers are `start`, `resume`, `compaction_observation`;
+    each needs the code's suites with an independent checker's pass. Capabilities are
+    tiers intersected with code support, and reconcile is never granted. 2.1.289 and
+    2.1.290 are retired (no binary or hash). Do not propose a runtime registry, ranges or
+    probing alone, a metadata hash cache, or invalidation by adapter hash (an embedded
+    record cannot bind its own binary; the contract id is bumped instead).
 
 ## Environment facts (measured, do not re-derive)
 

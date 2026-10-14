@@ -301,6 +301,14 @@ func (c *Controller) Start(ctx context.Context, harness string, launch Launch, l
 	if _, err := os.Lstat(c.recorder.path()); !os.IsNotExist(err) {
 		return c.receipt("start"), fmt.Errorf("ownership record %s exists without a receipt: an earlier attempt's worker may live; reconcile it, never begin again over it", c.recorder.path())
 	}
+	// An unadmitted version is refused before the `.start` intent exists:
+	// nothing was attempted, so nothing should be left for reconciliation.
+	// The backend still binds the exact artifact by hash at launch (D-079).
+	if p, ok := c.backend.(admissionPrecheck); ok {
+		if err := p.precheck(launch, TierStart); err != nil {
+			return c.receipt("start"), err
+		}
+	}
 	// A crash after native start or a committed Begin must leave a durable
 	// barrier even before the lifecycle receipt can be published. An unresolved
 	// intent requires human reconciliation, never a new native identity.
@@ -332,6 +340,16 @@ func (c *Controller) Start(ctx context.Context, harness string, launch Launch, l
 	}
 	id, err := c.backend.Start(ctx, launch, auth)
 	if err != nil {
+		// An admission refusal (D-079) is decided before the file runs, and an
+		// authorization never consumed means no worker child was ever created
+		// through it. Then the `.start` barrier guards nothing: remove it, so
+		// a refused artifact does not leave an intent the operator must clear
+		// by hand. Any other failure keeps the barrier, as before.
+		if AdmissionCode(err) != "" && auth.untouched() {
+			if rmErr := os.Remove(c.receiptPath + ".start"); rmErr == nil {
+				_ = syncDirectory(c.receiptPath)
+			}
+		}
 		return c.receipt("start"), err
 	}
 	if !auth.Published() {
@@ -456,6 +474,17 @@ func (c *Controller) resumeAdmission() (Saved, error) {
 	var saved Saved
 	if err = json.Unmarshal(b, &saved); err != nil || saved.Schema != Schema || !saved.Identity.Valid() {
 		return Saved{}, errors.New("invalid captured receipt")
+	}
+	// The captured version must be admitted for resume by every record of it,
+	// BEFORE the ledger is refreshed or anything is launched: a start-only
+	// record (D-079) must never reach resume merely because its version is
+	// recognized. The launch then binds the exact record by hash, and a
+	// version other than the captured one is refused there (cross-version
+	// resume stays refused).
+	if p, ok := c.backend.(admissionPrecheck); ok {
+		if err := p.precheck(saved.Launch, TierResume); err != nil {
+			return Saved{}, err
+		}
 	}
 	// An empty journal, or a start that never finished publishing, cannot
 	// establish recovery state. Refuse before refreshing the ledger or starting
@@ -788,7 +817,7 @@ func (c *Controller) observe(ctx context.Context, e Event) (Receipt, error) {
 		// requests on a dead connection. A successor must observe its own requests.
 		c.approvals = map[string]Approval{}
 	case "compaction_boundary":
-		if c.saved.Identity.Harness != "claude" || !claudeManualCompactionQualified(c.saved.Launch.HarnessVersion) ||
+		if c.saved.Identity.Harness != "claude" || !admissionVersionGrants("claude", c.saved.Launch.HarnessVersion, TierCompaction) ||
 			!claudeValidUUID(e.ItemID) || e.TurnID != "" || e.ResultRef != "" || e.ResultStatus != "" {
 			return r, errors.New("Claude manual boundary requires qualified version and native boundary UUID, without inferred turn identity")
 		}

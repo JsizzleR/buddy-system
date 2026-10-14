@@ -14,7 +14,6 @@ package main
 // refusal is the binary's, not a helper's.
 
 import (
-	"os"
 	"strings"
 	"syscall"
 	"testing"
@@ -30,9 +29,7 @@ func resumableFake(t *testing.T, f *entryFixture) {
 	if fake == fakeCodex {
 		t.Fatal("fixture patch did not apply")
 	}
-	if err := os.WriteFile(f.codex, []byte(fake), 0700); err != nil {
-		t.Fatal(err)
-	}
+	f.writeCodex(t, fake)
 }
 
 // firstWorker returns the pid of the fake app-server and of its tool.

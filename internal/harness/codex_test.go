@@ -106,7 +106,7 @@ func codexFixture(t *testing.T) (*codexBackend, *fakeCodexProcess, Launch) {
 		t.Fatal(err)
 	}
 	c := newCodex(executable, func(ctx context.Context, _ *LaunchAuthorization, exe string, args []string, cwd string, env []string) (codexProcess, error) {
-		if exe != executable || !reflect.DeepEqual(args, []string{"app-server", "--stdio"}) || cwd != root || !reflect.DeepEqual(env, []string{"CODEX_HOME=" + root}) {
+		if exe != executable || !reflect.DeepEqual(args, []string{"app-server", "--stdio"}) || cwd != root || !reflect.DeepEqual(env, []string{"CODEX_HOME=" + root, "DISABLE_AUTOUPDATER=1"}) {
 			t.Errorf("unexpected launch: %q %q %q %q", exe, args, cwd, env)
 		}
 		return p, nil

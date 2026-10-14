@@ -273,8 +273,8 @@ python3 scripts/qualify-codex.py --lifecycle --app-server --edge-cases --shell-p
 ```
 
 `--shell-patch` is the V-01 case (a held-path patch routed through the native
-shell); without it the shell route goes unexercised. `--codex` must name the
-retained 0.160.0 binary, the only version the adapter admits: the default is
+shell); without it the shell route goes unexercised. `--codex` must name a
+build an admission record names (see "Admission records" below): the default is
 whichever `codex` is first on PATH, and the runner records that version in its
 result but does not refuse a newer one.
 `--adapter /absolute/path/to/buddy-adapter` (with `--buddy`, and none of the
@@ -1400,15 +1400,16 @@ the matching `buddy` binary. Schema 15 is required for adapter inbox metadata.
 Older binaries refuse a migrated ledger, so qualify on disposable repositories
 before an explicitly authorized installation/migration.
 
-The native contracts are pinned to Codex 0.160.0 and Claude Code 2.1.289,
-2.1.290 or 2.1.291, as separate exact version/profile pairs. Claude
-uses the streaming wire contract inspected in installed Agent SDK 0.3.202;
-there is no npm runtime dependency. Native versions are checked at launch.
+The adapter launches exactly the native builds its committed admission records
+name (D-079, "Admission records" below), never a version range. Claude uses the
+streaming wire contract inspected in installed Agent SDK 0.3.202; there is no npm
+runtime dependency. The artifact and its version are checked at every launch.
 Capabilities return `supported`, `experimental`, `unsupported` or `unknown`.
 All provider-backed control remains experimental. Attaching to existing sessions
 is unsupported. Claude resume requires an accepted wake, a journalled terminal
 result (`completed` without error, `aborted_streaming`, or `aborted_tools`) and
-subsequent idle for every input. On 2.1.290 or 2.1.291, a manual compaction boundary plus
+subsequent idle for every input. Where the record grants
+`compaction_observation`, a manual compaction boundary plus
 its exact-input `local_compact_completed` result and idle also admits resume.
 Cancellation errors stay visible; unfinished
 or uncertain recovery refuses before ledger refresh or native launch. The isolated recovery fixture exercises
@@ -1542,17 +1543,17 @@ and applies that same bounded contract to the effective settings. This includes
 managed policy: `allowManagedHooksOnly: true` refuses even when the flag hooks
 still appear configured. Missing/unsupported native settings also refuse. The
 check establishes a configuration observation, not that a hook ran. Claude also
-requires `hooks.mods: "builtin-only-2.1.289"`, `"builtin-only-2.1.290"` or
-`"builtin-only-2.1.291"`,
-matching the declared and observed native version exactly. Before admitting input, the
-adapter reloads the launched child's plugins, checks the native inventory for
-exactly `cc-plugin-agents-md@builtin` and `cc-plugin-plugin-authoring@builtin`
-at their built-in paths, and checks effective settings again. Missing or
+requires `hooks.mods` to be the admission record's Mod profile for the declared
+version, and the record's bytes to be the executable's. Before admitting input, the
+adapter reloads the launched child's plugins, checks that the native inventory is
+exactly the record's built-in list (today `cc-plugin-agents-md@builtin` and
+`cc-plugin-plugin-authoring@builtin`) at their built-in paths, and checks
+effective settings again. A record can list only built-ins the code knows. Missing or
 unexpected inventory and reload errors refuse. The first built-in includes a
 Mod; an empty optional plugin map never meant that all Mods were absent.
 The legacy `no_mods` assertion now refuses instead of granting admission.
 
-These profiles are pinned to their respective versions and are startup compatibility snapshots.
+Each profile belongs to its record's exact build and is a startup compatibility snapshot.
 The reload is a native child operation, not a read-only diagnostic. Actual
 Buddy hook denial needs separate native evidence under this exact profile.
 The check refuses worker input, not startup code from an already loaded Mod.
@@ -1587,12 +1588,11 @@ A launch JSON file has this shape (replace paths and supply actual evidence):
 }
 ```
 
-For Claude use `harness_version: "2.1.291"`, its settings JSON path, omit
-`gate_hash`, and add `"mods": "builtin-only-2.1.291"` inside `hooks`.
-The retained 2.1.289 and 2.1.290 contracts require their matching
-`builtin-only-2.1.289` and `builtin-only-2.1.290` profiles instead.
-Start and resume refuse a different installed version, including another
-supported version; a captured 2.1.289 conversation is not automatically upgraded.
+`harness_version` is the record's `version`. For Claude use its settings JSON
+path, omit `gate_hash`, and add `"mods": "<the record's claude.mod_profile>"`
+inside `hooks`. Start and resume refuse a different installed version or build,
+including another admitted one; a captured conversation is never upgraded to
+another version.
 `native_session_id` may
 name a fresh UUID; otherwise the Claude adapter generates one. Permission modes
 are `read-only` and `workspace-write`, mapped to Codex sandbox modes and Claude
@@ -1605,6 +1605,36 @@ There is no bypass/auto-approval mode or arbitrary extra-arguments field.
   --launch /absolute/private/launch.json --receipt /absolute/private/worker.json \
   --label worker-label
 ```
+
+#### Admission records
+
+Which native builds the adapter may launch is the set of committed
+`buddy.admission.v1` records under `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`,
+compiled into the adapter (D-079). Each binds the exact `--version` text, OS and
+architecture, the executable's sha256 and size (for Codex, every entry of the
+release tree: `bin/codex`, `bin/codex-code-mode-host`, `codex-path/`,
+`codex-resources/`, `codex-package.json`, the `codex` link; an undeclared entry
+refuses), the code-owned adapter contract id, Claude's Mod profile and built-in
+list, and the tiers its evidence earned: `start`, `resume`,
+`compaction_observation`. A tier is granted only with every suite the code
+requires for it and an independent checker's passing verdict; omitted means
+denied, and no record can grant Codex `reconcile`. Before anything runs (not even
+`--version`) the adapter hashes the executable, finds the record by those bytes,
+and requires its contract, platform, tier and profile; then the exact version
+text; then the live checks above. A refusal names its code: `admission_missing`,
+`artifact_mismatch`, `package_mismatch`, `contract_mismatch`, `platform_mismatch`,
+`tier_not_granted`, `profile_mismatch`, `version_mismatch`. An unrecorded version
+is refused before the `.start` intent is written; a start-only record is refused
+before a resume refreshes the ledger.
+
+`--retained` replaces `--executable` with the pinned copy for the declared version,
+`~/.buddy/harness/<harness>/<version>-<sha8>/` plus the record's executable path
+(`claude`, or `bin/codex` inside a copied release tree). The interactive harness
+updates itself and keeps only a few versions; a worker should run a copy kept
+outside that storage. The adapter never copies or fetches a binary: put the
+byte-exact copy there first (`ditto` of the file or release directory), and it is
+hashed like any other path. Workers and version probes run with
+`DISABLE_AUTOUPDATER=1`.
 
 The first output contains the immutable lifecycle identity. Keep stdin open for
 controls; EOF closes the owned transport and does not mark the logical session
@@ -1835,8 +1865,8 @@ arrives. Its outcome stays unknown; neither that late acknowledgment nor the
 local result repairs uncertain delivery. Interrupted and incomplete compaction
 journals refuse resume before ledger refresh, native launch or journal mutation.
 
-The `compaction_observation` capability is experimental for Codex and Claude
-2.1.290 and 2.1.291; it remains unsupported for Claude 2.1.289. The adapter adds
+The `compaction_observation` capability is experimental where the launched build's
+admission record grants it, and unsupported otherwise. The adapter adds
 no compaction command, automatic threshold or scheduler. Preserve the receipt and journal across compaction; neither native
 history rewriting nor an absent historical turn authorizes replay.
 An interrupted compaction can leave only `compaction_started` in the journal.
@@ -1913,8 +1943,9 @@ The endpoint fixture is macOS-specific and uses the native process table plus
 providers, retain artifact hashes and failure receipts, and clean up their owned
 processes. See the canonical plan for current results and remaining gates.
 
-The gate, Mod, completed-turn resume and cancellation runners default to the
-original 2.1.289 contract. To exercise the separately qualified 2.1.291 pair:
+The gate, Mod, completed-turn resume and cancellation runners still default to
+2.1.289, which the adapter no longer admits: 2.1.289 and 2.1.290 are retired (D-079;
+no binary or hash survives), so pass the version of a committed record:
 
 ```sh
 python3 scripts/qualify-claude.py --claude-version 2.1.291 --trace-native
@@ -1925,7 +1956,6 @@ python3 scripts/qualify-claude-endpoints.py --claude-version 2.1.291
 python3 scripts/qualify-claude-peers.py --claude-version 2.1.291
 ```
 
-Select `--claude-version 2.1.290` for the retained contract.
 `--claude` selects the existing executable; the fixture refuses a version other
 than the explicit contract. The option does not bypass adapter admission.
 Endpoint and peer runners also retain the 2.1.289 default. Their explicit

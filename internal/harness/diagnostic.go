@@ -13,7 +13,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -83,13 +82,13 @@ func Diagnose(kind string, launch *Launch, evidence *DiagnosticEvidence) Harness
 	unknown := Observation{State: "unknown"}
 	r := HarnessDiagnostic{Harness: kind, InstalledVersion: Observation{State: "unknown", Detail: "native executable was not run"}, DeclaredVersionCompatibility: "unknown", Evidence: unknown,
 		Hooks: HookDiagnostic{Configuration: unknown, Trust: unknown, Enforcement: unknown, EffectiveConfiguration: unknown, Mods: unknown}, RuntimeCapabilities: unknown}
-	expected := ""
+	// Recognition is "some committed admission record names this version"
+	// (D-079): a historical match, never a launch decision. The bytes are
+	// not hashed here, so a match says nothing about the installed file.
 	switch kind {
 	case "codex":
-		expected = "0.160.0"
 		r.AdapterCapabilities = (&codexBackend{}).Capabilities()
 	case "claude":
-		expected = claudeContractVersion
 		r.AdapterCapabilities = (&claudeBackend{}).Capabilities()
 	default:
 		return r
@@ -99,7 +98,7 @@ func Diagnose(kind string, launch *Launch, evidence *DiagnosticEvidence) Harness
 	}
 	r.DeclaredVersion = fence.Line(launch.HarnessVersion, 128)
 	r.DeclaredVersionCompatibility = "unsupported"
-	if kind == "claude" && claudeModProfileForVersion(launch.HarnessVersion) != "" || kind == "codex" && launch.HarnessVersion == expected {
+	if admissionVersionKnown(kind, launch.HarnessVersion) {
 		r.DeclaredVersionCompatibility = "matches_adapter_contract"
 	}
 	data, err := ReadDiagnosticFile(launch.HookConfig)
@@ -131,8 +130,7 @@ func Diagnose(kind string, launch *Launch, evidence *DiagnosticEvidence) Harness
 	r.Evidence = Observation{State: "supplied_snapshot", Detail: evidence.CapturedAt}
 	r.CapturedVersion = fence.Line(evidence.Version, 128)
 	r.CapturedVersionCompatibility = "unsupported"
-	if kind == "claude" && strings.HasSuffix(evidence.Version, " (Claude Code)") &&
-		claudeModProfileForVersion(strings.TrimSuffix(evidence.Version, " (Claude Code)")) != "" || kind == "codex" && evidence.Version == "codex-cli "+expected {
+	if admissionOutputKnown(kind, evidence.Version) {
 		r.CapturedVersionCompatibility = "matches_adapter_contract"
 	}
 	if r.CapturedVersionCompatibility != "matches_adapter_contract" {

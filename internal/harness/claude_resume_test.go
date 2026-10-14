@@ -137,7 +137,7 @@ func TestClaudeResumeExactNativeSession(t *testing.T) {
 	if err := os.WriteFile(impl.executable, []byte(fake), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if b.Capabilities()["resume"].Support != "experimental" {
+	if b.Capabilities()["resume"].Support != "unknown" {
 		t.Fatal("completed-turn resume not exposed")
 	}
 	id, err := b.Resume(ctx, launch, launch.NativeSessionID, testAuthorization(t))

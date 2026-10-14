@@ -83,7 +83,7 @@ func (s *claudeRecovery) observe(r Receipt) {
 }
 
 func (s *claudeRecovery) resumable(sent map[int64]Delivery, version string) bool {
-	if s.uncertain || s.boundary != "" || s.compacted && !claudeManualCompactionQualified(version) || len(sent) == 0 || len(s.turns) == 0 {
+	if s.uncertain || s.boundary != "" || s.compacted && !admissionVersionGrants("claude", version, TierCompaction) || len(sent) == 0 || len(s.turns) == 0 {
 		return false
 	}
 	for turn, state := range s.turns {

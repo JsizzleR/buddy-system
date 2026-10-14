@@ -4694,6 +4694,13 @@ Step 4 2.1.291 receipt for exact evidence and remaining boundaries.
 2.1.291 compaction receipt measured its boundary and local-command result, and
 `claudeManualCompactionQualified` admits both 2.1.290 and 2.1.291; D-075
 records the widening. The sentence stands here as history.
+*Superseded in part by D-079 (marker added 2026-10-13):* admitted pairs are no
+longer "the code's table". `claudeModProfileForVersion` and
+`claudeManualCompactionQualified` are gone. A build is admitted only by a
+committed exact-artifact record (sha256, exact version text, Mod profile,
+built-in list, tiers), and 2.1.289 and 2.1.290 are retired: no binary or hash
+survives, so admission refuses them. The exact-version rule and the built-in
+profile check above stand; the version lists above are history.
 
 ## D-072 — Offline diagnostics inspect a private ledger snapshot and never promote captures to readiness
 
@@ -5733,3 +5740,115 @@ Claude 2.1.291 and Codex 0.160.0, scratch-built binaries.
 
 Observed spellings: the Claude `file_path` and `tool_use_result.filePath`, and
 the Codex `changes[].path` and `kind.move_path`, are all absolute.
+
+## D-079 — Native admission is a committed, exact-artifact record compiled into the adapter; it supersedes D-071's "from the code's table"
+
+2026-10-13. Versions step 2 of the harness version tracking consensus (Fable and
+Codex, decided by the orchestrator the same day).
+
+**The failure** — D-071's exact version/profile rule held up: the permissive-Mod
+override still beats a user PreToolUse denial, and the 2.1.292-2.1.296 release
+notes change hook and Mod semantics, so capability probing alone and version
+ranges stay rejected. What failed was the hand-run loop around it. Each release
+was a hand edit of version literals in `claude.go`, `codex.go` and `diagnostic.go`
+(`claudeModProfileForVersion`, `claudeManualCompactionQualified`, the Codex
+`"0.160.0"` checks), and a version string named nothing about the bytes that
+ran. The updater keeps three Claude versions on disk and re-points the launcher,
+so 2.1.289 and 2.1.290 are gone with no hash on record, and any file answering
+`2.1.291 (Claude Code)` was admitted as 2.1.291. Codex execs
+`bin/codex-code-mode-host` and `codex-path/rg` after launch, so hashing
+`bin/codex` alone would still admit a swapped sidecar (Codex review P1).
+
+**The decision** — an admitted build is a `buddy.admission.v1` record at
+`internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`, compiled
+in with `//go:embed`. It sits beside the code, not in `docs/`, because embed
+cannot name a parent directory. It binds the harness, the exact `--version` text,
+OS/arch, a code-owned adapter contract id, the granted tiers, the executable's
+sha256 and size, for Codex the whole release tree (relative paths, types, modes,
+hashes, link targets inside the package; an undeclared entry refuses), for Claude
+the Mod profile and built-in list, the gate contract, and per suite the runner,
+checker, receipt and binary digests and the checker's verdict as evidence.
+Parsing is strict. Unknown, duplicate and missing keys, malformed hashes, an
+unearned tier and a `reconcile` grant each refuse with their own code. One bad
+record makes the whole set unreadable, which refuses every launch.
+
+At launch, before anything runs (not even `--version`), the adapter resolves the
+executable once, hashes it, and selects the record for the declared harness and
+version by those bytes. It then requires that record's contract id, platform,
+tier for the operation and Mod profile, and for Codex the manifest. Next comes the
+exact version text, then today's live checks (get_settings, reload_plugins
+against the record's built-ins, hooks/list), unchanged. The controller refuses
+an unrecorded version before the `.start` intent and a start-only version before
+a resume refreshes the ledger. Capabilities are the record's tiers intersected
+with the code's support. A start-only record never reaches resume, Codex
+reconcile stays withdrawn in code whatever a record says, a built-in the code does
+not know cannot be listed, and cross-version resume still refuses. `--retained`
+launches the pinned copy at `~/.buddy/harness/<harness>/<version>-<sha8>/`. The
+adapter never copies or fetches one; retention is an operator step, and the
+copy is hashed like any other path. Workers and version probes run with
+`DISABLE_AUTOUPDATER=1`.
+
+**Backfill** — exactly two records. Claude 2.1.291 (`9a1d2ed6…`, the Mach-O
+extracted from the 2026-10-07 archive) and Codex 0.160.0 (`bin/codex`
+`112fae7a…`, 54-entry release manifest). Each grants `start`, `resume` and
+`compaction_observation`. Start rests on this lane's fresh start-tier run at a
+clean `abe3796`: qualify-claude.py, qualify-claude-mods.py, qualify-codex.py in
+full `--shell-patch` mode and qualify-adapters.py, each passed by its
+independent checker (`docs/admissions/2026-10-13-start-tier.json`). The A-07
+rerun's receipt copies were checked too: every content check passed, and
+`receipt_location` failed only because they are copies, so they grant nothing.
+Resume and compaction_observation rest on the A-07 rerun at `316b337` and its
+checkers (`docs/verification-evidence/2026-10-13/summary.json`). **2.1.289 and
+2.1.290 are retired as history**: no binary or hash survives, so no record can
+be written, and admission refuses them (`admission_missing`). Their receipts
+stay evidence of what was measured.
+
+**Refused alternatives** — a runtime registry outside the repository (Codex):
+the adapter cannot tell a measured record from a typed one, and a commit plus
+the hermetic tier can. Invalidating a record on any buddy or adapter hash change:
+an embedded record cannot bind the binary it is embedded in without a cycle, so
+the contract id is bumped on any argv, wire, settings-grammar or gate change,
+and the hashes are evidence. A (dev, inode, size, mtime) hash cache: it misses
+exactly the preserved-metadata rewrite F-23 concedes, so every launch hashes in
+full. The Claude Mach-O is 240 MB and the Codex tree 318 MB (Fable measured
+0.43 s for the former).
+
+**Boundary** — this guards against accidental substitution and stale evidence,
+not forgery: the machine user can write a record and rebuild (invariant 6). The
+hash-to-exec window F-23 states remains. A record is data. It selects an existing
+code-owned contract and may only narrow it; a new plugin name, wire shape or hook
+interpretation needs reviewed code and requalification. Claude's
+`claudeWriteOmissionQualified` (D-078) stays a code-owned wire rule keyed by
+version, because it is a parsing rule, not a grant. Deferred suites (endpoints,
+peers, history, mixed fleet, jobs) grant nothing. Qualifying a candidate without
+production admission (Codex migration step 4) and a retention runner are later
+work. Until then a new version's first start-tier run needs a hand-built
+candidate route, and none ships.
+
+**Tests** — `internal/harness/admission_test.go`: no record is `admission_missing`
+with zero executions; a record for sha256(A) over B, rewritten in place with
+identical dev, inode, size, mtime and mode, is `artifact_mismatch` before
+anything runs; a changed sidecar, an undeclared addition, a missing entry, a
+changed mode and a re-pointed link under an unchanged `bin/codex` are
+`package_mismatch`; contract, platform, profile and version-text mismatches each
+refuse; a start-only record cannot resume, at the backend and in the
+controller's precheck; a reconcile grant and every malformation have their own
+codes; an extra built-in refuses unless the record lists it, and a record cannot
+list an unknown one. The committed records are the positive controls. Each
+suite's receipt digest must appear in the summary it names. In
+`cmd/buddy-adapter`, the untagged adapter (the one `install.sh` builds) refuses
+an unrecorded fake before running it, while the `buddy_admission_fixture`-tagged
+build the entry tests use admits it by record.
+
+**Codex review (constrained, 2026-10-13)** — five findings, each reproduced by a
+failing test before its fix (`admission_review_test.go`). P1: a link chain
+(`a/b -> ../d`, `a/out -> b/../../external`) passed the lexical check and
+resolved outside the package; links now resolve component by component through
+the manifest. P1: an updater rename between the hash and `--version` ran
+unadmitted bytes; the executable's identity is re-checked right after hashing,
+so a replacement refuses before anything runs (an in-place rewrite of the same
+inode in that window stays the race F-23 states). P2: a stray `}` or `]` after
+a record parsed, because `More()` is false before a closing delimiter; the next
+token must now be EOF. P2: setuid, setgid and sticky bits hashed as the plain
+mode; they now refuse. P2: before a launch, resume and Codex compaction read
+`experimental`; they now read `unknown` until a record is selected.

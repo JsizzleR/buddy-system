@@ -97,6 +97,7 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("buddy-adapter", flag.ContinueOnError)
 	kind := fs.String("harness", "", "codex or claude")
 	executable := fs.String("executable", "", "absolute native harness binary")
+	retained := fs.Bool("retained", false, "instead of --executable, launch the retained copy of the one admitted build of the declared version, ~/.buddy/harness/<harness>/<version>-<sha8>/ (D-079); nothing is copied or fetched")
 	buddy := fs.String("buddy", "", "absolute Buddy binary")
 	config := fs.String("launch", "", "launch JSON file (explicit worktree, permissions and hook compatibility)")
 	receipt := fs.String("receipt", "", "absolute immutable lifecycle receipt output")
@@ -138,7 +139,10 @@ func run(args []string) error {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(signals)
-	if !filepath.IsAbs(*executable) || !filepath.IsAbs(*buddy) || !filepath.IsAbs(*receipt) {
+	if *retained && *executable != "" {
+		return errors.New("--retained names the executable; do not also pass --executable")
+	}
+	if !*retained && !filepath.IsAbs(*executable) || !filepath.IsAbs(*buddy) || !filepath.IsAbs(*receipt) {
 		return errors.New("executable, buddy and receipt require absolute paths")
 	}
 	var launch harness.Launch
@@ -166,6 +170,18 @@ func run(args []string) error {
 	}
 	if !filepath.IsAbs(launch.Worktree) {
 		return errors.New("launch worktree must be absolute")
+	}
+	// A worker runs a pinned copy outside the updater's storage (the updater
+	// keeps three Claude versions and re-points its launcher). The path comes
+	// from the committed record for the declared version; admission still
+	// hashes whatever is there, and an absent copy simply fails to resolve.
+	// Copying it there is the operator's retention step, never the adapter's.
+	if *retained {
+		path, err := harness.RetainedExecutable(*kind, launch.HarnessVersion)
+		if err != nil {
+			return err
+		}
+		*executable = path
 	}
 	self, err := os.Executable()
 	if err != nil {

@@ -1,0 +1,151 @@
+{
+ "schema": "buddy.admission.v1",
+ "harness": "claude",
+ "version": "2.1.291",
+ "version_output": "2.1.291 (Claude Code)",
+ "os": "darwin",
+ "arch": "arm64",
+ "adapter_contract": "claude-stream-json.1",
+ "tiers": [
+  "start",
+  "resume",
+  "compaction_observation"
+ ],
+ "executable": {
+  "path": "claude",
+  "sha256": "9a1d2ed6bb4421e8fc80c892c0413f293be3ee50ae3d7dda1a7622197a056690",
+  "size": 233211568
+ },
+ "claude": {
+  "mod_profile": "builtin-only-2.1.291",
+  "builtins": [
+   "cc-plugin-agents-md",
+   "cc-plugin-plugin-authoring"
+  ]
+ },
+ "gate": {
+  "command": "'<adapter>' hook --receipt '<receipt>' --buddy '<buddy>'",
+  "hash": "none: get_settings must show exactly this command for Edit|Write|NotebookEdit"
+ },
+ "suites": [
+  {
+   "tier": "start",
+   "suite": "claude",
+   "runner": "qualify-claude.py",
+   "runner_sha256": "c4313b257f558298cc08c3a5919de54e5a8f5f338c2a9b5bb36be0ae35920cc2",
+   "receipt_sha256": "d02e567f2875836c034fab848aefe86d3bfb3d13133ed456bdf08807f7200302",
+   "checks_passed": 31,
+   "checks_total": 31,
+   "checker": "check-claude-gate.py",
+   "checker_sha256": "5b54b05a20f617c10ccfc729b91b251652cad0af9e5d6d6688d25b7382bc3905",
+   "checker_log_sha256": "2338df03b0376e4b177c6d2e6704de807f07a94ad5dc901821ec0ce0d6fc28b7",
+   "checker_passed": true,
+   "checker_checks_passed": 17,
+   "checker_checks_total": 17,
+   "buddy_sha256": "c4fa936b86e5be488486da309374bdbe8ef48d15a211b360e931733b9476c2ea",
+   "adapter_sha256": "ba98a33009f42ec714e61c47a55688a9ae22343436e6ef8142ce2532aee5e015",
+   "source_head": "abe37967a997a18e6f594d8633bc9bfa1d3ef515",
+   "summary": "docs/admissions/2026-10-13-start-tier.json"
+  },
+  {
+   "tier": "start",
+   "suite": "claude-mods",
+   "runner": "qualify-claude-mods.py",
+   "runner_sha256": "77e6d82e8fd7cd6bcaf3b4730d60d0d49ef9219930f9de89e11cff8addd94e17",
+   "receipt_sha256": "1841879f624f9565ee1d7409272bf73b600173bafb07b343f26b1b0c6e7674c2",
+   "checks_passed": 38,
+   "checks_total": 38,
+   "checker": "check-claude-mods.py",
+   "checker_sha256": "709cd11cee7d717461fbe20bce2615b225a79ac4181b3b75a34e8f7a51941a34",
+   "checker_log_sha256": "e9ae4a8535d9450b87b6b2ca148a28b6db9405bed7bf9164ca168baa7d1e4a5f",
+   "checker_passed": true,
+   "checker_checks_passed": 11,
+   "checker_checks_total": 11,
+   "buddy_sha256": "c4fa936b86e5be488486da309374bdbe8ef48d15a211b360e931733b9476c2ea",
+   "adapter_sha256": "ba98a33009f42ec714e61c47a55688a9ae22343436e6ef8142ce2532aee5e015",
+   "source_head": "abe37967a997a18e6f594d8633bc9bfa1d3ef515",
+   "summary": "docs/admissions/2026-10-13-start-tier.json"
+  },
+  {
+   "tier": "resume",
+   "suite": "claude-resume",
+   "runner": "qualify-claude-resume.py",
+   "runner_sha256": "30a6305f9d516504beeb0ceadedeac7a1cc1334d922ec48fcf77d41146fa0df9",
+   "receipt_sha256": "7a0f815cf5a046c93be3d1b853e1e0e1e3b70b212d7663d58747bcd4df82c56f",
+   "checks_passed": 22,
+   "checks_total": 22,
+   "checker": "check-claude-resume.py",
+   "checker_sha256": "3a497eaede6343126e8920fb51d669fa4a36be663e71365abf553257bc575ef8",
+   "checker_log_sha256": "048319ad400e1c31ce7fb9108525efc94a47e4b77865219ffffa54bbb3feb740",
+   "checker_passed": true,
+   "checker_checks_passed": 22,
+   "checker_checks_total": 22,
+   "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+   "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+   "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+   "summary": "docs/verification-evidence/2026-10-13/summary.json"
+  },
+  {
+   "tier": "resume",
+   "suite": "claude-interrupted",
+   "runner": "qualify-claude-interrupted.py",
+   "runner_sha256": "a0419192b29a41435769907cc2e93d096a40dace4724c0b330777c621a843948",
+   "receipt_sha256": "2217364f816363781bd9fccd6510a370427368232154f761790c68492945399b",
+   "checks_passed": 98,
+   "checks_total": 98,
+   "checker": "check-claude-interrupted.py",
+   "checker_sha256": "9fe88c9efd79c06b83144c9318f8361830366667e1c6b3276f461788959eba3b",
+   "checker_log_sha256": "02486782f23eb60ff454a8bd69505c6350c721299bba5c85a690463f868289ca",
+   "checker_passed": true,
+   "checker_checks_passed": 98,
+   "checker_checks_total": 98,
+   "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+   "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+   "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+   "summary": "docs/verification-evidence/2026-10-13/summary.json"
+  },
+  {
+   "tier": "compaction_observation",
+   "suite": "claude-compaction",
+   "runner": "qualify-claude-compaction.py",
+   "runner_sha256": "f1e2c5057a5b4634046cd61bf37821bc195b1ef17838d4db67d73c0759b9480f",
+   "receipt_sha256": "03f9f189e98b123e06bb1092dfeeddbeedd414c4fb01167b3f6081e45e440065",
+   "checks_passed": 26,
+   "checks_total": 26,
+   "checker": "check-claude-compaction.py",
+   "checker_sha256": "24c711846b7989046ae55ab117e306e37e64ea73afac2a0559b782f9cb775edf",
+   "checker_log_sha256": "e8287ff584595ab56e2024ff1d6acd0f2318f05c4a9c1f0072223b21a40e0705",
+   "checker_passed": true,
+   "checker_checks_passed": 26,
+   "checker_checks_total": 26,
+   "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+   "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+   "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+   "summary": "docs/verification-evidence/2026-10-13/summary.json"
+  },
+  {
+   "tier": "compaction_observation",
+   "suite": "claude-interrupted-compaction",
+   "runner": "qualify-claude-interrupted-compaction.py",
+   "runner_sha256": "f6702a86a8d866526c84741a5fdca087310617ece0b7b999b44c3a8180cf5dd0",
+   "receipt_sha256": "a0c30c0010c6722fede0635514325650f18146bae9d240cfecd2e1f8c465a081",
+   "checks_passed": 113,
+   "checks_total": 113,
+   "checker": "check-claude-interrupted-compaction.py",
+   "checker_sha256": "5e8afbac53c8372cbaf9474734b553beffb3f141896b5dcd5a701a85a1957b90",
+   "checker_log_sha256": "ff9a0e2ad8867ddf05c041ea176b6762ee1861c53ef20b0505a17a543d49ddaf",
+   "checker_passed": true,
+   "checker_checks_passed": 113,
+   "checker_checks_total": 113,
+   "buddy_sha256": "d1cfb880baa728816dd633d86dcf2e9bb776f36ce72918f6ef482b9c6de3f290",
+   "adapter_sha256": "e6ee01081155883951d0865ceb4e7ad98c4804e60441ea80f7c4db6e7ce341be",
+   "source_head": "316b3372bc027f463698aaf6c05be973161c6525",
+   "summary": "docs/verification-evidence/2026-10-13/summary.json"
+  }
+ ],
+ "evidence": {
+  "qualified_on": "2026-10-13",
+  "source": "the native Mach-O extracted from the 2026-10-07 verification archive after its sha256 verified; no updater copy of 2.1.291 remains",
+  "note": "start: this lane's fresh start-tier run at a clean abe3796 (docs/admissions/2026-10-13-start-tier.json); resume and compaction_observation: the A-07 rerun at 316b337 with its independent checkers. Deferred suites (peers, endpoints, history, mixed fleet, jobs) are evidence elsewhere and grant nothing here."
+ }
+}

@@ -110,7 +110,7 @@ func TestDiagnoseClaudeConfigurationDoesNotRunHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := Diagnose("claude", &l, nil)
-	if r.Hooks.Configuration.State != "configured" || r.Hooks.Mods.State != "unknown" || r.Hooks.Enforcement.State != "unknown" || r.Hooks.Trust.State != "unknown" || r.AdapterCapabilities["resume"].Support != "experimental" || r.RuntimeCapabilities.State != "unknown" {
+	if r.Hooks.Configuration.State != "configured" || r.Hooks.Mods.State != "unknown" || r.Hooks.Enforcement.State != "unknown" || r.Hooks.Trust.State != "unknown" || r.AdapterCapabilities["resume"].Support != "unknown" || r.RuntimeCapabilities.State != "unknown" {
 		t.Fatalf("Claude: %+v", r)
 	}
 	bad := strings.Replace(string(raw), "Edit|Write|NotebookEdit", "Edit", 1)

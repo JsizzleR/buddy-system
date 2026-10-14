@@ -21,9 +21,7 @@ func TestAdapterReportsEscapedToolAtClose(t *testing.T) {
 	if fake == fakeCodex {
 		t.Fatal("fixture patch did not apply")
 	}
-	if err := os.WriteFile(f.codex, []byte(fake), 0700); err != nil {
-		t.Fatal(err)
-	}
+	f.writeCodex(t, fake)
 	a := f.start(t, nil, nil)
 	a.await(t, "start receipt", func(v map[string]any) bool { return v["operation"] == "start" })
 	worker, tool := firstWorker(t, f)

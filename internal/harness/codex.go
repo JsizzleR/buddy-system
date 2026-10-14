@@ -61,7 +61,10 @@ type codexBackend struct {
 	// code pass: activeTurn alone is set by any turn/started, so a turn
 	// replayed into a resumed thread renewed under the new generation.
 	pendingMethod map[string]string
-	ownTurns      map[string]bool
+	// The admitted record's version, once a launch has been admitted; the
+	// capability report intersects with that record's tiers (D-079).
+	launchedVersion string
+	ownTurns        map[string]bool
 }
 
 func (c *codexBackend) observeRenewals(m *renewalMailbox) {
@@ -102,13 +105,30 @@ func newCodex(executable string, start codexStarter) *codexBackend {
 		pendingMethod: make(map[string]string), ownTurns: make(map[string]bool)}
 }
 
+// Capabilities is the code's support intersected with the launched
+// version's admission record (D-079). Before a launch only the code's own
+// support is known; reconcile is withdrawn whatever any record says.
 func (c *codexBackend) Capabilities() Capabilities {
+	c.mu.Lock()
+	version := c.launchedVersion
+	c.mu.Unlock()
+	resume := Capability{Support: "experimental", Reason: "thread/resume by captured native thread ID; native recovery not qualified"}
+	compact := Capability{Support: "experimental", Reason: "contextCompaction item lifecycle only; no automatic retry or compaction control"}
+	if version == "" {
+		pending := Capability{Support: "unknown", Reason: "decided by the admission record of the build a launch admits"}
+		resume, compact = pending, pending
+	} else if !admissionVersionGrants("codex", version, TierResume) {
+		resume = Capability{Support: "unsupported", Reason: "the launched version's admission record does not grant resume"}
+	}
+	if version != "" && !admissionVersionGrants("codex", version, TierCompaction) {
+		compact = Capability{Support: "unsupported", Reason: "the launched version's admission record does not grant compaction_observation"}
+	}
 	return Capabilities{
-		"start":                  {Support: "experimental", Reason: "Codex app-server v2 contract inspected in codex-cli 0.160.0; launched workers only"},
+		"start":                  {Support: "experimental", Reason: "Codex app-server v2 contract (" + codexAdapterContract + ") for exactly the admitted packages; launched workers only"},
 		"send":                   {Support: "experimental", Reason: "turn/start or exact-turn turn/steer; native acceptance is not worker acknowledgement"},
 		"inspect":                {Support: "experimental", Reason: "thread/read runtime status; not a ledger or validation verdict"},
 		"reconcile":              {Support: "unsupported", Reason: "the 0.160.0 history read (thread/read includeTurns) is unbounded; an oversized reply would end the live worker's transport, and a paged read is not qualified"},
-		"resume":                 {Support: "experimental", Reason: "thread/resume by captured native thread ID; native recovery not qualified"},
+		"resume":                 resume,
 		"interrupt":              {Support: "experimental", Reason: "turn/interrupt with explicit native thread and turn IDs"},
 		"approval":               {Support: "experimental", Reason: "exact request-scoped command/file allow or deny only; no session or policy grants"},
 		"attach":                 {Support: "unsupported", Reason: "only the worker launched by this adapter is controllable"},
@@ -116,7 +136,7 @@ func (c *codexBackend) Capabilities() Capabilities {
 		"peer_identity":          {Support: "unsupported", Reason: "wake text is explicitly peer data; app-server text input is not a native authenticated peer envelope"},
 		"wake":                   {Support: "experimental", Reason: "bounded peer inbox notification over the owned thread input transport"},
 		"telemetry":              {Support: "unknown", Reason: "no usage or cache translation in this bounded adapter"},
-		"compaction_observation": {Support: "experimental", Reason: "contextCompaction item lifecycle only; no automatic retry or compaction control"},
+		"compaction_observation": compact,
 		"claim_renewal":          {Support: "experimental", Reason: "item/completed fileChange with status completed, in the active turn: every changes[].path and kind.move_path; commandExecution renews nothing"},
 	}
 }
@@ -137,16 +157,24 @@ func (c *codexBackend) Resume(ctx context.Context, launch Launch, nativeID strin
 func (c *codexBackend) launch(ctx context.Context, launch Launch, resumeID string, auth *LaunchAuthorization) (string, error) {
 	c.opMu.Lock()
 	defer c.opMu.Unlock()
-	if launch.HarnessVersion != "0.160.0" {
-		return "", errors.New("unsupported Codex version: this adapter contract requires codex-cli 0.160.0")
-	}
 	checked, err := observeExecutable(c.executable)
 	if err != nil {
 		return "", err
 	}
+	// Admission before the file runs at all (D-079): bin/codex AND the whole
+	// release tree around it must be a committed record's, because the
+	// package execs its sidecars (codex-code-mode-host, codex-path/rg) later.
+	op := TierStart
+	if resumeID != "" {
+		op = TierResume
+	}
+	rec, err := admitExecutable("codex", c.executable, checked, launch, op)
+	if err != nil {
+		return "", err
+	}
 	version, err := c.version(ctx, c.executable)
-	if err != nil || version != "codex-cli 0.160.0" {
-		return "", errors.New("unsupported installed Codex executable: expected codex-cli 0.160.0")
+	if err != nil || version != rec.VersionOutput {
+		return "", refuse("version_mismatch", "installed Codex does not report %q", rec.VersionOutput)
 	}
 	if launch.PermissionMode != "read-only" && launch.PermissionMode != "workspace-write" {
 		return "", errors.New("Codex permission mode must be read-only or workspace-write")
@@ -170,12 +198,13 @@ func (c *codexBackend) launch(ctx context.Context, launch Launch, resumeID strin
 		return "", errors.New("Codex backend already launched or closed; create a new adapter for a successor")
 	}
 	c.started = true
+	c.launchedVersion = rec.Version
 	c.nativeID = resumeID
 	c.generation = auth.generation()
 	c.mu.Unlock()
 	// The caller supplies the isolated home. No user configuration or hook trust
 	// is installed or rewritten by a control adapter.
-	proc, err := c.start(ctx, auth, c.executable, []string{"app-server", "--stdio"}, launch.Worktree, []string{"CODEX_HOME=" + filepath.Dir(launch.HookConfig)})
+	proc, err := c.start(ctx, auth, c.executable, []string{"app-server", "--stdio"}, launch.Worktree, []string{"CODEX_HOME=" + filepath.Dir(launch.HookConfig), "DISABLE_AUTOUPDATER=1"})
 	if err != nil {
 		return "", err
 	}

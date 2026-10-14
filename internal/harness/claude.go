@@ -2,7 +2,7 @@ package harness
 
 // Claude's streaming CLI is the transport used by Agent SDK 0.3.202. This
 // adapter deliberately implements only its small control/input subset, pinned
-// to the qualified native 2.1.289, 2.1.290 and 2.1.291 binaries. It neither imports an npm cache nor
+// to the native builds its committed admission records name (D-079). It neither imports an npm cache nor
 // treats a successful pipe write as delivery. The replayed native user UUID is
 // the acceptance evidence; a result UUID is a separate, later observation.
 // Native 2.1.289 qualification also observed exact input UUID fields on results
@@ -11,7 +11,8 @@ package harness
 //
 // Wire provenance: installed @anthropic-ai/claude-agent-sdk/sdk.d.ts,
 // SDKControlRequest, SDKControlResponse, SDKUserMessage and SDKUserMessageReplay.
-// Changing the pin requires a contract check, not simply widening a semver range.
+// Admitting a new build takes its qualification and a committed record, never
+// a semver range; changing this wire subset bumps claudeAdapterContract.
 import (
 	"bytes"
 	"context"
@@ -24,35 +25,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
 
-const claudeContractVersion = "2.1.289"
-const claudeModProfile = "builtin-only-2.1.289"
-
-// These are separately measured contracts, not a semver range. A new native
-// version must requalify effective settings, inventory, gates and recovery
-// before joining this list, even if its reported built-ins have the same names.
-func claudeModProfileForVersion(version string) string {
-	switch version {
-	case claudeContractVersion:
-		return claudeModProfile
-	case "2.1.290":
-		return "builtin-only-2.1.290"
-	case "2.1.291":
-		return "builtin-only-2.1.291"
-	default:
-		return ""
-	}
-}
-
-// Admission alone does not qualify history rewriting. Only these separately
-// measured manual-compaction contracts supply a boundary UUID and exact-input
-// local result; cancellation or missing observations still cannot admit resume.
-func claudeManualCompactionQualified(version string) bool {
-	return version == "2.1.290" || version == "2.1.291"
-}
+// Which native builds this adapter may launch, with which Mod profile and
+// which capability tiers, is no longer a version table here: it is the
+// committed admission records (admission.go, D-079). The compaction and
+// resume checks below ask those records by the captured version.
 
 type claudeProcess interface {
 	Write(any) error
@@ -63,6 +44,7 @@ type claudeProcess interface {
 
 type claudeBackend struct {
 	executable         string
+	probe              func(context.Context, string) (string, error)
 	mu                 sync.Mutex
 	op                 chan struct{}
 	proc               claudeProcess
@@ -118,7 +100,7 @@ func NewClaude(executable string) (Backend, error) {
 }
 
 func newClaude(executable string) *claudeBackend {
-	c := &claudeBackend{executable: executable, state: "unknown", events: make(chan Event, 64), op: make(chan struct{}, 1),
+	c := &claudeBackend{executable: executable, probe: probeNativeVersion, state: "unknown", events: make(chan Event, 64), op: make(chan struct{}, 1),
 		done: make(chan struct{}), stop: make(chan struct{}), waiters: make(map[string]chan claudeReply), approvals: make(map[string]claudePermission), seenApprovals: make(map[string]string), results: make(map[string]bool)}
 	c.op <- struct{}{}
 	return c
@@ -150,18 +132,26 @@ func (c *claudeBackend) Capabilities() Capabilities {
 	c.mu.Lock()
 	version := c.version
 	c.mu.Unlock()
-	compact := Capability{Support: "unsupported", Reason: "manual compaction observations are qualified only on native 2.1.290 and 2.1.291"}
-	if claudeManualCompactionQualified(version) {
+	compact := Capability{Support: "unsupported", Reason: "manual compaction observations need an admission record granting compaction_observation for the launched version"}
+	if admissionVersionGrants("claude", version, TierCompaction) {
 		compact = Capability{Support: "experimental", Reason: "manual compact_boundary UUID and correlated local-command result only; no compaction control or automatic threshold"}
 	}
-	r := "experimental native stream-json contracts: Claude Code 2.1.289, 2.1.290 and 2.1.291 / Agent SDK 0.3.202 wire subset; provider qualification pending"
+	// Before a launch the code's own support is reported; after one, a
+	// record that does not grant resume withdraws it (the intersection).
+	resume := Capability{Support: "experimental", Reason: "captured identity after journalled completed or aborted_streaming/aborted_tools results and idle; unfinished recovery unsupported"}
+	if version == "" {
+		resume = Capability{Support: "unknown", Reason: "decided by the admission record of the build a launch admits"}
+	} else if !admissionVersionGrants("claude", version, TierResume) {
+		resume = Capability{Support: "unsupported", Reason: "the launched version's admission record does not grant resume"}
+	}
+	r := "experimental native stream-json contract (" + claudeAdapterContract + ") for exactly the admitted artifacts / Agent SDK 0.3.202 wire subset; provider qualification pending"
 	return Capabilities{
 		"compaction_observation": compact,
 		"start":                  {Support: "experimental", Reason: r}, "send": {Support: "experimental", Reason: r},
 		"inspect":   {Support: "supported", Reason: "adapter's captured stream observations only"},
 		"interrupt": {Support: "experimental", Reason: r}, "approval": {Support: "experimental", Reason: r},
 		"reconcile":     {Support: "unsupported", Reason: "native turn history reconciliation is not implemented"},
-		"resume":        {Support: "experimental", Reason: "captured identity after journalled completed or aborted_streaming/aborted_tools results and idle; unfinished recovery unsupported"},
+		"resume":        resume,
 		"attach":        {Support: "unsupported", Reason: "only adapter-launched workers are controlled"},
 		"wake":          {Support: "experimental", Reason: "textually peer-framed input on the owned stream; native peer provenance is unsupported"},
 		"telemetry":     {Support: "unknown", Reason: "no telemetry translation in this bounded adapter"},
@@ -195,15 +185,8 @@ func (c *claudeBackend) launch(ctx context.Context, launch Launch, resumeID stri
 	if c.proc != nil || c.closed {
 		return "", errors.New("Claude adapter already started or closed")
 	}
-	profile := claudeModProfileForVersion(launch.HarnessVersion)
-	if profile == "" {
-		return "", errors.New("unsupported Claude version: require checked contract 2.1.289, 2.1.290 or 2.1.291")
-	}
 	if launch.Hooks.NoMods != "" {
 		return "", errors.New("unsupported Claude no_mods assertion: builtin Mods exist; use the qualified mods profile")
-	}
-	if launch.Hooks.Mods != profile {
-		return "", fmt.Errorf("unsupported Claude Mod profile: require %s", profile)
 	}
 	if launch.HookConfig == "" || !filepath.IsAbs(launch.HookConfig) {
 		return "", errors.New("Claude launch requires an explicit absolute hook settings path")
@@ -238,12 +221,23 @@ func (c *claudeBackend) launch(ctx context.Context, launch Launch, resumeID stri
 	if err != nil {
 		return "", err
 	}
-	version, err := probeNativeVersion(ctx, c.executable)
+	// Admission before the file runs at all, even for --version (D-079): the
+	// bytes must be a committed record's, granting this operation, under the
+	// declared profile. Only then is the exact version text asked for.
+	op := TierStart
+	if resumeID != "" {
+		op = TierResume
+	}
+	rec, err := admitExecutable("claude", c.executable, checked, launch, op)
+	if err != nil {
+		return "", err
+	}
+	version, err := c.probe(ctx, c.executable)
 	if err != nil {
 		return "", fmt.Errorf("observe Claude version: %w", err)
 	}
-	if version != launch.HarnessVersion+" (Claude Code)" {
-		return "", errors.New("installed Claude version differs from the checked contract")
+	if version != rec.VersionOutput {
+		return "", refuse("version_mismatch", "installed Claude reports %q; its admission record says %q", version, rec.VersionOutput)
 	}
 	id := launch.NativeSessionID
 	if resumeID != "" {
@@ -269,7 +263,9 @@ func (c *claudeBackend) launch(ctx context.Context, launch Launch, resumeID stri
 	if err := sameExecutable(c.executable, checked); err != nil {
 		return "", err
 	}
-	proc, err := startClaudeProcess(ctx, auth, c.executable, args, launch.Worktree, nil)
+	// A worker runs the pinned bytes it was admitted on. The interactive
+	// harness updates freely; a worker must not update itself mid-run.
+	proc, err := startClaudeProcess(ctx, auth, c.executable, args, launch.Worktree, []string{"DISABLE_AUTOUPDATER=1"})
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +288,7 @@ func (c *claudeBackend) launch(ctx context.Context, launch Launch, resumeID stri
 		var inventory json.RawMessage
 		inventory, err = c.controlData(ctx, map[string]any{"subtype": "reload_plugins"})
 		if err == nil {
-			err = claudeModCompatibility(inventory)
+			err = claudeModCompatibility(inventory, rec.Claude.Builtins)
 		}
 	}
 	if err == nil {
@@ -328,10 +324,12 @@ func (c *claudeBackend) effectiveSettings(ctx context.Context, command string) e
 }
 
 // This inventory is a startup compatibility snapshot, not ongoing enforcement
-// or proof of no Mods. In native 2.1.289, 2.1.290 and 2.1.291 agents-md is a built-in Mod and
-// plugin-authoring is a builtin skill without Mod code. Other builtins (including
-// the managed-policy guard), installed Mods and any uncertain reload refuse.
-func claudeModCompatibility(data []byte) error {
+// or proof of no Mods. In the measured natives agents-md is a built-in Mod and
+// plugin-authoring is a builtin skill without Mod code. The inventory must be
+// EXACTLY the admission record's built-in list, each a name this code knows
+// (claudeKnownBuiltins). Other builtins (including the managed-policy guard),
+// installed Mods and any uncertain reload refuse.
+func claudeModCompatibility(data []byte, builtins []string) error {
 	var observed struct {
 		Plugins    json.RawMessage `json:"plugins"`
 		MCPServers json.RawMessage `json:"mcpServers"`
@@ -352,13 +350,13 @@ func claudeModCompatibility(data []byte) error {
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(observed.Plugins)))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&plugins) != nil || len(plugins) != 2 {
+	if decoder.Decode(&plugins) != nil || len(plugins) != len(builtins) {
 		return errors.New("Claude Mod inventory differs from the qualified builtin profile")
 	}
 	seen := map[string]bool{}
 	for _, plugin := range plugins {
 		if plugin.Path != "builtin" || plugin.Source != plugin.Name+"@builtin" || seen[plugin.Name] ||
-			(plugin.Name != "cc-plugin-agents-md" && plugin.Name != "cc-plugin-plugin-authoring") {
+			!slices.Contains(builtins, plugin.Name) || !slices.Contains(claudeKnownBuiltins, plugin.Name) {
 			return errors.New("Claude Mod inventory contains an unqualified plugin identity")
 		}
 		seen[plugin.Name] = true
@@ -669,7 +667,7 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 		// distinction on the wire. Only a later exact local-command result
 		// can bind the observed boundary to our single outstanding input.
 		c.mu.Lock()
-		qualified := claudeManualCompactionQualified(c.version) && f.Subtype == "compact_boundary" &&
+		qualified := admissionVersionGrants("claude", c.version, TierCompaction) && f.Subtype == "compact_boundary" &&
 			f.SessionID == c.nativeID && claudeValidUUID(f.UUID) && f.CompactMetadata.Trigger == "manual" && !c.seenBoundaries[f.UUID]
 		if qualified {
 			// A delayed duplicate keeps its original meaning. It cannot lend
@@ -781,7 +779,7 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 			// Interrupting the held summary response also emits this native
 			// success shape, but without a boundary (both qualified versions).
 			// It must stay unknown, just like a lost boundary notification.
-			if claudeManualCompactionQualified(c.version) && c.activeAck && len(c.approvals) == 0 &&
+			if admissionVersionGrants("claude", c.version, TierCompaction) && c.activeAck && len(c.approvals) == 0 &&
 				c.compactBoundary != "" && c.compactInput == turn && f.LocalCommand == "compact" &&
 				f.TerminalReason == "" && f.Subtype == "success" && f.IsError != nil && !*f.IsError &&
 				f.NumTurns != nil && *f.NumTurns == 0 {

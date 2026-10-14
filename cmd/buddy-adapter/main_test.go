@@ -53,8 +53,10 @@ func builtBinaries(t *testing.T) (string, string) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		for _, target := range []struct{ out, pkg string }{{built.buddy, "./cmd/buddy"}, {built.adapter, "./cmd/buddy-adapter"}} {
-			cmd := exec.CommandContext(ctx, "go", "build", "-o", target.out, target.pkg)
+		// The adapter alone is built with the admission fixture tag, so the
+		// entry tests can admit their fake Codex by record (admission_test.go).
+		for _, target := range []struct{ out, pkg, tags string }{{built.buddy, "./cmd/buddy", ""}, {built.adapter, "./cmd/buddy-adapter", "buddy_admission_fixture"}} {
+			cmd := exec.CommandContext(ctx, "go", "build", "-tags", target.tags, "-o", target.out, target.pkg)
 			cmd.Dir = root
 			if out, err := cmd.CombinedOutput(); err != nil {
 				built.err = fmt.Errorf("build %s: %v\n%s", target.pkg, err, out)
@@ -120,8 +122,8 @@ for line in sys.stdin:
 `
 
 type entryFixture struct {
-	dir, repo, receipt, launch, codex, marker, gate, buddy, adapter string
-	env                                                             []string
+	dir, repo, receipt, launch, codex, records, marker, gate, buddy, adapter string
+	env                                                                      []string
 }
 
 func newEntryFixture(t *testing.T, buddyOverride string) *entryFixture {
@@ -135,7 +137,7 @@ func newEntryFixture(t *testing.T, buddyOverride string) *entryFixture {
 		t.Fatal(err)
 	}
 	f := &entryFixture{dir: dir, repo: filepath.Join(dir, "repo"), receipt: filepath.Join(dir, "receipt.json"), launch: filepath.Join(dir, "launch.json"),
-		codex: filepath.Join(dir, "codex"), marker: filepath.Join(dir, "native.log"), buddy: buddy, adapter: adapter}
+		codex: filepath.Join(dir, "pkg", "bin", "codex"), records: filepath.Join(dir, "admissions.json"), marker: filepath.Join(dir, "native.log"), buddy: buddy, adapter: adapter}
 	if buddyOverride != "" {
 		f.buddy = buddyOverride
 	}
@@ -150,9 +152,7 @@ func newEntryFixture(t *testing.T, buddyOverride string) *entryFixture {
 		t.Fatal(err)
 	}
 	st.Close()
-	if err := os.WriteFile(f.codex, []byte(fakeCodex), 0700); err != nil {
-		t.Fatal(err)
-	}
+	f.writeCodex(t, fakeCodex)
 	home := filepath.Join(dir, "codex-home")
 	if err := os.Mkdir(home, 0700); err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func newEntryFixture(t *testing.T, buddyOverride string) *entryFixture {
 	if err := os.WriteFile(f.launch, launch, 0600); err != nil {
 		t.Fatal(err)
 	}
-	f.env = append(os.Environ(), "BUDDY_TEST_MARKER="+f.marker, "BUDDY_TEST_GATE="+f.gate, "BUDDY_TEST_GO="+filepath.Join(dir, "go"))
+	f.env = append(os.Environ(), "BUDDY_ADMISSION_FIXTURE="+f.records, "BUDDY_TEST_MARKER="+f.marker, "BUDDY_TEST_GATE="+f.gate, "BUDDY_TEST_GO="+filepath.Join(dir, "go"))
 	return f
 }
 

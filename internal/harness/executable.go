@@ -85,6 +85,9 @@ func probeNativeVersion(ctx context.Context, executable string) (string, error) 
 	}
 	defer reader.Close()
 	cmd := exec.Command(executable, "--version")
+	// Even a version probe of a pinned build must not let it update itself
+	// (D-079); the worker's own environment carries the same setting.
+	cmd.Env = append(os.Environ(), "DISABLE_AUTOUPDATER=1")
 	cmd.Stdout, cmd.Stderr = writer, os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {

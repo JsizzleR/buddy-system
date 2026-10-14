@@ -592,8 +592,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `buddy.adapter.v1`/`buddy.control.v1`; legacy drains exclude adapter mail; approvals
   enter only through the operator descriptor. D-075 supersedes its "Claude resume is
   unsupported".
-- **Claude admission is an exact version/built-in-Mod-profile pair (D-071)**, from the
-  code's table, never a semver range or an absence assertion.
+- **Claude admission is an exact version/built-in-Mod-profile pair (D-071)**, never a
+  semver range or an absence assertion. Its "from the code's table" is superseded by
+  D-079 (2026-10-13): the pair comes from a committed admission record.
 - **`buddy diagnose` never opens the source ledger with SQLite (D-072):** a private
   immutable copy of a stable image; readiness always `not_established`.
 - **The gate checks every spelling, decides jurisdiction before identity, and adds a
@@ -617,6 +618,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   tool_result with explicit `is_error:false`, or on 2.1.291 a Write with the measured
   create/update witness. Codex: a completed `fileChange`, both ends of a move. Bash
   renews nothing. `lifecycle beat --path` repeats.
+- **Native admission is a committed exact-artifact record (D-079):**
+  `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`, embedded, strictly
+  parsed. Launch hashes the executable (Codex: the whole release tree, undeclared entries refuse)
+  before anything runs, then contract id, platform, tier (`start`/`resume`/
+  `compaction_observation`, each earned by the code's suites with checker passes), profile,
+  exact `--version`, and the unchanged live checks. A start-only record never resumes; no
+  record grants reconcile. 2.1.289/2.1.290 are retired. `--retained` names
+  `~/.buddy/harness/...`; the adapter copies nothing.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

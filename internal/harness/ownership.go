@@ -293,6 +293,14 @@ func (a *LaunchAuthorization) generation() string {
 	return a.template.Attempt
 }
 
+// untouched reports that Spawn never ran for this authorization: no intent
+// was published and no child was started through it.
+func (a *LaunchAuthorization) untouched() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return !a.consumed
+}
+
 func (a *LaunchAuthorization) Published() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
