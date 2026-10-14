@@ -5897,6 +5897,33 @@ Mutation: 8 mutants (the Go set short or long, the predicate ignoring it, each
 Python set short, respelled as a list, extended or renamed) were all killed;
 dropping 2.1.299 from the Go set fails the 11 replay rows of its Writes.
 
+**Code review** (one constrained Codex pass on both commits, source only).
+Six answers; two defects were reproduced by a failing test before their fix:
+
+1. An empty id never names a result, so a frame pairing an id-less
+   `tool_result` with an entry `{"id": ""}` is unknown as a whole, where a
+   literal reading of R' would let its other results proceed. Conservative,
+   and now stated in rule 1 above. No change.
+2. Go and the Python mirror agree on every input class asked about. No change.
+3. A kind of `permission-rule` beside an omitted `is_error` and a success
+   witness reads unexecuted, silently. R' prescribes it and no build sent it;
+   it is the one silent arm left, and it is the operator's to revisit.
+4. The replay runs each frame alone, so a frame taking the frame-level path
+   (rules 0 and 1) could report a use another frame left outstanding in a real
+   stream and not in the replay. No measured frame takes that path, and
+   `TestClaudeMetaVerdictsOfMeasuredFrames` now fails if one ever does.
+5. DEFECT: the mirror gate read `("2.1.291" "2.1.299",)` as both versions,
+   where Python concatenates adjacent literals into one string, and
+   `("2.1.291")`, which is a str (`in` is then a substring test). The line
+   pattern now admits only a tuple literal, and both spellings, a spaced pair
+   and a doubled comma are refusal controls.
+6. DEFECT: `matched_write` admitted `is_error: 0`, because `0 in ("<absent>",
+   False)` is true in Python, while the reader calls it non-boolean and renews
+   nothing. It is an identity test now, with a self-test mutation. Residual:
+   the observer projects a missing `is_error` as the string `"<absent>"`, so a
+   native string of that value is indistinguishable from omission; fixing it
+   changes the runner's trace format, which recorded receipts were checked in.
+
 ## D-079 — Native admission is a committed, exact-artifact record compiled into the adapter; it supersedes D-071's "from the code's table"
 
 2026-10-13. Versions step 2 of the harness version tracking consensus (Fable and

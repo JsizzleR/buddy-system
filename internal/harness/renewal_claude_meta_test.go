@@ -102,6 +102,15 @@ func TestClaudeMetaVerdictsOfMeasuredFrames(t *testing.T) {
 		if len(row.Verdicts) != len(results) {
 			t.Fatalf("%s: %d verdicts for %d results", row.Source, len(row.Verdicts), len(results))
 		}
+		// The replay runs each frame alone, after only its own tool uses. That
+		// loses nothing only while no measured frame takes the frame-level
+		// path (R' 0 and 1): it is the one reading whose effect reaches past
+		// its own frame, reporting coverage unknown for a use another frame
+		// left outstanding (Codex code review, finding 4). Per-result verdicts
+		// depend on nothing but the frame and the result's own correlation.
+		if _, bad := readClaudeResultMeta(f.Meta, results); bad != "" {
+			t.Errorf("%s: a measured frame takes the frame-level path (%s); replay it in its stream, not alone", row.Source, bad)
+		}
 		for _, b := range f.Message.Content {
 			got, why := claudeMetaVerdictFor(f.Meta, results, b.ToolUseID, b.IsError)
 			if got != row.Verdicts[b.ToolUseID] {

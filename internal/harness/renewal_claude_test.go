@@ -337,7 +337,10 @@ func TestClaudeRenewalFloodNeverBlocksTheReader(t *testing.T) {
 // so is a respelled one (a list, a computed value), which would otherwise read
 // as "no set here" and pass by saying nothing.
 var (
-	pyQualifiedLine    = regexp.MustCompile(`(?m)^WRITE_RENEWAL_QUALIFIED = \(((?:"[0-9][0-9.]*",? ?)*)\)$`)
+	// A tuple literal only: one string with its trailing comma, or two or
+	// more separated by ", " (a trailing comma allowed). Adjacent literals
+	// and a lone parenthesized string are something else in Python.
+	pyQualifiedLine    = regexp.MustCompile(`(?m)^WRITE_RENEWAL_QUALIFIED = \(((?:"[0-9][0-9.]*",)|(?:"[0-9][0-9.]*"(?:, "[0-9][0-9.]*")+,?))\)$`)
 	pyQualifiedWrites  = regexp.MustCompile(`WRITE_RENEWAL_QUALIFIED\s*(?:[-+|&]?=[^=]|\.\s*(?:append|extend|add|update)\b)`)
 	pyQualifiedVersion = regexp.MustCompile(`"([0-9][0-9.]*)"`)
 )
@@ -386,6 +389,21 @@ func TestClaudeWriteOmissionVersionsMatchThePythonMirrors(t *testing.T) {
 		got, err := pyWriteRenewalQualified([]byte(src))
 		if err == nil && reflect.DeepEqual(got, claudeWriteOmissionVersions) {
 			t.Errorf("the gate did not fire on a mirror %s: %q", name, src)
+		}
+	}
+	// Spellings Python reads as something other than a tuple of these
+	// strings, so the gate must refuse them outright, whatever versions they
+	// name (Codex code review, finding 5): adjacent literals concatenate into
+	// one string, and a lone parenthesized string is a str, on which `in` is
+	// a substring test ("2.1.29" in "2.1.291").
+	for name, src := range map[string]string{
+		"adjacent literals":         `WRITE_RENEWAL_QUALIFIED = ("2.1.291" "2.1.299",)` + "\n",
+		"adjacent literals, spaced": `WRITE_RENEWAL_QUALIFIED = ("2.1.291" "2.1.299")` + "\n",
+		"a lone string":             `WRITE_RENEWAL_QUALIFIED = ("2.1.291")` + "\n",
+		"a doubled comma":           `WRITE_RENEWAL_QUALIFIED = ("2.1.291",, "2.1.299")` + "\n",
+	} {
+		if got, err := pyWriteRenewalQualified([]byte(src)); err == nil {
+			t.Errorf("the gate read a non-tuple spelling (%s) as %q: %q", name, got, src)
 		}
 	}
 	scripts, err := filepath.Glob("../../scripts/*.py")

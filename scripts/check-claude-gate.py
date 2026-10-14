@@ -934,7 +934,7 @@ def matched_write(e, path):
     end = next(j for j, x in enumerate(rows) if j > at and x.get("type") == "result")
     witness = v.get("tool_use_result")
     if not (at < i < end and v.get("isReplay") is not True and v.get("parent_tool_use_id") is None and
-            len(v["tool_blocks"]) == 1 and v["tool_blocks"][0]["is_error"] in ("<absent>", False) and
+            len(v["tool_blocks"]) == 1 and (v["tool_blocks"][0]["is_error"] is False or v["tool_blocks"][0]["is_error"] == ABSENT) and
             meta_verdict(v.get("tool_result_meta"), frame_result_ids(v), tid, v["tool_blocks"][0]["is_error"]) == "proceed" and
             isinstance(witness, dict) and witness.get("type") in ("create", "update") and witness.get("filePath") == path):
         raise ValueError("the allowed Write's result is not a renewable success")
@@ -1343,6 +1343,11 @@ def file_mutations(root, r):
             lambda rows: rows.pop(next(i for i, _ in renewal_rows(rows)))), "renewal_journal"),
         ("the allowed write's result was an error", edit_lines("native-observations.jsonl",
             lambda rows: allowed_result(rows)["tool_blocks"][0].update(is_error=True)), "renewal_matched_result"),
+        # 0 == False in Python, so a membership test let a numeric is_error
+        # through; the adapter's reader calls it non-boolean and renews
+        # nothing (Codex code review of the tool_result_meta rule, finding 6).
+        ("the allowed write's is_error was the number 0", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows)["tool_blocks"][0].update(is_error=0)), "renewal_matched_result"),
         ("the omitted is_error has no witness", edit_lines("native-observations.jsonl",
             lambda rows: allowed_result(rows).update(tool_use_result="<str>")), "renewal_matched_result"),
         ("the witness names another path", edit_lines("native-observations.jsonl",
