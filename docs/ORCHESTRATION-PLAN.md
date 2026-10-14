@@ -78,7 +78,7 @@ must receive a concrete instruction to prompt it when necessary.
 
 Source anchors:
 
-- [README: roster and idle-delivery limitation](../README.md#1c-the-roster--which-session-takes-the-next-task).
+- [USAGE: roster and idle-delivery limitation](USAGE.md#the-roster--buddy-sessions).
 - [CLI](../internal/cli/cli.go): `usage`, `cmdHello`, `cmdMsg`, `cmdInbox`,
   `cmdSessions`, and the heartbeat's bounded message output.
 - [Store](../internal/store/store.go): claims schema, `Msg`, `Undelivered`,
