@@ -2,10 +2,21 @@
 """Independently check a qualify-codex.py receipt against the evidence it left.
 
 START-TIER CHECKER (consensus "Harness version tracking", Codex review P1), for
-the Codex half of the start tier: `qualify-codex.py --app-server --lifecycle
---edge-cases --shell-patch`. Only that full mode is accepted; a receipt from a
-narrower run is missing the shell-routed patch (D-073) or the edge cases, and
-is refused rather than read as a smaller pass.
+the Codex half of the start tier. Two modes are accepted, each bound by the
+receipt's `mode` and checked against its OWN case set:
+
+- the gate mode, `qualify-codex.py --app-server --lifecycle --edge-cases
+  --shell-patch`. Only that full mode: a receipt from a narrower run is missing
+  the shell-routed patch (D-073) or the edge cases, and is refused rather than
+  read as a smaller pass;
+- the adapter mode, `qualify-codex.py --adapter <buddy-adapter>` (F-26, D-078):
+  the worker launched through the real adapter with its receipt-bound gate,
+  and the claims its completed fileChanges renewed. A receipt whose mode is
+  exactly {"adapter": true} is validated as that and nothing else; one that
+  names `adapter` beside anything else, or carries a gate-mode field, is
+  refused. Extended rather than refused because the adapter run is the only
+  native evidence that a Codex worker's claims renew, and a verdict nothing
+  re-derives is the runner's word.
 
 Every verdict is decided again from the run's files: the hook definitions as
 Codex listed them before and after exact-hash trust, the trust entries in the
@@ -22,6 +33,11 @@ hashes to the receipt's value. NOT bound, because the runner does not record
 it: the Codex executable's bytes (the receipt carries `codex --version` text
 only). The runner .diff this lane proposes records it; until then a version
 string is all the receipt can say, and the output says so in `unbound`.
+
+The adapter mode re-derives renewal the way check-claude-gate.py does (its
+"claim renewal" section): from the run's two ledger images, the adapter's
+journal, and the tool outputs the model was given, never from the receipt's
+`renewal` record, which must instead equal what those files hold.
 
 Run: python3 -I scripts/check-codex-gate.py <root>/result.json [--self-test]
      python3 -I scripts/check-codex-gate.py --self-test   (synthetic, hermetic)
@@ -71,7 +87,20 @@ def deny(stdout):
     return out["hookEventName"] == "PreToolUse" and out["permissionDecision"] == "deny" and bool(out["permissionDecisionReason"])
 
 
+def adapter_mode(r):
+    """A receipt that names the adapter mode at all is judged as one."""
+    return isinstance(r.get("mode"), dict) and "adapter" in r["mode"]
+
+
 def validate(r, receipt_path):
+    return (validate_adapter if adapter_mode(r) else validate_gate)(r, receipt_path)
+
+
+def receipt_mutations(r):
+    return adapter_receipt_mutations(r) if adapter_mode(r) else gate_receipt_mutations(r)
+
+
+def validate_gate(r, receipt_path):
     e = g.Evidence(r, r["root"])
     work = e.root / "work"
     version = str(r.get("codex_version", "")).removeprefix("codex-cli ")
@@ -164,7 +193,7 @@ def validate(r, receipt_path):
     return e.verdict(evidence=binding.get("v"), read=sorted(e.read_paths), unbound=unbound)
 
 
-def receipt_mutations(r):
+def gate_receipt_mutations(r):
     return [(("checks", "unreadable_ledger_denied"), False, "runner_verdict"),
             (("checks", "shell_routed_patch_hook_denied"), g.DELETE, "runner_verdict"),
             (("codex_returncode",), 1, "runner_verdict"),
@@ -173,6 +202,7 @@ def receipt_mutations(r):
             (("buddy_sha256",), "0" * 64, "artifact_hashes"),
             (("codex_sha256",), "0" * 64, "artifact_hashes"),
             (("mode",), {"app_server": True, "lifecycle": True, "edge_cases": True, "shell_patch": False}, "artifact_hashes"),
+            (("mode",), {"adapter": True}, "mode_bound"),
             (("root",), str(Path(r["root"]) / "work"), "receipt_location")]
 
 
@@ -290,8 +320,342 @@ SPLICE = [("hook-invocations.jsonl", "one_native_thread"), ("captured-receipt.js
           ("codex.stdout.jsonl", "app_server_thread")]
 
 
-def synthetic_self_test():
+def gate_self_test():
     return g.self_test_suite("codex-gate", validate, synthetic, receipt_mutations, file_mutations, SPLICE)
+
+
+# ------------------------------------------------- the adapter mode (D-078)
+
+ADAPTER_CHECKS = {"captured_native_identity", "claim_renewal_capability_declared", "native_wake_accepted",
+                  "native_idle_translated", "adapter_exit_zero", "conflict_patch_denied", "positive_patch_allowed",
+                  "move_patch_applied", "renewal_written_claim_moved", "renewal_move_source_claim_moved",
+                  "renewal_move_destination_claim_moved", "renewal_control_claim_unmoved", "renewal_held_claim_unmoved",
+                  "renewal_journalled_after_wake_before_idle", "renewal_placed_only_written_paths",
+                  "renewal_coverage_complete", "renewal_same_identity"}
+# The worker's claims (qualify-codex.py adapter_main): allowed.txt is added and
+# source.txt -> moved.txt is moved, so those three renew; control.txt is never
+# named; the holder's guarded.txt stands behind the denied patch.
+ADAPTER_CLAIMS = {"worker-allowed": ("allowed.txt", True), "worker-move-source": ("source.txt", True),
+                  "worker-move-destination": ("moved.txt", True), "worker-control": ("control.txt", True),
+                  "guarded": ("guarded.txt", False)}
+WRITTEN = ["allowed.txt", "source.txt", "moved.txt"]
+MOVE = ("source.txt", "moved.txt")
+# Fields only the gate mode's receipt carries: an adapter receipt naming one is
+# a gate receipt with its mode rewritten.
+GATE_ONLY = ("codex_returncode",)
+
+
+def validate_adapter(r, receipt_path):
+    e = g.Evidence(r, r["root"])
+    version = str(r.get("codex_version", "")).removeprefix("codex-cli ")
+    launch = lambda: e.json("launch.json")
+    gate = lambda: g.parse_gate(launch()["gate_command"])
+    journal = lambda: e.lines("worker.json.events")
+    def identity(): return e.json("worker.json")["identity"]
+    def outputs():
+        rows = {}
+        for request in e.json("requests.json"):
+            for x in request["tool_outputs"]:
+                rows.setdefault(x["call_id"], x["output"])
+        return rows
+    images = lambda: g.renewal_images(e, identity())
+
+    e.check("receipt_location", lambda: g.located(e, receipt_path))
+    e.check("mode_bound", lambda: r["mode"] == {"adapter": True} and not any(k in r for k in GATE_ONLY) and
+            "through buddy-adapter" in r["qualification"])
+    e.check("contract", lambda: version in CODEX_VERSIONS and r["codex_version"] == "codex-cli " + version and
+            "no real inference" in r["qualification"] and r["requests"] == len(e.json("requests.json")) == 4 and
+            launch()["harness_version"] == version and launch()["permission_mode"] == "workspace-write")
+    e.check("runner_verdict", lambda: r["passed"] is True and isinstance(r["checks"], dict) and
+            set(r["checks"]) == ADAPTER_CHECKS and all(v is True for v in r["checks"].values()))
+    e.check("artifact_hashes", lambda: e.sha(gate()[0]) == r["adapter_sha256"] and e.sha(gate()[2]) == r["buddy_sha256"] and
+            e.sha(r["codex_path"]) == r["codex_sha256"] and
+            e.json("worker.json.proc")["executable"]["path"] == r["codex_path"])
+    # The one hook is the adapter's receipt-bound gate, reviewed untrusted, then
+    # trusted by its exact hash in this run's own config.
+    def trust():
+        before, after = flat(e.json("hooks-untrusted.json")), flat(e.json("hooks-trusted.json"))
+        view = lambda rows: [(h["key"], h["currentHash"], h["command"], h["eventName"], h["matcher"]) for h in rows]
+        h = after[0]
+        return (len(before) == len(after) == 1 and before[0]["trustStatus"] == "untrusted" and h["trustStatus"] == "trusted" and
+                view(before) == view(after) and h["eventName"] == "preToolUse" and h["matcher"] == MATCHER and
+                h["command"] == launch()["gate_command"] and h["currentHash"] == launch()["gate_hash"] and
+                h["key"].startswith(str(e.root / "state/config.toml") + ":") and
+                ('[hooks.state.%s]\ntrusted_hash = %s\n' % (json.dumps(h["key"]), json.dumps(h["currentHash"]))) in
+                e.text("state/config.toml"))
+    e.check("gate_configuration", lambda: trust() and gate()[1] == str(e.root / "worker.json") and
+            launch()["worktree"] == str(e.root / "work") and launch()["hook_config"] == str(e.root / "state/config.toml") and
+            all(e.json("worker.json")["launch"][k] == launch()[k] for k in ("gate_command", "worktree", "hook_config", "harness_version")))
+    e.check("captured_identity", lambda: g.valid_identity(identity(), "codex") and
+            [v.get("operation") for v in journal()].count("start") == 1 and journal()[0]["operation"] == "start" and
+            g.same_identity(identity(), journal()) and g.same_identity(identity(), e.json("events.json")))
+    # What the model was told and what is on disk: the patch through the held
+    # claim refused whole, the add and the move completed.
+    e.check("patches", lambda: e.text("work/guarded.txt") == "original\n" and e.absent("work/collateral.txt") and
+            outputs()["call_buddy_1"].startswith(BLOCKED) and 'guarded.txt is inside scope "guarded.txt"' in outputs()["call_buddy_1"] and
+            e.text("work/allowed.txt") == "allowed-control\n" and
+            "Success. Updated the following files:\nA allowed.txt" in outputs()["call_buddy_2"] and
+            e.absent("work/source.txt") and e.text("work/moved.txt") == "changed\n" and
+            "Success. Updated the following files:\nM moved.txt" in outputs()["call_buddy_3"])
+    def kind(rows, k): return [i for i, v in enumerate(rows) if (v.get("native_event") or {}).get("kind") == k]
+    def turn():
+        rows = journal()
+        wake = [i for i, v in enumerate(rows) if v.get("request_id") == "wake-1" and v["wake_delivery"]["state"] == "delivered"]
+        tid = rows[wake[0]]["wake_delivery"]["turn_id"]
+        busy, result, idle = kind(rows, "busy"), kind(rows, "result"), kind(rows, "idle")
+        return (len(wake) == len(busy) == len(result) == len(idle) == 1 and bool(tid) and
+                all(rows[i]["native_event"]["turn_id"] == tid for i in busy + result + idle) and
+                wake[0] < busy[0] < result[0] < idle[0] and rows[result[0]]["native_event"]["result_status"] == "completed" and
+                rows[idle[0]]["state"]["detail"] == "idle")
+    e.check("one_turn", turn)
+    e.check("clean_close", lambda: g.close_line(e, "adapter.stderr") and
+            g.proc_record(e, "worker.json.proc", identity(), e.root / "worker.json", Path(r["codex_path"])))
+    e.check("renewal_receipt_matches_evidence", lambda: g.renewal_receipt_matches(r, *images(), journal()))
+    e.check("renewal_capability_declared", lambda: journal()[0]["capabilities"]["claim_renewal"]["support"] == "experimental")
+    e.check("renewal_claims_bound", lambda: g.renewal_claims_bound(images(), identity(), ADAPTER_CLAIMS))
+    e.check("renewal_written_claims_moved", lambda: g.renewal_moved(*images(), identity(),
+                                                                    ["worker-allowed", "worker-move-source", "worker-move-destination"]))
+    e.check("renewal_unwritten_claims_unmoved", lambda: g.renewal_unmoved(*images(), ["worker-control", "guarded"]))
+    e.check("renewal_journal", lambda: not any("renewal" in v or v.get("operation") == "renewal" for v in e.json("events.json")) and
+            g.renewal_applied(e, journal(), identity(), e.json("worker.json.proc")["attempt"], WRITTEN, 3, together=[MOVE]))
+    # After the wake was delivered and the turn went busy, before its idle.
+    def ordered():
+        rows = journal()
+        at = [i for i, _ in g.renewal_rows(rows)]
+        return bool(at) and kind(rows, "busy")[0] < min(at) and max(at) < kind(rows, "idle")[0]
+    e.check("renewal_ordered", ordered)
+    binding = {}
+    e.check("evidence_hashes", lambda: binding.setdefault("v", g.evidence_binding(e, r, False, optional=g.image_names(e))))
+    return e.verdict(evidence=binding.get("v"), read=sorted(e.read_paths), unhashed=g.unhashed_images(e, r), unbound=[])
+
+
+def adapter_receipt_mutations(r):
+    return [(("checks", "renewal_move_destination_claim_moved"), False, "runner_verdict"),
+            (("checks", "renewal_same_identity"), g.DELETE, "runner_verdict"),
+            (("passed",), False, "runner_verdict"),
+            (("mode",), {"adapter": True, "shell_patch": True}, "mode_bound"),
+            (("codex_returncode",), 0, "mode_bound"),
+            (("codex_version",), "codex-cli 0.162.1", "contract"),
+            (("requests",), 5, "contract"),
+            (("codex_sha256",), "0" * 64, "artifact_hashes"),
+            (("adapter_sha256",), "0" * 64, "artifact_hashes"),
+            (("buddy_sha256",), "0" * 64, "artifact_hashes"),
+            (("renewal", "after", "worker-move-destination"), 1, "renewal_receipt_matches_evidence"),
+            (("qualification",), "installed native Codex with deterministic local provider fixture; no real inference", "mode_bound"),
+            (("root",), str(Path(r["root"]) / "work"), "receipt_location")]
+
+
+BEFORE, AFTER = "renewal-0before.db", "renewal-1after.db"
+
+
+def synthetic_adapter(root, tag):
+    """A coherent SYNTHETIC qualify-codex.py --adapter run under root (F-33). Tests the checker only."""
+    root = Path(root)
+    root.mkdir(parents=True)
+    work = root / "work"
+    for name, body in (("bin/buddy", "buddy " + tag), ("bin/buddy-adapter", "adapter " + tag), ("bin/codex", "codex native")):
+        g.write(root, name, body)
+    sid, inc = "thread-" + tag, "inc-" + tag
+    identity = {"schema": "buddy.lifecycle.v1", "harness": "codex", "session_id": sid, "incarnation": inc}
+    receipt = root / "worker.json"
+    gate = "'%s' hook --receipt '%s' --buddy '%s'" % (root / "bin/buddy-adapter", receipt, root / "bin/buddy")
+    key, digest = "%s:pre_tool_use:0:0" % (root / "state/config.toml"), "sha256:" + "6" * 64
+    def listing(status):
+        return {"data": [{"cwd": str(work), "hooks": [{"key": key, "eventName": "preToolUse", "matcher": MATCHER,
+                "trustStatus": status, "currentHash": digest, "command": gate}]}]}
+    g.write(root, "hooks-untrusted.json", listing("untrusted"))
+    g.write(root, "hooks-trusted.json", listing("trusted"))
+    g.write(root, "state/config.toml", 'model = "fixture"\n\n[hooks.state.%s]\ntrusted_hash = %s\n' %
+            (json.dumps(key), json.dumps(digest)))
+    launch = {"worktree": str(work), "permission_mode": "workspace-write", "hook_config": str(root / "state/config.toml"),
+              "harness_version": CODEX_VERSIONS[-1], "gate_command": gate, "gate_hash": digest,
+              "hooks": {"configured": "observed", "trusted": "observed", "observed": "unknown", "no_mods": "unknown"}}
+    g.write(root, "launch.json", launch)
+    g.write(root, "worker.json", {"schema": "buddy.control.v1", "identity": identity, "launch": launch})
+    generation, turn = "b" * 32, "turn-" + tag
+    def event(op, **fields):
+        return dict({"schema": "buddy.control.v1", "operation": op, "identity": identity, "state": {"state": "unknown"}}, **fields)
+    def nat(kind, **fields):
+        return event("event", native_event=dict({"kind": kind, "native_session_id": sid, "turn_id": turn}, **fields),
+                     **({"state": {"state": "observed", "detail": "idle"}} if kind == "idle" else {}))
+    def renewal(placed, n):
+        return {"launch_generation": generation, "paths": [str(work / p) for p in placed], "placed_paths": placed,
+                "renewed_claims": n, "result": {"state": "applied"}, "coverage": {"state": "observed"}}
+    start = event("start", capabilities={"claim_renewal": {"support": "experimental"}})
+    wake = [event("send", request_id="wake-1", wake_delivery={"state": "unknown"}),
+            event("send", request_id="wake-1", wake_delivery={"state": "delivered", "turn_id": turn})]
+    batches = [event("renewal", renewal=renewal(["allowed.txt"], 1)), event("renewal", renewal=renewal(list(MOVE), 2))]
+    rows = [start] + wake + [nat("busy")] + batches + [nat("result", result_status="completed"), nat("idle")]
+    g.write(root, "worker.json.events", g.jsonl(rows))
+    g.write(root, "events.json", [start, wake[1], nat("busy"), nat("result", result_status="completed"), nat("idle")])
+    outs = [("call_buddy_1", BLOCKED + 'guarded.txt is inside scope "guarded.txt" claimed by session holder'),
+            ("call_buddy_2", "Exit code: 0\nOutput:\nSuccess. Updated the following files:\nA allowed.txt\n"),
+            ("call_buddy_3", "Exit code: 0\nOutput:\nSuccess. Updated the following files:\nM moved.txt\n")]
+    g.write(root, "requests.json", [{"path": "/v1/responses", "tool_outputs": [{"call_id": c, "output": o} for c, o in outs[:n]]}
+                                    for n in range(4)])
+    g.write(root, "work/guarded.txt", "original\n")
+    g.write(root, "work/allowed.txt", "allowed-control\n")
+    g.write(root, "work/moved.txt", "changed\n")
+    g.write(root, "adapter.stderr", g.close_report())
+    g.write(root, "worker.json.proc", dict(g.proc_source(receipt, identity, root / "bin/codex"), attempt=generation))
+    holder = ("qualification-holder", "inc-holder-" + tag)
+    sessions = [(holder[0], holder[1], str(work)), (sid, inc, str(work))]
+    def claims(moved):
+        written = 1791000003 if moved else 1791000001
+        return [("c0" + tag, "guarded", holder[0], holder[1], 1791000000, 1791000000, "guarded.txt"),
+                ("c1" + tag, "worker-allowed", sid, inc, 1791000001, written, "allowed.txt"),
+                ("c2" + tag, "worker-move-source", sid, inc, 1791000001, written, "source.txt"),
+                ("c3" + tag, "worker-move-destination", sid, inc, 1791000001, written, "moved.txt"),
+                ("c4" + tag, "worker-control", sid, inc, 1791000001, 1791000001, "control.txt"),
+                ("c5" + tag, "worker-allowed", sid, inc, 1790000000, 1790000000, "allowed.txt", "released")]
+    first, second = (BEFORE, AFTER) if tag != "b" else (AFTER, BEFORE)  # never told apart by name
+    g.ledger_fixture(root / first, sessions, claims(False), [])
+    g.ledger_fixture(root / second, sessions + [("fixture-coordinator", "inc-c", str(work))], claims(True), [(sid, inc, 1791000003)])
+    renewed = lambda moved: {c[1]: c[5] for c in claims(moved) if c[7:] != ("released",)}
+    r = {"qualification": "installed native Codex through buddy-adapter, deterministic local provider fixture; no real inference",
+         "root": str(root), "checks": {k: True for k in ADAPTER_CHECKS},
+         "renewal": {"before": renewed(False), "after": renewed(True), "journal": [v["renewal"] for v in batches]},
+         "codex_version": "codex-cli " + CODEX_VERSIONS[-1], "buddy_sha256": g.sha_file(root / "bin/buddy"),
+         "adapter_sha256": g.sha_file(root / "bin/buddy-adapter"), "codex_path": str(root / "bin/codex"),
+         "codex_sha256": g.sha_file(root / "bin/codex"), "mode": {"adapter": True}, "fixture_sha256": "0" * 64,
+         "requests": 4, "passed": True}
+    g.write(root, "result.json", r)
+    return r
+
+
+def adapter_file_mutations(root, r):
+    root = Path(root)
+    def edit_json(name, fn):
+        def run():
+            value = json.loads((root / name).read_text())
+            fn(value)
+            g.write(root, name, value)
+        return run
+    def batches(fn):
+        return lambda: g.journal_damage(root, r, "worker.json.events", lambda rows: [fn(v["renewal"]) for v in rows if "renewal" in v])
+    def drop_destination(v):
+        if "moved.txt" in v["placed_paths"]:
+            v.update(placed_paths=["source.txt"], paths=[str(root / "work/source.txt")], renewed_claims=1)
+    def split_move(rows):
+        i = next(i for i, v in enumerate(rows) if "moved.txt" in (v.get("renewal") or {}).get("placed_paths", []))
+        half = json.loads(json.dumps(rows[i]))
+        rows[i]["renewal"].update(placed_paths=["source.txt"], paths=[str(root / "work/source.txt")], renewed_claims=1)
+        half["renewal"].update(placed_paths=["moved.txt"], paths=[str(root / "work/moved.txt")], renewed_claims=1)
+        rows.insert(i + 1, half)
+    def idle_at(rows): return next(i for i, v in enumerate(rows) if (v.get("native_event") or {}).get("kind") == "idle")
+    return [
+        ("the move destination's renewal dropped", batches(drop_destination), "renewal_journal"),
+        ("the move destination's claim did not move", lambda: g.image_damage(root, r, AFTER, "worker-move-destination", 1791000001),
+         "renewal_written_claims_moved"),
+        ("the move source's claim did not move", lambda: g.image_damage(root, r, AFTER, "worker-move-source", 1791000001),
+         "renewal_written_claims_moved"),
+        ("the written claim renewed after the idle", lambda: g.image_damage(root, r, AFTER, "worker-allowed", 1791000004),
+         "renewal_written_claims_moved"),
+        ("the control claim moved", lambda: g.image_damage(root, r, AFTER, "worker-control", 1791000002),
+         "renewal_unwritten_claims_unmoved"),
+        ("the held claim moved", lambda: g.image_damage(root, r, AFTER, "guarded", 1791000002), "renewal_unwritten_claims_unmoved"),
+        ("the move's two ends in two batches", lambda: g.journal_damage(root, r, "worker.json.events", split_move), "renewal_journal"),
+        ("a renewal placed the control path", batches(lambda v: v.update(placed_paths=["control.txt"], paths=[str(root / "work/control.txt")])
+                                                      if v["placed_paths"] == ["allowed.txt"] else None), "renewal_journal"),
+        ("renewal coverage unknown", batches(lambda v: v.update(coverage={"state": "unknown"})), "renewal_journal"),
+        ("renewal from another launch generation", batches(lambda v: v.update(launch_generation="c" * 32)), "renewal_journal"),
+        ("a renewal operation on the adapter's stdout", edit_json("events.json",
+            lambda rows: rows.insert(3, {"operation": "renewal", "identity": rows[0]["identity"]})), "renewal_journal"),
+        ("a renewal record on the adapter's stdout", edit_json("events.json",
+            lambda rows: rows[2].update(renewal={})), "renewal_journal"),
+        ("renewal journalled after the idle", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.append(rows.pop(next(i for i, _ in g.renewal_rows(rows))))), "renewal_ordered"),
+        ("renewal journalled before the turn began", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.insert(1, rows.pop(next(i for i, _ in g.renewal_rows(rows))))), "renewal_ordered"),
+        ("the after image is gone", lambda: (root / AFTER).unlink(), "renewal_claims_bound"),
+        ("a claim's scope differs", lambda: g.ledger_update(root / AFTER, "UPDATE claim_scopes SET scope = 'moved' "
+                                                            "WHERE scope = 'moved.txt'"), "renewal_claims_bound"),
+        ("the move did not land", lambda: g.write(root, "work/source.txt", "original\n"), "patches"),
+        ("the model was not told of the move", edit_json("requests.json",
+            lambda rows: rows[-1]["tool_outputs"].pop()), "patches"),
+        ("the held patch landed", lambda: g.write(root, "work/guarded.txt", "conflicting-write\n"), "patches"),
+        ("half of the held patch landed", lambda: g.write(root, "work/collateral.txt", "must-not-exist\n"), "patches"),
+        ("the hook was trusted before review", edit_json("hooks-untrusted.json",
+            lambda v: v["data"][0]["hooks"][0].update(trustStatus="trusted")), "gate_configuration"),
+        ("the trusted hook is not the adapter gate", edit_json("hooks-trusted.json",
+            lambda v: v["data"][0]["hooks"][0].update(command="/usr/bin/true")), "gate_configuration"),
+        ("the reviewed and trusted hook is not the adapter gate", lambda: [edit_json(n,
+            lambda v: v["data"][0]["hooks"][0].update(command="/usr/bin/true"))() for n in ("hooks-untrusted.json", "hooks-trusted.json")],
+         "gate_configuration"),
+        ("the turn never went idle", lambda: g.journal_damage(root, r, "worker.json.events", lambda rows: rows.pop(idle_at(rows))),
+         "one_turn"),
+        ("the journal names another identity", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: rows[3].update(identity=dict(rows[3]["identity"], incarnation="other"))), "captured_identity"),
+        ("an escaped descendant left running", edit_json("worker.json.proc",
+            lambda v: v["close"]["survivors"].append({"pid": 9, "start": 9})), "clean_close"),
+        ("the owned process is another executable", edit_json("worker.json.proc",
+            lambda v: v["executable"].update(path=str(root / "bin/buddy"))), "artifact_hashes"),
+        ("renewal capability not declared", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: rows[0]["capabilities"].update(claim_renewal={"support": "unsupported"})), "renewal_capability_declared"),
+        ("renewal journalled before the turn went busy", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.insert(2, rows.pop(next(i for i, _ in g.renewal_rows(rows))))), "renewal_ordered"),
+        ("the model was told the add failed", edit_json("requests.json",
+            lambda rows: [x.update(output="apply_patch verification failed") for q in rows for x in q["tool_outputs"]
+                          if x["call_id"] == "call_buddy_2"]), "patches"),
+        ("the moved file's content differs", lambda: g.write(root, "work/moved.txt", "original\n"), "patches"),
+        ("the denial does not name the held claim", edit_json("requests.json",
+            lambda rows: [x.update(output=BLOCKED + "denied") for q in rows for x in q["tool_outputs"] if x["call_id"] == "call_buddy_1"]),
+         "patches"),
+        ("the trust entry is not in the run's config", lambda: g.write(root, "state/config.toml", 'model = "fixture"\n'),
+         "gate_configuration"),
+        ("the gate hash is not the trusted one", edit_json("launch.json", lambda v: v.update(gate_hash="sha256:" + "0" * 64)),
+         "gate_configuration"),
+        ("the gate's receipt is another run's", lambda: regate(root, r), "gate_configuration"),
+        ("two native starts", lambda: g.journal_damage(root, r, "worker.json.events", lambda rows: rows.insert(1, rows[0])),
+         "captured_identity"),
+        ("the turn's result failed", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["native_event"].update(result_status="failed") for v in rows
+                          if (v.get("native_event") or {}).get("kind") == "result"]), "one_turn"),
+        ("the run is another Codex version", edit_json("launch.json", lambda v: v.update(harness_version="0.161.0")), "contract"),
+        ("stdout names another identity", edit_json("events.json",
+            lambda rows: rows[1].update(identity=dict(rows[1]["identity"], incarnation="other"))), "captured_identity"),
+        ("the result came before busy", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.insert(3, rows.pop(next(i for i, v in enumerate(rows)
+                                                      if (v.get("native_event") or {}).get("kind") == "result")))), "one_turn"),
+        ("a second idle", lambda: g.journal_damage(root, r, "worker.json.events", lambda rows: rows.append(rows[-1])), "one_turn"),
+        ("no close report", lambda: g.write(root, "adapter.stderr", ""), "clean_close"),
+        ("the idle names another turn", lambda: g.journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["native_event"].update(turn_id="other") for v in rows
+                          if (v.get("native_event") or {}).get("kind") == "idle"]), "one_turn"),
+    ]
+
+
+def regate(root, r):
+    """The gate command (and its trusted listing) naming another run's receipt."""
+    root = Path(root)
+    launch = json.loads((root / "launch.json").read_text())
+    gate = launch["gate_command"].replace(str(root / "worker.json"), str(root.parent / "run-b/worker.json"))
+    launch["gate_command"] = gate
+    g.write(root, "launch.json", launch)
+    for name in ("hooks-untrusted.json", "hooks-trusted.json"):
+        v = json.loads((root / name).read_text())
+        v["data"][0]["hooks"][0]["command"] = gate
+        g.write(root, name, v)
+    worker = json.loads((root / "worker.json").read_text())
+    worker["launch"]["gate_command"] = gate
+    g.write(root, "worker.json", worker)
+    return r
+
+
+ADAPTER_SPLICE = [("worker.json.events", "captured_identity"), (AFTER, "renewal_claims_bound"), ("worker.json.proc", "clean_close")]
+
+
+def adapter_self_test():
+    return g.self_test_suite("codex-adapter", validate, synthetic_adapter, receipt_mutations, adapter_file_mutations,
+                             ADAPTER_SPLICE)
+
+
+def synthetic_self_test():
+    gate_mode, adapter = gate_self_test(), adapter_self_test()
+    adapter["rejected_mutations"] += g.unhashed_image_self_test(validate, synthetic_adapter)
+    return {"positive": "passed", "rejected_mutations": gate_mode["rejected_mutations"] + adapter["rejected_mutations"],
+            "modes": {"gate": gate_mode["rejected_mutations"], "adapter": adapter["rejected_mutations"]},
+            "evidence": gate_mode["evidence"]}
 
 
 if __name__ == "__main__":

@@ -6,9 +6,13 @@ admission record for a new Claude version will rest on this suite, and until
 now nothing but the runner's own `passed: true` said it passed. This reads the
 run's files (adapter receipts, the provider log, the worktree, the ownership
 record, the managed-policy case) and decides every verdict again from them. It
-never launches a native process, opens no ledger and trusts no runner check:
-the runner's `checks` are only required to be complete and all true, so a
-receipt that says passed while one of its own cases failed is refused too.
+never launches a native process, opens no live ledger (only the two private
+copies a run left, read-only and immutable, for claim renewal) and trusts no
+runner check: the runner's `checks` are only required to be complete and all
+true, so a receipt that says passed while one of its own cases failed is
+refused too. The same holds for the renewal verdicts the runner keeps in
+`renewal.checks` (F-26, D-078): each is decided again from the ledger images,
+the journal and the native trace; see "claim renewal" below.
 
 What binds a receipt to ITS run (F-13, F-37). The runner records no hash of
 the evidence it leaves, so a run is bound by where it lives and by what its
@@ -256,11 +260,13 @@ def close_line(e, name, survivors=()):
     return ("%d escaped descendant(s) captured, 0 ended, %d still running (pid %s; not signalled" % (n, n, pids)) in line
 
 
-def evidence_binding(e, r, required):
+def evidence_binding(e, r, required, optional=()):
     """F-37: when the runner hashes its evidence, every file read must be listed.
 
     Returns "hashed" or "unhashed". A receipt that carries evidence_sha256 with a
-    missing or wrong entry raises (and the check fails)."""
+    missing or wrong entry raises (and the check fails). `optional` names files
+    the runner does not hash yet (the renewal images): left out, they are
+    reported by the caller; listed, they must match like any other."""
     hashes = r.get("evidence_sha256")
     if hashes is None:
         if required:
@@ -269,11 +275,225 @@ def evidence_binding(e, r, required):
     if not isinstance(hashes, dict):
         raise ValueError("evidence_sha256 is not a map")
     for name in sorted(e.read_paths):
-        if name == "result.json":
+        if name == "result.json" or (name in optional and name not in hashes):
             continue
         if hashes.get(name) != e.sha(e.root / name):
             raise ValueError("evidence not bound by hash: " + name)
     return "hashed"
+
+
+# ------------------------------------------------------- claim renewal (D-078)
+#
+# F-26 made a worker the adapter launched renew its claims from COMPLETED native
+# writes. The runners record their renewal verdicts beside `checks`; until this
+# section, those verdicts rested on the runner's word. They are re-derived here
+# from three registers the run left, none of which is the runner's summary:
+#
+# - the two private ledger IMAGES the runner copied (renewal-*.db), read with
+#   SQLite mode=ro&immutable=1, never the fixture's live ledger and never a real
+#   one. Which is which is decided by the ledger, not by file name or mtime:
+#   the AFTER image holds the worker's idle observation and the BEFORE image
+#   none (the before copy is taken before the wake is even queued);
+# - the adapter's journal (worker.json.events), where each renewal batch is one
+#   `renewal` row and its order against the wake, the approval and the idle is
+#   the order the controller wrote them;
+# - the native's own record of the completion (Claude: the trace's tool_result
+#   and its structured witness; Codex: the tool output the model was given).
+#
+# The images are NOT in the runners' evidence_sha256 (their names are random
+# and the runners hash a fixed list), so they are bound by content instead:
+# both name this run's worktree, its captured session and incarnation, and the
+# receipt's before/after maps must equal them. The output lists them under
+# `unhashed`; hashing them is the runner change that would close it.
+
+RENEWAL_IMAGE_PREFIX, RENEWAL_IMAGE_SUFFIX = "renewal-", ".db"
+
+
+def ledger_image(e, name):
+    """One runner-made ledger copy, read without writing: open claims with their
+    owner, times and scopes; sessions; idle observations."""
+    import contextlib
+    import sqlite3
+    import urllib.parse
+    path = e.path(name)
+    with contextlib.closing(sqlite3.connect("file:" + urllib.parse.quote(str(path)) + "?mode=ro&immutable=1",
+                                            uri=True)) as conn:
+        claims = {}
+        for cid, slug, sid, inc, created, renewed, state in conn.execute(
+                "SELECT claim_id, slug, session_id, incarnation, created, renewed, state FROM claims"):
+            if state != "open":
+                continue
+            if slug in claims:
+                raise ValueError("two open claims named " + slug)
+            scopes = sorted(s for (s,) in conn.execute("SELECT scope FROM claim_scopes WHERE claim_id = ?", (cid,)))
+            claims[slug] = {"session": sid, "incarnation": inc, "created": created, "renewed": renewed, "scopes": scopes}
+        sessions = {sid: (inc, wt) for sid, inc, wt in conn.execute("SELECT session_id, incarnation, worktree FROM sessions")}
+        idle = {(sid, inc): since for sid, inc, since in conn.execute("SELECT session_id, incarnation, since FROM session_idle")}
+    return {"claims": claims, "sessions": sessions, "idle": idle}
+
+
+def renewal_images(e, identity):
+    """(before, after): exactly two images in the run's root, told apart by the
+    worker's idle row, both naming this run's worktree and captured identity.
+    "Exactly one of each" is the whole count: a third image of either kind, or
+    a missing one, is refused there."""
+    names = sorted(p.name for p in e.root.iterdir()
+                   if p.name.startswith(RENEWAL_IMAGE_PREFIX) and p.name.endswith(RENEWAL_IMAGE_SUFFIX))
+    images = [ledger_image(e, n) for n in names]
+    key = (identity["session_id"], identity["incarnation"])
+    before = [v for v in images if key not in v["idle"]]
+    after = [v for v in images if key in v["idle"]]
+    if len(before) != 1 or len(after) != 1:
+        raise ValueError("the images are not one before the worker's idle and one after it")
+    for v in images:
+        if v["sessions"].get(identity["session_id"]) != (identity["incarnation"], str(e.root / "work")):
+            raise ValueError("a renewal image does not name this run's worker in this run's worktree")
+    return before[0], after[0]
+
+
+def renewed_map(image):
+    return {slug: v["renewed"] for slug, v in image["claims"].items()}
+
+
+def renewal_claims_bound(images, identity, expected):
+    """expected: {slug: (scope, owned_by_worker)}. Both images hold exactly those
+    open claims, with those scopes, the worker's under its captured incarnation
+    and the holder's under some other session, and each claim is the same row
+    (same created time) in both."""
+    for image in images:
+        claims = image["claims"]
+        if set(claims) != set(expected):
+            return False
+        for slug, (scope, mine) in expected.items():
+            v = claims[slug]
+            owned = (v["session"], v["incarnation"]) == (identity["session_id"], identity["incarnation"])
+            if v["scopes"] != [scope] or owned != mine or (not mine and v["session"] == identity["session_id"]):
+                return False
+    return all(images[0]["claims"][s]["created"] == images[1]["claims"][s]["created"] for s in expected)
+
+
+def renewal_moved(before, after, identity, moved):
+    """Each claim in `moved` renewed strictly later in the after image, and no
+    later than the worker's idle there. Which claim covers a written path is
+    settled by renewal_claims_bound: it pins every claim to its ONE expected
+    scope, and no other claim's scope contains that path (Invariant 14), so a
+    covering computation here could only agree with it (a mutation run found
+    one unkillable for that reason, and it was cut)."""
+    since = after["idle"][(identity["session_id"], identity["incarnation"])]
+    return all(before["claims"][s]["renewed"] < after["claims"][s]["renewed"] <= since for s in moved)
+
+
+def renewal_unmoved(before, after, slugs):
+    return all(before["claims"][s]["renewed"] == after["claims"][s]["renewed"] for s in slugs)
+
+
+def renewal_rows(rows):
+    """(index, renewal) for every renewal row in a journal."""
+    return [(i, v["renewal"]) for i, v in enumerate(rows) if "renewal" in v]
+
+
+def renewal_applied(e, journal, identity, generation, placed, renewed, together=()):
+    """Every renewal row is this launch's, under the captured identity, applied
+    with complete coverage and nothing unresolved; across the rows the placed
+    paths are exactly `placed`, each once, each native spelling the run's own
+    worktree path for its placed path; every group in `together` (both ends of
+    one move) is in ONE batch, since a completion offers all its paths or none;
+    and the renewed counts sum to `renewed`. How completions batch is the
+    controller's timing, so the number of rows is not fixed."""
+    rows = renewal_rows(journal)
+    if any(journal[i].get("identity") != identity for i, _ in rows):
+        return False
+    for _, v in rows:
+        if (v.get("launch_generation") != generation or v["coverage"] != {"state": "observed"} or
+                v["result"] != {"state": "applied"} or v.get("unresolved_paths") or
+                v["paths"] != [str(e.root / "work" / p) for p in v["placed_paths"]]):
+            return False
+    flat = [p for _, v in rows for p in v["placed_paths"]]
+    return (sorted(flat) == sorted(placed) and
+            all(any(set(group) <= set(v["placed_paths"]) for _, v in rows) for group in together) and
+            sum(v["renewed_claims"] for _, v in rows) == renewed)
+
+
+def renewal_not_applied(journal, identity, generation):
+    """The conservative outcome (an unqualified omission): every row reports
+    coverage unknown, attempted nothing and renewed nothing."""
+    rows = renewal_rows(journal)
+    return (bool(rows) and all(journal[i].get("identity") == identity for i, _ in rows) and
+            all(v.get("launch_generation") == generation and v["coverage"]["state"] == "unknown" and
+                v["result"]["state"] == "not_attempted" and v["renewed_claims"] == 0 for _, v in rows))
+
+
+def renewal_receipt_matches(r, before, after, journal):
+    """The receipt's renewal record is the images' and the journal's, not its own story."""
+    rec = r["renewal"]
+    return (rec["before"] == renewed_map(before) and rec["after"] == renewed_map(after) and
+            rec["journal"] == [v for _, v in renewal_rows(journal)])
+
+
+def image_names(e):
+    """Every renewal image this validation read: the files evidence_binding may
+    find unlisted (and must still match when listed)."""
+    return sorted(n for n in e.read_paths if n.startswith(RENEWAL_IMAGE_PREFIX))
+
+
+def unhashed_images(e, r):
+    hashes = r.get("evidence_sha256") or {}
+    return [n for n in image_names(e) if n not in hashes]
+
+
+def ledger_fixture(path, sessions, claims, idle):
+    """A minimal ledger image for the synthetic runs: the four tables the
+    renewal checks read, in the shape internal/store gives them.
+    claims: [(claim_id, slug, session, incarnation, created, renewed, scope[, state])]."""
+    import contextlib
+    import sqlite3
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.closing(sqlite3.connect(str(path))) as conn:
+        conn.executescript(
+            "CREATE TABLE sessions (session_id TEXT, incarnation TEXT, label TEXT, worktree TEXT, pid INTEGER, started INTEGER,"
+            " last_seen INTEGER, ended INTEGER, terminal TEXT);"
+            "CREATE TABLE claims (claim_id TEXT, session_id TEXT, incarnation TEXT, slug TEXT, descr TEXT, created INTEGER,"
+            " renewed INTEGER, state TEXT, shared INTEGER, outcome TEXT, outcome_note TEXT);"
+            "CREATE TABLE claim_scopes (claim_id TEXT, scope TEXT, folded TEXT);"
+            "CREATE TABLE session_idle (session_id TEXT, incarnation TEXT, since INTEGER);")
+        conn.executemany("INSERT INTO sessions VALUES (?, ?, 'x', ?, 0, 1, 1, NULL, '')", sessions)
+        for cid, slug, sid, inc, created, renewed, scope, *state in claims:
+            conn.execute("INSERT INTO claims VALUES (?, ?, ?, ?, 'q', ?, ?, ?, 0, NULL, NULL)",
+                         (cid, sid, inc, slug, created, renewed, (state or ["open"])[0]))
+            conn.execute("INSERT INTO claim_scopes VALUES (?, ?, ?)", (cid, scope, scope))
+        conn.executemany("INSERT INTO session_idle VALUES (?, ?, ?)", idle)
+        conn.commit()
+    return path
+
+
+def ledger_update(path, sql, args=()):
+    """Damage a SYNTHETIC image (the self-tests' own files, never a real ledger)."""
+    import contextlib
+    import sqlite3
+    with contextlib.closing(sqlite3.connect(str(path))) as conn:
+        conn.execute(sql, args)
+        conn.commit()
+
+
+def image_damage(root, r, image, slug, renewed):
+    """Move one claim's renewed time in a synthetic image, and return the receipt
+    a runner would have written over it, so the semantic guard is what refuses,
+    not the receipt's disagreement with the image."""
+    root = Path(root)
+    ledger_update(root / image, "UPDATE claims SET renewed = ? WHERE slug = ?", (renewed, slug))
+    side = "after" if "after" in image else "before"
+    return mutate(r, ("renewal", side, slug), renewed)
+
+
+def journal_damage(root, r, name, fn):
+    """Edit a journal's rows and return the receipt with its copy of the
+    renewal rows kept equal to them."""
+    root = Path(root)
+    rows = [json.loads(v) for v in (root / name).read_text().splitlines()]
+    fn(rows)
+    write(root, name, jsonl(rows))
+    return mutate(r, ("renewal", "journal"), [v for _, v in renewal_rows(rows)])
 
 
 def mutate(r, path, value):
@@ -580,9 +800,103 @@ def validate(r, receipt_path):
             (not traced or child_exit(e, r["cleanup_observation"], "native-observations.jsonl")))
     if traced:
         e.check("mods_inventory_at_init", lambda: inits(e, "native-observations.jsonl", identity()["session_id"]) == 2)
+    unbound = claude_renewal(e, r, version, traced, identity, ev)
     binding = {}
-    e.check("evidence_hashes", lambda: binding.setdefault("v", evidence_binding(e, r, False)))
-    return e.verdict(evidence=binding.get("v"), read=sorted(e.read_paths), traced=traced)
+    e.check("evidence_hashes", lambda: binding.setdefault("v", evidence_binding(e, r, False, optional=image_names(e))))
+    return e.verdict(evidence=binding.get("v"), read=sorted(e.read_paths), traced=traced,
+                     unhashed=unhashed_images(e, r), unbound=unbound)
+
+
+# The worker's own claims (qualify-claude.py): allowed.txt is written and its
+# claim must renew; operator-denied.txt is attempted and denied by the operator,
+# and control.txt is never named, so theirs must not; the holder's guarded.txt
+# claim stands behind the gate-denied write. {slug: (scope, owned by worker)}.
+CLAUDE_RENEWAL_CLAIMS = {"worker-allowed": ("allowed.txt", True), "worker-denied": ("operator-denied.txt", True),
+                         "worker-control": ("control.txt", True), "held": ("guarded.txt", False)}
+# Where a successful Write's OMITTED is_error renews (D-078), written down here
+# apart from claudeWriteOmissionQualified and the runner's copy of it.
+WRITE_RENEWAL_QUALIFIED = ("2.1.291",)
+RENEWAL_CHECKS = {"claim_renewal_capability_declared", "renewal_written_claim_moved", "renewal_denied_write_claim_unmoved",
+                  "renewal_control_claim_unmoved", "renewal_held_claim_unmoved", "renewal_journalled_after_write_before_idle",
+                  "renewal_placed_only_the_written_path", "renewal_coverage_complete", "renewal_same_identity"}
+UNQUALIFIED_RENEWAL_CHECKS = {"claim_renewal_capability_declared", "unqualified_write_renews_nothing",
+                              "unqualified_write_reports_coverage_unknown"}
+
+
+def matched_write(e, path):
+    """The tool_use id of the one main-thread Write of `path` in the native
+    trace, if its single tool_result is the success D-078 renews on: not a
+    replay, main thread, the only block in its frame, is_error absent or false,
+    and the structured create/update witness naming the recorded path. The
+    result must come after its use and before the turn's result frame."""
+    rows = e.lines("native-observations.jsonl")
+    uses = [(i, b["id"]) for i, v in enumerate(rows) if v.get("type") == "assistant" and v.get("parent_tool_use_id") is None
+            for b in v.get("tool_blocks") or [] if b.get("type") == "tool_use" and b.get("name") == "Write" and b.get("path") == path]
+    if len(uses) != 1:
+        raise ValueError("want one main-thread Write of the allowed path in the trace")
+    at, tid = uses[0]
+    results = [(i, v) for i, v in enumerate(rows) if v.get("type") == "user"
+               for b in v.get("tool_blocks") or [] if b.get("type") == "tool_result" and b.get("id") == tid]
+    if len(results) != 1:
+        raise ValueError("want one tool_result for " + str(tid))
+    i, v = results[0]
+    end = next(j for j, x in enumerate(rows) if j > at and x.get("type") == "result")
+    witness = v.get("tool_use_result")
+    if not (at < i < end and v.get("isReplay") is not True and v.get("parent_tool_use_id") is None and
+            len(v["tool_blocks"]) == 1 and v["tool_blocks"][0]["is_error"] in ("<absent>", False) and
+            isinstance(witness, dict) and witness.get("type") in ("create", "update") and witness.get("filePath") == path):
+        raise ValueError("the allowed Write's result is not a renewable success")
+    return tid
+
+
+def claude_renewal(e, r, version, traced, identity, ev):
+    """Re-derive the receipt's renewal verdicts (F-26, D-078). Returns what the
+    files could not show."""
+    journal = lambda: e.lines("worker.json.events")
+    images = lambda: renewal_images(e, identity())
+    generation = lambda: e.json("worker.json.proc")["attempt"]
+    allowed = lambda: str(e.root / "work/allowed.txt")
+    qualified = version in WRITE_RENEWAL_QUALIFIED
+    e.check("renewal_runner_verdict", lambda: isinstance(r["renewal"]["checks"], dict) and
+            set(r["renewal"]["checks"]) == (RENEWAL_CHECKS if qualified else UNQUALIFIED_RENEWAL_CHECKS) and
+            all(v is True for v in r["renewal"]["checks"].values()))
+    e.check("renewal_receipt_matches_evidence", lambda: renewal_receipt_matches(r, *images(), journal()))
+    e.check("renewal_capability_declared", lambda: [v["capabilities"]["claim_renewal"]["support"]
+                                                    for v in journal() if v.get("operation") == "start"] == ["experimental"])
+    e.check("renewal_claims_bound", lambda: renewal_claims_bound(images(), identity(), CLAUDE_RENEWAL_CLAIMS))
+    # Nothing outside the written path moved: the operator-denied write, the
+    # never-named control, the holder's claim behind the gate's denial.
+    still = ["worker-denied", "worker-control", "held"] + ([] if qualified else ["worker-allowed"])
+    e.check("renewal_unwritten_claims_unmoved", lambda: renewal_unmoved(*images(), still))
+    # Never on the adapter's stdout (D-078): the journal is its only record.
+    e.check("renewal_journal", lambda: not any("renewal" in v or v.get("operation") == "renewal" for v in ev()) and (
+            renewal_applied(e, journal(), identity(), generation(), ["allowed.txt"], 1) if qualified else
+            renewal_not_applied(journal(), identity(), generation())))
+    if not qualified:
+        return ["renewal: Write omission unqualified on " + version + "; the conservative outcome was checked"]
+    e.check("renewal_written_claim_moved", lambda: renewal_moved(*images(), identity(), ["worker-allowed"]))
+    def tool_id():
+        approvals = [v["native_event"]["approval"] for v in ev() if v.get("native_event", {}).get("kind") == "approval" and
+                     v["native_event"]["approval"]["detail"]["input"]["file_path"] == allowed()]
+        if len(approvals) != 1:
+            raise ValueError("want one approval for the allowed write")
+        return approvals[0]
+    # The witness D-078 renews an omitted is_error on is in the native trace
+    # alone, so an untraced receipt cannot show why its Write renewed: refused.
+    e.check("renewal_matched_result", lambda: traced and matched_write(e, allowed()) == tool_id()["item_id"])
+    # After the operator's allow for THAT tool use (its result cannot exist
+    # before it) and before the turn's idle. The journal has no row for the
+    # tool_result itself, so the allow submission is the latest anchor it holds.
+    def ordered():
+        rows = journal()
+        aid = tool_id()["id"]
+        allow = [i for i, v in enumerate(rows) if (v.get("approval_response") or {}).get("id") == aid and
+                 v["approval_response"]["decision"] == "allow" and (v.get("approval_delivery") or {}).get("state") == "submitted"]
+        idle = [i for i, v in enumerate(rows) if (v.get("native_event") or {}).get("kind") == "idle"]
+        at = [i for i, _ in renewal_rows(rows)]
+        return len(allow) == 1 and bool(idle) and bool(at) and allow[0] < min(at) and max(at) < idle[0]
+    e.check("renewal_ordered", ordered)
+    return []
 
 
 def parse_gate_case(e, case):
@@ -619,12 +933,17 @@ def receipt_mutations(r):
             (("configuration_evidence", "settings_sha256"), "0" * 64, "artifact_hashes"),
             (("managed_hook_refusal", "observer_sha256"), "0" * 64, "managed_refusal"),
             (("adapter_exit",), 1, "clean_close"),
-            (("root",), str(Path(r["root"]) / "work"), "receipt_location")]
+            (("root",), str(Path(r["root"]) / "work"), "receipt_location"),
+            (("renewal", "checks", "claim_renewal_capability_declared"), False, "renewal_runner_verdict"),
+            (("renewal", "checks", "renewal_same_identity"), DELETE, "renewal_runner_verdict"),
+            (("renewal", "after", "worker-control"), 1, "renewal_receipt_matches_evidence"),
+            (("renewal", "before", "held"), 1, "renewal_receipt_matches_evidence"),
+            (("renewal", "journal"), [], "renewal_receipt_matches_evidence")]
 
 
 # ------------------------------------------------------------ synthetic run
 
-def synthetic(root, tag):
+def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
     """A coherent SYNTHETIC qualify-claude.py --trace-native run under root.
 
     Review F-33: a self-test that needs a native receipt in /private/tmp stops
@@ -633,7 +952,6 @@ def synthetic(root, tag):
     """
     root = Path(root)
     root.mkdir(parents=True)
-    version = CLAUDE_VERSIONS[-1]
     sid, inc = "%s1111111-2222-4333-8444-555555555555" % tag, "inc-" + tag
     identity = {"schema": "buddy.lifecycle.v1", "harness": "claude", "session_id": sid, "incarnation": inc}
     for name, body in (("bin/buddy", "buddy " + tag), ("bin/buddy-adapter", "adapter " + tag), ("bin/claude", "claude native")):
@@ -661,19 +979,33 @@ def synthetic(root, tag):
                         if kind == "idle" else {}))
     def approval(name, n):
         return nat("approval", t1, approval={"id": "ap-%d" % n, "native_session_id": sid, "turn_id": t1,
-                   "detail": {"input": {"file_path": str(root / "work" / name)}}})
-    events = [event("start"), dict(event("send"), request_id="wake-1", wake_delivery={"state": "delivered", "turn_id": t1}),
+                   "item_id": "toolu_buddy_%d" % n, "detail": {"input": {"file_path": str(root / "work" / name)}}})
+    qualified = version in WRITE_RENEWAL_QUALIFIED
+    caps = {"telemetry": {"support": "unknown"}, "claim_renewal": {"support": "experimental"}}
+    events = [dict(event("start"), capabilities=caps),
+              dict(event("send"), request_id="wake-1", wake_delivery={"state": "delivered", "turn_id": t1}),
               nat("busy", t1), approval("allowed.txt", 1),
               dict(event("approve"), request_id="peer-approval-refused", error="unsupported control operation \"approve\""),
-              dict(event("approve"), request_id="operator-allow", approval_delivery={"state": "submitted"}),
+              dict(event("approve"), request_id="operator-allow", approval_delivery={"state": "submitted"},
+                   approval_response={"id": "ap-1", "decision": "allow"}),
               approval("operator-denied.txt", 2),
-              dict(event("approve"), request_id="operator-deny", approval_delivery={"state": "submitted"}),
+              dict(event("approve"), request_id="operator-deny", approval_delivery={"state": "submitted"},
+                   approval_response={"id": "ap-2", "decision": "deny"}),
               nat("result", t1, result_ref="res-1", result_status="completed"), nat("idle", t1),
               dict(event("send"), request_id="wake-duplicate", wake_delivery={"state": "delivered", "turn_id": t1}),
               dict(event("send"), request_id="wake-2", wake_delivery={"state": "delivered", "turn_id": t2}),
               nat("result", t2, result_ref="res-2", result_status="completed"), nat("idle", t2)]
     write(root, "adapter-events.json", events)
-    write(root, "worker.json.events", jsonl(events))
+    # The journal also holds the renewal batch, after the allow is submitted and
+    # before the idle (D-078); stdout never carries it.
+    generation = "a" * 32
+    renewal = ({"launch_generation": generation, "paths": [str(root / "work/allowed.txt")], "placed_paths": ["allowed.txt"],
+                "renewed_claims": 1, "result": {"state": "applied"}, "coverage": {"state": "observed"}} if qualified else
+               {"launch_generation": generation, "renewed_claims": 0, "result": {"state": "not_attempted"},
+                "coverage": {"state": "unknown"}})
+    intent = dict(events[5], approval_delivery={"state": "unknown", "detail": "approval response intent"})
+    journal = events[:5] + [intent, events[5], dict(event("renewal"), renewal=renewal)] + events[6:]
+    write(root, "worker.json.events", jsonl(journal))
     out = [{"type": "tool_result", "tool_use_id": "toolu_buddy_0", "is_error": True,
             "content": 'PreToolUse:Write hook error: guarded.txt is inside scope "guarded.txt" claimed by session work/s-fixtureh'},
            {"type": "tool_result", "tool_use_id": "toolu_buddy_1", "content": "File created successfully at: %s" % (root / "work/allowed.txt")},
@@ -683,10 +1015,36 @@ def synthetic(root, tag):
                                            "endpoint": {"status": "observed", "pid": 4242, "born": 1}})
     write(root, "unparsed-output.json", [])
     write(root, "adapter.stderr", close_report())
-    write(root, "worker.json.proc", proc_source(receipt, identity, root / "bin/claude-observer"))
+    write(root, "worker.json.proc", dict(proc_source(receipt, identity, root / "bin/claude-observer"), attempt=generation))
     init = {"type": "system", "subtype": "init", "session_id": sid, "plugins": BUILTIN_MODS}
-    write(root, "native-observations.jsonl", jsonl([{"type": "buddy_fixture_native_process", "pid": 501},
-                                                    {"type": "buddy_fixture_native_process", "pid": 503}, init, init]))
+    def use(n, name):
+        return {"type": "assistant", "session_id": sid, "parent_tool_use_id": None, "tool_blocks": [
+                {"type": "tool_use", "id": "toolu_buddy_%d" % n, "name": "Write", "is_error": None, "path": str(root / "work" / name)}]}
+    def result(n, error, witness):
+        return {"type": "user", "session_id": sid, "parent_tool_use_id": None, "tool_use_result": witness, "tool_blocks": [
+                {"type": "tool_result", "id": "toolu_buddy_%d" % n, "name": None, "is_error": error, "path": None}]}
+    write(root, "native-observations.jsonl", jsonl([
+        {"type": "buddy_fixture_native_process", "pid": 501}, {"type": "buddy_fixture_native_process", "pid": 503}, init,
+        {"type": "user", "session_id": sid, "isReplay": True, "parent_tool_use_id": None},
+        use(0, "guarded.txt"), result(0, True, "<str>"), use(1, "allowed.txt"),
+        result(1, "<absent>", {"type": "create", "filePath": str(root / "work/allowed.txt")}),
+        use(2, "operator-denied.txt"), result(2, True, "<str>"), {"type": "result", "subtype": "success", "session_id": sid},
+        init, {"type": "result", "subtype": "success", "session_id": sid}]))
+    # The runner's two ledger copies: before the wake (no idle row) and after
+    # the turn's idle; only the written claim moved, at or before the idle.
+    holder = ("fixture-holder", "inc-holder-" + tag)
+    moved = 1791000003 if qualified else 1791000001
+    sessions = [(holder[0], holder[1], str(root / "work")), (sid, inc, str(root / "work"))]
+    def claims(allowed):
+        return [("c0" + tag, "held", holder[0], holder[1], 1791000000, 1791000000, "guarded.txt"),
+                ("c1" + tag, "worker-allowed", sid, inc, 1791000001, allowed, "allowed.txt"),
+                ("c2" + tag, "worker-denied", sid, inc, 1791000001, 1791000001, "operator-denied.txt"),
+                ("c3" + tag, "worker-control", sid, inc, 1791000001, 1791000001, "control.txt"),
+                ("c4" + tag, "worker-control", sid, inc, 1790000000, 1790000000, "control.txt", "released")]
+    first, second = (BEFORE, AFTER) if tag != "b" else (AFTER, BEFORE)
+    ledger_fixture(root / first, sessions, claims(1791000001), [])
+    ledger_fixture(root / second, sessions + [("fixture-coordinator", "inc-c", str(root / "work"))],
+                   claims(moved), [(sid, inc, 1791000003)])
     refusal = "initialize Claude streaming transport: Claude hook compatibility refuses allowManagedHooksOnly"
     write(root, MANAGED + "claude-managed-fixture",
           observer_source(root / "bin/claude", ["--managed-settings", '{"allowManagedHooksOnly":true}']))
@@ -706,7 +1064,13 @@ def synthetic(root, tag):
          "configuration_evidence": {"settings_sha256": sha_file(root / "settings.json"), "mods_profile": "builtin-only-" + version},
          "managed_hook_refusal": managed, "native_metadata_observer": {"sha256": sha_file(root / "bin/claude-observer")},
          "cleanup_observation": {"status": "observed_absent", "observed_pids": [501, 503], "remaining_or_unknown_pids": []},
-         "adapter_exit": 0}
+         "adapter_exit": 0,
+         "renewal": {"before": {"held": 1791000000, "worker-allowed": 1791000001, "worker-control": 1791000001,
+                                "worker-denied": 1791000001},
+                     "after": {"held": 1791000000, "worker-allowed": moved, "worker-control": 1791000001,
+                               "worker-denied": 1791000001},
+                     "journal": [renewal],
+                     "checks": {k: True for k in (RENEWAL_CHECKS if qualified else UNQUALIFIED_RENEWAL_CHECKS)}}}
     write(root, "result.json", r)
     return r
 
@@ -765,7 +1129,145 @@ def file_mutations(root, r):
         ("worktree outside the run", lambda: relink_outside(root, "work"), "claim_denial_held"),
         ("observer's recognised lines are a decoy string", lambda: decoy_observer(root, r), "artifact_hashes"),
         ("observer launches a second process", lambda: decoy_observer(root, r, second=True), "artifact_hashes"),
+        # Claim renewal (F-26, D-078): each re-derived verdict, damaged alone.
+        ("the denied write's claim renewed", lambda: image_damage(root, r, AFTER, "worker-denied", 1791000003),
+         "renewal_unwritten_claims_unmoved"),
+        ("the control claim moved", lambda: image_damage(root, r, AFTER, "worker-control", 1791000002),
+         "renewal_unwritten_claims_unmoved"),
+        ("the holder's claim moved", lambda: image_damage(root, r, AFTER, "held", 1791000002),
+         "renewal_unwritten_claims_unmoved"),
+        ("the written claim's renewal did not move", lambda: image_damage(root, r, AFTER, "worker-allowed", 1791000001),
+         "renewal_written_claim_moved"),
+        ("the written claim renewed after the idle", lambda: image_damage(root, r, AFTER, "worker-allowed", 1791000004),
+         "renewal_written_claim_moved"),
+        ("renewal journalled after the idle", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.insert(next(i for i, v in enumerate(rows) if v.get("native_event", {}).get("kind") == "idle"),
+                                     rows.pop(next(i for i, _ in renewal_rows(rows))))), "renewal_ordered"),
+        ("renewal journalled before the allow", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.insert(1, rows.pop(next(i for i, _ in renewal_rows(rows))))), "renewal_ordered"),
+        ("a renewal operation on the adapter's stdout", edit_json("adapter-events.json",
+            lambda rows: rows.insert(6, {"operation": "renewal", "identity": rows[0]["identity"]})), "renewal_journal"),
+        ("a renewal record on the adapter's stdout", edit_json("adapter-events.json",
+            lambda rows: rows[6].update(renewal={})), "renewal_journal"),
+        ("two open claims of one slug", lambda: ledger_update(root / AFTER, "INSERT INTO claims SELECT 'cy', session_id, "
+            "incarnation, slug, descr, created, renewed, state, shared, outcome, outcome_note FROM claims "
+            "WHERE slug = 'worker-control' AND state = 'open'") or ledger_update(root / AFTER, "INSERT INTO claim_scopes "
+            "VALUES ('cy', 'control.txt', 'control.txt')"), "renewal_claims_bound"),
+        ("a worker claim held by the holder", lambda: [ledger_update(root / n, "UPDATE claims SET session_id = 'fixture-holder', "
+            "incarnation = 'inc-holder-a' WHERE slug = 'worker-control'") for n in (BEFORE, AFTER)], "renewal_claims_bound"),
+        ("renewal placed the denied path", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["renewal"].update(placed_paths=["operator-denied.txt"], paths=[str(root / "work/operator-denied.txt")])
+                          for v in rows if "renewal" in v]), "renewal_journal"),
+        ("renewal's native spelling outside the worktree", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["renewal"].update(paths=["/elsewhere/allowed.txt"]) for v in rows if "renewal" in v]),
+         "renewal_journal"),
+        ("renewal coverage unknown", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["renewal"].update(coverage={"state": "unknown"}) for v in rows if "renewal" in v]), "renewal_journal"),
+        ("renewal from another launch generation", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["renewal"].update(launch_generation="b" * 32) for v in rows if "renewal" in v]), "renewal_journal"),
+        ("renewal counted a second claim", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["renewal"].update(renewed_claims=2) for v in rows if "renewal" in v]), "renewal_journal"),
+        ("renewal under another incarnation", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v.update(identity=dict(v["identity"], incarnation="other")) for v in rows if "renewal" in v]),
+         "renewal_journal"),
+        ("no renewal journalled", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.pop(next(i for i, _ in renewal_rows(rows)))), "renewal_journal"),
+        ("the allowed write's result was an error", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows)["tool_blocks"][0].update(is_error=True)), "renewal_matched_result"),
+        ("the omitted is_error has no witness", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows).update(tool_use_result="<str>")), "renewal_matched_result"),
+        ("the witness names another path", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows)["tool_use_result"].update(filePath=str(root / "work/operator-denied.txt"))),
+         "renewal_matched_result"),
+        ("the result was a replay", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows).update(isReplay=True)), "renewal_matched_result"),
+        ("the result was a subagent's", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows).update(parent_tool_use_id="toolu_task")), "renewal_matched_result"),
+        ("the result came after the turn ended", edit_lines("native-observations.jsonl",
+            lambda rows: rows.insert(next(i for i, v in enumerate(rows) if v.get("type") == "result"),
+                                     rows.pop(rows.index(allowed_result(rows))))), "renewal_matched_result"),
+        ("the after image is gone", lambda: (root / AFTER).unlink(), "renewal_claims_bound"),
+        ("the after image holds no idle", lambda: ledger_update(root / AFTER, "DELETE FROM session_idle"), "renewal_claims_bound"),
+        ("the holder's claim is the worker's", lambda: [ledger_update(root / n, "UPDATE claims SET session_id = ?, "
+            "incarnation = ? WHERE slug = 'held'", (json.loads((root / "worker.json").read_text())["identity"]["session_id"],
+                                                    json.loads((root / "worker.json").read_text())["identity"]["incarnation"]))
+            for n in (BEFORE, AFTER)], "renewal_claims_bound"),
+        ("a claim was re-created between the images", lambda: ledger_update(root / AFTER,
+            "UPDATE claims SET created = 1791000002 WHERE slug = 'worker-control'"), "renewal_claims_bound"),
+        ("the images name another worktree", lambda: [ledger_update(root / n, "UPDATE sessions SET worktree = '/elsewhere'")
+                                                      for n in (BEFORE, AFTER)], "renewal_claims_bound"),
+        ("an extra claim of the worker's", lambda: [extra_claim(root / n, root) for n in (BEFORE, AFTER)], "renewal_claims_bound"),
+        ("the holder's claim under the worker's session id", lambda: [ledger_update(root / n, "UPDATE claims SET session_id = ? "
+            "WHERE slug = 'held'", (json.loads((root / "worker.json").read_text())["identity"]["session_id"],))
+            for n in (BEFORE, AFTER)], "renewal_claims_bound"),
+        ("renewal result unconfirmed", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["renewal"].update(result={"state": "unconfirmed"}) for v in rows if "renewal" in v]), "renewal_journal"),
+        ("renewal left a path unresolved", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["renewal"].update(unresolved_paths=["allowed.txt"]) for v in rows if "renewal" in v]), "renewal_journal"),
+        ("renewal capability not declared", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: rows[0]["capabilities"].update(claim_renewal={"support": "unsupported"})), "renewal_capability_declared"),
+        ("a second Write of the allowed path", edit_lines("native-observations.jsonl",
+            lambda rows: rows.insert(-2, dict(rows[6], tool_blocks=[dict(rows[6]["tool_blocks"][0], id="toolu_buddy_9")]))),
+         "renewal_matched_result"),
+        ("a second result for the allowed Write", edit_lines("native-observations.jsonl",
+            lambda rows: rows.insert(-2, allowed_result(rows))), "renewal_matched_result"),
+        ("the result frame carries a second block", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows)["tool_blocks"].append({"type": "tool_result", "id": "toolu_x", "is_error": "<absent>"})),
+         "renewal_matched_result"),
+        ("the witness is a delete", edit_lines("native-observations.jsonl",
+            lambda rows: allowed_result(rows)["tool_use_result"].update(type="delete")), "renewal_matched_result"),
+        ("the approval names another tool use", edit_json("adapter-events.json",
+            lambda rows: [v["native_event"]["approval"].update(item_id="toolu_buddy_7") for v in rows
+                          if v.get("native_event", {}).get("kind") == "approval"][:1]), "renewal_matched_result"),
+        ("the trace was not kept", lambda: drop_trace(root, r), "renewal_matched_result"),
+        ("a third ledger image", lambda: shutil.copyfile(root / BEFORE, root / "renewal-2extra.db"), "renewal_claims_bound"),
+        ("the result came before its use", edit_lines("native-observations.jsonl",
+            lambda rows: rows.insert(rows.index(next(v for v in rows if v.get("type") == "assistant" and
+                                                     v["tool_blocks"][0]["id"] == "toolu_buddy_1")),
+                                     rows.pop(rows.index(allowed_result(rows))))), "renewal_matched_result"),
+        ("the allowed write was an Edit", edit_lines("native-observations.jsonl",
+            lambda rows: [b.update(name="Edit") for v in rows if v.get("type") == "assistant"
+                          for b in v["tool_blocks"] if b["id"] == "toolu_buddy_1"]), "renewal_matched_result"),
+        ("a second approval for the allowed path", edit_json("adapter-events.json",
+            lambda rows: rows.insert(4, dict(rows[3], native_event=dict(rows[3]["native_event"],
+                approval=dict(rows[3]["native_event"]["approval"], id="ap-9"))))), "renewal_matched_result"),
+        ("the approval was answered deny", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: [v["approval_response"].update(decision="deny") for v in rows
+                          if (v.get("approval_response") or {}).get("id") == "ap-1"]), "renewal_ordered"),
+        ("the allow was submitted twice", lambda: journal_damage(root, r, "worker.json.events",
+            lambda rows: rows.insert(-1, next(v for v in rows if (v.get("approval_response") or {}).get("decision") == "allow" and
+                                              v["approval_delivery"]["state"] == "submitted"))),
+         "renewal_ordered"),
     ]
+
+
+def extra_claim(path, root):
+    """A claim of the worker's beyond the expected four, covering the written path."""
+    identity = json.loads((Path(root) / "worker.json").read_text())["identity"]
+    ledger_update(path, "INSERT INTO claims VALUES ('cx', ?, ?, 'worker-extra', 'q', 1791000001, 1791000001, 'open', 0, NULL, NULL)",
+                  (identity["session_id"], identity["incarnation"]))
+    ledger_update(path, "INSERT INTO claim_scopes VALUES ('cx', 'allowed.txt', 'allowed.txt')")
+
+
+def drop_trace(root, r):
+    """The receipt and the trace without the traced mode: everything else keeps
+    passing, and a qualified renewal can no longer show its witness."""
+    root = Path(root)
+    bad = copy.deepcopy(r)
+    del bad["native_metadata_observer"]
+    proc = json.loads((root / "worker.json.proc").read_text())
+    proc["executable"] = {"path": str(root / "bin/claude"), "size": (root / "bin/claude").stat().st_size}
+    write(root, "worker.json.proc", proc)
+    return bad
+
+
+BEFORE, AFTER = "renewal-0before.db", "renewal-1after.db"
+
+
+def allowed_result(rows):
+    """The synthetic trace's tool_result frame for the allowed Write."""
+    return next(v for v in rows if v.get("type") == "user" and
+                any(b.get("id") == "toolu_buddy_1" for b in v.get("tool_blocks") or []))
 
 
 def rehash_settings(root, r):
@@ -804,11 +1306,78 @@ def relink_outside(root, name):
 
 
 SPLICE = [("worker.json.proc", "clean_close"), ("adapter-events.json", "captured_identity"),
-          ("provider-observations.json", "allowed_control")]
+          ("provider-observations.json", "allowed_control"), (AFTER, "renewal_claims_bound")]
+
+
+def unqualified_self_test():
+    """A version where a Write's omitted is_error is NOT qualified: the expected
+    outcome is the conservative one, so a moved claim or an applied batch there
+    is refused."""
+    with tempfile.TemporaryDirectory(prefix="buddy-claude-gate-unqualified-") as tmp:
+        root = Path(tmp).resolve() / "run"
+        r = synthetic(root, "u", version="2.1.290")
+        receipt = root / "result.json"
+        verdict = validate(r, receipt)
+        if not verdict["passed"]:
+            raise AssertionError("unqualified positive control failed: " + json.dumps(verdict["errors"]))
+        rejected = 0
+        for label, damage, check in (
+                ("unqualified write renewed", lambda: image_damage(root, r, AFTER, "worker-allowed", 1791000003),
+                 "renewal_unwritten_claims_unmoved"),
+                ("unqualified batch applied", lambda: journal_damage(root, r, "worker.json.events",
+                    lambda rows: [v["renewal"].update(result={"state": "applied"}) for v in rows if "renewal" in v]),
+                 "renewal_journal"),
+                ("unqualified coverage observed", lambda: journal_damage(root, r, "worker.json.events",
+                    lambda rows: [v["renewal"].update(coverage={"state": "observed"}) for v in rows if "renewal" in v]),
+                 "renewal_journal"),
+                ("unqualified batch counted a claim", lambda: journal_damage(root, r, "worker.json.events",
+                    lambda rows: [v["renewal"].update(renewed_claims=1) for v in rows if "renewal" in v]), "renewal_journal"),
+                ("unqualified batch from another generation", lambda: journal_damage(root, r, "worker.json.events",
+                    lambda rows: [v["renewal"].update(launch_generation="c" * 32) for v in rows if "renewal" in v]),
+                 "renewal_journal"),
+                ("unqualified batch under another incarnation", lambda: journal_damage(root, r, "worker.json.events",
+                    lambda rows: [v.update(identity=dict(v["identity"], incarnation="other")) for v in rows if "renewal" in v]),
+                 "renewal_journal"),
+                ("unqualified run journalled no batch", lambda: journal_damage(root, r, "worker.json.events",
+                    lambda rows: rows.pop(next(i for i, _ in renewal_rows(rows)))), "renewal_journal")):
+            snapshot = root.parent / "pristine"
+            shutil.copytree(root, snapshot)
+            try:
+                verdict = validate(damage(), receipt)
+                if verdict["passed"] or verdict["checks"].get(check) is not False:
+                    raise AssertionError("accepted damaged unqualified evidence %s (want %s to fail)" % (label, check))
+                rejected += 1
+            finally:
+                shutil.rmtree(root)
+                shutil.move(str(snapshot), str(root))
+        return rejected
+
+
+def unhashed_image_self_test(validate, synthetic):
+    """The runners hash a fixed list that does not name the renewal images: a
+    hashed receipt without them passes and reports them unhashed; one that
+    lists an image with the wrong hash is refused like any other file."""
+    with tempfile.TemporaryDirectory(prefix="buddy-renewal-unhashed-") as tmp:
+        root = Path(tmp).resolve() / "run"
+        r = synthetic(root, "h")
+        e = Evidence(r, root)
+        read = validate(r, root / "result.json")["read"]
+        hashed = mutate(r, ("evidence_sha256",), {p: e.sha(root / p) for p in read
+                                                  if p != "result.json" and not p.startswith(RENEWAL_IMAGE_PREFIX)})
+        verdict = validate(hashed, root / "result.json")
+        if not verdict["passed"] or verdict["evidence"] != "hashed" or verdict["unhashed"] != [BEFORE, AFTER]:
+            raise AssertionError("a hashed receipt that leaves the images out was not passed as unhashed: " +
+                                 json.dumps(verdict["errors"]))
+        hashed["evidence_sha256"][AFTER] = "0" * 64
+        if validate(hashed, root / "result.json")["checks"].get("evidence_hashes") is not False:
+            raise AssertionError("accepted a wrong hash for a listed renewal image")
+        return 1
 
 
 def synthetic_self_test():
-    return self_test_suite("claude-gate", validate, synthetic, receipt_mutations, file_mutations, SPLICE)
+    out = self_test_suite("claude-gate", validate, synthetic, receipt_mutations, file_mutations, SPLICE)
+    out["rejected_mutations"] += unqualified_self_test() + unhashed_image_self_test(validate, synthetic)
+    return out
 
 
 if __name__ == "__main__":

@@ -291,7 +291,11 @@ print(" ".join(sorted(hits)))
   # the jobs suite under the D-077 narrow contract. Each refuses, on synthetic
   # evidence, a denied edit that happened, a missing allowed control, a
   # receipt or file spliced from a second run, and passed:true over a failing
-  # case; the Mod checker also an altered inventory.
+  # case; the Mod checker also an altered inventory. The Claude gate and Codex
+  # checkers also re-derive claim renewal (F-26, D-078) from the run's ledger
+  # images and journal, the Codex one in its --adapter mode: a renewal of the
+  # denied or control claim, a renewal that did not move, one journalled after
+  # idle, and a dropped move destination are each refused.
   python3 -I -B scripts/check-claude-gate.py --self-test
   python3 -I -B scripts/check-claude-mods.py --self-test
   python3 -I -B scripts/check-codex-gate.py --self-test
