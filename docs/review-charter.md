@@ -823,6 +823,16 @@ ledger row entered through the CLI (D-006).
     `base_url`). Every receipt carries `qualification_candidate`; cross-mode resume refuses.
     The rename window between the post-hash re-check and `--version` is F-23's stated
     path-exec window (no worker starts on a replacement); `--retained` is the mitigation.
+82. **A qualification run binds its own binary; checkers read the records (D-081).** Each
+    runner hashes the binary it was given, reads `--version`, and types the candidate flags
+    onto every adapter it starts (no `BUDDY_QUALIFY_*` env transport). Each checker takes its
+    versions from the committed records and `--candidate harness:version:sha256`, and accepts a
+    candidate run only for exactly those bound bytes with the route visible in the adapter's
+    receipts. A run bound to other bytes is never accepted because the version has a record.
+    `scripts/qualify-release.py` retains the build (staged, verified, renamed, never
+    overwritten), runs the code's suites from the copy, and writes a record only for tiers
+    whose suites and checkers all passed, only with `start`, and only on a clean tree at one
+    HEAD. Do not propose per-checker version lists or hand-written records.
 
 ## Environment facts (measured, do not re-derive)
 

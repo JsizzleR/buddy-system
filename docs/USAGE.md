@@ -1652,8 +1652,33 @@ be an observer, hashed with the flags and required unchanged. Every control
 receipt carries `qualification_candidate` (the sha256), the captured receipt
 records the binding, and a resume in the other mode, or under another
 candidate, refuses. Codes: `candidate_mismatch`, `candidate_outside_fixture`.
-Not with `--retained`. The qualification runners pass these flags themselves;
-`scripts/qualify-release.py` is the operator's entry point.
+Not with `--retained`.
+
+**Qualifying a release (D-081).** Every qualification runner binds the binary
+it was given: it hashes the resolved file, reads its `--version`, and types
+`--qualify-candidate`/`--qualify-sha256` onto each adapter it starts, recording
+the binding in its result as `qualification_candidates`. No environment
+variable is involved. Each checker reads the admissible versions from the
+committed records and takes `--candidate harness:version:sha256`. It accepts a
+candidate run only when the run bound exactly those bytes and the adapter's
+receipts show the route was taken. The operator's entry point is
+
+```sh
+python3 scripts/qualify-release.py --harness claude --executable ~/.local/share/claude/versions/X
+python3 scripts/qualify-release.py --harness codex \
+    --executable ~/.codex/packages/standalone/releases/X-aarch64-apple-darwin/bin/codex \
+    --claude-peer /path/to/a/recorded/claude
+```
+
+It retains the build at `~/.buddy/harness/<harness>/<version>-<sha8>/`
+(staged, verified entry by entry, renamed; never overwritten). It runs every
+suite the code requires from that copy, then each suite's checker. It writes
+`docs/admissions/<date>-<harness>-<tag>/` and the record for the tiers that
+earned it. It writes nothing without `start`, over an existing record, or
+unless the tree was clean at one HEAD throughout. It commits nothing. Read the
+release notes against the adapter's contract before running it. A changed
+default the adapter relies on is a reason for no record, whatever the suites
+say.
 
 The first output contains the immutable lifecycle identity. Keep stdin open for
 controls; EOF closes the owned transport and does not mark the logical session

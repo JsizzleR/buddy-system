@@ -94,6 +94,7 @@ sh scripts/wake-report.sh [project]       # idle->wake warm/cold by what woke it
 sh scripts/codex-review.sh <prompt-file> <out-file>
 python3 -I scripts/check-<name>.py <receipt> --self-test   # an evidence checker: reads a receipt, launches nothing
 python3 scripts/qualify-<name>.py ...                      # a native qualification: LAUNCHES claude/codex; operator-authorized only
+python3 scripts/qualify-release.py --harness H --executable P   # retain, run every tier's suites + checkers, write the earned record (D-081); LAUNCHES, operator-authorized
 ```
 
 - **`check.sh` tiers.** `hermetic` = gofmt, source-shape gates, vet, tests,
@@ -631,6 +632,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   with one for exactly those typed bytes (an observer `--executable` is hashed too), refuses
   any start or resume whose provider is not on a loopback IP, names the candidate in every
   receipt, and never resumes across modes. It is how a build with no record is qualified.
+- **A qualification run binds its own binary; checkers read the records (D-081):** each runner
+  hashes what it was given and types the candidate flags itself (no env transport); each checker
+  takes `--candidate` and admits by record, never a version list. `qualify-release.py` retains to
+  `~/.buddy/harness/` (never overwrites), runs and checks every tier, and writes the record only
+  for earned tiers, with `start`, on a clean tree at one HEAD. Release notes are read first.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

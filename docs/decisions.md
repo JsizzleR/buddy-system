@@ -5935,3 +5935,82 @@ resumes and another candidate's resume, before any ledger call. Every receipt
 names the candidate. `cmd/buddy-adapter`: the untagged adapter runs an
 unrecorded fake under the flags only with a loopback provider, and refuses it
 without one before anything runs.
+
+## D-081 — A qualification run binds its own binary, checkers read the committed records, and one release runner retains, runs, checks and records
+
+2026-10-13. Harness version tracking, after D-080: this is how D-080's
+candidate route is used. D-079's launch rule and D-080's binding rule are
+unchanged.
+
+**The failure** — after D-080 the route existed, but nothing used it the same
+way twice. A suite reached it only when a wrapper exported four
+`BUDDY_QUALIFY_*` variables, so a plain `qualify-claude.py --claude X` failed its
+first adapter case with `artifact_mismatch`. Every checker carried its own
+version list (`CLAUDE_VERSIONS = ("2.1.289", "2.1.290", "2.1.291")`,
+`"codex-cli 0.160.0"`). D-079 retired two of those versions the same day, so the
+checkers admitted builds that no record or binary backs, and a new build needed
+a hand edit in a dozen files before its first run could be checked. The
+2026-10-13 backfill record was written by a scratch script from six runner
+outputs and six checker outputs. Each of those hand steps was a place to
+qualify one set of bytes and record another.
+
+**The decision** — three parts, one module between them
+(`scripts/admission_lib.py`, loaded once per process).
+
+- **A runner binds what it was given.** Each runner hashes the resolved
+  binary, reads its `--version` (`DISABLE_AUTOUPDATER=1`, throwaway config
+  dirs), and types `--qualify-candidate <artifact> --qualify-sha256 <hex>` onto
+  every adapter command line it starts for that harness (never on `hook`). The
+  binding goes into its result as `qualification_candidates`. The environment
+  carries nothing. A recorded build takes the same route, because the suites
+  launch through a metadata observer and D-079 would hash the observer.
+- **A checker reads the records.** Admissible versions and native contracts come
+  from `internal/harness/admissions`. `--candidate harness:version:sha256` names
+  the bytes a run must have bound. A candidate run is accepted only when it
+  recorded exactly one binding for the harness, the adapter's own control receipts
+  carry that sha256 (so the route was taken), no receipt names a sha256 that no
+  binding explains, the native sha equals it, and it equals `--candidate` (or,
+  without one, a committed record's bytes). A run bound to OTHER bytes is never
+  accepted because a record for its version exists. A run with no binding is
+  accepted only for a recorded version and only without `--candidate`.
+  2.1.289 and 2.1.290 now refuse.
+- **`scripts/qualify-release.py` is the one operator entry point.** It reads
+  `--version` and hashes, then RETAINS the build at
+  `~/.buddy/harness/<harness>/<version>-<sha8>/`: the Claude Mach-O as `claude`,
+  or Codex's whole release tree. It `ditto`s into a stage beside the target,
+  verifies entry by entry against the source, and renames. An identical
+  package is reused. A differing one refuses and is never overwritten. It runs
+  every suite `admissionSuites` (parsed from `admission.go`, so there is one
+  list) requires from that copy, then each checker with `--candidate`. A tier
+  is granted only when all its suites ran green through the binding and all
+  their checkers passed. There is no record without `start`, none over an
+  existing record, and none unless the tree was clean at one HEAD from the first
+  suite to the last, because runner and checker digests are git blobs at that
+  HEAD. It writes `docs/admissions/<date>-<harness>-<tag>/` (`summary.json`, one
+  `<suite>.checker.json` each, `$HOME` scrubbed to `~`, every digest over the
+  committed bytes) and the record. Codex's recovery suite also runs a Claude
+  worker, and `--claude-peer` must be a RECORDED Claude build's bytes.
+
+It commits nothing and edits no settings. It does not decide that a release's
+changed hook semantics are harmless. That is a reading of the release notes
+against the code's contract, done before the run, and a changed default the
+adapter relies on means no record whatever the suites say.
+
+**Refused alternatives** — the env transport (it made the plain run red and
+put the binding outside the argv that receipts record). Per-checker version
+lists (the drift above). A record hand-written from outputs (the bytes the
+record names and the bytes that ran were joined only by a person). Retaining by
+overwriting (the updater deletes old versions, and a package rewritten under a
+committed record turns that record into `package_mismatch`).
+
+**Deferred** — `qualify-claude-jobs.py` is left unbound. Its hermetic test drives
+`main` with a fake path, so binding it needs that test to inject a probe. It is a
+deferred suite and grants nothing.
+
+**Tests** — `admission_lib.py --self-test` (30 cases: each acceptance arm and
+each refusal above, retired versions included). `qualify-release.py --self-test`
+(22 cases against fake suites): a tier withheld for a failing checker, a run
+bound to other bytes or not bound, no record without start, on a dirty tree or a
+moved HEAD, a retained package never overwritten, and a torn copy or a moving
+source refused. 25 of 25 mutants of its guards and the library's were killed.
+Both self-tests and all 17 checker self-tests run in `check.sh hermetic`.
