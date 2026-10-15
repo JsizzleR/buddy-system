@@ -325,8 +325,13 @@ if you find neither, ask rather than assume.
   it). Your workspace is the part of `$HERDR_PANE_ID` before the colon:
   `herdr tab create --workspace <ws> --cwd <repo> --label <label> --no-focus`
   prints the new tab's `root_pane` id; then
-  `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --permission-mode <mode> "<brief>"`.
-  Pass the mode the operator decided for lanes, never a more permissive one
+  `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --permission-mode <mode> "You are <label>. Read <brief file> in full and follow it as your brief."`.
+  The brief itself goes in a file: herdr refuses an agent argument holding a
+  newline or a backtick ("agent arguments cannot be encoded safely for the
+  target shell", measured), and the one-line prompt naming the file launches.
+  A start sent straight after the tab's creation can be refused with
+  `agent_pane_busy` (the pane is not yet at its shell prompt); the same
+  command seconds later worked (measured). Pass the mode the operator decided for lanes, never a more permissive one
   than your own. Without the flag a lane starts in manual mode, and every tool
   call it makes, each `buddy msg` report included, waits for an approval in
   its pane. `claude --permission-mode auto` gives auto mode only on a model
@@ -360,9 +365,22 @@ if you find neither, ask rather than assume.
   address `msg` prints. Tell each parked lane roughly when you will next need
   it (Before you park). From there, both sides of the loop are Landing
   through an orchestrator (above).
+- **Wait on a lane by state; read it by mail.** `herdr agent wait <label>
+  --timeout <ms>`, with no state named, returns when the lane is idle, done
+  or blocked (its help says so; a state it is already in returns at once).
+  A lane that has finished a turn rests at `done`, so
+  `herdr agent wait <label> --until idle --until blocked` times out on it
+  (measured: three lanes, ten minutes each, while their READY reports sat in
+  the inbox). The state says the lane stopped,
+  not why or what it did: its words are in `buddy inbox`, and `buddy sent`
+  says whether yours reached it.
 - **Ending a lane is the operator's act.** When its work has landed,
   `buddy who <lane>` shows it holds nothing (and its JOBS line no shell of its
-  own), and it names no job of its own still running, say so. Close a lane yourself
+  own), and it names no job of its own still running, say so. A Codex lane's
+  JOBS line says `cannot say: no live harness process is registered for it`,
+  always: its hooks bind no process, so the line can never say "no shell" for
+  it. Do not wait for one; its DONE words ("no job running") are its account
+  of its jobs, and it owes them. Close a lane yourself
   (`herdr pane close <pane id>`, which runs its `bye`; `claude stop <8hex>` for a
   background one) only if the operator told you, not a peer, that you may,
   and then only a lane you opened. If you may, do it as soon as the lane

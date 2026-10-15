@@ -665,7 +665,9 @@ with pids and ages and never a command line. It is how a session that says it
 "holds nothing" is caught still running a gate script or a watcher. It cannot
 see a job that exec'd into another program or runs under a wrapper, and it
 says "cannot say" (never "none") without a live registered process or on a
-platform whose process table it does not read (only macOS is).
+platform whose process table it does not read (only macOS is). A Codex
+session always gets "cannot say": its hooks bind no harness process (D-068),
+so its account of its own jobs is in its words, never on this line.
 The `EXIT` line is a **description of what the ledger would be left holding**.
 It is not permission and it is not proof that killing the session is safe:
 a coordinator can report that a session is safe to release and cannot obtain

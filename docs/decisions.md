@@ -6273,3 +6273,62 @@ was reproduced by a failing case before its fix:
   a quoted or spaced name, still refuses. Multi-line strings still refuse.
   `TestCandidateCodexFixture` has the fixture block as a positive control and
   those refusals; 4 of 4 mutants killed.
+
+## D-082 — The fleet recipe, corrected by the first mixed fleet: a brief in a file, a wait that knows `done`, a retry after the tab, and a tier that needs escalation
+
+2026-10-14 · the Codex-orchestrated fleet trial (`.cache/trial/report.txt`, orch-3's
+notes; operator: "one more lane for the smaller gaps")
+
+**What was wrong** — The skill's "Running a fleet" (D-056) was measured with Haiku lanes
+launched from a Claude pane. The first fleet with a Codex orchestrator and mixed lanes
+(2026-10-14: a Claude orchestrator above a Codex one, under it one Codex lane and two Claude
+lanes) found five things the recipe said wrongly or not at all:
+
+- *The brief as an argument.* `herdr agent start … "<brief>"` was refused for a brief holding
+  newlines and backticks: "agent arguments cannot be encoded safely for the target shell". The
+  same brief in a file, with the one-line prompt "Read <file> in full and follow it as your
+  brief", launched every lane the Claude orchestrator opened (four); the Codex orchestrator
+  flattened its lane briefs onto one line, which launched too and reads worse.
+- *The wait.* The Codex orchestrator waited with `herdr agent wait <lane> --until idle --until
+  blocked --timeout 600000`, and all three timed out (ten minutes each) while the lanes' READY
+  reports sat in the inbox: a lane that has finished its turn rests at `done`, a state the wait
+  was not told to match. `herdr agent wait --help` (herdr 0.7.5): the states are idle, working,
+  blocked, done and unknown; without `--until` it matches idle, done or blocked; a state the
+  lane is already in returns at once (probed on this lane: `--until working` returned its row,
+  `--until done` timed out). The recipe named no wait at all; the trial's came from its brief.
+- *The start after the tab.* `herdr agent start` sent straight after `herdr tab create` was
+  refused: `agent_pane_busy`, "agent target pane … is not an available shell". A retry seconds
+  later worked (orch-3, 2026-10-14 16:55, opening the fix lanes).
+- *The tier under the sandbox.* A Codex driver's `check.sh hermetic` inside the sandbox went red
+  on exactly one test, `TestAdapterReportsEscapedToolAtClose`: the adapter's close scan reads
+  the process table, which the sandbox refuses ("the final scan was incomplete: process table:
+  operation not permitted"), so the one escaped descendant the test plants is never seen. The
+  escalated rerun on the same tree was green (`.cache/trial/check-sandbox.log`, `check.log`). A
+  sandboxed red there says nothing about the tree.
+- *JOBS for a Codex lane.* The orchestrator's DONE check reads `buddy who <lane>` for "no
+  shell"; a Codex session prints `JOBS cannot say: no live harness process is registered for
+  it`, always, because its hooks bind no process (D-068) and D-065 never renders cannot-say as
+  none. The trial orchestrator noticed and took the lane's own words instead; the recipe did
+  not say to.
+
+**The rule** — The skill's "Running a fleet" launches with the brief in a file and a one-line
+pointer prompt, retries a start refused as `agent_pane_busy`, waits with `herdr agent wait
+<label> --timeout <ms>` and no `--until` (idle, done or blocked), reads the lane's words from
+`buddy inbox` rather than its state, and does not wait for a Codex lane's JOBS line to say "no
+shell". `AGENTS.md` tells a Codex driver or worker to run the hermetic tier escalated, once for
+the whole tier. `USAGE.md`'s JOBS paragraph says a Codex session always gets "cannot say".
+
+**Considered and cut** — Making `TestAdapterReportsEscapedToolAtClose` skip when the table is
+unreadable: the test exists to prove the close scan sees an escaped tool, and a skip under the
+sandbox is the quiet non-run that `check.sh`'s loud NOT RUN exists to prevent; the escalation
+is one question. Adding `--until done` to the old list: the default already matches all three
+resting states, and a list is what rotted. A JOBS arm that finds a Codex lane's process: D-068
+forbids the anchor (a shared app-server process is not one thread).
+
+**Not measured** — Whether `done` is the only state a finished lane rests in (`herdr agent
+explain` on a lane the list showed as `done` said `idle` minutes later, so it is not durable);
+a Codex lane's states under the same wait.
+
+**Test shape** — Prose only. The skill gate reads every `buddy <verb> --flag` in the section
+against the usage table; the `herdr` lines are the harness's, measured as above. The doc-link
+test holds the anchors.

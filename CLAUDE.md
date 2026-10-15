@@ -643,6 +643,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   takes `--candidate` and admits by record, never a version list. `qualify-release.py` retains to
   `~/.buddy/harness/` (never overwrites), runs and checks every tier, and writes the record only
   for earned tiers, with `start`, on a clean tree at one HEAD. Release notes are read first.
+- **The fleet recipe launches with the brief in a file, waits for `done`, and retries after
+  the tab (D-082):** `herdr agent start` refuses an argument holding a newline or a backtick,
+  so the prompt is one line naming the brief file; `herdr agent wait` with no `--until` matches
+  idle, done or blocked, and a finished lane rests at `done`; a start straight after
+  `herdr tab create` can be refused `agent_pane_busy` (retry it); under the Codex sandbox the
+  hermetic tier runs escalated (`TestAdapterReportsEscapedToolAtClose` reads the process
+  table); a Codex session's JOBS line always says "cannot say", so its DONE words are its
+  account of its jobs.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
