@@ -84,7 +84,25 @@ then the native harness identity. A native identity that is unknown or ended
 does not fall back to another session in the directory. `wait check` requires
 the native identity and refuses a conflicting override. Do not set Claude's
 environment variable for Codex. If both harnesses export different native IDs,
-resolve that ambiguity before calling Buddy.
+every verb that resolves the caller refuses and names the fix: under Codex
+`env -u CLAUDE_CODE_SESSION_ID buddy <verb>`, under Claude Code
+`env -u CODEX_THREAD_ID buddy <verb>` (D-085). Measured 2026-10-14: a herdr tab
+takes the herdr server's environment rather than its launcher's, so it inherits
+neither id; a harness started as a child of another harness's shell inherits
+the parent's.
+
+**Seen.** A Codex session runs no buddy heartbeat, so its roster `seen` moves
+when it runs a non-hook verb under its native identity (D-086): `claim`,
+`status`, `inbox` and the rest record it as heard from, before the verb runs.
+`--session` and `BUDDY_SESSION` do not count, and an ended session stays ended.
+
+**Sandbox.** The ledger is in the git common directory, which Codex's
+workspace-write sandbox keeps read-only, and every verb writes it, reads
+included. A sandboxed call fails with `unable to open database file (14)` (or
+`attempt to write a readonly database (8)` while a peer holds the ledger open),
+and buddy then adds a `cause:` and a `fix:` line: request escalation for every
+buddy command up front (D-084). The gate is unaffected and still denies over a
+ledger it cannot open.
 
 **Gate.** Canonical `apply_patch` carries patch text in `tool_input.command`.
 Buddy checks every add, update, delete and both sides of a move, using each
@@ -688,7 +706,8 @@ buddy sessions                    # the roster; --by started for arrival order
 Every age carries its own word, because one unlabelled column next to `live`
 reads as uptime and was time-since-last-tool-call: a session ten hours old that
 had just heartbeated rendered as `9s`. `started` dates *this incarnation's*
-registration, `seen` the last hook that spoke for the session, and the state
+registration, `seen` the last hook that spoke for the session (or, D-086, the
+last non-hook verb its harness ran as it), and the state
 word carries its own age when the state is a dated event (`ended 29d`).
 `--by started|seen` picks which of the two orders the rows, both newest-first,
 live rows always above ended ones. The first column is a gutter: `*` is the row

@@ -6419,3 +6419,170 @@ on every assignment. Both belong to the next fleet's report.
 
 **Test shape** — Prose only. The skill gate reads every `buddy <verb> --flag` in both sections
 against the usage table (`msg`, `status`, `who`); the doc-link test holds the anchors.
+
+## D-084 — A ledger this process may not write gets its cause and fix named; the gate still denies
+
+2026-10-14. F1 of the Codex fleet trial (`.cache/trial/report.txt`). Wording on
+the verb path; no verdict changes.
+
+**The failure** — under Codex's workspace-write sandbox every buddy verb a
+Codex session ran failed first, and auto-review then approved the same command
+escalated. The orchestrator's rollout records it on its first buddy call:
+
+    buddy hello: inspect ledger schema version: unable to open database file (14)
+    buddy status: inspect ledger schema version: unable to open database file (14)
+
+One failed call and one review per buddy call (90 escalation requests in 74
+tool calls for the orchestrator alone, `.cache/trial/escalations.txt`), and the
+error named neither the cause nor the fix.
+
+**Measured (2026-10-14, codex-cli 0.162.1)** — reproduced with Codex's own
+runner, `codex sandbox -P :workspace -C <dir> -- buddy status`, on a fixture
+ledger outside `/tmp` (the profile makes `/private/tmp` writable, which hides
+the defect): the same line, and `--log-denials` shows `file-write-data` on
+`buddy.db`. From the main checkout and from a linked worktree alike: the common
+dir is read-only either way. A one-line seatbelt profile,
+`(allow default)(deny file-write* (subpath "<git-common-dir>"))`, fails the same
+fresh fixture byte for byte. The runner exports `CODEX_SANDBOX=seatbelt`. Two
+shapes, by whether a peer holds the ledger open:
+
+| `-wal`/`-shm` beside the ledger | read verb | write verb |
+|---|---|---|
+| absent (no peer has it open) | CANTOPEN (14) at open | CANTOPEN (14) at open |
+| present (a peer has it open) | succeeds, read-only | `attempt to write a readonly database (8)` |
+
+**The decision** — `errVerb` passes a failing verb's error through
+`explainLedgerAccess` (`internal/cli/ledgeraccess.go`). When the error is
+SQLite's CANTOPEN or READONLY family (the chain's code, or SQLite's own fixed
+strings, since `fencedErr` flattens some chains) AND an `O_RDWR` open of the
+ledger is refused by the OS (EPERM from seatbelt, EACCES from file modes), it
+appends two lines: the cause (the ledger path and the errno, that it lives in
+the git common directory outside the sandbox's writable roots, naming
+`$CODEX_SANDBOX` when set) and the fix (request escalation up front for every
+buddy call; every verb needs write access, reads included). Anything else comes
+back unchanged. Only the error path pays: one git process and one open, after
+the verb already failed.
+
+**What it does not do** — the gate is not routed through `errVerb`, so an
+unopenable ledger still DENIES there and never becomes feature-off (invariants
+2 and 3; `TestLedgerAccessGateStillDenies`). Nothing opens the ledger read-only
+to get a verb through, retries, or decides anything from `CODEX_SANDBOX`. A
+read-only open was considered and cut: with no `-shm` present the open fails
+anyway, and a sandbox's refusal is the operator's approval to give, which is
+what escalation is. AGENTS.md and the skill tell Codex roles to request it up
+front; that, not this text, removes the failed first call.
+
+**Tests** — `TestLedgerAccessNamesCauseAndFix` (file modes: CANTOPEN-shaped at
+open, READONLY on write, a `fencedErr`-flattened verb, `$CODEX_SANDBOX` named;
+each with a writable-ledger positive control), `TestLedgerAccessSaysNothingOtherwise`
+(writable ledger, unrelated error, no repo), and on darwin
+`TestLedgerAccessUnderSeatbelt`, which re-runs the test binary under
+`sandbox-exec` with the profile above from a linked worktree and requires the
+trial's `(14)` line, EPERM and the fix. It skips, saying so, only where a
+sandbox cannot nest.
+
+## D-085 — Inherited harness identity: refuse with the remedy; a herdr tab does not leak
+
+2026-10-14. F2 of the Codex fleet trial.
+
+**What was reported** — "codex-orch's early `buddy status` (inherited
+`CLAUDE_CODE_SESSION_ID`) reported orch-3's session (JOBS pid 29377)".
+
+**What the record shows** — not that. In the orchestrator's rollout
+(`~/.codex/sessions/2026/10/14/rollout-…-01a13bb6-….jsonl`) every `buddy status`
+printed `* codex-orch (01a13bb6-…)`. pid 29377 appears only in the output of
+`buddy who buddy-system/s-51ebb7e8`, an explicit query about orch-3, and in
+`msg`'s wake address for orch-3. The `printenv A B C` probes the trial ran do
+not show what was inherited: BSD `printenv` reads only its first operand
+(measured: `printenv CLAUDE_CODE_SESSION_ID HERDR_PANE_ID` prints one value).
+Lane A ran every buddy call as `env -u CLAUDE_SESSION_ID -u CLAUDE_CODE_SESSION_ID …`
+because its brief told it to, not because it had seen a leak.
+
+**Measured** — (1) A herdr tab opened from this Claude pane
+(`herdr tab create`, herdr 0.7.5) carried `HERDR_*` and no `CLAUDE_*` or `CODEX_*`
+variable: a tab's shell takes the herdr SERVER's environment, and this
+machine's server was started from Terminal.app's zsh with none. (2) Codex's
+runner passes an inherited `CLAUDE_CODE_SESSION_ID` straight through (its
+default `shell_environment_policy` inherits all), so a Codex launched as a
+CHILD of a Claude shell holds both ids. (3) With both set and different, the
+installed binary already refuses every verb that resolves the caller:
+`$CLAUDE_CODE_SESSION_ID and $CODEX_THREAD_ID disagree (…); clear the inherited
+identity before continuing`.
+
+**The decision** — keep refusing (D-068: the two cannot be ordered from the
+environment, and D-025 makes the ancestry walk the identity of one decision,
+not a tiebreak). Picking "the harness actually running the caller" by walking
+up to the nearest `claude` or `codex` process was considered and not done: it
+would overturn D-068's "never guess from ancestry". The refusal now says how:
+`env -u CLAUDE_CODE_SESSION_ID buddy …` under Codex, `env -u CODEX_THREAD_ID
+buddy …` under Claude Code, and that a herdr tab does not inherit the
+launcher's environment. The skill's "Running a fleet" gains the Codex lane
+launch and says which launches leak: a herdr tab and `claude --bg` do not (the
+latter runs in the claude daemon's environment, already measured there); a lane
+started as a child of your own shell does, and is launched with both ids unset.
+
+**Residual** — a caller under one harness that holds ONLY the other harness's
+id would be misattributed. It needs a harness that exports no id of its own;
+none is observed (Codex 0.160.0 and 0.162.1 export `CODEX_THREAD_ID`, Claude
+Code exports `CLAUDE_CODE_SESSION_ID`). A herdr server started from inside a
+harness session would hand that session's id to every pane it opens; not
+observed here, and named in the skill.
+
+**Tests** — `TestNativeDisagreementNamesTheRemedy` (a read and a write verb,
+then the cleared control); the refusal itself stays pinned by
+`TestCodexNativeIdentityAmbiguity` and `TestCodexWaitOwnThread`.
+
+## D-086 — A verb run under the harness's native identity is a hearing: it moves `last_seen`, and nothing else
+
+2026-10-14. F3 of the Codex fleet trial.
+
+**The failure** — the roster showed the Codex orchestrator `NOT SEEN FOR 2h` six
+minutes after it re-claimed (orch-3's notes), and `msg` told every sender the
+same. A Claude session's `last_seen` moves on every tool call because its
+PreToolUse hook beats; a Codex session has no buddy lifecycle hooks (unfenced
+ones are refused, D-069), so only `hello` ever moved it. An active coordinator
+read as stale.
+
+**The decision** — `heardVerb` wraps the non-hook verbs (`claim`, `release`,
+`ls`, `sweep`, `pause`, `resume`, `msg`, `sent`, `inbox`, `sessions`, `whose`,
+`status`, `who`, `authority`, `ids`, `wait`). Before the verb runs, the session
+the harness names (`$CODEX_THREAD_ID` or `$CLAUDE_CODE_SESSION_ID`, refusing
+their disagreement) gets `Store.Heard`: `UPDATE sessions SET
+last_seen=MAX(last_seen, now) WHERE session_id=? AND ended IS NULL`. Before,
+so the verb's own output reads the present under either harness. Failure is
+silent: an observation, and a ledger that cannot be written fails the verb
+next with its own error.
+
+- **Only native identity.** `--session` and `$BUDDY_SESSION` say whom the
+  caller acts FOR; the operator running `buddy status --session X` is not X
+  being heard from. The same rule `wait` uses to say "THIS session".
+- **Nothing else moves.** No idle row cleared (D-016: idle is reported, busy
+  never inferred), no claim renewed (renewal is per observed path, D-078), no
+  process registered, no lifecycle state.
+- **Invariant 12.** `ended IS NULL`: an ended session stays ended, and an id
+  never seen stays unseen. No incarnation is taken. D-069 fences EVENTS that can
+  arrive late, a hook queued behind a resume; a verb runs inside its caller's
+  tool call and returns before it, so the only state it can describe is now.
+- **Not wrapped:** `init` (may create the ledger); the hook verbs `hello`,
+  `bye`, `beat`, `idle`, `busy`, `gate`, `commit-gate` (own contracts; a `bye`
+  must never look like activity; the gate's 100 ms budget); `lifecycle` and
+  `adapter` (captured-incarnation events, D-069); `diagnose` (never opens the
+  ledger with SQLite, D-072).
+
+**What it costs** — a read verb now writes one row: one more open and one
+short write transaction per verb (not per hook). Under the Codex sandbox that
+write fails like the verb's own (D-084). A Codex session that runs no buddy
+verb for 30 minutes still reads STALE, which is what the ledger knows; the
+skill tells a Codex session to run `buddy inbox` at each milestone, which is
+also the only way it reads its mail.
+
+**Refused alternative** — leaving `seen` hook-only and rewording the roster
+for sessions with no registered harness process. "No registered process" is
+not "no heartbeat": an adapter worker beats through `lifecycle` with pid 0, so
+the wording would have been wrong for it.
+
+**Tests** — `TestVerbUnderNativeIdentityIsHeard` (Codex claim, status, inbox,
+a refused release, Claude status: heard; override only, `--session` only,
+disagreeing natives, `diagnose`: not heard; a bystander never moves),
+`TestHeardSessionIsNotReportedStale` (the trial's case end to end through `msg`
+and `sessions`, with the stale control first), `TestHeardNeverRevives`.

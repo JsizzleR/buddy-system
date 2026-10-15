@@ -660,6 +660,18 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   neither; `s-<8hex>` resolves only a default label). The sender is the key and the brief the
   authority; nothing in buddy confers. Never delegable: install, push, settings, permission,
   trust, schema, a more permissive mode, work beyond the launcher's scope.
+- **A ledger this process may not write gets its cause and fix named (D-084):** Codex's
+  workspace-write sandbox keeps the git common dir read-only, so every verb fails (CANTOPEN 14 at
+  open, or READONLY 8 on a write while a peer holds it open). A failing verb whose error is that
+  family, over a ledger the OS refuses `O_RDWR` (EPERM/EACCES), appends the cause and "request
+  escalation up front"; anything else is unchanged. Verb path only: the gate still DENIES.
+- **Two disagreeing native ids still refuse, now with the remedy (D-085):** `env -u` the other
+  harness's variable. Measured: a herdr tab takes the herdr server's environment, not the
+  launcher's, so it leaks no id; a child of a harness's shell does. Picking by ancestry was not done
+  (D-068). The trial's "status reported orch-3" was `who buddy-system/s-51ebb7e8`, not a misread id.
+- **A non-hook verb run under the native harness id moves `last_seen`, nothing else (D-086):**
+  `heardVerb`, before the verb; `ended IS NULL`; never for `--session`/`BUDDY_SESSION`; no idle,
+  renewal, process or lifecycle change. Not init, hook verbs, lifecycle, adapter or diagnose.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

@@ -97,7 +97,7 @@ type verb struct {
 func errVerb(name string, fn func([]string, Env) error) func([]string, Env) int {
 	return func(args []string, env Env) int {
 		if err := fn(args, env); err != nil {
-			fmt.Fprintf(env.Stderr, "buddy %s: %v\n", name, err)
+			fmt.Fprintf(env.Stderr, "buddy %s: %v\n", name, explainLedgerAccess(err, env))
 			return 1
 		}
 		return 0
@@ -113,22 +113,22 @@ var verbs = map[string]verb{
 	"busy":        {usageBusy, errVerb("busy", cmdBusy)},
 	"gate":        {usageGate, cmdGate},
 	"commit-gate": {usageCommitGate, cmdCommitGate},
-	"claim":       {usageClaim, errVerb("claim", cmdClaim)},
-	"release":     {usageRelease, errVerb("release", cmdRelease)},
-	"ls":          {usageLs, errVerb("ls", cmdLs)},
-	"sweep":       {usageSweep, errVerb("sweep", cmdSweep)},
-	"pause":       {usagePause, errVerb("pause", cmdPause)},
-	"resume":      {usageResume, errVerb("resume", cmdResume)},
-	"msg":         {usageMsg, errVerb("msg", cmdMsg)},
-	"sent":        {usageSent, errVerb("sent", cmdSent)},
-	"inbox":       {usageInbox, errVerb("inbox", cmdInbox)},
-	"sessions":    {usageSessions, errVerb("sessions", cmdSessions)},
-	"whose":       {usageWhose, errVerb("whose", cmdWhose)},
-	"status":      {usageStatus, errVerb("status", cmdStatus)},
-	"who":         {usageWho, errVerb("who", cmdWho)},
-	"authority":   {usageAuthority, errVerb("authority", cmdAuthority)},
-	"ids":         {idsUsage, errVerb("ids", cmdIDs)},
-	"wait":        {usageWait, errVerb("wait", cmdWait)},
+	"claim":       {usageClaim, heardVerb("claim", cmdClaim)},
+	"release":     {usageRelease, heardVerb("release", cmdRelease)},
+	"ls":          {usageLs, heardVerb("ls", cmdLs)},
+	"sweep":       {usageSweep, heardVerb("sweep", cmdSweep)},
+	"pause":       {usagePause, heardVerb("pause", cmdPause)},
+	"resume":      {usageResume, heardVerb("resume", cmdResume)},
+	"msg":         {usageMsg, heardVerb("msg", cmdMsg)},
+	"sent":        {usageSent, heardVerb("sent", cmdSent)},
+	"inbox":       {usageInbox, heardVerb("inbox", cmdInbox)},
+	"sessions":    {usageSessions, heardVerb("sessions", cmdSessions)},
+	"whose":       {usageWhose, heardVerb("whose", cmdWhose)},
+	"status":      {usageStatus, heardVerb("status", cmdStatus)},
+	"who":         {usageWho, heardVerb("who", cmdWho)},
+	"authority":   {usageAuthority, heardVerb("authority", cmdAuthority)},
+	"ids":         {idsUsage, heardVerb("ids", cmdIDs)},
+	"wait":        {usageWait, heardVerb("wait", cmdWait)},
 	"lifecycle":   {usageLifecycle, errVerb("lifecycle", cmdLifecycle)},
 	"adapter":     {usageAdapter, errVerb("adapter", cmdAdapter)},
 	"diagnose":    {usageDiagnose, errVerb("diagnose", cmdDiagnose)},

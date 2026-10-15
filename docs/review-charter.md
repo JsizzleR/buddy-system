@@ -876,6 +876,25 @@ ledger row entered through the CLI (D-006).
     convenience, not a key); relaying through `herdr agent prompt` (a typed turn the lane
     cannot tell from the operator's); any authority-conferring verb or flag.
 
+85. **A ledger this process may not write gets its cause and fix named; the gate still
+    denies (D-084).** Codex's workspace-write sandbox keeps the git common dir read-only
+    (measured: CANTOPEN 14 at open, READONLY 8 on a write while a peer holds the ledger open).
+    A failing VERB whose error is that family, over a ledger the OS refuses `O_RDWR`
+    (EPERM/EACCES), appends the cause and "request escalation up front"; anything else is
+    unchanged. The gate is not routed through it. Do not propose opening read-only to get a
+    verb through, or deciding anything from `CODEX_SANDBOX`.
+
+86. **Disagreeing native ids refuse, naming the remedy; nothing orders them (D-085).**
+    `env -u` the other harness's variable. Measured: a herdr tab takes the herdr server's
+    environment, not the launcher's; a child of a harness's shell inherits its id. Do not
+    propose picking the id by the nearest harness ancestor (D-068, D-025).
+
+87. **A non-hook verb run under the native harness id moves `last_seen`, and nothing else
+    (D-086).** Before the verb, `ended IS NULL`, never for `--session`/`BUDDY_SESSION`; no
+    idle, claim renewal, process or lifecycle change; not init, the hook verbs, lifecycle,
+    adapter or diagnose. A verb is not a late event, so it takes no incarnation (D-069 fences
+    events). Do not propose clearing idle or renewing claims from it.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

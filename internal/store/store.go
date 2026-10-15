@@ -1064,6 +1064,34 @@ func (s *Store) BeatFrom(sessionID, relPath string, proc ProcRef) error {
 	})
 }
 
+// Heard records that a live session was just heard from: its harness ran a
+// buddy verb as it, now (F3, the 2026-10-14 Codex fleet trial). It moves
+// last_seen forward and does NOTHING else — no idle row cleared, no claim
+// renewed, no process registered, no lifecycle state — because a verb is
+// evidence the session is alive and acting, and of nothing more.
+//
+// `ended IS NULL` is what keeps invariant 12: an ended session stays ended,
+// and an id this ledger never saw stays unseen. No incarnation is taken, and
+// that is not the D-069 gap: D-069 fences EVENTS that can arrive late (a hook
+// queued behind a resume). A verb is not delivered later; it runs inside the
+// caller's tool call and returns before that call does, so the only state it
+// can describe is the present one. MAX keeps a clock skewed backwards from
+// moving the mark back. It reports whether a live row of that id was there.
+func (s *Store) Heard(sessionID string) (bool, error) {
+	var live bool
+	err := s.tx(func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE sessions SET last_seen=MAX(last_seen, ?) WHERE session_id=? AND ended IS NULL`,
+			s.now().Unix(), sessionID)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		live = n > 0
+		return nil
+	})
+	return live, err
+}
+
 // ClaimInfo is a claim joined with its owner and scopes.
 type ClaimInfo struct {
 	ClaimID     string

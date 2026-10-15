@@ -393,3 +393,30 @@ func TestHelloExplicitSessionRejectsMalformedHookButAllowsTerminal(t *testing.T)
 		t.Fatalf("terminal manual hello did not refresh its live registration: %+v", got)
 	}
 }
+
+// F2: the disagreement refusal says how to clear the inherited identity under
+// each harness, since nothing in the environment says which one it is. The
+// refusal itself is pinned above; this pins that it is actionable, on a read
+// verb (the trial's `status`) as well as a write.
+func TestNativeDisagreementNamesTheRemedy(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	f.env[EnvCodexThread], f.env[EnvClaudeSession] = "sess-a", "sess-b"
+	for _, verb := range [][]string{{"status"}, {"claim", "x", "--desc", "d", "--scope", "pkg"}} {
+		_, errw, code := f.run(t, f.repo, "", verb...)
+		if code == 0 {
+			t.Fatalf("%s: disagreeing natives must refuse", verb[0])
+		}
+		for _, w := range []string{"disagree", "env -u " + EnvClaudeSession + " buddy", "env -u " + EnvCodexThread + " buddy", "herdr tab"} {
+			if !strings.Contains(errw, w) {
+				t.Errorf("%s refusal lacks %q: %s", verb[0], w, errw)
+			}
+		}
+	}
+	// Control: with the inherited one cleared, the same caller is the session.
+	delete(f.env, EnvClaudeSession)
+	if out, errw, code := f.run(t, f.repo, "", "status"); code != 0 || !strings.Contains(out, "alpha") {
+		t.Fatalf("cleared: %d %q %s", code, out, errw)
+	}
+}

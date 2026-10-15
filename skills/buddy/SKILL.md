@@ -25,8 +25,17 @@ and a delivered message is not acceptance or completion.
 A Codex session uses its native `CODEX_THREAD_ID`, consistently with the hook's
 `session_id`; never invent `CLAUDE_CODE_SESSION_ID`. A session started from
 another harness's shell must clear the identity it inherited: wherever a ledger
-governs, the gate refuses a call whose identities disagree. `buddy wait check`
-speaks only for the native caller.
+governs, the gate refuses a call whose identities disagree, and so does every
+verb. Under Codex run `env -u CLAUDE_CODE_SESSION_ID buddy status`; under Claude
+Code, `env -u CODEX_THREAD_ID buddy status`. `buddy wait check` speaks only for
+the native caller. A Codex session has no buddy heartbeat: the roster's `seen`
+moves when it runs a buddy verb as itself, so it runs `buddy inbox` at each
+milestone (that is also how it reads mail), or it reads as stale.
+
+Under Codex's workspace-write sandbox, request escalation up front for every
+buddy command (`sandbox_permissions: "require_escalated"`). The ledger is in
+the git common directory, which that sandbox keeps read-only, and every verb
+writes it, reads included; a sandboxed call fails and its retry costs a review.
 
 The gate reads every path of an `apply_patch`, both ends of a move, and refuses
 the whole call on one conflict. Use the apply_patch TOOL: `apply_patch` or
@@ -346,7 +355,19 @@ if you find neither, ask rather than assume.
   asked for every one), so launch auto lanes on such a model. For a manual
   lane the operator can pre-allow `Bash(buddy *)`, or answer the first report
   "don't ask again for: buddy msg *". That is the operator's setting, never the
-  lane's or yours to change.
+  lane's or yours to change. A Codex lane:
+  `herdr agent start <label> --kind codex --pane <pane id> -- -s workspace-write -a on-request "You are <label>. Read <brief file> in full and follow it as your brief."`;
+  its brief says to request escalation for every buddy call up front
+  (Harness boundaries).
+- **A launch must not hand the lane your identity.** A herdr tab's shell takes
+  the herdr server's environment, not yours (measured: a tab opened from a
+  Claude pane carried no `CLAUDE_CODE_SESSION_ID`), and `claude --bg` runs in
+  the claude daemon's, so neither leaks. A lane started as a child of your own
+  shell does inherit your id, and buddy then refuses every call it makes while
+  the two ids disagree: start one only with both unset, as
+  `env -u CLAUDE_CODE_SESSION_ID -u CODEX_THREAD_ID <harness> ...`. If
+  the herdr server was ever started from inside a session, every tab carries
+  that session's id; restart it from a plain terminal.
 - **Or in the background:** `claude --bg -n <label> "<brief>"` prints
   `backgrounded · <8hex> · <label>`. The lane runs in the claude daemon's
   environment, not yours (measured): its row shows no pane, and no variable
