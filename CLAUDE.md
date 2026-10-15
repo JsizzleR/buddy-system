@@ -651,6 +651,15 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   hermetic tier runs escalated (`TestAdapterReportsEscapedToolAtClose` reads the process
   table); a Codex session's JOBS line always says "cannot say", so its DONE words are its
   account of its jobs.
+- **A launch brief delegates a bounded relay of the operator's decisions to one coordinator,
+  by full session id and label (D-083):** the brief is the launched session's operator request
+  (its first prompt, D-056) and may name one coordinator whose `buddy msg`, inside the
+  decisions it relays (what to take next, stop or hand on; claims to release; closing lanes the
+  session opened after DONE), is decided, with no second ask in the lane's pane; the lane checks
+  once that `buddy who <id>` is live and wears the label (a label worn twice resolves to
+  neither; `s-<8hex>` resolves only a default label). The sender is the key and the brief the
+  authority; nothing in buddy confers. Never delegable: install, push, settings, permission,
+  trust, schema, a more permissive mode, work beyond the launcher's scope.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

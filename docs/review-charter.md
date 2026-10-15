@@ -847,6 +847,34 @@ ledger row entered through the CLI (D-006).
     overwritten), runs the code's suites from the copy, and writes a record only for tiers
     whose suites and checkers all passed, only with `start`, and only on a clean tree at one
     HEAD. Do not propose per-checker version lists or hand-written records.
+83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a
+    start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082).**
+    Measured on the first mixed fleet (2026-10-14): `herdr agent start` refuses an agent
+    argument holding a newline or a backtick, so the prompt is one line naming the brief
+    file; `herdr agent wait` with no `--until` matches idle, done or blocked, and a finished
+    lane rests at `done` (the trial's `--until idle --until blocked` timed out on all three
+    lanes); a start straight after `herdr tab create` can be refused as `agent_pane_busy`
+    and a retry seconds later works; under the Codex sandbox the hermetic tier runs
+    escalated, once for the whole tier (`TestAdapterReportsEscapedToolAtClose` reads the
+    process table, which the sandbox refuses, so a sandboxed red says nothing about the
+    tree); a Codex session's JOBS line always says "cannot say" (its hooks bind no process,
+    D-068), so its DONE words are its account of its jobs. Do not propose a sandbox skip for
+    that test, a JOBS arm that anchors a Codex process, or a state list in place of the
+    default wait.
+84. **A launch brief delegates a bounded relay of the operator's decisions to ONE
+    coordinator, named by full session id and label (D-083).** The brief is the launched
+    session's operator request (its first prompt, D-056). Inside the decisions it says that
+    coordinator relays (what to take next, stop or hand on; claims to release; closing lanes
+    the session opened after DONE), a `buddy msg` from that session is decided, with no
+    second ask in the lane's pane; the lane checks once that `buddy who <that id>` is live
+    and wears the label (a label worn twice resolves to neither; `s-<8hex>` resolves only a
+    default label). Outside the bound, or from any other sender, it is peer text. The sender
+    is the key and the brief the authority; nothing in buddy confers (invariant 4 stands,
+    `--relay` stays a declaration). Never delegable: install, push, settings, permission,
+    trust, schema, a more permissive mode, work beyond the launcher's scope. Not chosen now:
+    the sender's id on every drained line; a bare-shell `[operator]` row as the channel (a
+    convenience, not a key); relaying through `herdr agent prompt` (a typed turn the lane
+    cannot tell from the operator's); any authority-conferring verb or flag.
 
 ## Environment facts (measured, do not re-derive)
 
