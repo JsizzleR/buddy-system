@@ -372,11 +372,19 @@ collision, not the first. To see the conflict set before taking anything:
 buddy claim api-refactor --dry-run --desc "…" --scope internal/api --scope docs --scope cmd
 # REFUSED: docs  (overlaps "docs" held by repo/s-82bacdd8, claim "docs-pass")
 # would claim: internal/api, cmd
-# dry run: 1 conflict(s); nothing was taken          (exit 1)
+# dry run: 1 conflict(s); nothing was taken          (exit 4)
 ```
 
 It writes nothing and exits non-zero on any conflict, so a scripted caller
-cannot read "some of it was free" as "go ahead". A **stale** holder still refuses —
+cannot read "some of it was free" as "go ahead". A claim a holder refuses, and a
+dry run that forecasts one, exits **4**; every other failure (not a repository,
+no ledger here, a flag it does not know) exits 1, and a bare `buddy` exits 2, so
+a script can tell "held: wait or ask" from "wrong place" (D-088). The slug comes
+first: `buddy claim --dry-run x …` is refused naming that order. The "not a git
+repository" and "no ledger at" errors name the directory buddy looked from; run
+buddy from inside the repository, or a worktree of it, whose ledger your peers
+use. A second clone's `buddy init` would make a ledger that coordinates with
+nobody. A **stale** holder still refuses —
 staleness marks, it never reaps — and both the refusal and the dry run say so,
 because "somebody is working on this" and "somebody left" need different next
 moves and only one of them is `buddy claim` again:
@@ -543,8 +551,10 @@ included because that is how peers address each other. Matching is exact.
 Anything else exits non-zero and writes nothing, rather than queueing a row that
 would match nothing and reporting success. `buddy msg all` goes to the sessions
 live at send time; a session created later never inherits it, and an
-undelivered broadcast expires after 24 hours. `hello` warns, once, when your
-`--label` is already worn by another live session: every `pause` or `msg` to
+undelivered broadcast expires after 24 hours. `hello` takes its label from
+`--label`, or else from `$BUDDY_LABEL` (D-089), so a launcher that sets
+`BUDDY_LABEL=<lane>` on the lane's tab makes `buddy msg <lane>` reach it. `hello`
+warns, once, when your `--label` (or `$BUDDY_LABEL`) is already worn by another live session: every `pause` or `msg` to
 that label is refused as ambiguous, and you would otherwise learn it when a
 peer's send bounced.
 

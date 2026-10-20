@@ -6632,3 +6632,60 @@ a Claude payload, refused as uncertain for a Codex one, the positive control),
 uncertain text before the literal, refused for both; feature off without a
 ledger), `TestGateExhaustedBoundRefusesClaudeToo`. The shell-route suite runs
 on Codex payloads, the harness it describes.
+
+## D-088 — A claim refused by a holder exits 4; "not a repository" and "no ledger" say where buddy looked
+
+2026-10-20. Finding K of the 2026-10-14..20 fleet audit.
+
+**The failure** — three errors, one exit status. A driver script on one fleet
+read a not-a-repository exit 1 as "slot held" and lost two starts. The
+not-a-repository error named no directory: 7 errors in 6 sessions of one
+bucket and 7 in 5 of another, all from a notes directory inside `cd notes &&
+… && buddy …` chains, one of them a RED report. And a lane in a second clone of
+the same repository was told `no ledger at … — run buddy init in this repo
+first`: a second ledger coordinates with nobody (one lane built a PATH shim
+that cd'd into the right worktree instead).
+
+**The decision** — `claim` exits **4** when a holder refused it (a scope or
+the slug held, `store.ErrRefused`), and a `--dry-run` that forecasts such a
+refusal exits 4 too. Every other failure keeps 1, and a bare `buddy` keeps 2.
+4 rather than 3 because `internal/testguard`'s orphan exit is 3 on this box.
+`claim --help` says so. The gate is unaffected: it always exits 0 and answers
+in its JSON. The not-a-repository error names the working directory and says to
+run buddy from inside the repository whose ledger the peers use; the no-ledger
+error says a ledger made here would coordinate with nobody and names `buddy
+init` only for a repository meant to be coordinated on its own. The verdicts
+(invariant 3, D-044) are unchanged: only the words.
+
+**Also, usage** (findings H and L, no decision of their own): hello's hint and
+the skill say `buddy claim <slug> --dry-run`; `claim` with a flag first says
+the slug comes first; an argument that begins with `-` and holds whitespace (an
+unsplit zsh `$S`) is named as such, pointing at an array; `msg`'s usage states
+the `--measured` (128) and `--relay` (64) rendered-byte caps; `ids take
+--desc` says ids take uses `--note`.
+
+**Tests** — `TestClaimExitCodesTellHeldFromElsewhere` (scope held, slug held,
+dry run: 4; granted: 0; not a repository, no ledger, unknown flag, comma scope:
+1; bare: 2), `TestNoRepoAndNoLedgerSayWhere` (and the gate still silent in
+both), `TestUsageSaysWhatWentWrong`.
+
+## D-089 — `hello` takes its label from `$BUDDY_LABEL` when no `--label` is given
+
+2026-10-20. Finding O of the 2026-10-14..20 fleet audit.
+
+**The failure** — every lane wore `<repo>/s-<8hex>`, and peers addressed lanes
+by the name the launcher gave them (`herdr agent start <label> … -n <label>`):
+at least 8 `no such target` refusals on one fleet. `--label` exists only on
+the SessionStart hook line, which is one line for every session.
+
+**The decision** — `hello` reads `BUDDY_LABEL` when `--label` was not given;
+the flag wins. The value takes exactly the path `--label` takes: stored as
+given, fenced wherever it renders, and the label-worn-twice warning fires for
+it. The skill's "Running a fleet" sets it on the tab: `herdr tab create …
+--env BUDDY_LABEL=<label>` (a tab's `--env` reaches the lane, measured). A tab
+does not inherit its launcher's environment (D-085), so a lane's label does not
+leak to the lanes it opens. Only `hello`: `lifecycle begin --label` is the
+adapter's typed argv.
+
+**Tests** — `TestHelloTakesItsLabelFromBuddyLabel` (msg by the env label
+resolves; the flag wins; worn twice warns; unset keeps the default label).

@@ -85,8 +85,12 @@ An open session gets the tool after `/reload-plugins`; a new one gets it at star
    A scope is a file or a directory prefix, with no globs. Use one `--scope` per
    path. A comma list is refused, because it would name one file nobody has. A
    claim is granted whole or refused whole.
-2. Not sure it will be granted? Run `buddy claim ... --dry-run`. It names every
-   conflict and writes nothing.
+2. Not sure it will be granted? Run `buddy claim <slug> --dry-run --desc ... --scope ...`
+   (the slug comes first). It names every conflict and writes nothing. A claim
+   a holder refuses, and a dry run that forecasts one, exits 4; not a
+   repository, no ledger here, or a mistyped flag exits 1. Building the scopes
+   in a variable? zsh does not split an unquoted `$S`: use an array,
+   `S=(--scope a --scope b)`.
 3. Every lane appends to one file (a playbook, a log)? Use `--shared`. Shared
    claims overlap each other and nothing else.
 4. When you finish, run `buddy release <slug>`. Use `buddy release <slug> --scope <path>` to
@@ -339,8 +343,10 @@ if you find neither, ask rather than assume.
 
 - **Open a lane in a new herdr tab** (the operator can see it and approve in
   it). Your workspace is the part of `$HERDR_PANE_ID` before the colon:
-  `herdr tab create --workspace <ws> --cwd <repo> --label <label> --no-focus`
-  prints the new tab's `root_pane` id; then
+  `herdr tab create --workspace <ws> --cwd <repo> --label <label> --env BUDDY_LABEL=<label> --no-focus`
+  prints the new tab's `root_pane` id (`BUDDY_LABEL` makes the lane's `hello`
+  wear that label, so `buddy msg <label>` reaches it by the name you gave it;
+  without it every lane is `<repo>/s-<8hex>`); then
   `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --permission-mode <mode> "You are <label>. Read <brief file> in full and follow it as your brief."`.
   The brief itself goes in a file: herdr refuses an agent argument holding a
   newline or a backtick ("agent arguments cannot be encoded safely for the

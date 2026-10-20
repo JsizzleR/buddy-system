@@ -137,7 +137,7 @@ Useful knobs: `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
 session's context window, e.g. `1M`/`200k` — DECLARED because it cannot be
 derived: the 1M and 200k Opus variants write the same model string into the
 transcript, so unset means the roster prints the prompt size with no
-percentage), `BUDDY_HANDOFF_AT` (a session's declared handoff size, same syntax; D-055), `BUDDY_OSCAR_BIN`. (`BUDDY_LEDGER` is `cost-report.sh`'s knob ONLY — the `buddy`
+percentage), `BUDDY_HANDOFF_AT` (a session's declared handoff size, same syntax; D-055), `BUDDY_LABEL` (hello's label when no `--label`; D-089), `BUDDY_OSCAR_BIN`. (`BUDDY_LEDGER` is `cost-report.sh`'s knob ONLY — the `buddy`
 binary does not read it, and it finds its ledger from the cwd's git common dir.)
 Codex: `CODEX_EFFORT` (default `xhigh`; `max` is a second
 pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
@@ -687,6 +687,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   unparseable commands refuse only under `classifyHook`'s Codex verdict (~10 Claude denials in ~9
   of 144 sessions on one fleet protected nothing). A literal `apply_patch`/`applypatch` at a
   command position and an exhausted work bound still refuse under every harness.
+- **`claim` refused by a holder exits 4 (D-088)**, a dry run forecasting it too; other failures 1,
+  bare `buddy` 2; the gate is unaffected. Not-a-repository names the cwd; no-ledger says a second
+  ledger coordinates with nobody. Verdicts unchanged (invariant 3).
+- **`hello` takes `$BUDDY_LABEL` when no `--label` is given (D-089)**, the flag winning, by the
+  same path; a launcher sets it with `herdr tab create --env BUDDY_LABEL=<lane>`.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

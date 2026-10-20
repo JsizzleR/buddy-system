@@ -93,16 +93,41 @@ type verb struct {
 }
 
 // errVerb adapts the error-returning verbs to the table: a refusal is printed
-// as "buddy <verb>: <err>" and exits 1, which is what Run always did.
+// as "buddy <verb>: <err>" and exits 1, which is what Run always did, or the
+// code an exitErr carries.
 func errVerb(name string, fn func([]string, Env) error) func([]string, Env) int {
 	return func(args []string, env Env) int {
 		if err := fn(args, env); err != nil {
 			fmt.Fprintf(env.Stderr, "buddy %s: %v\n", name, explainLedgerAccess(err, env))
+			var ec exitErr
+			if errors.As(err, &ec) {
+				return ec.code
+			}
 			return 1
 		}
 		return 0
 	}
 }
+
+// ExitRefused is `claim`'s exit status when a HOLDER refused it (D-088): a
+// scope or the slug is held by another claim, and nothing was taken. A dry run
+// that forecasts such a refusal exits the same. Every other failure keeps 1,
+// and a usage error before any verb runs keeps 2, so a script can tell "held,
+// wait or ask" from "not a repository", "no ledger here" and "typed it
+// wrong". One fleet's driver read a not-a-repository exit 1 as "slot held"
+// and lost two starts: all three were exit 1. Not 3: a test binary's
+// orphan exit (internal/testguard) already means something else on this box.
+// The gate is unaffected: it always exits 0 and answers in its JSON.
+const ExitRefused = 4
+
+// exitErr is an error with its own exit status. Its text is the error's.
+type exitErr struct {
+	code int
+	err  error
+}
+
+func (e exitErr) Error() string { return e.err.Error() }
+func (e exitErr) Unwrap() error { return e.err }
 
 var verbs = map[string]verb{
 	"init":        {usageInit, errVerb("init", cmdInit)},
@@ -197,10 +222,23 @@ func parseFlags(fs *flag.FlagSet, args []string, usage string, env Env) (help bo
 // (sessions, status and commit-gate each found it separately).
 func noStray(verb string, fs *flag.FlagSet, usage string) error {
 	if fs.NArg() > 0 {
-		return fmt.Errorf("%s takes no further arguments, got %s — flags after it would be IGNORED\n  %s", verb,
-			strconv.Quote(fence.Line(fs.Arg(0), 64)), usage)
+		return fmt.Errorf("%s takes no further arguments, got %s — flags after it would be IGNORED%s\n  %s", verb,
+			strconv.Quote(fence.Line(fs.Arg(0), 64)), unsplitHint(fs.Arg(0)), usage)
 	}
 	return nil
+}
+
+// unsplitHint names the cause when ONE argument holds several flags: zsh does
+// not word-split an unquoted $S, so `S=" --scope a --scope b"; buddy claim x
+// --desc d $S` hands claim a single argument beginning " --". One fleet hit
+// it 3 times, and one session's sync then ran unclaimed. The remedy is an
+// array, which zsh and bash both expand one element per argument.
+func unsplitHint(arg string) string {
+	t := strings.TrimLeft(arg, " \t")
+	if !strings.HasPrefix(t, "-") || !strings.ContainsAny(t, " \t") {
+		return ""
+	}
+	return " (one argument holding several flags: zsh does not split an unquoted $S; use an array, S=(--scope a --scope b), then $S or \"${S[@]}\")"
 }
 
 func usage(w io.Writer) {
@@ -311,14 +349,14 @@ const (
 	usageBusy       = "usage: buddy busy   (UserPromptSubmit hook, optional; hook JSON on stdin)"
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
-	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--dry-run] [--session <id>]"
+	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--dry-run] [--session <id>]\n       (the slug comes first; exit 4: refused by a holder, nothing taken, and a dry run that forecasts it; 1: any other error)"
 	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--session <id>]"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
 	usagePause     = "usage: buddy pause <session|label|slug|all> [--note <text>]"
 	usageResume    = "usage: buddy resume <session|label|slug|all>"
-	usageMsg       = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--lead | --measured <what, over what> | --relay <source>] [--supersedes <id>] [--dry-run] <text...>"
+	usageMsg       = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--lead | --measured <what, over what; at most 128 rendered bytes> | --relay <source; at most 64>] [--supersedes <id>] [--dry-run] <text...>"
 	usageSent      = "usage: buddy sent [<message-id>]   (what became of messages you sent: recorded delivery, queued, expired)"
 	usageInbox     = "usage: buddy inbox [--session <id>]"
 	usageSessions  = "usage: buddy sessions [--by seen|started] [--session <id>]"
@@ -849,10 +887,19 @@ func placeCanonical(top, cp string) (rel, cased string, outside bool) {
 func mustLedger(dir string, env Env) (*store.Store, repoContext, error) {
 	st, rc, err := openRepo(dir, env)
 	if errors.Is(err, errNoLedger) {
+		// Both say WHERE (D-088). Measured on one fleet: 14 "not a git
+		// repository" errors in 11 sessions, all from a notes directory
+		// inside a `cd notes && ... && buddy ...` chain, and none of them said
+		// which directory buddy had looked from; and a lane in a second clone
+		// of the same repository was told to `buddy init` there, which would
+		// have made a second ledger that coordinates with nobody. The
+		// verdicts are unchanged (invariant 3, D-044): only the words.
 		if rc.ledger == "" {
-			return nil, rc, errors.New("not a git repository — the Buddy System keeps its ledger in one")
+			return nil, rc, fmt.Errorf("not a git repository: %s — buddy finds its ledger from the working directory, so run it from inside the repository (or a worktree of it) whose ledger your peers use",
+				fence.Line(dir, 512))
 		}
-		return nil, rc, fmt.Errorf("no ledger at %s — run `buddy init` in this repo first", fence.Line(rc.ledger, 512))
+		return nil, rc, fmt.Errorf("no ledger at %s — this repository is not coordinated. A ledger made here would coordinate with nobody, so run buddy from inside the repository (or a worktree of it) whose ledger your peers use; `buddy init` only a repository meant to be coordinated on its own",
+			fence.Line(rc.ledger, 512))
 	}
 	return st, rc, err
 }
@@ -1172,8 +1219,23 @@ func helloFlags(args []string) (session, label string, rest []string) {
 	return session, label, fs.Args()
 }
 
+// EnvLabel names the session at hello when no --label is given (D-089). A
+// launcher sets it on the lane's tab (`herdr tab create --env
+// BUDDY_LABEL=<lane>`, measured to reach the lane), so `buddy msg <lane>`
+// reaches the lane by the name its launcher gave it: on one fleet every lane
+// wore <repo>/s-<8hex>, peers addressed lanes by their herdr names, and got
+// "no such target" at least 8 times, because --label exists only on the
+// SessionStart hook line, which is the same for every session.
+const EnvLabel = "BUDDY_LABEL"
+
 func cmdHello(args []string, env Env) error {
 	session, label, _ := helloFlags(args)
+	if label == "" {
+		// The flag wins. Then the same path --label takes: stored as given,
+		// fenced wherever it renders, and the label-worn-twice warning below
+		// fires for it the same way.
+		label = env.getenv(EnvLabel)
+	}
 	dir := env.Cwd
 	// The process and the terminal are recorded ONLY for a hook-driven hello
 	// (proc.go says why: a hand-run hello has no harness ancestor, or the
@@ -1978,7 +2040,7 @@ const helloInboxCountLine = 128
 // Every `buddy <verb> --flag` it names is checked against that verb's usage
 // line (TestHelloHelpLineNamesOnlyWhatHelpAnswers), so a renamed flag fails a
 // test rather than teaching every session a refusal.
-const helloHelpLead = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim --dry-run` (forecast a refusal) `--shared` (lanes co-hold a file); `buddy wait --on <slug>` (declare a wait on a peer) or `--until 2h` alone (before you park on your own long run, or on the orchestrator)"
+const helloHelpLead = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim <slug> --dry-run` (forecast a refusal) `--shared` (lanes co-hold a file); `buddy wait --on <slug>` (declare a wait on a peer) or `--until 2h` alone (before you park on your own long run, or on the orchestrator)"
 const helloHelpTail = "; `buddy msg --measured|--lead|--relay` (what a claim rests on) `--supersedes <id>` (correct one); `buddy sent`; `buddy ids take`.\n"
 const helloHelpLine = helloHelpLead + ", then arm your own `/loop buddy wait check`" + helloHelpTail
 const codexHelloHelpLine = helloHelpLead + "; read the wait with `buddy wait check` in your own Codex thread (automatic scheduling unsupported; cache timing unknown)" + helloHelpTail
@@ -2489,7 +2551,13 @@ func deny(env Env, reason string) {
 }
 
 func cmdClaim(args []string, env Env) error {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+	if len(args) > 0 && strings.HasPrefix(strings.TrimLeft(args[0], " \t"), "-") {
+		// `buddy claim --dry-run x --desc ...` (one fleet, twice, from the
+		// hello hint's old word order) used to get the bare usage line.
+		return fmt.Errorf("the slug comes first: buddy claim <slug> --desc ... --scope ... (got %s)%s\n  %s",
+			strconv.Quote(fence.Line(args[0], 64)), unsplitHint(args[0]), usageClaim)
+	}
+	if len(args) == 0 {
 		return errors.New(usageClaim)
 	}
 	slug := args[0]
@@ -2556,7 +2624,7 @@ func cmdClaim(args []string, env Env) error {
 			fmt.Fprintf(env.Stdout, "would claim: %s\n", scopeList(free))
 		}
 		if len(conflicts) > 0 {
-			return fmt.Errorf("dry run: %d conflict(s); nothing was taken", len(conflicts))
+			return exitErr{ExitRefused, fmt.Errorf("dry run: %d conflict(s); nothing was taken", len(conflicts))}
 		}
 		fmt.Fprintln(env.Stdout, "dry run: no conflicts; nothing was taken")
 		return nil
@@ -2588,6 +2656,7 @@ func cmdClaim(args []string, env Env) error {
 			// way (D-033). Suggested, never registered: a refusal is a fact
 			// about a claim, not about what this session means to do next.
 			fmt.Fprint(env.Stdout, waitSuggestion(set))
+			return exitErr{ExitRefused, fencedErr(err)}
 		}
 		return fencedErr(err)
 	}

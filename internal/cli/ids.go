@@ -64,6 +64,11 @@ func cmdIDs(args []string, env Env) error {
 		var session string
 		sessionFlag(fs, &session)
 		if help, err := parseFlags(fs, args[3:], idsUsage, env); help || err != nil {
+			if err != nil && strings.Contains(err.Error(), "not defined: -desc") {
+				// claim's word for the same thing. Typed on one fleet and
+				// answered with flag's bare "flag provided but not defined".
+				return fmt.Errorf("ids take uses --note, not --desc: %w", err)
+			}
 			return err
 		}
 		if fs.NArg() > 0 {
