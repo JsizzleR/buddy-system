@@ -637,15 +637,69 @@ func newToken() string {
 
 // NormalizeScope canonicalizes a repo-relative scope path, rejecting anything
 // that could escape the repo or alias another scope by spelling.
+//
+// BACKSLASHES FOLD BEFORE THE ABSOLUTE CHECK (D-100). The check used to run on
+// the raw input and the fold after it, so `\etc` passed as relative and was
+// stored as "/etc", `\..\x` as "/x", and a lone `\` as "" (Clean gives "/",
+// and the trailing slash came off). Containment is over repo-relative paths,
+// so each was a claim granted over no file at all, the D-066 class, at every
+// door this function serves: claim and its dry run, `release --scope`,
+// `authority add`/`rm`, `lifecycle beat --path`, and the comma check's
+// paste-back. Found by reading, through `authority add '\handoff-at'`
+// normalizing onto a reserved key; 0 such rows were open in this repo's
+// ledger. After the fold, Clean cannot make a relative input rooted, and its
+// empty result is ".", which is refused, so nothing it accepts is absolute or
+// empty. A literal backslash in a file name still cannot be claimed (folding
+// it is older than this; unchanged). Not done: a Windows drive spelling
+// (`C:\x` is "C:/x", relative, and names nothing here), and NUL, which no
+// argv can carry (Codex design pass, P3).
 func NormalizeScope(scope string) (string, error) {
+	n, err := normalizeScope(scope)
+	if errors.Is(err, errAbsoluteScope) {
+		return "", err
+	}
+	return n, err
+}
+
+// NormalizeHeldScope is NormalizeScope for a door that only REMOVES a row
+// already held: `release <slug> --scope` and `authority rm`. Where the only
+// objection is that the input is absolute, it returns the spelling the
+// pre-D-100 code stored for it, which can only MATCH a legacy row: release
+// still refuses a scope its claim does not hold (ErrScopeNotHeld), and rm
+// still says not-found. Without it, a legacy "/etc" claim scope could be
+// released only with its whole claim, and a legacy authority row never, which
+// holds one of the eight slots for good. D-066's precedent: the refusal is at
+// the doors that ADD a row, and what a ledger already holds can still be
+// named to take it away. No adding door may call this.
+func NormalizeHeldScope(scope string) (string, error) {
+	n, err := normalizeScope(scope)
+	if errors.Is(err, errAbsoluteScope) {
+		return n, nil
+	}
+	return n, err
+}
+
+// errAbsoluteScope marks the one refusal NormalizeHeldScope forgives, by
+// structure rather than by the error's words.
+var errAbsoluteScope = errors.New("scopes are repo-relative")
+
+// normalizeScope returns the canonical spelling and, for an absolute input,
+// errAbsoluteScope WITH the spelling the old code stored (TrimSuffix of the
+// Clean'd fold, so `\` gives ""); every other refusal returns "".
+func normalizeScope(scope string) (string, error) {
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
 		return "", errors.New("empty scope")
 	}
-	if strings.HasPrefix(scope, "/") {
-		return "", fmt.Errorf("scope %q is absolute; scopes are repo-relative", scope)
+	slashed := strings.ReplaceAll(scope, "\\", "/")
+	clean := path.Clean(slashed)
+	if strings.HasPrefix(slashed, "/") {
+		how := ""
+		if !strings.HasPrefix(scope, "/") {
+			how = " (a backslash reads as a slash)"
+		}
+		return strings.TrimSuffix(clean, "/"), fmt.Errorf("scope %q is absolute%s; %w", scope, how, errAbsoluteScope)
 	}
-	clean := path.Clean(strings.ReplaceAll(scope, "\\", "/"))
 	if clean == ".." || strings.HasPrefix(clean, "../") {
 		return "", fmt.Errorf("scope %q escapes the repo", scope)
 	}

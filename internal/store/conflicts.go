@@ -381,7 +381,9 @@ func (s *Store) ReleaseScopesID(sessionID, incarnation, slug string, scopes []st
 	}
 	norm := make([]string, 0, len(scopes))
 	for _, sc := range scopes {
-		n, err := NormalizeScope(sc)
+		// Held, not strict: a door that only removes may name a legacy
+		// absolute row (D-100); every scope must still be held, below.
+		n, err := NormalizeHeldScope(sc)
 		if err != nil {
 			return "", nil, err
 		}

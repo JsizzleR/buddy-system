@@ -990,6 +990,15 @@ ledger row entered through the CLI (D-006).
     body. Do not propose marking before writing, a lease column, or a wake for every
     recently seen recipient.
 
+101. **A scope's backslashes fold BEFORE the absolute check (D-100).** `\etc`, `\..\x` and a
+    lone `\` were stored as "/etc", "/x" and "" (granted, covering no file) at every door
+    `NormalizeScope` serves; now each is refused there, naming the backslash. The two doors
+    that only REMOVE a held row, `release <slug> --scope` and `authority rm`, use
+    `NormalizeHeldScope`, which maps an absolute input to the spelling the old code stored,
+    so it can match a legacy row and nothing else (D-066's precedent). Do not propose a
+    migration rewriting legacy rows, Windows drive spellings, or letting an adding door
+    use the held function.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

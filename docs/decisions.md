@@ -7268,3 +7268,66 @@ killed only with both removed). Review: one lite Codex code pass, one finding
 (the residual above), answered in the record. The post-insert re-read has no test that interleaves a Stop
 between `msg`'s observation and its insert; there is no seam for it, and it is
 covered by the transaction argument above.
+
+## D-100 — A scope's backslashes fold before the absolute check; the removal doors can still name a legacy row
+
+2026-10-20. Found by reading during D-096 (`authority add '\handoff-at'`
+normalized onto a reserved key); operator decided full tier.
+
+**The failure** — `store.NormalizeScope` refused an absolute scope with
+`strings.HasPrefix(scope, "/")` on the RAW input and folded backslashes to
+slashes after it. So `\etc` passed as relative and was stored as "/etc",
+`\..\x` as "/x", and a lone `\` as "" (Clean gives "/", and the trailing slash
+came off). Containment is exactly `scope == path || HasPrefix(path, scope+"/")`
+over repo-relative paths, so each was a claim GRANTED over no file, the D-066
+class, at every door the function serves: `claim` and its dry run,
+`release --scope`, `authority add`/`rm`, `lifecycle beat --path`, and the
+comma check's paste-back line. An authority row "/etc" was stat'ed at
+`filepath.Join(top, "/etc")`, so it watched `top/etc` under a name no `rm`
+could spell. Measured on this repo's ledger: 0 open claims with an absolute
+scope and 0 absolute authority entries; the defect is a door, not a population.
+
+**The decision** — fold first, then refuse: after `ReplaceAll(scope, "\\", "/")`
+a leading "/" is refused, saying "(a backslash reads as a slash)" when the
+input itself did not start with one. After the fold, `path.Clean` cannot make
+a relative input rooted, and its empty result is ".", already refused, so
+nothing accepted is absolute or empty. It lives in the store, so every door
+gets it at once.
+
+- **Legacy rows, by D-066's precedent.** D-066 refused a comma scope in the
+  CLI only, so `release --scope` could still narrow a literal a ledger held.
+  Here the refusal must be in the store (every adding door), so the two doors
+  that only REMOVE a held row, `release <slug> --scope` and `authority rm`,
+  call `NormalizeHeldScope`: `NormalizeScope`, except that where its ONLY
+  objection is "absolute" (a sentinel error, not the words) it returns the
+  spelling the old code stored. That can only match a row already held:
+  release still refuses a scope its claim does not hold (whole request, nothing
+  narrowed), and rm still says not-found. Without it, a legacy authority row
+  held one of the eight slots for good. `release <slug>` with no `--scope`
+  reads no scope and always released a legacy row whole. No adding door may
+  call it: the comma check and `lifecycle beat --path` stay strict (Codex
+  design pass: a paste-back line must be what a claim would accept, and a
+  malformed observation must not get a receipt).
+- **Not done.** A migration rewriting legacy rows (the ledger is never
+  migrated to edit claim data, and none were measured). A Windows drive
+  spelling (`C:\x` is "C:/x", relative, and names nothing on this platform).
+  NUL in a scope, which survives normalization but which no argv can carry
+  (Codex design pass, P3). Folding a backslash at all: a file name with a
+  literal backslash still cannot be claimed, as before.
+
+**Tests** — `TestNormalizeScopeFoldsBeforeRefusingAbsolute` (each input, at
+both functions, with relative backslash positive controls and the refusal's
+words), `TestClaimRefusesABackslashAbsoluteScope` (nothing written; a
+relative backslash scope granted), `TestReleaseScopeNamesALegacyAbsoluteRow`
+(planted "/x" and "" rows removed one at a time by the spelling that made them,
+`/src` never removing `src`, a request with one scope not held removing
+nothing, an escape still refused), `TestBackslashAbsoluteScopeIsRefusedAtEveryAddingDoor`
+(claim, dry run and authority add through the CLI beside accepted controls;
+rm of a planted legacy row and of a name not held). Mutated in a private copy,
+each test watched to fail: the original check order restored, each removal
+door made strict, the held function forgiving every refusal, and the hint
+dropped (five mutants, all killed). Review: full. The Codex design pass found
+nothing blocking and set the shape above (a sentinel, not words; the comma
+check and beat strict; NUL deferred). The code pass found no defect, and the
+coverage gap it named (the literal "", "." and "../x" at both functions) is
+in the table. With no code fix, no re-verify was owed.

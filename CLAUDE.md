@@ -739,6 +739,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   (`store.StopTurn`): queued legacy mail becomes a Stop `decision: block`, never when
   `stop_hook_active`, and `msg` re-reads idle after its insert for the wake. `inbox <id>` re-reads
   one message addressed to you, marks nothing, and refuses others' without the body.
+- **A scope's backslashes fold before the absolute check (D-100):** `\etc` was stored "/etc", a
+  claim over no file, at every `NormalizeScope` door; now refused, naming the backslash.
+  `release --scope` and `authority rm` use `NormalizeHeldScope`, which can only match a legacy
+  absolute row (D-066's precedent). No migration; 0 such rows were open here.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

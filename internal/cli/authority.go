@@ -191,7 +191,9 @@ func cmdAuthority(args []string, env Env) error {
 		fmt.Fprintf(env.Stdout, "watching %s: sessions are told once, on their next tool call, when it changes after they started\n", fence.Line(n, 512))
 		return nil
 	case len(args) == 2 && args[0] == "rm":
-		n, err := store.NormalizeScope(args[1])
+		// Held, not strict: rm may name a legacy absolute row so that it
+		// can free its slot (D-100); a name it does not hold is not-found.
+		n, err := store.NormalizeHeldScope(args[1])
 		if err != nil {
 			return err
 		}
