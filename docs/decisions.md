@@ -6690,6 +6690,275 @@ adapter's typed argv.
 **Tests** — `TestHelloTakesItsLabelFromBuddyLabel` (msg by the env label
 resolves; the flag wins; worn twice warns; unset keeps the default label).
 
+## D-090 — STALE keys on the holder, not only on the claim's renewal
+
+2026-10-20. Finding C of the audit of one fleet of 144 sessions (2026-10-14..20).
+
+**The failure** — a claim renews only when a tool call names a path it covers
+(`store.Beat`), so a `.buddy/slot/` claim (a resource no tool call touches) and a
+parked lane's claim go unrenewed while their holder works. Every view marked the
+claim STALE by renewal alone, and the refusal said "STALE: holder last renewed 34m
+ago; it still refuses, so ask the operator" about holders seen seconds before. In
+one bucket 6 of 7 claim refusals carried it with every holder live, and three
+decisions turned on it: one lane deferred its work; one told the operator "only you
+can free a stale claim" about a six-hour slot whose holder was running (the
+operator: "6h stale, seems something off?"); one re-claimed "so they aren't swept",
+and stale never sweeps. `staleNote`'s own comment named the intent as "the holder
+had stopped beating". The commit gate had the same defect from the other side: it
+tested the claim's renewal and printed the holder's last-seen age beside it, so a
+holder seen a minute ago read "live but SILENT for 1m".
+
+**The decision** — one judgement, `holders.judge` (`internal/cli/stale.go`), and
+every view renders it: the claim refusal and its dry run, `ls`, the hello digest,
+`who`/`status`, `whose`, and the commit gate's holder phrase.
+
+- Renewal still decides whether there is anything to say: renewed inside
+  StaleAfter, or never recorded (issue #13's zero-clock guard), says nothing.
+- Past it, the HOLDER decides the words. Ended, every registered process GONE, or
+  not seen past StaleAfter: STALE and "ask the operator", issue #18's wording, for
+  the case it was written about, now naming which (`holder not seen 2h`,
+  `holder's harness process GONE`, `holder ENDED`). Otherwise: "claim unrenewed
+  34m; holder seen 5s ago; it still refuses, so ask the holder: buddy msg <slug>".
+  The command names the slug only when the slug resolves to the holder, else the
+  holder's session id: a slug resolves LAST (D-013), so a claim slugged `all`
+  printed a broadcast and one slugged like a peer's label addressed that peer
+  (Codex code pass). It is written as a command only when it pastes back as
+  printed (onFlags' rule).
+- **A slot of a live holder carries no mark at all.** No tool call can renew a
+  slot, so "unrenewed" is true of every slot held past thirty minutes and says
+  nothing about whether the run it guards is alive; the holder's liveness is the
+  whole story. A slot of a quiet holder is STALE like any claim. A claim mixing a
+  slot and a file scope is judged as a file claim.
+- GONE needs every registered process gone (a second `--resume` registers a
+  second one); a session with none registered is "cannot say", never GONE.
+- `ls` prints `open STALE` only for a quiet holder (its age column is the
+  renewal); hello's bracket is `[STALE: holder not seen 2h]` and appears only then.
+
+**Words only** — D-022 (a stale claim refuses exactly like a fresh one) and D-026
+(an ended holder's claim is displaced) are untouched; nothing renews, orphans,
+reaps or sweeps differently, and GONE stays diagnostic (D-025). A refusal whose
+holding claim cannot be re-read keeps the old renewal-only words and the
+operator, the conservative direction; so does one whose holder is not the one the
+refusal named (matched by label, which `store.ErrRefused` carries, and by id
+where the conflict has it), so a slug released and re-taken between the two
+reads never lends the new holder's words to the old one (Codex code pass).
+
+**Tests** — `TestRefusalNoteMessagesTheHolderNotAShadowingName`,
+`TestConflictNotesFallBackWhenTheHolderChanged`, `TestStaleJudgementKeysOnTheHolder` (the rule's table, with
+staleNote's zero-clock and threshold rows), `TestEveryViewAsksTheHolderWhenTheHolderIsLive`
+(all seven views on a live holder with an unrenewed claim, then the same claim
+with its process GONE as the armed control), `TestASlotOfALiveHolderCarriesNoMark`,
+`TestRefusalNoteWritesOnlyAPastableCommand`; `TestRefusalSaysWhenTheHolderHasGoneQuiet`
+carries the quiet-holder refusal and dry run.
+
+## D-091 — The roster folds dead rows into one line; `--all` lists them (amends D-015)
+
+2026-10-20. Finding D (roster half), OPERATOR DECIDED 2026-10-20.
+
+**The failure** — `herdr pane close` ran no SessionEnd for 68 of 119 closed lanes
+on one fleet (in all 45 where it did run, `bye` ended the row), so their rows
+never ended. The roster reached 906 rows and 168 KB: 758 ended, 147 `live STALE
+... pid N GONE`. Sessions grepped it for their own row (`buddy sessions | grep
+s-xxxx`, 15+ times) or `head -30`'d it and read dead rows.
+
+**The decision** — `buddy sessions` lists live rows not known GONE, and rows ended
+in the last 24 hours; everything else folds into ONE trailing line, e.g.
+`(+ 612 ended more than 24h ago, 147 live with every registered process GONE —
+not listed: buddy sessions --all)`, printed only when something folded.
+`--all` lists every row as before. The caller's own row is always listed, including
+an ended one named by `--session` or the harness id, which `whoAmI` refuses (Codex
+code pass). A live
+row with no registered process (Codex, an adapter worker) is "cannot say" and
+stays; GONE needs every registered process gone, the D-090 rule.
+
+**Why 24 hours** — long enough that a lane closed in this working day (the one a
+coordinator is confirming it closed, or whose base it is reading) stays listed;
+short enough that history does not pile up. Measured on that fleet's ledger, 67
+days sampled hourly: a trailing 24h window held 11 ended rows on average and 67
+at most, against 758 ended in all (17 at the snapshot). 6h averaged 3 and would
+drop lanes closed that morning; 72h averaged 34.
+
+**Nothing changes in the ledger** — no row is ended, reaped or touched (D-025: a
+GONE pid is diagnostic, and an auto-end on a misrecorded anchor is the delayed-bye
+defect by another road). `msg all`'s recipient count is unchanged.
+
+**Amends D-015** — D-015 cut a header line because the common case is ONE row
+quoted into chat, where a header is lost and labels must ride with the numbers.
+The fold line labels no column, every row keeps its own words, and it trails the
+rows; it is the rule every capped list here follows (D-027: a report that quietly
+drops rows is indistinguishable from a smaller one), not a header.
+
+**Tests** — `TestSessionsFoldsDeadRowsIntoOneLine` (old ended and all-GONE fold,
+recent ended, live and unbound stay; the exact line; `--all`; the caller's GONE
+row stays; the folded row is still live in `who`; no line when nothing folded),
+`TestFoldRosterNeedsEveryProcessGone`.
+
+## D-092 — `who` answers the close test on one EXIT line, scopes WAITED ON to a named claim, and reports the caller when bare
+
+2026-10-20. Findings P, R, T and L (`who`) of the same audit.
+
+**EXIT states the wait and the jobs (P)** — closing a lane needs no claims, no
+wait and no running job, and EXIT spoke for claims only: coordinators hand-rolled
+`buddy who | grep -E 'CLAIMS|WAITING|JOBS'` about 35 times in 20 spellings
+before 13 closes. EXIT is now one line of three clauses, then the consequence:
+`EXIT         no claims held; no wait declared; no shell found running under it
+— the ledger would be left holding no claim (...)`, or `2 claim(s) held; a wait
+declared EXPIRED (WAITING above); 1 shell(s) running under it (JOBS above) —
+ending now would leave the claim(s) held, ... first: a, b`. The jobs clause keeps
+"cannot say" (`its shells: cannot say (JOBS above)`) apart from "none" (D-016,
+D-065). Still a report that grants nothing (D-027); an ended session still reads
+`already ended`.
+
+**`who <claim>` lists only that claim's waiters (R)** — named by a claim slug,
+WAITED ON lists the waits on THAT claim and names it (`WAITED ON    on claim
+"run32" by 3 session(s), ...`). It printed the holder's whole set: `who run32` and
+`who run33` showed the same three READY riders. A session target is unchanged.
+
+**A bare `who` reports the caller (L)** — exactly `status`. A session typing it
+was asking "who am I", and a usage error cost a round trip; a refusal naming
+`status` would answer a question it understood with a pointer. D-031 refuses what
+a verb does not understand, and an absent target is understood. A target that
+contains a slash and resolves to nothing adds "if it is a path, `buddy whose
+<path>` reports who claims it": a suggestion, never a redirect, since labels carry
+slashes too.
+
+**`whose .buddy/slot/...` consults no git (T)** — a slot is never a file (D-035),
+so the dirty register and git's paragraphs had nothing to say (12 calls on one
+fleet). The claim register prints as before, then `DIRTY IN     (not applicable
+...)`.
+
+**Tests** — `TestExitLineAnswersTheCloseTest` (cannot say, none, everything
+named, an expired wait's verdict), `TestWhoOfAClaimListsOnlyThatClaimsWaiters`
+(with the session-target control), `TestWhoWithNoArgumentReportsTheCaller`
+(byte-identical to status; the slash suggestion and its no-slash control),
+`TestWhoseOfASlotConsultsNoGit` (with the file control).
+
+## D-093 — `release` takes several slugs as one transaction; a recipient waiting on a claim it is handed lands, "handed to you" (narrows D-063)
+
+2026-10-20. Finding E of the fleet audit (one fleet of 144 sessions, 2026-10-14..20).
+
+**The failure** — four measured shapes. (1) One slug per call: about 93
+`release --to` calls, 41 of them inside for-loops; one loop sent its recipient
+8-10 notices and printed 8 stderr wake lines. (2) A sender whose OWN claims
+overlapped each other could not hand them on one at a time: each one alone
+left its siblings behind under the sender, the overlap scan refused it, and
+the refusal read "... and 7 more conflict(s), listed above; nothing was handed
+on" over a listing that only `claim` ever printed. (3) D-063 refused a
+recipient waiting on the claim, which is exactly what a successor does while it
+waits for the handover: 4+ episodes, each a refusal, a round trip asking the
+successor to clear and a poll loop; one of those waits had EXPIRED 14 minutes
+earlier and still blocked, because the count ignored the deadline. (4) Nothing
+told the recipient "a claim was handed to you" in a form a wait could see: 6
+`until buddy ls | grep … <its id>` loops, one of which fired on its own
+WAITING line.
+
+**The decision** —
+
+- `buddy release <slug>... --to <target>` (`store.TransferClaims`) moves every
+  named claim in ONE immediate transaction, all or nothing, in the order named,
+  a repeat counted once. Every claim moves before any is scanned, so the scan
+  against the new owner excludes exactly the claims moving together; one slug
+  that is not the sender's, or one conflict anywhere, rolls every move back.
+  ONE notice to the recipient for the set, one result line, one wake.
+- A refused transfer PRINTS the whole conflict set, one fenced `REFUSED:` line
+  each (`printConflicts`, as `claim` does), so "listed above" is true, plus one
+  fixed line saying claims named together move together.
+- A recipient with an open wait on a claim it is handed is not refused. Nothing
+  is cleared or repaired: a wait target the waiter itself holds, under the
+  incarnation that declared, counts as over (`WaitTarget.HandedToWaiter`,
+  `Pending`), computed at read time like every verdict input (D-020's rule).
+  `release --to` is the only road to that state — `DeclareWait` refuses your own
+  claim and a claim id changes hands only by transfer — so the move in that
+  transaction IS the resolution. The recipient's `wait check`, beat's one-shot
+  LANDED and `--block` say LANDED with `"<slug>" handed to you`; the sender's
+  line says the recipient's wait was resolved; the notice says so too. A
+  multi-target wait stays pending until its other targets close (D-063's worry,
+  that dropping one target lands it early, does not arise: nothing is dropped).
+  Handing the claim on again un-does it. A waiter on some OTHER claim, and every
+  bystander waiting on the handed one, are unaffected: their waits follow it.
+- Plain `buddy release a b c` takes several slugs too, by the same rule (one
+  transaction, all or nothing, a line per claim naming its waiters). A lane
+  winding down releases two claims every time (`<slug>` and `<slug>-shared`).
+  `--scope`, `--outcome` and `--note` stay single-slug, refused with several:
+  an outcome reports on one job and a narrowing names one claim's scopes.
+
+D-063's refusal list narrows by one entry (the recipient waiting on this very
+claim); everything else it refuses stands.
+
+**Tests** — store: `TestTransferResolvesTheRecipientsOwnWaitOnIt` (lands;
+an expired wait lands rather than blocking; a second open target keeps it
+pending; a bystander keeps waiting; handing it on again un-does it — each with
+the pre-transfer control), `TestTransferLeavesTheRecipientsOtherWaitAlone`,
+`TestTransferClaimsMovesASetWhole`, `TestReleaseClaimsIsWholeOrNothing`. CLI:
+`TestReleaseToHandsASetWithOneNoticeAndPrintsTheWholeRefusal` (reads the
+REFUSED lines the error counts), `TestASuccessorWaitingOnTheClaimIsHandedItAndLands`.
+
+## D-094 — `who <slug>` prints every scope of that claim, uncut
+
+2026-10-20. Finding F of the same audit.
+
+**The failure** — every handoff notice says "re-claim it with the SAME
+scopes", and every view of a claim's scopes (`ls`, `who`'s CLAIMS HELD,
+`status`, hello) cuts at 512 bytes with a count. One successor handed a
+22-scope claim gave up ("the scope lists show truncated"); another typed all
+22 by hand after `ls --json` (no such flag), sqlite3 on the live ledger
+(CANTOPEN 14) and an eval-built re-claim the gate refused.
+
+**The decision** — a `who` whose target resolved through a claim SLUG prints,
+before the holder's report, `claim "<slug>" holds N scope(s), every one`, then
+one `  scope <s>` line per scope through `fence.Field` (D-066's item rule: one
+token, ␣ for a space), with no total cap; a scope the fence altered says it
+does not paste back as shown. Every other view keeps its cap: they list many
+claims and land in hook output and tool results that pay per byte. The handoff
+notice now points at `who <slug>`. No `--json`, no new verb.
+
+**Tests** — `TestWhoOfAClaimPrintsEveryScopeUncut` (31 scopes, each exactly
+once on its own line; the altered-scope note; CLAIMS HELD still capped in the
+same report as the control; a label target prints no block).
+
+## D-095 — `buddy wait --on <slug> --block` exits with the verdict (amends D-033)
+
+2026-10-20. Finding Q of the same audit. OPERATOR DECIDED (2026-10-20).
+
+**The failure** — 15+ hand-rolled loops (`for i in $(seq 1 120); do buddy ls
+| grep -q <slug> || exit 0; sleep 60; done`), run under the harness's
+run_in_background beside a declared `wait --on` that recorded 0 checks. The
+background job's completion notice is the wake a parked session reliably gets;
+what the loops lacked was a verdict, and grepping `ls` matched the wrong rows.
+
+**The decision** — `--block` on a declaration: the wait is declared exactly as
+today and printed the same, then the process re-reads the ledger every 15 s and
+exits 0 LANDED (released, an outcome, or handed to you, D-093), 3 EXPIRED, 4
+cleared (`wait clear`) or replaced by a newer declaration, 5 the session ended
+or re-registered; 1 stays every verb's error and 2 Run's usage. It prints the
+line `wait check` prints for that verdict (one renderer, `landedLines` /
+`expiredLines`), and closes the row after the write, as a check does.
+
+- **Not a check, and not a keep-alive.** Each read is an autocommit SELECT:
+  `last_check` and `checks` stay the scheduled check's (D-033), and the block
+  keeps no cache warm, so a park past ~50 minutes on a 1-hour tier still arms
+  `/loop buddy wait check`. D-033's "nothing wakes" stands: the harness notices
+  its own job ending.
+- **No write lock across a sleep.** The one write a poll may make is
+  cleanupEnded's, in its own short transaction (`Store.SettleEnded`), and only
+  when a read shows an awaited holder that has said bye — the read-only block
+  would otherwise sit on that claim until its deadline.
+- **It stops when its session ends** as the ledger records it; a harness that
+  dies without a bye leaves it running to the deadline, which the 12 h ceiling
+  bounds. Watching the parent process was not done: how run_in_background
+  parents its shell was not measured.
+- **15 s**: under the measured loops' 20 s and 60 s; a completion notice is read
+  at the next turn anyway. 240 indexed reads an hour.
+- **A timer (no `--on`) with `--block` is refused**, writing nothing: it only
+  expires, which the harness's own timer does without a ledger.
+
+**Tests** — `TestWaitBlockExitsWithTheVerdict` (released with an outcome,
+handed to the waiter, holder said bye → LANDED 0; EXPIRED 3; cleared 4;
+replaced 4; session ended 5; every case: the declaration prints first, the
+counters stay 0, a printed verdict closes the row), `TestWaitBlockRefusesATimer`
+(with the plain timer as the control). The poll runs through an `Env.Sleep`
+seam that advances the fixture clock.
+
 ## D-096 — The handoff notice speaks once per 25k step past the size, not on every turn (amends D-055)
 
 2026-10-20. Finding M of the 2026-10-14..20 fleet audit.
@@ -6968,272 +7237,3 @@ killed only with both removed). Review: one lite Codex code pass, one finding
 (the residual above), answered in the record. The post-insert re-read has no test that interleaves a Stop
 between `msg`'s observation and its insert; there is no seam for it, and it is
 covered by the transaction argument above.
-
-## D-090 — STALE keys on the holder, not only on the claim's renewal
-
-2026-10-20. Finding C of the audit of one fleet of 144 sessions (2026-10-14..20).
-
-**The failure** — a claim renews only when a tool call names a path it covers
-(`store.Beat`), so a `.buddy/slot/` claim (a resource no tool call touches) and a
-parked lane's claim go unrenewed while their holder works. Every view marked the
-claim STALE by renewal alone, and the refusal said "STALE: holder last renewed 34m
-ago; it still refuses, so ask the operator" about holders seen seconds before. In
-one bucket 6 of 7 claim refusals carried it with every holder live, and three
-decisions turned on it: one lane deferred its work; one told the operator "only you
-can free a stale claim" about a six-hour slot whose holder was running (the
-operator: "6h stale, seems something off?"); one re-claimed "so they aren't swept",
-and stale never sweeps. `staleNote`'s own comment named the intent as "the holder
-had stopped beating". The commit gate had the same defect from the other side: it
-tested the claim's renewal and printed the holder's last-seen age beside it, so a
-holder seen a minute ago read "live but SILENT for 1m".
-
-**The decision** — one judgement, `holders.judge` (`internal/cli/stale.go`), and
-every view renders it: the claim refusal and its dry run, `ls`, the hello digest,
-`who`/`status`, `whose`, and the commit gate's holder phrase.
-
-- Renewal still decides whether there is anything to say: renewed inside
-  StaleAfter, or never recorded (issue #13's zero-clock guard), says nothing.
-- Past it, the HOLDER decides the words. Ended, every registered process GONE, or
-  not seen past StaleAfter: STALE and "ask the operator", issue #18's wording, for
-  the case it was written about, now naming which (`holder not seen 2h`,
-  `holder's harness process GONE`, `holder ENDED`). Otherwise: "claim unrenewed
-  34m; holder seen 5s ago; it still refuses, so ask the holder: buddy msg <slug>".
-  The command names the slug only when the slug resolves to the holder, else the
-  holder's session id: a slug resolves LAST (D-013), so a claim slugged `all`
-  printed a broadcast and one slugged like a peer's label addressed that peer
-  (Codex code pass). It is written as a command only when it pastes back as
-  printed (onFlags' rule).
-- **A slot of a live holder carries no mark at all.** No tool call can renew a
-  slot, so "unrenewed" is true of every slot held past thirty minutes and says
-  nothing about whether the run it guards is alive; the holder's liveness is the
-  whole story. A slot of a quiet holder is STALE like any claim. A claim mixing a
-  slot and a file scope is judged as a file claim.
-- GONE needs every registered process gone (a second `--resume` registers a
-  second one); a session with none registered is "cannot say", never GONE.
-- `ls` prints `open STALE` only for a quiet holder (its age column is the
-  renewal); hello's bracket is `[STALE: holder not seen 2h]` and appears only then.
-
-**Words only** — D-022 (a stale claim refuses exactly like a fresh one) and D-026
-(an ended holder's claim is displaced) are untouched; nothing renews, orphans,
-reaps or sweeps differently, and GONE stays diagnostic (D-025). A refusal whose
-holding claim cannot be re-read keeps the old renewal-only words and the
-operator, the conservative direction; so does one whose holder is not the one the
-refusal named (matched by label, which `store.ErrRefused` carries, and by id
-where the conflict has it), so a slug released and re-taken between the two
-reads never lends the new holder's words to the old one (Codex code pass).
-
-**Tests** — `TestRefusalNoteMessagesTheHolderNotAShadowingName`,
-`TestConflictNotesFallBackWhenTheHolderChanged`, `TestStaleJudgementKeysOnTheHolder` (the rule's table, with
-staleNote's zero-clock and threshold rows), `TestEveryViewAsksTheHolderWhenTheHolderIsLive`
-(all seven views on a live holder with an unrenewed claim, then the same claim
-with its process GONE as the armed control), `TestASlotOfALiveHolderCarriesNoMark`,
-`TestRefusalNoteWritesOnlyAPastableCommand`; `TestRefusalSaysWhenTheHolderHasGoneQuiet`
-carries the quiet-holder refusal and dry run.
-
-## D-091 — The roster folds dead rows into one line; `--all` lists them (amends D-015)
-
-2026-10-20. Finding D (roster half), OPERATOR DECIDED 2026-10-20.
-
-**The failure** — `herdr pane close` ran no SessionEnd for 68 of 119 closed lanes
-on one fleet (in all 45 where it did run, `bye` ended the row), so their rows
-never ended. The roster reached 906 rows and 168 KB: 758 ended, 147 `live STALE
-... pid N GONE`. Sessions grepped it for their own row (`buddy sessions | grep
-s-xxxx`, 15+ times) or `head -30`'d it and read dead rows.
-
-**The decision** — `buddy sessions` lists live rows not known GONE, and rows ended
-in the last 24 hours; everything else folds into ONE trailing line, e.g.
-`(+ 612 ended more than 24h ago, 147 live with every registered process GONE —
-not listed: buddy sessions --all)`, printed only when something folded.
-`--all` lists every row as before. The caller's own row is always listed, including
-an ended one named by `--session` or the harness id, which `whoAmI` refuses (Codex
-code pass). A live
-row with no registered process (Codex, an adapter worker) is "cannot say" and
-stays; GONE needs every registered process gone, the D-090 rule.
-
-**Why 24 hours** — long enough that a lane closed in this working day (the one a
-coordinator is confirming it closed, or whose base it is reading) stays listed;
-short enough that history does not pile up. Measured on that fleet's ledger, 67
-days sampled hourly: a trailing 24h window held 11 ended rows on average and 67
-at most, against 758 ended in all (17 at the snapshot). 6h averaged 3 and would
-drop lanes closed that morning; 72h averaged 34.
-
-**Nothing changes in the ledger** — no row is ended, reaped or touched (D-025: a
-GONE pid is diagnostic, and an auto-end on a misrecorded anchor is the delayed-bye
-defect by another road). `msg all`'s recipient count is unchanged.
-
-**Amends D-015** — D-015 cut a header line because the common case is ONE row
-quoted into chat, where a header is lost and labels must ride with the numbers.
-The fold line labels no column, every row keeps its own words, and it trails the
-rows; it is the rule every capped list here follows (D-027: a report that quietly
-drops rows is indistinguishable from a smaller one), not a header.
-
-**Tests** — `TestSessionsFoldsDeadRowsIntoOneLine` (old ended and all-GONE fold,
-recent ended, live and unbound stay; the exact line; `--all`; the caller's GONE
-row stays; the folded row is still live in `who`; no line when nothing folded),
-`TestFoldRosterNeedsEveryProcessGone`.
-
-## D-092 — `who` answers the close test on one EXIT line, scopes WAITED ON to a named claim, and reports the caller when bare
-
-2026-10-20. Findings P, R, T and L (`who`) of the same audit.
-
-**EXIT states the wait and the jobs (P)** — closing a lane needs no claims, no
-wait and no running job, and EXIT spoke for claims only: coordinators hand-rolled
-`buddy who | grep -E 'CLAIMS|WAITING|JOBS'` about 35 times in 20 spellings
-before 13 closes. EXIT is now one line of three clauses, then the consequence:
-`EXIT         no claims held; no wait declared; no shell found running under it
-— the ledger would be left holding no claim (...)`, or `2 claim(s) held; a wait
-declared EXPIRED (WAITING above); 1 shell(s) running under it (JOBS above) —
-ending now would leave the claim(s) held, ... first: a, b`. The jobs clause keeps
-"cannot say" (`its shells: cannot say (JOBS above)`) apart from "none" (D-016,
-D-065). Still a report that grants nothing (D-027); an ended session still reads
-`already ended`.
-
-**`who <claim>` lists only that claim's waiters (R)** — named by a claim slug,
-WAITED ON lists the waits on THAT claim and names it (`WAITED ON    on claim
-"run32" by 3 session(s), ...`). It printed the holder's whole set: `who run32` and
-`who run33` showed the same three READY riders. A session target is unchanged.
-
-**A bare `who` reports the caller (L)** — exactly `status`. A session typing it
-was asking "who am I", and a usage error cost a round trip; a refusal naming
-`status` would answer a question it understood with a pointer. D-031 refuses what
-a verb does not understand, and an absent target is understood. A target that
-contains a slash and resolves to nothing adds "if it is a path, `buddy whose
-<path>` reports who claims it": a suggestion, never a redirect, since labels carry
-slashes too.
-
-**`whose .buddy/slot/...` consults no git (T)** — a slot is never a file (D-035),
-so the dirty register and git's paragraphs had nothing to say (12 calls on one
-fleet). The claim register prints as before, then `DIRTY IN     (not applicable
-...)`.
-
-**Tests** — `TestExitLineAnswersTheCloseTest` (cannot say, none, everything
-named, an expired wait's verdict), `TestWhoOfAClaimListsOnlyThatClaimsWaiters`
-(with the session-target control), `TestWhoWithNoArgumentReportsTheCaller`
-(byte-identical to status; the slash suggestion and its no-slash control),
-`TestWhoseOfASlotConsultsNoGit` (with the file control).
-
-## D-093 — `release` takes several slugs as one transaction; a recipient waiting on a claim it is handed lands, "handed to you" (narrows D-063)
-
-2026-10-20. Finding E of the fleet audit (one fleet of 144 sessions, 2026-10-14..20).
-
-**The failure** — four measured shapes. (1) One slug per call: about 93
-`release --to` calls, 41 of them inside for-loops; one loop sent its recipient
-8-10 notices and printed 8 stderr wake lines. (2) A sender whose OWN claims
-overlapped each other could not hand them on one at a time: each one alone
-left its siblings behind under the sender, the overlap scan refused it, and
-the refusal read "... and 7 more conflict(s), listed above; nothing was handed
-on" over a listing that only `claim` ever printed. (3) D-063 refused a
-recipient waiting on the claim, which is exactly what a successor does while it
-waits for the handover: 4+ episodes, each a refusal, a round trip asking the
-successor to clear and a poll loop; one of those waits had EXPIRED 14 minutes
-earlier and still blocked, because the count ignored the deadline. (4) Nothing
-told the recipient "a claim was handed to you" in a form a wait could see: 6
-`until buddy ls | grep … <its id>` loops, one of which fired on its own
-WAITING line.
-
-**The decision** —
-
-- `buddy release <slug>... --to <target>` (`store.TransferClaims`) moves every
-  named claim in ONE immediate transaction, all or nothing, in the order named,
-  a repeat counted once. Every claim moves before any is scanned, so the scan
-  against the new owner excludes exactly the claims moving together; one slug
-  that is not the sender's, or one conflict anywhere, rolls every move back.
-  ONE notice to the recipient for the set, one result line, one wake.
-- A refused transfer PRINTS the whole conflict set, one fenced `REFUSED:` line
-  each (`printConflicts`, as `claim` does), so "listed above" is true, plus one
-  fixed line saying claims named together move together.
-- A recipient with an open wait on a claim it is handed is not refused. Nothing
-  is cleared or repaired: a wait target the waiter itself holds, under the
-  incarnation that declared, counts as over (`WaitTarget.HandedToWaiter`,
-  `Pending`), computed at read time like every verdict input (D-020's rule).
-  `release --to` is the only road to that state — `DeclareWait` refuses your own
-  claim and a claim id changes hands only by transfer — so the move in that
-  transaction IS the resolution. The recipient's `wait check`, beat's one-shot
-  LANDED and `--block` say LANDED with `"<slug>" handed to you`; the sender's
-  line says the recipient's wait was resolved; the notice says so too. A
-  multi-target wait stays pending until its other targets close (D-063's worry,
-  that dropping one target lands it early, does not arise: nothing is dropped).
-  Handing the claim on again un-does it. A waiter on some OTHER claim, and every
-  bystander waiting on the handed one, are unaffected: their waits follow it.
-- Plain `buddy release a b c` takes several slugs too, by the same rule (one
-  transaction, all or nothing, a line per claim naming its waiters). A lane
-  winding down releases two claims every time (`<slug>` and `<slug>-shared`).
-  `--scope`, `--outcome` and `--note` stay single-slug, refused with several:
-  an outcome reports on one job and a narrowing names one claim's scopes.
-
-D-063's refusal list narrows by one entry (the recipient waiting on this very
-claim); everything else it refuses stands.
-
-**Tests** — store: `TestTransferResolvesTheRecipientsOwnWaitOnIt` (lands;
-an expired wait lands rather than blocking; a second open target keeps it
-pending; a bystander keeps waiting; handing it on again un-does it — each with
-the pre-transfer control), `TestTransferLeavesTheRecipientsOtherWaitAlone`,
-`TestTransferClaimsMovesASetWhole`, `TestReleaseClaimsIsWholeOrNothing`. CLI:
-`TestReleaseToHandsASetWithOneNoticeAndPrintsTheWholeRefusal` (reads the
-REFUSED lines the error counts), `TestASuccessorWaitingOnTheClaimIsHandedItAndLands`.
-
-## D-094 — `who <slug>` prints every scope of that claim, uncut
-
-2026-10-20. Finding F of the same audit.
-
-**The failure** — every handoff notice says "re-claim it with the SAME
-scopes", and every view of a claim's scopes (`ls`, `who`'s CLAIMS HELD,
-`status`, hello) cuts at 512 bytes with a count. One successor handed a
-22-scope claim gave up ("the scope lists show truncated"); another typed all
-22 by hand after `ls --json` (no such flag), sqlite3 on the live ledger
-(CANTOPEN 14) and an eval-built re-claim the gate refused.
-
-**The decision** — a `who` whose target resolved through a claim SLUG prints,
-before the holder's report, `claim "<slug>" holds N scope(s), every one`, then
-one `  scope <s>` line per scope through `fence.Field` (D-066's item rule: one
-token, ␣ for a space), with no total cap; a scope the fence altered says it
-does not paste back as shown. Every other view keeps its cap: they list many
-claims and land in hook output and tool results that pay per byte. The handoff
-notice now points at `who <slug>`. No `--json`, no new verb.
-
-**Tests** — `TestWhoOfAClaimPrintsEveryScopeUncut` (31 scopes, each exactly
-once on its own line; the altered-scope note; CLAIMS HELD still capped in the
-same report as the control; a label target prints no block).
-
-## D-095 — `buddy wait --on <slug> --block` exits with the verdict (amends D-033)
-
-2026-10-20. Finding Q of the same audit. OPERATOR DECIDED (2026-10-20).
-
-**The failure** — 15+ hand-rolled loops (`for i in $(seq 1 120); do buddy ls
-| grep -q <slug> || exit 0; sleep 60; done`), run under the harness's
-run_in_background beside a declared `wait --on` that recorded 0 checks. The
-background job's completion notice is the wake a parked session reliably gets;
-what the loops lacked was a verdict, and grepping `ls` matched the wrong rows.
-
-**The decision** — `--block` on a declaration: the wait is declared exactly as
-today and printed the same, then the process re-reads the ledger every 15 s and
-exits 0 LANDED (released, an outcome, or handed to you, D-093), 3 EXPIRED, 4
-cleared (`wait clear`) or replaced by a newer declaration, 5 the session ended
-or re-registered; 1 stays every verb's error and 2 Run's usage. It prints the
-line `wait check` prints for that verdict (one renderer, `landedLines` /
-`expiredLines`), and closes the row after the write, as a check does.
-
-- **Not a check, and not a keep-alive.** Each read is an autocommit SELECT:
-  `last_check` and `checks` stay the scheduled check's (D-033), and the block
-  keeps no cache warm, so a park past ~50 minutes on a 1-hour tier still arms
-  `/loop buddy wait check`. D-033's "nothing wakes" stands: the harness notices
-  its own job ending.
-- **No write lock across a sleep.** The one write a poll may make is
-  cleanupEnded's, in its own short transaction (`Store.SettleEnded`), and only
-  when a read shows an awaited holder that has said bye — the read-only block
-  would otherwise sit on that claim until its deadline.
-- **It stops when its session ends** as the ledger records it; a harness that
-  dies without a bye leaves it running to the deadline, which the 12 h ceiling
-  bounds. Watching the parent process was not done: how run_in_background
-  parents its shell was not measured.
-- **15 s**: under the measured loops' 20 s and 60 s; a completion notice is read
-  at the next turn anyway. 240 indexed reads an hour.
-- **A timer (no `--on`) with `--block` is refused**, writing nothing: it only
-  expires, which the harness's own timer does without a ledger.
-
-**Tests** — `TestWaitBlockExitsWithTheVerdict` (released with an outcome,
-handed to the waiter, holder said bye → LANDED 0; EXPIRED 3; cleared 4;
-replaced 4; session ended 5; every case: the declaration prints first, the
-counters stay 0, a printed verdict closes the row), `TestWaitBlockRefusesATimer`
-(with the plain timer as the control). The poll runs through an `Env.Sleep`
-seam that advances the fixture clock.

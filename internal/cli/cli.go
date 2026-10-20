@@ -2969,7 +2969,7 @@ func cmdRelease(args []string, env Env) error {
 		// An outcome reports on ONE job and --scope names scopes of ONE
 		// claim; spread over a set, either would say something about claims
 		// it does not describe.
-		return fmt.Errorf("--scope, --outcome and --note take one slug, and %d were named; nothing was released\n  %s", len(slugs), usageRelease)
+		return usageRefusal(fmt.Sprintf("--scope, --outcome and --note take one slug, and %d were named; nothing was released", len(slugs)), usageRelease)
 	}
 	// `--to ""` must not fall through to a plain release: the caller asked to
 	// hand the claim on, and a release would land every waiter on it.
@@ -4027,12 +4027,12 @@ func cmdInbox(args []string, env Env) error {
 	if fs.NArg() > 0 {
 		id, err := strconv.ParseInt(strings.TrimPrefix(fs.Arg(0), "#"), 10, 64)
 		if err != nil || id <= 0 {
-			return fencedErr(fmt.Errorf("%q is not a message id (the #N a drained line starts with)\n  %s", fs.Arg(0), usageInbox))
+			return fencedErr(usageRefusal(fmt.Sprintf("%q is not a message id (the #N a drained line starts with)", fs.Arg(0)), usageInbox))
 		}
 		reread = id
 	}
 	if fs.NArg() > 1 {
-		return fencedErr(fmt.Errorf("inbox takes at most one message id, got %q after it — flags after it would be IGNORED\n  %s", fs.Arg(1), usageInbox))
+		return fencedErr(usageRefusal(fmt.Sprintf("inbox takes at most one message id, got %q after it — flags after it would be IGNORED", fs.Arg(1)), usageInbox))
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {

@@ -132,13 +132,13 @@ func cmdWaitDeclare(args []string, env Env) error {
 		if flags, _ := onFlags([]string{fs.Arg(0)}); flags != "" {
 			hint = "; did you mean `buddy wait" + flags + "`?"
 		}
-		return fmt.Errorf("wait takes its claims as --on <slug>, got %s — flags after it would be IGNORED%s\n  %s",
-			strconv.Quote(a), hint, usageWait)
+		return usageRefusal(fmt.Sprintf("wait takes its claims as --on <slug>, got %s — flags after it would be IGNORED%s",
+			strconv.Quote(a), hint), usageWait)
 	}
 	if *block && len(on) == 0 {
 		// A timer never lands, so a blocked timer is a sleep that ends in
 		// EXPIRED: the harness's own timer does that without a ledger.
-		return fmt.Errorf("--block waits for a claim to land, and a wait with no --on is a timer that only expires; nothing was recorded\n  %s", usageWait)
+		return usageRefusal("--block waits for a claim to land, and a wait with no --on is a timer that only expires; nothing was recorded", usageWait)
 	}
 	if n := renderedLen(*note); n > maxWaitNote {
 		return fmt.Errorf("--note renders to %d bytes and the cap is %d, so %d would be cut silently (a line break renders as ⏎, which is 3 bytes)",

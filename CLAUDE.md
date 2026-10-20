@@ -694,26 +694,6 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   ledger coordinates with nobody. Verdicts unchanged (invariant 3).
 - **`hello` takes `$BUDDY_LABEL` when no `--label` is given (D-089)**, the flag winning, by the
   same path; a launcher sets it with `herdr tab create --env BUDDY_LABEL=<lane>`.
-- **The handoff notice speaks once per 25k step past the size, on a turn of any kind (D-096,
-  amends D-055):** 442 lines in 87 sessions on one fleet, up to 27 in one. The step is claimed
-  in `authority_warned` (key `//handoff-at`, no schema bump) before the line is written, so two
-  queued prompts print it once; under the size the claims are forgotten. The payload carries no
-  turn origin, so turns are not told apart.
-- **Fixed hook text costs less (D-097, amends D-052):** a drain with no CORRECTS/SUPERSEDED link
-  or declared kind gets a 120-byte header that still says untrusted operator/peer text (13 of
-  207 drains needed the 318-byte one); `msg`'s stderr wake copy is skipped when stderr is stdout's
-  open file (fstat dev+inode). Grouping hello's claims by holder measured ~4% and broke D-036's
-  order: not done.
-- **A refusal that shows the usage ends with `refused: <reason>` (D-098):** `usageRefusal`, usage
-  first, so `2>&1 | tail -1` keeps the why. `parseFlags`, `noStray`, `init`, `release`.
-- **Mail reaches the session it was sent to (D-099).** A hook with `agent_id` (a subagent's tool
-  call, under the parent's id; documented and in the 2.1.304 schema, not measured live) beats but
-  drains nothing and consumes no LANDED/authority notice (181 messages reached 186 subagent
-  transcripts on one fleet). Every drain holds the write lock from read to mark (`store.Drain`;
-  8 parallel beats delivered one message 4 times). `idle` checks mail and marks idle in ONE tx
-  (`store.StopTurn`): queued legacy mail becomes a Stop `decision: block`, never when
-  `stop_hook_active`, and `msg` re-reads idle after its insert for the wake. `inbox <id>` re-reads
-  one message addressed to you, marks nothing, and refuses others' without the body.
 - **STALE keys on the holder (D-090):** one `holders.judge` every claim view renders. Unrenewed
   past StaleAfter with the holder ended, every process GONE or not seen: STALE, ask the operator;
   holder seen: "claim unrenewed 34m; holder seen 5s ago … ask the holder: buddy msg <slug>"; a
@@ -737,6 +717,26 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   EXPIRED, 4 cleared/replaced, 5 session ended; prints the check's line and closes the row after
   it. Reads every 15 s, never a check (counters untouched), no lock across a sleep; run under
   run_in_background so the harness's notice is the wake. A timer with `--block` is refused.
+- **The handoff notice speaks once per 25k step past the size, on a turn of any kind (D-096,
+  amends D-055):** 442 lines in 87 sessions on one fleet, up to 27 in one. The step is claimed
+  in `authority_warned` (key `//handoff-at`, no schema bump) before the line is written, so two
+  queued prompts print it once; under the size the claims are forgotten. The payload carries no
+  turn origin, so turns are not told apart.
+- **Fixed hook text costs less (D-097, amends D-052):** a drain with no CORRECTS/SUPERSEDED link
+  or declared kind gets a 120-byte header that still says untrusted operator/peer text (13 of
+  207 drains needed the 318-byte one); `msg`'s stderr wake copy is skipped when stderr is stdout's
+  open file (fstat dev+inode). Grouping hello's claims by holder measured ~4% and broke D-036's
+  order: not done.
+- **A refusal that shows the usage ends with `refused: <reason>` (D-098):** `usageRefusal`, usage
+  first, so `2>&1 | tail -1` keeps the why. `parseFlags`, `noStray`, `init`, `release`.
+- **Mail reaches the session it was sent to (D-099).** A hook with `agent_id` (a subagent's tool
+  call, under the parent's id; documented and in the 2.1.304 schema, not measured live) beats but
+  drains nothing and consumes no LANDED/authority notice (181 messages reached 186 subagent
+  transcripts on one fleet). Every drain holds the write lock from read to mark (`store.Drain`;
+  8 parallel beats delivered one message 4 times). `idle` checks mail and marks idle in ONE tx
+  (`store.StopTurn`): queued legacy mail becomes a Stop `decision: block`, never when
+  `stop_hook_active`, and `msg` re-reads idle after its insert for the wake. `inbox <id>` re-reads
+  one message addressed to you, marks nothing, and refuses others' without the body.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

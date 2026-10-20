@@ -916,37 +916,6 @@ ledger row entered through the CLI (D-006).
     value takes `--label`'s path (stored as given, fenced on render, the worn-twice warning).
     Only `hello`: `lifecycle begin --label` is the adapter's typed argv.
 
-88. **The handoff notice speaks once per 25k step past `BUDDY_HANDOFF_AT`, on a turn of any
-    kind (D-096, amends D-055).** The step is claimed in `authority_warned` under the key
-    `//handoff-at` before the line is written, so two queued prompts print it once; only a fall
-    under the size forgets the steps. No schema bump. The `UserPromptSubmit` payload carries no
-    turn origin (2.1.304's builder), so turns are not told apart. Do not propose per-turn
-    repetition, forgetting on a lower step above the size, or a key with one leading slash.
-
-89. **A drain with no CORRECTS/SUPERSEDED link or declared kind gets the short inbox header;
-    `msg`'s stderr wake copy is skipped when stderr is stdout's open file (D-097, amends
-    D-052).** Same file is fstat device and inode; a socket, a non-file or a failed stat gets
-    the copy. The rendering under either header is unchanged (invariant 9), and budgets measure
-    the long header. Grouping hello's claims by holder was measured (~4%) and not done.
-
-90. **A refusal that shows the usage ends with `  refused: <reason>`, usage first (D-098).**
-    `usageRefusal`: `parseFlags`, `noStray`, `init`, `release`'s argument refusals. A refusal
-    with no usage is one line already. Do not propose moving the reason back above the usage.
-
-88. **Mail reaches the session it was sent to (D-099).** A hook payload with `agent_id` (a
-    subagent's tool call, under the PARENT's session id; documented and in the 2.1.304
-    hook-input schema, not measured on a live payload) beats for the session but drains no
-    mail and consumes no authority or LANDED notice; only the dirty-path warning shows.
-    Every drain (beat, busy, idle, `inbox`) holds the ledger's write lock from its read to
-    its mark (`store.Drain`), write first and mark after. `idle` checks for queued legacy
-    mail and records idle in ONE transaction (`store.StopTurn`): mail becomes a Stop
-    `{"decision":"block","reason":…}` and no idle mark, never when `stop_hook_active` is
-    true, never for a subagent or adapter mail; a failed write rests idle. `msg` re-reads the
-    idle register after its insert for the wake. `inbox <id>` re-reads one message addressed
-    to the caller in any state, marks nothing, and refuses every other id alike, with no
-    body. Do not propose marking before writing, a lease column, or a wake for every
-    recently seen recipient.
-
 91. **STALE keys on the holder, not only on the claim's renewal (D-090).** One judgement,
     `holders.judge`, renders in every claim view (refusal, dry run, `ls`, hello, `who`/`status`,
     `whose`, commit gate). Renewal fresh or unrecorded: nothing. Unrenewed past StaleAfter with
@@ -967,7 +936,7 @@ ledger row entered through the CLI (D-006).
     (D-027). `who <slug>` lists only that claim's waiters and names it; a bare `who` is `status`;
     a slash-shaped miss suggests `whose`; `whose` of a `.buddy/slot` path consults no git.
 
-88. **`release` takes several slugs as ONE transaction, all or nothing; a recipient waiting on
+94. **`release` takes several slugs as ONE transaction, all or nothing; a recipient waiting on
     a claim it is handed lands (D-093, narrowing D-063).** `--to` moves every named claim before
     any is scanned, so overlap is checked against everyone but the set; one notice for the set;
     a refusal prints its whole conflict set. A wait target the waiter itself holds (only
@@ -975,16 +944,47 @@ ledger row entered through the CLI (D-006).
     multi-target wait stays pending until its other targets close. `--scope`/`--outcome`/`--note`
     stay single-slug. Do not propose clearing the recipient's wait, or refusing it again.
 
-89. **`who <slug>` prints every scope of that claim, one `fence.Field` line each, uncut
+95. **`who <slug>` prints every scope of that claim, one `fence.Field` line each, uncut
     (D-094).** Every other view keeps its 512-byte cap. Do not propose lifting the cap
     elsewhere or adding `--json`.
 
-90. **`wait --on <slug> --block` exits with the verdict (D-095, amending D-033).** 0 LANDED, 3
+96. **`wait --on <slug> --block` exits with the verdict (D-095, amending D-033).** 0 LANDED, 3
     EXPIRED, 4 cleared or replaced, 5 session ended; the check's own line; the row closed after
     the write. Autocommit reads every 15 s: never a check, never a keep-alive, no lock across a
     sleep (the one write is cleanupEnded's, only for an ended holder). Buddy still wakes nothing:
     the harness's completion notice is the wake. Do not propose having it wake, schedule, or
     bump the check counters.
+
+97. **The handoff notice speaks once per 25k step past `BUDDY_HANDOFF_AT`, on a turn of any
+    kind (D-096, amends D-055).** The step is claimed in `authority_warned` under the key
+    `//handoff-at` before the line is written, so two queued prompts print it once; only a fall
+    under the size forgets the steps. No schema bump. The `UserPromptSubmit` payload carries no
+    turn origin (2.1.304's builder), so turns are not told apart. Do not propose per-turn
+    repetition, forgetting on a lower step above the size, or a key with one leading slash.
+
+98. **A drain with no CORRECTS/SUPERSEDED link or declared kind gets the short inbox header;
+    `msg`'s stderr wake copy is skipped when stderr is stdout's open file (D-097, amends
+    D-052).** Same file is fstat device and inode; a socket, a non-file or a failed stat gets
+    the copy. The rendering under either header is unchanged (invariant 9), and budgets measure
+    the long header. Grouping hello's claims by holder was measured (~4%) and not done.
+
+99. **A refusal that shows the usage ends with `  refused: <reason>`, usage first (D-098).**
+    `usageRefusal`: `parseFlags`, `noStray`, `init`, `release`'s argument refusals. A refusal
+    with no usage is one line already. Do not propose moving the reason back above the usage.
+
+100. **Mail reaches the session it was sent to (D-099).** A hook payload with `agent_id` (a
+    subagent's tool call, under the PARENT's session id; documented and in the 2.1.304
+    hook-input schema, not measured on a live payload) beats for the session but drains no
+    mail and consumes no authority or LANDED notice; only the dirty-path warning shows.
+    Every drain (beat, busy, idle, `inbox`) holds the ledger's write lock from its read to
+    its mark (`store.Drain`), write first and mark after. `idle` checks for queued legacy
+    mail and records idle in ONE transaction (`store.StopTurn`): mail becomes a Stop
+    `{"decision":"block","reason":…}` and no idle mark, never when `stop_hook_active` is
+    true, never for a subagent or adapter mail; a failed write rests idle. `msg` re-reads the
+    idle register after its insert for the wake. `inbox <id>` re-reads one message addressed
+    to the caller in any state, marks nothing, and refuses every other id alike, with no
+    body. Do not propose marking before writing, a lease column, or a wake for every
+    recently seen recipient.
 
 ## Environment facts (measured, do not re-derive)
 
