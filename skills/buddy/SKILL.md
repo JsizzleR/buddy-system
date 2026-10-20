@@ -298,10 +298,13 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
    `buddy msg orchestrator "<item> READY: branch <name> @ <sha>, base <sha>, review <receipt>, files <list>, checks run <list>"`.
    Arm `/loop buddy wait check` and park. A docs-only item goes the same way.
 4. Keep your worktree and claims until LANDED names you PASS. Then release
-   your claims, remove the worktree, and say so in the same turn:
+   your claims and say so in the same turn:
    `buddy msg orchestrator "<item> DONE: nothing held, no job running"`. That
    message is what lets your pane be closed (Running a fleet, "Ending a
-   lane"). FAIL naming you: fix
+   lane"). Leave the worktree: the orchestrator removes it after the close.
+   A lane whose cwd is the worktree it removed has lost its hooks' cwd, and
+   the gate then denies every Bash call it makes, its DONE message included
+   ("repo discovery failed", measured on two lanes of one fleet). FAIL naming you: fix
    on your branch, commit, declare `buddy wait --on <run> --ready HEAD` again,
    and say so.
    Asked by your orchestrator to hand your claims on at READY instead (so
@@ -349,8 +352,10 @@ at your handoff. Then, every time:
    `buddy release <run> --outcome pass --note "<landed sha; who was in; who is next>"`
    puts LANDED in front of every rider's next check. Also message each landed
    lane in words that end its work: "<item> LANDED at <sha>. Release your
-   claims, remove your worktree, then you are DONE." The outcome says its run
-   passed; your words end its work.
+   claims, then you are DONE; leave your worktree, I remove it." The outcome
+   says its run passed; your words end its work. Remove a landed lane's
+   worktree yourself once its pane is closed (`git worktree remove <path>`,
+   from the main checkout).
 4. **A red that is one lane's goes to that lane**, naming the failing check.
    Keep the run's claim, re-claimed "RED, ejecting <item>, one more tier", or
    release it with the outcome fail and the attribution in the note (One long
