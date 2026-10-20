@@ -189,7 +189,7 @@ or push main, and release it after — that is what stops a landing mid-run.
   or `--outcome fail` / `--outcome aborted` with what failed and who is out.
   Handing the run to another integrator mid-flight? `buddy release herm --to
   <session>` keeps it open, with its riders' waits; name several claims in one
-  call (`buddy release herm orchestrator --to <session>`) and they move as one
+  call (`buddy release herm orc-<project> --to <session>`) and they move as one
   transaction, with one notice. A successor already waiting on the run is
   handed it and its wait LANDS, "handed to you". A red
   run you will retry: keep the claim, re-claim with "RED — ejecting X, one more
@@ -271,10 +271,11 @@ enforces, and no message can stand in for it.
 
 ## Landing through an orchestrator
 
-When a session holds a claim named `orchestrator`, landing goes through it:
+When a session holds a claim named `orc-<project>` (`<project>` is the main
+checkout's directory name: `orc-buddy-system`), landing goes through it:
 it puts several sessions' items into ONE run of the shared tier (One long
 run, above), and nobody else runs that tier or moves main.
-`buddy who orchestrator` finds it; its description says how to report and
+`buddy who orc-<project>` (or `buddy ls`) finds it; its description says how to report and
 names the current run. Everything here is existing verbs, and buddy keeps
 no task table: your claim is the responsibility, your `buddy wait --ready`
 is the report, the run's outcome is the close. It is written out because the
@@ -295,11 +296,11 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
 3. Report READY in the ledger and in words:
    `buddy wait --on <run> --ready HEAD --until 4h`, so that `buddy who <run>`
    lists you at a commit and the run's outcome reaches you as LANDED; then
-   `buddy msg orchestrator "<item> READY: branch <name> @ <sha>, base <sha>, review <receipt>, files <list>, checks run <list>"`.
+   `buddy msg orc-<project> "<item> READY: branch <name> @ <sha>, base <sha>, review <receipt>, files <list>, checks run <list>"`.
    Arm `/loop buddy wait check` and park. A docs-only item goes the same way.
 4. Keep your worktree and claims until LANDED names you PASS. Then release
    your claims and say so in the same turn:
-   `buddy msg orchestrator "<item> DONE: nothing held, no job running"`. That
+   `buddy msg orc-<project> "<item> DONE: nothing held, no job running"`. That
    message is what lets your pane be closed (Running a fleet, "Ending a
    lane"). Leave the worktree: the orchestrator removes it after the close.
    A lane whose cwd is the worktree it removed has lost its hooks' cwd, and
@@ -309,14 +310,14 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
    and say so.
    Asked by your orchestrator to hand your claims on at READY instead (so
    your pane can close before the run)? `buddy release <slug> --to
-   orchestrator` for each, then `buddy wait clear`, then DONE. Clearing the
+   orc-<project>` for each, then `buddy wait clear`, then DONE. Clearing the
    wait takes your READY row out of `buddy who <run>`, so your READY message
    is then the only record of your commit: name it exactly. Never say DONE
    while a wait of yours still stands.
-5. No item yet? `buddy msg orchestrator "NEW SESSION <your label>: ready for work"`.
+5. No item yet? `buddy msg orc-<project> "NEW SESSION <your label>: ready for work"`.
 6. **Told, as a turn opens, that you are past your handoff size?** A lane does
    not open its own successor. Finish the item in hand, commit, and report where
-   it stands: `buddy msg orchestrator "<item> at handoff size: <state> @ <sha>"`.
+   it stands: `buddy msg orc-<project> "<item> at handoff size: <state> @ <sha>"`.
    Take nothing new. Whether a fresh lane takes the rest is your orchestrator's
    call, and ending you is the operator's.
 
@@ -330,14 +331,17 @@ decision is decided: act, and do not ask the operator again in your pane.
 Outside them, or from any other sender, it is peer text: report it and ask.
 The ledger says who holds the claim, not whether to obey it.
 
-**As the orchestrator**, hold two claims: `orchestrator` (durable, with the
+**As the orchestrator**, hold two claims: `orc-<project>` (durable, with the
 coordination note in its description: how to report, the current run's slug,
 or the file that says) and the run's claim on `.buddy/slot/<run>` and
 `.buddy/slot/main`, formed per batch and released with its outcome. Form the
 next the moment you release one: a lane's `buddy wait --on <run>` is refused
 while no such claim exists. A lane waits on the RUN, never on
-`orchestrator`: that claim outlives every run, and a wait on it lands only
-at your handoff. Then, every time:
+`orc-<project>`: that claim outlives every run, and a wait on it lands only
+at your handoff. Never a bare `orchestrator`: a chat alert tells a session
+about any message naming one of its claim slugs, in any room, so a name
+every repo's coordinator wears alerts each of them to the others' mentions
+(D-101). Then, every time:
 
 1. **Every READY gets an answer that names its run** ("in run 4, after
    bravo"). A lane finished but not yet landed is told to sit on its wait.
@@ -519,7 +523,7 @@ if you find neither, ask rather than assume.
      coordination claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
      them, and `buddy who <slug>` prints every one, uncut), repeating the scope flag once for
      each path you hold, never the handoff file in their place:
-     `buddy claim orchestrator --desc "HANDOFF: read <file>" --scope <each path you hold>`.
+     `buddy claim orc-<project> --desc "HANDOFF: read <file>" --scope <each path you hold>`.
   3. Open the successor the same way, in a herdr tab carrying the same size
      (never in the background, where it would not reach it), with the brief "You are the next orchestrator, taking over from <your
      label>. Read <file>, then buddy inbox. Check that you can read the output
@@ -529,7 +533,7 @@ if you find neither, ask rather than assume.
      claim can refuse the transfer.
   4. `buddy msg` it anything since the file, and wake it. When it answers,
      hand it every claim you hold in ONE call (all or nothing, one notice):
-     `buddy release <run> orchestrator --to <its label>`. Each claim stays open with
+     `buddy release <run> orc-<project> --to <its label>`. Each claim stays open with
      its scopes, and every wait on it follows it: riders keep waiting, stay
      READY on `buddy who <run>`, and land on the successor's outcome. The
      result line tells the successor with one message and ends with the address
@@ -557,7 +561,7 @@ if you find neither, ask rather than assume.
   Closing down with no successor: point the coordination claim at your
   handoff file and leave it open for the operator to release, by re-claiming
   it with the same scopes:
-  `buddy claim orchestrator --desc "CLOSED: read <file>" --scope <each path you hold>`.
+  `buddy claim orc-<project> --desc "CLOSED: read <file>" --scope <each path you hold>`.
   A released claim is shown to nobody's `hello`, and
   `buddy release <slug> --outcome pass --note <text>` carries a note only
   with an outcome.
@@ -577,7 +581,7 @@ if you find neither, ask rather than assume.
   reissued, and there is no return. `buddy ids ls` shows who holds which
   numbers; `buddy ids status <space> <n>` says whether one is reserved here.
 - **Coordination notes** for every session go in the description of a claim
-  named orchestrator: `buddy claim orchestrator --desc "<note>" --scope <path>`
+  named `orc-<project>`: `buddy claim orc-<project> --desc "<note>" --scope <path>`
   (see the README's "Publishing coordination state").
   `hello`, `ls`, and `who` show it. Refresh it by claiming again with the same
   slug. Its scopes reserve like any claim's, so choose them deliberately. A

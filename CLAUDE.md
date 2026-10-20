@@ -743,6 +743,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   claim over no file, at every `NormalizeScope` door; now refused, naming the backslash.
   `release --scope` and `authority rm` use `NormalizeHeldScope`, which can only match a legacy
   absolute row (D-066's precedent). No migration; 0 such rows were open here.
+- **The coordination claim is `orc-<project>` (D-101, amends D-030/D-062):** `<project>` the main
+  checkout's directory name. The alert matches claim slugs in every room (D-009), so a bare
+  `orchestrator` worn in every repo alerted each coordinator to the others' mentions (14 of 29
+  journal messages). No code reads the name; no reserved slug, no derived default.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

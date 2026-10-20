@@ -999,6 +999,12 @@ ledger row entered through the CLI (D-006).
     migration rewriting legacy rows, Windows drive spellings, or letting an adding door
     use the held function.
 
+102. **The coordination claim is `orc-<project>` (D-101).** `<project>` is the main checkout's
+    directory name. A bare `orchestrator` slug, worn by every repo's coordinator, made the
+    chat alert (which matches claim slugs in every room, D-009) tell each coordinator about
+    the others' mentions. Nothing in buddy reads the name. Do not propose a reserved prefix,
+    a derived default in code, or scoping the alert to a session's derived room.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

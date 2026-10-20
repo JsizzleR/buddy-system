@@ -464,7 +464,7 @@ every other lane, which is how two rules in the [field notes](wishlist.md) (§7)
 **Publishing coordination state.** A coordinator that has facts every session
 needs — the landing queue, a hold, who is sequencing — puts them where a
 session reads at wake-up rather than in a message it may never drain: a claim
-named `orchestrator` whose `--desc` carries a bounded summary or a pointer,
+named `orc-<project>` (D-101) whose `--desc` carries a bounded summary or a pointer,
 refreshed by re-claiming with the same slug. Every session sees the live
 claims in its `hello` digest and every one in `buddy ls`. The digest is capped
 (D-036): past the room it has, it shows the session's own claims first and
@@ -1255,24 +1255,28 @@ What each piece is, and is not:
 ## Landing through an orchestrator
 
 The long run above, with the roles fixed for a whole shift (D-062). One
-session holds a claim named `orchestrator` for as long as it coordinates; it
+session holds a claim named `orc-<project>` for as long as it coordinates; it
 forms a run claim per batch, exactly as the integrator above does, and forms
 the next as soon as it releases one, since a lane's `wait --on <run>` is
 refused while no such claim exists. Every other session's item lands through
-that run. The skill's "Landing through an
+that run. The claim carries the project's name (`<project>` is the main
+checkout's directory name, so `orc-buddy-system`), never a bare
+`orchestrator`: `mentions_me` matches claim slugs in every room (D-009), so a
+name every repo's coordinator wears alerted each to the others' mentions
+(D-101). The skill's "Landing through an
 orchestrator" is the session-facing recipe, both sides. What the operator
 sees, and where each fact lives:
 
-- **`buddy who orchestrator`** is the coordinator's record. Its description is
+- **`buddy who orc-<project>`** is the coordinator's record. Its description is
   the published note (D-030): how a lane reports, the current run's slug, or
   the file that says. The run it is holding shows as a second claim, on
   `.buddy/slot/<run>` and `.buddy/slot/main`.
 - **`buddy who <run>`** is the batch: every lane that declared `--ready`, at
   which commit, and every lane that said it is not ready yet, in its own
-  words. A lane waits on the RUN, never on `orchestrator`, which outlives
+  words. A lane waits on the RUN, never on `orc-<project>`, which outlives
   every run and is released only at a handoff.
 - **A lane's report is two things**: the `--ready` declaration in the ledger,
-  and a `buddy msg orchestrator "<item> READY: …"` carrying what the ledger
+  and a `buddy msg orc-<project> "<item> READY: …"` carrying what the ledger
   does not hold (the review receipt, the files, the checks it ran).
 - **A landing is two things too**: `release <run> --outcome pass`, which every
   rider's next `wait check` reads as LANDED, and a message that ends the
@@ -1285,7 +1289,7 @@ sees, and where each fact lives:
   never in buddy.
 
 - **A handoff moves the claims, not their ids**: the outgoing orchestrator
-  runs `buddy release <run> orchestrator --to <successor>` (D-063, D-093): one
+  runs `buddy release <run> orc-<project> --to <successor>` (D-063, D-093): one
   transaction, all or nothing, one notice. Each claim stays open with its
   scopes and every wait on it, so riders stay READY on `who <run>` and land on
   the successor's outcome; the successor is sent one message saying what it

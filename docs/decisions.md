@@ -7331,3 +7331,44 @@ nothing blocking and set the shape above (a sentinel, not words; the comma
 check and beat strict; NUL deferred). The code pass found no defect, and the
 coverage gap it named (the literal "", "." and "../x" at both functions) is
 in the table. With no code fix, no re-verify was owed.
+
+## D-101 — The coordination claim is `orc-<project>`, never a bare `orchestrator` (amends D-030, D-062)
+
+2026-10-20. Operator's decision, from a side finding of run2's orchestrator.
+
+**The failure** — D-030 published coordination state in a claim named
+`orchestrator`, and D-062's recipe kept the name. The chat alert tells a
+session about every unalerted message, in EVERY room the journal holds
+(`Journal.Addressed` walks them all), that names one of its claim slugs
+(D-009). So every repo's coordinator wore the same token, and a message in
+one repo's room saying "orchestrator" alerted the coordinator of every other
+repo on the machine. Observed by this repo's orchestrator on 2026-10-20: an
+alert naming it for a message in another repo's room. Measured in the
+journal the same day: 14 of the 29 retained chat messages (one room,
+2026-10-15..20) contain the word, each an alert to any session holding the
+claim anywhere.
+
+**The decision** — the claim is named `orc-<project>`, where `<project>` is
+the main checkout's directory name (`orc-buddy-system` here). It is unique
+per repository on one machine as long as checkouts have distinct names, it
+still reads as the role, and peers still address the coordinator by slug
+(`buddy msg orc-<project>`), which is what D-009 is for. The skill, the
+USAGE reference and every recipe line that named the slug say so; D-030's
+mechanism (a claim's `--desc`, no reserved slug, no compel path) is unchanged.
+
+- **Nothing in buddy reads the name.** There was never a reserved slug
+  (D-030), so no code changes and no old claim breaks: a coordinator still
+  holding `orchestrator` works as before and just keeps the cross-repo
+  alerts until it re-claims under the new name. A handoff moves the claim
+  under the name it has (`release --to` keeps the claim id, D-063).
+- **Not done.** Deriving `<project>` in code (a `buddy` default or a
+  reserved prefix): it would make a name meaningful to buddy, which D-030
+  cut. Scoping the alert to the session's own room: the room name is derived
+  from the label and is wrong in a linked worktree (D-024), and a lane in a
+  worktree is exactly who needs the coordinator's mentions. The isolated
+  fixtures in the qualification scripts keep `orchestrator`: they run in a
+  private ledger and the journal is not involved.
+
+**Tests** — none new: a recipe-text change. The skill tests
+(`TestSkillNamesOnlyWhatHelpAnswers`, `TestSkillTeachesEveryVerbAndFlag`)
+still read every `buddy <verb> --flag` the skill teaches. Review: chore.
