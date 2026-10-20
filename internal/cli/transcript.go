@@ -309,6 +309,21 @@ func usageInTail(f *os.File, size, window int64, prompt string) (usageSample, bo
 		if rec.IsSidechain || rec.Message.Usage == nil {
 			continue
 		}
+		// Not a request. The harness writes a placeholder assistant record
+		// with model "<synthetic>" and every count zero when a turn ended
+		// WITHOUT one (a usage limit, a refused org, an API error). Read as a
+		// sample, it made `wait check` print "last observed request 1h ago
+		// read 0, wrote 0" and handed the roster and BUDDY_HANDOFF_AT a prompt
+		// of 0 and a model of "<synthetic>" (one fleet, three such records in
+		// one session's 30 minutes). Skipped, so the real request before it
+		// stays the sample. An all-zero record is skipped whatever model it
+		// names: every real request reads or writes its prompt, so zero input,
+		// zero cache and zero output is no request, and the next placeholder
+		// spelling should not have to be measured first.
+		if u := rec.Message.Usage; rec.Message.Model == "<synthetic>" ||
+			(u.Input == 0 && u.CacheRead == 0 && u.CacheWrite == 0 && u.Output == 0) {
+			continue
+		}
 		at, err := time.Parse(time.RFC3339, rec.Timestamp)
 		if err != nil {
 			// No substituting "now": the whole point of storing the turn's
