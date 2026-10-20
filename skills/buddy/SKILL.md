@@ -363,6 +363,10 @@ if you find neither, ask rather than assume.
   The brief itself goes in a file: herdr refuses an agent argument holding a
   newline or a backtick ("agent arguments cannot be encoded safely for the
   target shell", measured), and the one-line prompt naming the file launches.
+  A lane that may run past the fleet-wide handoff size gets its own:
+  `herdr tab create … --env BUDDY_HANDOFF_AT=<n>`, which reaches the lane's
+  hooks (measured). Without it a lane hears the settings one, or nothing, and
+  lanes on one fleet ran to ~350k against a 300k fleet-wide size.
   A start sent straight after the tab's creation can be refused with
   `agent_pane_busy` (the pane is not yet at its shell prompt); the same
   command seconds later worked (measured). Pass the mode the operator decided for lanes, never a more permissive one
@@ -460,10 +464,10 @@ if you find neither, ask rather than assume.
   in a herdr tab with `herdr tab create … --env BUDDY_HANDOFF_AT=500k` (or the
   operator sets it for every session in the settings `env` block, which reaches
   the first orchestrator too), never with `claude --bg`: a background lane runs in the
-  daemon's environment, and the size never reaches it. Each
-  prompt that opens a turn tells you, while your last observed prompt is at or
-  past it (the optional `busy` hook must be wired, and a size must have been
-  observed); your row in `buddy sessions` shows it any time (`prompt 521k`). Then:
+  daemon's environment, and the size never reaches it. A
+  prompt that opens a turn tells you once when your last observed prompt
+  reaches it, and again at each 25k past it, not every turn (D-096; the
+  optional `busy` hook must be wired, and a size must have been observed); your row in `buddy sessions` shows it any time (`prompt 521k`). Then:
   1. Finish the round. Start nothing new, and no background job you will not
      see finish: a job you start is a child of YOUR session, and nothing hands
      it to your successor. A watcher on anything long (a remote run, a nightly)

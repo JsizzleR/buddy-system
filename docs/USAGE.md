@@ -576,7 +576,9 @@ buddy msg bravo "take the router bundle"
 The same wake also goes to stderr as one line,
 `buddy: message #N to bravo is queued; to wake it now: …`, because a sender
 that discarded the result line as a receipt (`>/dev/null`) lost it (issue
-#42). A `2>&1` reader sees it twice. Stderr stays empty when there is no wake.
+#42). Not when stderr is the same open file as stdout (`2>&1`, a pipe of
+both, one terminal): that reader already has it on the result line, and used
+to get it twice (D-097). Stderr stays empty when there is no wake.
 
 The wake's text names the message id and the local time the wake was named
 (D-059), because Claude Code drops a peer message identical to the previous
@@ -837,8 +839,10 @@ The annotations after the id are what an orchestrator picks on:
   2026-09-29, a settings `env` entry reaches the `UserPromptSubmit` hook's
   environment. `install.sh` reports whether it is set there (D-064).
 
-  With the `busy` hook wired, every prompt that opens one of its turns then
-  carries one line once its last observed prompt is at or past the size:
+  With the `busy` hook wired, a prompt that opens one of its turns then
+  carries one line when its last observed prompt reaches the size, and again
+  at each further 25k past it (D-096: it used to repeat on every turn, 442
+  times in 87 sessions on one fleet), on a turn of any kind:
   `BUDDY: your prompt was 507k at your last observed request (turn 3m ago), at
   or past the 500k you hand off at (BUDDY_HANDOFF_AT) — finish the round and
   hand off (buddy skill: a coordinator, "Hand off before you are full"; a lane,

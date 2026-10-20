@@ -895,6 +895,23 @@ ledger row entered through the CLI (D-006).
     adapter or diagnose. A verb is not a late event, so it takes no incarnation (D-069 fences
     events). Do not propose clearing idle or renewing claims from it.
 
+88. **The handoff notice speaks once per 25k step past `BUDDY_HANDOFF_AT`, on a turn of any
+    kind (D-096, amends D-055).** The step is claimed in `authority_warned` under the key
+    `//handoff-at` before the line is written, so two queued prompts print it once; only a fall
+    under the size forgets the steps. No schema bump. The `UserPromptSubmit` payload carries no
+    turn origin (2.1.304's builder), so turns are not told apart. Do not propose per-turn
+    repetition, forgetting on a lower step above the size, or a key with one leading slash.
+
+89. **A drain with no CORRECTS/SUPERSEDED link or declared kind gets the short inbox header;
+    `msg`'s stderr wake copy is skipped when stderr is stdout's open file (D-097, amends
+    D-052).** Same file is fstat device and inode; a socket, a non-file or a failed stat gets
+    the copy. The rendering under either header is unchanged (invariant 9), and budgets measure
+    the long header. Grouping hello's claims by holder was measured (~4%) and not done.
+
+90. **A refusal that shows the usage ends with `  refused: <reason>`, usage first (D-098).**
+    `usageRefusal`: `parseFlags`, `noStray`, `init`, `release`'s argument refusals. A refusal
+    with no usage is one line already. Do not propose moving the reason back above the usage.
+
 88. **Mail reaches the session it was sent to (D-099).** A hook payload with `agent_id` (a
     subagent's tool call, under the PARENT's session id; documented and in the 2.1.304
     hook-input schema, not measured on a live payload) beats for the session but drains no
