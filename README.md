@@ -232,7 +232,7 @@ own claim, and it does not serialize their writes.
 For the operator, from any terminal in the repo:
 
 ```sh
-buddy sessions                     # the roster: live/idle/paused, claims, context size, cache
+buddy sessions                     # the roster: live/idle/paused, claims, context size, cache (--all: dead rows too)
 buddy who <session|label|slug>     # everything the ledger holds about one session
 buddy pause <session> --note "hold off — deciding the design first"
 buddy resume <session>

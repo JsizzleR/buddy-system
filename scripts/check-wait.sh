@@ -140,7 +140,7 @@ out=$(as sess-a wait --on herm --ready HEAD) || fail "QA-6: the rider's declarat
 echo "$out" | head -1 | grep -qF "you declared your work ready at $(echo "$head" | cut -c1-8)" || fail "QA-6: declaration line
 $out"
 out=$(buddy who herm) || fail "QA-6: who herm"
-echo "$out" | grep -qF 'WAITED ON    by 1 session(s), 1 READY, 0 not:' || fail "QA-6: who must list the rider
+echo "$out" | grep -qF 'WAITED ON    on claim "herm" by 1 session(s), 1 READY, 0 not:' || fail "QA-6: who must list the rider
 $out"
 out=$(as sess-b release herm --outcome maybe 2>&1) && rc=0 || rc=$?
 [ "$rc" -ne 0 ] || fail "QA-6: an outcome off the list must be refused

@@ -90,7 +90,7 @@ func TestABatchedRunListsItsRidersAndCarriesItsOutcome(t *testing.T) {
 	// bravo is in, not ready yet: an ordinary wait with its ETA as a note.
 	b.ok(t, "sess-b", "wait", "--on", "herm", "--note", "done in 10")
 	// Control: with no rider declaring --ready, WAITED ON keeps its one line.
-	if w := b.ok(t, "sess-a", "who", "herm"); !strings.Contains(w, "WAITED ON    by 1 session(s): bravo ") || strings.Contains(w, "READY") {
+	if w := b.ok(t, "sess-a", "who", "herm"); !strings.Contains(w, "WAITED ON    on claim \"herm\" by 1 session(s): bravo ") || strings.Contains(w, "READY") {
 		t.Fatalf("no rider declared ready, so the short form:\n%s", w)
 	}
 
@@ -101,7 +101,7 @@ func TestABatchedRunListsItsRidersAndCarriesItsOutcome(t *testing.T) {
 		t.Fatalf("the declaration says what it recorded:\n%s", out)
 	}
 	w := b.ok(t, "sess-a", "who", "herm")
-	if !strings.Contains(w, "WAITED ON    by 2 session(s), 1 READY, 1 not:\n") {
+	if !strings.Contains(w, "WAITED ON    on claim \"herm\" by 2 session(s), 1 READY, 1 not:\n") {
 		t.Fatalf("who counts the riders:\n%s", w)
 	}
 	i := strings.Index(w, "READY at "+c[:8])

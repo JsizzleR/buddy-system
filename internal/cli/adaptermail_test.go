@@ -231,10 +231,13 @@ func TestLifecycleHookRenewsObservedClaimsOnly(t *testing.T) {
 			other = line
 		}
 	}
-	if work == "" || strings.Contains(work, "STALE") {
+	// The renewal is ls's age column. STALE no longer marks it: the worker
+	// is live, and ls marks a claim STALE only when its HOLDER is quiet
+	// (D-090).
+	if work == "" || !strings.Contains(work, " 0s  ") {
 		t.Fatalf("the patched file's claim must renew: %q\n%s", work, out)
 	}
-	if other == "" || !strings.Contains(other, "STALE") {
+	if other == "" || !strings.Contains(other, " 40m  ") {
 		t.Fatalf("control: a claim no observed path covers must still age: %q\n%s", other, out)
 	}
 }

@@ -343,7 +343,7 @@ indistinguishable from a binary that had nothing to say.
 
 ```sh
 buddy claim api-refactor --desc "reworking the handler layer" --scope internal/api
-buddy ls                          # the board: who holds what, STALE flags
+buddy ls                          # the board: who holds what, STALE where a holder has gone quiet
 buddy release api-refactor
 ```
 
@@ -372,15 +372,26 @@ buddy claim api-refactor --dry-run --desc "…" --scope internal/api --scope doc
 ```
 
 It writes nothing and exits non-zero on any conflict, so a scripted caller
-cannot read "some of it was free" as "go ahead". A **stale** holder still refuses —
-staleness marks, it never reaps — and both the refusal and the dry run say so,
-because "somebody is working on this" and "somebody left" need different next
-moves and only one of them is `buddy claim` again:
+cannot read "some of it was free" as "go ahead". An **unrenewed** claim still
+refuses — staleness marks, it never reaps — and both the refusal and the dry run
+say so, keyed on what the ledger knows about the HOLDER (D-090), because
+"somebody is working on this" and "somebody left" need different next moves and
+only one of them is `buddy claim` again:
 
 ```
 # REFUSED: docs  (overlaps "docs" held by repo/s-82bacdd8, claim "docs-pass")
-#            — STALE: holder last renewed 3h ago; it still refuses, so ask the operator
+#            — claim unrenewed 34m; holder seen 5s ago; it still refuses, so ask the holder: buddy msg docs-pass
+# REFUSED: api  (overlaps "api" held by repo/s-16c16a94, claim "api-work")
+#            — STALE: claim unrenewed 3h, holder not seen 3h; it still refuses, so ask the operator
 ```
+
+A claim renews only when a tool call names a path it covers, so a working
+holder's claim goes unrenewed whenever it is parked or editing elsewhere; that
+is the first line, and the holder is the one to ask. STALE means the holder
+itself has gone quiet: not seen for 30 minutes, every registered process
+`GONE`, or ended. A `.buddy/slot/` claim names a resource no tool call can
+renew, so a live holder's slot carries no mark at all. `ls`, `who`, `whose`, the
+hello digest and the commit gate use the same judgement.
 
 A scope is freed by `buddy release`, by orphaning of a holder that has **said
 `bye`** — which runs at any session's `hello`, at a plain `buddy sweep`, and
@@ -499,6 +510,9 @@ Three things it deliberately is **not**:
   unattributed rather than pinned on whoever scanned last.
 - **Not silent about what it cannot see.** "No session recorded it" and "the file
   is clean" are different answers, and `whose` distinguishes them.
+
+A `.buddy/slot/` path is never a file, so `whose` of one prints its claims and
+`DIRTY IN     (not applicable ...)`, and consults no git.
 
 Holders that have gone quiet are still reported — their edit is still sitting in
 the tree, so it is still a collision — but they are labelled `live STALE` or
@@ -659,18 +673,18 @@ exactly as before.
 ## One session, every register — `status` and `who`
 
 ```sh
-buddy status                      # everything the ledger holds about YOU
+buddy status                      # everything the ledger holds about YOU (a bare `buddy who` is the same)
 buddy who <id|label|s-id|slug>    # the same report for any name a session answers to
 # * repo/s-16c16a94  (16c16a94-…)  live  started 3h  seen 2m  idle 2m  pid 30479  pane tmux:%3
 # CLAIMS HELD  2
 #   api-work                 held 2h   scopes: internal/api
-#   docs-pass                held 20m  scopes: docs   STALE (not renewed 40m; still refuses)
+#   docs-pass                held 20m  scopes: docs  unrenewed 40m, holder seen 2m ago (still refuses — ask the holder)
 # DIRTY PATHS  3 recorded to this session (observations, not locks): internal/api/x.go, …
 # BASE         079dd6a7 (3 behind main, 12m ago) — an observation at the end of its last reported turn
 # INBOX        1 undelivered
 # ADAPTER      (none) — no adapter mail queued and no adapter endpoint recorded
 # JOBS         1 shell(s) running directly under its harness process (pid 30479) when sampled: pid 81311 12m — the ledger does not track them, and closing its pane may end them
-# EXIT         ending now would leave 2 claim(s) held — freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: api-work, docs-pass
+# EXIT         2 claim(s) held; no wait declared; 1 shell(s) running under it (JOBS above) — ending now would leave the claim(s) held, freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: api-work, docs-pass
 ```
 
 A session has four names — its id, its label, the `s-<8hex>` short form, and
@@ -686,7 +700,18 @@ says "cannot say" (never "none") without a live registered process or on a
 platform whose process table it does not read (only macOS is). A Codex
 session always gets "cannot say": its hooks bind no harness process (D-068),
 so its account of its own jobs is in its words, never on this line.
-The `EXIT` line is a **description of what the ledger would be left holding**.
+Named by a claim slug, `who <slug>` reports the holder, and its `WAITED ON` line
+lists only the waits on THAT claim and names it (`WAITED ON    on claim "run32" by
+3 session(s), ...`); named any other way, it lists the waits on every claim the
+session holds (D-092). A name with a slash that resolves to nothing suggests
+`buddy whose <path>`.
+
+The `EXIT` line answers the close test in one line (D-092): the claims held, the
+wait declared (with `LANDED` or `EXPIRED` once it is over), and the jobs clause
+(`no shell found running under it`, `N shell(s) running under it`, or `its
+shells: cannot say` — never "none" when it cannot see). Then the consequence for
+the claims.
+It is a **description of what the ledger would be left holding**.
 It is not permission and it is not proof that killing the session is safe:
 a coordinator can report that a session is safe to release and cannot obtain
 consent to end it — there is no `buddy exit`, and there will not be one,
@@ -697,7 +722,7 @@ session with the `pid` or the `pane` on the row.
 ## The roster — `buddy sessions`
 
 ```sh
-buddy sessions                    # the roster; --by started for arrival order
+buddy sessions                    # the roster; --by started for arrival order; --all folds nothing
 # * repo/s-16c16a94  live         started 10h  seen 4s   /path/to/repo  (16c16a94-…)  idle 7m  claims 2  claude-opus-5/xhigh prompt 377k turn 7m cache 1h hot 53m
 # - repo/s-299a236a  live STALE   started 15d  seen 12d  /path/to/repo  (299a236a-…)  PAUSED
 # - repo/s-68a57050  ended 29d    started 36d  seen 34d  /path/to/repo  (68a57050-…)
@@ -713,6 +738,20 @@ word carries its own age when the state is a dated event (`ended 29d`).
 live rows always above ended ones. The first column is a gutter: `*` is the row
 you are calling from, `-` is everyone else, and every row has one so the field
 count never depends on which row you are reading.
+
+By default the roster lists the rows you can act on (D-091): live rows, and rows
+ended in the last 24 hours. Rows ended earlier, and live rows whose every
+registered process is `GONE` (a pane closed without its SessionEnd hook, 68 of
+119 closes on one fleet), fold into one trailing line, printed only when
+something folded:
+
+```
+# (+ 612 ended more than 24h ago, 147 live with every registered process GONE — not listed: buddy sessions --all)
+```
+
+`--all` lists every row. Your own row is always listed. Nothing in the ledger
+changes: a folded live row is still live to `who`, `msg` and the gate, and
+`buddy bye <id>` or `sweep --force` stay the ways to end one.
 
 Peer text in a column — a label, a slug — is rendered so it stays **one
 whitespace-delimited token**: spaces show as `␣`, the way newlines show as `⏎`

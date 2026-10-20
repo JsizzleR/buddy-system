@@ -275,7 +275,9 @@ func TestByeEndsWhenTheRegisteredProcessIsGoneOrRecycled(t *testing.T) {
 				t.Fatalf("a live registered process prints plainly:\n%s", roster)
 			}
 			tc.after(f)
-			roster, _, _ = f.run(t, f.repo, "", "sessions")
+			// --all: the default roster folds a row whose every registered
+			// process is GONE into its count line (D-091).
+			roster, _, _ = f.run(t, f.repo, "", "sessions", "--all")
 			if row := rowFor(roster, "alpha"); !strings.Contains(row, "pid 200 GONE") {
 				t.Fatalf("a dead or recycled process prints GONE:\n%s", roster)
 			}

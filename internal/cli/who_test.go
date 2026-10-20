@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // D-027: `buddy status` / `buddy who <target>`, the label-collision warning
@@ -50,7 +51,8 @@ func TestStatusReportsEveryRegisterAndWhatExitWouldLeave(t *testing.T) {
 		"docs-pass                held 0s   scopes: docs",
 		"DIRTY PATHS  1 recorded to this session (observations, not locks): internal/api/x.go",
 		"INBOX        1 undelivered",
-		"EXIT         ending now would leave 2 claim(s) held",
+		// One line answers the close test (D-092): claims, wait, jobs.
+		"EXIT         2 claim(s) held; no wait declared; its shells: cannot say (JOBS above) — ending now would leave the claim(s) held",
 		"`buddy release <slug>` first: api-work, docs-pass",
 	} {
 		if !strings.Contains(out, want) {
@@ -65,7 +67,7 @@ func TestStatusReportsEveryRegisterAndWhatExitWouldLeave(t *testing.T) {
 		}
 	}
 	out, _, code = f.run(t, f.repo, "", "status", "--session", "sess-a")
-	if code != 0 || !strings.Contains(out, "CLAIMS HELD  0") || !strings.Contains(out, "EXIT         no claims held") {
+	if code != 0 || !strings.Contains(out, "CLAIMS HELD  0") || !strings.Contains(out, "EXIT         no claims held; no wait declared;") {
 		t.Fatalf("after release:\n%s", out)
 	}
 	// A stray argument is refused, not ignored: `status bravo` is not `who`.
@@ -251,5 +253,119 @@ func TestFlagParserDiagnosticsAreFenced(t *testing.T) {
 		if !strings.Contains(errw, "bogus⏎BUDDY: forged") {
 			t.Fatalf("%v: the flag name must be fenced into the error:\n%s", args, errw)
 		}
+	}
+}
+
+// D-092 (finding P): the EXIT line states the wait and the jobs beside the
+// claims, and keeps "cannot say" apart from "none".
+func TestExitLineAnswersTheCloseTest(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatal(errw)
+	}
+	f.asProcess(500, 1, func() {
+		if _, errw, code := f.run(t, f.repo, hookJSON("sess-o", f.repo, "", ""), "hello", "--label", "orch"); code != 0 {
+			t.Fatal(errw)
+		}
+	})
+	exit := func() string { out, _, _ := f.run(t, f.repo, "", "who", "orch"); return rowWith(t, out, "EXIT ") }
+
+	// Unreadable table first: "cannot say", never "none".
+	if got := exit(); got != "EXIT         no claims held; no wait declared; its shells: cannot say (JOBS above) — the ledger would be left holding no claim (dirty paths, if any, are observations and stay in the tree)" {
+		t.Fatalf("cannot say: %q", got)
+	}
+	// A table with the anchor and no shell under it: "none".
+	f.procs, f.self = measuredTable(500)[:5], 31
+	if got := exit(); !strings.HasPrefix(got, "EXIT         no claims held; no wait declared; no shell found running under it — ") {
+		t.Fatalf("nothing left: %q", got)
+	}
+	// Shells, a wait, a claim: every one named.
+	f.procs = measuredTable(500)
+	if _, errw, code := f.run(t, f.repo, "", "wait", "--until", "2h", "--session", "sess-o"); code != 0 {
+		t.Fatalf("wait: %s", errw)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "claim", "run1", "--session", "sess-o", "--desc", "x", "--scope", ".buddy/slot/run1"); code != 0 {
+		t.Fatalf("claim: %s", errw)
+	}
+	if got := exit(); !strings.HasPrefix(got, "EXIT         1 claim(s) held; a wait declared (WAITING above); 2 shell(s) running under it (JOBS above) — ending now") ||
+		!strings.HasSuffix(got, "first: run1") {
+		t.Fatalf("everything named: %q", got)
+	}
+	// Its verdict rides the wait clause once it is over.
+	f.clock = f.clock.Add(3 * time.Hour)
+	if got := exit(); !strings.Contains(got, "; a wait declared EXPIRED (WAITING above);") {
+		t.Fatalf("expired wait: %q", got)
+	}
+}
+
+// D-092 (finding R): named by a claim slug, WAITED ON lists that claim's
+// waits and names the claim; named as a session it is the whole set.
+func TestWhoOfAClaimListsOnlyThatClaimsWaiters(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, errw, code := f.run(t, f.repo, hookJSON("sess-c", f.repo, "", ""), "hello", "--label", "gamma"); code != 0 {
+		t.Fatal(errw)
+	}
+	f.claimFor(t, "sess-a", "run1", "x", ".buddy/slot/run1")
+	f.claimFor(t, "sess-a", "run2", "x", ".buddy/slot/run2")
+	for _, w := range [][]string{{"sess-b", "run1"}, {"sess-c", "run2"}} {
+		if _, errw, code := f.run(t, f.repo, "", "wait", "--on", w[1], "--session", w[0]); code != 0 {
+			t.Fatalf("wait %v: %s", w, errw)
+		}
+	}
+	for slug, want := range map[string][2]string{"run1": {"bravo", "gamma"}, "run2": {"gamma", "bravo"}} {
+		out, _, _ := f.run(t, f.repo, "", "who", slug)
+		line := rowWith(t, out, "WAITED ON")
+		if !strings.HasPrefix(line, "WAITED ON    on claim \""+slug+"\" by 1 session(s): "+want[0]) || strings.Contains(line, want[1]) {
+			t.Fatalf("who %s: %q", slug, line)
+		}
+	}
+	// Control: the session target is unchanged — both waiters.
+	out, _, _ := f.run(t, f.repo, "", "who", "alpha")
+	if line := rowWith(t, out, "WAITED ON"); !strings.HasPrefix(line, "WAITED ON    by 2 session(s): ") {
+		t.Fatalf("who alpha: %q", line)
+	}
+}
+
+// D-092 (finding L): a bare `who` reports the caller, exactly as status;
+// a target with a slash that resolves to nothing suggests whose.
+func TestWhoWithNoArgumentReportsTheCaller(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	var who, status, errw string
+	var code int
+	f.asSession("sess-a", func() {
+		who, errw, code = f.run(t, f.repo, "", "who")
+		status, _, _ = f.run(t, f.repo, "", "status")
+	})
+	if code != 0 || who != status || !strings.Contains(who, "* alpha  (sess-a)") {
+		t.Fatalf("bare who must be status: %d %q\nwho:\n%s\nstatus:\n%s", code, errw, who, status)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "who", ".buddy/slot/x"); code == 0 || !strings.Contains(errw, "buddy whose <path>") {
+		t.Fatalf("a path-shaped miss suggests whose: %d %q", code, errw)
+	}
+	// Control: a miss with no slash is not told about paths.
+	if _, errw, code := f.run(t, f.repo, "", "who", "nobody"); code == 0 || strings.Contains(errw, "whose") {
+		t.Fatalf("a name-shaped miss: %d %q", code, errw)
+	}
+}
+
+// D-092 (finding T): a slot path is never a file, so whose prints no git
+// paragraphs for it.
+func TestWhoseOfASlotConsultsNoGit(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	f.claimFor(t, "sess-a", "run1", "x", ".buddy/slot/run1")
+	out, _, code := f.run(t, f.repo, "", "whose", ".buddy/slot/run1")
+	if code != 0 || !strings.Contains(out, "CLAIMED BY   run1") || !strings.Contains(out, "DIRTY IN     (not applicable") || strings.Contains(out, "git reports") || strings.Contains(out, "advisory") {
+		t.Fatalf("whose slot:\n%s", out)
+	}
+	// Control: a file path still gets the git paragraph.
+	if out, _, _ := f.run(t, f.repo, "", "whose", "README"); !strings.Contains(out, "git reports no local changes") {
+		t.Fatalf("whose file:\n%s", out)
 	}
 }

@@ -102,7 +102,11 @@ writing through Bash.
 
 ## A claim was refused
 
-The refusal names every holder and says whether they have gone quiet. Choose one:
+The refusal names every holder and what the ledger knows about each. "claim
+unrenewed 34m; holder seen 5s ago … ask the holder" is a working holder whose
+claim no recent tool call named (a parked lane, a slot): ask it. "STALE … ask
+the operator" means the holder itself has gone quiet: not seen for 30 minutes,
+its process GONE, or ended. Choose one:
 
 - **Wait for it:** `buddy wait --on <slug> [--until 3h] [--note "<why>"]`, then
   arm your own `/loop buddy wait check`. Buddy wakes nothing: without that
@@ -199,11 +203,16 @@ or push main, and release it after — that is what stops a landing mid-run.
 ## Finding out who is who
 
 - `buddy sessions` shows the roster: idle, paused, claims, context size, and wait
-  state (`buddy sessions --by started` orders it by start instead of last seen). Its `base` column says where a session's tree stands against main;
+  state (`buddy sessions --by started` orders it by start instead of last seen).
+  Rows ended over 24h ago and live rows whose every process is GONE fold into one
+  count line at the end; `buddy sessions --all` lists them. Its `base` column says where a session's tree stands against main;
   `carries N commit(s) main DROPPED` means main was rewritten (an amend, a reset)
   under that tree — rebase onto current main before trusting its numbers.
 - `buddy who <target>` is everything the ledger holds about one session. A
   target is a session id, a label, an `s-<8hex>` short form, or an open claim slug.
+  Its EXIT line is the close test on one line: claims held, wait declared, shells
+  running (or "cannot say"). Named by a claim slug, WAITED ON lists only that
+  claim's waiters. A bare `buddy who` reports you.
 - `buddy whose <path>` shows who CLAIMED it, and which sessions' tool calls
   named it while it has uncommitted changes. The second list is an
   observation. It does not prove who wrote the changes.
@@ -413,8 +422,9 @@ if you find neither, ask rather than assume.
   not why or what it did: its words are in `buddy inbox`, and `buddy sent`
   says whether yours reached it.
 - **Ending a lane is the operator's act.** When its work has landed,
-  `buddy who <lane>` shows it holds nothing (and its JOBS line no shell of its
-  own), and it names no job of its own still running, say so. A Codex lane's
+  `buddy who <lane>`'s EXIT line reads "no claims held; no wait declared; no
+  shell found running under it", and it names no job of its own still running,
+  say so. A Codex lane's
   JOBS line says `cannot say: no live harness process is registered for it`,
   always: its hooks bind no process, so the line can never say "no shell" for
   it. Do not wait for one; its DONE words ("no job running") are its account

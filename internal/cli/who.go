@@ -63,10 +63,19 @@ func cmdStatus(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	return sessionReport(env, st, rc.top, si, true)
+	return sessionReport(env, st, rc.top, si, true, "")
 }
 
+// cmdWho. With no argument it reports the caller, exactly as `status` does
+// (D-092): "who am I" is the question a session typing a bare `buddy who`
+// was asking — a usage error cost it a round trip on one fleet, and
+// refusing with "use status" would answer a question it understood with a
+// lecture. D-031 refuses what a verb does not understand; an absent target
+// is understood.
 func cmdWho(args []string, env Env) error {
+	if len(args) == 0 {
+		return cmdStatus(nil, env)
+	}
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return errors.New(usageWho)
 	}
@@ -75,9 +84,15 @@ func cmdWho(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	t, err := resolveTargetQuiet(st, args[0])
+	t, err := st.ResolveTarget(args[0])
 	if err != nil {
-		return err
+		// A slash is how a path reads, and `who .buddy/slot/x` asked about a
+		// path (one fleet's refusals). Labels carry slashes too, so this
+		// suggests and never redirects.
+		if errors.Is(err, store.ErrNoSuchTarget) && strings.Contains(args[0], "/") {
+			return fmt.Errorf("%s; if it is a path, `buddy whose <path>` reports who claims it", fence.Line(err.Error(), 512))
+		}
+		return errors.New(fence.Line(err.Error(), 512))
 	}
 	if t.ID == store.AllTarget {
 		return errors.New("`all` is every session; `buddy sessions` is the roster")
@@ -99,14 +114,20 @@ func cmdWho(args []string, env Env) error {
 	if t.Via == "slug" {
 		fmt.Fprintf(env.Stdout, "%s is claim %s, held by:\n", fence.Line(args[0], 128), strconv.Quote(fence.Line(t.Slug, 128)))
 	}
-	return sessionReport(env, st, rc.top, si, me)
+	onSlug := ""
+	if t.Via == "slug" {
+		onSlug = t.Slug
+	}
+	return sessionReport(env, st, rc.top, si, me, onSlug)
 }
 
 // sessionReport renders every register the ledger holds about one session.
 // Every value is peer text and fenced; every list is capped like `whose`'s,
 // with the total stated when the cap bites, because a report that quietly
-// drops rows is indistinguishable from a smaller one.
-func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, me bool) error {
+// drops rows is indistinguishable from a smaller one. onSlug is the open
+// claim the target was named by, "" for any other name: WAITED ON then
+// speaks for that claim alone (D-092).
+func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, me bool, onSlug string) error {
 	now := nowOf(env)
 	const maxRows = 20
 
@@ -167,16 +188,15 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 			held = append(held, c)
 		}
 	}
+	hs := readHolders(env, st)
 	fmt.Fprintf(env.Stdout, "CLAIMS HELD  %d\n", len(held))
 	for i, c := range held {
 		if i == maxRows {
 			fmt.Fprintf(env.Stdout, "  ...and %d more not shown\n", len(held)-maxRows)
 			break
 		}
-		stale := ""
-		if !c.Renewed.IsZero() && c.Stale(now) {
-			stale = fmt.Sprintf("  STALE (not renewed %s; still refuses)", age(now, c.Renewed))
-		}
+		// The holder's words, not the renewal's (D-090).
+		stale := hs.judge(now, c).rowNote(now)
 		scopes := scopeList(c.Scopes) // whole items, one token each, with a count of what was cut
 		fmt.Fprintf(env.Stdout, "  %-24s held %-4s %sscopes: %s%s\n",
 			fence.Field(c.Slug, 128), age(now, c.Created), sharedWord(c.Shared), scopes, stale)
@@ -245,11 +265,11 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	// A register that could not be READ fails the report, like every other
 	// register here: "none declared" over an error would be an assertion of
 	// absence the ledger never made (Codex code pass).
-	w, ok, err := openWaitOf(st, si)
+	w, declared, err := openWaitOf(st, si)
 	if err != nil {
 		return err
 	}
-	if ok {
+	if declared {
 		c, observed := sampleOf(st, si)
 		fmt.Fprintf(env.Stdout, "WAITING      on %s — declared %s ago, %s, %s; %s%s%s\n",
 			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), deadlinePhrase(now, w), lastCheckPhrase(now, w),
@@ -260,10 +280,25 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	// WAITED ON — the other end (field notes §9's `blocked-on`): the sessions
 	// that declared a wait on a claim this one holds. Information; nothing
 	// here obliges the holder to anything.
-	if len(held) > 0 {
+	//
+	// Named by a claim slug, it is THAT claim's waiters, and the line names
+	// the claim (D-092). It used to be the holder's whole set: on one fleet
+	// `who run32` and `who run33` printed the same three READY riders, each
+	// waiting on one of the two, and the reader could not tell which.
+	var focus []store.ClaimInfo
+	if onSlug != "" {
+		for _, c := range open {
+			if c.Slug == onSlug {
+				focus = append(focus, c)
+			}
+		}
+	} else {
+		focus = held
+	}
+	if len(focus) > 0 {
 		var waiting []store.Wait
 		seen := map[string]bool{}
-		for _, c := range held {
+		for _, c := range focus {
 			ws, err := waitersOn(st, c.ClaimID)
 			if err != nil {
 				return err
@@ -279,18 +314,22 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		for _, w := range waiting {
 			riders = riders || w.ReadySHA != ""
 		}
+		on := ""
+		if onSlug != "" {
+			on = "on claim " + strconv.Quote(fence.Line(onSlug, 128)) + " "
+		}
 		switch {
 		case len(waiting) == 0:
-			fmt.Fprintln(env.Stdout, "WAITED ON    by no declared wait")
+			fmt.Fprintf(env.Stdout, "WAITED ON    %sby no declared wait\n", on)
 		case riders:
 			// A batched run forming (D-049): the holder reads who is in.
 			summary, lines := ridersLines(st, waiting, now)
-			fmt.Fprintf(env.Stdout, "WAITED ON    by %d session(s), %s:\n", len(waiting), summary)
+			fmt.Fprintf(env.Stdout, "WAITED ON    %sby %d session(s), %s:\n", on, len(waiting), summary)
 			for _, ln := range lines {
 				fmt.Fprintln(env.Stdout, ln)
 			}
 		default:
-			fmt.Fprintf(env.Stdout, "WAITED ON    by %d session(s): %s\n", len(waiting), waitersPhrase(st, waiting, now))
+			fmt.Fprintf(env.Stdout, "WAITED ON    %sby %d session(s): %s\n", on, len(waiting), waitersPhrase(st, waiting, now))
 		}
 	}
 
@@ -318,26 +357,45 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	// JOBS — the shells still running under its harness process (jobs.go,
 	// D-065). Beside EXIT because EXIT speaks for the ledger only, and was
 	// read as speaking for the session.
-	if line := jobsLine(env, st, si); line != "" {
+	line, jobsClause := jobsLine(env, st, si)
+	if line != "" {
 		fmt.Fprintln(env.Stdout, line)
 	}
 
-	// EXIT — what the LEDGER would be left holding. A description of
-	// consequences, never permission: nothing here says a session may be
-	// ended, and nothing that could be printed here would make it so.
-	switch {
-	case !si.Live():
+	// EXIT — what ending the session would leave behind, on ONE line: the
+	// claims it holds, its wait, and its shells (D-092). The close test is
+	// all three, and with EXIT speaking for claims alone a coordinator closing
+	// lanes hand-rolled `who | grep -E 'CLAIMS|WAITING|JOBS'` ~35 times in 20
+	// spellings on one fleet. Still a description of consequences, never
+	// permission: nothing here says a session may be ended, and nothing that
+	// could be printed here would make it so (D-027). The jobs clause keeps
+	// "cannot say" apart from "none".
+	if !si.Live() {
 		fmt.Fprintln(env.Stdout, "EXIT         already ended")
-	case len(held) > 0:
+		return nil
+	}
+	clauses := []string{"no claims held"}
+	if len(held) > 0 {
+		clauses[0] = fmt.Sprintf("%d claim(s) held", len(held))
+	}
+	if declared {
+		clauses = append(clauses, "a wait declared"+verdictWord(now, w)+" (WAITING above)")
+	} else {
+		clauses = append(clauses, "no wait declared")
+	}
+	if jobsClause != "" {
+		clauses = append(clauses, jobsClause)
+	}
+	tail := " — the ledger would be left holding no claim (dirty paths, if any, are observations and stay in the tree)"
+	if len(held) > 0 {
 		slugs := make([]string, 0, len(held))
 		for _, c := range held {
 			slugs = append(slugs, c.Slug)
 		}
-		fmt.Fprintf(env.Stdout, "EXIT         ending now would leave %d claim(s) held — freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: %s\n",
-			len(held), joinCapped(slugs, 512))
-	default:
-		fmt.Fprintln(env.Stdout, "EXIT         no claims held; the ledger would be left holding nothing (dirty paths, if any, are observations and stay in the tree)")
+		tail = fmt.Sprintf(" — ending now would leave the claim(s) held, freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: %s",
+			joinCapped(slugs, 512))
 	}
+	fmt.Fprintln(env.Stdout, "EXIT         "+strings.Join(clauses, "; ")+tail)
 	return nil
 }
 

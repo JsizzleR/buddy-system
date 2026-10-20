@@ -397,7 +397,7 @@ func TestHelloClaimsRemainderFitsItsReserve(t *testing.T) {
 	cut := 0
 	for room := floor; room <= floor+4000; room++ {
 		var b strings.Builder
-		writeHelloClaims(&b, claims, me, now, room)
+		writeHelloClaims(&b, claims, me, now, room, holders{})
 		if b.Len() > room {
 			t.Fatalf("room %d: wrote %d bytes:\n%s", room, b.Len(), b.String())
 		}

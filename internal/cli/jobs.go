@@ -97,14 +97,20 @@ func selfChain(self int, table []procEntry) map[int]bool {
 }
 
 // jobsLine renders the JOBS line for a LIVE session, or "" when there is
-// nothing to say (an ended session: EXIT already says so).
-func jobsLine(env Env, st *store.Store, si store.SessionInfo) string {
+// nothing to say (an ended session: EXIT already says so), and the clause
+// the EXIT line restates it in (D-092): the close test is claims, wait AND
+// jobs, and a reader that has to grep three lines for it wrote ~35 pipelines
+// in 20 spellings on one fleet. The clause keeps "cannot say" apart from
+// "none" (D-016): a session whose table could not be read is not one with no
+// shell.
+func jobsLine(env Env, st *store.Store, si store.SessionInfo) (line, exit string) {
 	if !si.Live() {
-		return ""
+		return "", ""
 	}
+	const cannot = "its shells: cannot say (JOBS above)"
 	procs, err := st.SessionProcs()
 	if err != nil {
-		return "JOBS         cannot say: the ledger's process register could not be read"
+		return "JOBS         cannot say: the ledger's process register could not be read", cannot
 	}
 	var anchors []store.ProcRef
 	for _, p := range procs[si.SessionID] {
@@ -113,11 +119,11 @@ func jobsLine(env Env, st *store.Store, si store.SessionInfo) string {
 		}
 	}
 	if len(anchors) == 0 {
-		return "JOBS         cannot say: no live harness process is registered for it"
+		return "JOBS         cannot say: no live harness process is registered for it", cannot
 	}
 	table, self, ok := env.procTable()
 	if !ok {
-		return "JOBS         cannot say: this platform's process table is not read"
+		return "JOBS         cannot say: this platform's process table is not read", cannot
 	}
 	byPID := make(map[int]procEntry, len(table))
 	for _, p := range table {
@@ -129,21 +135,23 @@ func jobsLine(env Env, st *store.Store, si store.SessionInfo) string {
 	var pids []string
 	for _, a := range anchors {
 		if e, found := byPID[a.PID]; !found || (a.Born != 0 && e.Born != a.Born) {
-			return fmt.Sprintf("JOBS         cannot say: its harness process (pid %d) was not the registered one when the table was sampled", a.PID)
+			return fmt.Sprintf("JOBS         cannot say: its harness process (pid %d) was not the registered one when the table was sampled", a.PID), cannot
 		}
 		pids = append(pids, fmt.Sprint(a.PID))
 		shells = append(shells, shellsUnder(a.PID, table, skip)...)
 	}
 	under := "its harness process (pid " + strings.Join(pids, ", ") + ")"
 	if len(shells) == 0 {
-		return "JOBS         no shell found directly under " + under + " when sampled, besides any running this report (a job that exec'd into another program, or runs under a wrapper, is not seen)"
+		return "JOBS         no shell found directly under " + under + " when sampled, besides any running this report (a job that exec'd into another program, or runs under a wrapper, is not seen)",
+			"no shell found running under it"
 	}
 	items := make([]string, 0, len(shells))
 	for _, s := range shells {
 		items = append(items, fmt.Sprintf("pid %d %s", s.PID, age(now, time.UnixMicro(s.Born))))
 	}
 	return fmt.Sprintf("JOBS         %d shell(s) running directly under %s when sampled: %s — the ledger does not track them, and closing its pane may end them",
-		len(shells), under, joinCapped(items, 256))
+			len(shells), under, joinCapped(items, 256)),
+		fmt.Sprintf("%d shell(s) running under it (JOBS above)", len(shells))
 }
 
 // procTable reads the process table and the caller's own pid, or reports
