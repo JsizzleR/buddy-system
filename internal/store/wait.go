@@ -95,11 +95,25 @@ type WaitTarget struct {
 	// has not released. OutcomeNote is peer text: the caller fences it.
 	Outcome     string
 	OutcomeNote string
+	// HandedToWaiter: the claim is open and held by the waiter itself, under
+	// the incarnation that declared the wait. Nothing but `release --to`
+	// makes that true — DeclareWait refuses a wait on your own claim, and a
+	// claim id changes hands only by transfer — so it means "a holder handed
+	// the awaited claim to you" (D-093). Computed from the claims table at
+	// read time like every other verdict input (D-020's rule): nothing is
+	// written when it happens, and handing the claim on again un-does it.
+	HandedToWaiter bool
 }
 
 // IsOpen reports whether the awaited claim is still open. A row that is gone
 // is closed: sweep deletes only released and orphaned rows.
 func (t WaitTarget) IsOpen() bool { return t.State == "open" }
+
+// Pending reports whether the waiter is still waiting on this target: the
+// claim is open and somebody ELSE holds it. A claim handed to the waiter is
+// open and over (D-093): what the waiter waited for was the claim, and it has
+// it.
+func (t WaitTarget) Pending() bool { return t.IsOpen() && !t.HandedToWaiter }
 
 // Wait is one session's declared wait, with its targets.
 type Wait struct {
@@ -135,7 +149,8 @@ const (
 	WaitExpired
 )
 
-// Landed reports whether every awaited claim is closed. A wait with no
+// Landed reports whether every awaited claim is closed or was handed to the
+// waiter (D-093). A wait with no
 // target is a pure timer: it NEVER lands, it expires — it exists so a session
 // parked on something outside the ledger (an external test tier) keeps its
 // cache and its inbox without inventing a claim to wait on.
@@ -144,7 +159,7 @@ func (w Wait) Landed() bool {
 		return false
 	}
 	for _, t := range w.Targets {
-		if t.IsOpen() {
+		if t.Pending() {
 			return false
 		}
 	}
@@ -452,6 +467,15 @@ func (s *Store) OpenWaits() ([]Wait, error) {
 		WHERE w.cleared IS NULL AND ws.ended IS NULL`)
 }
 
+// SettleEnded runs the housekeeping a check runs first (cleanupEnded) in its
+// own short transaction, and nothing else. For `wait --block` (D-095), which
+// reads without writing and so would otherwise sit on a claim whose holder has
+// said bye until its deadline, the failure cleanupEnded's own header names;
+// it calls this only when a read shows such a holder.
+func (s *Store) SettleEnded() error {
+	return s.tx(func(tx *sql.Tx) error { return cleanupEnded(tx, s.now().Unix()) })
+}
+
 // MarkWaitTold records that beat announced this declaration's landing.
 // Keyed by the declaration, never by the session alone or by `since` (see the
 // header), and called only after the write that carried the notice succeeded
@@ -515,7 +539,8 @@ func waitsWhere(q querier, where string, args ...any) ([]Wait, error) {
 			COALESCE(c.outcome,''), COALESCE(c.outcome_note,''),
 			COALESCE(h.session_id,''), COALESCE(h.incarnation,''), COALESCE(h.label,''), COALESCE(h.worktree,''),
 			COALESCE(h.started,0), COALESCE(h.last_seen,0), COALESCE(h.ended,0),
-			COALESCE(r.claim_id,''), COALESCE(rh.label,''), COALESCE(r.created,0)
+			COALESCE(r.claim_id,''), COALESCE(rh.label,''), COALESCE(r.created,0),
+			COALESCE(c.session_id,''), COALESCE(c.incarnation,'')
 		FROM session_waits w
 		LEFT JOIN session_wait_targets t ON t.decl=w.decl AND t.session_id=w.session_id
 		LEFT JOIN claims c ON c.claim_id=t.claim_id
@@ -534,17 +559,18 @@ func waitsWhere(q querier, where string, args ...any) ([]Wait, error) {
 		var told int
 		var t WaitTarget
 		var renewed int64
-		var reopenedID string
+		var reopenedID, ownerID, ownerInc string
 		if err := rows.Scan(&w.SessionID, &w.Incarnation, &w.Decl, unixScan{&w.Since}, unixScan{&w.Deadline}, &w.Note,
 			unixScan{&w.LastCheck}, &w.Checks, &told, unixScan{&w.Cleared}, &w.Reason, &w.ReadySHA,
 			&t.ClaimID, &t.Slug, &t.State, &renewed, &t.Outcome, &t.OutcomeNote,
 			&t.Holder.SessionID, &t.Holder.Incarnation, &t.Holder.Label, &t.Holder.Worktree,
 			unixScan{&t.Holder.Started}, unixScan{&t.Holder.LastSeen}, unixScan{&t.Holder.Ended},
-			&reopenedID, &t.ReopenedBy, unixScan{&t.ReopenedAt}); err != nil {
+			&reopenedID, &t.ReopenedBy, unixScan{&t.ReopenedAt}, &ownerID, &ownerInc); err != nil {
 			return nil, err
 		}
 		w.Told = told != 0
 		t.Reopened = reopenedID != ""
+		t.HandedToWaiter = t.State == "open" && ownerID == w.SessionID && ownerInc == w.Incarnation
 		if t.State != "" && t.State != "open" && renewed != 0 {
 			t.Closed = time.Unix(renewed, 0)
 		}

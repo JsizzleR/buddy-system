@@ -580,7 +580,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   for its wake line. Repo-specific parameters stay in the repo's own skill. No task table.
 - **A holder hands an open claim on with `release <slug> --to <target>` (D-063):** one transaction
   moves owner and incarnation, keeping the claim id, so its waits follow it; refuses a dead sender,
-  an ended/re-registered recipient, a recipient waiting on it, and an overlap it could not claim.
+  an ended/re-registered recipient, and an overlap it could not claim (a recipient waiting on it:
+  no longer refused, D-093).
 - **The handoff size may be declared fleet-wide (D-064):** a settings `env` entry reaches the
   hook (measured); `install.sh` reports whether `BUDDY_HANDOFF_AT` is set there; the line names a
   coordinator's arm and a lane's (a lane finishes its item and reports; it opens no successor).
@@ -683,6 +684,17 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **A non-hook verb run under the native harness id moves `last_seen`, nothing else (D-086):**
   `heardVerb`, before the verb; `ended IS NULL`; never for `--session`/`BUDDY_SESSION`; no idle,
   renewal, process or lifecycle change. Not init, hook verbs, lifecycle, adapter or diagnose.
+- **`release` takes several slugs as ONE transaction, all or nothing (D-093):** `--to` moves the
+  set with one notice and scans overlap against everyone but the set; a refusal prints the WHOLE
+  conflict set. A wait target the waiter itself holds (only `--to` gets it there) is over, computed
+  at read: the recipient's check/beat say LANDED "handed to you"; nothing cleared. `--scope`,
+  `--outcome`, `--note` stay single-slug.
+- **`who <slug>` prints every scope of that claim, one `fence.Field` line each, uncut (D-094).**
+  Every other view keeps its 512-byte cap.
+- **`wait --on <slug> --block` exits with the verdict (D-095, amends D-033):** 0 LANDED, 3
+  EXPIRED, 4 cleared/replaced, 5 session ended; prints the check's line and closes the row after
+  it. Reads every 15 s, never a check (counters untouched), no lock across a sleep; run under
+  run_in_background so the harness's notice is the wake. A timer with `--block` is refused.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

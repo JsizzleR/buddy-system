@@ -895,6 +895,25 @@ ledger row entered through the CLI (D-006).
     adapter or diagnose. A verb is not a late event, so it takes no incarnation (D-069 fences
     events). Do not propose clearing idle or renewing claims from it.
 
+88. **`release` takes several slugs as ONE transaction, all or nothing; a recipient waiting on
+    a claim it is handed lands (D-093, narrowing D-063).** `--to` moves every named claim before
+    any is scanned, so overlap is checked against everyone but the set; one notice for the set;
+    a refusal prints its whole conflict set. A wait target the waiter itself holds (only
+    `release --to` gets it there) is over, computed at read time; nothing is cleared, so a
+    multi-target wait stays pending until its other targets close. `--scope`/`--outcome`/`--note`
+    stay single-slug. Do not propose clearing the recipient's wait, or refusing it again.
+
+89. **`who <slug>` prints every scope of that claim, one `fence.Field` line each, uncut
+    (D-094).** Every other view keeps its 512-byte cap. Do not propose lifting the cap
+    elsewhere or adding `--json`.
+
+90. **`wait --on <slug> --block` exits with the verdict (D-095, amending D-033).** 0 LANDED, 3
+    EXPIRED, 4 cleared or replaced, 5 session ended; the check's own line; the row closed after
+    the write. Autocommit reads every 15 s: never a check, never a keep-alive, no lock across a
+    sleep (the one write is cleanupEnded's, only for an ended holder). Buddy still wakes nothing:
+    the harness's completion notice is the wake. Do not propose having it wake, schedule, or
+    bump the check counters.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

@@ -345,6 +345,8 @@ indistinguishable from a binary that had nothing to say.
 buddy claim api-refactor --desc "reworking the handler layer" --scope internal/api
 buddy ls                          # the board: who holds what, STALE flags
 buddy release api-refactor
+buddy release api-refactor api-refactor-shared   # several: ONE transaction, all or nothing (D-093)
+buddy who api-refactor            # every scope of the claim, one per line, uncut (D-094)
 ```
 
 One `--scope` per path. A comma list is refused, and nothing is written: it
@@ -903,6 +905,25 @@ buddy wait --on api-work --until 3h --note "then: rebase, run check.sh"
 buddy wait ls                        # every open wait, oldest first     buddy wait clear   # withdraw yours
 ```
 
+**Blocking instead of a loop (D-095).** `buddy wait --on <slug> --block`
+declares the same wait, then stays running and exits with the verdict,
+printing the line `wait check` prints: 0 LANDED (released, an outcome, or
+handed to you), 3 EXPIRED, 4 cleared or replaced by a newer declaration, 5 the
+session ended. Run it under the harness's run_in_background and the harness's
+completion notice is the wake; buddy still wakes nothing. It re-reads the
+ledger every 15 s and never writes a check (the keep-alive counters stay the
+loop's), so it keeps no cache warm: a park past about 50 minutes on a 1-hour
+tier still arms `/loop buddy wait check`. A timer (no `--on`) with `--block`
+is refused. It replaces the `until buddy ls | grep …; do sleep 60; done` loops
+one fleet wrote 15+ of.
+
+```sh
+buddy wait --on api-work --until 3h --block     # run_in_background; exit 0 when api-work lands
+# WAITING on claim "api-work" (…) — deadline in 3h0m
+# BLOCKING until it lands: the ledger is re-read every 15s (reads only; not a check) — exit 0 LANDED, 3 EXPIRED, 4 cleared or replaced, 5 this session ended
+# LANDED: claim "api-work" released 4s ago — the wait is over after 41m; stop any /loop that runs `buddy wait check` (schedule no further check)
+```
+
 A session parked waiting for a peer — a claim to be released, a serialized
 hour-long test tier, a review slot — runs no turn, and every prompt-cache
 entry here is written on the **1-hour tier**. Past the hour its next request
@@ -1184,11 +1205,15 @@ sees, and where each fact lives:
   never in buddy.
 
 - **A handoff moves the claims, not their ids**: the outgoing orchestrator
-  runs `buddy release <run> --to <successor>` and then
-  `buddy release orchestrator --to <successor>` (D-063). Each claim stays open
-  with its scopes and every wait on it, so riders stay READY on `who <run>`
-  and land on the successor's outcome; the successor is sent a message saying
-  what it was handed. Release-then-claim would mint new claims and land every
+  runs `buddy release <run> orchestrator --to <successor>` (D-063, D-093): one
+  transaction, all or nothing, one notice. Each claim stays open with its
+  scopes and every wait on it, so riders stay READY on `who <run>` and land on
+  the successor's outcome; the successor is sent one message saying what it
+  was handed, and if it was already waiting on one of them, that wait LANDS
+  ("handed to you"). `buddy who <slug>` prints every scope of a claim, uncut,
+  for the re-claim that refreshes its description (D-094). A refused handover
+  prints every conflict it counts: claims of yours that overlap each other
+  move only together. Release-then-claim would mint new claims and land every
   rider with no outcome.
 
 Buddy keeps no task table. The claim is the responsibility, `wait --ready` is

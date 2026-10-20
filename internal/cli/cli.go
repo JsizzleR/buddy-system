@@ -54,6 +54,9 @@ type Env struct {
 	// SockDir is where the harness's per-process message sockets live (wake.go);
 	// "" means the real one. A seam for the reason Anchor is one.
 	SockDir string
+	// Sleep is `wait --block`'s pause between reads (D-095); nil means
+	// time.Sleep. A seam so a test can act between two reads.
+	Sleep func(time.Duration)
 }
 
 func (e Env) getenv(k string) string {
@@ -128,7 +131,7 @@ var verbs = map[string]verb{
 	"who":         {usageWho, heardVerb("who", cmdWho)},
 	"authority":   {usageAuthority, heardVerb("authority", cmdAuthority)},
 	"ids":         {idsUsage, heardVerb("ids", cmdIDs)},
-	"wait":        {usageWait, heardVerb("wait", cmdWait)},
+	"wait":        {usageWait, waitVerb},
 	"lifecycle":   {usageLifecycle, errVerb("lifecycle", cmdLifecycle)},
 	"adapter":     {usageAdapter, errVerb("adapter", cmdAdapter)},
 	"diagnose":    {usageDiagnose, errVerb("diagnose", cmdDiagnose)},
@@ -312,7 +315,7 @@ const (
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
 	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--dry-run] [--session <id>]"
-	usageRelease    = "usage: buddy release <slug> [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--session <id>]"
+	usageRelease    = "usage: buddy release <slug>... [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--session <id>]\n       (several slugs release, or with --to hand on, as ONE transaction: all or nothing; --scope and --outcome take one slug)"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
@@ -2780,7 +2783,15 @@ func cmdRelease(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return errors.New(usageRelease)
 	}
-	slug := args[0]
+	// The slugs come first, every argument before the first flag (D-093): a
+	// loop of one-slug calls was how a fleet handed sets on, and it sent the
+	// recipient one notice per claim and could stop half done.
+	var slugs []string
+	for len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		slugs = append(slugs, args[0])
+		args = args[1:]
+	}
+	slug := slugs[0]
 	fs := flag.NewFlagSet("release", flag.ContinueOnError)
 	var session string
 	sessionFlag(fs, &session)
@@ -2789,11 +2800,17 @@ func cmdRelease(args []string, env Env) error {
 	outcome := fs.String("outcome", "", "what became of the job the claim guarded: pass, fail or aborted (D-049)")
 	note := fs.String("note", "", "with --outcome: one line for the waiters (the tested commit, who was in, who is next)")
 	to := fs.String("to", "", "hand the whole claim to this live session instead, keeping it open with its waits (D-063)")
-	if help, err := parseFlags(fs, args[1:], usageRelease, env); help || err != nil {
+	if help, err := parseFlags(fs, args, usageRelease, env); help || err != nil {
 		return err
 	}
 	if err := noStray("release", fs, usageRelease); err != nil {
 		return err
+	}
+	if len(slugs) > 1 && (len(scopes) > 0 || *outcome != "" || *note != "") {
+		// An outcome reports on ONE job and --scope names scopes of ONE
+		// claim; spread over a set, either would say something about claims
+		// it does not describe.
+		return fmt.Errorf("--scope, --outcome and --note take one slug, and %d were named; nothing was released\n  %s", len(slugs), usageRelease)
 	}
 	// `--to ""` must not fall through to a plain release: the caller asked to
 	// hand the claim on, and a release would land every waiter on it.
@@ -2832,7 +2849,20 @@ func cmdRelease(args []string, env Env) error {
 		return err
 	}
 	if *to != "" {
-		return releaseTo(st, env, si, slug, *to)
+		return releaseTo(st, env, si, slugs, *to)
+	}
+	if len(slugs) > 1 {
+		ids, err := st.ReleaseClaims(si.SessionID, si.Incarnation, slugs)
+		if err != nil {
+			return fencedErr(fmt.Errorf("%w; nothing was released", err))
+		}
+		// One line per claim, after the one commit: each names its own
+		// waiters, read by the id the release's transaction returned.
+		named := dedupe(slugs)
+		for i, id := range ids {
+			fmt.Fprintf(env.Stdout, "released %s%s\n", strconv.Quote(fence.Line(named[i], 128)), releasedWaitersNote(st, id, env))
+		}
+		return nil
 	}
 	if len(scopes) > 0 {
 		// The holder narrowing its own reservation (wishlist §5b): the only
@@ -2876,34 +2906,98 @@ func cmdRelease(args []string, env Env) error {
 	return nil
 }
 
-// releaseTo hands an open claim to another live session (D-063; the rules
-// and their failures are in store/transfer.go). The move is ONE transaction;
-// the notice to the recipient is a second write that can fail after the move
-// has committed, so the receipt for the move is printed first and a failed
-// notice is reported as exactly that — never as a failed release, which would
-// invite a retry of a move that already happened (Codex design pass). The
-// notice goes to the session the transfer resolved, by id, and never to a
-// fresh resolution of the argument: a slug target can change hands between
-// the two. It is information only: the ledger row is the authority
-// (invariant 4), and nothing asks the recipient's consent (cut; D-063).
-func releaseTo(st *store.Store, env Env, si store.SessionInfo, slug, raw string) error {
+// releaseTo hands open claims to another live session (D-063, D-093; the
+// rules and their failures are in store/transfer.go). The move is ONE
+// transaction however many claims it names; the notice to the recipient is a
+// second write that can fail after the move has committed, so the receipt for
+// the move is printed first and a failed notice is reported as exactly that —
+// never as a failed release, which would invite a retry of a move that
+// already happened (Codex design pass). ONE notice and one wake for the whole
+// set: a for-loop of single handovers sent one fleet's recipient 8-10 notices
+// and printed 8 wake lines. The notice goes to the session the transfer
+// resolved, by id, and never to a fresh resolution of the argument: a slug
+// target can change hands between the two. It is information only: the
+// ledger row is the authority (invariant 4), and nothing asks the recipient's
+// consent (cut; D-063).
+func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, raw string) error {
 	tgt, err := resolveTargetQuiet(st, raw)
 	if err != nil {
 		return err
 	}
-	claimID, label, err := st.TransferClaim(si.SessionID, si.Incarnation, slug, tgt)
+	moved, label, err := st.TransferClaims(si.SessionID, si.Incarnation, slugs, tgt)
 	if err != nil {
+		// The WHOLE set, one fenced line each, before the one-line error. The
+		// error's "and N more conflict(s), listed above" was printed over a
+		// listing that only `claim` ever printed (D-093: measured, a sender
+		// handing on claims that overlapped its own read "7 more ... listed
+		// above" over nothing).
+		var refused store.ErrRefused
+		if errors.As(err, &refused) {
+			all := append([]store.ErrRefused{refused}, refused.More...)
+			set := make([]store.Conflict, 0, len(all))
+			for _, r := range all {
+				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug,
+					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared})
+			}
+			printConflicts(env, set)
+			fmt.Fprintln(env.Stdout, "(each REFUSED line is a scope of a claim being handed on that overlaps a claim staying where it is; claims named together move together, so name every claim of yours that overlaps)")
+		}
 		return fencedErr(fmt.Errorf("%w; nothing was handed on", err))
 	}
-	line := fmt.Sprintf("handed %s to %s — it stays open, with its scopes", strconv.Quote(fence.Line(slug, 128)), fence.Line(label, 64))
-	if waiters, err := waitersOn(st, claimID); err == nil && len(waiters) > 0 {
-		line += fmt.Sprintf(", and the %d wait(s) on it follow it: %s", len(waiters), waitersPhrase(st, waiters, nowOf(env)))
+	quoted := make([]string, 0, len(moved))
+	for _, m := range moved {
+		quoted = append(quoted, strconv.Quote(fence.Line(m.Slug, 128)))
+	}
+	names := strings.Join(quoted, ", ")
+	line := fmt.Sprintf("handed %s to %s — it stays open, with its scopes", names, fence.Line(label, 64))
+	if len(moved) > 1 {
+		line = fmt.Sprintf("handed %d claims to %s in one transaction: %s — each stays open, with its scopes", len(moved), fence.Line(label, 64), names)
+	}
+	var resolved []string
+	for _, m := range moved {
+		if m.RecipientWaited {
+			resolved = append(resolved, strconv.Quote(fence.Line(m.Slug, 128)))
+		}
+		var others []store.Wait
+		if waiters, err := waitersOn(st, m.ClaimID); err == nil {
+			for _, w := range waiters {
+				if w.SessionID != tgt.ID {
+					others = append(others, w)
+				}
+			}
+		}
+		if len(others) > 0 {
+			pre := " on it"
+			if len(moved) > 1 {
+				pre = " on " + strconv.Quote(fence.Line(m.Slug, 128))
+			}
+			line += fmt.Sprintf(", and the %d wait(s)%s follow it: %s", len(others), pre, waitersPhrase(st, others, nowOf(env)))
+		}
+	}
+	if len(resolved) > 0 {
+		// D-093: the recipient was waiting on what it was handed. Its wait is
+		// not cleared — the move resolved it, and its own check says so.
+		line += fmt.Sprintf("; %s was waiting on %s, and that wait is resolved by this (its `buddy wait check` says LANDED, handed to you)",
+			fence.Line(label, 64), strings.Join(resolved, ", "))
 	}
 	sender := senderFor(st, env, "")
 	sid, known := senderSession(st, env)
 	rcpt := observe(st, env, tgt.ID)
-	body := fmt.Sprintf("handed you claim %s (release --to, D-063): it is yours now, open, with its scopes and every wait on it. `buddy status` lists it; re-claim it with the SAME scopes to refresh its description.",
-		strconv.Quote(slug))
+	raws := make([]string, 0, len(moved))
+	for _, m := range moved {
+		raws = append(raws, strconv.Quote(m.Slug))
+	}
+	what := "claim " + raws[0] + " (release --to, D-063): it is yours now, open, with its scopes and every wait on it. `buddy status` lists it"
+	if len(raws) > 1 {
+		what = fmt.Sprintf("%d claims in one transaction (release --to, D-063): %s. They are yours now, open, each with its scopes and every wait on it. `buddy status` lists them",
+			len(raws), strings.Join(raws, ", "))
+	}
+	// `who <slug>` because every other view cuts a scope list at 512 bytes,
+	// and the advice below is to re-claim with ALL of them (D-094).
+	body := "handed you " + what + "; `buddy who <slug>` prints every scope, to re-claim with the SAME scopes when you refresh a description."
+	if len(resolved) > 0 {
+		body += " Your wait on it is resolved: your next `buddy wait check` says LANDED, handed to you."
+	}
 	id, err := st.Send(tgt, sender, body, store.SendOpts{SenderSession: sid, SenderKnown: known})
 	if err != nil {
 		fmt.Fprintln(env.Stdout, line+"; telling them FAILED (the claim did move): "+fence.Line(err.Error(), 256)+" — `buddy msg` them yourself")
@@ -2920,6 +3014,20 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slug, raw string)
 		fmt.Fprintf(env.Stderr, "buddy: message #%d to %s is queued; %s\n", id, fence.Line(label, 64), wake)
 	}
 	return nil
+}
+
+// dedupe drops repeated slugs, keeping the first of each in order: the store
+// counts a repeat once, and the ids it returns line up with this.
+func dedupe(slugs []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range slugs {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // releasedWaitersNote names the sessions that declared a wait on the claim
