@@ -683,6 +683,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **A non-hook verb run under the native harness id moves `last_seen`, nothing else (D-086):**
   `heardVerb`, before the verb; `ended IS NULL`; never for `--session`/`BUDDY_SESSION`; no idle,
   renewal, process or lifecycle change. Not init, hook verbs, lifecycle, adapter or diagnose.
+- **Mail reaches the session it was sent to (D-099).** A hook with `agent_id` (a subagent's tool
+  call, under the parent's id; documented and in the 2.1.304 schema, not measured live) beats but
+  drains nothing and consumes no LANDED/authority notice (181 messages reached 186 subagent
+  transcripts on one fleet). Every drain holds the write lock from read to mark (`store.Drain`;
+  8 parallel beats delivered one message 4 times). `idle` checks mail and marks idle in ONE tx
+  (`store.StopTurn`): queued legacy mail becomes a Stop `decision: block`, never when
+  `stop_hook_active`, and `msg` re-reads idle after its insert for the wake. `inbox <id>` re-reads
+  one message addressed to you, marks nothing, and refuses others' without the body.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

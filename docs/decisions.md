@@ -6586,3 +6586,142 @@ a refused release, Claude status: heard; override only, `--session` only,
 disagreeing natives, `diagnose`: not heard; a bystander never moves),
 `TestHeardSessionIsNotReportedStale` (the trial's case end to end through `msg`
 and `sessions`, with the stale control first), `TestHeardNeverRevives`.
+
+## D-099 — Mail reaches the session it was sent to: subagent hooks drain nothing, a drain holds the write lock, a Stop hands queued mail over, and `inbox <id>` re-reads
+
+2026-10-20. Findings A, B and G of the audit of one fleet of 144 Claude Code
+sessions (2026-10-14..20). Amends D-016 (idle is withheld when the Stop hook
+continues the turn), D-034 / D-040 (who drains, and under what lock) and D-039
+(when the wake is named).
+
+**A. A subagent's tool call drained the parent's inbox.** Claude Code fires
+the configured PostToolUse hooks for a tool call made inside a subagent, with
+the PARENT's `session_id`. `beat` drained the inbox into that call's output,
+which lands in the SUBAGENT's context, and marked it delivered; `buddy sent`
+then reported a recorded delivery. Counted on the fleet: 181 distinct messages
+reached 186 subagent transcripts, at least 30 of them absent from the main
+transcript (an orchestrator's ruling; "your successor is …"). Sessions noticed
+("a read-only panel subagent drained my inbox") and worked around it by telling
+every subagent to relay mail, or by pasting the whole instruction into the
+SendMessage wake, bypassing the ledger and the fence. The one-shot notices rode
+the same drain, so a subagent consumed LANDED and authority notices too.
+
+*The marker.* `hookInput.AgentID` was parsed already; `lifecycle.go` refused
+it as a subagent identity for Codex events (D-069), a guard, not a
+measurement. For Claude Code the field is documented ("the input carries the
+`agent_id` and `agent_type` common input fields that identify the subagent")
+and the installed 2.1.304 binary's hook-input schema says `agent_id` is
+"Present only when the hook fires from within a subagent … Absent for the main
+thread, even in --agent sessions". **Not measured on a live subagent
+PostToolUse payload**; a hook that logs its stdin under a subagent would
+measure it, and needs a settings change that is the operator's.
+
+*The decision.* `hookInput.subagent()` is `agent_id` (or the Codex parent
+markers) present. Such a beat is still the session's heartbeat — seen, claim
+renewal, the dirty path, the footprint from `transcript_path` (the parent's) —
+because a subagent's write is the session's work. It drains nothing and
+composes no authority or LANDED notice, so those wait for the main thread's
+next tool call. The dirty-path warning still shows to the subagent: it is about
+the file that call touched, and the subagent is the one editing it. `busy` and
+`idle` return before draining for the same marker (Claude fires SubagentStop,
+not Stop, for a subagent, so these are guards for a wiring that names them).
+
+**A'. Concurrent beats each delivered one message.** Three parallel Agent
+calls injected one message three times in one millisecond: `Undelivered` (a
+read), the write, then `MarkDelivered` (INSERT OR IGNORE), so two readers both
+found it unmarked. Reproduced first: eight concurrent beats in-process
+delivered one message four times. `store.Drain` now takes the write lock
+(BEGIN IMMEDIATE) before the read and holds it across the caller's write and
+the mark; a second drain waits in BEGIN and then reads nothing. Write first,
+mark after still holds — a failed write rolls back and marks nothing, and a
+process that dies between write and commit is redelivered. The read runs on a
+second pooled connection (WAL: a reader is never blocked, and with the lock
+held no one else can commit), so `Undelivered` stays the one query deciding
+what a session is owed. The lock is taken only when a plain read finds mail,
+so a beat with nothing queued opens no write transaction, as before. beat,
+busy, idle and `inbox` all drain this way; hello's SessionStart drain is
+unchanged. *Cut:* mark first and write after (a failed write becomes a lost
+message); a lease column (a schema bump for what a transaction gives).
+*Residual:* the authority and LANDED notices are composed before the lock, so
+two concurrent beats can each carry one once; the finding counted message
+duplicates only.
+
+**B. Mail queued between a session's last tool call and its Stop was
+stranded.** The lane pattern is "msg the orchestrator, stop", so the reply
+lands seconds after the lane's last tool call. `msg` saw "last seen 4s ago" and
+named no wake (D-039: a session seen recently drains on its own); the Stop then
+marked the session idle with the mail queued, and nothing runs a tool at a
+prompt. Six confirmed stalls of 6, 15, 31, 58, 67 and 75 minutes (one: msg at
+20:13:20.7, the target's last tool call 20:13:13, its turn ended 20:13:21.9);
+at least 30 sends per bucket printed no wake for that reason. Senders
+compensated with a hand-typed fixed wake, which the harness drops as an
+identical repeat (D-059's collision).
+
+*The decision.* `idle` runs `store.StopTurn`: in ONE transaction, MarkIdle's
+incarnation fence, then — unless the payload's `stop_hook_active` is true —
+the queued mail. If there is any, it is drained by beat's rules (bound, fence,
+write then mark) into a Stop document `{"decision":"block","reason":…}` whose
+reason is one buddy line and the fenced inbox block, and the session is NOT
+marked idle (an earlier mark is retracted): the turn goes on with its mail.
+Otherwise idle is recorded exactly as before. The settings line `buddy idle
+2>/dev/null; exit 0` exits 0 with the JSON on stdout, which is the documented
+shape ("`decision`: `"block"` prevents Claude from stopping"; `reason`
+"Tells Claude why it should continue").
+
+- **Never twice in a row.** A turn a Stop hook already continued says so
+  (`stop_hook_active`, "true when Claude Code is already continuing as a result
+  of a stop hook"); it is marked idle with its mail queued, so a peer writing
+  in a loop cannot keep a session from resting. Mail sent after that idle mark
+  is woken by `msg`. **Residual (Codex code pass):** mail queued DURING a
+  continued turn, after its last tool call, is stranded as before — `msg` sees
+  no idle mark and the second Stop may not hold the turn. Closing it needs a
+  second hold (overturning this rule) or the time of the last hold (a schema
+  change); neither is taken here.
+- **Never for a subagent** (A), **never for adapter mail** (Undelivered
+  excludes it; D-076).
+- **A failed write** marks nothing and records the idle mark after all: the
+  session is resting with its mail queued, and the next `msg` must see that.
+- **Not inferring busy (D-016).** The idle mark is withheld because the hook
+  itself is continuing the turn, which is an event, not an inference.
+
+*The other end of the race.* `msg` observes its recipient BEFORE its insert,
+so the backlog it reports is the earlier messages. A Stop that committed
+between the observation and the insert found no mail and marked idle, and the
+send named no wake. `msg` now re-reads the idle register AFTER the insert when
+the first observation had none (`idleAfterSend`). With the Stop's check and
+mark in one transaction, after the insert exactly one is true: the Stop saw
+the mail and held the turn, or its idle mark is there to read and the wake is
+named. The result line's note still says what was seen before the insert; the
+wake may now sit beside "last seen 2s ago". An idle report already won over
+recency in the wake rule; that is now said in wake.go's header and pinned by a
+case. `release --to`'s notice is not re-read (it is another verb's send path).
+
+*Cut:* the mail as Stop `additionalContext` (documented to continue the turn
+too, but whether the next Stop then carries `stop_hook_active` is unmeasured,
+and the loop guard rests on it); a wake for any recipient seen recently (it
+would fire on every send to a working session).
+
+**G. A delivered message could not be read again.** `buddy inbox --all` was
+tried 3 times and `inbox --help` 9 times; two led to a resend round trip.
+`buddy inbox [--session <id>] <id>` re-prints one message addressed to the
+caller — by session id or current label, or a broadcast whose recipient
+snapshot holds it — in any state (delivered, queued, expired), through the same
+`inboxLine` fence as a drain, then one line of buddy's own giving that state.
+It marks nothing. Another session's message, an unknown id and adapter mail
+get ONE refusal with no body, so the difference reveals nothing about mail the
+caller was not sent; `buddy sent <id>` stays the sender's view. A word after
+the id is refused (the flag parser stops at it).
+
+**Tests** — `TestConcurrentBeatsDeliverAMessageOnce` (8 concurrent beats × 5
+rounds; failed on the old drain), `TestSubagentBeatLeavesTheParentsMailQueued`
+and `TestSubagentBeatLeavesTheOneShotNoticesForTheMainThread` (each with the
+main-thread positive control), `TestStopHandsQueuedMailOverInsteadOfResting`
+(mail, none, `stop_hook_active`, subagent), `TestStopWithAFailedWriteRestsWithItsMailQueued`,
+`TestStopNeverHoldsATurnForAdapterMail` (legacy-mail positive control),
+`TestInboxRereadsOneOfMyMessages`, and the wake case "idle a second after its
+last tool call". Each fix was mutated in a private copy and its test watched
+fail (eleven mutants, all killed; the subagent LANDED guard is two guards,
+killed only with both removed). Review: one lite Codex code pass, one finding
+(the residual above), answered in the record. The post-insert re-read has no test that interleaves a Stop
+between `msg`'s observation and its insert; there is no seam for it, and it is
+covered by the transaction argument above.
