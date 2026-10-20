@@ -92,16 +92,18 @@ const handoffStep = 25_000
 // handoff, and twice when two queued prompts opened together. Now the
 // observation's STEP past the size — 0 at the size, 1 at +25k, … — is claimed
 // in the ledger (store.HandoffTell) and the line printed only by the call that
-// claimed it. Under the size, the claims are forgotten, so a session that
-// compacts and grows back is told at its next crossing.
+// claimed it. Under the size, the claims are forgotten — by the newest
+// sample's own upsert, which carries the declared size (sampleOfUsage) — so a
+// session that compacts and grows back is told at its next crossing.
 //
 // EVERY KIND OF TURN, because the payload cannot tell them apart. The turn's
 // origin (typed, task notification, peer message or hand-back, scheduled
 // wake) is on the TRANSCRIPT's user record (`origin.kind`, `turnOrigin`), but
 // the UserPromptSubmit payload carries only the prompt text, prompt_id and
 // the session fields (read from the 2.1.304 hook-input builder), and the
-// record is the harness's to write, with no measured guarantee it lands
-// before this hook runs. And deferring the line to a typed prompt would starve
+// record is not on disk when this hook runs: measured 2026-10-20 on 2.1.304,
+// 7 of 7 turns (typed, task notification, peer message, agent hand-back,
+// /loop wake) had no record at hook time nor 300 ms later. And deferring the line to a typed prompt would starve
 // exactly the session it is for: in this repo's own transcripts 234 turns
 // opened on a task notification and 137 on a peer message against 329 typed,
 // and a fleet coordinator can go hours between typed prompts. Told once per
@@ -119,11 +121,11 @@ func busyHandoff(st *store.Store, si store.SessionInfo, known bool, env Env) str
 	if !observed {
 		return ""
 	}
-	step := int64(-1) // under: forget what was told, claim nothing
+	step := int64(-1) // under: claim nothing (the sample's own upsert reset the step)
 	if c.Prompt >= at {
 		step = (c.Prompt - at) / handoffStep
 	}
-	if told, err := st.HandoffTell(si.SessionID, si.Incarnation, step); err != nil || !told {
+	if told, err := st.HandoffTell(si.SessionID, si.Incarnation, c.Prompt, step); err != nil || !told {
 		return ""
 	}
 	return handoffNote(nowOf(env), at, c, observed)

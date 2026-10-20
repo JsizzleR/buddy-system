@@ -68,6 +68,7 @@ func sampleOfUsage(u usageSample, env Env) store.ContextSample {
 		Prompt: u.Prompt, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
 		Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
 		Cache5m: u.Cache5m, Cache1h: u.Cache1h, TierAt: u.TierAt,
+		HandoffAt: declaredWindow(env.getenv(EnvHandoffAt)),
 	}
 }
 

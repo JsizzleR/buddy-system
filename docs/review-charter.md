@@ -956,11 +956,15 @@ ledger row entered through the CLI (D-006).
     bump the check counters.
 
 97. **The handoff notice speaks once per 25k step past `BUDDY_HANDOFF_AT`, on a turn of any
-    kind (D-096, amends D-055).** The step is claimed in `authority_warned` under the key
-    `//handoff-at` before the line is written, so two queued prompts print it once; only a fall
-    under the size forgets the steps. No schema bump. The `UserPromptSubmit` payload carries no
-    turn origin (2.1.304's builder), so turns are not told apart. Do not propose per-turn
-    repetition, forgetting on a lower step above the size, or a key with one leading slash.
+    kind (D-096, amends D-055).** The highest step told is `session_context.handoff_step`
+    (schema 16), claimed by one conditional UPDATE before the line is written, so two queued
+    prompts print it once; the NEWEST sample under the size (in RecordContext's ordered
+    upsert, every hook's sample carrying the declared size) or a new incarnation resets it
+    to -1, and the claim matches the row's prompt, so a stale busy moves nothing. The
+    `UserPromptSubmit` payload carries no turn origin (2.1.304's builder) and the turn's
+    transcript record is not on disk at hook time (measured, 7 of 7 turns), so turns are not
+    told apart. Do not propose per-turn repetition, a set of told steps a stale sample can
+    undo, storing it in another table, or reading the turn's origin from the transcript.
 
 98. **A drain with no CORRECTS/SUPERSEDED link or declared kind gets the short inbox header;
     `msg`'s stderr wake copy is skipped when stderr is stdout's open file (D-097, amends

@@ -6974,14 +6974,36 @@ fleet-wide size.
 
 **The decision** — the notice is told once per STEP: step 0 when the last
 observed prompt reaches `BUDDY_HANDOFF_AT`, step k at the size plus k×25k.
-`busyHandoff` computes the step and `store.HandoffTell` claims it for (session,
-incarnation, step); only the call that claimed it prints. Under the size the
-claims are forgotten, so a session that compacts and grows back is told at its
-next crossing. Only under: the first shape also forgot the steps above any
-lower step, and since the observation is read outside the transaction, a busy
-that read 300k and stalled deleted the step-1 mark a newer busy had just
-printed at 325k, and a third printed it again (Codex code pass). A compaction
-that stays over the size is told again only at a new step.
+`busyHandoff` computes the step and `store.HandoffTell` claims it: one
+conditional UPDATE moves `session_context.handoff_step` (schema 16, the
+highest step this incarnation has been told, -1 for none) only when the new
+step is higher, and only the call that moved it prints. Under the size the
+column goes back to -1, so a session that compacts and grows back is told at
+its next crossing; a new incarnation's first observation resets it in the same
+upsert. A HIGHEST step and not a set of steps, because the observation is read
+outside the claim: the first shape forgot the steps above any lower one, and a
+busy that read 300k and stalled deleted the step-1 mark a newer busy had just
+printed at 325k, so a third printed it again (Codex code pass). A compaction
+that stays over the size is told again only at a new high. The fall under
+the size is `RecordContext`'s: every hook's sample carries the declared size
+(`sampleOfUsage`), and one under it resets the column inside the upsert,
+which applies only a sample at least as new as the row's turn, so the NEWEST
+observation decides. The claim also matches the row's `prompt`, the one its
+step was computed from, so a claim whose sample was replaced moves nothing.
+Three Codex passes on schema 16 shaped this: the design pass found a late
+reset re-arming a told step (once per stalled reset) and a late claim
+standing over a newer reset (hiding the next crossing for good); the first
+fix guarded both on the row's sample, and the re-verify found that a guarded
+reset losing its race to a newer sample also lost a real dip under the size,
+so the re-crossing went untold. Ordering the reset by the turn's time keeps
+both. Not covered: `RecordContext` replaces a row on an EQUAL `turn_ms`, so a
+sample of another prompt for the same millisecond could be written back over
+a newer one (a higher one then holds the steps below it untold until the
+next; an under-size one re-arms one). One `turn_ms` is one assistant record's
+usage, so that needs two responses stamped in one millisecond. And a sample
+from a process that declared no size resets nothing, so a dip only it saw is
+lost; every hook of one session shares its environment, so the size is the
+same wherever it is declared in settings or by the launcher.
 
 - **Why 25k.** On this repo's own 662 main-thread turns the prompt grows by a
   median of 1.9k a turn (p75 6k, p90 24k, p95 48k): 25k is about a dozen
@@ -6989,25 +7011,31 @@ that stays over the size is told again only at a new step.
   ran 300k→350k hears three lines instead of one per turn.
 - **Claimed before it is written**, the reverse of the inbox's write-then-mark:
   two queued prompts run two `busy` hooks at once, and mark-after let both
-  print. One transaction (DELETE above, INSERT OR IGNORE, RowsAffected) has one
-  winner. A write that fails after the claim loses that step's line; the next
+  print. One conditional UPDATE (RowsAffected) has one winner. A write that fails after the claim loses that step's line; the next
   step says it again.
-- **No schema bump.** The state is one fact per (session, incarnation, step):
-  told. `authority_warned` is already exactly that register (D-028), never
-  rendered and read only by exact key, so a step is stored there under the key
-  `//handoff-at`. Not a key with one leading slash: `NormalizeScope` tests for
-  `/` before it turns `\` into `/`, so `authority add '\handoff-at'` stores
-  `/handoff-at` (Codex code pass; that normalization gap also reaches claim
-  scopes and is reported, not fixed, here). `path.Clean` never returns a
-  doubled slash, so no normalized path can be the key. A new column would have bumped the schema, and a bump makes
-  every older binary on the machine DENY (D-037) for one integer.
+- **A schema bump, 15 → 16, by the operator's choice.** The first shape
+  avoided it by storing each step as a row of `authority_warned` (D-028) under a
+  reserved key. That needed a second key once the Codex pass found
+  `authority add '\handoff-at'` normalizing onto the first (a `NormalizeScope` gap, reported separately), and it put
+  two meanings in one table. Asked, the operator chose the column
+  (2026-10-20). Its cost is D-037's: every buddy binary on the machine must be
+  rebuilt by `install.sh` before any of them opens a migrated ledger, or it
+  denies. The column sits on the context row because the step is computed from
+  that row's prompt and belongs to its incarnation. `session_context` is the
+  table D-018 lets the ledger drop and rebuild, and losing it costs at most one
+  repeated line.
 - **Every kind of turn.** The brief asked to skip turns no person opened if the
   payload can tell them apart. It cannot: the turn's origin is on the
   transcript's user record (`origin.kind`, `turnOrigin`: in this repo's
   transcripts 329 typed, 234 task-notification, 137 peer, 4 scheduled), but
   the `UserPromptSubmit` payload carries only the prompt text, `prompt_id` and
-  the session fields (read from the 2.1.304 hook-input builder), and whether
-  the record lands before the hook runs was not measured. Deferring the line
+  the session fields (read from the 2.1.304 hook-input builder), and the
+  record is NOT on disk when the hook runs: measured 2026-10-20 on 2.1.304, 7
+  of 7 turns (typed, task notification, peer message, agent hand-back, `/loop`
+  wake), at hook time and 300 ms later. The prompt's own leading tag
+  (`<task-notification>`, `<cross-session-message`, `<agent-message`) marks
+  three of them, but a `/loop` wake arrives as plain `/loop …` text, the same
+  as a person typing it, and a person can type a tag. Deferring the line
   to a typed prompt would also starve a coordinator that goes hours between
   them. Once per step, a turn of any kind carries it into context, and the
   repetition is gone.
@@ -7019,11 +7047,14 @@ harness's classifier, so the fleet figures above are the audit's counts.
 **Skill** — a coordinator gives a lane its own size with `herdr tab create …
 --env BUDDY_HANDOFF_AT=<n>` when lanes may run past the fleet-wide one.
 
-**Tests** — `TestHandoffTellOncePerStep` (crossing, same step, step, skipped
-step, fall back, fall under, re-cross; per incarnation and session; the
-authority register still answers), `TestHandoffTellConcurrentHasOneWinner`
-(8 concurrent claims, one told; a stale lower step forgets nothing; an
-authority mark under a slash-led path survives a reset), `TestBusySaysWhenPastTheHandoffSize` (end to
+**Tests** — `TestHandoffTellOncePerStep` (no row, crossing, same step, step,
+skipped step, fall under, re-cross; a sample with no declared size resets
+nothing; a new incarnation resets it; a superseded one claims nothing), `TestHandoffTellIgnoresAStaleSample` (a late under-size sample, a
+dip whose busy stalls, a late claim, and an equal-time sample with another
+prompt, each beside the fresh call that still works; the sequence tests drive
+the busy hook's own order, record then read then claim), `TestHandoffTellConcurrentHasOneWinner` (8
+concurrent claims, one told), `TestHandoffStepMigratesFromV15` (the ALTER arm on a v15 ledger with
+a row), `TestBusySaysWhenPastTheHandoffSize` (end to
 end: told once, silent one token short of the next step, told on it, silent
 under, told at the next crossing).
 

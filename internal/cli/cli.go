@@ -1852,12 +1852,10 @@ func cmdBeat(args []string, env Env) error {
 	sub := h.subagent()
 	if known && me.Live() && h.Harness != "codex" {
 		if u, ok := lastUsage(h.TranscriptPath); ok {
-			_ = st.RecordContext(h.SessionID, me.Incarnation, store.ContextSample{
-				Observed: nowOf(env), TurnAt: u.At, Model: u.Model, Effort: u.Effort,
-				Prompt: u.Prompt, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
-				Output: u.Output, Window: declaredWindow(env.getenv(EnvContextWindow)),
-				Cache5m: u.Cache5m, Cache1h: u.Cache1h, TierAt: u.TierAt,
-			})
+			// sampleOfUsage, as Stop and busy record it: the declared handoff
+			// size rides every sample, so a newest one under it resets the
+			// handoff step whichever hook wrote it (D-096).
+			_ = st.RecordContext(h.SessionID, me.Incarnation, sampleOfUsage(u, env))
 		}
 	}
 

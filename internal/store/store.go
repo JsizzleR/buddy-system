@@ -228,7 +228,12 @@ CREATE TABLE IF NOT EXISTS session_context (
 	-- cache read is the newest record; the writer is older). The tier columns
 	-- are guarded by this clock, not by turn_ms, so two samples of the same
 	-- turn cannot let older tier evidence overwrite newer.
-	tier_ms         INTEGER NOT NULL DEFAULT 0
+	tier_ms         INTEGER NOT NULL DEFAULT 0,
+	-- D-096: the highest handoff STEP this incarnation has been told (0 at
+	-- BUDDY_HANDOFF_AT, k at k x 25k past it), -1 for none. Buddy's own
+	-- record of a line it printed, not an observation; reset to -1 by the
+	-- newest sample under the size and by a new incarnation. See HandoffTell.
+	handoff_step    INTEGER NOT NULL DEFAULT -1
 );
 -- Turn state. A row means the session reported itself IDLE — its Stop hook
 -- fired, the turn is over, and it is sitting at its prompt — and has run no
@@ -357,6 +362,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 16 adds session_context.handoff_step (D-096), an ALTER arm.
 // 15 adds captured adapter message identities and receiving endpoint reports.
 // 14 adds claims.outcome, claims.outcome_note and session_waits.ready_sha
 // (D-049), ALTER arms.
@@ -376,7 +382,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 15
+const schemaVersion = 16
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -568,6 +574,12 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if err := addColumnIfMissing(tx, "session_waits", "ready_sha", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	// D-096. No session has been told anything yet, which is what -1 says.
+	if ver < 16 {
+		if err := addColumnIfMissing(tx, "session_context", "handoff_step", "INTEGER NOT NULL DEFAULT -1"); err != nil {
 			return err
 		}
 	}
@@ -2047,6 +2059,11 @@ type ContextSample struct {
 	Cache5m int64
 	Cache1h int64
 	TierAt  time.Time // the writer's own time; zero when no tier was recorded
+	// HandoffAt is the observing process's DECLARED handoff size
+	// (BUDDY_HANDOFF_AT), 0 when undeclared. Not stored and not read back: a
+	// sample under it resets handoff_step in RecordContext's own ordered
+	// upsert (D-096), so only the NEWEST observation decides a fall under.
+	HandoffAt int64
 }
 
 // RecordContext stores one observation, for the incarnation that OBSERVED it.
@@ -2113,11 +2130,15 @@ func (s *Store) RecordContext(sessionID, incarnation string, c ContextSample) er
 				cache_1h=CASE WHEN excluded.incarnation<>session_context.incarnation OR excluded.tier_ms>=session_context.tier_ms
 					THEN excluded.cache_1h ELSE session_context.cache_1h END,
 				tier_ms=CASE WHEN excluded.incarnation<>session_context.incarnation OR excluded.tier_ms>=session_context.tier_ms
-					THEN excluded.tier_ms ELSE session_context.tier_ms END
+					THEN excluded.tier_ms ELSE session_context.tier_ms END,
+				handoff_step=CASE WHEN excluded.incarnation<>session_context.incarnation
+					OR excluded.prompt < ?15 -- under the declared size; 0 (undeclared) never is
+					THEN -1 ELSE session_context.handoff_step END
 			WHERE excluded.incarnation<>session_context.incarnation
 				OR excluded.turn_ms>=session_context.turn_ms`,
 			sessionID, inc, c.Observed.Unix(), c.TurnAt.UnixMilli(), c.Model, c.Effort,
-			c.Prompt, c.CacheRead, c.CacheWrite, c.Output, c.Window, c.Cache5m, c.Cache1h, tierMS)
+			c.Prompt, c.CacheRead, c.CacheWrite, c.Output, c.Window, c.Cache5m, c.Cache1h, tierMS,
+			c.HandoffAt)
 		return err
 	})
 }

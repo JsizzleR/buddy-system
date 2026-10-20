@@ -718,10 +718,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   it. Reads every 15 s, never a check (counters untouched), no lock across a sleep; run under
   run_in_background so the harness's notice is the wake. A timer with `--block` is refused.
 - **The handoff notice speaks once per 25k step past the size, on a turn of any kind (D-096,
-  amends D-055):** 442 lines in 87 sessions on one fleet, up to 27 in one. The step is claimed
-  in `authority_warned` (key `//handoff-at`, no schema bump) before the line is written, so two
-  queued prompts print it once; under the size the claims are forgotten. The payload carries no
-  turn origin, so turns are not told apart.
+  amends D-055):** 442 lines in 87 sessions on one fleet, up to 27 in one. The highest step told
+  is `session_context.handoff_step` (schema 16, the operator's choice over reusing a table), claimed
+  by one conditional UPDATE before the line is written, so two queued prompts print it once;
+  the newest sample under the size (RecordContext's ordered upsert) or a new incarnation
+  resets it to -1, and the claim matches the row's prompt, so a stale busy moves nothing. Neither the payload nor the transcript (the turn's
+  record is not yet written at hook time, measured 7 of 7) gives the turn's origin.
 - **Fixed hook text costs less (D-097, amends D-052):** a drain with no CORRECTS/SUPERSEDED link
   or declared kind gets a 120-byte header that still says untrusted operator/peer text (13 of
   207 drains needed the 318-byte one); `msg`'s stderr wake copy is skipped when stderr is stdout's
