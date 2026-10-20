@@ -14,3 +14,8 @@ docs/p0-facts.md
 # Claude Code session state — machine-local, never published.
 .claude/
 .mcp.json
+
+# Buddy's resource slots are claim NAMES under .buddy/slot/ (D-035): nothing
+# builds them on disk. Anything that ever does write there is this machine's
+# state, like the ledger beside it in the git common dir, never the repo's.
+/.buddy/
