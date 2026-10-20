@@ -283,6 +283,10 @@ func lifecycleHook(incarnation string, env Env) error {
 	if event == "beat" {
 		if paths, err := gatePaths(h); err == nil {
 			for _, p := range paths {
+				// A relative path from a vanished cwd renews nothing (D-102).
+				if !placeable(h.Cwd, p) {
+					continue
+				}
 				if rel, _, outside := placeInRepo(rc.top, h.Cwd, p); !outside {
 					rels = append(rels, rel)
 				}

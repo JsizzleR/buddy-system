@@ -125,7 +125,8 @@ func cmdDiagnose(args []string, env Env) error {
 		}
 		r.CodexHooks = d
 	}
-	rc, err := resolveRepo(env.Cwd)
+	// Strict discovery: diagnose reports where the cwd itself stands (D-102).
+	rc, err := discoverRepo(env.Cwd)
 	switch {
 	case errors.Is(err, errNoLedger):
 		r.Repository = "absent"

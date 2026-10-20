@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
@@ -606,6 +607,10 @@ const discoveryBudget = 2 * time.Second
 type repoContext struct {
 	ledger string // absolute path to buddy.db in the git COMMON dir
 	top    string // absolute worktree root, or "" if git would not say
+	// gone is the directory that was asked about when it no longer exists and
+	// discovery ran from from, its deepest existing ancestor (D-102); both ""
+	// otherwise.
+	gone, from string
 }
 
 // revParse runs one bounded, locale-pinned `git rev-parse` and returns stdout
@@ -661,20 +666,210 @@ func splitTwoPaths(out string) (first, second string, ok bool) {
 
 // errNoLedger means the feature is legitimately off here: the directory is
 // provably not a repo, or the repo was never buddy-inited. Every OTHER
-// discovery failure is ambiguous (git missing from PATH, deleted cwd, EACCES,
-// dangling ledger symlink) and must not be silently read as feature-off —
-// gate fails closed on those.
+// discovery failure is ambiguous (git missing from PATH, EACCES, dangling
+// ledger symlink) and must not be silently read as feature-off — gate fails
+// closed on those. A cwd that no longer EXISTS is neither: resolveRepo
+// discovers it from its deepest existing ancestor (D-102).
 var errNoLedger = errors.New("buddy: no ledger here")
 
-// resolveRepo locates the ledger and the worktree root for dir, in one git
+// resolveRepo is discoverRepo for a hook's cwd, which may have been removed
+// under a live session (D-102, amends D-044). Measured in run1, 2026-10-20: a
+// lane removed its own worktree, which lived inside the main checkout; git
+// said "cannot change to '<cwd>': No such file or directory", hasGitAncestor
+// walked up to the checkout's .git, found its ledger PRESENT, and the gate
+// denied every Bash call the lane made, its DONE report included. A worktree
+// removed from BESIDE the checkout had no .git above it and was silently
+// allowed. So the verdict hung on where the directory used to be.
+//
+// A missing cwd proves nothing about any ledger; it proves only that the
+// session's home is gone. The verdict is what a session whose cwd were an
+// EMPTY directory at that path gets: discovery from the deepest existing
+// ancestor. That keeps the home ledger's brake on a path-less call (a paused
+// lane stays paused) where allowing wholesale would drop it. Only exactly
+// ENOENT on the cwd takes this path; EACCES, ENOTDIR, git missing and every
+// other failure keep discoverRepo's verdict.
+//
+// It is for hooks, whose payload cwd is the harness's record and can outlive
+// the directory. `buddy init` and `diagnose` call discoverRepo: init CREATES a
+// ledger where discovery lands, and a vanished cwd must not turn the feature
+// on in whatever repository encloses it (Codex design pass, 2026-10-20).
+func resolveRepo(dir string) (repoContext, error) {
+	rc, err := discoverRepo(dir)
+	if err == nil {
+		return rc, nil
+	}
+	from, ok := vanishedCwdAncestor(dir)
+	if !ok {
+		return rc, err
+	}
+	arc, aerr := discoverRepo(from)
+	if afterAncestorDiscovery != nil {
+		afterAncestorDiscovery()
+	}
+	// Re-read both ends. A cwd recreated while the ancestor was asked has its
+	// own answer, and that answer is the verdict (a repository with a paused
+	// ledger may have just been made there). An ancestor that vanished while
+	// it was asked is no evidence of feature-off: git and hasGitAncestor then
+	// read the same missing directory the cwd's own discovery did. This
+	// narrows the window and does not close it: an ancestor moved away and
+	// back between the two reads is not seen (Codex code pass), the TOCTOU
+	// residual the gate already accepts.
+	if _, serr := os.Lstat(dir); !errors.Is(serr, syscall.ENOENT) {
+		return discoverRepo(dir)
+	}
+	if fi, serr := os.Stat(from); serr != nil || !fi.IsDir() {
+		return repoContext{}, vanishedErr(dir, from, errors.New("that directory vanished during discovery"))
+	}
+	if errors.Is(aerr, errNoLedger) {
+		return repoContext{}, errNoLedger
+	}
+	if aerr != nil {
+		return repoContext{}, vanishedErr(dir, from, aerr)
+	}
+	arc.gone, arc.from = dir, from
+	return arc, nil
+}
+
+// afterAncestorDiscovery is a test seam: it runs between resolveRepo's ancestor
+// discovery and its re-read of the cwd, where a racing recreate would land.
+var afterAncestorDiscovery func()
+
+// vanishedErr names the vanished cwd, where discovery ran from, and the fix,
+// in D-084's register: the deny is the same, and its reader can act on it.
+func vanishedErr(gone, from string, err error) error {
+	return fmt.Errorf("hook cwd %s no longer exists; discovered from %s: %w; close the pane, or start the session in a directory that exists",
+		fence.Line(gone, 512), fence.Line(from, 512), err)
+}
+
+// gitDiscoveryEnv are the variables that make git's discovery from an
+// ancestor differ from discovery from an empty directory below it: a RELATIVE
+// GIT_DIR resolves against a different directory, and a ceiling AT the ancestor
+// stops a child's walk but not the ancestor's own (git exempts the starting
+// directory). Codex design pass, 2026-10-20. With any set, the fallback stands
+// down and discoverRepo's verdict holds: a .git above whose ledger is present
+// denies, one whose ledger is provably absent is feature-off (D-044).
+var gitDiscoveryEnv = []string{"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM"}
+
+// maxVanishedLinkHops bounds the symlinks vanishedCwdAncestor follows, the way
+// the kernel's ELOOP bounds a lookup (32 on darwin).
+const maxVanishedLinkHops = 32
+
+// vanishedCwdAncestor returns the deepest existing directory an empty directory
+// at dir would be created under, when dir is absolute and Lstat says exactly
+// ENOENT; else false, and the caller keeps today's verdict.
+//
+// It resolves the path the way the kernel does, one component at a time from
+// "/": a symlink's target is spliced in front of the components still to go
+// (an absolute one restarting at "/"), and a `..` is applied to the PHYSICAL
+// directory reached so far. That is the whole point. A DANGLING link on the
+// way must be followed, not climbed past: an empty directory at
+// <plain>/link/lane lives in the link's target, and climbing to <plain> read a
+// cwd under a paused repository as feature-off (Codex design pass). And a `..`
+// in a link's target must not be collapsed lexically first: with
+// link -> jump/../gone and jump -> <repo>/sub, the kernel lands in <repo>, and
+// filepath.Clean landed in <plain> (Codex code pass). Once a component is
+// missing, everything after it would be created too, so further names deepen
+// a count of missing levels and a `..` climbs back out of one; the answer is
+// the directory those missing levels would be created in. Any error but
+// ENOENT (EACCES, ELOOP), a non-directory followed by more path (ENOTDIR), or
+// too many links gives up.
+func vanishedCwdAncestor(dir string) (string, bool) {
+	if !filepath.IsAbs(dir) {
+		return "", false
+	}
+	for _, k := range gitDiscoveryEnv {
+		if os.Getenv(k) != "" {
+			return "", false
+		}
+	}
+	if _, err := os.Lstat(dir); !errors.Is(err, syscall.ENOENT) {
+		return "", false
+	}
+	return resolvedAncestor(dir)
+}
+
+// resolvedAncestor is vanishedCwdAncestor's walk, for an absolute path p that
+// does not resolve to a directory: the existing directory an empty directory
+// at p would be created in. shellPatchDirs places a missing `cd` base with it.
+func resolvedAncestor(p string) (string, bool) {
+	if !filepath.IsAbs(p) {
+		return "", false
+	}
+	cur, missing, hops := "/", 0, 0
+	rest := strings.Split(p, "/")
+	for len(rest) > 0 {
+		c := rest[0]
+		rest = rest[1:]
+		switch {
+		case c == "" || c == ".":
+			continue
+		case missing > 0:
+			if c == ".." {
+				missing--
+			} else {
+				missing++
+			}
+			continue
+		case c == "..":
+			cur = filepath.Dir(cur) // cur is physical, so its parent is too
+			continue
+		}
+		next := filepath.Join(cur, c)
+		fi, err := os.Lstat(next)
+		switch {
+		case errors.Is(err, syscall.ENOENT):
+			missing = 1
+		case err != nil:
+			return "", false
+		case fi.IsDir():
+			cur = next
+		case fi.Mode()&os.ModeSymlink != 0:
+			if hops++; hops > maxVanishedLinkHops {
+				return "", false
+			}
+			target, err := os.Readlink(next)
+			if err != nil || target == "" {
+				// XNU fails a lookup through an empty target with ENOENT, and
+				// no directory created below it would repair that; the split
+				// would read it as "." (Codex re-verify pass).
+				return "", false
+			}
+			if filepath.IsAbs(target) {
+				cur = "/"
+			}
+			rest = append(strings.Split(target, "/"), rest...)
+		default:
+			return "", false // a file with more path after it: ENOTDIR
+		}
+	}
+	return cur, true
+}
+
+// cwdVanished reports whether a hook cwd is an absolute path that no longer
+// exists. A relative tool path from it cannot be placed (D-102): the session's
+// claims were on its own worktree's files, and <gone>/x.go would place as a
+// path inside whatever encloses it and read unclaimed.
+func cwdVanished(cwd string) bool {
+	if !filepath.IsAbs(cwd) {
+		return false
+	}
+	_, err := os.Lstat(cwd)
+	return errors.Is(err, syscall.ENOENT)
+}
+
+// placeable reports whether tool path p can be placed from cwd at all.
+func placeable(cwd, p string) bool { return filepath.IsAbs(p) || !cwdVanished(cwd) }
+
+// discoverRepo locates the ledger and the worktree root for dir, in one git
 // process wherever git will give both.
 //
 // errNoLedger here means the feature is legitimately off: dir is provably not a
 // repo. Every OTHER discovery failure is ambiguous — git missing from PATH, a
 // deleted cwd, EACCES on an ancestor — and comes back as a real error, because
 // a gate that cannot tell "off" from "broken" is a gate that has quietly
-// stopped existing (invariant 3).
-func resolveRepo(dir string) (repoContext, error) {
+// stopped existing (invariant 3). For a hook's cwd, resolveRepo first tries a
+// deleted one's deepest existing ancestor (D-102).
+func discoverRepo(dir string) (repoContext, error) {
 	if out, err := revParse(dir, "--git-common-dir", "--show-toplevel"); err == nil {
 		if common, top, ok := splitTwoPaths(out); ok {
 			return repoContext{ledger: filepath.Join(common, ledgerName), top: top}, nil
@@ -850,6 +1045,9 @@ func openRepo(dir string, env Env) (*store.Store, repoContext, error) {
 		return nil, rc, err
 	}
 	st, err := openLedgerAt(rc, env)
+	if err != nil && rc.gone != "" && !errors.Is(err, errNoLedger) {
+		err = vanishedErr(rc.gone, rc.from, err)
+	}
 	return st, rc, err
 }
 
@@ -1229,7 +1427,9 @@ func cmdInit(args []string, env Env) error {
 		// for a repo whose operator was asking what init does.
 		return usageRefusal(fmt.Sprintf("init takes no arguments, got %s", strconv.Quote(fence.Line(args[0], 64))), usageInit)
 	}
-	rc, err := resolveRepo(env.Cwd)
+	// discoverRepo, never resolveRepo: init creates the ledger where discovery
+	// lands, and a vanished cwd's ancestor is not where anybody asked (D-102).
+	rc, err := discoverRepo(env.Cwd)
 	if err != nil {
 		return err
 	}
@@ -1795,7 +1995,7 @@ func cmdBeat(args []string, env Env) error {
 	// The addressing layer is a courtesy; it still does not sit in front of the
 	// inbox.
 	top, rel := "", ""
-	if h.path() != "" {
+	if h.path() != "" && placeable(h.Cwd, h.path()) {
 		top = rc.top
 		if r, cased, outside := placeInRepo(top, h.Cwd, h.path()); !outside {
 			// Containment is decided on the folded spelling; a reader is handed
@@ -2422,6 +2622,13 @@ func cmdGate(args []string, env Env) int {
 	homeKey := filepath.Join(homeTop, ".git")
 	for _, path := range paths {
 		targets, err := gateTargets(h.Cwd, path)
+		if err == nil && !placeable(h.Cwd, path) {
+			// A relative path from a vanished cwd is unplaceable (D-102), and
+			// takes the unresolvable-target arm: refused where the home ledger
+			// or any target's ledger governs, feature-off where none does.
+			err = fmt.Errorf("%s is relative to the hook cwd %s, which no longer exists",
+				fence.Line(path, 512), fence.Line(h.Cwd, 512))
+		}
 		if err != nil {
 			why := fmt.Sprintf("buddy gate could not resolve the target (%s); refusing %s where a buddy ledger governs it", fence.Line(err.Error(), 512), h.ToolName)
 			if st != nil {

@@ -14,9 +14,11 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"unicode"
 
 	"mvdan.cc/sh/v3/expand"
@@ -1515,7 +1517,20 @@ func shellPatchDirs(h hookInput, home string) ([]string, error) {
 	w.analyze(h.ToolInput.Command, 0, true, nil)
 	var dirs []string
 	for _, base := range context.bases {
-		dirs = append(dirs, existingDir(filepath.Join(canon(base), "x")))
+		dir := existingDir(filepath.Join(canon(base), "x"))
+		// A base that does not resolve (a vanished hook cwd, a `cd` under it,
+		// or a `cd ..` that lands on a dangling link's own entry) is placed as
+		// an empty directory there would be (D-102). canon cannot follow a
+		// DANGLING link and existingDir then climbs past it lexically, into a
+		// repository the directory would not be in (Codex code and re-verify
+		// passes). Embedded patch targets below keep the lexical walk: at worst
+		// a refusal of a shell-routed patch the tool would take.
+		if _, err := os.Stat(base); errors.Is(err, syscall.ENOENT) {
+			if anc, ok := resolvedAncestor(base); ok {
+				dir = anc
+			}
+		}
+		dirs = append(dirs, dir)
 	}
 	for _, script := range context.scripts {
 		i := strings.Index(script, "*** Begin Patch")

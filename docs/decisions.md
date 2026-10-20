@@ -7372,3 +7372,143 @@ mechanism (a claim's `--desc`, no reserved slug, no compel path) is unchanged.
 **Tests** — none new: a recipe-text change. The skill tests
 (`TestSkillNamesOnlyWhatHelpAnswers`, `TestSkillTeachesEveryVerbAndFlag`)
 still read every `buddy <verb> --flag` the skill teaches. Review: chore.
+
+## D-102 — A vanished hook cwd is discovered from its deepest existing ancestor (amends D-044)
+
+2026-10-20. Measured in run1; Fable's rule (c2), built at full tier by the
+operator's decision.
+
+**The failure** — In run1 a lane removed its own linked worktree, which lived
+INSIDE the main checkout (`<main>/.claude/worktrees/<lane>`). Its hook payload's
+`cwd` then named a directory that did not exist. git answered `fatal: cannot
+change to '<cwd>': No such file or directory` (exit 128, probed), which is not
+"not a git repository", so `resolveRepo` fell to `hasGitAncestor`. That walks UP
+lexically from the dead path, found the checkout's `.git`, and D-044's
+`ledgerProvablyAbsent` found the ledger PRESENT: "repo discovery failed: exit
+status 128", and the gate denied every Bash call the lane made, the `buddy msg
+... DONE` it owed included. A worktree removed from BESIDE the checkout had no
+`.git` above it and got `errNoLedger`: silently allowed. So the verdict for one
+fact, "the cwd is gone", hung on where the directory used to be, and the
+comment calling a deleted cwd "ambiguous ... fails closed" was false in the
+sibling case. A missing cwd proves nothing about any ledger (it is neither
+invariant 3's "provably no repo" nor "exists but unreadable"); it proves that the
+session's home is gone.
+
+**The rule** — the verdict is what a session whose cwd were an EMPTY DIRECTORY
+at that path gets today. `resolveRepo` (now the hook-facing wrapper over the old
+body, `discoverRepo`) does this only when discovery failed AND:
+- the cwd is absolute and `Lstat` says exactly `ENOENT`. EACCES, ENOTDIR, ELOOP,
+  git missing from PATH and every other failure keep today's verdict.
+- none of `GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`,
+  `GIT_DISCOVERY_ACROSS_FILESYSTEM` is set (Codex design pass: a RELATIVE
+  `GIT_DIR` resolves against a different directory from the ancestor, and git
+  exempts the starting directory from a ceiling, so the ancestor's answer would
+  differ from the child's). With one set it stands down to today's verdict
+  (D-044's: a `.git` above with its ledger present denies, with it provably
+  absent is feature-off). Rare.
+
+The ancestor is found the way the kernel resolves the path, one component at a
+time from `/`: a symlink's target is spliced in front of the components still
+to go (at most 32 links, darwin's ELOOP bound), and a `..` applies to the
+PHYSICAL directory reached so far. Once a component is missing, the rest would
+be created with it, so later names deepen a count of missing levels and a `..`
+climbs back out of one; the answer is the directory they would be created in.
+Any error but ENOENT, a non-directory with more path after it, or a link with
+an EMPTY target gives up (XNU fails that lookup with ENOENT and no directory
+below would repair it; the split read it as `.`, re-verify pass; measured that
+APFS creates one).
+Two Codex findings set this shape. A DANGLING link must be followed, not
+climbed past: an empty directory at `<plain>/link/lane` lives in the link's
+target, and climbing to `<plain>` read a cwd under a paused repo as feature-off
+(design pass). And a `..` in a link's target must not be collapsed lexically:
+with `link -> jump/../gone` and `jump -> <repo>/sub` the kernel lands in
+`<repo>`, and `filepath.Clean` landed in `<plain>` (code pass). Discovery then
+runs once from that ancestor, and both ends are re-read: a cwd recreated
+meanwhile gets its own verdict, and an ancestor that vanished meanwhile denies
+(its disappearance is no evidence of feature-off). An ancestor moved away and
+back between the reads is not seen (code pass): the TOCTOU residual the gate
+already accepts.
+`errNoLedger` from the ancestor is feature-off; any other failure, and a ledger
+that then fails to open, denies with `hook cwd <x> no longer exists; discovered
+from <ancestor>: <cause>; close the pane, or start the session in a directory
+that exists` (D-084's register: the cause and the fix).
+
+- **Relative paths are unplaceable.** A relative tool path from a vanished cwd
+  (Codex names patch files relative to its cwd) takes the gate's existing
+  unresolvable-target arm: refused where the home ledger or any target's
+  ledger governs, feature-off where none does. This is a deliberate exception
+  to the definition: the lane's claims were on ITS worktree's repo-relative
+  files, and `<lane>/x.go` now places as `.claude/worktrees/<lane>/x.go` in the
+  checkout and would read unclaimed. With no home ledger (the sibling case) a
+  relative `../main/x.go` into a governed repo is refused too (Codex design
+  pass; HEAD allowed it). `beat` attributes no dirty path, and a lifecycle
+  PostToolUse renews no claim, for such a path; absolute ones are unchanged.
+- **Shell-routed patches.** `shellPatchDirs` places every base whose `Stat` is
+  ENOENT (a vanished cwd, a `cd` under it, or a `cd ..` that lands on a
+  dangling link's own entry) with the same walk, where it used to `canon` it
+  and climb lexically past a dangling link into a repository the directory
+  would not be in (code pass; the `cd ..` case, re-verify pass). That also
+  covers a dangling `cd` target from a LIVE cwd, which the shell could not
+  enter anyway; the cwd itself stays a base. Its embedded patch targets keep
+  the lexical walk: at worst a refusal of a shell-routed patch, which the tool
+  would take.
+- **Hooks only.** `buddy init` and `buddy diagnose` call `discoverRepo`: init
+  CREATES a ledger where discovery lands, and a vanished cwd must not turn the
+  feature on in whatever repository encloses it. Verbs get the cwd from
+  `os.Getwd`, which fails (and `main` exits 1) in a process whose own cwd was
+  removed, so this repairs a stale PAYLOAD cwd, the measured case.
+- **What it costs.** Nothing on the hot path: the `Lstat` runs only after
+  discovery has already failed (every edit outside a repo, one syscall). The
+  fallback adds one or two git processes in the rare vanished case.
+- **Accepted.** A dead cwd under an unrelated repository applies THAT
+  repository's brake and claims, as git would for a real subdirectory there; a
+  deleted independent repository nested in another registers into the outer
+  one. Both are what an empty directory there gets. The re-read narrows the
+  TOCTOU window and does not close it (the charter's accepted residual).
+- **Not done.** Allowing a vanished cwd wholesale (Fable's (a)): it drops the
+  home ledger's brake on a path-less call, so a paused lane's `git push` and a
+  Codex `apply_patch <<EOF` with no `cd` would pass. Denying it wholesale ((b)):
+  the measured brick. Matching git's "cannot change to" prose (the `Lstat` is
+  the test). ENOTDIR (a component that is now a file; an empty directory there
+  would need it removed). A pre-existing qualification Codex named and this
+  does not change: under a chmod-000 directory `hasGitAncestor` cannot see a
+  `.git` inside it, so an EACCES cwd can still read as feature-off when no
+  `.git` above is visible.
+
+**Tests** — `deadcwd_test.go`, each watched to FAIL on main 14923ef first:
+a removed worktree inside the checkout (path-less Bash allowed; an absolute
+write on a peer's claim denied naming it, unclaimed allowed; a relative write
+denied naming the cwd); `pause` still stopping it after the cwd is gone (the
+positive control that the home ledger was found); a worktree removed beside the
+checkout (path-less allowed; absolute governed claim denied; a relative write
+into the governed repo denied; outside every repo allowed); an EACCES cwd and an
+ENOTDIR cwd still denying, each with the vanished-path control allowing; a
+refused (format 99) ancestor feature-off with no ledger and denying, naming the
+cwd and the ancestor, with one; a dangling link into a paused repo followed;
+a `..` in a dangling link's target (relative, absolute, and out of a missing
+component) resolved physically into a paused repo, and one climbing physically
+OUT of it allowed while it is paused; a link with an empty target keeping
+today's deny; a shell-routed patch (bare, and after `cd ..`) from a vanished
+cwd behind a link out of the repo feature-off, with a vanished cwd inside it
+refused; a discovery knob (`GIT_CEILING_DIRECTORIES`) standing the
+fallback down; `init` creating nothing; `beat` and a lifecycle PostToolUse ignoring a relative path
+and keeping an absolute one; the re-read after ancestor discovery (a cwd
+recreated as an unparsable repository, an ancestor moved away), through a test
+seam; and a dangling ledger symlink found from the ancestor denying with the
+cwd named. Mutated in a private copy (python edits, `.git` excluded), each
+watched to fail: two of Fable's three (walk the wrong levels, skip the
+relative-path refusal) plus the beat and lifecycle skips, init
+through the fallback, the env stand-down, a dangling link climbed past, a link
+target collapsed lexically, a `..` ignored and a `..` out of a missing level
+deepening it, an empty target read as `.`, a file mid-path not giving up (with
+the re-read off), shellPatchDirs climbing lexically and keeping its
+pre-re-verify condition, each re-read, the openRepo wrap, the ancestor error
+unwrapped, and the whole fallback reverted: eighteen, all killed. Fable's third
+SURVIVED, and is equivalent, traced on the fixture: dropping the ENOENT check (any error
+on the cwd or a step counting as missing) alone, and with the cwd re-read off
+too. For EACCES the deepest directory the walk reaches is the unsearchable
+directory itself, which git cannot enter either, so discovery from it denies
+exactly as today; and the re-read alone already sends every non-ENOENT cwd back
+to today's verdict. Review: full (Codex design pass; code pass, two defects,
+fixed; re-verify, one partial fix and one new defect, fixed; second re-verify,
+both fixed, no new wrong verdict).

@@ -48,6 +48,21 @@ the paths tools declare (including cross-repo targets, against the *target*
 repo's ledger), but it cannot bind processes that bypass the harness. It is a
 seatbelt for agents, not a sandbox against them.
 
+**A cwd that was removed under a live session** (a lane that removed its own
+worktree) is discovered from its deepest existing ancestor, a dangling symlink
+on the way followed: the verdict is what an empty directory at that path would
+get, with every symlink and `..` on the way resolved as the kernel would
+(D-102). A lane whose worktree sat inside the checkout keeps that
+checkout's ledger, so it can still report, and `buddy pause` still stops it; a
+worktree that sat beside the checkout is feature-off, as before. A RELATIVE
+tool path from the vanished cwd is refused wherever a ledger governs it, since
+it can no longer be placed, and a deny names the vanished cwd and says to close
+the pane. Only "no such file or directory" takes this path: a cwd behind an
+unsearchable directory keeps the verdict it had, and so does every cwd while
+any of `GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`
+or `GIT_DISCOVERY_ACROSS_FILESYSTEM` is set in the hook's environment (a
+ledger above denies). `buddy init` never does it.
+
 `SessionEnd` (`bye`) is fenced by the **process**, not by the payload: the hook
 JSON names a session id and no incarnation, and `claude --resume` keeps the id,
 so a `bye` that fired late from a dead incarnation used to end the live one —

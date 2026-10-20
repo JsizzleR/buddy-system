@@ -422,6 +422,8 @@ ledger row entered through the CLI (D-006).
     git. Only a positive "does not exist" allows. A present ledger, an unreadable path, an
     unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny. Measured: an empty `git init`
     in `/private/tmp` denied every write under `/tmp` fleet-wide via "dubious ownership".
+    A cwd that does not exist at all (exact ENOENT) is not a refusal: since D-102 it is
+    discovered from its deepest existing ancestor first, and this check applies there.
 
 48. **A message says what kind of claim it carries, as the SENDER's declaration (D-045).**
     `msg --lead | --measured "<scope>" | --relay <source>`, at most one, rendered between `#id`
@@ -1004,6 +1006,18 @@ ledger row entered through the CLI (D-006).
     chat alert (which matches claim slugs in every room, D-009) tell each coordinator about
     the others' mentions. Nothing in buddy reads the name. Do not propose a reserved prefix,
     a derived default in code, or scoping the alert to a session's derived room.
+
+103. **A vanished hook cwd is discovered from its deepest existing ancestor (D-102).** The
+    verdict is what an empty directory at that path gets. Only an absolute cwd whose `Lstat` is
+    exactly ENOENT, with no `GIT_DIR`/`GIT_COMMON_DIR`/`GIT_WORK_TREE`/`GIT_CEILING_DIRECTORIES`/
+    `GIT_DISCOVERY_ACROSS_FILESYSTEM` set. The ancestor is found as the kernel resolves the path
+    (links spliced in, `..` applied physically, never `filepath.Clean` first; a dangling link
+    followed, not climbed past; an empty link target gives up); both ends re-read after.
+    `shellPatchDirs` places any base whose `Stat` is ENOENT the same way. A relative tool path from it is unplaceable and refused
+    where a ledger governs; beat and lifecycle renewal ignore it. `init`/`diagnose` stay strict.
+    Measured: a lane that removed its worktree inside the checkout was denied every call, its
+    DONE report included, while one beside the checkout was allowed. Do not propose allowing a
+    vanished cwd wholesale (it drops the home ledger's brake) or denying it wholesale.
 
 ## Environment facts (measured, do not re-derive)
 

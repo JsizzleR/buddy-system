@@ -747,6 +747,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   checkout's directory name. The alert matches claim slugs in every room (D-009), so a bare
   `orchestrator` worn in every repo alerted each coordinator to the others' mentions (14 of 29
   journal messages). No code reads the name; no reserved slug, no derived default.
+- **A vanished hook cwd is discovered from its deepest existing ancestor (D-102, amends D-044):**
+  the verdict an empty directory there would get. A lane that removed its worktree inside the
+  checkout was denied every call (run1); one beside it was allowed. Only exact ENOENT, no git
+  discovery env; a dangling link on the way is followed; a relative tool path from it is refused
+  where a ledger governs; init and diagnose stay strict; a deny names the cwd and the fix.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
