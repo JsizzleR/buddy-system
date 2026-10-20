@@ -84,7 +84,9 @@ An open session gets the tool after `/reload-plugins`; a new one gets it at star
 1. `buddy claim <slug> --desc "<what and why>" --scope <path> [--scope ...]`.
    A scope is a file or a directory prefix, with no globs. Use one `--scope` per
    path. A comma list is refused, because it would name one file nobody has. A
-   claim is granted whole or refused whole.
+   claim is granted whole or refused whole. Building the flags in a variable?
+   The Bash tool's shell here may be zsh, which does not split `$S`: use an
+   array, `S=(--scope a --scope b); buddy claim x --desc y "${S[@]}"`.
 2. Not sure it will be granted? Run `buddy claim ... --dry-run`. It names every
    conflict and writes nothing.
 3. Every lane appends to one file (a playbook, a log)? Use `--shared`. Shared
@@ -273,6 +275,12 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
    lane"). FAIL naming you: fix
    on your branch, commit, declare `buddy wait --on <run> --ready HEAD` again,
    and say so.
+   Asked by your orchestrator to hand your claims on at READY instead (so
+   your pane can close before the run)? `buddy release <slug> --to
+   orchestrator` for each, then `buddy wait clear`, then DONE. Clearing the
+   wait takes your READY row out of `buddy who <run>`, so your READY message
+   is then the only record of your commit: name it exactly. Never say DONE
+   while a wait of yours still stands.
 5. No item yet? `buddy msg orchestrator "NEW SESSION <your label>: ready for work"`.
 6. **Told, as a turn opens, that you are past your handoff size?** A lane does
    not open its own successor. Finish the item in hand, commit, and report where
@@ -304,7 +312,10 @@ at your handoff. Then, every time:
 2. **Read every `buddy msg` result; never discard it.** A queued send to an
    idle lane prints the address to wake it: deliver it. A queued message
    reaches an idle lane only on its next tool call, and an idle lane makes
-   none. `buddy sent` lists what is still queued.
+   none. `buddy sent` lists what is still queued. Filtering the result? Keep
+   the text with the address: `grep -o 'SendMessage to "[^"]*" with the text "[^"]*"'`.
+   The text is unique per send on purpose; a fixed text of your own ("run
+   buddy inbox") is dropped by the harness as a repeat of your previous one.
 3. **Land, then say so in the same turn.**
    `buddy release <run> --outcome pass --note "<landed sha; who was in; who is next>"`
    puts LANDED in front of every rider's next check. Also message each landed
@@ -419,13 +430,21 @@ if you find neither, ask rather than assume.
   always: its hooks bind no process, so the line can never say "no shell" for
   it. Do not wait for one; its DONE words ("no job running") are its account
   of its jobs, and it owes them. Close a lane yourself
-  (`herdr pane close <pane id>`, which runs its `bye`; `claude stop <8hex>` for a
+  (`herdr pane close <pane id>`; `claude stop <8hex>` for a
   background one) only if the operator told you that you may (in your pane,
   as a standing decision, or relayed by the coordinator your brief names,
-  within what it relays), not a peer, and then only a lane you opened. If
-  you may, do it as soon as the lane
+  within what it relays), not a peer, and then only a lane you opened. A lane
+  your predecessor opened and handed you with the coordinator claim counts
+  as one you opened: do not stop to ask about it (one fleet sat eight hours
+  on that question). If you may, do it as soon as the lane
   says DONE and `buddy who` agrees; if you may not, give the operator its
-  pane id in the same turn. A finished lane left open still costs: about 55
+  pane id in the same turn. **Then run `buddy bye <its session id>`.** A pane
+  close does not reliably run the lane's SessionEnd hook: measured on one
+  fleet, 68 of 119 closed lanes never ran it (no `bye`, no presence), and
+  their rows stayed `live STALE … pid N GONE`. A hand-run `bye` ends a row
+  whose registered process is dead without `--force`; one that says the
+  session "stays live" means its process is still exiting: run it again a
+  few seconds later. A finished lane left open still costs: about 55
   minutes into its idle time the harness compacts any session over 200k
   tokens, before its cache expires. Measured on one fleet over five days:
   12 such compactions of 312k to 583k, and 6 were in lanes that had already
@@ -464,6 +483,9 @@ if you find neither, ask rather than assume.
      (never in the background, where it would not reach it), with the brief "You are the next orchestrator, taking over from <your
      label>. Read <file>, then buddy inbox. Check that you can read the output
      of every running job it lists, then say so. I will hand you my claims."
+     The successor does not `buddy wait --on` a claim it is about to be handed
+     (a `--until` timer keeps it warm instead): a recipient's wait on the
+     claim can refuse the transfer.
   4. `buddy msg` it anything since the file, and wake it. When it answers,
      hand it every claim you hold, a run in flight first:
      `buddy release <run> --to <its label>`, then
@@ -475,6 +497,12 @@ if you find neither, ask rather than assume.
      with the SAME scopes. Never release a run and have it claimed afresh: a
      new claim is a new claim id, so every rider's wait lands with no outcome
      and its READY is lost (measured).
+     Then re-point your lanes: their briefs name YOU, by label and session id,
+     as the coordinator whose relays they take, and nothing in the ledger
+     changes that. While you are still live, `buddy msg` each lane you
+     launched or inherited: "<successor label> (session <full id>) is your
+     coordinator from now; it relays the same decisions I did." The message
+     carries authority because the sender is the id the brief names.
   5. **Account for every running job before you say you are done:** finished,
      handed over (its output file is in the handoff and the successor says it
      can read it), or stopped. `buddy status`'s EXIT line speaks for the LEDGER
@@ -485,6 +513,14 @@ if you find neither, ask rather than assume.
      it held nothing while an 8-minute-old gate script and a 42-minute watcher
      still ran as its children, the watcher reporting only to it. Then tell the
      operator you are done, naming any job still running; they end your session.
+
+  Closing down with no successor: point the coordination claim at your
+  handoff file and leave it open for the operator to release, by re-claiming
+  it with the same scopes:
+  `buddy claim orchestrator --desc "CLOSED: read <file>" --scope <each path you hold>`.
+  A released claim is shown to nobody's `hello`, and
+  `buddy release <slug> --outcome pass --note <text>` carries a note only
+  with an outcome.
 
   Compaction is the other road: the harness's `/compact`, or `claude --autocompact <size>`
   at launch, shrinks a session in place. Hand off instead when compaction would
