@@ -70,6 +70,21 @@ import (
 // across every repo, governed or not. Refusing those where a ledger governs is
 // the cheap side of that trade.
 //
+// CODEX ONLY (D-087, narrowing D-073). The "cannot rule out" arm, run-time
+// text and a script the parser rejects, guards Codex's in-process engine, and a
+// Claude Code Bash call has no such engine and no apply_patch tool to be sent
+// to. On one fleet of 144 Claude sessions it fired about 10 times in about 9
+// sessions (`eval`, `sh -c "$c"`, zsh's `${=p}`, a pipe into `ssh 'sh -s'`),
+// each a rewrite, and writing the same probe to a script file passed: it
+// protected nothing there. So under any harness but Codex (classifyHook's
+// verdict) the walker records no uncertainty and keeps reading, and only a
+// LITERAL apply_patch/applypatch at a command position refuses, as it does
+// everywhere. Exhausting a work bound still refuses everywhere: that is the
+// gate having stopped reading before it could rule out the literal, not a
+// verdict about the text. A Claude call's unparseable command is therefore
+// not searched for the literal; that is the same cooperative residue as a
+// script file, and the operator's decision (2026-10-20).
+//
 // What remains cooperative, and is documented as such (USAGE, D-073): dynamic
 // command NAMES ($x, ${U:-apply_patch}); script FILES (bash file.sh, source
 // file, bash < file); aliases and functions defined outside the command;
@@ -91,7 +106,7 @@ func shellPatchRoute(h hookInput) shellRoute {
 	if h.ToolName == "apply_patch" || h.ToolInput.Command == "" {
 		return shellRoute{}
 	}
-	w := &shellWalker{}
+	w := &shellWalker{literalOnly: h.Harness != "codex"}
 	w.analyze(h.ToolInput.Command, 0, true, nil)
 	return w.route
 }
@@ -181,6 +196,10 @@ type shellWalker struct {
 	parses int
 	parsed int
 	fields int
+	// literalOnly: not a Codex call, so text that merely cannot be ruled out
+	// is not a refusal (D-087); only a literal command word or an exhausted
+	// bound is.
+	literalOnly bool
 	// speculative > 0 while reading an operand that merely looks like shell
 	// text. There only an established command position counts: scanning an
 	// unknown program's operands would refuse prose such as
@@ -191,17 +210,27 @@ type shellWalker struct {
 	route       shellRoute
 }
 
-// uncertainty records the first reason a command cannot be ruled out.
+// uncertainty records the first reason a command cannot be ruled out, for a
+// Codex call only (D-087). Under any other harness it records nothing, so
+// done() stays false and the walk goes on looking for a literal command word:
+// `eval "$x"; apply_patch < p` still refuses there.
 func (w *shellWalker) uncertainty(why string) {
+	if !w.literalOnly {
+		w.cannotRuleOut(why)
+	}
+}
+
+func (w *shellWalker) cannotRuleOut(why string) {
 	if w.route.uncertain == "" {
 		w.route.uncertain = why
 	}
 }
 
 // exhausted is an uncertainty that also says jurisdiction discovery stopped
-// early, so the ungoverned arm can name it.
+// early, so the ungoverned arm can name it. It refuses under every harness:
+// the walk stopped before it could rule out a literal command word.
 func (w *shellWalker) exhausted(why string) {
-	w.uncertainty(why)
+	w.cannotRuleOut(why)
 	if w.ctx != nil && w.ctx.err == nil {
 		w.ctx.err = errors.New(why)
 	}
@@ -800,6 +829,14 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 			}
 			if !v.known {
 				w.uncertainty(name + " " + opt + " runs text built at run time")
+				if w.literalOnly {
+					// Not Codex (D-087): the value is not a refusal, so the
+					// argv after it is still read. `env -S "$opts"
+					// apply_patch < p` runs the literal when $opts is empty
+					// (Codex code pass, D-087).
+					j += 2
+					continue
+				}
 				return len(rest), true
 			}
 			if name == "env" && strings.ContainsAny(v.text, `\$#`) {
@@ -1380,6 +1417,14 @@ func shellLiteral(parts []syntax.WordPart, double bool) (string, bool) {
 }
 
 func shellPatchReason(h hookInput, r shellRoute) string {
+	if h.Harness != "codex" {
+		// Not Codex (D-087): no in-process engine and no apply_patch tool to
+		// point at, so the words are about the literal and the budget only.
+		if !r.found {
+			return fmt.Sprintf("buddy gate: the gate stopped reading this %s command (%s) before it could rule out a literal apply_patch; split the command or put it in a script file; refusing.", h.ToolName, fence.Line(r.uncertain, 256))
+		}
+		return fmt.Sprintf("buddy gate: this %s command runs apply_patch (or applypatch) as a command. Under Codex that word is an in-process patch engine whose paths the gate cannot place, so buddy refuses it at a command position under every harness (D-073, D-087); refusing.", h.ToolName)
+	}
 	if !r.found && r.uncertain != "" {
 		return fmt.Sprintf("buddy gate: this %s command cannot rule out apply_patch through the shell: %s. Codex can apply a patch in-process from its shell, and the hook payload omits the command's working directory, so the gate cannot place such a patch against the claims. Write the command so its script is literal text the gate can read, or use the apply_patch tool, which the gate checks path by path; refusing.", h.ToolName, fence.Line(r.uncertain, 256))
 	}

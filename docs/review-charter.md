@@ -895,6 +895,23 @@ ledger row entered through the CLI (D-006).
     adapter or diagnose. A verb is not a late event, so it takes no incarnation (D-069 fences
     events). Do not propose clearing idle or renewing claims from it.
 
+88. **The shell-patch gate's "cannot rule out" arm is Codex-only (D-087, narrows D-073).**
+    Run-time script text and a command the bash-mode parser rejects refuse only when
+    `classifyHook` says Codex; a literal `apply_patch`/`applypatch` at a command position,
+    including in a wrapper's argv after a dynamic value, and an exhausted work bound refuse
+    under every harness. Measured: ~10 Claude denials in ~9 of 144 sessions on one fleet,
+    none protecting anything. Do not propose restoring the arm for Claude, or a lexical
+    search of text the parser rejects.
+
+89. **`claim` refused by a holder exits 4, and so does a dry run that forecasts it (D-088).**
+    Other failures exit 1, a bare `buddy` 2 (3 is testguard's orphan exit); the gate always
+    exits 0. Not-a-repository names the cwd; no-ledger says a second ledger coordinates with
+    nobody. The verdicts (invariant 3, D-044) are unchanged: only the words.
+
+90. **`hello` takes `$BUDDY_LABEL` when no `--label` is given (D-089).** The flag wins; the
+    value takes `--label`'s path (stored as given, fenced on render, the worn-twice warning).
+    Only `hello`: `lifecycle begin --label` is the adapter's typed argv.
+
 88. **The handoff notice speaks once per 25k step past `BUDDY_HANDOFF_AT`, on a turn of any
     kind (D-096, amends D-055).** The step is claimed in `authority_warned` under the key
     `//handoff-at` before the line is written, so two queued prompts print it once; only a fall

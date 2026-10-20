@@ -164,7 +164,7 @@ func TestGateShellRouteFormsTheShellRuns(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 }
@@ -217,7 +217,7 @@ func TestGateShellRouteFalseDenialControls(t *testing.T) {
 		"{,echo} apply_patch", // bash drops the empty field and runs echo
 		"ls scripts/apply_patch.py && python3 apply_patch.py",
 	} {
-		t.Run(cmd, func(t *testing.T) { wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), false, "") })
+		t.Run(cmd, func(t *testing.T) { wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), false, "") })
 	}
 }
 
@@ -235,8 +235,8 @@ func TestGateShellRouteUncertainOnlyWhereGoverned(t *testing.T) {
 		`eval "$(brew shellenv)"`,
 	} {
 		t.Run(cmd, func(t *testing.T) {
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "cannot rule out")
-			wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), false, "")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "cannot rule out")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), false, "")
 		})
 	}
 }
@@ -327,7 +327,7 @@ func TestGateShellRouteJurisdiction(t *testing.T) {
 				}
 				f.env["HOME"] = fm.home
 				defer delete(f.env, "HOME")
-				wantGate(t, f, fm.cwd, bashHookJSON("sess-b", fm.cwd, fm.cmd(target.dir)), target.deny, "buddy gate")
+				wantGate(t, f, fm.cwd, codexBashHookJSON("sess-b", fm.cwd, fm.cmd(target.dir)), target.deny, "buddy gate")
 			})
 		}
 	}
@@ -353,7 +353,7 @@ func TestGateShellRouteWrapperGrammar(t *testing.T) {
 		"touch x{1..500}",
 		"env -S 'echo hi'",
 	} {
-		t.Run("allow/"+cmd, func(t *testing.T) { wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), false, "") })
+		t.Run("allow/"+cmd, func(t *testing.T) { wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), false, "") })
 	}
 	for _, cmd := range []string{
 		"env -S 'apply_patch < p.patch'",
@@ -364,7 +364,9 @@ func TestGateShellRouteWrapperGrammar(t *testing.T) {
 		// One hook's speculative parses are bounded too.
 		"foo" + strings.Repeat(" 'a b'", shellMaxParses+1),
 	} {
-		t.Run("deny/"+cmd, func(t *testing.T) { wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "buddy gate") })
+		t.Run("deny/"+cmd, func(t *testing.T) {
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "buddy gate")
+		})
 	}
 	plain := t.TempDir()
 	other := t.TempDir()
@@ -379,14 +381,14 @@ func TestGateShellRouteWrapperGrammar(t *testing.T) {
 			"env -C" + shellArg(target.dir) + " apply_patch" + patch,
 		} {
 			t.Run("place/"+cmd, func(t *testing.T) {
-				wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
+				wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
 			})
 		}
 	}
 	// The count is the only thing between one hook and an unbounded
 	// expansion: it must answer quickly, not after allocating the fields.
 	start := time.Now()
-	wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, "foo {1..99999999}{1..99999999}"), true, "buddy gate")
+	wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, "foo {1..99999999}{1..99999999}"), true, "buddy gate")
 	if took := time.Since(start); took > 2*time.Second {
 		t.Fatalf("an over-budget brace expansion took %v", took)
 	}
@@ -422,7 +424,7 @@ func TestGateShellRouteCodeReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 	for _, cmd := range []string{
@@ -430,7 +432,7 @@ func TestGateShellRouteCodeReviewForms(t *testing.T) {
 		"env touch x{1..500}",
 		"curl -I https://example.com/apply_patch",
 	} {
-		t.Run("allow/"+cmd, func(t *testing.T) { wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), false, "") })
+		t.Run("allow/"+cmd, func(t *testing.T) { wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), false, "") })
 	}
 }
 
@@ -464,12 +466,12 @@ func TestGateShellRouteCodeReviewJurisdiction(t *testing.T) {
 			if err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "repo") {
 				t.Fatalf("kernel control: %s lands in %q (err %v)", fm.shell, out, err)
 			}
-			wantGate(t, f, plain, bashHookJSON("sess-b", plain, fm.cmd), true, "buddy gate")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, fm.cmd), true, "buddy gate")
 		})
 	}
 	t.Run("oversize-script", func(t *testing.T) {
 		cmd := "cd " + shellArg(f.repo) + "; apply_patch < p.patch\n#" + strings.Repeat("x", 128<<10)
-		wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), true, "buddy gate")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), true, "buddy gate")
 	})
 	t.Run("many-directories", func(t *testing.T) {
 		// One cd per distinct directory used to re-resolve every directory
@@ -486,7 +488,7 @@ func TestGateShellRouteCodeReviewJurisdiction(t *testing.T) {
 			b.WriteString("cd " + shellArg(dir) + "; ")
 		}
 		b.WriteString("apply_patch < p.patch")
-		wantGate(t, f, plain, bashHookJSON("sess-b", plain, b.String()), false, "")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, b.String()), false, "")
 		ctx := &shellPatchContext{bases: []string{plain}}
 		(&shellWalker{ctx: ctx}).analyze(b.String(), 0, true, nil)
 		if ctx.resolutions > maxPatchPaths+1 {
@@ -544,7 +546,7 @@ func TestGateShellRouteFollowUpReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 	t.Run("env-S-growth", func(t *testing.T) {
@@ -552,7 +554,7 @@ func TestGateShellRouteFollowUpReviewForms(t *testing.T) {
 		// about 4 GB copied for this 120 KB command (0.29 s measured). Bytes
 		// allocated is the deterministic witness; wall time is not, under -race.
 		cmd := "env -S true" + strings.Repeat(" $_", 40000) // 120,011 bytes: inside the script budget
-		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "buddy gate")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "buddy gate")
 		h := hookInput{ToolName: "Bash"}
 		h.ToolInput.Command = cmd
 		var before, after runtime.MemStats
@@ -573,7 +575,7 @@ func TestGateShellRouteFollowUpReviewJurisdiction(t *testing.T) {
 	plain := t.TempDir()
 	t.Run("oversize-attached-C", func(t *testing.T) {
 		cmd := "env -C" + f.repo + " apply_patch < p.patch\n#" + strings.Repeat("x", 128<<10)
-		wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), true, "buddy gate")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), true, "buddy gate")
 	})
 	t.Run("double-quoted-escape", func(t *testing.T) {
 		quoted := `"` + strings.ReplaceAll(dollar.repo, "$", `\$`) + `"`
@@ -584,7 +586,7 @@ func TestGateShellRouteFollowUpReviewJurisdiction(t *testing.T) {
 			t.Fatalf("kernel control: zsh lands in %q (err %v)", out, err)
 		}
 		cmd := "cd " + quoted + "; () { apply_patch < p.patch }"
-		wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), true, "buddy gate")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), true, "buddy gate")
 	})
 }
 
@@ -610,7 +612,7 @@ func TestGateShellRouteThirdReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 	t.Run("continued-cd-unparseable", func(t *testing.T) {
@@ -623,7 +625,7 @@ func TestGateShellRouteThirdReviewForms(t *testing.T) {
 			t.Fatalf("kernel control: zsh lands in %q (err %v)", out, err)
 		}
 		cmd := "zsh -c " + shellQuote("cd \\\n"+f.repo+"; () { apply_patch < p.patch }")
-		wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), true, "buddy gate")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), true, "buddy gate")
 	})
 	t.Run("many-descriptors", func(t *testing.T) {
 		// Each redirection used to copy the statement's whole descriptor
@@ -651,9 +653,9 @@ func TestGateShellRouteThirdReviewForms(t *testing.T) {
 		for n := 3; n < 3+shellMaxFDs+1; n++ {
 			b.WriteString(" " + strconv.Itoa(n) + "</dev/null")
 		}
-		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, b.String()), true, "descriptor budget")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, b.String()), true, "descriptor budget")
 		plain := t.TempDir()
-		wantGate(t, f, plain, bashHookJSON("sess-b", plain, b.String()), false, "")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, b.String()), false, "")
 	})
 }
 
@@ -679,7 +681,7 @@ func TestGateShellRouteFourthReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 	plain := t.TempDir()
@@ -691,7 +693,7 @@ func TestGateShellRouteFourthReviewForms(t *testing.T) {
 		// Grouped short options: -vC DIR is -v -C DIR.
 		cmd := "env -vC " + shellArg(target.dir) + " apply_patch < p.patch"
 		t.Run("grouped/"+filepath.Base(target.dir), func(t *testing.T) {
-			wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
 		})
 	}
 	t.Run("nested-descriptor-tables", func(t *testing.T) {
@@ -735,11 +737,11 @@ func TestGateShellRouteFifthReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 	t.Run("allow/rg --pre=cat", func(t *testing.T) {
-		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, "rg --pre=cat apply_patch docs"), false, "")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, "rg --pre=cat apply_patch docs"), false, "")
 	})
 	plain := t.TempDir()
 	other := t.TempDir()
@@ -752,7 +754,7 @@ func TestGateShellRouteFifthReviewForms(t *testing.T) {
 			"lexical-vC": "zsh -c " + shellQuote("env -vC "+shellArg(target.dir)+" "+p+"; () { :; }"),
 		} {
 			t.Run(name+"/"+filepath.Base(target.dir), func(t *testing.T) {
-				wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
+				wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
 			})
 		}
 	}
@@ -783,7 +785,7 @@ func TestGateShellRouteSixthReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 }
@@ -811,7 +813,7 @@ func TestGateShellRouteSeventhReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 	plain := t.TempDir()
@@ -823,7 +825,7 @@ func TestGateShellRouteSeventhReviewForms(t *testing.T) {
 		// env processes the options its -S text splits into.
 		cmd := "env -S " + shellQuote("-C "+target.dir+" apply_patch") + " < p.patch"
 		t.Run("env-S-options/"+filepath.Base(target.dir), func(t *testing.T) {
-			wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
 		})
 	}
 	t.Run("rebuilt-heredoc", func(t *testing.T) {
@@ -865,7 +867,7 @@ func TestGateShellRouteEighthReviewForms(t *testing.T) {
 					t.Fatalf("kernel control: %s does not run apply_patch for this form", sh)
 				}
 			}
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.cmd), true, "buddy gate")
 		})
 	}
 	t.Run("deep-rebuilt-heredoc", func(t *testing.T) {
@@ -902,10 +904,12 @@ func TestGateShellRouteNinthReviewForms(t *testing.T) {
 		// fish: a C inside -c's attached script is not the -C option.
 		"fish '-capply_patch < CHANGE.patch'",
 	} {
-		t.Run(cmd, func(t *testing.T) { wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "buddy gate") })
+		t.Run(cmd, func(t *testing.T) {
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "buddy gate")
+		})
 	}
 	t.Run("allow/sudo -s with a command", func(t *testing.T) {
-		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, "sudo -s grep apply_patch file <<'SH'\napply_patch\nSH\n"), false, "")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, "sudo -s grep apply_patch file <<'SH'\napply_patch\nSH\n"), false, "")
 	})
 	plain := t.TempDir()
 	other := t.TempDir()
@@ -916,7 +920,7 @@ func TestGateShellRouteNinthReviewForms(t *testing.T) {
 		// Uncertain -S text must not hide the argv after it.
 		cmd := "env -S '# x' -C " + shellArg(target.dir) + " apply_patch < p.patch"
 		t.Run("env-S-then-C/"+filepath.Base(target.dir), func(t *testing.T) {
-			wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
 		})
 	}
 }
@@ -931,7 +935,7 @@ func TestGateShellRouteOverBudgetCommandWord(t *testing.T) {
 	if !kernelRuns(t, "/bin/bash", shellRouteWorkDir(t), cmd) {
 		t.Fatal("kernel control: bash does not run apply_patch for this form")
 	}
-	wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "buddy gate")
+	wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "buddy gate")
 }
 
 // Found by the 2026-10-11 run of the 39 mutants the 2026-10-08 sweep left
@@ -951,8 +955,8 @@ func TestGateShellRouteDataOperandsSpendNoFieldBudget(t *testing.T) {
 	if !kernelRuns(t, "/bin/bash", shellRouteWorkDir(t), refused) {
 		t.Fatal("kernel control: bash does not run apply_patch for this form")
 	}
-	wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, refused), true, "buddy gate")
-	wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, spend+"; {ls,-l}"), false, "")
+	wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, refused), true, "buddy gate")
+	wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, spend+"; {ls,-l}"), false, "")
 }
 
 // An over-budget word in text a command runs as shell is refused as over
@@ -966,7 +970,7 @@ func TestGateShellRouteOverBudgetScriptWordSaysBudget(t *testing.T) {
 	if !kernelRuns(t, "/bin/bash", shellRouteWorkDir(t), cmd) {
 		t.Fatal("kernel control: bash does not run apply_patch for this form")
 	}
-	wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "brace expansion budget")
+	wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "brace expansion budget")
 }
 
 // Scripts the walker retains for the embedded-patch scan are bounded. The scan

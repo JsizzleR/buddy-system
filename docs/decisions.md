@@ -6587,6 +6587,109 @@ disagreeing natives, `diagnose`: not heard; a bystander never moves),
 `TestHeardSessionIsNotReportedStale` (the trial's case end to end through `msg`
 and `sessions`, with the stale control first), `TestHeardNeverRevives`.
 
+## D-087 — The gate's "cannot rule out" arm is Codex-only; a literal `apply_patch` still refuses under every harness (narrows D-073)
+
+2026-10-20. Finding I of the 2026-10-14..20 fleet audit. OPERATOR DECIDED.
+
+**The failure** — D-073 (audit A-01) refuses, wherever a ledger governs, a
+shell command whose script is produced at run time (`eval "$x"`, `sh -c "$c"`,
+a pipe into a shell) or that the bash-mode parser rejects, because Codex can
+apply a patch IN PROCESS from its shell and no static reading rules such text
+out. The arm fired on Claude Code Bash calls too, which have no such engine and
+no `apply_patch` tool to be sent to. On one fleet of 144 Claude sessions: about
+10 denials across about 9 sessions, every one `eval`, `sh -c "$c"`, zsh's
+`${=p}` (valid zsh; the Bash tool there runs zsh) or a pipe into
+`ssh host 'sh -s'`. Each cost a rewrite, the message pointed at a tool Claude
+does not have, and writing the same probe to a script file passed: it
+protected nothing there.
+
+**The decision** — the uncertain arm applies only when the gate's existing
+harness classification (`classifyHook`: `buddy_harness`, `$BUDDY_HARNESS`, or
+`$CODEX_THREAD_ID`) says Codex. Under any other harness the walker records no
+uncertainty and keeps reading, so `eval "$x"; apply_patch < p` still finds the
+literal. A literal `apply_patch`/`applypatch` at a command position refuses
+under every harness, as before. An exhausted work bound (depth, bytes, parses,
+brace fields) also still refuses under every harness: that is the gate having
+stopped reading before it could rule out the literal, not a verdict about the
+text. A Claude refusal no longer mentions Codex's tool.
+
+**What it costs** — under Claude, a literal `apply_patch` inside text the gate
+cannot read (run-time text, an unparseable script) passes. That is the same
+cooperative residue as a script file, which already passed under every
+harness, and Claude Code has no in-process engine for it to reach. So does
+partly dynamic text: `bash -c "apply_patch < $f"` passes under Claude, because
+the script bash runs is built at run time. A word in the command's OWN argv
+after a dynamic value is still read: the Codex code pass found `env -S "$opts"
+apply_patch < p` passing (an empty `$opts` runs the literal), because the
+wrapper scan returned at the dynamic value; it now skips the value and goes on
+under any harness but Codex. A Codex hook with no marker and no
+`$CODEX_THREAD_ID` is classified Claude (D-073's F-31 continuation); the
+installed Codex hook line carries the marker.
+
+**Tests** — `TestGateUncertainRouteIsCodexOnly` (each fleet shape: allowed for
+a Claude payload, refused as uncertain for a Codex one, the positive control),
+`TestGateLiteralApplyPatchRefusesUnderEveryHarness` (literal forms, including
+uncertain text before the literal, refused for both; feature off without a
+ledger), `TestGateExhaustedBoundRefusesClaudeToo`. The shell-route suite runs
+on Codex payloads, the harness it describes.
+
+## D-088 — A claim refused by a holder exits 4; "not a repository" and "no ledger" say where buddy looked
+
+2026-10-20. Finding K of the 2026-10-14..20 fleet audit.
+
+**The failure** — three errors, one exit status. A driver script on one fleet
+read a not-a-repository exit 1 as "slot held" and lost two starts. The
+not-a-repository error named no directory: 7 errors in 6 sessions of one
+bucket and 7 in 5 of another, all from a notes directory inside `cd notes &&
+… && buddy …` chains, one of them a RED report. And a lane in a second clone of
+the same repository was told `no ledger at … — run buddy init in this repo
+first`: a second ledger coordinates with nobody (one lane built a PATH shim
+that cd'd into the right worktree instead).
+
+**The decision** — `claim` exits **4** when a holder refused it (a scope or
+the slug held, `store.ErrRefused`), and a `--dry-run` that forecasts such a
+refusal exits 4 too. Every other failure keeps 1, and a bare `buddy` keeps 2.
+4 rather than 3 because `internal/testguard`'s orphan exit is 3 on this box.
+`claim --help` says so. The gate is unaffected: it always exits 0 and answers
+in its JSON. The not-a-repository error names the working directory and says to
+run buddy from inside the repository whose ledger the peers use; the no-ledger
+error says a ledger made here would coordinate with nobody and names `buddy
+init` only for a repository meant to be coordinated on its own. The verdicts
+(invariant 3, D-044) are unchanged: only the words.
+
+**Also, usage** (findings H and L, no decision of their own): hello's hint and
+the skill say `buddy claim <slug> --dry-run`; `claim` with a flag first says
+the slug comes first; an argument that begins with `-` and holds whitespace (an
+unsplit zsh `$S`) is named as such, pointing at an array; `msg`'s usage states
+the `--measured` (128) and `--relay` (64) rendered-byte caps; `ids take
+--desc` says ids take uses `--note`.
+
+**Tests** — `TestClaimExitCodesTellHeldFromElsewhere` (scope held, slug held,
+dry run: 4; granted: 0; not a repository, no ledger, unknown flag, comma scope:
+1; bare: 2), `TestNoRepoAndNoLedgerSayWhere` (and the gate still silent in
+both), `TestUsageSaysWhatWentWrong`.
+
+## D-089 — `hello` takes its label from `$BUDDY_LABEL` when no `--label` is given
+
+2026-10-20. Finding O of the 2026-10-14..20 fleet audit.
+
+**The failure** — every lane wore `<repo>/s-<8hex>`, and peers addressed lanes
+by the name the launcher gave them (`herdr agent start <label> … -n <label>`):
+at least 8 `no such target` refusals on one fleet. `--label` exists only on
+the SessionStart hook line, which is one line for every session.
+
+**The decision** — `hello` reads `BUDDY_LABEL` when `--label` was not given;
+the flag wins. The value takes exactly the path `--label` takes: stored as
+given, fenced wherever it renders, and the label-worn-twice warning fires for
+it. The skill's "Running a fleet" sets it on the tab: `herdr tab create …
+--env BUDDY_LABEL=<label>` (a tab's `--env` reaches the lane, measured). A tab
+does not inherit its launcher's environment (D-085), so a lane's label does not
+leak to the lanes it opens. Only `hello`: `lifecycle begin --label` is the
+adapter's typed argv.
+
+**Tests** — `TestHelloTakesItsLabelFromBuddyLabel` (msg by the env label
+resolves; the flag wins; worn twice warns; unset keeps the default label).
+
 ## D-096 — The handoff notice speaks once per 25k step past the size, not on every turn (amends D-055)
 
 2026-10-20. Finding M of the 2026-10-14..20 fleet audit.
