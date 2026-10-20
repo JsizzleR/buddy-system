@@ -895,6 +895,20 @@ ledger row entered through the CLI (D-006).
     adapter or diagnose. A verb is not a late event, so it takes no incarnation (D-069 fences
     events). Do not propose clearing idle or renewing claims from it.
 
+88. **Mail reaches the session it was sent to (D-099).** A hook payload with `agent_id` (a
+    subagent's tool call, under the PARENT's session id; documented and in the 2.1.304
+    hook-input schema, not measured on a live payload) beats for the session but drains no
+    mail and consumes no authority or LANDED notice; only the dirty-path warning shows.
+    Every drain (beat, busy, idle, `inbox`) holds the ledger's write lock from its read to
+    its mark (`store.Drain`), write first and mark after. `idle` checks for queued legacy
+    mail and records idle in ONE transaction (`store.StopTurn`): mail becomes a Stop
+    `{"decision":"block","reason":…}` and no idle mark, never when `stop_hook_active` is
+    true, never for a subagent or adapter mail; a failed write rests idle. `msg` re-reads the
+    idle register after its insert for the wake. `inbox <id>` re-reads one message addressed
+    to the caller in any state, marks nothing, and refuses every other id alike, with no
+    body. Do not propose marking before writing, a lease column, or a wake for every
+    recently seen recipient.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

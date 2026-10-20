@@ -597,6 +597,29 @@ session runs `buddy inbox`. Measured on two sessions opened for the purpose:
 A recipient in a different permission mode holds the wake for its user. The
 queued copy is there either way.
 
+**Mail at the end of a turn, and from a subagent (D-099).** A message that
+lands between a session's last tool call and its Stop used to sit at its
+prompt: `msg` saw it seen seconds ago and named no wake, and the Stop marked it
+idle. The Stop hook (`buddy idle`) now checks for queued mail in the same
+transaction as its idle mark. If there is any, it prints a Stop
+`{"decision":"block","reason":…}` whose reason is the fenced inbox block, and
+the turn goes on one step with it; the session is not marked idle. A turn a
+Stop hook already continued (`stop_hook_active`) is never held again, and
+adapter mail never holds one. `msg` re-reads the idle mark after its insert,
+so a Stop that lands between its observation and its write still gets the
+wake named. A tool call made inside a subagent (its hook payload carries
+`agent_id`) beats for the session but drains no mail and consumes no LANDED or
+authority notice: its output reaches the subagent, not the session. Every
+drain holds the ledger's write lock from its read to its mark, so parallel
+tool calls deliver a message once.
+
+**Re-reading a message (D-099).** `buddy inbox <id>` (or `#<id>`) re-prints
+one message addressed to you, by id, label or a broadcast that named you,
+whatever its state, fenced as a drain prints it, then one line saying whether
+it was delivered (and when), is still queued, or expired. It marks nothing.
+Another session's message, an unknown id and adapter mail all get the same
+refusal, with no body.
+
 **Correcting a message (D-043).** Every send prints its id (`; message #12`),
 and every delivered line starts with one. A sender corrects its own earlier
 message with `--supersedes`:

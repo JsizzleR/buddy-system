@@ -1863,25 +1863,27 @@ func (s *Store) Undelivered(sessionID, label string) ([]InboxMsg, error) {
 // MarkDelivered records delivery of msgs to the session. Called only after
 // the caller has successfully written them out (at-least-once delivery).
 func (s *Store) MarkDelivered(sessionID string, ids []int64) error {
-	return s.tx(func(tx *sql.Tx) error {
-		now := s.now().Unix()
-		for _, id := range ids {
-			// Tokenless hooks cannot certify an adapter delivery, even when
-			// handed an id by a caller that bypassed Undelivered's filter.
-			var adapter int
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM adapter_messages WHERE msg_id=?`, id).Scan(&adapter); err != nil {
-				return err
-			}
-			if adapter != 0 {
-				return errors.New("adapter messages require captured-incarnation delivery")
-			}
-			if _, err := tx.Exec(`INSERT OR IGNORE INTO inbox_delivery (msg_id, session_id, delivered) VALUES (?,?,?)`,
-				id, sessionID, now); err != nil {
-				return err
-			}
+	return s.tx(func(tx *sql.Tx) error { return s.markDelivered(tx, sessionID, ids) })
+}
+
+func (s *Store) markDelivered(tx *sql.Tx, sessionID string, ids []int64) error {
+	now := s.now().Unix()
+	for _, id := range ids {
+		// Tokenless hooks cannot certify an adapter delivery, even when
+		// handed an id by a caller that bypassed Undelivered's filter.
+		var adapter int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM adapter_messages WHERE msg_id=?`, id).Scan(&adapter); err != nil {
+			return err
 		}
-		return nil
-	})
+		if adapter != 0 {
+			return errors.New("adapter messages require captured-incarnation delivery")
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO inbox_delivery (msg_id, session_id, delivered) VALUES (?,?,?)`,
+			id, sessionID, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SessionOrder is the key Sessions sorts on. It is a typed constant and not
@@ -2269,30 +2271,46 @@ type IdleState struct {
 // failure this project keeps finding.
 func (s *Store) MarkIdle(sessionID string, since, fenceAt time.Time) error {
 	return s.tx(func(tx *sql.Tx) error {
-		var inc string
-		var started time.Time
-		err := tx.QueryRow(`SELECT incarnation, started FROM sessions WHERE session_id=? AND ended IS NULL`,
-			sessionID).Scan(&inc, unixScan{&started})
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
+		inc, ok, err := idleFence(tx, sessionID, since, fenceAt)
+		if err != nil || !ok {
 			return err
 		}
-		if fenceAt.IsZero() {
-			fenceAt = since // a dated mark with no separate evidence is its own fence, as before D-060
-		}
-		if !fenceAt.IsZero() && fenceAt.Before(started) {
-			return nil // an earlier incarnation's turn, arriving late
-		}
-		if since.IsZero() {
-			since = s.now()
-		}
-		_, err = tx.Exec(`INSERT INTO session_idle (session_id, incarnation, since) VALUES (?,?,?)
-			ON CONFLICT(session_id) DO UPDATE SET incarnation=excluded.incarnation, since=excluded.since`,
-			sessionID, inc, since.Unix())
-		return err
+		return s.writeIdle(tx, sessionID, inc, since)
 	})
+}
+
+// idleFence is MarkIdle's admission: the live incarnation a Stop dated
+// (since, fenceAt) may speak for, and false for an ended or unknown session
+// or an earlier incarnation's turn arriving late. Split out so StopTurn
+// (drain.go) applies the same fence inside its own transaction.
+func idleFence(tx *sql.Tx, sessionID string, since, fenceAt time.Time) (string, bool, error) {
+	var inc string
+	var started time.Time
+	err := tx.QueryRow(`SELECT incarnation, started FROM sessions WHERE session_id=? AND ended IS NULL`,
+		sessionID).Scan(&inc, unixScan{&started})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if fenceAt.IsZero() {
+		fenceAt = since // a dated mark with no separate evidence is its own fence, as before D-060
+	}
+	if !fenceAt.IsZero() && fenceAt.Before(started) {
+		return "", false, nil // an earlier incarnation's turn, arriving late
+	}
+	return inc, true, nil
+}
+
+func (s *Store) writeIdle(tx *sql.Tx, sessionID, inc string, since time.Time) error {
+	if since.IsZero() {
+		since = s.now()
+	}
+	_, err := tx.Exec(`INSERT INTO session_idle (session_id, incarnation, since) VALUES (?,?,?)
+		ON CONFLICT(session_id) DO UPDATE SET incarnation=excluded.incarnation, since=excluded.since`,
+		sessionID, inc, since.Unix())
+	return err
 }
 
 // ClearIdle retracts an idle mark: the session is working again.

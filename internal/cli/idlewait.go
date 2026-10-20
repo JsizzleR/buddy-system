@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/store"
@@ -121,7 +123,82 @@ func recordTurnEnd(st *store.Store, h hookInput, env Env) error {
 	}
 	// Neither: nothing readable, and the mark is written unfenced and dated by
 	// the write, as it was before issue #11.
-	return st.MarkIdle(h.SessionID, since, fence)
+	return stopTurn(st, h, env, since, fence)
+}
+
+// stopLead opens a Stop's held-open turn. It is buddy's own line, ahead of
+// the inbox block the header marks as peer text.
+const stopLead = "BUDDY: mail reached you as this turn ended, so the Stop hook kept the turn open to hand it over (D-099). Act on it if it asks for something; otherwise end the turn.\n"
+
+// stopTurn is the idle mark, or the mail that would have been stranded
+// behind it (D-099, amending D-016 and D-039).
+//
+// WHAT WAS WRONG. A lane's pattern is "msg the orchestrator, stop": the reply
+// lands seconds after the lane's last tool call and before or at its Stop.
+// msg saw "last seen 4s ago", named no wake (a session seen recently drains
+// on its own), and the Stop then marked the session idle with the mail still
+// queued. Nothing runs a tool at a prompt, so it sat there: six confirmed
+// stalls of 6 to 75 minutes on one fleet (one: msg at 20:13:20.7, the
+// target's last tool call 20:13:13, its turn ended 20:13:21.9).
+//
+// WHAT THIS DOES. In ONE transaction with the idle mark (store.StopTurn), the
+// Stop looks for queued mail. If there is any, it is drained by beat's rules
+// (bound, fence, write first and mark after) into a Stop `decision: block`
+// whose reason is the mail, so the turn goes on one more step with it, and
+// the session is not marked idle, since it is not resting. Otherwise idle is
+// recorded exactly as before. One transaction is what closes the race from
+// the other side: a msg whose insert commits first is seen here, and one that
+// commits after finds the idle mark when it re-reads it (cmdMsg), and names
+// the wake.
+//
+// NEVER TWICE IN A ROW: a turn a Stop hook already continued says so
+// (stop_hook_active) and is marked idle with its mail queued, so a peer
+// writing in a loop cannot keep a session from resting. RESIDUAL (Codex code
+// pass): mail queued during such a continued turn, after its last tool call,
+// is stranded as before D-099 — msg saw no idle mark and this Stop may not
+// hold the turn again. Closing it needs a second hold (overturning "never
+// twice in a row") or the time of the last hold (a schema change); mail sent
+// after this Stop's idle mark is woken by msg. Never for a subagent (cmdIdle
+// returns first), never for adapter mail (Undelivered excludes it). This is
+// not inferring busy (D-016): the mark is withheld because the hook itself
+// is continuing the turn.
+//
+// CONSIDERED AND CUT. Delivering the mail as additionalContext on Stop: the
+// documentation says the conversation continues for that too, but whether it
+// sets stop_hook_active on the next Stop is unmeasured, and the loop guard
+// rests on it; `decision: block` is documented to.
+func stopTurn(st *store.Store, h hookInput, env Env, since, fence time.Time) error {
+	label := ""
+	if si, known, err := st.SessionByID(h.SessionID); err == nil && known {
+		label = si.Label
+	}
+	now := nowOf(env)
+	var deliverErr error
+	_, err := st.StopTurn(h.SessionID, label, since, fence, !h.StopHookActive, func(msgs []store.InboxMsg) ([]int64, error) {
+		shown := beatDrain(msgs, len(stopLead), now)
+		if len(shown) == 0 {
+			return nil, nil
+		}
+		var b strings.Builder
+		b.WriteString(stopLead)
+		ids := writeInbox(&b, shown, now)
+		enc, err := json.Marshal(map[string]any{"decision": "block", "reason": b.String()})
+		if err == nil {
+			_, err = env.Stdout.Write(append(enc, '\n'))
+		}
+		if err != nil {
+			deliverErr = err
+			return nil, err
+		}
+		return ids, nil
+	})
+	if deliverErr != nil {
+		// The write failed, so nothing was marked and the turn is not held:
+		// the session IS resting, with its mail queued. Record that, so the
+		// next msg names the wake, rather than leave no idle mark at all.
+		_ = st.MarkIdle(h.SessionID, since, fence)
+	}
+	return err
 }
 
 // resampleFootprint is busy's read of the transcript before it answers the

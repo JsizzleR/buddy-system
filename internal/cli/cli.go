@@ -218,7 +218,8 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
                                 the claim guarded (a long run, a land), carried on
                                 every waiter's LANDED; a release alone says only that
                                 the reservation ended
-              ls [--all]            list claims        inbox            drain my messages
+              ls [--all]            list claims        inbox [<id>]     drain my messages,
+                                                       or re-read one
               whose <path>          BOTH registers: who has CLAIMED it (the one that
                                     reserves, and the one the gate reads) and who has
                                     uncommitted changes to it, so you can address them
@@ -320,7 +321,7 @@ const (
 	usageResume    = "usage: buddy resume <session|label|slug|all>"
 	usageMsg       = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--lead | --measured <what, over what> | --relay <source>] [--supersedes <id>] [--dry-run] <text...>"
 	usageSent      = "usage: buddy sent [<message-id>]   (what became of messages you sent: recorded delivery, queued, expired)"
-	usageInbox     = "usage: buddy inbox [--session <id>]"
+	usageInbox     = "usage: buddy inbox [--session <id>] [<message-id>]   (no id: drain my messages; an id: re-print that one message addressed to me, delivered or not, marking nothing)"
 	usageSessions  = "usage: buddy sessions [--by seen|started] [--session <id>]"
 	usageWhose     = "usage: buddy whose <path>"
 	usageStatus    = "usage: buddy status [--session <id>]"
@@ -352,12 +353,27 @@ type hookInput struct {
 	// writes the same id as `promptId` on that turn's own user records
 	// (measured, 2.1.283: typed prompts, tool results, peer messages). The
 	// Stop hook uses it to tell its own turn from a newer one (D-060).
-	PromptID  string `json:"prompt_id"`
-	ToolInput struct {
+	PromptID string `json:"prompt_id"`
+	// StopHookActive is the Stop payload's own word that this turn is
+	// ALREADY one a Stop hook continued. idle never holds a turn open twice
+	// in a row (D-099).
+	StopHookActive bool `json:"stop_hook_active"`
+	ToolInput      struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 		Command      string `json:"command"`
 	} `json:"tool_input"`
+}
+
+// subagent says the hook fired inside a subagent: Claude Code adds agent_id
+// to a tool event a subagent's call fires, under the PARENT's session_id
+// (hooks documentation; the 2.1.304 hook-input schema says "Present only when
+// the hook fires from within a subagent ... Absent for the main thread"; not
+// measured on a live payload). The parent markers are the Codex spellings
+// lifecycle.go already refuses. Such a call is still the session's work, so
+// it beats; it is not the session's CONTEXT, so it drains nothing (D-099).
+func (h hookInput) subagent() bool {
+	return h.AgentID != "" || h.ParentSessionID != "" || h.ParentThreadID != ""
 }
 
 // path returns the tool's target path: NotebookEdit uses notebook_path.
@@ -1500,6 +1516,13 @@ func cmdIdle(args []string, env Env) error {
 	if h.Harness == "codex" {
 		return unsupportedCodexLifecycle("idle")
 	}
+	// A subagent's end is not the session resting, and its context is not
+	// the session's: no idle mark, no drain (D-099). Claude Code fires
+	// SubagentStop, not Stop, for one, so this is a guard for a wiring that
+	// names idle there.
+	if h.subagent() {
+		return nil
+	}
 	st, _, err := openRepo(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return nil
@@ -1579,6 +1602,10 @@ func cmdBusy(args []string, env Env) error {
 	if err := st.ClearIdle(h.SessionID); err != nil {
 		return err
 	}
+	// No subagent event opens a turn today; the guard is beat's (D-099).
+	if h.subagent() {
+		return nil
+	}
 	me, known, err := st.SessionByID(h.SessionID)
 	if err != nil {
 		return err
@@ -1586,10 +1613,6 @@ func cmdBusy(args []string, env Env) error {
 	label := ""
 	if known {
 		label = me.Label
-	}
-	msgs, err := st.Undelivered(h.SessionID, label)
-	if err != nil {
-		return err
 	}
 	// The handoff line (D-055) rides the SAME document, ahead of the inbox:
 	// it is buddy's own observation, so it must not sit inside the block the
@@ -1599,19 +1622,55 @@ func cmdBusy(args []string, env Env) error {
 		resampleFootprint(st, h, me, known, env) // Claude's turn that just ended (D-060)
 	}
 	note := busyHandoff(st, me, known, env)
-	if note == "" && len(msgs) == 0 {
-		return nil
+	_, err = drainHook(st, h.SessionID, label, env, "UserPromptSubmit", note,
+		func(msgs []store.InboxMsg) []store.InboxMsg { return boundDrain(msgs, nowOf(env)) })
+	return err
+}
+
+// drainHook writes a hook event's ONE document: prefix (buddy's own notices,
+// possibly "") and then as much of the session's inbox as bound keeps, and
+// marks what it wrote. wrote says a document went out, which is when the
+// caller may mark its notices.
+//
+// THE DRAIN HOLDS THE LEDGER'S WRITE LOCK from its read to its mark
+// (store.Drain, D-099): parallel tool calls in one session fire concurrent
+// beats, and each used to read, write and mark the same message (three
+// injections of one message in one millisecond, measured on one fleet).
+// Write first, mark after still holds: a failed write marks nothing. The
+// lock is taken only when the plain read finds mail, so a beat with nothing
+// queued opens no write transaction, as before.
+func drainHook(st *store.Store, sessionID, label string, env Env, event, prefix string, bound func([]store.InboxMsg) []store.InboxMsg) (wrote bool, err error) {
+	queued, err := st.Undelivered(sessionID, label)
+	if err != nil {
+		return false, err
 	}
-	var b strings.Builder
-	b.WriteString(note)
-	ids := writeInbox(&b, boundDrain(msgs, nowOf(env)), nowOf(env))
-	if err := writeHookContext(env, "UserPromptSubmit", b.String()); err != nil {
-		return err // write failed → nothing marked → the next drain delivers it
+	if len(queued) == 0 {
+		if prefix == "" {
+			return false, nil
+		}
+		// wrote only if it was: a notice whose write failed must not be
+		// marked, or it is silenced for good.
+		if err := writeHookContext(env, event, prefix); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	if len(ids) == 0 {
-		return nil
-	}
-	return st.MarkDelivered(h.SessionID, ids)
+	err = st.Drain(sessionID, label, func(msgs []store.InboxMsg) ([]int64, error) {
+		// msgs is the read under the lock: a concurrent drain that won the
+		// lock has already marked what the plain read saw.
+		if len(msgs) == 0 && prefix == "" {
+			return nil, nil
+		}
+		var b strings.Builder
+		b.WriteString(prefix)
+		ids := writeInbox(&b, bound(msgs), nowOf(env))
+		if err := writeHookContext(env, event, b.String()); err != nil {
+			return nil, err // write failed → nothing marked → the next drain delivers it
+		}
+		wrote = true
+		return ids, nil
+	})
+	return wrote, err
 }
 
 // writeHookContext emits text as the ONE hook JSON document an event may
@@ -1697,6 +1756,18 @@ func cmdBeat(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	// A SUBAGENT'S TOOL CALL (D-099) fires this hook under the parent's
+	// session id. It is the session's work, so everything above stands —
+	// seen, claim renewal, the dirty path — and the footprint below, read
+	// from transcript_path, which names the parent's transcript. But its
+	// output lands in the SUBAGENT's context, which the main thread never
+	// reads: on one fleet 181 distinct messages reached 186 subagent
+	// transcripts and were marked delivered, at least 30 of them never seen
+	// by the session they were sent to. So it drains nothing and consumes no
+	// one-shot notice addressed to the session (authority, LANDED). The
+	// dirty-path warning still shows: it is about the file THIS call
+	// touched, and the subagent is the one editing it.
+	sub := h.subagent()
 	if known && me.Live() && h.Harness != "codex" {
 		if u, ok := lastUsage(h.TranscriptPath); ok {
 			_ = st.RecordContext(h.SessionID, me.Incarnation, store.ContextSample{
@@ -1724,7 +1795,7 @@ func cmdBeat(args []string, env Env) error {
 	// a path, because the dirty notice attributes a path; this check wants
 	// the worktree root on EVERY tool call, Bash included.
 	auth, commitAuth := "", func() error { return nil }
-	if rc.top != "" && known && me.Live() {
+	if rc.top != "" && known && me.Live() && !sub {
 		auth, commitAuth = authorityNotice(st, rc.top, me, nowOf(env))
 	}
 	// And a declared wait that has LANDED (D-033): one line, once per
@@ -1733,31 +1804,35 @@ func cmdBeat(args []string, env Env) error {
 	// learns at once; one that did learns here or at its next check,
 	// whichever comes first.
 	landed, commitLanded := "", func() error { return nil }
-	if known && me.Live() {
+	if known && me.Live() && !sub {
 		landed, commitLanded = waitNotice(st, me, nowOf(env), h.Harness == "codex")
 	}
 
+	// THE guard for a subagent: nothing but the dirty warning is written, so
+	// no message and no notice is marked. The `!sub` on the notices above
+	// only spares composing what would be thrown away.
+	if sub {
+		if warn == "" {
+			return nil
+		}
+		if err := writeHookContext(env, "PostToolUse", warn); err != nil {
+			return err
+		}
+		_ = commitWarn()
+		return nil
+	}
 	// Drain the inbox: write first, mark delivered only after the write
-	// succeeded (at-least-once).
+	// succeeded (at-least-once), under the write lock (drainHook).
 	label := ""
 	if known {
 		label = me.Label
 	}
-	msgs, err := st.Undelivered(h.SessionID, label)
-	if err != nil {
-		return err
-	}
-	if len(msgs) == 0 && warn == "" && auth == "" && landed == "" {
-		return nil
-	}
 	// One hook event may emit only ONE JSON document, so the notice and the
 	// messages share a single additionalContext rather than racing to stdout.
-	var b strings.Builder
-	b.WriteString(warn)
-	b.WriteString(auth)
-	b.WriteString(landed)
-	ids := writeInbox(&b, beatDrain(msgs, b.Len(), nowOf(env)), nowOf(env))
-	if err := writeHookContext(env, "PostToolUse", b.String()); err != nil {
+	notices := warn + auth + landed
+	wrote, err := drainHook(st, h.SessionID, label, env, "PostToolUse", notices,
+		func(msgs []store.InboxMsg) []store.InboxMsg { return beatDrain(msgs, len(notices), nowOf(env)) })
+	if !wrote {
 		return err // write failed → nothing marked → redelivered next beat
 	}
 	// Both marks are claimed only after the write succeeded, for the same
@@ -1766,7 +1841,8 @@ func cmdBeat(args []string, env Env) error {
 	// it forever while the messages beside it were correctly redelivered.
 	//
 	// AND THEIR FAILURE COSTS NOTHING ELSE. These are advisory bookkeeping;
-	// the inbox acknowledgement below is the heartbeat's contract. The first
+	// the inbox acknowledgement (now made inside drainHook's transaction,
+	// before these) is the heartbeat's contract. The first
 	// shape returned on a failed mark and skipped MarkDelivered, so a hiccup
 	// in the authority table re-delivered every message beside the notice
 	// (Codex code pass, D-028). The worst a lost mark can do is repeat its
@@ -1774,10 +1850,7 @@ func cmdBeat(args []string, env Env) error {
 	_ = commitWarn()
 	_ = commitAuth()
 	_ = commitLanded()
-	if len(ids) == 0 {
-		return nil // no empty write transaction on a notice-only beat
-	}
-	return st.MarkDelivered(h.SessionID, ids)
+	return err // the inbox mark's, made inside drainHook's transaction
 }
 
 // beatDrain is boundDrain inside the room beat's notices leave under
@@ -3251,6 +3324,7 @@ func cmdMsg(args []string, env Env) error {
 	// The harness's own channel to a session at its prompt (D-039): named,
 	// never used — buddy wakes nothing. On the SAME line (D-041), because a
 	// sender reading `| head -1` dropped it when it was the second.
+	rcpt.idleAfterSend(st)
 	wake := wakeClause(env, rcpt, nowOf(env), id)
 	if wake != "" {
 		line += "; " + wake
@@ -3749,9 +3823,19 @@ func cmdInbox(args []string, env Env) error {
 		return err
 	}
 	// inbox DRAINS: a message it prints is marked delivered. A stray word
-	// used to drain anyway.
-	if err := noStray("inbox", fs, usageInbox); err != nil {
-		return err
+	// used to drain anyway. One word is now a message id (D-099), and the
+	// flag parser stops at it, so anything after it is refused rather than
+	// read as a flag that was never parsed.
+	var reread int64
+	if fs.NArg() > 0 {
+		id, err := strconv.ParseInt(strings.TrimPrefix(fs.Arg(0), "#"), 10, 64)
+		if err != nil || id <= 0 {
+			return fencedErr(fmt.Errorf("%q is not a message id (the #N a drained line starts with)\n  %s", fs.Arg(0), usageInbox))
+		}
+		reread = id
+	}
+	if fs.NArg() > 1 {
+		return fencedErr(fmt.Errorf("inbox takes at most one message id, got %q after it — flags after it would be IGNORED\n  %s", fs.Arg(1), usageInbox))
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -3762,23 +3846,65 @@ func cmdInbox(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	msgs, err := st.Undelivered(si.SessionID, si.Label)
+	if reread != 0 {
+		return inboxReread(st, env, si, reread)
+	}
+	// Under the write lock, like every drain (store.Drain, D-099): a beat
+	// running beside this would otherwise hand the same message to the
+	// session's context a second time.
+	empty := false
+	err = st.Drain(si.SessionID, si.Label, func(msgs []store.InboxMsg) ([]int64, error) {
+		if len(msgs) == 0 {
+			empty = true
+			return nil, nil
+		}
+		ids := make([]int64, 0, len(msgs))
+		batch, now := batchOf(msgs), nowOf(env)
+		for _, m := range msgs {
+			if _, err := io.WriteString(env.Stdout, strings.TrimPrefix(inboxLine(m, batch, now), "  ")); err != nil {
+				return nil, err
+			}
+			ids = append(ids, m.ID)
+		}
+		return ids, nil
+	})
+	if err == nil && empty {
+		fmt.Fprintln(env.Stdout, "inbox empty")
+	}
+	return err
+}
+
+// inboxReread is `buddy inbox <id>` (D-099): one message addressed to the
+// caller, whatever its state, printed through the same fence as a drain, and
+// marked NOTHING. Measured on one fleet: `inbox --all` tried 3 times and
+// `inbox --help` 9 times by sessions after a message they had been handed,
+// two of them ending in a round trip asking the sender to resend.
+//
+// A message that is not the caller's — another session's, an unknown id, or
+// adapter mail (its own register, D-076) — gets one refusal for all three
+// and no body: the difference would tell a session about mail it was not
+// sent. `buddy sent <id>` is the sender's view, and reads no body either.
+func inboxReread(st *store.Store, env Env, si store.SessionInfo, id int64) error {
+	r, err := st.InboxMessage(si.SessionID, si.Label, id)
+	if errors.Is(err, store.ErrNotAddressed) {
+		return fmt.Errorf("no message #%d addressed to %s (by id, label, or a broadcast that named it); `buddy sent %d` is the sender's view", id, fence.Line(si.Label, 64), id)
+	}
 	if err != nil {
 		return err
 	}
-	if len(msgs) == 0 {
-		fmt.Fprintln(env.Stdout, "inbox empty")
-		return nil
+	now := nowOf(env)
+	if _, err := io.WriteString(env.Stdout, strings.TrimPrefix(inboxLine(r.Msg, nil, now), "  ")); err != nil {
+		return err
 	}
-	ids := make([]int64, 0, len(msgs))
-	batch, now := batchOf(msgs), nowOf(env)
-	for _, m := range msgs {
-		if _, err := io.WriteString(env.Stdout, strings.TrimPrefix(inboxLine(m, batch, now), "  ")); err != nil {
-			return err
-		}
-		ids = append(ids, m.ID)
+	state := "queued, not yet delivered to you; this re-read marks nothing, so a drain still delivers it"
+	switch {
+	case !r.Delivered.IsZero():
+		state = "delivered to you " + age(now, r.Delivered) + " ago; re-read, nothing marked"
+	case r.Expired:
+		state = "an expired broadcast, never delivered to you; re-read, nothing marked"
 	}
-	return st.MarkDelivered(si.SessionID, ids)
+	_, err = fmt.Fprintf(env.Stdout, "(#%d: %s)\n", id, state)
+	return err
 }
 
 func cmdSessions(args []string, env Env) error {

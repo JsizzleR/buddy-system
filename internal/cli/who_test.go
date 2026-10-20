@@ -35,7 +35,9 @@ func TestStatusReportsEveryRegisterAndWhatExitWouldLeave(t *testing.T) {
 	if _, errw, code := f.run(t, f.wtB, "", "msg", "alpha", "--from", "bravo", "ping"); code != 0 {
 		t.Fatalf("msg: %s", errw)
 	}
-	if _, errw, code := f.run(t, f.repo, hookJSON("sess-a", f.repo, "", ""), "idle"); code != 0 {
+	// A turn a Stop hook already continued rests with its mail queued; a
+	// first Stop would hand the mail over instead (D-099).
+	if _, errw, code := f.run(t, f.repo, stopPayload("sess-a", f.repo, true, ""), "idle"); code != 0 {
 		t.Fatalf("idle: %s", errw)
 	}
 
@@ -179,7 +181,8 @@ func TestMsgSaysWhenTheRecipientHasReportedIdle(t *testing.T) {
 	if strings.Contains(out, "idle") || strings.Contains(out, "busy") {
 		t.Fatalf("no idle row must print no note:\n%s", out)
 	}
-	if _, errw, code := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "idle"); code != 0 {
+	// "hello" is queued, so only a turn already continued rests (D-099).
+	if _, errw, code := f.run(t, f.wtB, stopPayload("sess-b", f.wtB, true, ""), "idle"); code != 0 {
 		t.Fatalf("idle: %s", errw)
 	}
 	f.clock = f.clock.Add(2 * 60 * 60 * 1e9)

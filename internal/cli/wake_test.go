@@ -95,6 +95,15 @@ func TestMsgNamesTheWakeAddressOfAQuietRecipient(t *testing.T) {
 			listenSock(t, f.sockDir, 400)
 			f.clock = f.clock.Add(4 * time.Second)
 		}, "bravo", true},
+		// D-099: an idle report wins over recency. A lane that sent its
+		// READY and stopped was "seen 1s ago" and is at its prompt.
+		{"idle a second after its last tool call", func(t *testing.T, f *fixture) {
+			f.clock = f.clock.Add(time.Second)
+			beatAs(t, f, 400)
+			listenSock(t, f.sockDir, 400)
+			idleB(t, f)
+			f.clock = f.clock.Add(time.Second)
+		}, "bravo", true},
 		{"seen recently", func(t *testing.T, f *fixture) {
 			f.clock = f.clock.Add(time.Second)
 			beatAs(t, f, 400)

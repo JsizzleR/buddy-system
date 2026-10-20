@@ -43,7 +43,14 @@ package cli
 // Printed only when all of these hold, and never otherwise:
 //   - the target is one live session that the ledger says is quiet (an idle
 //     report, not seen past the stale mark, or registered and not seen
-//     since). A session seen recently drains on its own.
+//     since). An idle report wins over recency: a session that reported
+//     idle a second after its last tool call is at its prompt. Otherwise a
+//     session seen recently drains on its own — and the one window where it
+//     did not, mail queued between its last tool call and its Stop, is now
+//     closed from both ends (D-099): the Stop hands queued mail over in the
+//     same transaction as its idle mark, and msg reads the idle register once
+//     more AFTER its insert (idleAfterSend), so a Stop that committed between
+//     msg's observation and its insert is seen and the wake is named.
 //   - exactly ONE registered harness process is alive, by the same pid-and-
 //     birth-time check GONE uses. The pid is used here to form an address
 //     and for nothing else. A reused pid fails the birth-time check, and two
@@ -147,4 +154,27 @@ func wakeFor(addr string, id int64, now time.Time) string {
 	}
 	return fmt.Sprintf("to wake it now: SendMessage to %q with the text %q — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way",
 		addr, wakeText(id, now))
+}
+
+// idleAfterSend re-reads the recipient's idle register after the send's
+// insert committed, when the observation before it found none (D-099).
+//
+// The observation is taken BEFORE the insert so the backlog it reports is
+// the earlier messages. But a Stop that commits in between — after the
+// observation, before the insert — finds no mail, marks the session idle, and
+// the send then queued to a resting session with no wake named: on one fleet
+// at least 30 sends in one bucket said "last seen Ns ago" and named none.
+// The Stop's mail check and idle mark are one transaction (store.StopTurn),
+// so after the insert exactly one of two things is true: the Stop saw the
+// mail and held the turn open, or its idle mark is here to be read.
+//
+// Only the idle register is re-read. The result line's note was measured
+// before the insert and says what it saw; the wake, which is on the same line
+// (D-041), can now be named beside "last seen 2s ago", and the idle report is
+// the newer of the two observations.
+func (r *recipient) idleAfterSend(st *store.Store) {
+	if !r.ok || r.idle != nil {
+		return
+	}
+	r.idle = idleSince(st, r.si)
 }
