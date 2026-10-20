@@ -194,9 +194,12 @@ ledger row entered through the CLI (D-006).
     cleanup" is not "unreserved". The PreToolUse gate and the commit gate still read
     `state='open'` alone (hot path, deny is the safe direction); the deny names the plain
     `buddy sweep` as the remedy for a holder that has said bye. A refusal and the dry run
-    both annotate a quiet holder (`— STALE: holder last renewed 3h ago; it still refuses`),
-    carried on `Conflict` AND `ErrRefused` so the two paths cannot disagree, and a
-    refusal prints the whole set even when there is only one conflict.
+    both annotate an unrenewed claim by what the ledger knows about its HOLDER (D-090:
+    `— STALE: claim unrenewed 3h, holder not seen 3h; it still refuses, so ask the
+    operator` for a quiet, GONE or ended holder; `— claim unrenewed 34m; holder seen 5s
+    ago; ... ask the holder: buddy msg <slug>` for a live one; nothing for a live
+    holder's slot), one judgement every claim view renders, and a refusal prints the
+    whole set even when there is only one conflict.
 
 27. **`buddy whose <path>` reports the claim registers first, then `DIRTY IN` (D-023).**
     `CLAIMED BY` is invariant 14 containment and the relation the gate reads; `HELD UNDER`
@@ -205,7 +208,8 @@ ledger row entered through the CLI (D-006).
     made a claim under a not-yet-created directory read as `(none)`), and reads ONE
     snapshot rather than matching ids and materializing them separately. `(none)` prints
     explicitly rather than being omitted — the defect was a silent answer read as "nobody
-    has this" — and a stale claim is marked `STALE (still refuses)`, D-022's wording.
+    has this" — and an unrenewed claim carries D-090's holder words and "still refuses",
+    D-022's qualifier. A `.buddy/slot/` path consults no git (D-092).
     Neither register is a lock: dirty rows stay observations (invariant 10). It was NOT
     renamed to `buddy dirty`.
 
@@ -942,6 +946,26 @@ ledger row entered through the CLI (D-006).
     to the caller in any state, marks nothing, and refuses every other id alike, with no
     body. Do not propose marking before writing, a lease column, or a wake for every
     recently seen recipient.
+
+91. **STALE keys on the holder, not only on the claim's renewal (D-090).** One judgement,
+    `holders.judge`, renders in every claim view (refusal, dry run, `ls`, hello, `who`/`status`,
+    `whose`, commit gate). Renewal fresh or unrecorded: nothing. Unrenewed past StaleAfter with
+    the holder ended, every registered process GONE, or not seen past StaleAfter: STALE, ask
+    the operator. Holder seen: "claim unrenewed; holder seen ... ask the holder: buddy msg
+    <slug>". A live holder's all-slot claim: no mark. Words only: D-022/D-026 verdicts, renewal,
+    orphaning and sweeping are unchanged. Do not propose renewing slots or parked claims to
+    clear the mark, or reaping on GONE.
+
+92. **The roster folds dead rows into one trailing line; `sessions --all` lists them (D-091,
+    amends D-015).** Folded: ended over 24h ago, and live rows whose EVERY registered process is
+    GONE (none registered is "cannot say", kept). The caller's row always stays. No ledger row
+    changes (D-025). The line labels no column, so it is not the header D-015 cut. Do not
+    propose auto-ending GONE rows.
+
+93. **`who` answers the close test on one EXIT line (D-092).** Claims held; wait declared (with
+    its verdict); jobs (none / N shells / "cannot say", never collapsed). Still grants nothing
+    (D-027). `who <slug>` lists only that claim's waiters and names it; a bare `who` is `status`;
+    a slash-shaped miss suggests `whose`; `whose` of a `.buddy/slot` path consults no git.
 
 ## Environment facts (measured, do not re-derive)
 

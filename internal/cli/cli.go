@@ -376,10 +376,10 @@ const (
 	usageMsg       = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--lead | --measured <what, over what; at most 128 rendered bytes> | --relay <source; at most 64>] [--supersedes <id>] [--dry-run] <text...>"
 	usageSent      = "usage: buddy sent [<message-id>]   (what became of messages you sent: recorded delivery, queued, expired)"
 	usageInbox     = "usage: buddy inbox [--session <id>] [<message-id>]   (no id: drain my messages; an id: re-print that one message addressed to me, delivered or not, marking nothing)"
-	usageSessions  = "usage: buddy sessions [--by seen|started] [--session <id>]"
+	usageSessions  = "usage: buddy sessions [--all] [--by seen|started] [--session <id>]  (--all adds rows ended over 24h ago and live rows whose every process is GONE)"
 	usageWhose     = "usage: buddy whose <path>"
 	usageStatus    = "usage: buddy status [--session <id>]"
-	usageWho       = "usage: buddy who <session|label|s-id|slug>  (any name a session answers to; prints the rest)"
+	usageWho       = "usage: buddy who [<session|label|s-id|slug>]  (any name a session answers to; prints the rest. No name: the caller, as buddy status)"
 	usageAuthority = "usage: buddy authority [add <path> | rm <path>]   (repo-relative; CLAUDE.md and AGENTS.md are always watched)"
 )
 
@@ -1435,7 +1435,7 @@ func cmdHello(args []string, env Env) error {
 		b.WriteString("BUDDY: no live claims.\n")
 	} else {
 		b.WriteString("BUDDY live claims (do not touch scopes held by other sessions):\n")
-		writeHelloClaims(&b, claims, si, now, helloBudget-b.Len()-tail.Len()-inboxReserve)
+		writeHelloClaims(&b, claims, si, now, helloBudget-b.Len()-tail.Len()-inboxReserve, readHolders(env, st))
 	}
 	b.WriteString(tail.String())
 	// DRAIN THE INBOX HERE TOO (issue #25, D-034). This line used to say
@@ -2181,7 +2181,7 @@ const codexHelloHelpLine = helloHelpLead + "; read the wait with `buddy wait che
 // What is not shown is counted, with how many are the session's own, and the
 // line says the rest refuse all the same: the gate reads the ledger, not
 // this digest.
-func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.SessionInfo, now time.Time, room int) {
+func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.SessionInfo, now time.Time, room int, h holders) {
 	// The room held back for the "not shown here" line is that line's own
 	// worst case, rendered: hidden and mine can be no larger than the list.
 	// It was a constant 160, which the line outgrows once 100 claims of the
@@ -2190,10 +2190,7 @@ func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.Ses
 	lines := make([]string, len(claims))
 	var order []int
 	for i, c := range claims {
-		mark := ""
-		if c.Stale(now) {
-			mark = " [STALE]"
-		}
+		mark := h.judge(now, c).helloMark(now) // the holder's, not the renewal's (D-090)
 		owner := c.Owner.Label
 		if c.Owner.SessionID == si.SessionID {
 			owner = "YOU"
@@ -2713,7 +2710,7 @@ func cmdClaim(args []string, env Env) error {
 		if err != nil {
 			return fencedErr(err)
 		}
-		printConflicts(env, conflicts)
+		printConflicts(env, st, conflicts)
 		fmt.Fprint(env.Stdout, sharedNote(conflicts))
 		fmt.Fprint(env.Stdout, slotNote(conflicts))
 		fmt.Fprint(env.Stdout, waitSuggestion(conflicts))
@@ -2761,7 +2758,7 @@ func cmdClaim(args []string, env Env) error {
 				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug,
 					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared})
 			}
-			printConflicts(env, set)
+			printConflicts(env, st, set)
 			fmt.Fprint(env.Stdout, sharedNote(set))
 			fmt.Fprint(env.Stdout, slotNote(set))
 			// The command that would declare a wait on every claim in the
@@ -2921,40 +2918,21 @@ func sharedNote(conflicts []store.Conflict) string {
 // printConflicts renders a conflict set one line per collision. Every value
 // is peer-controlled (a scope, a slug, a label), so each is fenced and the
 // line shape is fixed: a REFUSED line can never be mistaken for a claimed one.
-func printConflicts(env Env, conflicts []store.Conflict) {
+//
+// The staleness tail is the holder's, judged once for the set (D-090).
+func printConflicts(env Env, st *store.Store, conflicts []store.Conflict) {
 	now := nowOf(env)
-	for _, c := range conflicts {
+	notes := conflictNotes(env, st, conflicts, now)
+	for i, c := range conflicts {
 		if c.Scope == "" {
 			fmt.Fprintf(env.Stdout, "REFUSED: slug %s is held by %s%s\n",
-				strconv.Quote(fence.Line(c.Slug, 128)), fence.Line(c.Claimant, 64), staleNote(now, c.Renewed))
+				strconv.Quote(fence.Line(c.Slug, 128)), fence.Line(c.Claimant, 64), notes[i])
 			continue
 		}
 		fmt.Fprintf(env.Stdout, "REFUSED: %s  (overlaps %s held %sby %s, claim %s)%s\n",
 			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), sharedWord(c.Shared), fence.Line(c.Claimant, 64),
-			strconv.Quote(fence.Line(c.Slug, 128)), staleNote(now, c.Renewed))
+			strconv.Quote(fence.Line(c.Slug, 128)), notes[i])
 	}
-}
-
-// staleNote says the holder has gone quiet, and it is the ACTIONABLE half of
-// issue #18.
-//
-// The rule itself was never ambiguous: a stale claim refuses exactly like a
-// fresh one, because staleness marks and never reaps (invariant 11). What the
-// field report shows is the cost of the rule being enforced SILENTLY — a
-// session sat blocked for ~3h on a scope whose holder had stopped beating,
-// with nothing in the refusal to distinguish "somebody is working on this" from
-// "somebody left". Two other sessions measured opposite answers about the rule
-// within ten minutes and both were reading truthfully; a released claim's row
-// and a stale holder's row are what they confused.
-//
-// This never changes the VERDICT — a stale holder still refuses — it only says
-// so out loud, because escalating to the operator is the correct next move and
-// the blocked session had no way to know it was the move.
-func staleNote(now, renewed time.Time) string {
-	if renewed.IsZero() || now.Sub(renewed) <= store.StaleAfter {
-		return ""
-	}
-	return fmt.Sprintf("  — STALE: holder last renewed %s ago; it still refuses, so ask the operator", age(now, renewed))
 }
 
 func cmdRelease(args []string, env Env) error {
@@ -3145,9 +3123,12 @@ func cmdLs(args []string, env Env) error {
 		return nil
 	}
 	now := nowOf(env)
+	h := readHolders(env, st)
 	for _, c := range claims {
+		// STALE when the HOLDER is quiet (D-090). An unrenewed claim of a
+		// live holder prints plain: the age column beside it is the renewal.
 		state := c.State
-		if c.Stale(now) {
+		if h.judge(now, c).kind == staleQuiet {
 			state += " STALE"
 		}
 		// Slug, label, scopes and desc are peer-controlled free text, and ls
@@ -4018,6 +3999,7 @@ func inboxReread(st *store.Store, env Env, si store.SessionInfo, id int64) error
 func cmdSessions(args []string, env Env) error {
 	fs := flag.NewFlagSet("sessions", flag.ContinueOnError)
 	by := fs.String("by", "seen", `sort key within the live/ended grouping: "seen" or "started"`)
+	all := fs.Bool("all", false, "list every row, folding nothing (D-091)")
 	var session string
 	sessionFlag(fs, &session)
 	if help, err := parseFlags(fs, args, usageSessions, env); help || err != nil {
@@ -4063,6 +4045,24 @@ func cmdSessions(args []string, env Env) error {
 		me = si.SessionID
 	}
 	now := nowOf(env)
+	// THE FOLD (D-091): dead rows become one count line, before fitness so
+	// a folded row costs no git call for its base.
+	folded := ""
+	if !*all {
+		// The caller's row stays even when whoAmI refused it: it refuses an
+		// ENDED session, and `sessions --session <ended id>` asked about that
+		// row by name (Codex code pass).
+		keep := me
+		if keep == "" {
+			keep = session
+		}
+		if keep == "" {
+			if id, _, err := environmentSession(env); err == nil {
+				keep = id
+			}
+		}
+		sessions, folded = foldRoster(readHolders(env, st), sessions, keep, now)
+	}
 	// FITNESS, computed BEFORE anything is printed so a failed read cannot
 	// leave half a listing behind: whether the gate would refuse this session,
 	// how much it is already holding, and how much context it was last seen
@@ -4129,6 +4129,9 @@ func cmdSessions(args []string, env Env) error {
 		fmt.Fprintf(env.Stdout, "%s %-24s %-11s started %-4s seen %-4s  %s  (%s)%s\n",
 			mark, fence.Field(si.Label, 64), state, age(now, si.Started), age(now, si.LastSeen),
 			fence.Line(si.Worktree, 512), fence.Line(si.SessionID, 128), notes[si.SessionID])
+	}
+	if folded != "" {
+		fmt.Fprintln(env.Stdout, folded)
 	}
 	return nil
 }

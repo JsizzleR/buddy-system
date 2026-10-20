@@ -460,7 +460,15 @@ func cmdWhose(args []string, env Env) error {
 		label += "/  (everything under it)"
 	}
 	fmt.Fprintf(env.Stdout, "%s\n", label)
-	printClaimRegister(env, claimed, now)
+	printClaimRegister(env, claimed, now, readHolders(env, st))
+	// A resource slot is never a file (D-035), so the dirty register and
+	// git's view of the tree have nothing to say about it, and their
+	// paragraphs were noise on 12 `whose .buddy/slot/...` calls on one fleet
+	// (D-092). The claim register above is the whole answer.
+	if isSlot(rel) {
+		fmt.Fprintln(env.Stdout, "DIRTY IN     (not applicable — a .buddy/slot path names a resource, never a file, so git and the dirty register are not consulted)")
+		return nil
+	}
 	if len(holders) == 0 {
 		reportNoHolder(env, top, rel, dir)
 		return nil
@@ -566,7 +574,7 @@ func underPrefix(p, prefix string) bool {
 // "CLAIMED BY (none)" is printed explicitly rather than omitted: the whole
 // defect was a silent answer being read as "nobody has this", and an absent
 // line and a "none" line are exactly what a reader confuses.
-func printClaimRegister(env Env, claimed []store.ClaimTouch, now time.Time) {
+func printClaimRegister(env Env, claimed []store.ClaimTouch, now time.Time, h holders) {
 	// Split by RELATION, not merged. "Covers this path" is invariant 14's
 	// containment and the relation the gate adjudicates; "held under it"
 	// reserves nothing about the path itself. Printing them under one heading
@@ -580,14 +588,14 @@ func printClaimRegister(env Env, claimed []store.ClaimTouch, now time.Time) {
 			under = append(under, c)
 		}
 	}
-	printClaimRows(env, "CLAIMED BY  ", covers, now, true)
+	printClaimRows(env, "CLAIMED BY  ", covers, now, true, h)
 	if len(under) > 0 {
 		fmt.Fprintln(env.Stdout, "HELD UNDER   (claims on paths inside this one — they reserve nothing about it)")
-		printClaimRows(env, "             ", under, now, false)
+		printClaimRows(env, "             ", under, now, false, h)
 	}
 }
 
-func printClaimRows(env Env, prefix string, claimed []store.ClaimTouch, now time.Time, sayNone bool) {
+func printClaimRows(env Env, prefix string, claimed []store.ClaimTouch, now time.Time, sayNone bool, h holders) {
 	if len(claimed) == 0 {
 		if sayNone {
 			fmt.Fprintf(env.Stdout, "%s (none)\n", prefix)
@@ -602,19 +610,15 @@ func printClaimRows(env Env, prefix string, claimed []store.ClaimTouch, now time
 	}
 	for _, t := range claimed {
 		c := t.Claim
-		// The SAME zero-clock guard staleNote applies (Codex finding, issue
-		// #13): ClaimInfo.Stale reports an unrecorded renewed time as stale,
-		// because a zero time is 56 years ago. "Not recorded" and "abandoned"
-		// are different answers and this command exists to stop exactly that
-		// class of confident-wrong one.
+		// The holder's judgement (D-090), which keeps the zero-clock guard
+		// (Codex finding, issue #13): ClaimInfo.Stale reports an unrecorded
+		// renewed time as stale, because a zero time is 56 years ago, and "not
+		// recorded" and "abandoned" are different answers.
 		// D-022's wording, carried here too. `whose` is now the FIRST place a
 		// session looks to decide whether it may write, so a bare "STALE" is
 		// exactly the word a blocked session could read as permission. The
 		// refusal and the dry run both say it still refuses; so must this.
-		stale := ""
-		if !c.Renewed.IsZero() && c.Stale(now) {
-			stale = "  STALE (still refuses)"
-		}
+		stale := h.judge(now, c).rowNote(now)
 		fmt.Fprintf(env.Stdout, "%s %-24s %-24s held %s%s\n",
 			prefix, fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), age(now, c.Created), stale)
 		fmt.Fprintf(env.Stdout, "             %sscopes: %s\n", sharedWord(c.Shared), scopeList(c.Scopes))

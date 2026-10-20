@@ -218,7 +218,9 @@ func TestRefusalSaysWhenTheHolderHasGoneQuiet(t *testing.T) {
 	if code == 0 {
 		t.Fatal("a STALE holder must still REFUSE — staleness marks, it never reaps")
 	}
-	if !strings.Contains(out, "STALE: holder last renewed") {
+	// The holder has not been seen either, so the words are issue #18's:
+	// STALE, and the operator (D-090 keeps them for exactly this case).
+	if !strings.Contains(out, "STALE: claim unrenewed 31m, holder not seen 31m") || !strings.Contains(out, "ask the operator") {
 		t.Fatalf("refusal did not say the holder went quiet: out %q err %q", out, errw)
 	}
 	if !strings.Contains(out, "it still refuses") {
@@ -233,40 +235,11 @@ func TestRefusalSaysWhenTheHolderHasGoneQuiet(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("dry run did not report the conflict: %s", errw)
 	}
-	if !strings.Contains(dry, "STALE: holder last renewed") {
+	if !strings.Contains(dry, "STALE: claim unrenewed 31m, holder not seen 31m") {
 		t.Fatalf("dry run dropped the stale note the refusal carries: %q", dry)
 	}
 }
 
-// staleNote's own table, because one of its arms is not reachable through the
-// CLI: Renewed is zero only when the store could not read the holder's clock,
-// which is an error path a fixture cannot provoke. A mutation removing the
-// IsZero guard SURVIVED the end-to-end tests above, and a zero time renders as
-// "56 years ago" — an unrecorded clock reported as an abandoned holder, which
-// is the same class of confident-wrong answer this issue is about.
-func TestStaleNoteDistinguishesUnrecordedFromAbandoned(t *testing.T) {
-	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
-	cases := []struct {
-		name    string
-		renewed time.Time
-		want    bool // is a note rendered?
-	}{
-		{"unrecorded clock says nothing", time.Time{}, false},
-		{"fresh holder says nothing", now.Add(-time.Minute), false},
-		{"exactly at the threshold is not yet stale", now.Add(-store.StaleAfter), false},
-		{"one second past the threshold is stale", now.Add(-store.StaleAfter - time.Second), true},
-		{"long gone is stale", now.Add(-72 * time.Hour), true},
-		{"a clock in the FUTURE is not stale", now.Add(time.Hour), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := staleNote(now, tc.renewed)
-			if (got != "") != tc.want {
-				t.Fatalf("staleNote(%v) = %q, want rendered=%v", tc.renewed, got, tc.want)
-			}
-			if tc.want && !strings.Contains(got, "it still refuses") {
-				t.Fatalf("a stale note must not read as a takeover: %q", got)
-			}
-		})
-	}
-}
+// staleNote's own table lived here; the judgement it tested is now
+// holders.judge, and its zero-clock and threshold rows are in
+// TestStaleJudgementKeysOnTheHolder (stale_test.go, D-090).

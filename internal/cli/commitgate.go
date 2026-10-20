@@ -265,6 +265,7 @@ func cmdCommitGate(args []string, env Env) int {
 	}
 
 	now := nowOf(env)
+	h := readHolders(env, st)
 	w := env.Stderr
 	if mine == "" {
 		fmt.Fprintf(w, "\nbuddy commit-gate: could not tell which session is committing, so this cannot say\n"+
@@ -296,7 +297,7 @@ func cmdCommitGate(args []string, env Env) int {
 		}
 		c := g.claim
 		fmt.Fprintf(w, "      claim %q held by %s (%s)\n", fence.Line(c.Slug, 128),
-			fence.Line(c.Owner.Label, 64), claimState(c, now))
+			fence.Line(c.Owner.Label, 64), h.gateHolder(now, c))
 		fmt.Fprintf(w, "      scope %s%s — %s\n\n",
 			sharedWord(c.Shared), scopeList(c.Scopes), fence.Line(c.Desc, 512))
 	}
@@ -349,22 +350,6 @@ func headline(paths, claims int) string {
 		c = "claim"
 	}
 	return fmt.Sprintf("%d staged %s in %d %s", paths, p, claims, c)
-}
-
-// claimState describes the claim the way the reader has to act on it. An open
-// claim whose owner has ENDED needs `buddy sweep --force`, not a conversation,
-// and calling that owner "live" sends the reader to talk to nobody. OwnerOf
-// applies no liveness or staleness filter of its own, so this is the only place
-// the distinction gets made.
-func claimState(c store.ClaimInfo, now time.Time) string {
-	switch {
-	case !c.Owner.Live():
-		return "session ENDED — nobody will answer; `buddy sweep --force` releases it"
-	case c.Stale(now):
-		return "live but SILENT for " + age(now, c.Owner.LastSeen) + " — it may be gone"
-	default:
-		return "live, last seen " + age(now, c.Owner.LastSeen)
-	}
 }
 
 // stagedPaths lists the repo-relative paths of the pending commit.

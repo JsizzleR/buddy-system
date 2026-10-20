@@ -713,6 +713,18 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   (`store.StopTurn`): queued legacy mail becomes a Stop `decision: block`, never when
   `stop_hook_active`, and `msg` re-reads idle after its insert for the wake. `inbox <id>` re-reads
   one message addressed to you, marks nothing, and refuses others' without the body.
+- **STALE keys on the holder (D-090):** one `holders.judge` every claim view renders. Unrenewed
+  past StaleAfter with the holder ended, every process GONE or not seen: STALE, ask the operator;
+  holder seen: "claim unrenewed 34m; holder seen 5s ago … ask the holder: buddy msg <slug>"; a
+  live holder's slot: no mark. 6 of 7 refusals in one bucket blamed live holders. Words only:
+  D-022/D-026 untouched.
+- **The roster folds dead rows (D-091, amends D-015):** ended over 24h ago and live with every
+  registered process GONE become ONE trailing line naming `sessions --all` (906-row roster,
+  758 ended, 147 GONE). The caller's row stays; nothing in the ledger changes (D-025). Not
+  D-015's cut header: it labels no column and only says rows were left out.
+- **`who` (D-092):** EXIT is one line of claims, wait and jobs ("cannot say" kept apart from
+  "none"), still granting nothing; `who <slug>` lists only that claim's waiters, naming it; a
+  bare `who` is `status`; a slash-shaped miss suggests `whose`; `whose` of a slot consults no git.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

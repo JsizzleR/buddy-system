@@ -6968,3 +6968,146 @@ killed only with both removed). Review: one lite Codex code pass, one finding
 (the residual above), answered in the record. The post-insert re-read has no test that interleaves a Stop
 between `msg`'s observation and its insert; there is no seam for it, and it is
 covered by the transaction argument above.
+
+## D-090 — STALE keys on the holder, not only on the claim's renewal
+
+2026-10-20. Finding C of the audit of one fleet of 144 sessions (2026-10-14..20).
+
+**The failure** — a claim renews only when a tool call names a path it covers
+(`store.Beat`), so a `.buddy/slot/` claim (a resource no tool call touches) and a
+parked lane's claim go unrenewed while their holder works. Every view marked the
+claim STALE by renewal alone, and the refusal said "STALE: holder last renewed 34m
+ago; it still refuses, so ask the operator" about holders seen seconds before. In
+one bucket 6 of 7 claim refusals carried it with every holder live, and three
+decisions turned on it: one lane deferred its work; one told the operator "only you
+can free a stale claim" about a six-hour slot whose holder was running (the
+operator: "6h stale, seems something off?"); one re-claimed "so they aren't swept",
+and stale never sweeps. `staleNote`'s own comment named the intent as "the holder
+had stopped beating". The commit gate had the same defect from the other side: it
+tested the claim's renewal and printed the holder's last-seen age beside it, so a
+holder seen a minute ago read "live but SILENT for 1m".
+
+**The decision** — one judgement, `holders.judge` (`internal/cli/stale.go`), and
+every view renders it: the claim refusal and its dry run, `ls`, the hello digest,
+`who`/`status`, `whose`, and the commit gate's holder phrase.
+
+- Renewal still decides whether there is anything to say: renewed inside
+  StaleAfter, or never recorded (issue #13's zero-clock guard), says nothing.
+- Past it, the HOLDER decides the words. Ended, every registered process GONE, or
+  not seen past StaleAfter: STALE and "ask the operator", issue #18's wording, for
+  the case it was written about, now naming which (`holder not seen 2h`,
+  `holder's harness process GONE`, `holder ENDED`). Otherwise: "claim unrenewed
+  34m; holder seen 5s ago; it still refuses, so ask the holder: buddy msg <slug>".
+  The command names the slug only when the slug resolves to the holder, else the
+  holder's session id: a slug resolves LAST (D-013), so a claim slugged `all`
+  printed a broadcast and one slugged like a peer's label addressed that peer
+  (Codex code pass). It is written as a command only when it pastes back as
+  printed (onFlags' rule).
+- **A slot of a live holder carries no mark at all.** No tool call can renew a
+  slot, so "unrenewed" is true of every slot held past thirty minutes and says
+  nothing about whether the run it guards is alive; the holder's liveness is the
+  whole story. A slot of a quiet holder is STALE like any claim. A claim mixing a
+  slot and a file scope is judged as a file claim.
+- GONE needs every registered process gone (a second `--resume` registers a
+  second one); a session with none registered is "cannot say", never GONE.
+- `ls` prints `open STALE` only for a quiet holder (its age column is the
+  renewal); hello's bracket is `[STALE: holder not seen 2h]` and appears only then.
+
+**Words only** — D-022 (a stale claim refuses exactly like a fresh one) and D-026
+(an ended holder's claim is displaced) are untouched; nothing renews, orphans,
+reaps or sweeps differently, and GONE stays diagnostic (D-025). A refusal whose
+holding claim cannot be re-read keeps the old renewal-only words and the
+operator, the conservative direction; so does one whose holder is not the one the
+refusal named (matched by label, which `store.ErrRefused` carries, and by id
+where the conflict has it), so a slug released and re-taken between the two
+reads never lends the new holder's words to the old one (Codex code pass).
+
+**Tests** — `TestRefusalNoteMessagesTheHolderNotAShadowingName`,
+`TestConflictNotesFallBackWhenTheHolderChanged`, `TestStaleJudgementKeysOnTheHolder` (the rule's table, with
+staleNote's zero-clock and threshold rows), `TestEveryViewAsksTheHolderWhenTheHolderIsLive`
+(all seven views on a live holder with an unrenewed claim, then the same claim
+with its process GONE as the armed control), `TestASlotOfALiveHolderCarriesNoMark`,
+`TestRefusalNoteWritesOnlyAPastableCommand`; `TestRefusalSaysWhenTheHolderHasGoneQuiet`
+carries the quiet-holder refusal and dry run.
+
+## D-091 — The roster folds dead rows into one line; `--all` lists them (amends D-015)
+
+2026-10-20. Finding D (roster half), OPERATOR DECIDED 2026-10-20.
+
+**The failure** — `herdr pane close` ran no SessionEnd for 68 of 119 closed lanes
+on one fleet (in all 45 where it did run, `bye` ended the row), so their rows
+never ended. The roster reached 906 rows and 168 KB: 758 ended, 147 `live STALE
+... pid N GONE`. Sessions grepped it for their own row (`buddy sessions | grep
+s-xxxx`, 15+ times) or `head -30`'d it and read dead rows.
+
+**The decision** — `buddy sessions` lists live rows not known GONE, and rows ended
+in the last 24 hours; everything else folds into ONE trailing line, e.g.
+`(+ 612 ended more than 24h ago, 147 live with every registered process GONE —
+not listed: buddy sessions --all)`, printed only when something folded.
+`--all` lists every row as before. The caller's own row is always listed, including
+an ended one named by `--session` or the harness id, which `whoAmI` refuses (Codex
+code pass). A live
+row with no registered process (Codex, an adapter worker) is "cannot say" and
+stays; GONE needs every registered process gone, the D-090 rule.
+
+**Why 24 hours** — long enough that a lane closed in this working day (the one a
+coordinator is confirming it closed, or whose base it is reading) stays listed;
+short enough that history does not pile up. Measured on that fleet's ledger, 67
+days sampled hourly: a trailing 24h window held 11 ended rows on average and 67
+at most, against 758 ended in all (17 at the snapshot). 6h averaged 3 and would
+drop lanes closed that morning; 72h averaged 34.
+
+**Nothing changes in the ledger** — no row is ended, reaped or touched (D-025: a
+GONE pid is diagnostic, and an auto-end on a misrecorded anchor is the delayed-bye
+defect by another road). `msg all`'s recipient count is unchanged.
+
+**Amends D-015** — D-015 cut a header line because the common case is ONE row
+quoted into chat, where a header is lost and labels must ride with the numbers.
+The fold line labels no column, every row keeps its own words, and it trails the
+rows; it is the rule every capped list here follows (D-027: a report that quietly
+drops rows is indistinguishable from a smaller one), not a header.
+
+**Tests** — `TestSessionsFoldsDeadRowsIntoOneLine` (old ended and all-GONE fold,
+recent ended, live and unbound stay; the exact line; `--all`; the caller's GONE
+row stays; the folded row is still live in `who`; no line when nothing folded),
+`TestFoldRosterNeedsEveryProcessGone`.
+
+## D-092 — `who` answers the close test on one EXIT line, scopes WAITED ON to a named claim, and reports the caller when bare
+
+2026-10-20. Findings P, R, T and L (`who`) of the same audit.
+
+**EXIT states the wait and the jobs (P)** — closing a lane needs no claims, no
+wait and no running job, and EXIT spoke for claims only: coordinators hand-rolled
+`buddy who | grep -E 'CLAIMS|WAITING|JOBS'` about 35 times in 20 spellings
+before 13 closes. EXIT is now one line of three clauses, then the consequence:
+`EXIT         no claims held; no wait declared; no shell found running under it
+— the ledger would be left holding no claim (...)`, or `2 claim(s) held; a wait
+declared EXPIRED (WAITING above); 1 shell(s) running under it (JOBS above) —
+ending now would leave the claim(s) held, ... first: a, b`. The jobs clause keeps
+"cannot say" (`its shells: cannot say (JOBS above)`) apart from "none" (D-016,
+D-065). Still a report that grants nothing (D-027); an ended session still reads
+`already ended`.
+
+**`who <claim>` lists only that claim's waiters (R)** — named by a claim slug,
+WAITED ON lists the waits on THAT claim and names it (`WAITED ON    on claim
+"run32" by 3 session(s), ...`). It printed the holder's whole set: `who run32` and
+`who run33` showed the same three READY riders. A session target is unchanged.
+
+**A bare `who` reports the caller (L)** — exactly `status`. A session typing it
+was asking "who am I", and a usage error cost a round trip; a refusal naming
+`status` would answer a question it understood with a pointer. D-031 refuses what
+a verb does not understand, and an absent target is understood. A target that
+contains a slash and resolves to nothing adds "if it is a path, `buddy whose
+<path>` reports who claims it": a suggestion, never a redirect, since labels carry
+slashes too.
+
+**`whose .buddy/slot/...` consults no git (T)** — a slot is never a file (D-035),
+so the dirty register and git's paragraphs had nothing to say (12 calls on one
+fleet). The claim register prints as before, then `DIRTY IN     (not applicable
+...)`.
+
+**Tests** — `TestExitLineAnswersTheCloseTest` (cannot say, none, everything
+named, an expired wait's verdict), `TestWhoOfAClaimListsOnlyThatClaimsWaiters`
+(with the session-target control), `TestWhoWithNoArgumentReportsTheCaller`
+(byte-identical to status; the slash suggestion and its no-slash control),
+`TestWhoseOfASlotConsultsNoGit` (with the file control).
