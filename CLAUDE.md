@@ -221,6 +221,17 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   test evidence. Authorized drivers and workers (`AGENTS.md`) may build and test;
   report commands and results separately from review findings. A defect's
   reproducing test must still be watched to fail without the fix.
+- **Review depth is a tier, picked per change and named in the commit's
+  review line.** `chore`: no outside review (wording, a test-only change, skill
+  prose that names no new verb or flag). `lite`: at most ONE Codex code pass
+  through `codex-review.sh` on the finished diff, its findings fixed or
+  answered in the commit. `full`: a Codex DESIGN pass before the code, a code
+  pass after, and a re-verify pass on the fixes; for a change to what the gate
+  refuses or allows, the ledger schema, `internal/fence`, or an invariant
+  above. Tests and the mutation check are owed at every tier; a review is never
+  their substitute. The operator may cap the tier for a run of work (for
+  example "lite at most, optional, no second model family"), and a lane's brief
+  carries that cap: a lane never raises its own tier above it.
 - A guard's review scope is every site that **bypasses** it, not the diff that
   adds it.
 - Prefer naming the exact failing input and the resulting wrong behavior over
