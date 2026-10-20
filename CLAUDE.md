@@ -683,6 +683,10 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **A non-hook verb run under the native harness id moves `last_seen`, nothing else (D-086):**
   `heardVerb`, before the verb; `ended IS NULL`; never for `--session`/`BUDDY_SESSION`; no idle,
   renewal, process or lifecycle change. Not init, hook verbs, lifecycle, adapter or diagnose.
+- **The gate's "cannot rule out" arm is Codex-only (D-087, narrows D-073):** run-time text and
+  unparseable commands refuse only under `classifyHook`'s Codex verdict (~10 Claude denials in ~9
+  of 144 sessions on one fleet protected nothing). A literal `apply_patch`/`applypatch` at a
+  command position and an exhausted work bound still refuse under every harness.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

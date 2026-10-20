@@ -155,7 +155,7 @@ func TestGateShellWrapperPatchAndQuotedControls(t *testing.T) {
 		`apply_\patch < p.patch`,
 	} {
 		t.Run(command, func(t *testing.T) {
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, command), true, "apply_patch tool")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, command), true, "apply_patch tool")
 		})
 	}
 	for _, command := range []string{
@@ -169,7 +169,7 @@ func TestGateShellWrapperPatchAndQuotedControls(t *testing.T) {
 		`bash -lc 'printf "%s\n" "apply_patch"'`,
 		`command -v apply_patch`,
 	} {
-		t.Run(command, func(t *testing.T) { wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, command), false, "") })
+		t.Run(command, func(t *testing.T) { wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, command), false, "") })
 	}
 }
 
@@ -210,18 +210,18 @@ func TestGateShellStaticQuotingAndNestedJurisdiction(t *testing.T) {
 	plain := t.TempDir()
 	for _, cmd := range []string{`$'apply_\x70atch' < p.patch`, `bash -lc $'apply_patch < p.patch\n'`} {
 		t.Run(cmd, func(t *testing.T) {
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "apply_patch tool")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "apply_patch tool")
 		})
 	}
 	for _, cmd := range []string{`command -pv apply_patch`, `command -pV apply_patch`, `printf '%s' $'apply_\x70atch'`} {
-		t.Run(cmd, func(t *testing.T) { wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), false, "") })
+		t.Run(cmd, func(t *testing.T) { wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), false, "") })
 	}
 	for _, target := range []string{f.repo, plain} {
 		patch := patchText("*** Delete File: held.go\n")
 		inner := "cd " + shellArg(target) + " && apply_patch <<EOF\n" + patch + "EOF\n"
 		for _, cmd := range []string{"bash -lc " + shellQuote(inner), "'cd' " + shellArg(target) + " && apply_patch <<EOF\n" + patch + "EOF\n", "env -C " + shellArg(target) + " apply_patch < p.patch"} {
 			t.Run(cmd, func(t *testing.T) {
-				wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target == f.repo, "apply_patch tool")
+				wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target == f.repo, "apply_patch tool")
 			})
 		}
 	}
@@ -242,14 +242,14 @@ func TestGateShellBudgetRequiresJurisdiction(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Exhausting a parser budget does not enable Buddy in an unmanaged
 			// directory; a known home ledger still refuses the uncertain route.
-			wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), false, "")
-			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cmd), true, "apply_patch tool")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), false, "")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cmd), true, "apply_patch tool")
 		})
 	}
 	for _, target := range []string{f.repo, plain} {
 		// Preserve jurisdiction found before a nested script exhausts its
 		// budget. Unseen directories beyond the bound remain unobserved.
 		cmd := "cd " + shellQuote(target) + " && " + nested
-		wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target == f.repo, "apply_patch tool")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target == f.repo, "apply_patch tool")
 	}
 }

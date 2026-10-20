@@ -126,8 +126,12 @@ consulted as well.
 its SHELL tool, in-process, while the hook reports `tool_name: "Bash"`. The
 hook payload omits that command's working directory, so the gate cannot place
 the patch's paths. Wherever a ledger governs the call, it refuses a shell
-command that runs `apply_patch`/`applypatch`, or that it cannot rule out, and
-says to use the tool. From a cwd with no ledger, it refuses only when a literal
+command that runs `apply_patch`/`applypatch`, or (for a Codex call only) that it
+cannot rule out, and says to use the tool. A Claude Code Bash call has neither
+the in-process engine nor the tool, so there only the literal word at a command
+position refuses, and so does a command too large for the gate to finish
+reading; `eval "$x"`, `sh -c "$c"`, a pipe into a shell, and zsh syntax the
+bash-mode parser rejects pass (D-087). From a cwd with no ledger, it refuses only when a literal
 directory change (`cd`, `pushd`, zsh `chdir` and `cd old new`, `env -C`,
 `sudo -D`, `git -C`, with an unquoted `~` read against every `HOME` the command
 could run with), or a path in a parseable embedded patch, lies in a governed

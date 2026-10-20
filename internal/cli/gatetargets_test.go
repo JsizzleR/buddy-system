@@ -81,7 +81,7 @@ func TestGateRefusesShellRoutedPatch(t *testing.T) {
 		// gate cannot place, not about this patch's paths.
 		"apply_patch <<'EOF'\n" + patchText("*** Add File: free.go\n+x\n") + "EOF\n",
 	} {
-		wantGate(t, f, f.wtB, bashHookJSON("sess-b", f.wtB, cmd), true, "apply_patch tool")
+		wantGate(t, f, f.wtB, codexBashHookJSON("sess-b", f.wtB, cmd), true, "apply_patch tool")
 	}
 	// Ordinary shell, including commands that merely MENTION the word, passes.
 	// This repo greps for it constantly.
@@ -93,7 +93,7 @@ func TestGateRefusesShellRoutedPatch(t *testing.T) {
 		"go test -run TestApplyPatch ./...",
 		"echo hello",
 	} {
-		wantGate(t, f, f.wtB, bashHookJSON("sess-b", f.wtB, cmd), false, "")
+		wantGate(t, f, f.wtB, codexBashHookJSON("sess-b", f.wtB, cmd), false, "")
 	}
 }
 
@@ -104,11 +104,11 @@ func TestGateShellRoutedPatchFeatureOff(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
 	plain := t.TempDir()
-	wantGate(t, f, plain, bashHookJSON("sess-b", plain,
+	wantGate(t, f, plain, codexBashHookJSON("sess-b", plain,
 		"apply_patch <<'EOF'\n"+patchText("*** Add File: x.go\n+x\n")+"EOF\n"), false, "")
-	wantGate(t, f, plain, bashHookJSON("sess-b", plain,
+	wantGate(t, f, plain, codexBashHookJSON("sess-b", plain,
 		"apply_patch <<'EOF'\n"+patchText("*** Add File: "+filepath.Join(f.repo, "x.go")+"\n+x\n")+"EOF\n"), true, "apply_patch tool")
-	wantGate(t, f, plain, bashHookJSON("sess-b", plain,
+	wantGate(t, f, plain, codexBashHookJSON("sess-b", plain,
 		"cd "+f.repo+" && apply_patch <<'EOF'\n"+patchText("*** Add File: x.go\n+x\n")+"EOF\n"), true, "apply_patch tool")
 }
 
