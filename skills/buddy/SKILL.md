@@ -118,6 +118,13 @@ its process GONE, or ended. Choose one:
   drains your inbox and says STILL WAITING / LANDED / EXPIRED / NO WAIT. On a
   1-hour cache tier, it also keeps your prompt cache warm. When it says LANDED, stop the loop and claim again.
   `buddy wait clear` withdraws your wait; `buddy wait ls` lists everyone's.
+- **Or block on it in the background:** `buddy wait --on <slug> --block`, run
+  with the harness's run_in_background. It declares the same wait, then exits
+  when it has a verdict, printing the check's line: 0 LANDED (released, an
+  outcome, or handed to you), 3 EXPIRED, 4 cleared or replaced, 5 your session
+  ended. The harness's completion notice is your wake. Use it instead of any
+  `until buddy ls | grep …` loop. It only reads, so it is not a check: parking
+  past about 50 minutes on a 1-hour tier, still arm the /loop for the cache.
 - **Ask the holder:** `buddy msg <slug> "<request>"`. Peers answer to their
   claim slugs.
 - **Narrow your scope** to what nobody holds.
@@ -181,7 +188,10 @@ or push main, and release it after — that is what stops a landing mid-run.
   `buddy release herm --outcome pass --note "<landed sha; who was in; who is next>"`,
   or `--outcome fail` / `--outcome aborted` with what failed and who is out.
   Handing the run to another integrator mid-flight? `buddy release herm --to
-  <session>` keeps it open, with its riders' waits. A red
+  <session>` keeps it open, with its riders' waits; name several claims in one
+  call (`buddy release herm orchestrator --to <session>`) and they move as one
+  transaction, with one notice. A successor already waiting on the run is
+  handed it and its wait LANDS, "handed to you". A red
   run you will retry: keep the claim, re-claim with "RED — ejecting X, one more
   tier", run again, then release with the outcome.
 - **Rider, not done yet:** `buddy wait --on herm --note "done in 10" --until 4h`.
@@ -189,7 +199,8 @@ or push main, and release it after — that is what stops a landing mid-run.
   run out during a hold plus a 65-minute tier: EXPIRED with herm still open means
   declare again.
 - **Rider, ready:** `buddy wait --on herm --ready HEAD --until 4h` (or a commit), then
-  arm `/loop buddy wait check`, and do NOT run the tier yourself. Committed more?
+  arm `/loop buddy wait check` (or add `--block` and run it in the background: its
+  exit is your wake, the loop only keeps the cache), and do NOT run the tier yourself. Committed more?
   Declare again; if the run's description already says RUNNING, the new commit
   rides the next run (the running tree is pinned). `buddy wait clear` leaves.
 - **Your LANDED** carries the integrator's outcome. PASS naming you: your work is
@@ -501,7 +512,7 @@ if you find neither, ask rather than assume.
      and what is next, and the ledger as it stands: paste `buddy status`,
      `buddy sent`, and `buddy who <run>` for each run you hold. Point your
      coordination claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
-     them, and `buddy status` lists them), repeating the scope flag once for
+     them, and `buddy who <slug>` prints every one, uncut), repeating the scope flag once for
      each path you hold, never the handoff file in their place:
      `buddy claim orchestrator --desc "HANDOFF: read <file>" --scope <each path you hold>`.
   3. Open the successor the same way, in a herdr tab carrying the same size
@@ -512,12 +523,11 @@ if you find neither, ask rather than assume.
      (a `--until` timer keeps it warm instead): a recipient's wait on the
      claim can refuse the transfer.
   4. `buddy msg` it anything since the file, and wake it. When it answers,
-     hand it every claim you hold, a run in flight first:
-     `buddy release <run> --to <its label>`, then
-     `buddy release orchestrator --to <its label>`. Each claim stays open with
+     hand it every claim you hold in ONE call (all or nothing, one notice):
+     `buddy release <run> orchestrator --to <its label>`. Each claim stays open with
      its scopes, and every wait on it follows it: riders keep waiting, stay
-     READY on `buddy who <run>`, and land on the successor's outcome. Each
-     result line tells the successor with a message and ends with the address
+     READY on `buddy who <run>`, and land on the successor's outcome. The
+     result line tells the successor with one message and ends with the address
      to wake it: deliver it. It refreshes each description by claiming again
      with the SAME scopes. Never release a run and have it claimed afresh: a
      new claim is a new claim id, so every rider's wait lands with no outcome

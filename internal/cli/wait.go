@@ -52,9 +52,11 @@ import (
 	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
-const usageWait = "usage: buddy wait [--on <slug>]... [--until <dur>] [--note <text>] [--ready <commit>] [--session <id>]   declare what you wait on\n" +
+const usageWait = "usage: buddy wait [--on <slug>]... [--until <dur>] [--note <text>] [--ready <commit>] [--block] [--session <id>]   declare what you wait on\n" +
 	"                (default --until 3h, ceiling 12h; no --on is a timer that expires and never lands;\n" +
-	"                 --ready HEAD|<commit>: count your work in on the run the claim guards, ready at that commit)\n" +
+	"                 --ready HEAD|<commit>: count your work in on the run the claim guards, ready at that commit;\n" +
+	"                 --block: then stay running until the verdict, exit 0 LANDED, 3 EXPIRED, 4 cleared or replaced,\n" +
+	"                 5 session ended — run it with run_in_background, so the harness's completion notice is the wake)\n" +
 	"       buddy wait check    one verdict — STILL WAITING / LANDED / EXPIRED / NO WAIT — run by THIS session's\n" +
 	"                           own model, armed with: /loop buddy wait check\n" +
 	"       buddy wait clear [--session <id>]   withdraw the wait (its next check says NO WAIT)\n" +
@@ -85,6 +87,9 @@ const (
 	// `who`, `wait ls`, `wait check`) still list every target.
 	hookTargetsRoom = 1024
 	hookFlagsRoom   = 1024
+	// hookHandedRoom bounds beat's "handed to you" slug list (D-093); past
+	// it the line counts them.
+	hookHandedRoom = 256
 	// maxHookWaitLine is the longest wait line either hook can print: the
 	// fixed words, both rooms, a note at its cap, and the advice. Measured
 	// against the worst slugs by TestAWaitOnManyClaimsStaysInsideTheHooksBudgets.
@@ -112,6 +117,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 	until := fs.Duration("until", waitDefault, "how long to wait before the wait expires (1m..12h)")
 	note := fs.String("note", "", "what you mean to do when it lands (shown back to you, fenced)")
 	ready := fs.String("ready", "", "HEAD or a commit: your work is ready at it, for the run the awaited claim guards (D-049)")
+	block := fs.Bool("block", false, "after declaring, stay running until the wait lands, expires, is cleared or the session ends (D-095)")
 	var session string
 	sessionFlag(fs, &session)
 	if help, err := parseFlags(fs, args, usageWait, env); help || err != nil {
@@ -128,6 +134,11 @@ func cmdWaitDeclare(args []string, env Env) error {
 		}
 		return fmt.Errorf("wait takes its claims as --on <slug>, got %s — flags after it would be IGNORED%s\n  %s",
 			strconv.Quote(a), hint, usageWait)
+	}
+	if *block && len(on) == 0 {
+		// A timer never lands, so a blocked timer is a sleep that ends in
+		// EXPIRED: the harness's own timer does that without a ledger.
+		return fmt.Errorf("--block waits for a claim to land, and a wait with no --on is a timer that only expires; nothing was recorded\n  %s", usageWait)
 	}
 	if n := renderedLen(*note); n > maxWaitNote {
 		return fmt.Errorf("--note renders to %d bytes and the cap is %d, so %d would be cut silently (a line break renders as ⏎, which is 3 bytes)",
@@ -185,6 +196,9 @@ func cmdWaitDeclare(args []string, env Env) error {
 	}
 	if replaced != nil {
 		fmt.Fprintf(env.Stdout, "replaced your open wait on %s (declared %s ago)\n", targetsPhrase(now, replaced.Targets), span(now.Sub(replaced.Since)))
+	}
+	if *block {
+		return blockOn(st, env, si, w)
 	}
 	return nil
 }
@@ -258,23 +272,9 @@ func cmdWaitCheck(args []string, env Env) error {
 		}
 		fmt.Fprintf(&b, "NO WAIT: nothing is registered for this session%s — %s\n", last, stop)
 	case r.Verdict == store.WaitLanded:
-		fmt.Fprintf(&b, "LANDED: %s — the wait is over after %s; %s\n", targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), stop)
-		if c := riderCaveat(w); c != "" {
-			b.WriteString(c + "\n")
-		}
-		if w.Note != "" {
-			fmt.Fprintf(&b, "note: %s\n", fence.Line(w.Note, maxWaitNote))
-		}
+		b.WriteString(landedLines(now, w, stop))
 	case r.Verdict == store.WaitExpired:
-		still := ""
-		if open := openTargets(w.Targets); len(open) > 0 {
-			still = " with " + targetsPhrase(now, open) + " still open"
-		}
-		fmt.Fprintf(&b, "EXPIRED: the deadline passed %s ago%s — the wait is over after %s; %s, and ask before waiting longer\n",
-			span(now.Sub(w.Deadline)), still, span(now.Sub(w.Since)), stop)
-		if w.Note != "" {
-			fmt.Fprintf(&b, "note: %s\n", fence.Line(w.Note, maxWaitNote))
-		}
+		b.WriteString(expiredLines(now, w, stop))
 	default:
 		pacing := nextCheck(now, w.Deadline, c, observed)
 		if source == EnvCodexThread {
@@ -303,6 +303,34 @@ func cmdWaitCheck(args []string, env Env) error {
 		_, _ = st.CloseWait(si.SessionID, w.Decl, reason)
 	}
 	return nil
+}
+
+// landedLines and expiredLines are a check's verdict as it prints it, shared
+// with `wait --block` (D-095) so the two cannot say a verdict two ways.
+func landedLines(now time.Time, w store.Wait, stop string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "LANDED: %s%s — the wait is over after %s; %s\n", targetsPhrase(now, w.Targets), handedPhrase(w, 0), span(now.Sub(w.Since)), stop)
+	if c := riderCaveat(w); c != "" {
+		b.WriteString(c + "\n")
+	}
+	if w.Note != "" {
+		fmt.Fprintf(&b, "note: %s\n", fence.Line(w.Note, maxWaitNote))
+	}
+	return b.String()
+}
+
+func expiredLines(now time.Time, w store.Wait, stop string) string {
+	var b strings.Builder
+	still := ""
+	if open := openTargets(w.Targets); len(open) > 0 {
+		still = " with " + targetsPhrase(now, open) + " still open"
+	}
+	fmt.Fprintf(&b, "EXPIRED: the deadline passed %s ago%s — the wait is over after %s; %s, and ask before waiting longer\n",
+		span(now.Sub(w.Deadline)), still, span(now.Sub(w.Since)), stop)
+	if w.Note != "" {
+		fmt.Fprintf(&b, "note: %s\n", fence.Line(w.Note, maxWaitNote))
+	}
+	return b.String()
 }
 
 func cmdWaitClear(args []string, env Env) error {
@@ -406,6 +434,11 @@ func span(d time.Duration) string {
 func targetPhrase(now time.Time, t store.WaitTarget) string {
 	name := "claim " + strconv.Quote(fence.Line(t.Slug, 128))
 	switch {
+	case t.HandedToWaiter:
+		// Third-person on purpose: `who` and the roster render another
+		// session's wait with this phrase; the waiter's own LANDED lines add
+		// "handed to you" (handedPhrase).
+		return name + " (handed to " + fence.Line(t.Holder.Label, 64) + ", which waited on it: open, and held by it now)"
 	case t.IsOpen():
 		held := fmt.Sprintf("held by %s, seen %s ago", fence.Line(t.Holder.Label, 64), age(now, t.Holder.LastSeen))
 		return name + " (" + held + ")"
@@ -418,6 +451,28 @@ func targetPhrase(now time.Time, t store.WaitTarget) string {
 		}
 		return fmt.Sprintf("%s %s %s ago%s%s", name, t.State, span(now.Sub(t.Closed)), reported, reopenedPhrase(now, t))
 	}
+}
+
+// handedPhrase is what the WAITER's own LANDED lines (check, beat) add when a
+// target landed by being handed to it (D-093): the measured successor polled
+// `buddy ls | grep <its id>` six times for exactly this sentence.
+// In hook output (room > 0) a list longer than room is counted instead, so
+// the LANDED line stays inside maxHookWaitLine however many claims moved.
+func handedPhrase(w store.Wait, room int) string {
+	var handed []string
+	for _, t := range w.Targets {
+		if t.HandedToWaiter {
+			handed = append(handed, strconv.Quote(fence.Line(t.Slug, 128)))
+		}
+	}
+	if len(handed) == 0 {
+		return ""
+	}
+	list := strings.Join(handed, ", ")
+	if room > 0 && len(list) > room {
+		list = fmt.Sprintf("%d of them", len(handed))
+	}
+	return " — " + list + " handed to you: yours now, open, with its scopes (`buddy who <slug>` prints them)"
 }
 
 // outcomePhrase is a holder's reported outcome as every view renders it (D-049):
@@ -523,10 +578,14 @@ func targetsPhrase(now time.Time, ts []store.WaitTarget) string {
 	return strings.Join(parts, "; ")
 }
 
+// openTargets is the targets still being waited on: open and held by somebody
+// else. A claim handed to the waiter is open and over (D-093), so it is never
+// "still open" in an EXPIRED line, nor re-declared by hello's paste-back
+// (a wait on your own claim is refused).
 func openTargets(ts []store.WaitTarget) []store.WaitTarget {
 	var out []store.WaitTarget
 	for _, t := range ts {
-		if t.IsOpen() {
+		if t.Pending() {
 			out = append(out, t)
 		}
 	}
@@ -549,6 +608,11 @@ func notePhrase(w store.Wait) string {
 func deadlinePhrase(now time.Time, w store.Wait) string {
 	switch w.Verdict(now) {
 	case store.WaitLanded:
+		for _, t := range w.Targets {
+			if t.HandedToWaiter {
+				return "LANDED: every claim it waits on has closed or been handed to it (a check clears it)"
+			}
+		}
 		return "LANDED: every claim it waits on has closed (a check clears it)"
 	case store.WaitExpired:
 		return fmt.Sprintf("EXPIRED: its deadline passed %s ago (a check clears it)", span(now.Sub(w.Deadline)))
@@ -803,8 +867,8 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time, codex bool
 	if codex {
 		stop = "schedule no further check"
 	}
-	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s. `buddy wait check` clears it; %s.%s\n",
-		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), notePhrase(w), stop, caveat)
+	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s%s. `buddy wait check` clears it; %s.%s\n",
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), handedPhrase(w, hookHandedRoom), notePhrase(w), stop, caveat)
 	return line, func() error { return st.MarkWaitTold(me.SessionID, w.Decl) }
 }
 

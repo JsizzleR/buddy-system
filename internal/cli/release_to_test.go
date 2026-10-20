@@ -21,7 +21,6 @@ func TestReleaseToHandsTheRunOnWithItsRiders(t *testing.T) {
 	b.refused(t, "sess-a", "a target naming nobody", "release", "herm", "--to", "nobody-at-all")
 	b.refused(t, "sess-a", "an empty --to is not a plain release", "release", "herm", "--to", "")
 	b.refused(t, "sess-a", "a note rides an outcome, which --to takes none of", "release", "herm", "--to", "bravo", "--note", "x")
-	b.refused(t, "sess-a", "the rider cannot be handed the claim it waits on", "release", "herm", "--to", "charlie")
 	if w := b.ok(t, "sess-a", "who", "herm"); !strings.Contains(w, "held by:\n* alpha ") {
 		t.Fatalf("refused transfers must leave herm with alpha:\n%s", w)
 	}

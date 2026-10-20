@@ -112,6 +112,10 @@ func cmdWho(args []string, env Env) error {
 		me = true
 	}
 	if t.Via == "slug" {
+		// D-094: every scope, uncut, so "re-claim with the SAME scopes" can be done.
+		if err := claimScopesBlock(env, st, t.Slug); err != nil {
+			return err
+		}
 		fmt.Fprintf(env.Stdout, "%s is claim %s, held by:\n", fence.Line(args[0], 128), strconv.Quote(fence.Line(t.Slug, 128)))
 	}
 	onSlug := ""

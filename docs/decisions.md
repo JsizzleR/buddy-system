@@ -7111,3 +7111,129 @@ named, an expired wait's verdict), `TestWhoOfAClaimListsOnlyThatClaimsWaiters`
 (with the session-target control), `TestWhoWithNoArgumentReportsTheCaller`
 (byte-identical to status; the slash suggestion and its no-slash control),
 `TestWhoseOfASlotConsultsNoGit` (with the file control).
+
+## D-093 — `release` takes several slugs as one transaction; a recipient waiting on a claim it is handed lands, "handed to you" (narrows D-063)
+
+2026-10-20. Finding E of the fleet audit (one fleet of 144 sessions, 2026-10-14..20).
+
+**The failure** — four measured shapes. (1) One slug per call: about 93
+`release --to` calls, 41 of them inside for-loops; one loop sent its recipient
+8-10 notices and printed 8 stderr wake lines. (2) A sender whose OWN claims
+overlapped each other could not hand them on one at a time: each one alone
+left its siblings behind under the sender, the overlap scan refused it, and
+the refusal read "... and 7 more conflict(s), listed above; nothing was handed
+on" over a listing that only `claim` ever printed. (3) D-063 refused a
+recipient waiting on the claim, which is exactly what a successor does while it
+waits for the handover: 4+ episodes, each a refusal, a round trip asking the
+successor to clear and a poll loop; one of those waits had EXPIRED 14 minutes
+earlier and still blocked, because the count ignored the deadline. (4) Nothing
+told the recipient "a claim was handed to you" in a form a wait could see: 6
+`until buddy ls | grep … <its id>` loops, one of which fired on its own
+WAITING line.
+
+**The decision** —
+
+- `buddy release <slug>... --to <target>` (`store.TransferClaims`) moves every
+  named claim in ONE immediate transaction, all or nothing, in the order named,
+  a repeat counted once. Every claim moves before any is scanned, so the scan
+  against the new owner excludes exactly the claims moving together; one slug
+  that is not the sender's, or one conflict anywhere, rolls every move back.
+  ONE notice to the recipient for the set, one result line, one wake.
+- A refused transfer PRINTS the whole conflict set, one fenced `REFUSED:` line
+  each (`printConflicts`, as `claim` does), so "listed above" is true, plus one
+  fixed line saying claims named together move together.
+- A recipient with an open wait on a claim it is handed is not refused. Nothing
+  is cleared or repaired: a wait target the waiter itself holds, under the
+  incarnation that declared, counts as over (`WaitTarget.HandedToWaiter`,
+  `Pending`), computed at read time like every verdict input (D-020's rule).
+  `release --to` is the only road to that state — `DeclareWait` refuses your own
+  claim and a claim id changes hands only by transfer — so the move in that
+  transaction IS the resolution. The recipient's `wait check`, beat's one-shot
+  LANDED and `--block` say LANDED with `"<slug>" handed to you`; the sender's
+  line says the recipient's wait was resolved; the notice says so too. A
+  multi-target wait stays pending until its other targets close (D-063's worry,
+  that dropping one target lands it early, does not arise: nothing is dropped).
+  Handing the claim on again un-does it. A waiter on some OTHER claim, and every
+  bystander waiting on the handed one, are unaffected: their waits follow it.
+- Plain `buddy release a b c` takes several slugs too, by the same rule (one
+  transaction, all or nothing, a line per claim naming its waiters). A lane
+  winding down releases two claims every time (`<slug>` and `<slug>-shared`).
+  `--scope`, `--outcome` and `--note` stay single-slug, refused with several:
+  an outcome reports on one job and a narrowing names one claim's scopes.
+
+D-063's refusal list narrows by one entry (the recipient waiting on this very
+claim); everything else it refuses stands.
+
+**Tests** — store: `TestTransferResolvesTheRecipientsOwnWaitOnIt` (lands;
+an expired wait lands rather than blocking; a second open target keeps it
+pending; a bystander keeps waiting; handing it on again un-does it — each with
+the pre-transfer control), `TestTransferLeavesTheRecipientsOtherWaitAlone`,
+`TestTransferClaimsMovesASetWhole`, `TestReleaseClaimsIsWholeOrNothing`. CLI:
+`TestReleaseToHandsASetWithOneNoticeAndPrintsTheWholeRefusal` (reads the
+REFUSED lines the error counts), `TestASuccessorWaitingOnTheClaimIsHandedItAndLands`.
+
+## D-094 — `who <slug>` prints every scope of that claim, uncut
+
+2026-10-20. Finding F of the same audit.
+
+**The failure** — every handoff notice says "re-claim it with the SAME
+scopes", and every view of a claim's scopes (`ls`, `who`'s CLAIMS HELD,
+`status`, hello) cuts at 512 bytes with a count. One successor handed a
+22-scope claim gave up ("the scope lists show truncated"); another typed all
+22 by hand after `ls --json` (no such flag), sqlite3 on the live ledger
+(CANTOPEN 14) and an eval-built re-claim the gate refused.
+
+**The decision** — a `who` whose target resolved through a claim SLUG prints,
+before the holder's report, `claim "<slug>" holds N scope(s), every one`, then
+one `  scope <s>` line per scope through `fence.Field` (D-066's item rule: one
+token, ␣ for a space), with no total cap; a scope the fence altered says it
+does not paste back as shown. Every other view keeps its cap: they list many
+claims and land in hook output and tool results that pay per byte. The handoff
+notice now points at `who <slug>`. No `--json`, no new verb.
+
+**Tests** — `TestWhoOfAClaimPrintsEveryScopeUncut` (31 scopes, each exactly
+once on its own line; the altered-scope note; CLAIMS HELD still capped in the
+same report as the control; a label target prints no block).
+
+## D-095 — `buddy wait --on <slug> --block` exits with the verdict (amends D-033)
+
+2026-10-20. Finding Q of the same audit. OPERATOR DECIDED (2026-10-20).
+
+**The failure** — 15+ hand-rolled loops (`for i in $(seq 1 120); do buddy ls
+| grep -q <slug> || exit 0; sleep 60; done`), run under the harness's
+run_in_background beside a declared `wait --on` that recorded 0 checks. The
+background job's completion notice is the wake a parked session reliably gets;
+what the loops lacked was a verdict, and grepping `ls` matched the wrong rows.
+
+**The decision** — `--block` on a declaration: the wait is declared exactly as
+today and printed the same, then the process re-reads the ledger every 15 s and
+exits 0 LANDED (released, an outcome, or handed to you, D-093), 3 EXPIRED, 4
+cleared (`wait clear`) or replaced by a newer declaration, 5 the session ended
+or re-registered; 1 stays every verb's error and 2 Run's usage. It prints the
+line `wait check` prints for that verdict (one renderer, `landedLines` /
+`expiredLines`), and closes the row after the write, as a check does.
+
+- **Not a check, and not a keep-alive.** Each read is an autocommit SELECT:
+  `last_check` and `checks` stay the scheduled check's (D-033), and the block
+  keeps no cache warm, so a park past ~50 minutes on a 1-hour tier still arms
+  `/loop buddy wait check`. D-033's "nothing wakes" stands: the harness notices
+  its own job ending.
+- **No write lock across a sleep.** The one write a poll may make is
+  cleanupEnded's, in its own short transaction (`Store.SettleEnded`), and only
+  when a read shows an awaited holder that has said bye — the read-only block
+  would otherwise sit on that claim until its deadline.
+- **It stops when its session ends** as the ledger records it; a harness that
+  dies without a bye leaves it running to the deadline, which the 12 h ceiling
+  bounds. Watching the parent process was not done: how run_in_background
+  parents its shell was not measured.
+- **15 s**: under the measured loops' 20 s and 60 s; a completion notice is read
+  at the next turn anyway. 240 indexed reads an hour.
+- **A timer (no `--on`) with `--block` is refused**, writing nothing: it only
+  expires, which the harness's own timer does without a ledger.
+
+**Tests** — `TestWaitBlockExitsWithTheVerdict` (released with an outcome,
+handed to the waiter, holder said bye → LANDED 0; EXPIRED 3; cleared 4;
+replaced 4; session ended 5; every case: the declaration prints first, the
+counters stay 0, a printed verdict closes the row), `TestWaitBlockRefusesATimer`
+(with the plain timer as the control). The poll runs through an `Env.Sleep`
+seam that advances the fixture clock.
