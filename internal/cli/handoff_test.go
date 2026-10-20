@@ -14,8 +14,8 @@ import (
 
 // Issue #46 (D-055): an orchestrator is never told it has grown past the size
 // its operator hands off at. BUDDY_HANDOFF_AT declares that size; busy
-// (UserPromptSubmit) says so, once per turn, when the last OBSERVED prompt is
-// at or past it.
+// (UserPromptSubmit) says so when the last OBSERVED prompt is at or past it:
+// once at the crossing and once per further step (D-096), not every turn.
 
 const handoffMark = "you hand off at (" + EnvHandoffAt + ")"
 
@@ -178,9 +178,33 @@ func TestBusySaysWhenPastTheHandoffSize(t *testing.T) {
 				!strings.Contains(ctx, handoffMark) {
 				t.Fatalf("busy must name the observed size, its age and the threshold:\n%s", ctx)
 			}
-			// Level-triggered: the next prompt is told again, not once ever.
-			if again := additionalContext(t, f.busyB(t)); again != ctx {
-				t.Fatalf("every turn-opening prompt past the size carries the line; the second said:\n%s", again)
+			// Once per step (D-096): the next prompt at the same size is
+			// silent — it used to repeat on every turn, 442 times in 87
+			// sessions on one fleet.
+			if again := f.busyB(t); again != "" {
+				t.Fatalf("the same step must not be told twice; the second prompt said:\n%s", again)
+			}
+			// The steps sit on a grid from the declared size. One token short
+			// of the next step: still silent. On it: told again.
+			at := declaredWindow(tc.declared)
+			next := at + ((tc.prompt-at)/handoffStep+1)*handoffStep
+			f.observeB(t, next-1)
+			if again := f.busyB(t); again != "" {
+				t.Fatalf("short of the next step must stay silent, got:\n%s", again)
+			}
+			f.observeB(t, next)
+			if again := additionalContext(t, f.busyB(t)); !strings.Contains(again, "your prompt was "+tokens(next)) {
+				t.Fatalf("a further step must be told again:\n%s", again)
+			}
+			// A compaction under the size, then a new crossing: told again,
+			// not suppressed by the steps told before it.
+			f.observeB(t, 10_000)
+			if again := f.busyB(t); again != "" {
+				t.Fatalf("under the size, silent: %q", again)
+			}
+			f.observeB(t, tc.prompt)
+			if again := additionalContext(t, f.busyB(t)); !strings.Contains(again, handoffMark) {
+				t.Fatalf("a session that fell under and crossed again must be told again:\n%s", again)
 			}
 		})
 	}

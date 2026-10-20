@@ -526,7 +526,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **`msg`'s wake address rides its result line (D-041, #32).** One send, one line: an
   orchestrator reading `msg … | head -1` lost the second-line address and an idle lane sat
   unwoken. Never move it back to its own line. It is ALSO written to stderr (D-052, #42),
-  because a sender discarding stdout as a receipt lost it; stderr is empty with no wake.
+  because a sender discarding stdout as a receipt lost it; stderr is empty with no wake,
+  and gets no copy when it is the same open file as stdout (D-097).
   `buddy sent` names the same wake on a queued row, by the same rule; no age threshold.
 - **A SHARED claim may overlap other shared claims and nothing else (D-042, #33).** `claim
   --shared`: shared/exclusive refuse both ways, a slug is one holder, the gate still wants a
@@ -566,8 +567,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **A park with no claim to name keeps warm on a TIMER wait (D-054, #44).** 3 of 129 fleet
   sessions declared a wait; 145 of 149 wakes past an hour were cold. Skill "Before you park";
   `hello` names `--until`; a check is a turn of ~3 requests. No verb, no pid target, no inference.
-- **`BUDDY_HANDOFF_AT` (D-055, #46):** `busy` says, per turn, when the last observed prompt is
-  at or past it. Declared per process; never on beat; refuses nothing.
+- **`BUDDY_HANDOFF_AT` (D-055, #46):** `busy` says when the last observed prompt is at or past
+  it, once per 25k step (D-096). Declared per process; never on beat; refuses nothing.
 - **A coordinator opens its own lanes with the harness (D-056, #47):** herdr or `claude --bg`,
   per the skill's "Running a fleet". Buddy launches and ends nothing; `spawn`/`exit`/`expect` cut.
   The one recorded exception is the separate opt-in `buddy-adapter`, for the worker it launches
@@ -683,6 +684,18 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 - **A non-hook verb run under the native harness id moves `last_seen`, nothing else (D-086):**
   `heardVerb`, before the verb; `ended IS NULL`; never for `--session`/`BUDDY_SESSION`; no idle,
   renewal, process or lifecycle change. Not init, hook verbs, lifecycle, adapter or diagnose.
+- **The handoff notice speaks once per 25k step past the size, on a turn of any kind (D-096,
+  amends D-055):** 442 lines in 87 sessions on one fleet, up to 27 in one. The step is claimed
+  in `authority_warned` (key `//handoff-at`, no schema bump) before the line is written, so two
+  queued prompts print it once; under the size the claims are forgotten. The payload carries no
+  turn origin, so turns are not told apart.
+- **Fixed hook text costs less (D-097, amends D-052):** a drain with no CORRECTS/SUPERSEDED link
+  or declared kind gets a 120-byte header that still says untrusted operator/peer text (13 of
+  207 drains needed the 318-byte one); `msg`'s stderr wake copy is skipped when stderr is stdout's
+  open file (fstat dev+inode). Grouping hello's claims by holder measured ~4% and broke D-036's
+  order: not done.
+- **A refusal that shows the usage ends with `refused: <reason>` (D-098):** `usageRefusal`, usage
+  first, so `2>&1 | tail -1` keeps the why. `parseFlags`, `noStray`, `init`, `release`.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.
