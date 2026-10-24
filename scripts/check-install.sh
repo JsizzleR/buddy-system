@@ -10,7 +10,10 @@
 #
 # Each refusal has its positive control beside it: a fresh install builds and
 # runs both binaries and installs the skill; a re-run is idempotent; an
-# unbuildable destination fails LOUD (non-zero, and says so), never green.
+# unbuildable destination fails LOUD (non-zero, and says so), never green; a
+# claims-only install (BUDDY_CHAT=off) builds buddy alone and reports the chat
+# remnants it left alone, with QA-1's default run as the control that both
+# buddylist hook lines are still counted when the knob is unset.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -38,6 +41,9 @@ cat > "$WORK/settings.json" <<'EOF'
  "SessionEnd": [{"hooks": [{"command": "\"$HOME/bin/buddy\" bye 2>/dev/null; exit 0"}]}]
 }}
 EOF
+# Kept as written: QA-3/QA-3b wire busy and presence into settings.json in
+# place, and QA-7 needs this file as it is here.
+cp "$WORK/settings.json" "$WORK/settings.orig"
 
 # QA-1: a fresh install builds both binaries, runs them, installs the skill,
 # and reports exactly the two hooks that are not wired.
@@ -220,7 +226,83 @@ echo "$out" | tail -1 | grep -qF 'FAILED — launchctl kickstart -k gui/' || fai
 $out"
 [ ! -e "$GUARD/reached" ] || fail "QA-6: the REAL launchctl was reached: $(cat "$GUARD/reached")"
 
+# QA-7: a claims-only install (BUDDY_CHAT=off) into an EMPTY bin dir builds
+# buddy, builds no buddylist, installs the skill, says `chat: off`, reports no
+# remnant (there is none to find: every path the remnants report reads is
+# pointed into $WORK, since the real ~/.claude.json and plist would otherwise
+# make this a test of the operator's machine), and counts the SIX buddy hook
+# lines, so the fixture settings file (no busy, no presence) names exactly
+# `buddy busy`. The daemon step is NOT switched off here: skipping it is the
+# knob's own promise, and the guard launchctl catches a real one being reached.
+# QA-1 is the control: the same fixture under the default names both buddylist
+# lines too.
+mkdir -p "$WORK/bin7"
+inst_claims() {
+	env BUDDY_BIN_DIR="$WORK/bin7" BUDDY_SKILL_DIR="$WORK/skill7" BUDDY_SETTINGS="$WORK/settings7.json" \
+		BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_LAUNCHCTL="$GUARD/launchctl" \
+		BUDDY_PLIST="$WORK/plist7" BUDDY_CLAUDE_JSON="$WORK/claude7.json" "$@" sh scripts/install.sh
+}
+cp "$WORK/settings.orig" "$WORK/settings7.json"
+grep -q ' busy' "$WORK/settings7.json" && fail "QA-7: the fixture must not wire busy"
+out=$(inst_claims BUDDY_CHAT=off 2>&1) || fail "QA-7: claims-only install failed:
+$out"
+[ -x "$WORK/bin7/buddy" ] || fail "QA-7: buddy missing"
+[ ! -e "$WORK/bin7/buddylist" ] || fail "QA-7: a claims-only install built buddylist"
+echo "$out" | grep -q 'built .*buddylist' && fail "QA-7: a claims-only install reports building buddylist:
+$out"
+cmp -s skills/buddy/SKILL.md "$WORK/skill7/SKILL.md" || fail "QA-7: skill not installed"
+echo "$out" | grep -qxF 'install: chat: off (claims-only install)' || fail "QA-7: the chat line is missing:
+$out"
+echo "$out" | grep -qF 'left alone' && fail "QA-7: nothing was left alone in an empty bin dir:
+$out"
+echo "$out" | grep -qF 'daemon: skipped (BUDDY_CHAT=off: claims-only install)' || fail "QA-7: the daemon step must say it was skipped for claims-only:
+$out"
+missing=$(echo "$out" | sed -n 's/.*NOT wired in [^:]*: *\(.*\) (README.*/\1/p')
+[ "$missing" = "buddy busy" ] || fail "QA-7: hook report named '$missing', want 'buddy busy'"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-7: no done line"
+# The fold: spaces and case around `off` are the same knob; anything else is the
+# default, which the all-but-buddylist assertions above would then fail on.
+out=$(inst_claims BUDDY_CHAT=' OFF ' 2>&1) || fail "QA-7: ' OFF ' install failed:
+$out"
+echo "$out" | grep -qxF 'install: chat: off (claims-only install)' || fail "QA-7: ' OFF ' must fold to off:
+$out"
+[ ! -e "$WORK/bin7/buddylist" ] || fail "QA-7: ' OFF ' built buddylist"
+out=$(inst_claims BUDDY_CHAT=no 2>&1) || fail "QA-7: BUDDY_CHAT=no install failed:
+$out"
+echo "$out" | grep -qF 'chat: off' && fail "QA-7: BUDDY_CHAT=no is the default, not off:
+$out"
+[ -x "$WORK/bin7/buddylist" ] || fail "QA-7: the default under BUDDY_CHAT=no must build buddylist"
+
+# QA-8: the remnants report. A stale buddylist in the bin dir (QA-7's last run
+# left a real one; it is replaced by a marker file so cmp can prove it was not
+# rebuilt), a plist at BUDDY_PLIST and a .claude.json naming buddylist as an
+# MCP server are each NAMED on one `left alone` line, and none is touched: the
+# marker is byte-identical afterwards and the guard launchctl is never reached,
+# although a plist now exists for step 4 to act on.
+printf 'stale buddylist, not a binary\n' > "$WORK/bin7/buddylist"
+cp "$WORK/bin7/buddylist" "$WORK/stale8"
+printf 'not a real plist\n' > "$WORK/plist7"
+printf '{"mcpServers": {"buddylist": {"command": "%s/bin7/buddylist", "args": ["mcp"]}}}\n' "$WORK" > "$WORK/claude7.json"
+out=$(inst_claims BUDDY_CHAT=off 2>&1) || fail "QA-8: claims-only install over remnants failed:
+$out"
+left=$(echo "$out" | grep '^install: chat: left alone: ' || true)
+[ -n "$left" ] || fail "QA-8: no left alone line:
+$out"
+[ "$(echo "$left" | wc -l | tr -d ' ')" = 1 ] || fail "QA-8: the remnants are ONE line:
+$out"
+for want in "buddylist at $WORK/bin7/buddylist" "plist at $WORK/plist7" "MCP server registered in $WORK/claude7.json" "nothing was removed, stopped or unloaded"; do
+	echo "$left" | grep -qF "$want" || fail "QA-8: the left alone line must name '$want':
+$left"
+done
+cmp -s "$WORK/bin7/buddylist" "$WORK/stale8" || fail "QA-8: the stale buddylist was touched"
+[ -f "$WORK/plist7" ] && [ -f "$WORK/claude7.json" ] || fail "QA-8: a remnant was removed"
+echo "$out" | grep -qF 'daemon: skipped (BUDDY_CHAT=off: claims-only install)' || fail "QA-8: the daemon step must be skipped with a plist present:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-8: no done line"
+[ ! -e "$GUARD/reached" ] || fail "QA-8: the REAL launchctl was reached: $(cat "$GUARD/reached")"
+
 echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
 echo "  QA-6 the daemon waits past the old ten-poll window, says what launchd recorded, and fails last (also on a failed"
-echo "  kickstart); fake launchctl, real one guarded)"
+echo "  kickstart); fake launchctl, real one guarded; QA-7 BUDDY_CHAT=off builds buddy alone, six-line hook report, the fold;"
+echo "  QA-8 remnants named on one line and left byte-identical)"

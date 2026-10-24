@@ -35,6 +35,22 @@
 #   A daemon that does not come back fails the install, but at the END: steps
 #   5 and 6 do not depend on it, and dying at step 4 skipped them.
 #
+# CLAIMS-ONLY (BUDDY_CHAT=off). The architecture promises that claims work with
+# chat entirely absent (CLAUDE.md, invariant 1), but this script always built
+# buddylist and its hook report nagged "NOT wired: buddylist alert buddylist
+# presence" on every run of a deployment that allows no server of any kind. With
+# BUDDY_CHAT=off (trimmed, lower-cased, exactly `off`; anything else is the
+# default) steps 1, 2 and 4 touch only the claims half: buddy is built and
+# verified, no buddylist is built anywhere, the daemon step is skipped, and the
+# hook report counts the six buddy lines. It is CONFIGURATION, never a probe:
+# a socket file, a buddylist beside buddy or an MCP registration each lie in
+# both directions (a stale socket; a daemon mid-restart under launchd; a
+# different HOME). And "off" describes THIS INVOCATION, not the machine: a
+# buddylist already in the bin dir, the daemon's plist and an MCP registration
+# are REPORTED as left alone, and nothing is removed, stopped or unloaded. An
+# install that uninstalled on a knob would be an install that could remove the
+# chat half by a typo in a settings env block.
+#
 # A NEW DAEMON BUILD IS REFUSED ITS FIRST SPAWN (measured 2026-10-03, macOS
 # 27). The agent carries a launch constraint (`managed LWCR` in `launchctl
 # print`), and a CHANGED binary at the program path fails it until macOS
@@ -68,6 +84,9 @@
 #   BUDDY_PLIST         the daemon agent's plist          (default ~/Library/LaunchAgents/<agent>.plist)
 #   BUDDY_LAUNCHCTL     the launchctl step 4 runs         (default launchctl; the done-check's is a fake)
 #   BUDDY_DAEMON_WAIT   seconds step 4 waits for running  (default 30)
+#   BUDDY_CHAT=off      claims-only: install and check the claims half only
+#   BUDDY_CLAUDE_JSON   the MCP registrations file the claims-only remnants
+#                       report reads                      (default ~/.claude.json)
 set -eu
 CDPATH= cd -- "$(dirname -- "$0")/.."
 ROOT=$(pwd)
@@ -78,6 +97,13 @@ AGENT=com.buddy-system.buddylistd
 PLIST=${BUDDY_PLIST:-$HOME/Library/LaunchAgents/$AGENT.plist}
 LAUNCHCTL=${BUDDY_LAUNCHCTL:-launchctl}
 DAEMON_WAIT=${BUDDY_DAEMON_WAIT:-30}
+CLAUDE_JSON=${BUDDY_CLAUDE_JSON:-$HOME/.claude.json}
+# The repo's one folding rule is ToLower(NFC(s)) after trimming; `off` is ASCII,
+# so NFC changes nothing here and tr's ASCII fold under LC_ALL=C is the same
+# test the hooks apply to the same variable. chat_off is set or empty.
+chat=$(printf '%s' "${BUDDY_CHAT:-}" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+chat_off=""
+[ "$chat" != off ] || chat_off=1
 
 # deferred holds a failure that must not stop the steps after it (the daemon,
 # step 4); it is reported, and fails the install, at the end.
@@ -141,15 +167,19 @@ run_step() {
 }
 
 # 1-2. Binaries: the ones the hooks and MCP servers run, then every other copy.
+# Claims-only builds buddy alone: bins lists what this invocation installs, and
+# the daemon's program is a buddylist, so that arm is skipped with it.
+bins="buddy buddylist"
+[ -z "$chat_off" ] || bins=buddy
 build buddy "$BIN_DIR/buddy"
-build buddylist "$BIN_DIR/buddylist"
+[ -n "$chat_off" ] || build buddylist "$BIN_DIR/buddylist"
 case $("$BIN_DIR/buddy" help 2>&1) in
 *commit-gate*) ;;
 *) die "$BIN_DIR/buddy does not know commit-gate; the build is not this checkout's" ;;
 esac
 
 daemon_prog=""
-if [ "${BUDDY_DAEMON:-}" != off ] && [ -f "$PLIST" ]; then
+if [ -z "$chat_off" ] && [ "${BUDDY_DAEMON:-}" != off ] && [ -f "$PLIST" ]; then
 	daemon_prog=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$PLIST" 2>/dev/null || true)
 	case $daemon_prog in
 	*/buddylist)
@@ -162,7 +192,7 @@ if [ "${BUDDY_DAEMON:-}" != off ] && [ -f "$PLIST" ]; then
 	esac
 fi
 if [ "${BUDDY_REPO_BIN:-}" != off ]; then
-	for b in buddy buddylist; do
+	for b in $bins; do
 		t="$ROOT/bin/$b"
 		if [ -f "$t" ] && [ "$t" != "$daemon_prog" ] && [ "$t" != "$BIN_DIR/$b" ]; then
 			build "$b" "$t"
@@ -175,7 +205,11 @@ run_step install-skill sh "$ROOT/scripts/install-skill.sh"
 
 # 4. The daemon. LC_ALL=C in front of anything that reads process tables
 # (CLAUDE.md: a non-ASCII argv elsewhere on the box aborts awk mid-scan).
-if [ "${BUDDY_DAEMON:-}" = off ]; then
+# Claims-only is named first: it is the broader statement, and with no buddylist
+# built there is nothing a restart could put into service.
+if [ -n "$chat_off" ]; then
+	say "daemon: skipped (BUDDY_CHAT=off: claims-only install)"
+elif [ "${BUDDY_DAEMON:-}" = off ]; then
 	say "daemon: skipped (BUDDY_DAEMON=off)"
 elif [ ! -f "$PLIST" ]; then
 	say "daemon: no launchd agent ($PLIST); nothing to restart"
@@ -233,22 +267,50 @@ else
 fi
 
 # 6. What is wired, reported. Absent is not an error: busy is optional
-# (D-016), and the chat lines are the visibility half.
+# (D-016), and the chat lines are the visibility half. Claims-only counts the
+# six buddy lines: a report that nagged about two chat hooks a deployment
+# forbids would be a report nobody read.
+wanted="buddy hello buddy gate buddy beat buddy idle buddy bye buddy busy"
+count=six
+if [ -z "$chat_off" ]; then
+	wanted="$wanted buddylist alert buddylist presence"
+	count=eight
+fi
 if [ ! -f "$SETTINGS" ]; then
 	say "hooks: no $SETTINGS — none are wired; README \"Hook wiring\" has the lines"
 else
 	missing=""
-	for want in "buddy hello" "buddy gate" "buddy beat" "buddy idle" "buddy bye" "buddy busy" "buddylist alert" "buddylist presence"; do
-		bin=${want% *} verb=${want#* }
+	set -- $wanted
+	while [ $# -ge 2 ]; do
+		bin=$1 verb=$2; shift 2
 		if ! grep -q "$bin\\\\\"* $verb" "$SETTINGS" && ! grep -q "/$bin $verb" "$SETTINGS"; then
-			missing="$missing $want"
+			missing="$missing $bin $verb"
 		fi
 	done
 	if [ -z "$missing" ]; then
-		say "hooks: all eight wired in $SETTINGS"
+		say "hooks: all $count wired in $SETTINGS"
 	else
 		say "hooks: NOT wired in $SETTINGS:$missing (README \"Hook wiring\"; busy is optional)"
 	fi
+fi
+
+# 6b. Claims-only says so, and names what it found of the chat half and left
+# alone. The knob describes this invocation, so a buddylist, a daemon plist or
+# an MCP registration already on the machine is neither an error nor removed:
+# a stale buddylist beside a NEW buddy is exactly the D-037 denial this script
+# exists to prevent, and the operator should know it is there. The MCP check is
+# a grep for the key, as step 7's is: a false "left alone" only says so.
+if [ -n "$chat_off" ]; then
+	say "chat: off (claims-only install)"
+	left=""
+	[ ! -e "$BIN_DIR/buddylist" ] || left="$left; buddylist at $BIN_DIR/buddylist"
+	[ ! -e "$PLIST" ] || left="$left; the daemon agent's plist at $PLIST"
+	for f in "$ROOT/.mcp.json" "$CLAUDE_JSON"; do
+		if [ -f "$f" ] && grep -q '"buddylist"[[:space:]]*:' "$f"; then
+			left="$left; a buddylist MCP server registered in $f"
+		fi
+	done
+	[ -z "$left" ] || say "chat: left alone:${left#;} (BUDDY_CHAT=off makes THIS install claims-only and says nothing about the machine; nothing was removed, stopped or unloaded)"
 fi
 
 # 7. The handoff size, reported (D-064). BUDDY_HANDOFF_AT in the settings `env`
