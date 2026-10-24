@@ -85,8 +85,10 @@
 #   BUDDY_LAUNCHCTL     the launchctl step 4 runs         (default launchctl; the done-check's is a fake)
 #   BUDDY_DAEMON_WAIT   seconds step 4 waits for running  (default 30)
 #   BUDDY_CHAT=off      claims-only: install and check the claims half only
-#   BUDDY_CLAUDE_JSON   the MCP registrations file the claims-only remnants
-#                       report reads                      (default ~/.claude.json)
+#   BUDDY_CLAUDE_JSON   the user-level MCP registrations file the claims-only
+#                       remnants report reads             (default ~/.claude.json)
+#   BUDDY_MCP_JSON      the checkout's MCP registrations file it reads
+#                                                         (default <checkout>/.mcp.json)
 set -eu
 CDPATH= cd -- "$(dirname -- "$0")/.."
 ROOT=$(pwd)
@@ -98,9 +100,19 @@ PLIST=${BUDDY_PLIST:-$HOME/Library/LaunchAgents/$AGENT.plist}
 LAUNCHCTL=${BUDDY_LAUNCHCTL:-launchctl}
 DAEMON_WAIT=${BUDDY_DAEMON_WAIT:-30}
 CLAUDE_JSON=${BUDDY_CLAUDE_JSON:-$HOME/.claude.json}
+# A knob too, not only $ROOT/.mcp.json: the done-check runs from the real
+# checkout, and a checkout that registers buddylist there would otherwise fail
+# its "nothing left alone" assertion, so the check's hermetic contract is
+# this variable's (the orchestrator's code pass).
+MCP_JSON=${BUDDY_MCP_JSON:-$ROOT/.mcp.json}
 # The repo's one folding rule is ToLower(NFC(s)) after trimming; `off` is ASCII,
-# so NFC changes nothing here and tr's ASCII fold under LC_ALL=C is the same
-# test the hooks apply to the same variable. chat_off is set or empty.
+# so NFC changes nothing on a value that IS off, and tr's ASCII fold under
+# LC_ALL=C is the test the hooks apply to the same variable. NOT byte parity
+# with hello's reading, which sh cannot offer: Go's TrimSpace also strips
+# Unicode spaces, so an NBSP around `off` is off for hello and the default
+# here (sed's [[:space:]] is ASCII), and sh cannot NFC-fold at all. Both
+# divergences fall the safe way: this script installs MORE than hello
+# believes is there, and it refuses nothing. chat_off is set or empty.
 chat=$(printf '%s' "${BUDDY_CHAT:-}" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 chat_off=""
 [ "$chat" != off ] || chat_off=1
@@ -305,7 +317,7 @@ if [ -n "$chat_off" ]; then
 	left=""
 	[ ! -e "$BIN_DIR/buddylist" ] || left="$left; buddylist at $BIN_DIR/buddylist"
 	[ ! -e "$PLIST" ] || left="$left; the daemon agent's plist at $PLIST"
-	for f in "$ROOT/.mcp.json" "$CLAUDE_JSON"; do
+	for f in "$MCP_JSON" "$CLAUDE_JSON"; do
 		if [ -f "$f" ] && grep -q '"buddylist"[[:space:]]*:' "$f"; then
 			left="$left; a buddylist MCP server registered in $f"
 		fi

@@ -24,9 +24,13 @@ fail() { echo "check-install: FAIL — $*" >&2; exit 1; }
 WORK=$(mktemp -d) || fail "mktemp failed"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
+# BUDDY_MCP_JSON names a file that does not exist: the default is the REAL
+# checkout's .mcp.json, and one that registers buddylist would make QA-7 a test
+# of this checkout instead of the script (the orchestrator's code pass).
 inst() {
 	BUDDY_BIN_DIR="$WORK/bin" BUDDY_SKILL_DIR="$WORK/skill" BUDDY_SETTINGS="$WORK/settings.json" \
-		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off sh scripts/install.sh "$@"
+		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$WORK/mcp.json" \
+		sh scripts/install.sh "$@"
 }
 
 # A settings file with every hook but busy and the presence line, spelled the
@@ -240,7 +244,8 @@ mkdir -p "$WORK/bin7"
 inst_claims() {
 	env BUDDY_BIN_DIR="$WORK/bin7" BUDDY_SKILL_DIR="$WORK/skill7" BUDDY_SETTINGS="$WORK/settings7.json" \
 		BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_LAUNCHCTL="$GUARD/launchctl" \
-		BUDDY_PLIST="$WORK/plist7" BUDDY_CLAUDE_JSON="$WORK/claude7.json" "$@" sh scripts/install.sh
+		BUDDY_PLIST="$WORK/plist7" BUDDY_CLAUDE_JSON="$WORK/claude7.json" BUDDY_MCP_JSON="$WORK/mcp7.json" \
+		"$@" sh scripts/install.sh
 }
 cp "$WORK/settings.orig" "$WORK/settings7.json"
 grep -q ' busy' "$WORK/settings7.json" && fail "QA-7: the fixture must not wire busy"
@@ -275,14 +280,16 @@ $out"
 
 # QA-8: the remnants report. A stale buddylist in the bin dir (QA-7's last run
 # left a real one; it is replaced by a marker file so cmp can prove it was not
-# rebuilt), a plist at BUDDY_PLIST and a .claude.json naming buddylist as an
-# MCP server are each NAMED on one `left alone` line, and none is touched: the
-# marker is byte-identical afterwards and the guard launchctl is never reached,
-# although a plist now exists for step 4 to act on.
+# rebuilt), a plist at BUDDY_PLIST, a .claude.json and a checkout .mcp.json
+# each naming buddylist as an MCP server are each NAMED on one `left alone`
+# line, and none is touched: the marker is byte-identical afterwards and the
+# guard launchctl is never reached, although a plist now exists for step 4 to
+# act on.
 printf 'stale buddylist, not a binary\n' > "$WORK/bin7/buddylist"
 cp "$WORK/bin7/buddylist" "$WORK/stale8"
 printf 'not a real plist\n' > "$WORK/plist7"
 printf '{"mcpServers": {"buddylist": {"command": "%s/bin7/buddylist", "args": ["mcp"]}}}\n' "$WORK" > "$WORK/claude7.json"
+printf '{"mcpServers": {"buddylist": {"command": "buddylist", "args": ["mcp"]}}}\n' > "$WORK/mcp7.json"
 out=$(inst_claims BUDDY_CHAT=off 2>&1) || fail "QA-8: claims-only install over remnants failed:
 $out"
 left=$(echo "$out" | grep '^install: chat: left alone: ' || true)
@@ -290,12 +297,12 @@ left=$(echo "$out" | grep '^install: chat: left alone: ' || true)
 $out"
 [ "$(echo "$left" | wc -l | tr -d ' ')" = 1 ] || fail "QA-8: the remnants are ONE line:
 $out"
-for want in "buddylist at $WORK/bin7/buddylist" "plist at $WORK/plist7" "MCP server registered in $WORK/claude7.json" "nothing was removed, stopped or unloaded"; do
+for want in "buddylist at $WORK/bin7/buddylist" "plist at $WORK/plist7" "MCP server registered in $WORK/claude7.json" "MCP server registered in $WORK/mcp7.json" "nothing was removed, stopped or unloaded"; do
 	echo "$left" | grep -qF "$want" || fail "QA-8: the left alone line must name '$want':
 $left"
 done
 cmp -s "$WORK/bin7/buddylist" "$WORK/stale8" || fail "QA-8: the stale buddylist was touched"
-[ -f "$WORK/plist7" ] && [ -f "$WORK/claude7.json" ] || fail "QA-8: a remnant was removed"
+[ -f "$WORK/plist7" ] && [ -f "$WORK/claude7.json" ] && [ -f "$WORK/mcp7.json" ] || fail "QA-8: a remnant was removed"
 echo "$out" | grep -qF 'daemon: skipped (BUDDY_CHAT=off: claims-only install)' || fail "QA-8: the daemon step must be skipped with a plist present:
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-8: no done line"
