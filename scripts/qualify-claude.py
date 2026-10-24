@@ -122,7 +122,20 @@ def exit_on_signals():
 
 
 def process_start(pid):
-    """The kernel's start time for pid as [sec, usec], or None if no such process."""
+    """The kernel's start time for pid, or None if no such process.
+
+    macOS: sysctl kern.proc.pid, p_starttime as [sec, usec]. Elsewhere:
+    /proc/<pid>/stat field 22, [ticks since boot, 0]. Each is an identity a
+    reused pid cannot reproduce, which is all the callers compare, and the two
+    are never compared with each other (a process is observed and rechecked on
+    one machine). Linux's libc has no `sysctl` symbol at all: CI's ubuntu
+    runner raised AttributeError from every owned_process call, which took
+    three OwnedCleanup tests down as errors and, because the proxies call it at
+    startup, made two injection tests report "never attempted" (measured
+    2026-10-24, the first run to get past the Go suite there).
+    """
+    if sys.platform != "darwin":
+        return process_start_proc(pid)
     import ctypes
     import ctypes.util
     import struct
@@ -137,6 +150,24 @@ def process_start(pid):
     if size.value == 0:
         return None
     return list(struct.unpack_from("@qi", buf.raw, 0))
+
+
+def process_start_proc(pid, text=None):
+    """process_start from a Linux /proc/<pid>/stat line (passed in for a test).
+
+    Field 22 is starttime. The comm in field 2 is parenthesised and may itself
+    hold spaces and parentheses, so fields are counted from the LAST ')'. A
+    process that is gone has no file (ENOENT), and one mid-exit can answer
+    ESRCH to the read: both are "no such process", like the sysctl's size 0.
+    """
+    if text is None:
+        try:
+            with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as fh:
+                text = fh.read()
+        except (FileNotFoundError, ProcessLookupError):
+            return None
+    fields = text[text.rindex(")") + 1:].split()
+    return [int(fields[19]), 0]  # fields[0] is field 3 (state); field 22 is 19 after it
 
 
 def owned_process(pid):
