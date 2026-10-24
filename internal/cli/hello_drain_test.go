@@ -289,7 +289,7 @@ func TestHelloClaimsListFitsTheBudget(t *testing.T) {
 		t.Fatalf("want %q:\n%s", want, out)
 	}
 	// What follows the list is not squeezed out by it.
-	if !strings.Contains(out, "BUDDY: chat tools live on the buddylist MCP server") {
+	if !strings.Contains(out, "BUDDY: chat tools (chat_read, chat_send) live on the buddylist MCP server, if it is in your tool list") {
 		t.Fatalf("the room line must survive a long list:\n%s", out)
 	}
 	// The claims come ahead of messages: the message is counted and stays queued.
@@ -412,5 +412,60 @@ func TestHelloClaimsRemainderFitsItsReserve(t *testing.T) {
 	}
 	if !strings.Contains(helloClaimsRemainder(100, 100), "100 of them YOURS") || len(helloClaimsRemainder(100, 100)) <= 160 {
 		t.Fatal("control: the three-digit line no longer outgrows the old 160-byte constant; this test proves nothing")
+	}
+}
+
+// The chat hint obeys BUDDY_CHAT (EnvChat). A claims-only install has no
+// buddylist MCP server, and every session there was told at SessionStart to
+// call chat_read/chat_send anyway: ~500 bytes a session, and an instruction
+// that could only fail. `off` — trimmed, folded by the repo's one rule — prints
+// NO chat line; every other value, unset included, prints the softened hint.
+// It is configuration, not a probe: "0" is not off, so a misspelling is loud
+// in the operator's `env` rather than silently honoured.
+func TestHelloChatHintObeysBuddyChat(t *testing.T) {
+	boundedParallel(t)
+	const hint = "BUDDY: chat tools (chat_read, chat_send) live on the buddylist MCP server, if it is in your tool list; your label says this project's room is "
+	cases := []struct {
+		name  string
+		set   bool // false = unset, the default
+		value string
+		hint  bool
+	}{
+		{"unset", false, "", true},
+		{"off", true, "off", false},
+		{"OFF with trailing space", true, "OFF ", false},
+		{"on", true, "on", true},
+		{"0 is not off", true, "0", true},
+		{"empty is unset", true, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.initAndHello(t)
+			if tc.set {
+				f.env[EnvChat] = tc.value
+			} else {
+				delete(f.env, EnvChat)
+			}
+			out := helloB(t, f)
+			// Positive control for the knob: the digest was produced and the
+			// claims register is there whatever the knob says.
+			if !strings.Contains(out, "BUDDY: you are session") || !strings.Contains(out, "BUDDY: no live claims.") {
+				t.Fatalf("digest missing its fixed lines:\n%s", out)
+			}
+			got := strings.Contains(out, hint)
+			if got != tc.hint {
+				t.Fatalf("BUDDY_CHAT=%q (set=%v): want hint=%v, got %v:\n%s", tc.value, tc.set, tc.hint, got, out)
+			}
+			if !tc.hint {
+				// Nothing about chat at all: no replacement line, since the
+				// knob cannot prove "no chat here".
+				for _, word := range []string{"buddylist MCP", "chat_read", "chat_send"} {
+					if strings.Contains(out, word) {
+						t.Fatalf("BUDDY_CHAT=%q must print nothing about chat; found %q:\n%s", tc.value, word, out)
+					}
+				}
+			}
+		})
 	}
 }

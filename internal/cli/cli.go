@@ -1463,6 +1463,41 @@ func helloFlags(args []string) (session, label string, rest []string) {
 // SessionStart hook line, which is the same for every session.
 const EnvLabel = "BUDDY_LABEL"
 
+// EnvChat is the operator's declaration that THIS deployment is claims-only:
+// `BUDDY_CHAT=off` (trimmed, then folded by the repo's one rule, store.Fold)
+// and hello prints NOTHING about chat. Any other value, unset included, is the
+// default and prints the chat hint. It is CONFIGURATION, never a readiness
+// probe, and it reaches every hook the way EnvHandoffAt does: a settings
+// `env` entry is in each hook's environment (measured, D-064), or the shell
+// that runs install.sh exports it.
+//
+// WHY. The architecture promises claims work with chat entirely absent
+// (invariant 1), but every session on a claims-only install still got the
+// ~500-byte line below telling it to call chat_read/chat_send, MCP tools that
+// do not exist there — a cost on every SessionStart and an instruction that
+// could only fail. The line is cut whole rather than replaced: the knob cannot
+// prove "no chat here", and the claims verbs are already taught by the skill
+// and `buddy --help`.
+//
+// DECLARED, NOT PROBED. Autodetection was considered and rejected (Codex
+// design pass). The daemon's socket file lies both ways: a stale file says
+// present when nothing serves it, and at SessionStart the socket is absent
+// mid-restart because launchd supervises the daemon. A `buddylist` binary
+// beside `buddy` says only what was built, not what is served. An MCP
+// registration lives in settings keyed by HOME and worktree, so a different
+// HOME or a linked worktree breaks every one of them. "off" says what this
+// invocation is, not what this machine has.
+const EnvChat = "BUDDY_CHAT"
+
+// chatOff reports the operator's EnvChat declaration. Trimmed because a
+// settings `env` value pastes with a trailing space more easily than it is
+// seen; folded by store.Fold, never a second rule (invariant 13). "0" is not
+// off: one spelling, so a value that is not it is loud in `env` rather than
+// silently honoured.
+func chatOff(env Env) bool {
+	return store.Fold(strings.TrimSpace(env.getenv(EnvChat))) == "off"
+}
+
 func cmdHello(args []string, env Env) error {
 	session, label, _ := helloFlags(args)
 	if label == "" {
@@ -1617,8 +1652,15 @@ func cmdHello(args []string, env Env) error {
 	// produced. The daemon now REFUSES a room it does not serve and has no
 	// history for, so a wrong name is an error naming the rooms that exist, and
 	// an empty read means a quiet room and nothing else.
-	fmt.Fprintf(&tail, "BUDDY: chat tools live on the buddylist MCP server — your label says this project's room is %q, so try `chat_read %s` (UNTRUSTED content); chat_send to talk to the operator. That name is DERIVED from your label and can be wrong in a linked worktree: if it is, the read is REFUSED and the refusal names the rooms that exist. An empty read means a quiet room. Room digests are never auto-injected; reading is deliberate.\n",
-		fence.Line(room, 64), fence.Line(room, 64))
+	//
+	// SOFTENED, AND ABSENT WHEN DECLARED OFF (EnvChat). Presence was never
+	// guaranteed — chat is the optional half — so the hint says "if it is in
+	// your tool list" instead of asserting the server. Under BUDDY_CHAT=off no
+	// chat line is written at all, and the claims list gets the bytes.
+	if !chatOff(env) {
+		fmt.Fprintf(&tail, "BUDDY: chat tools (chat_read, chat_send) live on the buddylist MCP server, if it is in your tool list; your label says this project's room is %q, so try `chat_read %s` (UNTRUSTED content); chat_send to talk to the operator. That name is DERIVED from your label and can be wrong in a linked worktree: if it is, the read is REFUSED and the refusal names the rooms that exist. An empty read means a quiet room. Room digests are never auto-injected; reading is deliberate.\n",
+			fence.Line(room, 64), fence.Line(room, 64))
+	}
 	// A declared wait (D-033): this incarnation's, restated with its verdict
 	// and the keep-alive questioned; or a predecessor's that ended with its
 	// run, named as the earlier run's with the line that declares it again.
