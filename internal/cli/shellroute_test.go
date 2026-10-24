@@ -30,6 +30,22 @@ import (
 
 // kernelRuns reports whether shell, given cmd with -c in dir, executes the
 // word apply_patch: a fake apply_patch first on PATH touches $MARK.
+// shellOnBox says whether a kernel control's shell exists here, and logs
+// when it does not. A missing shell skips ONLY that control, never the
+// gate's verdict: the gate reads text and needs no shell, so its refusal of
+// a form is asserted on every platform, while "the shell really runs
+// apply_patch for this form" can only be proved where the shell is. CI's
+// ubuntu runner has no /bin/zsh (measured: every zsh control there failed
+// with "no such file or directory" and took the gate's assertion with it).
+func shellOnBox(t *testing.T, shell string) bool {
+	t.Helper()
+	if _, err := os.Stat(shell); err != nil {
+		t.Logf("kernel control not run: %s is not on this box", shell)
+		return false
+	}
+	return true
+}
+
 func kernelRuns(t *testing.T, shell, dir, cmd string) bool {
 	t.Helper()
 	bin := t.TempDir()
@@ -79,6 +95,16 @@ func TestGateShellRouteFormsTheShellRuns(t *testing.T) {
 	const bash5 = "/opt/homebrew/bin/bash"
 	const p = "apply_patch < p.patch"
 	q := shellQuote(p)
+	// Controls that hold only on macOS, each with the fact it rests on. The
+	// gate refuses these forms everywhere (the assertion below still runs);
+	// only the proof that the SHELL runs apply_patch is platform-bound, and
+	// on CI's ubuntu runner each of these three failed the control for the
+	// reason given (measured 2026-10-20), not because the gate was wrong.
+	darwinOnly := map[string]string{
+		"APPLY_PATCH < p.patch":                  "the default macOS volume folds case, so APPLY_PATCH resolves to apply_patch; Linux's does not",
+		"caffeinate -i " + p:                     "caffeinate is a macOS binary",
+		"xargs -I % -S 512 apply_patch % < list": "-S is BSD xargs; GNU xargs rejects it",
+	}
 	cases := []struct {
 		cmd    string
 		shells []string // a kernel control: each must really run apply_patch
@@ -156,8 +182,11 @@ func TestGateShellRouteFormsTheShellRuns(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.cmd, func(t *testing.T) {
 			for _, sh := range c.shells {
-				if _, err := os.Stat(sh); err != nil {
-					t.Logf("kernel control not run: %s is not on this box", sh)
+				if why, ok := darwinOnly[c.cmd]; ok && runtime.GOOS != "darwin" {
+					t.Logf("kernel control not run on %s: %s", runtime.GOOS, why)
+					break
+				}
+				if !shellOnBox(t, sh) {
 					continue
 				}
 				if !kernelRuns(t, sh, work, c.cmd) {
@@ -459,12 +488,14 @@ func TestGateShellRouteCodeReviewJurisdiction(t *testing.T) {
 		{"spaced-unparseable", "/bin/zsh", "cd " + shellArg(spaced.repo) + "; () { pwd -P }", "cd " + shellArg(spaced.repo) + "; () { apply_patch < p.patch }"},
 	} {
 		t.Run(fm.name, func(t *testing.T) {
-			k := exec.Command(fm.shell, "-c", fm.land)
-			k.Dir = plain
-			k.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + plain}
-			out, err := k.CombinedOutput()
-			if err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "repo") {
-				t.Fatalf("kernel control: %s lands in %q (err %v)", fm.shell, out, err)
+			if shellOnBox(t, fm.shell) {
+				k := exec.Command(fm.shell, "-c", fm.land)
+				k.Dir = plain
+				k.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + plain}
+				out, err := k.CombinedOutput()
+				if err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "repo") {
+					t.Fatalf("kernel control: %s lands in %q (err %v)", fm.shell, out, err)
+				}
 			}
 			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, fm.cmd), true, "buddy gate")
 		})
@@ -579,11 +610,13 @@ func TestGateShellRouteFollowUpReviewJurisdiction(t *testing.T) {
 	})
 	t.Run("double-quoted-escape", func(t *testing.T) {
 		quoted := `"` + strings.ReplaceAll(dollar.repo, "$", `\$`) + `"`
-		k := exec.Command("/bin/zsh", "-c", "cd "+quoted+"; () { pwd -P }")
-		k.Dir = plain
-		k.Env = []string{"PATH=/usr/bin:/bin"}
-		if out, err := k.CombinedOutput(); err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "gov$repo") {
-			t.Fatalf("kernel control: zsh lands in %q (err %v)", out, err)
+		if shellOnBox(t, "/bin/zsh") {
+			k := exec.Command("/bin/zsh", "-c", "cd "+quoted+"; () { pwd -P }")
+			k.Dir = plain
+			k.Env = []string{"PATH=/usr/bin:/bin"}
+			if out, err := k.CombinedOutput(); err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "gov$repo") {
+				t.Fatalf("kernel control: zsh lands in %q (err %v)", out, err)
+			}
 		}
 		cmd := "cd " + quoted + "; () { apply_patch < p.patch }"
 		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), true, "buddy gate")
@@ -618,11 +651,13 @@ func TestGateShellRouteThirdReviewForms(t *testing.T) {
 	t.Run("continued-cd-unparseable", func(t *testing.T) {
 		plain := t.TempDir()
 		inner := "cd \\\n" + f.repo + "; () { pwd -P }"
-		k := exec.Command("/bin/zsh", "-c", inner)
-		k.Dir = plain
-		k.Env = []string{"PATH=/usr/bin:/bin"}
-		if out, err := k.CombinedOutput(); err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "repo") {
-			t.Fatalf("kernel control: zsh lands in %q (err %v)", out, err)
+		if shellOnBox(t, "/bin/zsh") {
+			k := exec.Command("/bin/zsh", "-c", inner)
+			k.Dir = plain
+			k.Env = []string{"PATH=/usr/bin:/bin"}
+			if out, err := k.CombinedOutput(); err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "repo") {
+				t.Fatalf("kernel control: zsh lands in %q (err %v)", out, err)
+			}
 		}
 		cmd := "zsh -c " + shellQuote("cd \\\n"+f.repo+"; () { apply_patch < p.patch }")
 		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), true, "buddy gate")
