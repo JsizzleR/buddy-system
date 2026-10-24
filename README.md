@@ -90,7 +90,9 @@ This builds `buddy` and `buddylist` into `~/bin` (override with
 `BUDDY_BIN_DIR`), runs each once to prove it starts, installs the
 [skill](#the-skill), restarts the chat daemon if a launchd agent for it is
 loaded, and reports which hooks are wired in `~/.claude/settings.json`. It
-never edits that file.
+never edits that file. `BUDDY_CHAT=off sh scripts/install.sh` installs the
+claims half only ([below](#claims-only-no-chat-stack)): it reports any chat
+remnant it found and left alone, and uninstalls nothing.
 
 **Re-run it after every pull.** It is also the upgrade, and it rebuilds every
 copy it knows about: `~/bin`, the program the chat daemon's launchd agent
@@ -101,6 +103,47 @@ every write. A copy you put anywhere else, you upgrade yourself.
 Put `~/bin` on your `PATH` (`export PATH="$HOME/bin:$PATH"` in `~/.zprofile`).
 The hook lines below spell the path out, so they work either way; if you set
 `BUDDY_BIN_DIR`, replace `$HOME/bin` in them too.
+
+### Claims-only: no chat stack
+
+The claims half was built to work with chat entirely absent, and it can be
+installed that way: no daemon, no launchd agent, no MCP server, nothing
+listening on a port.
+
+```sh
+BUDDY_CHAT=off sh scripts/install.sh
+```
+
+That builds and verifies `buddy` alone, skips every chat path, and reports
+hook wiring against the six `buddy` lines. It is configuration for this run,
+not a statement about the machine: a `buddylist` already in `~/bin`, the
+daemon's plist or an MCP registration is reported and left where it was.
+Then declare it to every session, so their hooks see it and `hello` prints no
+chat hint:
+
+```json
+{ "env": { "BUDDY_CHAT": "off" } }
+```
+
+in `~/.claude/settings.json` (an `env` entry there reaches every hook, the
+same way `BUDDY_HANDOFF_AT` travels). Wire the six `buddy` lines from
+[step 3](#3-hook-wiring); the two `buddylist` lines may be omitted, and left
+in they are no-ops while the `[ -x ]` guard finds no binary. Do **not**
+register the buddylist MCP server.
+
+What you lose is the visibility half: room history, mention alerts, presence,
+and a chat UI for the operator. What replaces it is the ledger's own views:
+`buddy sessions` for the roster, `buddy who <target>` and `buddy ls` for who
+holds what, `buddy msg`, `buddy inbox` and `buddy sent` between sessions. A
+durable channel *to the operator* does not exist in this mode: `msg all`
+reaches peers, and mail a session addresses to itself is consumed by its own
+hooks. So a lane with an orchestrator reports to it, and a lane with none
+reports in its own pane.
+
+On Linux (or anything but macOS) process identity is "cannot say", so sessions
+are never bound to a harness process and nothing is ever marked `GONE`: the
+documented degraded state (D-025). The hermetic suite passes there, but nobody
+uses it there day to day.
 
 ### 2. Turn it on in a repo
 
@@ -286,7 +329,8 @@ account, and a second signon boots the first.
 
 Register the compact MCP profile in each repo that uses buddy. It exposes only
 `chat_send` and `chat_read`, so unrelated projects don't carry unused tool
-schemas:
+schemas. Skip it in a [claims-only install](#claims-only-no-chat-stack): the
+tools would name a daemon that is not there.
 
 ```sh
 claude mcp add-json buddylist "{\"type\":\"stdio\",\"command\":\"$HOME/bin/buddylist\",\"args\":[\"mcp\",\"--profile\",\"core\"]}" --scope local

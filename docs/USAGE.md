@@ -63,6 +63,17 @@ any of `GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`
 or `GIT_DISCOVERY_ACROSS_FILESYSTEM` is set in the hook's environment (a
 ledger above denies). `buddy init` never does it.
 
+`SessionStart` (`hello`) ends its digest with a chat hint unless `BUDDY_CHAT`
+is `off` (trimmed, then folded by the repo's one rule). That variable is
+**configuration, not a readiness probe**. Autodetection was rejected because
+every signal lies both ways: the daemon's socket file is stale after a crash
+and absent mid-restart at SessionStart (launchd supervises the daemon), and a
+`buddylist` beside `buddy` or an MCP registration is invisible from a different
+`HOME` or a linked worktree. Off prints no chat line at all, not a replacement
+(the knob cannot prove "no chat here"); on prints the hint prefixed "if it is
+in your tool list", because presence was never guaranteed. The install recipe
+is the README's [claims-only subsection](../README.md#claims-only-no-chat-stack).
+
 `SessionEnd` (`bye`) is fenced by the **process**, not by the payload: the hook
 JSON names a session id and no incarnation, and `claude --resume` keeps the id,
 so a `bye` that fired late from a dead incarnation used to end the live one —
