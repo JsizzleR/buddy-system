@@ -250,10 +250,19 @@ func (p *JSONProcess) finalCapture(trigger string) {
 // admission off, the capture COMPLETED, then stdin closed. Closing stdin first
 // let a worker that exits on EOF reparent its children before anything saw
 // them (Codex design review, 2026-10-12).
+//
+// The stdin-closed trace is written BEFORE the close syscall. A worker that
+// exits on EOF does so the instant the pipe closes, watchExit's waitid returns,
+// and its terminate traces group-term; traced after the syscall, stdin-closed
+// could land behind group-term and the order test read a shutdown that was
+// correct as "group-term,stdin-closed" (CI's ubuntu runner, 2026-10-24, dash
+// exiting faster than this goroutine resumed; never seen on macOS). Nothing
+// can observe the close before the syscall, so a trace ahead of it is ahead
+// of every consequence. The test hook is the only reader of the trace.
 func (p *JSONProcess) shutdownInput(trigger string) {
 	p.stopOnce.Do(func() { close(p.stop); p.trace("admission-off") })
 	p.finalCapture(trigger)
-	p.stdinOnce.Do(func() { _ = p.stdin.Close(); p.trace("stdin-closed") })
+	p.stdinOnce.Do(func() { p.trace("stdin-closed"); _ = p.stdin.Close() })
 }
 
 // Claude's process name is also its hook ancestor marker. The executable
