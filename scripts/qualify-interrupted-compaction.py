@@ -56,13 +56,19 @@ def inputs():
  with writelock:p.stdin.close()
 def requests():
  request=root/'fixture-request.json'
- while not stop.wait(.02):
+ # Look BEFORE waiting, and once more after stop (see qualify-compaction.py's
+ # compact(): a native that closes stdout at once set stop inside the first
+ # wait and a request already on disk was never attempted; CI, 2026-10-24).
+ while True:
   if request.exists():
    row=json.loads(request.read_text())
    if (row.get('id'),row.get('method')) not in (('fixture-compact','thread/compact/start'),('fixture-history','thread/read')):raise RuntimeError('invalid fixture request')
    request.rename(root/(row['id']+'-taken.json'))
    try:write(row,'fixture_frame')
    except BrokenPipeError:return
+   continue
+  if stop.is_set():return
+  stop.wait(.02)
 record('buddy_fixture_native_process',pid=p.pid)
 input_thread=threading.Thread(target=relay_inputs);input_thread.start()
 # NOT a daemon (F-38): it writes p.stdin, and a daemon abandoned mid-write

@@ -49,7 +49,12 @@ def inputs():
  with writelock:p.stdin.close()
 def compact():
  request=root/'compact-request.json'
- while not stop.wait(.02):
+ # Look BEFORE waiting, and once more after stop: a native that closes stdout
+ # at once sets stop inside the first 20 ms wait, and `while not stop.wait()`
+ # then left a request that was already on disk untaken (CI's ubuntu runner,
+ # 2026-10-24; macOS's slower python start hid it). The injection F-38 guards
+ # must be attempted while stdin is still open, stop or not.
+ while True:
   if request.exists():
    row=json.loads(request.read_text())
    if row.get('id')!='fixture-compact' or row.get('method')!='thread/compact/start':raise RuntimeError('invalid fixture request')
@@ -57,6 +62,8 @@ def compact():
    try:write(row,'fixture_frame')
    except BrokenPipeError:pass
    return
+  if stop.is_set():return
+  stop.wait(.02)
 record('buddy_fixture_native_process',pid=p.pid)
 input_thread=threading.Thread(target=relay_inputs);input_thread.start()
 # NOT a daemon (F-38): it writes p.stdin, and a daemon abandoned mid-write
