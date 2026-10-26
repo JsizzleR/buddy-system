@@ -13,9 +13,9 @@ coordination scenario and pointed at the skill, the buddy commands their own
 choice), read back once after both sessions said DONE. Session ids, pids and
 pane ids are each run's own.
 
-Every block below is the orchestrator pane of that run as it stood when that
-command's prompt came back, or the ledger read back from the scratch clone
-right after it. The clone's long temporary path is shortened to `…`; nothing
+Every block in sections 1-6 is the orchestrator pane of the scripted run as
+it stood when that command's prompt came back, or the ledger read back from
+the scratch clone right after it; section 7 is a shell's read of the ledger. The clone's long temporary path is shortened to `…`; nothing
 else is changed. Tool output the harness collapsed in the lanes' panes ("Ran 4
 shell commands") is not reconstructed here.
 
@@ -232,24 +232,37 @@ Codex session released. The Claude session worked 1m 27s, the Codex session
 58 s; the operator answered one escalation prompt in the Codex pane ("always
 run" for `env -u CLAUDE_CODE_SESSION_ID buddy …`). The picture's clocks come
 from the two transcripts (the Claude Code JSONL and the Codex rollout JSONL);
-its text from the panes.
+its text from the panes. The clocks also split one Codex cell, the blocking
+wait (its call and BLOCKING line at the call's time, its LANDED lines when
+the chunk carrying them arrived, four Claude rows between), and place the
+`# …` marker for the skill read after that cell, where the pane lists the
+read before it (it ran during the block). Every buddy call in the Codex pane
+is prefixed `env -u CLAUDE_CODE_SESSION_ID` because `AGENTS.md` tells a Codex
+worker to run buddy that way (D-085: a Codex started from a Claude Code shell
+inherits that id, and buddy refuses while two ids disagree); nothing in this
+session's rollout records a Claude id in its environment, and a herdr tab
+carries none. At the end of the run the Claude pane's input line held
+unsubmitted text, `buddy who lane-codex`: typed by neither session, absent
+from both transcripts and from the demo HOME's prompt history, present from
+the first pane read after both said DONE, not drawn; who typed it is not
+recorded.
 
 Why the gate is not in the picture, and how it was still checked: both
 sessions claimed before editing, so the gate never had an edit to refuse, and
 an allowed Codex call leaves no record of the hook having run (Codex 0.164.0
 writes none to its rollout, logs or state; buddy's gate writes nothing when it
-allows). So the same Codex configuration was probed once, apart from the
-take: one `codex exec -s workspace-write` turn, told only to append a line to
-`internal/store/store.go` with `apply_patch`, while a shell-registered session
-held a claim on that file. Codex's `apply_patch`, an inner call of its
+allows). So a separate `codex exec` turn (`-s workspace-write --json`, not the TUI)
+under the same `hooks.json`, the feature flag then under its deprecated name
+(`codex_hooks = true`, renamed `hooks = true` before the pictured take), told
+only to append a line to `internal/store/store.go` with `apply_patch`, ran
+while a shell-registered session held a claim on that file. Codex's `apply_patch`, an inner call of its
 code-mode `exec` script, came back "Command blocked by PreToolUse hook:
 internal/store/store.go is inside scope … claimed by session holder …" and the
 file was unchanged. One dry run of the Claude side alone and one earlier full
 take (same shape, under the deprecated `codex_hooks` feature key) preceded the
 pictured take; all are kept, none drawn.
 
-The ledger, read from a shell right after, with the roster's own two rows
-first:
+The ledger, read from a shell right after, with the roster first:
 
 ```text
 $ buddy sessions --all

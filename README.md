@@ -76,7 +76,7 @@ session's own choice; what buddy refuses comes from the ledger.
   one count line; `--all` lists them); `buddy who` is everything the ledger
   holds about one of them; `buddy pause` is the brake.
 
-![A Claude Code session on the left and a Codex session on the right, sharing one checkout, each given a short task brief with a prescribed coordination scenario and pointed at the buddy skill, the buddy commands their own choice. The Claude session loads the skill with /buddy, claims internal/store/store.go, edits it with the Edit tool and polls its mail. The Codex session reads AGENTS.md and the skill, runs buddy claim and is told it has not said hello, registers with buddy hello, claims again and is REFUSED by the ledger naming lane-claude, messages the holder, declares a wait and blocks on it. The Claude session hands its claim over with buddy release --to and says DONE. The Codex session's wait lands as handed to it, its inbox carries the hand-over, its patch of the file is allowed, it releases and says DONE](docs/assets/demo.svg)
+![A Claude Code session on the left and a Codex session on the right, sharing one checkout, each given a short task brief with a prescribed coordination scenario and pointed at the buddy skill, the buddy commands their own choice. The Claude session loads the skill with /buddy, claims internal/store/store.go, edits it with the Edit tool and polls its mail. The Codex session reads the repo's agent rules and the skill, runs buddy claim and is told it has not said hello, registers with buddy hello, claims again and is REFUSED by the ledger naming lane-claude, messages the holder, declares a wait and blocks on it. The Claude session hands its claim over with buddy release --to and says DONE. The Codex session's wait lands as handed to it, its inbox carries the hand-over, its patch of the file is allowed, it releases and says DONE](docs/assets/demo.svg)
 
 > **Captured panes, drawn by hand.** Two real sessions in a scratch clone with
 > its own ledger, 2026-10-26: a Claude Code session (Opus 5.5, auto mode) and
@@ -84,9 +84,10 @@ session's own choice; what buddy refuses comes from the ledger.
 > approvals, a hooks layer wiring the gate and nothing else). Each got a short
 > task brief with a prescribed coordination scenario (append a line to the same
 > file; the Claude session to hold the file until asked, hand it over and stop,
-> checking its mail every 20 s; the Codex session to work the way `AGENTS.md`
-> says) and was pointed at the skill (Claude: `/buddy`). Which buddy commands
-> to run was each session's own choice. The pane output is transcribed from
+> checking its mail every 20 s; the Codex session, told a peer was working in
+> `internal/store`, to work the way `AGENTS.md` says) and was pointed at the
+> skill (Claude: `/buddy`). Which buddy verbs to use was in neither brief:
+> that was each session's own choice. The pane output is transcribed from
 > the text each session's user saw, read back with `herdr pane read` after the
 > run, the harnesses' collapsed summaries ("Ran 3 shell commands", "+ 2058
 > lines") included. Added by hand: the pane titles and the `#` lines, that is
@@ -95,7 +96,8 @@ session's own choice; what buddy refuses comes from the ledger.
 > `wait clear`, `inbox`, `status` wind-down). Edits to captured text: the
 > scratch directory is written `…`, long lines are soft-wrapped at 58 columns
 > with continuations indented as the panes indent them, and a `…` ending a
-> Codex line is Codex's own trim at its pane width; no word changes. The
+> Codex line is Codex's own trim at its pane width; no word changes. The panes
+> are drawn as two 30-row windows that scroll; no frame was recorded. The
 > refusal shown is the ledger's: both sessions claimed before editing, so the
 > gate that denies an edit inside a peer's claim is the backstop neither met.
 > The operator answered one escalation prompt in the Codex pane ("always run"
