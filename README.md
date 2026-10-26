@@ -10,51 +10,6 @@
   <a href="go.mod"><img src="https://img.shields.io/badge/go-1.26-00ADD8.svg" alt="Go 1.26"></a>
 </p>
 
-## A session runs a fleet
-
-One Claude Code session coordinating two others, in a run of the
-[skill](skills/buddy/SKILL.md)'s "Running a fleet" recipe. The
-`SessionStart` hook registers it and prints what the ledger holds; `/buddy`
-loads the skill; it opens the two lanes in new terminal tabs with the
-harness (`herdr tab create`, `herdr agent start`), reads the roster and the
-claims from the ledger while they work, waits on each lane with the harness
-(`herdr agent wait`: lane-a came back `done`; lane-b came back `blocked`, the
-harness's word for the state it read, in the same second lane-b's own
-transcript ends with DONE), asks the ledger what closing each would leave
-(`buddy who`: no claims held, either lane), and closes the panes it opened.
-Buddy launches no process and kills none: the harness opens and closes the
-panes, and `buddy bye` ends the ledger row of a session whose process is
-already gone.
-
-![One Claude Code session, the coordinator. Its SessionStart digest from buddy hello; the /buddy prompt that loads the skill and points at its brief; buddy sessions; herdr tab create and herdr agent start for lane-a and for lane-b, each start marked with the time herdr's startup wait took; the roster and the claims list while the lanes work; the two herdr agent wait calls, each marked with the real time it took, and their results: lane-a done, lane-b blocked; the claims list and git diff afterwards; buddy who and herdr pane close for each lane, buddy bye for each, buddy sweep, and the final roster with both lanes ended](docs/assets/fleet.svg)
-
-> **Captured from a real run, drawn by hand.** Every output line is the
-> coordinator session's own, read from its transcript: the `SessionStart`
-> output of the `buddy hello` hook (no other hook printed), each tool call's
-> result as the harness recorded it (so "Bash completed with no output" is
-> the harness's wording, not buddy's), and the session's own words, shown as
-> the pane renders them. Captured on 2026-10-26 in a scratch clone with its
-> own ledger, under a throwaway home directory whose settings wire buddy's
-> hooks and nothing else: one Claude Code session (Opus, auto mode) following
-> a brief of 21 numbered steps, and two lanes (Sonnet, auto mode) following
-> the briefs of the picture below. The typed prompt, the `⏺` tool-call lines
-> (those calls, written as Claude Code renders them) and the `#` narration
-> are typeset.
-> `…` stands for the scratch directory holding the briefs and the clone;
-> long lines are soft-wrapped at 112 columns or trimmed at a word with an
-> ellipsis; a `# …` row marks lines cut from a result (the `git diff` keeps
-> its first line and the two added lines; `buddy who` keeps its first line,
-> `CLAIMS HELD` and `EXIT`); and each `⏩` line is the real time between the
-> call above it and its result below, read from the transcript's timestamps,
-> with shorter gaps unmarked. `herdr agent start` answers with a timeout:
-> its 30-second wait to detect the agent ran out while the lane was already
-> running. `herdr agent wait` answers with the state it read from the lane's
-> pane: `done` for lane-a, `blocked` for lane-b, in the second lane-b's own
-> transcript ends with DONE and after it had released its claim (the
-> `buddy ls --all` and `buddy who lane-b` results that follow show that).
-> Nothing else in a captured line is changed. The pane is drawn as a 30-row
-> window that scrolls; no frame was recorded.
-
 ## What a session does with it
 
 The same ledger, from either harness: the picture below is a Claude Code session
@@ -62,19 +17,6 @@ and a Codex session sharing one checkout, each given a short task brief with a
 prescribed coordination scenario (append a line to one file; hold it until asked,
 hand it over) and pointed at the skill. Which buddy commands to run was each
 session's own choice; what buddy refuses comes from the ledger.
-
-- **Claims that refuse.** `buddy claim <slug> --scope <path>` reserves files or
-  directory prefixes, whole or not at all. A `PreToolUse` hook denies any other
-  session's `Edit`, `Write` or patch inside an exclusive claim and names the
-  holder (shared claims overlap each other and nothing else); a refused claim
-  names the whole conflict set and how to wait for it.
-- **Messages between sessions.** `buddy msg <label|slug|id> "…"` queues a note
-  delivered on the recipient's next tool call, with an id so a later message
-  can correct it; `buddy sent` says what became of it, never "read".
-- **A roster for the operator.** `buddy sessions` is the roster: each session
-  live, idle or paused with its claims and context size (dead rows fold into
-  one count line; `--all` lists them); `buddy who` is everything the ledger
-  holds about one of them; `buddy pause` is the brake.
 
 ![A Claude Code session on the left and a Codex session on the right, sharing one checkout, each given a short task brief with a prescribed coordination scenario and pointed at the buddy skill, the buddy commands their own choice. The Claude session loads the skill with /buddy, claims internal/store/store.go, edits it with the Edit tool and polls its mail. The Codex session reads the repo's agent rules and the skill, runs buddy claim and is told it has not said hello, registers with buddy hello, claims again and is REFUSED by the ledger naming lane-claude, messages the holder, declares a wait and blocks on it. The Claude session hands its claim over with buddy release --to and says DONE. The Codex session's wait lands as handed to it, its inbox carries the hand-over, its patch of the file is allowed, it releases and says DONE](docs/assets/demo.svg)
 
@@ -104,6 +46,65 @@ session's own choice; what buddy refuses comes from the ledger.
 > for `env -u CLAUDE_CODE_SESSION_ID buddy …`). Versions, the hook probe, the
 > clocks, runtimes, the earlier takes and this run's ledger read back are in
 > [docs/DEMO-RUN.md](docs/DEMO-RUN.md), section 7.
+
+- **Claims that refuse.** `buddy claim <slug> --scope <path>` reserves files or
+  directory prefixes, whole or not at all. A `PreToolUse` hook denies any other
+  session's `Edit`, `Write` or patch inside an exclusive claim and names the
+  holder (shared claims overlap each other and nothing else); a refused claim
+  names the whole conflict set and how to wait for it.
+- **Messages between sessions.** `buddy msg <label|slug|id> "…"` queues a note
+  delivered on the recipient's next tool call, with an id so a later message
+  can correct it; `buddy sent` says what became of it, never "read".
+- **A roster for the operator.** `buddy sessions` is the roster: each session
+  live, idle or paused with its claims and context size (dead rows fold into
+  one count line; `--all` lists them); `buddy who` is everything the ledger
+  holds about one of them; `buddy pause` is the brake.
+
+## A session runs a fleet
+
+One Claude Code session coordinating two others, in a run of the
+[skill](skills/buddy/SKILL.md)'s "Running a fleet" recipe. The
+`SessionStart` hook registers it and prints what the ledger holds; `/buddy`
+loads the skill; it opens the two lanes in new terminal tabs with the
+harness (`herdr tab create`, `herdr agent start`), reads the roster and the
+claims from the ledger while they work, waits on each lane with the harness
+(`herdr agent wait`: lane-a came back `done`; lane-b came back `blocked`, the
+harness's word for the state it read, in the same second lane-b's own
+transcript ends with DONE), asks the ledger what closing each would leave
+(`buddy who`: no claims held, either lane), and closes the panes it opened.
+Buddy launches no process and kills none: the harness opens and closes the
+panes, and `buddy bye` ends the ledger row of a session whose process is
+already gone.
+
+![One Claude Code session, the coordinator. Its SessionStart digest from buddy hello; the /buddy prompt that loads the skill and points at its brief; buddy sessions; herdr tab create and herdr agent start for lane-a and for lane-b, each start marked with the time herdr's startup wait took; the roster and the claims list while the lanes work; the two herdr agent wait calls, each marked with the real time it took, and their results: lane-a done, lane-b blocked; the claims list and git diff afterwards; buddy who and herdr pane close for each lane, buddy bye for each, buddy sweep, and the final roster with both lanes ended](docs/assets/fleet.svg)
+
+> **Captured from a real run, drawn by hand.** Every output line is the
+> coordinator session's own, read from its transcript: the `SessionStart`
+> output of the `buddy hello` hook (no other hook printed), each tool call's
+> result as the harness recorded it (so "Bash completed with no output" is
+> the harness's wording, not buddy's), and the session's own words, shown as
+> the pane renders them. Captured on 2026-10-26 in a scratch clone with its
+> own ledger, under a throwaway home directory whose settings wire buddy's
+> hooks and nothing else: one Claude Code session (Opus, auto mode) following
+> a brief of 21 numbered steps, and two lanes (Sonnet, auto mode) following
+> the numbered briefs of the scripted run in
+> [docs/DEMO-RUN.md](docs/DEMO-RUN.md). The typed prompt, the `⏺` tool-call lines
+> (those calls, written as Claude Code renders them) and the `#` narration
+> are typeset.
+> `…` stands for the scratch directory holding the briefs and the clone;
+> long lines are soft-wrapped at 112 columns or trimmed at a word with an
+> ellipsis; a `# …` row marks lines cut from a result (the `git diff` keeps
+> its first line and the two added lines; `buddy who` keeps its first line,
+> `CLAIMS HELD` and `EXIT`); and each `⏩` line is the real time between the
+> call above it and its result below, read from the transcript's timestamps,
+> with shorter gaps unmarked. `herdr agent start` answers with a timeout:
+> its 30-second wait to detect the agent ran out while the lane was already
+> running. `herdr agent wait` answers with the state it read from the lane's
+> pane: `done` for lane-a, `blocked` for lane-b, in the second lane-b's own
+> transcript ends with DONE and after it had released its claim (the
+> `buddy ls --all` and `buddy who lane-b` results that follow show that).
+> Nothing else in a captured line is changed. The pane is drawn as a 30-row
+> window that scrolls; no frame was recorded.
 
 ## How it holds together
 
