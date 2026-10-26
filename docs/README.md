@@ -9,7 +9,7 @@ to install it, and how to wire it into a repo. The rest, by what you need:
 | --- | --- |
 | [USAGE.md](USAGE.md) | Every feature in depth: hooks, claims, messages, the roster, waits, resource slots, long runs, authority files, the id register, the commit gate, chat internals |
 | [../skills/buddy/SKILL.md](../skills/buddy/SKILL.md) | The skill installed for agents: the order to use the verbs in, written for a session rather than the operator |
-| [DEMO-RUN.md](DEMO-RUN.md) | What the ledger did during a run of the README's two-session choreography with two real Claude Code sessions: real commands, real output, one beat each |
+| [DEMO-RUN.md](DEMO-RUN.md) | What the ledger did during a scripted run of a two-session choreography (two Claude Code sessions, 2026-10-25), beat by beat, and the ledger read back after the unscripted Claude Code + Codex run the README now shows |
 
 `buddy --help` and `buddy <verb> --help` are always current, and a test keeps
 the skill in step with them.
