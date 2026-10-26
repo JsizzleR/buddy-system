@@ -17,13 +17,16 @@ One Claude Code session coordinating two others, in a run of the
 `SessionStart` hook registers it and prints what the ledger holds; `/buddy`
 loads the skill; it opens the two lanes in new terminal tabs with the
 harness (`herdr tab create`, `herdr agent start`), reads the roster and the
-claims from the ledger while they work, waits for the harness to report both
-lanes done, asks the ledger what closing each would leave (`buddy who`), and
-closes the panes it opened. Buddy launches no process and kills none: the
-harness opens and closes the panes, and `buddy bye` ends the ledger row of a
-session whose process is already gone.
+claims from the ledger while they work, waits on each lane with the harness
+(`herdr agent wait`: lane-a came back `done`; lane-b came back `blocked`, the
+harness's word for the state it read, in the same second lane-b's own
+transcript ends with DONE), asks the ledger what closing each would leave
+(`buddy who`: no claims held, either lane), and closes the panes it opened.
+Buddy launches no process and kills none: the harness opens and closes the
+panes, and `buddy bye` ends the ledger row of a session whose process is
+already gone.
 
-![One Claude Code session, the coordinator. Its SessionStart digest from buddy hello; the /buddy prompt that loads the skill and points at its brief; buddy sessions; herdr tab create and herdr agent start for lane-a and for lane-b, each start marked with the time herdr's startup wait took; the roster and the claims list while the lanes work; the two herdr agent wait calls, each marked with the real time it took, and their results reporting each lane done; the claims list and git diff afterwards; buddy who and herdr pane close for each lane, buddy bye for each, buddy sweep, and the final roster with both lanes ended](docs/assets/fleet.svg)
+![One Claude Code session, the coordinator. Its SessionStart digest from buddy hello; the /buddy prompt that loads the skill and points at its brief; buddy sessions; herdr tab create and herdr agent start for lane-a and for lane-b, each start marked with the time herdr's startup wait took; the roster and the claims list while the lanes work; the two herdr agent wait calls, each marked with the real time it took, and their results: lane-a done, lane-b blocked; the claims list and git diff afterwards; buddy who and herdr pane close for each lane, buddy bye for each, buddy sweep, and the final roster with both lanes ended](docs/assets/fleet.svg)
 
 > **Captured from a real run, drawn by hand.** Every output line is the
 > coordinator session's own, read from its transcript: the `SessionStart`
@@ -31,10 +34,12 @@ session whose process is already gone.
 > result as the harness recorded it (so "Bash completed with no output" is
 > the harness's wording, not buddy's), and the session's own words, shown as
 > the pane renders them. Captured on 2026-10-26 in a scratch clone with its
-> own ledger: one Claude Code session in auto mode following a brief of 21
-> numbered steps, and two lanes (Sonnet, auto mode) following the briefs of
-> the picture below. The typed prompt, the `⏺` tool-call lines (those calls,
-> written as Claude Code renders them) and the `#` narration are typeset.
+> own ledger, under a throwaway home directory whose settings wire buddy's
+> hooks and nothing else: one Claude Code session (Opus, auto mode) following
+> a brief of 21 numbered steps, and two lanes (Sonnet, auto mode) following
+> the briefs of the picture below. The typed prompt, the `⏺` tool-call lines
+> (those calls, written as Claude Code renders them) and the `#` narration
+> are typeset.
 > `…` stands for the scratch directory holding the briefs and the clone;
 > long lines are soft-wrapped at 112 columns or trimmed at a word with an
 > ellipsis; a `# …` row marks lines cut from a result (the `git diff` keeps
@@ -43,8 +48,12 @@ session whose process is already gone.
 > call above it and its result below, read from the transcript's timestamps,
 > with shorter gaps unmarked. `herdr agent start` answers with a timeout:
 > its 30-second wait to detect the agent ran out while the lane was already
-> running. Nothing else in a captured line is changed. The pane is drawn as
-> a 30-row window that scrolls; no frame was recorded.
+> running. `herdr agent wait` answers with the state it read from the lane's
+> pane: `done` for lane-a, `blocked` for lane-b, in the second lane-b's own
+> transcript ends with DONE and after it had released its claim (the
+> `buddy ls --all` and `buddy who lane-b` results that follow show that).
+> Nothing else in a captured line is changed. The pane is drawn as a 30-row
+> window that scrolls; no frame was recorded.
 
 ## What a session does with it
 
