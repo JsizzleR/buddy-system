@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 724" width="960" height="724" role="img" aria-labelledby="t d">
 <title id="t">A claims-only install of the Buddy System: clone, run the install script, paste the hook wiring into the Claude Code settings file, then buddy init in another project, the digest a new session gets there, its first claim and what the ledger holds about it</title>
-<desc id="d">Real output captured 2026-10-25 against a throwaway HOME (the install script's own knobs point every write at it; the clone came from a local mirror of main spelled as the GitHub URL, and the Go build cache was warm). The throwaway HOME's path is written ~; long lines are soft-wrapped at 58 columns and trimmed with an ellipsis; no words were changed. The session's SessionStart hook was run by hand with the payload Claude Code sends. Lines starting with # are narration. Loops every 28 s; under prefers-reduced-motion the final frame is shown still.</desc>
+<desc id="d">Real output captured 2026-10-25 against a throwaway HOME (the install script's own knobs point every write at it; the clone came from a local mirror of main spelled as the GitHub URL, and the Go build cache was warm). The throwaway HOME's path is written ~; long lines are soft-wrapped at 58 columns and trimmed with an ellipsis; the output is preserved except for that path substitution, the wrapping and trimming, and the omissions marked # …. No session ran: the SessionStart hook was fed the payload Claude Code sends, by hand. Prompts and the lines starting with # are typeset, not captured. Loops every 28 s; under prefers-reduced-motion the final frame is shown still.</desc>
 <style>
 text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace; font-size: 12px; white-space: pre; }
 .still { display: none; }
@@ -66,8 +66,8 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="500" y="154" fill="#c9d1d9" opacity="0">  fix: claude plugin install<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
 <text x="500" y="172" fill="#c9d1d9" opacity="0">gopls-lsp@claude-plugins-official, then run<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
 <text x="500" y="190" fill="#c9d1d9" opacity="0">/reload-plugins in open sessions<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
-<text x="500" y="226" fill="#8b949e" font-style="italic" opacity="0"># a new Claude Code session here: SessionStart → buddy<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
-<text x="500" y="244" fill="#8b949e" font-style="italic" opacity="0">hello puts this in its context<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="226" fill="#8b949e" font-style="italic" opacity="0"># SessionStart → buddy hello, fed Claude Code's JSON by<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="244" fill="#8b949e" font-style="italic" opacity="0">hand: a session here gets this<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
 <text x="500" y="262" fill="#c9d1d9" opacity="0">BUDDY: you are session my-api/s-2e4c2544<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
 <text x="500" y="280" fill="#c9d1d9" opacity="0">(2e4c2544-c7c8-4b1e-968b-ab8b06697ceb). Claim before<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
 <text x="500" y="298" fill="#c9d1d9" opacity="0">taking a bundle: buddy claim &lt;slug&gt; --desc ... --scope<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
@@ -125,8 +125,8 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="500" y="154" fill="#c9d1d9">  fix: claude plugin install</text>
 <text x="500" y="172" fill="#c9d1d9">gopls-lsp@claude-plugins-official, then run</text>
 <text x="500" y="190" fill="#c9d1d9">/reload-plugins in open sessions</text>
-<text x="500" y="226" fill="#8b949e" font-style="italic"># a new Claude Code session here: SessionStart → buddy</text>
-<text x="500" y="244" fill="#8b949e" font-style="italic">hello puts this in its context</text>
+<text x="500" y="226" fill="#8b949e" font-style="italic"># SessionStart → buddy hello, fed Claude Code's JSON by</text>
+<text x="500" y="244" fill="#8b949e" font-style="italic">hand: a session here gets this</text>
 <text x="500" y="262" fill="#c9d1d9">BUDDY: you are session my-api/s-2e4c2544</text>
 <text x="500" y="280" fill="#c9d1d9">(2e4c2544-c7c8-4b1e-968b-ab8b06697ceb). Claim before</text>
 <text x="500" y="298" fill="#c9d1d9">taking a bundle: buddy claim &lt;slug&gt; --desc ... --scope</text>

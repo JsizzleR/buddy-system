@@ -163,8 +163,9 @@ orchestrator buddy-system-demo % buddy sessions
 Three things the ledger said plainly: `who` REPORTS what ending a session would
 leave and grants nothing (lane-b's EXIT line names the claim it still held);
 `bye` ends a session and touches no claim row, so `store-fix` outlived its
-holder until a plain `sweep` orphaned it; and closing a pane is not ending a
-session, which is why the `bye` is typed.
+holder until a plain `sweep` orphaned it; and closing a pane does not reliably run the `SessionEnd` hook (measured on
+one fleet: 68 of 119 closed lanes never ran it), which is why the `bye` is
+typed.
 </details>
 
 <details>

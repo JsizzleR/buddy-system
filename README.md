@@ -2,7 +2,7 @@
   <img src="docs/assets/wordmark.svg" width="420" alt="buddy system">
 </p>
 
-<p align="center"><b>Several coding agents, one checkout, no stepping on each other: claim a scope, and the gate refuses everyone else's edit by name.</b></p>
+<p align="center"><b>Several coding agents, one checkout, no two of them editing the same claimed files: claim a scope, and the gate refuses everyone else's edit by name.</b></p>
 
 <p align="center">
   <a href="https://github.com/JsizzleR/buddy-system/actions/workflows/check.yml"><img src="https://github.com/JsizzleR/buddy-system/actions/workflows/check.yml/badge.svg" alt="check"></a>
@@ -23,16 +23,17 @@
   idle or paused with its claims and context size; `buddy who` is everything
   the ledger holds about one of them; `buddy pause` is the brake.
 
-![Two Claude Code sessions side by side. Each claims a scope and edits inside it. One then edits a file in the other's scope and the buddy gate denies it, naming the holder. It messages the holder, the holder releases, its own claim is granted and the edit goes through](docs/assets/demo.svg)
+![Two Claude Code sessions side by side. Each claims a scope and edits inside it. One then edits a file in the other's scope and the buddy gate denies it, naming the holder. It messages the holder, the holder releases, its own claim is granted and the same edit is allowed](docs/assets/demo.svg)
 
-> **Real output, drawn by hand.** Every line in the picture is `buddy`'s own
-> output, captured on 2026-10-25 in a scratch repository with its own ledger:
-> `git init`, `buddy init`, two session ids. No session ran: the hooks were
-> fed the JSON Claude Code sends them, and the `⏺ Edit(…)` lines are those
-> tool calls, written as Claude Code renders them. The picture is a
-> hand-authored animated SVG over that capture, not a recording: long lines
-> are soft-wrapped at 58 columns and trimmed with an ellipsis, lines starting
-> with `#` are narration, and no words were changed. The ledger's own record
+> **Captured output, drawn by hand.** Every output line in the picture is
+> `buddy`'s own, captured on 2026-10-25 in a scratch repository with its own
+> ledger: `git init`, `buddy init`, two session ids. No session ran: the hooks
+> were fed the JSON Claude Code sends them. The prompts, the `⏺ Edit(…)` tool
+> lines (those calls, written as Claude Code renders them) and the `#`
+> narration are typeset. The picture is a hand-authored animated SVG over that
+> capture, not a recording: long lines are soft-wrapped at 58 columns and
+> trimmed with an ellipsis, and the output is preserved except for that
+> wrapping and trimming. The ledger's own record
 > of the same choreography, from a run with two real sessions, is
 > [docs/DEMO-RUN.md](docs/DEMO-RUN.md).
 
@@ -59,13 +60,14 @@ empty directory to the first claim in another project:
 
 ![Two panes of one terminal. Left: git clone, a claims-only run of the install script reporting what it built and that no hooks are wired, the hook-wiring block saved to the settings file, and the re-run reporting all six wired. Right: buddy init in another project, the digest a new session there gets at SessionStart, its first claim, and buddy status showing the claim held](docs/assets/install.svg)
 
-> **Also real, staged against a throwaway HOME** (the install script's own
-> staging knobs, listed in its header, point every write there; the clone came
-> from a local mirror of `main` spelled as the GitHub URL, with a warm Go build
-> cache). Drawn like the picture above: the HOME's path is written `~`, the
-> settings file and `buddy status` are cut where `# …` says so, the new
-> session's `SessionStart` hook was run by hand with Claude Code's payload, and
-> no words were changed.
+> **Captured the same way, against a throwaway HOME** (the install script's
+> own staging knobs, listed in its header, point every write there; the clone
+> came from a local mirror of `main` spelled as the GitHub URL, with a warm Go
+> build cache, so the two minutes are the script's, not the download's). No
+> session ran: the `SessionStart` hook was fed Claude Code's payload by hand.
+> The HOME's path is written `~`, the settings file and `buddy status` are cut
+> where `# …` says so, and the output is preserved except for that
+> substitution, the wrapping and trimming, and those marked omissions.
 
 ### 1. Clone and install
 
@@ -282,8 +284,9 @@ agent's context, so alerts carry counts and sequence numbers, never bodies,
 room digests are never injected, `chat_read` and `chat_send` are budgeted,
 and the SessionStart digest stays under the harness's hook-output limit
 (`scripts/cost-report.sh` prints a seven-day baseline, counts only).
-**Security.** Nothing listens on the network: the daemon serves a unix socket
-and the chat servers bind loopback. The ledger trusts the machine's user
+**Security.** Nothing listens off loopback by default: the daemon serves a
+unix socket, the chat servers bind loopback, and a claims-only install listens
+nowhere at all. The ledger trusts the machine's user
 account: a single-operator tool, not a tenancy boundary. Enforcement is
 cooperative: the gate adjudicates the paths a tool call *declares*, and
 nothing binds a process that bypasses the harness. A seatbelt for agents, not

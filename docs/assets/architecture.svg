@@ -5,34 +5,35 @@
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8b949e"/></marker></defs>
 <rect width="960" height="540" rx="10" fill="#0d1117"/>
 <rect x="12" y="12" width="604" height="516" rx="8" fill="#161b22" stroke="#30363d"/>
-<text x="24" y="32" fill="#8b949e" font-size="11" text-anchor="start">claims — the safety half: a CLI and a ledger in the repo's own .git, no server</text>
-<rect x="28" y="70" width="128" height="50" rx="6" fill="#0d1117" stroke="#30363d"/>
+<text x="24" y="32" fill="#8b949e" font-size="11" text-anchor="start">claims — the safety half: a CLI and a ledger in the git common directory, no server</text>
+<rect x="28" y="70" width="132" height="56" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="38" y="87" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">lane-a</text>
 <text x="38" y="103" fill="#8b949e" font-size="11" text-anchor="start">Claude Code</text>
-<rect x="168" y="70" width="128" height="50" rx="6" fill="#0d1117" stroke="#30363d"/>
+<rect x="168" y="70" width="132" height="56" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="178" y="87" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">lane-b</text>
 <text x="178" y="103" fill="#8b949e" font-size="11" text-anchor="start">Claude Code</text>
-<rect x="308" y="70" width="128" height="50" rx="6" fill="#0d1117" stroke="#30363d"/>
+<rect x="308" y="70" width="132" height="56" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="318" y="87" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">lane-c</text>
-<text x="318" y="103" fill="#8b949e" font-size="11" text-anchor="start">Codex</text>
-<rect x="448" y="70" width="156" height="50" rx="6" fill="#0d1117" stroke="#30363d"/>
+<text x="318" y="103" fill="#8b949e" font-size="11" text-anchor="start">Codex: native id</text>
+<text x="318" y="119" fill="#8b949e" font-size="11" text-anchor="start">lifecycle begin</text>
+<rect x="448" y="70" width="156" height="56" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="458" y="87" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">orchestrator</text>
 <text x="458" y="103" fill="#8b949e" font-size="11" text-anchor="start">a session too</text>
 <line x1="526" y1="70" x2="526" y2="58" stroke="#8b949e" stroke-width="1.2"/>
-<line x1="526" y1="58" x2="92" y2="58" stroke="#8b949e" stroke-width="1.2"/>
-<line x1="92" y1="58" x2="92" y2="68" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
-<line x1="232" y1="58" x2="232" y2="68" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
-<line x1="372" y1="58" x2="372" y2="68" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="526" y1="58" x2="94" y2="58" stroke="#8b949e" stroke-width="1.2"/>
+<line x1="94" y1="58" x2="94" y2="68" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="234" y1="58" x2="234" y2="68" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="374" y1="58" x2="374" y2="68" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
 <text x="28" y="50" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">the orchestrator opens its lanes with the harness; buddy launches nothing</text>
-<line x1="92" y1="120" x2="92" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
-<line x1="232" y1="120" x2="232" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
-<line x1="372" y1="120" x2="372" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
-<line x1="526" y1="120" x2="526" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="94" y1="126" x2="94" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="234" y1="126" x2="234" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="374" y1="126" x2="374" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
+<line x1="526" y1="126" x2="526" y2="150" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)"/>
 <text x="28" y="141" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">hooks</text>
 <rect x="28" y="152" width="576" height="66" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="38" y="169" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">buddy — one CLI, spawned per hook call and per command</text>
 <text x="38" y="185" fill="#c9d1d9" font-size="11" text-anchor="start">hooks: hello gate beat idle busy bye · verbs: claim release msg wait who pause</text>
-<text x="38" y="201" fill="#ff7b72" font-size="11" text-anchor="start">gate: an Edit, Write or patch inside another's claim → DENIED, naming the holder</text>
+<text x="38" y="201" fill="#ff7b72" font-size="11" text-anchor="start">gate: an edit inside another's exclusive claim → DENIED, naming the holder</text>
 <line x1="316" y1="218" x2="316" y2="240" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)" marker-start="url(#a)"/>
 <text x="326" y="233" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">reads · writes, in one transaction</text>
 <rect x="28" y="242" width="576" height="100" rx="6" fill="#0d1117" stroke="#30363d"/>
@@ -46,7 +47,7 @@
 <rect x="28" y="374" width="276" height="54" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="38" y="391" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">operator — any terminal in the repo</text>
 <text x="38" y="407" fill="#c9d1d9" font-size="11" text-anchor="start">sessions · who · whose · pause · sweep</text>
-<text x="38" y="423" fill="#8b949e" font-size="11" text-anchor="start">the roster reports; nothing auto-reaps</text>
+<text x="38" y="423" fill="#8b949e" font-size="11" text-anchor="start">stale claims are never auto-reaped</text>
 <rect x="328" y="374" width="276" height="54" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="338" y="391" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">messages between sessions</text>
 <text x="338" y="407" fill="#c9d1d9" font-size="11" text-anchor="start">msg store "…" → inbox → next beat</text>
@@ -58,27 +59,29 @@
 <rect x="628" y="12" width="320" height="516" rx="8" fill="#161b22" stroke="#30363d" stroke-dasharray="6,4"/>
 <text x="640" y="32" fill="#8b949e" font-size="11" text-anchor="start">chat — optional. The view, never the lock.</text>
 <rect x="640" y="70" width="296" height="50" rx="6" fill="#0d1117" stroke="#30363d"/>
-<text x="650" y="87" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">IRC client (Halloy) — or AIM 5.1</text>
+<text x="650" y="87" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">IRC client (Halloy), or AIM 5.1</text>
 <text x="650" y="103" fill="#8b949e" font-size="11" text-anchor="start">the operator watches</text>
 <line x1="788" y1="120" x2="788" y2="160" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)" marker-start="url(#a)"/>
-<rect x="640" y="162" width="296" height="50" rx="6" fill="#0d1117" stroke="#30363d"/>
-<text x="650" y="179" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">ergo — an IRC server on loopback</text>
-<text x="650" y="195" fill="#8b949e" font-size="11" text-anchor="start">unauthenticated because of that</text>
-<line x1="788" y1="212" x2="788" y2="252" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)" marker-start="url(#a)"/>
-<rect x="640" y="254" width="296" height="66" rx="6" fill="#0d1117" stroke="#30363d"/>
+<rect x="640" y="162" width="296" height="66" rx="6" fill="#0d1117" stroke="#30363d"/>
+<text x="650" y="179" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">ergo (IRC), or an AIM server (TOC)</text>
+<text x="650" y="195" fill="#8b949e" font-size="11" text-anchor="start">on loopback only, unauthenticated</text>
+<text x="650" y="211" fill="#8b949e" font-size="11" text-anchor="start">because of that</text>
+<line x1="788" y1="228" x2="788" y2="252" stroke="#8b949e" stroke-width="1.2" marker-end="url(#a)" marker-start="url(#a)"/>
+<rect x="640" y="254" width="296" height="82" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="650" y="271" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">buddylistd — the concierge daemon</text>
-<text x="650" y="287" fill="#c9d1d9" font-size="11" text-anchor="start">journal: what the server saw, by seq</text>
-<text x="650" y="303" fill="#c9d1d9" font-size="11" text-anchor="start">unix socket → MCP chat_read · chat_send</text>
-<path d="M604,186 C 628,186 628,302 640,302" fill="none" stroke="#8b949e" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#a)"/>
-<text x="640" y="342" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">all sessions reach it over MCP (the curve);</text>
-<text x="640" y="357" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">alert hook: counts and seqs, never text</text>
-<rect x="640" y="372" width="296" height="92" rx="6" fill="#0d1117" stroke="#30363d"/>
-<text x="650" y="389" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">presence</text>
-<text x="650" y="405" fill="#c9d1d9" font-size="11" text-anchor="start">every live session is a nick; its claim</text>
-<text x="650" y="421" fill="#c9d1d9" font-size="11" text-anchor="start">slug is its away message. Rides the</text>
-<text x="650" y="437" fill="#c9d1d9" font-size="11" text-anchor="start">alert hook; never speaks or journals,</text>
-<text x="650" y="453" fill="#c9d1d9" font-size="11" text-anchor="start">never reads the ledger</text>
-<text x="640" y="489" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">a chat message is never authoritative and</text>
-<text x="640" y="504" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">a sender's name confers nothing: announced</text>
-<text x="640" y="519" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">is not locked. Nothing here refuses.</text>
+<text x="650" y="287" fill="#c9d1d9" font-size="11" text-anchor="start">ircwire or tocwire, behind one Conn seam</text>
+<text x="650" y="303" fill="#c9d1d9" font-size="11" text-anchor="start">journal: what the server saw, by seq</text>
+<text x="650" y="319" fill="#c9d1d9" font-size="11" text-anchor="start">unix socket → MCP chat_read · chat_send</text>
+<path d="M604,186 C 628,186 628,318 640,318" fill="none" stroke="#8b949e" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#a)"/>
+<text x="640" y="350" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">all sessions reach it over MCP (the curve);</text>
+<text x="640" y="365" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">alert hook: counts and seqs, never text</text>
+<rect x="640" y="380" width="296" height="88" rx="6" fill="#0d1117" stroke="#30363d"/>
+<text x="650" y="397" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">presence</text>
+<text x="650" y="413" fill="#c9d1d9" font-size="11" text-anchor="start">every live session is a nick; its claim</text>
+<text x="650" y="429" fill="#c9d1d9" font-size="11" text-anchor="start">slug is its away message. Rides the</text>
+<text x="650" y="445" fill="#c9d1d9" font-size="11" text-anchor="start">alert hook; never speaks or journals,</text>
+<text x="650" y="461" fill="#c9d1d9" font-size="11" text-anchor="start">never reads the ledger</text>
+<text x="640" y="486" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">a chat message is never authoritative and</text>
+<text x="640" y="501" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">a sender's name confers nothing: announced</text>
+<text x="640" y="516" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">is not locked. Nothing here refuses.</text>
 </svg>
