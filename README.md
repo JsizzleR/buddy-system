@@ -65,28 +65,11 @@ In three lines:
   (`herdr`, `claude --bg`) and coordinating through claims and messages; the
   [skill](#the-skill) carries the recipe.
 
-Codex participation is being added in bounded steps. See the
-[Codex hook and identity guide](docs/USAGE.md#codex-participation) for patch
-coverage, installation and current lifecycle limits, and the
-[orchestrator work order](docs/CODEX-ORCHESTRATOR-PLAN.md) for qualification status.
-
-## The two rules it stands on
-
-1. **Chat is the view, never the lock.** Coordination and control live in the
-   transactional local ledger; a chat message is never authoritative.
-   *Announced is not locked.*
-2. **Claims work with chat entirely absent.** The chat stack can be down, or
-   not installed, without weakening safety. Safety hooks fail closed (in a repo
-   that has a ledger, one that cannot be read denies); chat hooks fail silent.
-
-It is built for Claude Code hooks and MCP today. The seams (a hook JSON
-contract, a unix-socket daemon API, a `Conn` transport interface) are
-deliberately narrow so other harnesses and chat backends can slot in.
-
 ## Install in two minutes
 
-Requires Go 1.26+ and `git`. Developed and used on macOS; the hermetic suite
-passes on Linux in CI, where nobody uses it day to day.
+Requires Go 1.26+ and `git`. Developed and used on macOS. The hermetic suite
+passes on Linux in CI, where process identity is "cannot say", nothing is
+ever marked `GONE`, and nobody uses it day to day.
 
 ```sh
 git clone https://github.com/JsizzleR/buddy-system && cd buddy-system
@@ -132,86 +115,50 @@ after every step, and it says what the agent must not do without asking:
 
 The recipe itself is [docs/AGENT-SETUP.md](docs/AGENT-SETUP.md).
 
-This builds `buddy` and `buddylist` into `~/bin` (override with
-`BUDDY_BIN_DIR`), runs each once to prove it starts, installs the
-[skill](#the-skill), restarts the chat daemon if a launchd agent for it is
-loaded, and reports which hooks are wired in `~/.claude/settings.json`. It
-never edits that file. `BUDDY_CHAT=off sh scripts/install.sh` installs the
-claims half only ([below](#claims-only-no-chat-stack)): it reports any chat
-remnant it found and left alone, and uninstalls nothing.
-
-**Re-run it after every pull.** It is also the upgrade, and it rebuilds every
-copy it knows about: `~/bin`, the program the chat daemon's launchd agent
-names, and this checkout's `bin/`. A copy nobody remembered matters: a `buddy`
-older than the ledger's schema refuses to open it, and the gate then denies
-every write. A copy you put anywhere else, you upgrade yourself.
-
-Put `~/bin` on your `PATH` (`export PATH="$HOME/bin:$PATH"` in `~/.zprofile`).
-The hook lines below spell the path out, so they work either way; if you set
-`BUDDY_BIN_DIR`, replace `$HOME/bin` in them too.
+**Re-run `install.sh` after every pull.** It is also the upgrade, and it
+rebuilds every copy it knows about (`~/bin`, the chat daemon's program, this
+checkout's `bin/`): a `buddy` older than the ledger's schema refuses to open
+it, and the gate then denies every write. Put `~/bin` on your `PATH`
+(`BUDDY_BIN_DIR` overrides it; the hook lines spell the path out either way).
 
 ### Claims-only: no chat stack
-
-The claims half was built to work with chat entirely absent, and it can be
-installed that way: no daemon, no launchd agent, no MCP server, nothing
-listening on a port.
 
 ```sh
 BUDDY_CHAT=off sh scripts/install.sh
 ```
 
-That builds and verifies `buddy` alone, skips every chat path, and reports
-hook wiring against the six `buddy` lines. It is configuration for this run,
-not a statement about the machine: a `buddylist` already in `~/bin`, the
-daemon's plist or an MCP registration is reported and left where it was.
-Then declare it to every session, so their hooks see it and `hello` prints no
-chat hint:
+builds and verifies `buddy` alone, skips every chat path, and reports hook
+wiring against the six `buddy` lines; a `buddylist`, daemon plist or MCP
+registration already on the machine is reported and left where it was. Then
+declare it to every session, so `hello` prints no chat hint:
 
 ```json
 { "env": { "BUDDY_CHAT": "off" } }
 ```
 
-in `~/.claude/settings.json` (an `env` entry there reaches every hook, the
-same way `BUDDY_HANDOFF_AT` travels). Wire the six `buddy` lines from
-[step 3](#3-hook-wiring); the two `buddylist` lines may be omitted, and left
-in they are no-ops while the `[ -x ]` guard finds no binary. Do **not**
-register the buddylist MCP server.
-
-What you lose is the visibility half: room history, mention alerts, presence,
-and a chat UI for the operator. What replaces it is the ledger's own views:
-`buddy sessions` for the roster, `buddy who <target>` and `buddy ls` for who
-holds what, `buddy msg`, `buddy inbox` and `buddy sent` between sessions. A
-durable channel *to the operator* does not exist in this mode: `msg all`
-reaches peers, and mail a session addresses to itself is consumed by its own
-hooks. So a lane with an orchestrator reports to it, and a lane with none
-reports in its own pane.
-
-On Linux (or anything but macOS) process identity is "cannot say", so sessions
-are never bound to a harness process and nothing is ever marked `GONE`: the
-documented degraded state (D-025). The hermetic suite passes there, but nobody
-uses it there day to day.
+in `~/.claude/settings.json`. Wire the six `buddy` lines from
+[step 3](#3-hook-wiring), leave out the two `buddylist` lines, and do not
+register the buddylist MCP server. What you lose is the visibility half; the
+ledger's own views (`buddy sessions`, `who`, `ls`, `msg`, `inbox`, `sent`)
+remain. A durable channel *to the operator* does not exist in this mode: a
+lane reports to its orchestrator, or in its own pane.
 
 ### 2. Turn it on in a repo
 
-`install.sh` also wires the buddy-system checkout itself. Now, in **each repo
-whose sessions you want to coordinate**:
+`install.sh` wires the buddy-system checkout itself. In **each repo whose
+sessions you want to coordinate**:
 
 ```sh
 cd /path/to/your/repo
 buddy init
 ```
 
-That creates `buddy.db` in the repo's git **common** directory
-(`$(git rev-parse --git-common-dir)/buddy.db`). Every worktree of the checkout
-shares it, and git never sees it. A repo without one is untouched: every hook
-is a silent no-op there.
-
-`init` also says, for each main language in the repo, whether a Claude Code
-session there gets a language server: the plugin that lets it look up
-definitions and references in one call instead of mapping the code by grep.
-When one is missing, it prints the command that fixes it. Re-running
-`buddy init` is safe, so it doubles as the re-check
-([details](docs/USAGE.md#language-servers--what-buddy-init-reports)).
+That creates `buddy.db` in the repo's git **common** directory, shared by
+every worktree and unseen by git. A repo without one is untouched: every hook
+is a silent no-op there. `init` also says whether each of the repo's main
+languages has a language-server plugin configured, with the command that
+fixes it ([details](docs/USAGE.md#language-servers--what-buddy-init-reports));
+re-running it is safe.
 
 ### 3. Hook wiring
 
@@ -262,14 +209,11 @@ Why each hook behaves as it does is in [docs/USAGE.md](docs/USAGE.md#hooks-in-de
 
 ### 4. The commit gate (optional)
 
-The tool-call gate only sees the path a tool declares. A file written by a code
-generator, a shell redirect or a formatter reaches the index without being
-asked about. The commit gate catches that at `git commit`: it reports any
-staged path inside **another** session's open claim. It warns and lets the
-commit through by default.
-
-Git will not let a repository enable its own hooks, so this is always a local
-step. In your repo, link the hook shipped here:
+The tool-call gate sees only the path a tool declares; a file written by a
+code generator or a shell redirect reaches the index unasked. The commit gate
+reports, at `git commit`, any staged path inside **another** session's open
+claim, warning by default. Git will not let a repository enable its own
+hooks, so link it in your repo:
 
 ```sh
 hooks_dir="$(git rev-parse --path-format=absolute --git-path hooks)"
@@ -277,26 +221,18 @@ mkdir -p "$hooks_dir"
 ln -s /path/to/buddy-system/.githooks/pre-commit "$hooks_dir/pre-commit"
 ```
 
-`--git-path hooks` honors `core.hooksPath`. The default hooks directory is
-shared by every linked worktree; a relative `core.hooksPath` is resolved per
-worktree, so link it in each. `ln` refuses if a `pre-commit` is already there;
-in that case add `"$HOME/bin/buddy" commit-gate || exit $?` to your existing
-hook, so its verdict is not overwritten by a later command. A symlink keeps it
-current when you pull buddy-system. `BUDDY_COMMIT_GATE=deny` refuses
-instead of warning; `=off` or `BUDDY_COMMIT_GATE_SKIP=1` silences it.
-
-(`sh scripts/setup-clone.sh`, which `install.sh` runs, wires the buddy-system
-checkout itself, not your repo.)
+`--git-path hooks` honors `core.hooksPath`; a relative one is resolved per
+worktree, so link it in each. If a `pre-commit` is already there, add
+`"$HOME/bin/buddy" commit-gate || exit $?` to it. `BUDDY_COMMIT_GATE=deny`
+refuses instead of warning; `=off` or `BUDDY_COMMIT_GATE_SKIP=1` silences it.
+More in [docs/USAGE.md](docs/USAGE.md#the-commit-gate-in-detail).
 
 ### The skill
 
 `install.sh` also copies [`skills/buddy/SKILL.md`](skills/buddy/SKILL.md) to
-`~/.claude/skills/buddy/`. It teaches a session how the verbs fit together:
-claiming, what to do when refused, waiting on a peer, messaging, correcting a
-message. The SessionStart digest points every session at `buddy --help`. Two
-tests keep the skill and `--help` in step in both directions, so a renamed flag
-fails the test suite. Re-running the install is safe: an unchanged copy is left
-alone, and a different one is kept as `SKILL.md.bak` before it is replaced.
+`~/.claude/skills/buddy/`: how the verbs fit together, what to do when
+refused, waiting on a peer, messaging, correcting a message. Two tests keep
+the skill and `buddy --help` in step in both directions.
 
 ## What the ledger did during a run of the choreography
 
@@ -531,10 +467,6 @@ buddy msg all "CI is red, check before pushing"
 buddy sweep --dry-run              # what a sweep would free; never reaps a live session
 ```
 
-A paused session's next mutating tool call is denied. `msg` never claims
-delivery: it reports what the ledger knows about the recipient, such as when it
-was last seen or that it is idle at its prompt.
-
 `buddy --help` lists every verb, and `buddy <verb> --help` gives its usage.
 **[docs/USAGE.md](docs/USAGE.md)** covers each feature in depth: the roster's
 columns, messages and corrections, waits that keep a parked session's prompt
@@ -544,8 +476,7 @@ register, and the commit gate.
 
 ## Presence (the fun half)
 
-Run an [ergo] IRC server — a single Go binary. Make the loopback binding
-explicit rather than trusting defaults:
+Run an [ergo] IRC server, a single Go binary, bound to loopback:
 
 ```sh
 ergo defaultconfig > ergo.yaml
@@ -554,8 +485,8 @@ ergo defaultconfig > ergo.yaml
 ergo run --conf ergo.yaml
 ```
 
-The servers here run unauthenticated *because* they bind loopback. If you ever
-bind a real interface, turn on auth first (ergo has SASL). Then:
+The servers here run unauthenticated *because* they bind loopback; off
+loopback, turn auth on first (ergo has SASL). Then:
 
 ```sh
 buddylist serve --rooms yourproject,ops       # the concierge daemon (buddylistd)
@@ -565,97 +496,50 @@ buddylist who                                 # live room membership
 buddylist dm alice "nightly is RED"           # exits non-zero if alice is not online
 ```
 
-Point any IRC client at the server ([Halloy] is a maintained, XChat-shaped one)
-and watch the fleet. Each live session joins its project's room under its own
-name, wears its claim as an away message (`claim: api-refactor · active`), goes
-idle after 5 minutes and leaves after 30. The nick list *is* the fleet, and
-`/whois` answers "what is that one working on?". Session buddies never speak,
-never journal and never touch the ledger: the claim slugs ride the alert hook,
-which had already read them, so presence costs no extra hook line. `serve --presence=false` turns them
-off. The AIM backend has no per-session buddies: a TOC screen name is an
-account, and a second signon boots the first.
-
-Register the compact MCP profile in each repo that uses buddy. It exposes only
-`chat_send` and `chat_read`, so unrelated projects don't carry unused tool
-schemas. Skip it in a [claims-only install](#claims-only-no-chat-stack): the
-tools would name a daemon that is not there.
+Point any IRC client at the server ([Halloy] is a maintained, XChat-shaped
+one). Each live session joins its project's room under its own name, wears
+its claim as an away message, goes idle after 5 minutes and leaves after 30:
+the nick list *is* the fleet, and `/whois` answers "what is that one working
+on?". Register the compact MCP profile in each repo that uses buddy
+(`chat_send` and `chat_read` only; `--profile full` adds the operator's
+tools), and skip it in a [claims-only install](#claims-only-no-chat-stack):
 
 ```sh
 claude mcp add-json buddylist "{\"type\":\"stdio\",\"command\":\"$HOME/bin/buddylist\",\"args\":[\"mcp\",\"--profile\",\"core\"]}" --scope local
 ```
 
-`buddylist mcp --profile full` adds the operator-oriented `chat_status`,
-`chat_ack`, `chat_who`, `dm` and `set_status` tools.
-
-For the full 2002 experience instead: run [open-oscar-server] and
-`buddylist serve --backend toc`, then sign into real AIM (on macOS,
-[im-for-macos] runs AIM 5.1 natively). The daemon speaks the era's wire charset
-(CP1252), flattens AIM's HTML message envelopes, and joins the exchange the AIM
-client's own Buddy Chat dialog uses. You will hear the door.
+For the full 2002 experience, run [open-oscar-server] and
+`buddylist serve --backend toc`, then sign into real AIM ([im-for-macos] runs
+AIM 5.1 natively on macOS). You will hear the door.
 
 ## How it holds together
 
-```
-agents (Claude Code sessions)                            operator
-  │ hooks: hello/gate/beat/bye          ┌─ IRC client (Halloy) / AIM 5.1
-  ▼                                     ▼
-buddy CLI ──► <git-common-dir>/buddy.db      ergo / open-oscar-server
-  claims · controls · inbox                        ▲
-  (SQLite, transactional)                          │ ircwire / tocwire (Conn seam)
-  │                                          buddylistd ──► ~/.buddylist/journal.db
-  └─ MCP tools ──────────────────────────────► unix socket   (durable room history)
-```
+![Architecture. Left, the claims half: three lanes and an orchestrator that opened them with the harness; their hooks drive one buddy CLI whose gate denies an edit inside another session's claim; the CLI reads and writes a SQLite ledger in the repository's git directory holding claims, the inbox, the operator's pause and the session roster; the operator's terminal and messages between sessions go through the same ledger; the commit gate checks staged paths. Right, dashed, the chat half: an IRC client, ergo on loopback, the buddylistd daemon with its journal and MCP tools, and presence; optional, the view and never the lock](docs/assets/architecture.svg)
 
-- One ledger per repo, in the git **common dir**: shared by every worktree,
-  invisible to git.
-- Sessions are identified by `(session_id, incarnation)`. The harness process
-  id decides one thing only: whether a `bye` may end the session. Stale claims are flagged and still refuse; nothing that might be
-  alive is reaped automatically.
-- The chat journal records what the server saw, and reads page by sequence
-  number, so catching up costs only what is new.
-- A message that names a session (by its claim slug, label or id) raises an
-  alert on that session's next tool call, carrying counts and sequence numbers
-  and never the chat text.
-- Everything an agent reads back from chat is fenced as untrusted, one line per
-  message. Prompt injection through a chat room is assumed, not hoped away.
-
-The reasoning behind each of these, including the assumptions that measurement
-refuted, is in [docs/DESIGN.md](docs/DESIGN.md).
+Two rules the drawing is built on. **Chat is the view, never the lock:**
+coordination and control live in the transactional local ledger, and a chat
+message is never authoritative. **Claims work with chat entirely absent:**
+safety hooks fail closed (a ledger that exists but cannot be read denies) and
+chat hooks fail silent. The reasoning behind each box, including the
+assumptions measurement refuted, is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Cost controls
 
-Buddy makes no model calls. Its cost is the text it places into an agent's
-context, so the defaults keep that text narrow:
+Buddy makes no model calls; its cost is the text it puts into an agent's
+context, so the defaults keep that narrow. Alerts carry counts and sequence
+numbers, never bodies; room digests are never injected; `chat_read` is
+budgeted (10 rows, 4 KiB) and `chat_send` has a 750-byte routine budget; an
+undelivered broadcast expires after 24 hours; the SessionStart digest stays
+under the harness's hook-output limit, claims first. `scripts/cost-report.sh`
+prints a seven-day baseline, counts and byte lengths only.
 
-- The proactive alert carries counts and sequence numbers, never chat bodies.
-  Room digests are never injected; reading is deliberate. Silent hooks add no
-  context.
-- MCP `chat_read` defaults to 10 rows and a 4 KiB result; an explicit limit
-  above 10 opts into a 16 KiB budget. `chat_send` has a 750-byte routine budget,
-  so prefer a compact claim / outcome / blocker / next / reference update;
-  `long=true` allows up to 4096 bytes for a deliberate handoff.
-- `buddy msg all` goes to the sessions live at send time, and an undelivered
-  broadcast expires after 24 hours. A target that resolves to nobody is refused
-  rather than queued.
-- The SessionStart digest stays under Claude Code's hook-output limit, claims
-  first, and counts what did not fit.
+## Security
 
-For a seven-day baseline that reports counts and byte lengths only, never
-message text, run `scripts/cost-report.sh` (`BUDDY_COST_DAYS` changes the
-window).
-
-## Security posture
-
-Nothing here listens on the network: the daemon serves a unix socket, and the
-chat servers are configured to bind loopback. They run unauthenticated *only*
-because of that; if you take them off loopback, turn real auth on first. The claims
-ledger trusts the machine's user account: this is a single-operator tool, not a
-multi-tenant boundary. Enforcement is **cooperative**: the gate adjudicates the
-paths `Edit`, `Write` and `NotebookEdit` declare, and fails closed when the
-ledger is unreadable. A `Bash` command is checked only against a pause — what
-it writes is caught, if at all, by the commit gate — and nothing binds a
-process that bypasses the harness. A seatbelt for agents, not a
-sandbox against them. See [SECURITY.md](SECURITY.md) to report a vulnerability.
+Nothing listens on the network: the daemon serves a unix socket and the chat
+servers bind loopback, unauthenticated *only* because of that. The ledger
+trusts the machine's user account: a single-operator tool, not a tenancy
+boundary. Enforcement is cooperative, as [above](#what-buddy-is-not). See
+[SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Documentation
 
@@ -670,8 +554,10 @@ sandbox against them. See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 Working and tested: a hermetic suite (with `-race`) on every push, plus a live
 end-to-end tier against the real pinned chat servers (`sh scripts/check.sh`).
-It is used to coordinate the agent fleet that builds it. Not yet built: a
-chat-command bridge (waits on real auth) and multi-machine claims.
+It is used to coordinate the agent fleet that builds it. Codex sessions take
+part through the patch gate and native identity, in bounded steps
+([guide](docs/USAGE.md#codex-participation)). Not yet built: a chat-command
+bridge (waits on real auth) and multi-machine claims.
 
 ## License
 
