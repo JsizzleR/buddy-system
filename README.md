@@ -58,9 +58,10 @@ already gone.
 ## What a session does with it
 
 The same ledger, from either harness: the picture below is a Claude Code session
-and a Codex session sharing one checkout, each given a task and the skill and
-nothing else. What they do with buddy comes from the skill; what buddy refuses
-comes from the ledger.
+and a Codex session sharing one checkout, each given a short task brief with a
+prescribed coordination scenario (append a line to one file; hold it until asked,
+hand it over) and pointed at the skill. Which buddy commands to run was each
+session's own choice; what buddy refuses comes from the ledger.
 
 - **Claims that refuse.** `buddy claim <slug> --scope <path>` reserves files or
   directory prefixes, whole or not at all. A `PreToolUse` hook denies any other
@@ -75,35 +76,32 @@ comes from the ledger.
   one count line; `--all` lists them); `buddy who` is everything the ledger
   holds about one of them; `buddy pause` is the brake.
 
-![A Claude Code session on the left and a Codex session on the right, sharing one checkout, each given a one-sentence task and the buddy skill. The Claude session loads the skill with /buddy, claims internal/store/store.go, edits it with the Edit tool and polls its mail. The Codex session reads AGENTS.md and the skill, runs buddy claim and is told it has not said hello, registers with buddy hello, claims again and is REFUSED by the ledger naming lane-claude, messages the holder, declares a wait and blocks on it. The Claude session hands its claim over with buddy release --to and says DONE. The Codex session's wait lands as handed to it, its inbox carries the hand-over, its patch of the file is allowed, it releases and says DONE](docs/assets/demo.svg)
+![A Claude Code session on the left and a Codex session on the right, sharing one checkout, each given a short task brief with a prescribed coordination scenario and pointed at the buddy skill, the buddy commands their own choice. The Claude session loads the skill with /buddy, claims internal/store/store.go, edits it with the Edit tool and polls its mail. The Codex session reads AGENTS.md and the skill, runs buddy claim and is told it has not said hello, registers with buddy hello, claims again and is REFUSED by the ledger naming lane-claude, messages the holder, declares a wait and blocks on it. The Claude session hands its claim over with buddy release --to and says DONE. The Codex session's wait lands as handed to it, its inbox carries the hand-over, its patch of the file is allowed, it releases and says DONE](docs/assets/demo.svg)
 
 > **Captured panes, drawn by hand.** Two real sessions in a scratch clone with
-> its own ledger, 2026-10-26: a Claude Code session (2.1.310, Opus 5.5, auto
-> mode) and a Codex session (0.164.0, GPT-6.1-Sol, the workspace-write sandbox,
-> on-request approvals, a hooks layer wiring the gate and nothing else). Each
-> was given a one-sentence task on the same file and told to use the skill
-> (Claude: `/buddy`; Codex: `AGENTS.md`); nothing else was scripted. Every line
-> in the picture is a line of the pane text each session's user saw, read back
-> with `herdr pane read` after the run, the harnesses' collapsed summaries
-> ("Ran 3 shell commands", "+ 2058 lines") included; the transcripts gave only
-> the clocks that interleave the two panes. The refusal shown is the ledger's:
-> both sessions claimed before editing, so the gate that denies an edit inside
-> a peer's claim is the backstop neither met. The hook was trusted, and an
-> allowed patch shows nothing of it, so a separate probe of the same Codex
-> configuration, one turn against a claim a shell held, had it deny the patch.
+> its own ledger, 2026-10-26: a Claude Code session (Opus 5.5, auto mode) and
+> a Codex session (GPT-6.1-Sol, the workspace-write sandbox, on-request
+> approvals, a hooks layer wiring the gate and nothing else). Each got a short
+> task brief with a prescribed coordination scenario (append a line to the same
+> file; the Claude session to hold the file until asked, hand it over and stop,
+> checking its mail every 20 s; the Codex session to work the way `AGENTS.md`
+> says) and was pointed at the skill (Claude: `/buddy`). Which buddy commands
+> to run was each session's own choice. The pane output is transcribed from
+> the text each session's user saw, read back with `herdr pane read` after the
+> run, the harnesses' collapsed summaries ("Ran 3 shell commands", "+ 2058
+> lines") included. Added by hand: the pane titles and the `#` lines, that is
+> the one `⏩` line (the real time between the beats around it) and the `# …`
+> lines (cells not drawn: Codex's reads of store.go and of the skill, and its
+> `wait clear`, `inbox`, `status` wind-down). Edits to captured text: the
+> scratch directory is written `…`, long lines are soft-wrapped at 58 columns
+> with continuations indented as the panes indent them, and a `…` ending a
+> Codex line is Codex's own trim at its pane width; no word changes. The
+> refusal shown is the ledger's: both sessions claimed before editing, so the
+> gate that denies an edit inside a peer's claim is the backstop neither met.
 > The operator answered one escalation prompt in the Codex pane ("always run"
-> for `env -u CLAUDE_CODE_SESSION_ID buddy …`). Long lines are soft-wrapped at
-> 58 columns with continuations indented as the panes indent them; a `…`
-> ending a Codex line is Codex's own trim at its pane width; the scratch
-> directory is written `…`. The `#` lines are typeset: the one `⏩` line gives
-> the real time between the beats around it (21 s), and `# …` marks cells not
-> drawn (Codex's reads of store.go and of the skill, and its `wait clear`,
-> `inbox`, `status` wind-down). No word in a captured line changes. The Claude
-> session took 1m 27s, the Codex session 58 s. One dry run of the Claude side
-> alone and one earlier full take, kept and not drawn, preceded this one. The
-> ledger's view of an earlier, scripted run of a similar choreography, and this
-> run's ledger read back afterwards, are in
-> [docs/DEMO-RUN.md](docs/DEMO-RUN.md).
+> for `env -u CLAUDE_CODE_SESSION_ID buddy …`). Versions, the hook probe, the
+> clocks, runtimes, the earlier takes and this run's ledger read back are in
+> [docs/DEMO-RUN.md](docs/DEMO-RUN.md), section 7.
 
 ## How it holds together
 
