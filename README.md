@@ -10,6 +10,36 @@
   <a href="go.mod"><img src="https://img.shields.io/badge/go-1.26-00ADD8.svg" alt="Go 1.26"></a>
 </p>
 
+## A session runs a fleet
+
+One Claude Code session coordinating two others. The `SessionStart` hook
+registers it and prints what the ledger holds; `/buddy` loads the
+[skill](skills/buddy/SKILL.md); it opens the two lanes in new terminal tabs
+with the harness (`herdr tab create`, `herdr agent start`), reads the roster
+and the claims from the ledger while they work, waits for their `DONE`, and
+closes the panes it opened. Buddy launches and ends nothing: the ledger is
+what every session reads, and the harness is what opens and closes them.
+The recipe is the skill's "Running a fleet"; the lanes' side of the same
+choreography, from the ledger, is [docs/DEMO-RUN.md](docs/DEMO-RUN.md).
+
+![One Claude Code session, the coordinator. Its SessionStart digest from buddy hello; the prompt that loads the skill and points at its brief; buddy sessions; herdr tab create and herdr agent start for lane-a and for lane-b; the roster and the claims list while the lanes work; a fast-forward while they finish; the claims list and git diff afterwards; herdr pane close for each lane, buddy bye for each, buddy sweep, and the final roster with both lanes ended](docs/assets/fleet.svg)
+
+> **Captured from a real run, drawn by hand.** Every output line is the
+> coordinator session's own, read from its transcript: the `SessionStart`
+> hook's output, each tool call's result, and the session's own words.
+> Captured on 2026-10-26 in a scratch clone with its own ledger: one Claude
+> Code session in auto mode following a one-page brief, and two lanes
+> (Sonnet, auto mode) following the briefs of the picture below. The typed
+> prompt, the `⏺ Bash(…)` call lines (those calls, written as Claude Code
+> renders them) and the `#` narration are typeset; the session's words are
+> shown as the pane renders them. The clone's temporary directory is written
+> `…`, long lines are soft-wrapped at 112 columns or trimmed with an
+> ellipsis, a `# …` row marks lines cut from a result (the `git diff` keeps
+> its header and the two added lines), and the fast-forward line says how
+> long the picture skips while the lanes worked: the real time between the
+> first wait and the last. Nothing else in a captured line is changed. The
+> pane is drawn as a 30-row window that scrolls; no frame was recorded.
+
 ## What a session does with it
 
 - **Claims that refuse.** `buddy claim <slug> --scope <path>` reserves files or
