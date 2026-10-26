@@ -59,7 +59,7 @@ command -v buddy || echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zprofile
 ```
 
 Ask before appending to a shell profile. **Checkpoint:** a new shell answers
-`command -v buddy` with `/Users/<user>/bin/buddy` (or the `BUDDY_BIN_DIR` path).
+`command -v buddy` with `$HOME/bin/buddy` (or the `BUDDY_BIN_DIR` path).
 
 ## 3. Decide: chat or claims-only
 

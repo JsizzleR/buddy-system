@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 724" width="960" height="724" role="img" aria-labelledby="t d">
 <title id="t">A claims-only install of the Buddy System: clone, run the install script, paste the hook wiring into the Claude Code settings file, then buddy init in another project, the digest a new session gets there, its first claim and what the ledger holds about it</title>
-<desc id="d">Real output captured 2026-10-25 against a throwaway HOME (the install script's own knobs point every write at it; the clone came from a local mirror of main spelled as the GitHub URL, and the Go build cache was warm). The throwaway HOME's path is written ~; long lines are soft-wrapped at 58 columns and trimmed with an ellipsis; no words were changed. The session's SessionStart hook was run by hand with the payload Claude Code sends. Lines starting with # are narration. Loops every 22 s; under prefers-reduced-motion the final frame is shown still.</desc>
+<desc id="d">Real output captured 2026-10-25 against a throwaway HOME (the install script's own knobs point every write at it; the clone came from a local mirror of main spelled as the GitHub URL, and the Go build cache was warm). The throwaway HOME's path is written ~; long lines are soft-wrapped at 58 columns and trimmed with an ellipsis; no words were changed. The session's SessionStart hook was run by hand with the payload Claude Code sends. Lines starting with # are narration. Loops every 28 s; under prefers-reduced-motion the final frame is shown still.</desc>
 <style>
 text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace; font-size: 12px; white-space: pre; }
 .still { display: none; }
@@ -20,14 +20,14 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <circle cx="540" cy="26" r="5" fill="#27c93f"/>
 <text x="717" y="30" text-anchor="middle" fill="#8b949e" font-size="11">turn it on in a project — the same terminal</text>
 <g class="live">
-<rect width="0" height="0"><animate id="cycle" attributeName="width" from="0" to="0" dur="22.0s" begin="0s;cycle.end"/></rect>
+<rect width="0" height="0"><animate id="cycle" attributeName="width" from="0" to="0" dur="28.0s" begin="0s;cycle.end"/></rect>
 <defs>
 <clipPath id="c1"><rect x="24" y="50" width="0" height="18"><animate attributeName="width" from="0" to="386" dur="0.57s" begin="cycle.begin+0.50s" fill="freeze"/></rect></clipPath>
 <clipPath id="c2"><rect x="24" y="86" width="0" height="18"><animate attributeName="width" from="0" to="130" dur="0.19s" begin="cycle.begin+1.90s" fill="freeze"/></rect></clipPath>
 <clipPath id="c3"><rect x="24" y="104" width="0" height="18"><animate attributeName="width" from="0" to="283" dur="0.42s" begin="cycle.begin+2.50s" fill="freeze"/></rect></clipPath>
 <clipPath id="c4"><rect x="24" y="410" width="0" height="18"><animate attributeName="width" from="0" to="320" dur="0.47s" begin="cycle.begin+7.00s" fill="freeze"/></rect></clipPath>
 <clipPath id="c5"><rect x="24" y="428" width="0" height="18"><animate attributeName="width" from="0" to="400" dur="0.59s" begin="cycle.begin+7.47s" fill="freeze"/></rect></clipPath>
-<clipPath id="c6"><rect x="24" y="590" width="0" height="18"><animate attributeName="width" from="0" to="422" dur="0.63s" begin="cycle.begin+9.60s" fill="freeze"/></rect></clipPath>
+<clipPath id="c6"><rect x="24" y="482" width="0" height="18"><animate attributeName="width" from="0" to="422" dur="0.63s" begin="cycle.begin+9.60s" fill="freeze"/></rect></clipPath>
 <clipPath id="c7"><rect x="498" y="50" width="0" height="18"><animate attributeName="width" from="0" to="108" dur="0.15s" begin="cycle.begin+11.80s" fill="freeze"/></rect></clipPath>
 <clipPath id="c8"><rect x="498" y="68" width="0" height="18"><animate attributeName="width" from="0" to="94" dur="0.13s" begin="cycle.begin+12.40s" fill="freeze"/></rect></clipPath>
 <clipPath id="c9"><rect x="498" y="410" width="0" height="18"><animate attributeName="width" from="0" to="378" dur="0.56s" begin="cycle.begin+16.00s" fill="freeze"/></rect></clipPath>
@@ -55,15 +55,9 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="26" y="406" fill="#8b949e" font-style="italic" opacity="0">install never edits settings<set attributeName="opacity" to="1" begin="cycle.begin+6.60s" end="cycle.end"/></text>
 <g clip-path="url(#c4)"><text x="26" y="424" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> mkdir -p ~/.claude &amp;&amp; cp ../settings.json<set attributeName="opacity" to="1" begin="cycle.begin+7.00s" end="cycle.end"/></text></g>
 <g clip-path="url(#c5)"><text x="26" y="442" fill="#e6edf3" opacity="0">~/.claude/settings.json &amp;&amp; cat ~/.claude/settings.json<set attributeName="opacity" to="1" begin="cycle.begin+7.47s" end="cycle.end"/></text></g>
-<text x="26" y="460" fill="#c9d1d9" opacity="0">{<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
-<text x="26" y="478" fill="#c9d1d9" opacity="0">  "env": {"BUDDY_CHAT": "off"},<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
-<text x="26" y="496" fill="#c9d1d9" opacity="0">  "hooks": {<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
-<text x="26" y="514" fill="#c9d1d9" opacity="0">    "SessionStart": [{"hooks": [{"type": "command",<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
-<text x="26" y="532" fill="#c9d1d9" opacity="0">      "command": "[ -x \"$HOME/bin/buddy\" ] &amp;&amp;<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
-<text x="26" y="550" fill="#c9d1d9" opacity="0">\"$HOME/bin/buddy\" hello 2&gt;/dev/null; exit 0"}]}],<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
-<text x="26" y="568" fill="#8b949e" font-style="italic" opacity="0"># … 13 more lines: the README's block, verbatim<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
-<g clip-path="url(#c6)"><text x="26" y="604" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh 2&gt;&amp;1 | grep hooks:<set attributeName="opacity" to="1" begin="cycle.begin+9.60s" end="cycle.end"/></text></g>
-<text x="26" y="622" fill="#3fb950" opacity="0">install: hooks: all six wired in ~/.claude/settings.json<set attributeName="opacity" to="1" begin="cycle.begin+10.80s" end="cycle.end"/></text>
+<text x="26" y="460" fill="#8b949e" font-style="italic" opacity="0"># … its 18 lines: the README's hook-wiring block, verbatim<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<g clip-path="url(#c6)"><text x="26" y="496" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh 2&gt;&amp;1 | grep hooks:<set attributeName="opacity" to="1" begin="cycle.begin+9.60s" end="cycle.end"/></text></g>
+<text x="26" y="514" fill="#3fb950" opacity="0">install: hooks: all six wired in ~/.claude/settings.json<set attributeName="opacity" to="1" begin="cycle.begin+10.80s" end="cycle.end"/></text>
 <g clip-path="url(#c7)"><text x="500" y="64" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> cd ../my-api<set attributeName="opacity" to="1" begin="cycle.begin+11.80s" end="cycle.end"/></text></g>
 <g clip-path="url(#c8)"><text x="500" y="82" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> buddy init<set attributeName="opacity" to="1" begin="cycle.begin+12.40s" end="cycle.end"/></text></g>
 <text x="500" y="100" fill="#3fb950" opacity="0">ledger ready: ~/src/my-api/.git/buddy.db<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
@@ -120,15 +114,9 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="26" y="406" fill="#8b949e" font-style="italic">install never edits settings</text>
 <text x="26" y="424" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> mkdir -p ~/.claude &amp;&amp; cp ../settings.json</text>
 <text x="26" y="442" fill="#e6edf3">~/.claude/settings.json &amp;&amp; cat ~/.claude/settings.json</text>
-<text x="26" y="460" fill="#c9d1d9">{</text>
-<text x="26" y="478" fill="#c9d1d9">  "env": {"BUDDY_CHAT": "off"},</text>
-<text x="26" y="496" fill="#c9d1d9">  "hooks": {</text>
-<text x="26" y="514" fill="#c9d1d9">    "SessionStart": [{"hooks": [{"type": "command",</text>
-<text x="26" y="532" fill="#c9d1d9">      "command": "[ -x \"$HOME/bin/buddy\" ] &amp;&amp;</text>
-<text x="26" y="550" fill="#c9d1d9">\"$HOME/bin/buddy\" hello 2&gt;/dev/null; exit 0"}]}],</text>
-<text x="26" y="568" fill="#8b949e" font-style="italic"># … 13 more lines: the README's block, verbatim</text>
-<text x="26" y="604" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh 2&gt;&amp;1 | grep hooks:</text>
-<text x="26" y="622" fill="#3fb950">install: hooks: all six wired in ~/.claude/settings.json</text>
+<text x="26" y="460" fill="#8b949e" font-style="italic"># … its 18 lines: the README's hook-wiring block, verbatim</text>
+<text x="26" y="496" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh 2&gt;&amp;1 | grep hooks:</text>
+<text x="26" y="514" fill="#3fb950">install: hooks: all six wired in ~/.claude/settings.json</text>
 <text x="500" y="64" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> cd ../my-api</text>
 <text x="500" y="82" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> buddy init</text>
 <text x="500" y="100" fill="#3fb950">ledger ready: ~/src/my-api/.git/buddy.db</text>

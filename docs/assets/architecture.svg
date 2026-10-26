@@ -69,10 +69,9 @@
 <text x="650" y="271" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">buddylistd — the concierge daemon</text>
 <text x="650" y="287" fill="#c9d1d9" font-size="11" text-anchor="start">journal: what the server saw, by seq</text>
 <text x="650" y="303" fill="#c9d1d9" font-size="11" text-anchor="start">unix socket → MCP chat_read · chat_send</text>
-<line x1="616" y1="96" x2="640" y2="96" stroke="#8b949e" stroke-width="1.2" stroke-dasharray="3,3"/>
-<path d="M616,96 C 630,96 630,286 640,286" fill="none" stroke="#8b949e" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#a)"/>
-<text x="640" y="342" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">sessions reach it over MCP; the alert hook</text>
-<text x="640" y="357" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">brings counts and seqs, never chat text</text>
+<path d="M604,186 C 628,186 628,302 640,302" fill="none" stroke="#8b949e" stroke-width="1.2" stroke-dasharray="3,3" marker-end="url(#a)"/>
+<text x="640" y="342" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">all sessions reach it over MCP (the curve);</text>
+<text x="640" y="357" fill="#8b949e" font-size="11" text-anchor="start" font-style="italic">alert hook: counts and seqs, never text</text>
 <rect x="640" y="372" width="296" height="92" rx="6" fill="#0d1117" stroke="#30363d"/>
 <text x="650" y="389" fill="#e6edf3" font-size="12" text-anchor="start" font-weight="bold">presence</text>
 <text x="650" y="405" fill="#c9d1d9" font-size="11" text-anchor="start">every live session is a nick; its claim</text>
