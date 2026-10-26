@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 724" width="960" height="724" role="img" aria-labelledby="t d">
+<title id="t">A claims-only install of the Buddy System: clone, run the install script, paste the hook wiring into the Claude Code settings file, then buddy init in another project, the digest a new session gets there, its first claim and what the ledger holds about it</title>
+<desc id="d">Real output captured 2026-10-25 against a throwaway HOME (the install script's own knobs point every write at it; the clone came from a local mirror of main spelled as the GitHub URL, and the Go build cache was warm). The throwaway HOME's path is written ~; long lines are soft-wrapped at 58 columns and trimmed with an ellipsis; no words were changed. The session's SessionStart hook was run by hand with the payload Claude Code sends. Lines starting with # are narration. Loops every 22 s; under prefers-reduced-motion the final frame is shown still.</desc>
+<style>
+text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace; font-size: 12px; white-space: pre; }
+.still { display: none; }
+@media (prefers-reduced-motion: reduce) { .live { display: none; } .still { display: inline; } }
+</style>
+<rect width="960" height="724" rx="10" fill="#0d1117"/>
+<rect x="12" y="12" width="462" height="700" rx="8" fill="#161b22" stroke="#30363d"/>
+<line x1="12" y1="40" x2="474" y2="40" stroke="#30363d"/>
+<circle cx="30" cy="26" r="5" fill="#ff5f56"/>
+<circle cx="48" cy="26" r="5" fill="#ffbd2e"/>
+<circle cx="66" cy="26" r="5" fill="#27c93f"/>
+<text x="243" y="30" text-anchor="middle" fill="#8b949e" font-size="11">install once — a terminal</text>
+<rect x="486" y="12" width="462" height="700" rx="8" fill="#161b22" stroke="#30363d"/>
+<line x1="486" y1="40" x2="948" y2="40" stroke="#30363d"/>
+<circle cx="504" cy="26" r="5" fill="#ff5f56"/>
+<circle cx="522" cy="26" r="5" fill="#ffbd2e"/>
+<circle cx="540" cy="26" r="5" fill="#27c93f"/>
+<text x="717" y="30" text-anchor="middle" fill="#8b949e" font-size="11">turn it on in a project — the same terminal</text>
+<g class="live">
+<rect width="0" height="0"><animate id="cycle" attributeName="width" from="0" to="0" dur="22.0s" begin="0s;cycle.end"/></rect>
+<defs>
+<clipPath id="c1"><rect x="24" y="50" width="0" height="18"><animate attributeName="width" from="0" to="386" dur="0.57s" begin="cycle.begin+0.50s" fill="freeze"/></rect></clipPath>
+<clipPath id="c2"><rect x="24" y="86" width="0" height="18"><animate attributeName="width" from="0" to="130" dur="0.19s" begin="cycle.begin+1.90s" fill="freeze"/></rect></clipPath>
+<clipPath id="c3"><rect x="24" y="104" width="0" height="18"><animate attributeName="width" from="0" to="283" dur="0.42s" begin="cycle.begin+2.50s" fill="freeze"/></rect></clipPath>
+<clipPath id="c4"><rect x="24" y="410" width="0" height="18"><animate attributeName="width" from="0" to="320" dur="0.47s" begin="cycle.begin+7.00s" fill="freeze"/></rect></clipPath>
+<clipPath id="c5"><rect x="24" y="428" width="0" height="18"><animate attributeName="width" from="0" to="400" dur="0.59s" begin="cycle.begin+7.47s" fill="freeze"/></rect></clipPath>
+<clipPath id="c6"><rect x="24" y="590" width="0" height="18"><animate attributeName="width" from="0" to="422" dur="0.63s" begin="cycle.begin+9.60s" fill="freeze"/></rect></clipPath>
+<clipPath id="c7"><rect x="498" y="50" width="0" height="18"><animate attributeName="width" from="0" to="108" dur="0.15s" begin="cycle.begin+11.80s" fill="freeze"/></rect></clipPath>
+<clipPath id="c8"><rect x="498" y="68" width="0" height="18"><animate attributeName="width" from="0" to="94" dur="0.13s" begin="cycle.begin+12.40s" fill="freeze"/></rect></clipPath>
+<clipPath id="c9"><rect x="498" y="410" width="0" height="18"><animate attributeName="width" from="0" to="378" dur="0.56s" begin="cycle.begin+16.00s" fill="freeze"/></rect></clipPath>
+<clipPath id="c10"><rect x="498" y="428" width="0" height="18"><animate attributeName="width" from="0" to="225" dur="0.33s" begin="cycle.begin+16.56s" fill="freeze"/></rect></clipPath>
+<clipPath id="c11"><rect x="498" y="500" width="0" height="18"><animate attributeName="width" from="0" to="108" dur="0.15s" begin="cycle.begin+18.00s" fill="freeze"/></rect></clipPath>
+</defs>
+<g clip-path="url(#c1)"><text x="26" y="64" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> git clone https://github.com/JsizzleR/buddy-system<set attributeName="opacity" to="1" begin="cycle.begin+0.50s" end="cycle.end"/></text></g>
+<text x="26" y="82" fill="#c9d1d9" opacity="0">Cloning into 'buddy-system'...<set attributeName="opacity" to="1" begin="cycle.begin+1.30s" end="cycle.end"/></text>
+<g clip-path="url(#c2)"><text x="26" y="100" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> cd buddy-system<set attributeName="opacity" to="1" begin="cycle.begin+1.90s" end="cycle.end"/></text></g>
+<g clip-path="url(#c3)"><text x="26" y="118" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh<set attributeName="opacity" to="1" begin="cycle.begin+2.50s" end="cycle.end"/></text></g>
+<text x="26" y="136" fill="#c9d1d9" opacity="0">install: installing from ~/src/buddy-system at 0d07fb42<set attributeName="opacity" to="1" begin="cycle.begin+3.40s" end="cycle.end"/></text>
+<text x="26" y="154" fill="#c9d1d9" opacity="0">install: built ~/bin/buddy<set attributeName="opacity" to="1" begin="cycle.begin+4.60s" end="cycle.end"/></text>
+<text x="26" y="172" fill="#c9d1d9" opacity="0">install: install-skill: installed<set attributeName="opacity" to="1" begin="cycle.begin+4.90s" end="cycle.end"/></text>
+<text x="26" y="190" fill="#c9d1d9" opacity="0">~/.claude/skills/buddy/SKILL.md<set attributeName="opacity" to="1" begin="cycle.begin+4.90s" end="cycle.end"/></text>
+<text x="26" y="208" fill="#c9d1d9" opacity="0">install: daemon: skipped (BUDDY_CHAT=off: claims-only<set attributeName="opacity" to="1" begin="cycle.begin+5.10s" end="cycle.end"/></text>
+<text x="26" y="226" fill="#c9d1d9" opacity="0">install)<set attributeName="opacity" to="1" begin="cycle.begin+5.10s" end="cycle.end"/></text>
+<text x="26" y="244" fill="#c9d1d9" opacity="0">install: setup-clone: skipped (BUDDY_SETUP_CLONE=off)<set attributeName="opacity" to="1" begin="cycle.begin+5.10s" end="cycle.end"/></text>
+<text x="26" y="262" fill="#e3b341" opacity="0">install: hooks: no ~/.claude/settings.json — none are<set attributeName="opacity" to="1" begin="cycle.begin+5.30s" end="cycle.end"/></text>
+<text x="26" y="280" fill="#e3b341" opacity="0">wired; README "Hook wiring" has the lines<set attributeName="opacity" to="1" begin="cycle.begin+5.30s" end="cycle.end"/></text>
+<text x="26" y="298" fill="#c9d1d9" opacity="0">install: chat: off (claims-only install)<set attributeName="opacity" to="1" begin="cycle.begin+5.30s" end="cycle.end"/></text>
+<text x="26" y="316" fill="#c9d1d9" opacity="0">install: handoff: BUDDY_HANDOFF_AT not set in<set attributeName="opacity" to="1" begin="cycle.begin+5.30s" end="cycle.end"/></text>
+<text x="26" y="334" fill="#c9d1d9" opacity="0">~/.claude/settings.json; …<set attributeName="opacity" to="1" begin="cycle.begin+5.30s" end="cycle.end"/></text>
+<text x="26" y="352" fill="#3fb950" opacity="0">install: done<set attributeName="opacity" to="1" begin="cycle.begin+5.30s" end="cycle.end"/></text>
+<text x="26" y="388" fill="#8b949e" font-style="italic" opacity="0"># the README's hook-wiring block, saved by hand: the<set attributeName="opacity" to="1" begin="cycle.begin+6.60s" end="cycle.end"/></text>
+<text x="26" y="406" fill="#8b949e" font-style="italic" opacity="0">install never edits settings<set attributeName="opacity" to="1" begin="cycle.begin+6.60s" end="cycle.end"/></text>
+<g clip-path="url(#c4)"><text x="26" y="424" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> mkdir -p ~/.claude &amp;&amp; cp ../settings.json<set attributeName="opacity" to="1" begin="cycle.begin+7.00s" end="cycle.end"/></text></g>
+<g clip-path="url(#c5)"><text x="26" y="442" fill="#e6edf3" opacity="0">~/.claude/settings.json &amp;&amp; cat ~/.claude/settings.json<set attributeName="opacity" to="1" begin="cycle.begin+7.47s" end="cycle.end"/></text></g>
+<text x="26" y="460" fill="#c9d1d9" opacity="0">{<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<text x="26" y="478" fill="#c9d1d9" opacity="0">  "env": {"BUDDY_CHAT": "off"},<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<text x="26" y="496" fill="#c9d1d9" opacity="0">  "hooks": {<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<text x="26" y="514" fill="#c9d1d9" opacity="0">    "SessionStart": [{"hooks": [{"type": "command",<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<text x="26" y="532" fill="#c9d1d9" opacity="0">      "command": "[ -x \"$HOME/bin/buddy\" ] &amp;&amp;<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<text x="26" y="550" fill="#c9d1d9" opacity="0">\"$HOME/bin/buddy\" hello 2&gt;/dev/null; exit 0"}]}],<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<text x="26" y="568" fill="#8b949e" font-style="italic" opacity="0"># … 13 more lines: the README's block, verbatim<set attributeName="opacity" to="1" begin="cycle.begin+8.40s" end="cycle.end"/></text>
+<g clip-path="url(#c6)"><text x="26" y="604" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh 2&gt;&amp;1 | grep hooks:<set attributeName="opacity" to="1" begin="cycle.begin+9.60s" end="cycle.end"/></text></g>
+<text x="26" y="622" fill="#3fb950" opacity="0">install: hooks: all six wired in ~/.claude/settings.json<set attributeName="opacity" to="1" begin="cycle.begin+10.80s" end="cycle.end"/></text>
+<g clip-path="url(#c7)"><text x="500" y="64" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> cd ../my-api<set attributeName="opacity" to="1" begin="cycle.begin+11.80s" end="cycle.end"/></text></g>
+<g clip-path="url(#c8)"><text x="500" y="82" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> buddy init<set attributeName="opacity" to="1" begin="cycle.begin+12.40s" end="cycle.end"/></text></g>
+<text x="500" y="100" fill="#3fb950" opacity="0">ledger ready: ~/src/my-api/.git/buddy.db<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
+<text x="500" y="118" fill="#e3b341" opacity="0">language server: go (2 files) — NOT CONFIGURED: gopls-lsp<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
+<text x="500" y="136" fill="#e3b341" opacity="0">not enabled (gopls on PATH)<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
+<text x="500" y="154" fill="#c9d1d9" opacity="0">  fix: claude plugin install<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
+<text x="500" y="172" fill="#c9d1d9" opacity="0">gopls-lsp@claude-plugins-official, then run<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
+<text x="500" y="190" fill="#c9d1d9" opacity="0">/reload-plugins in open sessions<set attributeName="opacity" to="1" begin="cycle.begin+13.20s" end="cycle.end"/></text>
+<text x="500" y="226" fill="#8b949e" font-style="italic" opacity="0"># a new Claude Code session here: SessionStart → buddy<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="244" fill="#8b949e" font-style="italic" opacity="0">hello puts this in its context<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="262" fill="#c9d1d9" opacity="0">BUDDY: you are session my-api/s-2e4c2544<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="280" fill="#c9d1d9" opacity="0">(2e4c2544-c7c8-4b1e-968b-ab8b06697ceb). Claim before<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="298" fill="#c9d1d9" opacity="0">taking a bundle: buddy claim &lt;slug&gt; --desc ... --scope<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="316" fill="#c9d1d9" opacity="0">&lt;path&gt;<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="334" fill="#c9d1d9" opacity="0">BUDDY: `buddy --help` lists every verb. Easy to miss:<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="352" fill="#c9d1d9" opacity="0">`buddy claim &lt;slug&gt; --dry-run` (forecast a refusal)<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="370" fill="#c9d1d9" opacity="0">`--shared` (lanes co-hold a file); …<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<text x="500" y="388" fill="#c9d1d9" opacity="0">BUDDY: no live claims.<set attributeName="opacity" to="1" begin="cycle.begin+14.60s" end="cycle.end"/></text>
+<g clip-path="url(#c9)"><text x="500" y="424" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> buddy claim api-limits --desc "rate limits on the<set attributeName="opacity" to="1" begin="cycle.begin+16.00s" end="cycle.end"/></text></g>
+<g clip-path="url(#c10)"><text x="500" y="442" fill="#e6edf3" opacity="0">handler" --scope internal/api/<set attributeName="opacity" to="1" begin="cycle.begin+16.56s" end="cycle.end"/></text></g>
+<text x="500" y="460" fill="#3fb950" opacity="0">claimed "api-limits" for my-api/s-2e4c2544 — scopes:<set attributeName="opacity" to="1" begin="cycle.begin+17.20s" end="cycle.end"/></text>
+<text x="500" y="478" fill="#3fb950" opacity="0">internal/api/<set attributeName="opacity" to="1" begin="cycle.begin+17.20s" end="cycle.end"/></text>
+<g clip-path="url(#c11)"><text x="500" y="514" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">$</tspan> buddy status<set attributeName="opacity" to="1" begin="cycle.begin+18.00s" end="cycle.end"/></text></g>
+<text x="500" y="532" fill="#c9d1d9" opacity="0">* my-api/s-2e4c2544<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="550" fill="#c9d1d9" opacity="0">(2e4c2544-c7c8-4b1e-968b-ab8b06697ceb)  live  started 0s<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="568" fill="#c9d1d9" opacity="0">seen 0s  …<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="586" fill="#c9d1d9" opacity="0">CLAIMS HELD  1<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="604" fill="#c9d1d9" opacity="0">  api-limits               held 0s   scopes: internal/api<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="622" fill="#8b949e" font-style="italic" opacity="0"># … 8 lines elided (DIRTY PATHS, BASE, INBOX, ADAPTER,<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="640" fill="#8b949e" font-style="italic" opacity="0">WAITING, WAITED ON, AUTHORITY, JOBS)<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="658" fill="#c9d1d9" opacity="0">EXIT         1 claim(s) held; no wait declared; no shell<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="676" fill="#c9d1d9" opacity="0">found running under it — ending now would leave the<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+<text x="500" y="694" fill="#c9d1d9" opacity="0">claim(s) held, …<set attributeName="opacity" to="1" begin="cycle.begin+18.70s" end="cycle.end"/></text>
+</g>
+<g class="still">
+<text x="26" y="64" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> git clone https://github.com/JsizzleR/buddy-system</text>
+<text x="26" y="82" fill="#c9d1d9">Cloning into 'buddy-system'...</text>
+<text x="26" y="100" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> cd buddy-system</text>
+<text x="26" y="118" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh</text>
+<text x="26" y="136" fill="#c9d1d9">install: installing from ~/src/buddy-system at 0d07fb42</text>
+<text x="26" y="154" fill="#c9d1d9">install: built ~/bin/buddy</text>
+<text x="26" y="172" fill="#c9d1d9">install: install-skill: installed</text>
+<text x="26" y="190" fill="#c9d1d9">~/.claude/skills/buddy/SKILL.md</text>
+<text x="26" y="208" fill="#c9d1d9">install: daemon: skipped (BUDDY_CHAT=off: claims-only</text>
+<text x="26" y="226" fill="#c9d1d9">install)</text>
+<text x="26" y="244" fill="#c9d1d9">install: setup-clone: skipped (BUDDY_SETUP_CLONE=off)</text>
+<text x="26" y="262" fill="#e3b341">install: hooks: no ~/.claude/settings.json — none are</text>
+<text x="26" y="280" fill="#e3b341">wired; README "Hook wiring" has the lines</text>
+<text x="26" y="298" fill="#c9d1d9">install: chat: off (claims-only install)</text>
+<text x="26" y="316" fill="#c9d1d9">install: handoff: BUDDY_HANDOFF_AT not set in</text>
+<text x="26" y="334" fill="#c9d1d9">~/.claude/settings.json; …</text>
+<text x="26" y="352" fill="#3fb950">install: done</text>
+<text x="26" y="388" fill="#8b949e" font-style="italic"># the README's hook-wiring block, saved by hand: the</text>
+<text x="26" y="406" fill="#8b949e" font-style="italic">install never edits settings</text>
+<text x="26" y="424" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> mkdir -p ~/.claude &amp;&amp; cp ../settings.json</text>
+<text x="26" y="442" fill="#e6edf3">~/.claude/settings.json &amp;&amp; cat ~/.claude/settings.json</text>
+<text x="26" y="460" fill="#c9d1d9">{</text>
+<text x="26" y="478" fill="#c9d1d9">  "env": {"BUDDY_CHAT": "off"},</text>
+<text x="26" y="496" fill="#c9d1d9">  "hooks": {</text>
+<text x="26" y="514" fill="#c9d1d9">    "SessionStart": [{"hooks": [{"type": "command",</text>
+<text x="26" y="532" fill="#c9d1d9">      "command": "[ -x \"$HOME/bin/buddy\" ] &amp;&amp;</text>
+<text x="26" y="550" fill="#c9d1d9">\"$HOME/bin/buddy\" hello 2&gt;/dev/null; exit 0"}]}],</text>
+<text x="26" y="568" fill="#8b949e" font-style="italic"># … 13 more lines: the README's block, verbatim</text>
+<text x="26" y="604" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> BUDDY_CHAT=off sh scripts/install.sh 2&gt;&amp;1 | grep hooks:</text>
+<text x="26" y="622" fill="#3fb950">install: hooks: all six wired in ~/.claude/settings.json</text>
+<text x="500" y="64" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> cd ../my-api</text>
+<text x="500" y="82" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> buddy init</text>
+<text x="500" y="100" fill="#3fb950">ledger ready: ~/src/my-api/.git/buddy.db</text>
+<text x="500" y="118" fill="#e3b341">language server: go (2 files) — NOT CONFIGURED: gopls-lsp</text>
+<text x="500" y="136" fill="#e3b341">not enabled (gopls on PATH)</text>
+<text x="500" y="154" fill="#c9d1d9">  fix: claude plugin install</text>
+<text x="500" y="172" fill="#c9d1d9">gopls-lsp@claude-plugins-official, then run</text>
+<text x="500" y="190" fill="#c9d1d9">/reload-plugins in open sessions</text>
+<text x="500" y="226" fill="#8b949e" font-style="italic"># a new Claude Code session here: SessionStart → buddy</text>
+<text x="500" y="244" fill="#8b949e" font-style="italic">hello puts this in its context</text>
+<text x="500" y="262" fill="#c9d1d9">BUDDY: you are session my-api/s-2e4c2544</text>
+<text x="500" y="280" fill="#c9d1d9">(2e4c2544-c7c8-4b1e-968b-ab8b06697ceb). Claim before</text>
+<text x="500" y="298" fill="#c9d1d9">taking a bundle: buddy claim &lt;slug&gt; --desc ... --scope</text>
+<text x="500" y="316" fill="#c9d1d9">&lt;path&gt;</text>
+<text x="500" y="334" fill="#c9d1d9">BUDDY: `buddy --help` lists every verb. Easy to miss:</text>
+<text x="500" y="352" fill="#c9d1d9">`buddy claim &lt;slug&gt; --dry-run` (forecast a refusal)</text>
+<text x="500" y="370" fill="#c9d1d9">`--shared` (lanes co-hold a file); …</text>
+<text x="500" y="388" fill="#c9d1d9">BUDDY: no live claims.</text>
+<text x="500" y="424" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> buddy claim api-limits --desc "rate limits on the</text>
+<text x="500" y="442" fill="#e6edf3">handler" --scope internal/api/</text>
+<text x="500" y="460" fill="#3fb950">claimed "api-limits" for my-api/s-2e4c2544 — scopes:</text>
+<text x="500" y="478" fill="#3fb950">internal/api/</text>
+<text x="500" y="514" fill="#e6edf3"><tspan fill="#3fb950">$</tspan> buddy status</text>
+<text x="500" y="532" fill="#c9d1d9">* my-api/s-2e4c2544</text>
+<text x="500" y="550" fill="#c9d1d9">(2e4c2544-c7c8-4b1e-968b-ab8b06697ceb)  live  started 0s</text>
+<text x="500" y="568" fill="#c9d1d9">seen 0s  …</text>
+<text x="500" y="586" fill="#c9d1d9">CLAIMS HELD  1</text>
+<text x="500" y="604" fill="#c9d1d9">  api-limits               held 0s   scopes: internal/api</text>
+<text x="500" y="622" fill="#8b949e" font-style="italic"># … 8 lines elided (DIRTY PATHS, BASE, INBOX, ADAPTER,</text>
+<text x="500" y="640" fill="#8b949e" font-style="italic">WAITING, WAITED ON, AUTHORITY, JOBS)</text>
+<text x="500" y="658" fill="#c9d1d9">EXIT         1 claim(s) held; no wait declared; no shell</text>
+<text x="500" y="676" fill="#c9d1d9">found running under it — ending now would leave the</text>
+<text x="500" y="694" fill="#c9d1d9">claim(s) held, …</text>
+</g>
+</svg>

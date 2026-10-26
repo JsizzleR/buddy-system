@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 72" width="420" height="72" role="img" aria-labelledby="t">
+<title id="t">buddy system</title>
+<!-- Text only, two colours, no external fonts. The colours are mid-tone so the
+     mark reads on GitHub's white (#ffffff) and dark (#0d1117) page backgrounds
+     alike: one file serves both themes, and an <img> cannot ask the page which
+     theme it is in. -->
+<style>
+text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace; }
+</style>
+<text x="6" y="52" font-size="48" font-weight="700" fill="#2ea043" letter-spacing="-1">buddy</text>
+<text x="176" y="52" font-size="48" font-weight="300" fill="#4493f8">system</text>
+<text x="6" y="68" font-size="11" fill="#4493f8" letter-spacing="0.5">a claims ledger for fleets of coding agents</text>
+</svg>
