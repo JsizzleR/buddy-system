@@ -207,7 +207,7 @@ func resumeController(t *testing.T, l *fakeLedger, path string) (*fakeBackend, *
 
 // The record exists, phase spawned, with the right pid, durable on disk,
 // before the worker receives its first byte: the helper child reports what
-// `.proc` said when it was still waiting for its first input.
+// `.proc` said at the instant its first input arrived.
 func TestOwnershipRecordPrecedesFirstNativeByte(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -221,8 +221,11 @@ func TestOwnershipRecordPrecedesFirstNativeByte(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	// The first byte the worker receives is this write; the helper read the
-	// record BEFORE it blocked on stdin, so what it echoes is the pre-byte state.
+	// The first byte the worker receives is this write; the helper reads the
+	// record the instant that byte arrives, so what it echoes is the state the
+	// adapter left durable before writing anything. It is NOT read at the
+	// child's start: that raced the parent's own publish under load (see the
+	// ownership mode of TestJSONProcessHelper).
 	if err := p.Write(map[string]string{"first": "byte"}); err != nil {
 		t.Fatal(err)
 	}

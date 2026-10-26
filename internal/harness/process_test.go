@@ -25,12 +25,36 @@ func TestJSONProcessHelper(t *testing.T) {
 		os.Exit(0)
 	}
 	if os.Getenv("BUDDY_PROCESS_MODE") == "ownership" {
-		// Read the ownership record BEFORE the first byte of input arrives,
-		// then report it once the byte has come: what the record said before
-		// the adapter wrote anything.
-		record, _ := os.ReadFile(os.Getenv("BUDDY_PROCESS_RECORD"))
+		// Block on stdin FIRST, and read the ownership record the instant the
+		// first byte has arrived. The byte is the event the contract is about
+		// (D-077: a complete `spawned` record is durable before the adapter
+		// writes anything to the worker), so the record as it stands when the
+		// byte lands is the pre-byte state: the parent publishes `spawned`
+		// inside Spawn, before StartJSONProcess returns, and the test's Write
+		// comes after that return. Between the byte and this read nothing can
+		// regress the file. The record is published by rename, so a read sees
+		// whole records only; the test goroutine is waiting for this reply; and
+		// the descendant sampler, the one other writer, republishes a spawned
+		// record with its descendant fields changed, never its phase or leader.
+		//
+		// The record used to be read at the child's START, before blocking on
+		// stdin, and that lost a race under load (2026-10-26, hermetic tier at
+		// load average 17): the child read `.proc` while the parent was still
+		// between cmd.Start and its `spawned` publish, and the test reported
+		// Phase:intent, Leader:<nil> for a record the adapter had in fact
+		// completed before its first write. Nothing orders a fresh child's
+		// first instruction after the parent's return from cmd.Start; on an
+		// idle box the parent wins by a wide margin, on a loaded one the child
+		// can. Ten runs alone at load 10 passed.
+		//
+		// REFUTED: polling the record until it leaves `intent`, bounded, and
+		// only then blocking on stdin. That child passes even when the byte
+		// arrived FIRST, because a byte written early waits in the pipe buffer
+		// until the child gets round to reading it, so the test would no longer
+		// hold the ordering it exists to hold. Reading at the byte keeps it.
 		var input any
 		_ = json.NewDecoder(os.Stdin).Decode(&input)
+		record, _ := os.ReadFile(os.Getenv("BUDDY_PROCESS_RECORD"))
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"record": string(record), "pid": os.Getpid()})
 		os.Exit(0)
 	}
