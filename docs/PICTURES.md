@@ -10,14 +10,21 @@ description of the current tool; `docs/USAGE.md` is that.
 Every picture is a hand-authored SVG, not a recording. The animated ones
 reveal captured lines on SMIL begin times and hold a still final frame under
 `prefers-reduced-motion`; no screen was captured, no frame recorded, no OCR
-run. An SVG is text, so it is reproducible from its capture, editable by hand
-and name-free by construction: no account name, host name or scratch path is
-in any asset (checked by the repository's private-terms scan and a grep of
-each asset). The generators and the captures stay in the lanes' scratch
-directories, which are not kept; the repository carries the pictures. The
-register every caption keeps: every output line is a captured line; prompts,
-tool-call lines and `#` narration are typeset; wrapping, trimming and
-omissions are disclosed; no word in a captured line changes.
+run. Each terminal picture was built by a generator script from a capture
+(pane text, or a transcript) and a hand-written story naming which captured
+lines to show and when; the script wrapped and trimmed them, and the lane
+that made the picture checked it rendered in a headless browser before it
+shipped. The repository carries only the SVGs, which are plain text and can
+be edited by hand. The generators, the stories and the pane captures lived
+in each lane's session scratch directory, which is temporary and not kept,
+so a picture is not re-renderable from the repository; what survives of each
+run, and where, is said under its picture. Before each picture landed, the
+repository's private-terms scan and a grep of the asset checked that no
+account name, host name or scratch path is in it. The register every caption
+keeps: every output line is a captured line; prompts, tool-call lines and
+`#` narration are typeset; wrapping, trimming and omissions are disclosed;
+scratch paths are shortened to `…`; otherwise no word in a captured line
+changes.
 
 ## The Claude Code session and the Codex session side by side (`docs/assets/demo.svg`)
 
@@ -73,7 +80,7 @@ throwaway config directory, the operator's act and never a lane's. An "LSP plugi
 recommendation" dialog overlaid the Claude pane mid-run in both full takes;
 it did not block, and it is gone from the final pane text.
 
-**The takes, all kept and none edited.** A dry run of the Claude side alone
+**The takes, none edited.** A dry run of the Claude side alone
 (it appended with a shell `printf >>` instead of Edit and said so; the task
 wording then gained "with the Edit tool"). Take 1, both sessions, under the
 deprecated `codex_hooks` feature key: the same shape as the shipped take,
@@ -82,7 +89,13 @@ run, so an allowed patch could not be told from a skipped hook. A separate
 `codex exec` probe under the same `hooks.json`, with a shell-registered
 holder on the file, in which the gate denied Codex's inner `apply_patch`
 and the file was unchanged: the evidence that the hook runs under this
-configuration. Take 2, the shipped one.
+configuration. Take 2, the shipped one. What survives: the sessions'
+transcripts, where the harnesses wrote them on the machine the run was made
+on (Claude Code's JSONL under the throwaway HOME, the Codex rollout JSONL
+under the throwaway Codex config directory); the pane reads at each beat,
+the final pane reads, the ledger read back and the generator were in the
+lane's session scratch directory, and the ledger read back is the part
+carried into [DEMO-RUN.md](DEMO-RUN.md), section 7.
 
 **What the picture does not show, and why.** The gate's refusal: both
 sessions claimed before editing, so the gate that denies an edit inside a
@@ -143,11 +156,15 @@ version of the picture and is not the shipped source. Take 2, under the
 throwaway HOME, aborted at step 5: each lane's first Read of its brief hit
 Claude Code 2.1.310's "Read outside the working directories" dialog, a
 one-time notice per HOME, which the operator answered once. Take 3, with
-nothing in the briefs or settings changed, is the shipped picture.
+nothing in the briefs or settings changed, is the shipped picture. What
+survives: the three sessions' transcripts under the throwaway HOME (take 1's
+under the real one), on the machine the run was made on; the extracted
+events and the generator were in the lane's session scratch directory.
 
 ## The architecture drawing (`docs/assets/architecture.svg`)
 
-A static drawing, hand-authored in the register of the terminal pictures
+A static drawing, hand-authored on 2026-10-25 (the date of the commit that
+added it) in the register of the terminal pictures
 (same palette, same monospace stack), with its own dark background so it
 reads on a light or a dark page, no external fonts or scripts, name-free.
 It replaced the README's ASCII "How it holds together" block on the
