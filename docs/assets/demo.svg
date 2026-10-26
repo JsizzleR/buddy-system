@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 616" width="960" height="616" role="img" aria-labelledby="t d">
-<title id="t">A Claude Code session and a Codex session share a checkout, each given a short task brief with a prescribed coordination scenario and pointed at the buddy skill, the buddy commands their own choice: the Claude session claims the file and edits it; the Codex session reads AGENTS.md and the skill, registers, has its claim REFUSED by the ledger naming the holder, messages it and declares a blocking wait; the Claude session hands its claim over; the Codex session's wait LANDS, its patch is allowed, and it releases</title>
-<desc id="d">The pane output is transcribed from the pane text each session's user saw, read with herdr pane read after the run (the harnesses' collapsed summaries included), captured 2026-10-26 in a scratch clone with its own ledger; the two transcripts (Claude Code JSONL, Codex rollout JSONL) give the clocks that interleave the panes. Added by hand: the pane titles and the # lines, that is the ⏩ line naming the real time between the beats around it and the # … lines marking cells not drawn. Edits to captured text: the scratch directory is written …, long lines are soft-wrapped at 58 columns with continuations indented as the panes indent them, and a … ending a Codex line is Codex's own trim at its pane width; no word changes. Loops every 36 s; under prefers-reduced-motion the final frame is shown still.</desc>
+<title id="t">A Claude Code session and a Codex session share a checkout, each given a short task brief with a prescribed coordination scenario and pointed at the buddy skill, the buddy commands their own choice: the Claude session claims the file and edits it; the Codex session reads the repo's agent rules and the skill, registers, has its claim REFUSED by the ledger naming the holder, messages it and declares a blocking wait; the Claude session hands its claim over; the Codex session's wait LANDS, its patch is allowed, and it releases</title>
+<desc id="d">The pane output is transcribed from the pane text each session's user saw, read with herdr pane read after the run (the harnesses' collapsed summaries included), captured 2026-10-26 in a scratch clone with its own ledger; the two transcripts (Claude Code JSONL, Codex rollout JSONL) give the clocks that interleave the panes, which also split one Codex cell (its blocking wait: the call and BLOCKING line at the call's time, the LANDED lines when they arrived) and place a # … marker after it where the pane lists that cell before. Added by hand: the pane titles and the # lines, that is the one ⏩ line naming the real time between the beats around it and the # … lines marking cells not drawn. Edits to captured text: the scratch directory is written …, long lines are soft-wrapped at 58 columns with continuations indented as the panes indent them, and a … ending a Codex line is Codex's own trim at its pane width; no word changes. Loops every 36 s; under prefers-reduced-motion the final frame is shown still.</desc>
 <style>
 text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace; font-size: 12px; white-space: pre; }
 .still { display: none; }
@@ -25,7 +25,7 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <rect width="0" height="0"><animate id="cycle" attributeName="width" from="0" to="0" dur="36s" begin="0s;cycle.end"/></rect>
 <defs>
 <clipPath id="c1"><rect x="24" y="122" width="0" height="18"><animate attributeName="width" from="0" to="415" dur="0.62s" begin="cycle.begin+2.80s" fill="freeze"/></rect></clipPath>
-<clipPath id="c2"><rect x="24" y="140" width="0" height="18"><animate attributeName="width" from="0" to="145" dur="0.21s" begin="cycle.begin+3.42s" fill="freeze"/></rect></clipPath>
+<clipPath id="c2"><rect x="24" y="140" width="0" height="18"><animate attributeName="width" from="0" to="130" dur="0.19s" begin="cycle.begin+3.42s" fill="freeze"/></rect></clipPath>
 <clipPath id="c3"><rect x="498" y="122" width="0" height="18"><animate attributeName="width" from="0" to="422" dur="0.63s" begin="cycle.begin+8.71s" fill="freeze"/></rect></clipPath>
 <clipPath id="c4"><rect x="498" y="140" width="0" height="18"><animate attributeName="width" from="0" to="225" dur="0.33s" begin="cycle.begin+9.34s" fill="freeze"/></rect></clipPath>
 </defs>
@@ -34,7 +34,7 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="26" y="82" fill="#8b949e" font-style="italic" opacity="0">▝▜██████▀  Opus 5.5 · Claude Max<set attributeName="opacity" to="1" begin="cycle.begin+2.00s" end="cycle.end"/></text>
 <text x="26" y="100" fill="#8b949e" font-style="italic" opacity="0"> ▝▝   ▝▝   …/buddy-system-demo<set attributeName="opacity" to="1" begin="cycle.begin+2.00s" end="cycle.end"/></text>
 <g clip-path="url(#c1)"><text x="26" y="136" fill="#e6edf3" opacity="0"><tspan fill="#3fb950">❯</tspan> /buddy Read …/briefs/claude-task.md in full and follow<set attributeName="opacity" to="1" begin="cycle.begin+2.80s" end="cycle.end"/></text></g>
-<g clip-path="url(#c2)"><text x="26" y="154" fill="#e6edf3" opacity="0">  it as your brief.<set attributeName="opacity" to="1" begin="cycle.begin+3.42s" end="cycle.end"/></text></g>
+<g clip-path="url(#c2)"><text x="26" y="154" fill="#e6edf3" opacity="0">it as your brief.<set attributeName="opacity" to="1" begin="cycle.begin+3.42s" end="cycle.end"/></text></g>
 <text x="26" y="190" fill="#8b949e" font-style="italic" opacity="0">  Read 1 file<set attributeName="opacity" to="1" begin="cycle.begin+4.61s" end="cycle.end"/></text>
 <text x="26" y="226" fill="#e6edf3" opacity="0">⏺ Claiming the file before editing.<set attributeName="opacity" to="1" begin="cycle.begin+5.41s" end="cycle.end"/></text>
 <text x="26" y="262" fill="#8b949e" font-style="italic" opacity="0">  Read 1 file, ran 2 shell commands<set attributeName="opacity" to="1" begin="cycle.begin+6.21s" end="cycle.end"/></text>
@@ -58,9 +58,9 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="26" y="694" fill="#e6edf3" opacity="0">  handed it the claim (buddy release store-rework --to<set attributeName="opacity" to="1" begin="cycle.begin+23.46s" end="cycle.end"/></text>
 <text x="26" y="712" fill="#e6edf3" opacity="0">  lane-codex) and messaged it that the file is now its<set attributeName="opacity" to="1" begin="cycle.begin+23.46s" end="cycle.end"/></text>
 <text x="26" y="730" fill="#e6edf3" opacity="0">  own. Its edit is still to come.<set attributeName="opacity" to="1" begin="cycle.begin+23.46s" end="cycle.end"/></text>
-<text x="26" y="766" fill="#c9d1d9" opacity="0">The ledger now shows I hold no claims and have no wait or<set attributeName="opacity" to="1" begin="cycle.begin+23.76s" end="cycle.end"/></text>
-<text x="26" y="784" fill="#c9d1d9" opacity="0">  jobs running. My marker line is still at the end of the<set attributeName="opacity" to="1" begin="cycle.begin+23.76s" end="cycle.end"/></text>
-<text x="26" y="802" fill="#c9d1d9" opacity="0">  file, uncommitted. No tests were run and nothing was<set attributeName="opacity" to="1" begin="cycle.begin+23.76s" end="cycle.end"/></text>
+<text x="26" y="766" fill="#c9d1d9" opacity="0">  The ledger now shows I hold no claims and have no wait<set attributeName="opacity" to="1" begin="cycle.begin+23.76s" end="cycle.end"/></text>
+<text x="26" y="784" fill="#c9d1d9" opacity="0">  or jobs running. My marker line is still at the end of<set attributeName="opacity" to="1" begin="cycle.begin+23.76s" end="cycle.end"/></text>
+<text x="26" y="802" fill="#c9d1d9" opacity="0">  the file, uncommitted. No tests were run and nothing was<set attributeName="opacity" to="1" begin="cycle.begin+23.76s" end="cycle.end"/></text>
 <text x="26" y="820" fill="#c9d1d9" opacity="0">  committed, as the brief said.<set attributeName="opacity" to="1" begin="cycle.begin+23.76s" end="cycle.end"/></text>
 <text x="26" y="856" fill="#c9d1d9" opacity="0">  DONE<set attributeName="opacity" to="1" begin="cycle.begin+24.06s" end="cycle.end"/></text>
 <text x="26" y="892" fill="#8b949e" font-style="italic" opacity="0">✻ Cooked for 1m 27s · done 4:51 PM<set attributeName="opacity" to="1" begin="cycle.begin+24.36s" end="cycle.end"/></text>
@@ -170,7 +170,7 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="26" y="82" fill="#8b949e" font-style="italic">▝▜██████▀  Opus 5.5 · Claude Max</text>
 <text x="26" y="100" fill="#8b949e" font-style="italic"> ▝▝   ▝▝   …/buddy-system-demo</text>
 <text x="26" y="136" fill="#e6edf3"><tspan fill="#3fb950">❯</tspan> /buddy Read …/briefs/claude-task.md in full and follow</text>
-<text x="26" y="154" fill="#e6edf3">  it as your brief.</text>
+<text x="26" y="154" fill="#e6edf3">it as your brief.</text>
 <text x="26" y="190" fill="#8b949e" font-style="italic">  Read 1 file</text>
 <text x="26" y="226" fill="#e6edf3">⏺ Claiming the file before editing.</text>
 <text x="26" y="262" fill="#8b949e" font-style="italic">  Read 1 file, ran 2 shell commands</text>
@@ -194,9 +194,9 @@ text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation M
 <text x="26" y="694" fill="#e6edf3">  handed it the claim (buddy release store-rework --to</text>
 <text x="26" y="712" fill="#e6edf3">  lane-codex) and messaged it that the file is now its</text>
 <text x="26" y="730" fill="#e6edf3">  own. Its edit is still to come.</text>
-<text x="26" y="766" fill="#c9d1d9">The ledger now shows I hold no claims and have no wait or</text>
-<text x="26" y="784" fill="#c9d1d9">  jobs running. My marker line is still at the end of the</text>
-<text x="26" y="802" fill="#c9d1d9">  file, uncommitted. No tests were run and nothing was</text>
+<text x="26" y="766" fill="#c9d1d9">  The ledger now shows I hold no claims and have no wait</text>
+<text x="26" y="784" fill="#c9d1d9">  or jobs running. My marker line is still at the end of</text>
+<text x="26" y="802" fill="#c9d1d9">  the file, uncommitted. No tests were run and nothing was</text>
 <text x="26" y="820" fill="#c9d1d9">  committed, as the brief said.</text>
 <text x="26" y="856" fill="#c9d1d9">  DONE</text>
 <text x="26" y="892" fill="#8b949e" font-style="italic">✻ Cooked for 1m 27s · done 4:51 PM</text>
