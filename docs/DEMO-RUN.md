@@ -2,15 +2,16 @@
 
 The README's picture of two sessions sharing a checkout
 (`docs/assets/demo.svg`) is two sessions' view of the buddy ledger. This page
-is the ledger's own view of an EARLIER, scripted run of a similar
-choreography (2026-10-25): two real Claude Code sessions (Sonnet, auto mode),
-each following a numbered brief one tool call per step, and a shell acting as
-the orchestrator, read back from a scratch clone of the repository after each
-beat. The picture now on the README is a later, unscripted run (2026-10-26: a
-Claude Code session and a Codex session, each given a one-sentence task and
-the skill); that run's ledger, read back once after it ended, is the last
-section below. Its session ids, pids and pane ids are each run's own. Real
-commands, real output, one beat each.
+is the ledger's own view. Sections 1-6 show an EARLIER, scripted run of a
+similar choreography (2026-10-25) beat by beat: two real Claude Code sessions
+(Sonnet, auto mode), each following a numbered brief one tool call per step,
+and a shell acting as the orchestrator, the ledger read back from a scratch
+clone of the repository after each beat. Section 7 shows the final ledger
+state of the run now pictured on the README (2026-10-26: a Claude Code session
+and a Codex session, each given a short task brief with a prescribed
+coordination scenario and pointed at the skill, the buddy commands their own
+choice), read back once after both sessions said DONE. Session ids, pids and
+pane ids are each run's own.
 
 Every block below is the orchestrator pane of that run as it stood when that
 command's prompt came back, or the ledger read back from the scratch clone
@@ -208,18 +209,45 @@ first one's holder to say so.
 </details>
 
 <details>
-<summary><b>7. The README's current take, read back after both sessions said DONE (unscripted, 2026-10-26)</b></summary>
+<summary><b>7. The README's current picture: the final ledger state after both sessions said DONE (2026-10-26)</b></summary>
 
-Two sessions, no numbered brief: a Claude Code session (`lane-claude`, Opus 5.5,
-auto mode) told to append a line to `internal/store/store.go` and hold the file
-until a peer asked for it, and a Codex session (`lane-codex`, GPT-6.1-Sol,
-workspace-write, on-request) told to append another line to the same file and
-to work the way `AGENTS.md` says. The Codex session registered itself with
-`buddy hello --session <its thread id>` after its first `claim` told it to;
-its second `claim` was REFUSED naming `lane-claude`; it messaged the holder and
-blocked on `buddy wait --on store-rework --block`; the Claude session handed
-the claim over with `buddy release store-rework --to lane-codex`; the wait
-LANDED "handed to you", the patch was allowed, and the Codex session released.
+Two sessions, each given a short task brief that prescribed the coordination
+scenario and pointed at the skill, the buddy commands their own choice: a
+Claude Code session (`lane-claude`; Claude Code 2.1.310, Opus 5.5, auto
+mode; `/buddy` on its first prompt) told to append a line to
+`internal/store/store.go` with the Edit tool, hold the file until a peer asked
+for it, then hand it over, say so and stop, checking its mail every 20 s in
+the foreground; and a Codex session (`lane-codex`; codex-cli 0.164.0,
+GPT-6.1-Sol, workspace-write sandbox, on-request approvals, a `hooks.json`
+wiring only `BUDDY_HARNESS=codex buddy gate` on `^(apply_patch|Bash)$`,
+trusted once by the operator in `/hooks`; `[features] hooks = true`) told to
+append another line to the same file and to work the way `AGENTS.md` says.
+What the panes then showed is the picture: the Codex session registered
+itself with `buddy hello --session <its thread id>` after its first `claim`
+told it to; its second `claim` was REFUSED naming `lane-claude`; it messaged
+the holder and blocked on `buddy wait --on store-rework --block`; the Claude
+session handed the claim over with `buddy release store-rework --to
+lane-codex`; the wait LANDED "handed to you", the patch was allowed, and the
+Codex session released. The Claude session worked 1m 27s, the Codex session
+58 s; the operator answered one escalation prompt in the Codex pane ("always
+run" for `env -u CLAUDE_CODE_SESSION_ID buddy …`). The picture's clocks come
+from the two transcripts (the Claude Code JSONL and the Codex rollout JSONL);
+its text from the panes.
+
+Why the gate is not in the picture, and how it was still checked: both
+sessions claimed before editing, so the gate never had an edit to refuse, and
+an allowed Codex call leaves no record of the hook having run (Codex 0.164.0
+writes none to its rollout, logs or state; buddy's gate writes nothing when it
+allows). So the same Codex configuration was probed once, apart from the
+take: one `codex exec -s workspace-write` turn, told only to append a line to
+`internal/store/store.go` with `apply_patch`, while a shell-registered session
+held a claim on that file. Codex's `apply_patch`, an inner call of its
+code-mode `exec` script, came back "Command blocked by PreToolUse hook:
+internal/store/store.go is inside scope … claimed by session holder …" and the
+file was unchanged. One dry run of the Claude side alone and one earlier full
+take (same shape, under the deprecated `codex_hooks` feature key) preceded the
+pictured take; all are kept, none drawn.
+
 The ledger, read from a shell right after, with the roster's own two rows
 first:
 
@@ -253,9 +281,10 @@ index b3ecd4f..cecbd87 100644
 +// migration note: see docs/decisions.md (lane-codex)
 ```
 
-`store-rework` ends `released` by `lane-codex`, not by the session that
-claimed it: `release --to` moved the claim whole, id and scopes and the wait on
-it, so one row tells the hand-over. The dirty path is recorded only for
-`lane-claude`, because Codex wires no `PostToolUse` beat and the gate records
-nothing when it allows. The one `git diff` holds both lines, in order.
+The pane output records the hand-over. The claim kept its id and scopes
+across `release --to`, so Codex's existing wait landed when Codex became its
+holder; this final snapshot shows the claim released under `lane-codex`. The
+dirty path is recorded only for `lane-claude`, because Codex wires no
+`PostToolUse` beat and the gate records nothing when it allows. The one
+`git diff` holds both lines, in order.
 </details>
