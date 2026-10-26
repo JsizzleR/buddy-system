@@ -1,6 +1,7 @@
 # What the ledger did during a run of the choreography
 
-The README's hero picture is two sessions' view of the buddy ledger. This is
+The README's picture of two sessions sharing a checkout
+(`docs/assets/demo.svg`) is two sessions' view of the buddy ledger. This is
 the ledger's own, read back from a scratch clone of the repository after a
 run of the picture's refusal-and-release beats with two real Claude Code
 sessions (Sonnet, auto mode), each following a one-paragraph brief, and a
