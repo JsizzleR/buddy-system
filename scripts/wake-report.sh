@@ -6,8 +6,9 @@
 #   sh scripts/wake-report.sh [project-dir]
 #
 # project-dir is a directory under ~/.claude/projects by name
-# (`-Users-me-src-repo`) or by path. Default: the one the harness keeps for
-# the repo the cwd is in.
+# (`-Users-me-src-repo`) or by path, read alone. Default: the one the harness
+# keeps for the cwd repo's main checkout, plus its linked worktrees' (see WHAT
+# IT MISSES).
 #
 # WHY IT EXISTS (#45). "Are parked sessions coming back warm?" had no
 # instrument. D-033 took its five measurements of the cache edge by hand, and
@@ -141,6 +142,9 @@ else
 		esac
 	fi
 	proj="$projects/$(encode "$main")"
+	# The worktree directories are taken on the harness's naming alone: the
+	# common-dir check above runs only from inside a worktree, and from the
+	# main checkout nothing ties `<enc(main)>--claude-worktrees-<n>` to it.
 	set --
 	for d in "$proj--claude-worktrees-"*; do
 		if [ -d "$d" ]; then set -- "$@" "$d"; fi

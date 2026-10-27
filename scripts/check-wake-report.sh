@@ -147,8 +147,10 @@ fire_sched_meta() { printf '{"type":"system","subtype":"scheduled_task_fire","ti
 	echo '{"type":"user","timestamp":"2026-09-26T11:14:05.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"MARKER_RESULT"}]}}'
 	req 2026-09-26T11:14:06.000Z c5b 9000 5
 	# Superseded by the operator: a fire that woke nothing, and an operator wake.
+	# The operator's record also carries turnOrigin "scheduled" (none measured
+	# so): a record with an origin is the waker whatever else it is stamped.
 	fire 2026-09-26T12:00:00.000Z "buddy wait check"
-	human 2026-09-26T12:00:01.000Z "MARKER_BODY I am back"
+	echo '{"type":"user","timestamp":"2026-09-26T12:00:01.000Z","origin":{"kind":"human"},"turnOrigin":"scheduled","message":{"content":"MARKER_BODY I am back"}}'
 	req 2026-09-26T12:00:05.000Z c6 9000 5
 	# After the last request: a fire that woke nothing.
 	fire 2026-09-26T14:00:00.000Z "buddy wait check"
