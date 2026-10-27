@@ -28,7 +28,9 @@
 #   - a wait-check fire is counted when it fires — one superseded by the
 #     operator's prompt, one after the last request — and "warm" is the
 #     request each woke, at any gap; the next request of the same turn was
-#     not woken by it;
+#     not woken by it; the fire's own prompt never takes the attribution in
+#     any of the three shapes measured after a fire, the plain user record
+#     stamped turnOrigin "scheduled" included;
 #   - a torn line costs the line, not the transcript; a file that is not JSON
 #     is scanned and yields nothing;
 #   - BUDDY_WAKE_DAYS: a transcript modified before the window is left out
@@ -37,6 +39,11 @@
 #     while its successor's gap is still measured from it;
 #   - the default project directory is the cwd repo's, named by the harness's
 #     rule and spelled here by hand, never computed the way the report does;
+#     its linked worktrees' directories join it, from the main checkout and
+#     from inside a worktree, and nothing else does: not a decoy sharing the
+#     encoded prefix, not a FILE with the worktree prefix (nor does one drop
+#     the real directory after it), not the transcripts of another repository
+#     a worktree is parked under; a named directory is read alone;
 #   - no body, tool result, command or prompt text reaches the report: markers
 #     are planted in each, and the control greps the fixture for them first.
 set -eu
@@ -119,16 +126,22 @@ human() { printf '{"type":"user","timestamp":"%s","origin":{"kind":"human"},"mes
 
 # C — the keep-alive: declared, armed, and five wait-check fires.
 fire() { printf '{"type":"system","subtype":"scheduled_task_fire","timestamp":"%s","prompt":"%s"}\n{"type":"user","isMeta":true,"timestamp":"%s","message":{"content":"%s"}}\n' "$1" "$2" "$1" "$2"; }
+# The other two shapes the record after a fire takes (measured 2026-10-27, all
+# three in every version from 2.1.283 to 2.1.311): stamped turnOrigin
+# "scheduled" with a scheduledFireId, isMeta or NOT. The plain one, read as a
+# waker, takes the attribution from the fire and drops its K row.
+fire_sched() { printf '{"type":"system","subtype":"scheduled_task_fire","timestamp":"%s","prompt":"%s"}\n{"type":"user","timestamp":"%s","turnOrigin":"scheduled","scheduledFireId":"f1","wakeupSource":"loop_wakeup","message":{"content":"%s"}}\n{"type":"user","isMeta":true,"timestamp":"%s","wakeupSource":"loop_wakeup","message":{"content":[{"type":"text","text":"MARKER_META"}]}}\n' "$1" "$2" "$1" "$2" "$1"; }
+fire_sched_meta() { printf '{"type":"system","subtype":"scheduled_task_fire","timestamp":"%s","prompt":"%s"}\n{"type":"user","isMeta":true,"timestamp":"%s","turnOrigin":"scheduled","scheduledFireId":"f2","message":{"content":"%s"}}\n' "$1" "$2" "$1" "$2"; }
 {
 	human 2026-09-26T08:00:00.000Z "park"
 	req 2026-09-26T08:00:03.000Z c1 0 800 ',"content":[{"type":"tool_use","id":"w1","name":"Bash","input":{"command":"cd x && ~/bin/buddy wait --until 2h --note MARKER_CMD"}},{"type":"tool_use","id":"w2","name":"ScheduleWakeup","input":{"delaySeconds":3000,"prompt":"buddy wait check MARKER_PROMPT"}}]'
-	fire 2026-09-26T08:50:00.000Z "buddy wait check MARKER_PROMPT"
+	fire_sched_meta 2026-09-26T08:50:00.000Z "buddy wait check MARKER_PROMPT"
 	req 2026-09-26T08:50:03.000Z c2 8000 20
-	fire 2026-09-26T10:00:00.000Z "buddy wait check"
+	fire_sched 2026-09-26T10:00:00.000Z "/loop buddy wait check"
 	req 2026-09-26T10:00:03.000Z c3 10 6000
 	fire 2026-09-26T11:10:00.000Z "MARKER_PROMPT something else"
 	req 2026-09-26T11:10:03.000Z c4 10 1500
-	fire 2026-09-26T11:14:00.000Z "buddy wait check"
+	fire_sched 2026-09-26T11:14:00.000Z "buddy wait check"
 	req 2026-09-26T11:14:03.000Z c5 9000 5 ',"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"true"}}]'
 	# The same turn's next request: the fire woke c5, not this one.
 	echo '{"type":"user","timestamp":"2026-09-26T11:14:05.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"MARKER_RESULT"}]}}'
@@ -230,6 +243,55 @@ $def"
 printf '%s\n' "$def" | grep -q '^total  *0  *2  *500$' ||
 	fail "the default did not find the cwd repo's transcripts:
 $def"
+# Its linked worktrees' directories join the default, from the main checkout
+# and from inside a worktree alike: a lane's 2h cold wake of 4000. A decoy
+# sharing the encoded prefix but not `--claude-worktrees-` is never read (its
+# 9h wake would land in 4h+), and a named directory is still read alone.
+git -C "$repo" commit -q --allow-empty -m init
+git -C "$repo" worktree add -q --detach "$repo/.claude/worktrees/lane"
+mkdir -p "$WORK/projects/$enc--claude-worktrees-lane" "$WORK/projects/$enc-other--claude-worktrees-z"
+# A FILE with the worktree prefix, sorting first: never a directory read, and
+# never a reason to drop the real one after it.
+: >"$WORK/projects/$enc--claude-worktrees-a"
+{
+	req "$(at 3)" l1 0 100
+	req "$(at 1)" l2 0 4000
+} >"$WORK/projects/$enc--claude-worktrees-lane/lane.jsonl"
+{
+	req "$(at 10)" z1 0 100
+	req "$(at 1)" z2 0 77777
+} >"$WORK/projects/$enc-other--claude-worktrees-z/z.jsonl"
+for from in "$repo/sub" "$repo/.claude/worktrees/lane"; do
+	both=$(cd "$from" && CLAUDE_PROJECTS_DIR="$WORK/projects" sh "$ROOT/scripts/wake-report.sh" 2>&1) ||
+		fail "the default run from $from exited non-zero:
+$both"
+	printf '%s\n' "$both" | grep -q '^total  *0  *3  *4500$' ||
+		fail "from $from: want the main checkout's two wakes and the lane's one, never the decoy's:
+$both"
+	printf '%s\n' "$both" | grep -q '^plus 1 linked worktree dir(s): ' ||
+		fail "from $from: the worktree directory read was not said:
+$both"
+done
+# A worktree of this repository parked under ANOTHER repository's
+# .claude/worktrees stands alone: its own directory (w1's two wakes), never
+# the other repository's (whose 9h wake would land in 4h+).
+arch="$WORK/arch"
+mkrepo "$arch"
+git -C "$repo" worktree add -q --detach "$arch/.claude/worktrees/lane2"
+wenc=$(printf '%s' "$WORK" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g')
+mkdir -p "$WORK/projects/$wenc-arch--claude-worktrees-lane2" "$WORK/projects/$wenc-arch"
+cp "$W/w1.jsonl" "$WORK/projects/$wenc-arch--claude-worktrees-lane2/"
+cp "$WORK/projects/$enc-other--claude-worktrees-z/z.jsonl" "$WORK/projects/$wenc-arch/"
+parked=$(cd "$arch/.claude/worktrees/lane2" && CLAUDE_PROJECTS_DIR="$WORK/projects" sh "$ROOT/scripts/wake-report.sh" 2>&1) ||
+	fail "the run from a worktree under another repository exited non-zero:
+$parked"
+printf '%s\n' "$parked" | grep -q '^total  *0  *2  *500$' ||
+	fail "a worktree under another repository's .claude/worktrees took in that repository's transcripts:
+$parked"
+alone=$(CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh "$enc" 2>&1)
+printf '%s\n' "$alone" | grep -q '^total  *0  *2  *500$' ||
+	fail "a named project directory took in its worktrees' directories:
+$alone"
 # And by path, the other spelling of the argument.
 bypath=$(BUDDY_WAKE_DAYS=36500 sh scripts/wake-report.sh "$P" 2>&1)
 printf '%s\n' "$bypath" | grep -q '^total  *5  *10  *23800$' || fail "a path argument did not read the fixture:

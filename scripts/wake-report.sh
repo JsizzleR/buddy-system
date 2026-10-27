@@ -49,7 +49,15 @@
 # An originless isMeta user record is harness context riding with something
 # else (the prompt a scheduled fire injects right after the fire, a skill body,
 # a hook's output) and never the waker: taken as one, it hid every scheduled
-# fire in the first cut behind "other".
+# fire in the first cut behind "other". So is an originless record stamped
+# turnOrigin "scheduled": the fire's prompt written as a plain user record,
+# NOT isMeta. Measured 2026-10-27 over 35 days of transcripts, the record after
+# a fire took three shapes in every version from 2.1.283 to 2.1.311, never one
+# per version: isMeta with no turnOrigin (the fixture's first shape), isMeta
+# with turnOrigin "scheduled" (140), and not isMeta with turnOrigin "scheduled"
+# (537 of 1,184 fires; 504 were the first shape). Before this line the third
+# shape took the attribution from the fire ("other") and dropped its K row, so
+# a session whose loop fired twice printed "2, 0 woke a request".
 #
 # KEEP-ALIVE LINES. A session DECLARED a wait if its main thread ran a Bash
 # command with `buddy wait` in COMMAND position (line start, after `;` `&` `|`
@@ -69,9 +77,14 @@
 # written, so a gap after a long-streaming request is overstated by that
 # request's own duration. The gap is measured within one transcript: a
 # `--resume` that starts a new file, or a `/clear` (a new session id), opens
-# with no previous request and is not a wake. Only the one project directory
-# is read: a session started in a linked worktree is filed under that
-# worktree's own directory, so run the report once per directory.
+# with no previous request and is not a wake. A named project directory is
+# read alone. With no argument the report reads the main checkout's directory
+# AND every linked worktree's the harness made (`<main>/.claude/worktrees/<n>`,
+# filed as `<main's name>--claude-worktrees-<n>`), from the main checkout or
+# from any of its worktrees: the first cut read one directory, and in this repo
+# that left out every lane (60 of 67 wait-check arms, and all 22 that fired,
+# measured 2026-10-27). A worktree made anywhere else is filed under its own
+# path's name and is not found; name it.
 #
 # KNOBS
 #   BUDDY_WAKE_DAYS      look back this many days (default 7): transcripts
@@ -100,6 +113,7 @@ if [ $# -eq 1 ]; then
 		*/*) proj=$1 ;;
 		*) proj="$projects/$1" ;;
 	esac
+	set --
 else
 	# The root as the operator spells it (pwd -L), which is what the harness
 	# names its directory from; --show-toplevel resolves symlinks.
@@ -108,15 +122,39 @@ else
 		exit 2
 	}
 	top=$(CDPATH= cd -- "./${cdup:-.}" && pwd -L)
-	proj="$projects/$(encode "$top")"
+	# In a linked worktree (its git dir is not the common dir) the harness made,
+	# the main checkout is the top with `/.claude/worktrees/<n>` cut off. Cut
+	# from the operator's spelling, never taken from the common dir's parent:
+	# git resolves that one, and under /var -> /private/var it names a
+	# directory the harness never wrote. The cut is kept only when it names a
+	# checkout sharing this common dir: a worktree of one repository parked
+	# under ANOTHER's .claude/worktrees would otherwise take in that one's
+	# transcripts. A worktree anywhere else stands alone.
+	gd=$(git rev-parse --path-format=absolute --git-dir)
+	cd_=$(git rev-parse --path-format=absolute --git-common-dir)
+	main=$top
+	if [ "$gd" != "$cd_" ]; then
+		under=${top%/.claude/worktrees/*}
+		case "${top#"$under"/.claude/worktrees/}" in
+			"$top" | '' | */*) ;;
+			*) [ "$(git -C "$under" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" != "$cd_" ] || main=$under ;;
+		esac
+	fi
+	proj="$projects/$(encode "$main")"
+	set --
+	for d in "$proj--claude-worktrees-"*; do
+		if [ -d "$d" ]; then set -- "$@" "$d"; fi
+	done
 fi
 
 echo "Wake report: $(basename -- "$proj"), last $days day(s)"
+[ $# -eq 0 ] || echo "plus $# linked worktree dir(s): $(basename -- "$proj")--claude-worktrees-*"
 echo "Every request after 5+ min idle in the same session (main thread). Counts, tokens and times only."
-if [ ! -d "$proj" ]; then
+if [ ! -d "$proj" ] && [ $# -eq 0 ]; then
 	echo "no transcripts: $proj does not exist"
 	exit 0
 fi
+[ ! -d "$proj" ] || set -- "$proj" "$@"
 
 # One pass per transcript, streaming (never slurping: a long session runs to
 # tens of megabytes), line by line with fromjson? so one torn line from a
@@ -154,7 +192,7 @@ reduce (inputs | fromjson? | select(type == "object" and .isSidechain != true an
       else .trig = "scheduled:other" | .fire = false end
     elif $e.type == "user" then
       if $e | results then .tool = true
-      elif $e.origin == null and $e.isMeta == true then .
+      elif $e.origin == null and ($e.isMeta == true or $e.turnOrigin == "scheduled") then .
       else .trig = ($e | waker) | .fire = false end
     elif $e.type == "assistant" then
       (if $t >= $cut then
@@ -193,7 +231,7 @@ rows=$(mktemp) || exit 1
 trap 'rm -f "$rows"' EXIT INT TERM
 # -mtime is whole days, the grain BUDDY_WAKE_DAYS is in; -maxdepth 1 keeps
 # <session>/subagents/*.jsonl out.
-find "$proj" -maxdepth 1 -name '*.jsonl' -mtime "-$days" | while IFS= read -r f; do
+find "$@" -maxdepth 1 -name '*.jsonl' -mtime "-$days" | while IFS= read -r f; do
 	jq -n -R -r --argjson cut "$cut" "$prog" "$f" 2>/dev/null || true
 done >"$rows"
 
