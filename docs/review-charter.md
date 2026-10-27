@@ -1019,6 +1019,15 @@ ledger row entered through the CLI (D-006).
     DONE report included, while one beside the checkout was allowed. Do not propose allowing a
     vanished cwd wholesale (it drops the home ledger's brake) or denying it wholesale.
 
+104. **The orchestrator uses agent tools itself; a subagent is not a lane (D-103).** While it
+    runs a fleet, the orchestrator puts side work (a lane's diff, reports, measurements,
+    housekeeping, a second opinion: subagents on any model, a Codex pass through
+    `codex-review.sh`, a Fable read) on subagents, because its own context is the scarce
+    resource before its handoff size (orc-3 handed off at 322k, orc-4 at 397k). A subagent
+    holds no claim, lands nothing, relays nothing, and runs under the parent's id and claims
+    (D-099); its findings are evidence once a test reproduces them. Do not propose a ledger
+    row or verb for subagents, or counting their tokens against the handoff size.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

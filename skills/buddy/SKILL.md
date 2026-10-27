@@ -371,6 +371,15 @@ every repo's coordinator wears alerts each of them to the others' mentions
    been told it is done. Everything unfinished goes in the handoff note. Read
    each lane's `prompt` on `buddy sessions` too, and tell the operator which
    lanes are at or past the handoff size.
+7. **Put your side work on subagents.** Reading a lane's diff, a report, a
+   measurement, a CI log, deleting merged branches, a second opinion (a Codex
+   pass through `scripts/codex-review.sh`, a Fable read): the Agent tool, any
+   model. Your context is the scarce resource before your handoff size; a
+   subagent's is not (orc-3 handed off at 322k, orc-4 at 397k, much of it side
+   work done in their own panes). A subagent is not a lane: it holds no claim,
+   lands nothing, relays nothing, and is never messaged as one. It works under
+   YOUR session id and YOUR claims, so claim the files before you hand it an
+   edit. The operator's standing decision (D-103).
 
 A lane with a stale claim and no answer stays the operator's to free
 (`buddy sweep --force`): report it, never free it yourself.

@@ -752,6 +752,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   checkout was denied every call (run1); one beside it was allowed. Only exact ENOENT, no git
   discovery env; a dangling link on the way is followed; a relative tool path from it is refused
   where a ledger governs; init and diagnose stay strict; a deny names the cwd and the fix.
+- **The orchestrator uses agent tools itself (D-103):** subagents (any model), Codex passes through
+  `codex-review.sh` and Fable reads carry its side work (a lane's diff, reports, measurements,
+  housekeeping, a second opinion); its context is the scarce one before its handoff size (orc-3
+  handed off at 322k, orc-4 at 397k). A subagent is not a lane: no claim, no landing, no message,
+  under the parent's id and claims (D-099); what it finds is evidence once a test reproduces it.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

@@ -7512,3 +7512,46 @@ exactly as today; and the re-read alone already sends every non-ENOENT cwd back
 to today's verdict. Review: full (Codex design pass; code pass, two defects,
 fixed; re-verify, one partial fix and one new defect, fixed; second re-verify,
 both fixed, no new wrong verdict).
+
+## D-103 — The orchestrator uses agent tools itself (a subagent is not a lane)
+
+2026-10-26. Operator's standing decision, given to orc-5 in three steps ("you
+yourself can use agent tools as well"; "make that a standing rule as
+orchestrator, agent tools can be used"; "it should be durable, or even built
+into buddy-system/skills").
+
+**The failure** — an orchestrator's context is the one thing a fleet cannot
+replace cheaply. Each handoff past `BUDDY_HANDOFF_AT` (300k here) costs a fresh
+~60k-token prompt write and the time to re-read the handoff file, and the
+orchestrators on this machine kept reaching it: orc-3 handed off at 322k, orc-4
+at 397k, lane co-home-7 at 426k. Much of what filled those contexts was side
+work done in the orchestrator's own pane: reading lanes' diffs, running reports,
+deleting branches, checking CI logs. A subagent's context is disposable; the
+orchestrator's is not. The rule allowing it had stood since 2026-09-07 ("use
+agent tools as needed, standing rule"), but only in the operator's private
+CLAUDE.md and memory, which no lane and no successor reads, so each new
+orchestrator re-derived it or asked.
+
+**The rule** — while it runs a fleet, the orchestrator uses agent tools for its
+side work: subagents (the Agent tool, any model), Codex passes through
+`scripts/codex-review.sh`, and Fable reads, for reading a lane's diff, reports,
+measurements, housekeeping and a second opinion. Its own context is the scarce
+resource before its handoff size; a subagent's is not.
+- **A subagent is not a lane.** It holds no claim, lands nothing and relays
+  nothing; it is never launched as a lane and never messaged as one. It runs
+  under the orchestrator's session id, so the gate sees the orchestrator's
+  claims (D-099: its hook calls are the parent's), and the orchestrator claims
+  the files before handing it an edit.
+- **Unchanged.** The never-delegable list (push, install, settings,
+  permissions, trust, a more permissive mode; D-083). A Codex pass goes only
+  through `codex-review.sh` and is never backgrounded. A subagent's verdict is
+  not test evidence: what it finds is evidence once a test reproduces it.
+- **Not done.** A buddy verb or ledger row for a subagent: it has no identity
+  of its own in the ledger, D-025 and D-099 already treat its hook calls as
+  the parent's, and nothing in the ledger should name one. Counting a
+  subagent's tokens against the orchestrator's handoff size: the transcript
+  reader counts the main thread's last turn only, by design (invariant 10).
+
+**Tests** — none new: skill prose, a CLAUDE.md bullet and this entry; no verb
+or flag. The skill tests still read every `buddy <verb> --flag` the skill
+teaches. Review: chore.
