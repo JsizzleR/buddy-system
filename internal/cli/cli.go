@@ -582,12 +582,13 @@ const ledgerName = "buddy.db"
 //
 // The old gitOut ran with NO deadline, and beat's own comment already named the
 // hazard that left open: "a wedged index would stall the heartbeat AND the
-// operator's queued messages behind it". On the gate it is worse, because the
-// installed hook line ends in `exit 0` — a git that never returns is killed by
-// the harness and READS AS ALLOW. Fail-closed means discovery must produce a
-// verdict rather than a timeout. Measured on this machine, rev-parse costs
-// 7-9 ms, so two seconds is three orders of magnitude of headroom and only a
-// genuinely wedged git can reach it.
+// operator's queued messages behind it". On the gate it is worse: a hook the
+// harness times out READS AS ALLOW unless its entry sets onFailure "block"
+// (README's does since D-107, documented and not measured; the old line, a
+// Codex hook and Claude Code before 2.1.295 do not). Fail-closed means
+// discovery must produce a verdict rather than a timeout. Measured on this
+// machine, rev-parse costs 7-9 ms, so two seconds is three orders of magnitude
+// of headroom and only a genuinely wedged git can reach it.
 const discoveryBudget = 2 * time.Second
 
 // repoContext answers the two questions every hook asks on arrival: where the

@@ -2,7 +2,7 @@
 # check-install.sh — done-check for scripts/install.sh, the machine install
 # and upgrade.
 #
-# HERMETIC: go, git, sh. Every destination is redirected into a throwaway
+# HERMETIC: go, git, sh, python3 (QA-9's gate report decodes JSON). Every destination is redirected into a throwaway
 # directory (BUDDY_BIN_DIR, BUDDY_SKILL_DIR, BUDDY_SETTINGS), the daemon and
 # this checkout's setup-clone are switched off, and the checkout's own bin/
 # copies are left alone (BUDDY_REPO_BIN=off). Nothing on the real machine is
@@ -38,7 +38,7 @@ inst() {
 cat > "$WORK/settings.json" <<'EOF'
 {"hooks": {
  "SessionStart": [{"hooks": [{"command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" hello 2>/dev/null; exit 0"}]}],
- "PreToolUse": [{"hooks": [{"command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" gate; exit 0"}]}],
+ "PreToolUse": [{"matcher": "Edit|Write|NotebookEdit|Bash", "hooks": [{"type": "command", "command": "[ -x \"$HOME/bin/buddy\" ] || exit 0; { \"$HOME/bin/buddy\" gate; } 2>/dev/null || { echo \"buddy gate failed (status $?); refusing the tool call (the gate fails closed). Operator, from a terminal: sh scripts/install.sh in the buddy-system checkout\" >&2; exit 2; }", "timeout": 10, "onFailure": "block"}]}],
  "PostToolUse": [{"hooks": [{"command": "\"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"},
                             {"command": "\"$HOME/bin/buddylist\" alert 2>/dev/null; exit 0"}]}],
  "Stop": [{"hooks": [{"command": "\"$HOME/bin/buddy\" idle 2>/dev/null; exit 0"}]}],
@@ -48,6 +48,13 @@ EOF
 # Kept as written: QA-3/QA-3b wire busy and presence into settings.json in
 # place, and QA-7 needs this file as it is here.
 cp "$WORK/settings.json" "$WORK/settings.orig"
+# The fixture's gate is README's entry exactly (D-107): scripts/gate-hook.py
+# holds it, check-gate-line.sh holds README to it, and this holds the fixture.
+python3 -I -c 'import json, sys
+s = json.load(open(sys.argv[1]))
+sys.exit(0 if s["hooks"]["PreToolUse"] == [json.loads(sys.argv[2])] else 1)' \
+	"$WORK/settings.json" "$(python3 -I scripts/gate-hook.py entry)" ||
+	fail "the fixture's PreToolUse is not scripts/gate-hook.py's entry"
 
 # QA-1: a fresh install builds both binaries, runs them, installs the skill,
 # and reports exactly the two hooks that are not wired.
@@ -61,6 +68,9 @@ $out"
 missing=$(echo "$out" | sed -n 's/.*NOT wired in [^:]*: *\(.*\) (README.*/\1/p')
 [ "$missing" = "buddy busy buddylist presence" ] || fail "QA-1: hook report named '$missing', want 'buddy busy buddylist presence'"
 echo "$out" | grep -qF 'handoff: BUDDY_HANDOFF_AT not set in' || fail "QA-1: an unset handoff size is reported:
+$out"
+echo "$out" | grep -qxF "install: gate: README's fail-closed gate entry in $WORK/settings.json (onFailure block, timeout set); native loading not verified here" ||
+	fail "QA-1: README's gate entry is reported as such (QA-9's control):
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-1: no done line"
 
@@ -308,8 +318,157 @@ $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-8: no done line"
 [ ! -e "$GUARD/reached" ] || fail "QA-8: the REAL launchctl was reached: $(cat "$GUARD/reached")"
 
+# QA-9 (D-107): the gate's own line is judged, not grepped. The old fail-open
+# line is named LEGACY with README's entry to paste, and the file is left
+# byte-identical; a bare absolute gate (which step 6's second grep counts as
+# wired) and README's command without onFailure are CUSTOM, not verified; the
+# old line under another event is no PreToolUse gate at all; and without a
+# python the line says it did not look. QA-1's fixture is the control: README's
+# entry is reported as README's.
+# Its own skill dir: an earlier leg leaves a symlink at $WORK/skill/SKILL.md.
+inst9() { # inst9 <settings-file> [VAR=value ...]
+	s9=$1; shift
+	env BUDDY_BIN_DIR="$WORK/bin" BUDDY_SKILL_DIR="$WORK/skill9" BUDDY_SETTINGS="$s9" \
+		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$WORK/mcp.json" \
+		"$@" sh scripts/install.sh
+}
+legacy=$(python3 -I scripts/gate-hook.py legacy | python3 -I -c 'import json, sys; print(json.dumps(sys.stdin.read().rstrip("\n")))')
+printf '{"hooks": {"PreToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": %s, "statusMessage": "x"}]}]}}\n' "$legacy" > "$WORK/s9legacy.json"
+cp "$WORK/s9legacy.json" "$WORK/s9legacy.orig"
+out=$(inst9 "$WORK/s9legacy.json" 2>&1) || fail "QA-9: install over a legacy gate failed:
+$out"
+line=$(echo "$out" | grep '^install: gate: ' || true)
+[ "$(echo "$line" | wc -l | tr -d ' ')" = 1 ] || fail "QA-9: want exactly one gate line:
+$out"
+echo "$line" | grep -qF "install: gate: LEGACY fail-open command in $WORK/s9legacy.json: a buddy that crashes or is killed lets the tool call through (D-107). Replace that PreToolUse entry with README's; settings unchanged: " ||
+	fail "QA-9: the legacy line is named:
+$line"
+[ "${line##*settings unchanged: }" = "$(python3 -I scripts/gate-hook.py entry)" ] || fail "QA-9: the legacy line must end with README's entry, whole:
+$line"
+cmp -s "$WORK/s9legacy.json" "$WORK/s9legacy.orig" || fail "QA-9: the settings file was touched"
+printf '{"hooks": {"PreToolUse": [{"matcher": "Edit|Write|NotebookEdit|Bash", "hooks": [{"type": "command", "command": "/abs/bin/buddy gate", "timeout": 10, "onFailure": "block"}]}]}}\n' > "$WORK/s9bare.json"
+out=$(inst9 "$WORK/s9bare.json" 2>&1) || fail "QA-9: install over a bare gate failed:
+$out"
+echo "$out" | grep -qxF "install: gate: custom PreToolUse gate in $WORK/s9bare.json (command differs from README's); crash and timeout blocking NOT VERIFIED; compare README \"Hook wiring\"; settings unchanged" ||
+	fail "QA-9: a bare absolute gate is custom, named:
+$out"
+python3 -I -c 'import json, sys
+e = json.loads(sys.argv[1]); del e["hooks"][0]["onFailure"]
+print(json.dumps({"hooks": {"PreToolUse": [e]}}))' "$(python3 -I scripts/gate-hook.py entry)" > "$WORK/s9nofail.json"
+out=$(inst9 "$WORK/s9nofail.json" 2>&1) || fail "QA-9: install over a gate without onFailure failed:
+$out"
+echo "$out" | grep -qF "install: gate: custom PreToolUse gate in $WORK/s9nofail.json (onFailure is not \"block\"); crash and timeout blocking NOT VERIFIED" ||
+	fail "QA-9: README's command without onFailure is custom, named:
+$out"
+printf '{"hooks": {"Stop": [{"hooks": [{"command": %s}]}]}}\n' "$legacy" > "$WORK/s9stop.json"
+out=$(inst9 "$WORK/s9stop.json" 2>&1) || fail "QA-9: install over a Stop-only gate failed:
+$out"
+echo "$out" | grep -qxF "install: gate: no PreToolUse buddy gate hook in $WORK/s9stop.json (README \"Hook wiring\")" ||
+	fail "QA-9: a gate under another event is no PreToolUse gate:
+$out"
+out=$(inst9 "$WORK/s9legacy.json" BUDDY_PYTHON="$WORK/no-python" 2>&1) || fail "QA-9: install without a python failed:
+$out"
+echo "$out" | grep -qxF "install: gate: not checked (no $WORK/no-python to decode $WORK/s9legacy.json); README \"Hook wiring\" has the fail-closed entry (D-107)" ||
+	fail "QA-9: without a python the gate line says it did not look:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-9: no done line"
+
+# QA-10..12 build with a fake `go` on PATH: `go build -o <out> ./cmd/<name>`
+# copies $FAKE_STUBS/<name> to <out>, so each leg chooses what a "build"
+# produces without compiling anything. QA-1's real build is their control.
+mkdir -p "$WORK/fakego"
+cat > "$WORK/fakego/go" <<'EOF'
+#!/bin/sh
+[ "$1" = build ] && [ "$2" = -o ] || exit 0
+cp "$FAKE_STUBS/${4#./cmd/}" "$3" && chmod 755 "$3"
+EOF
+chmod 755 "$WORK/fakego/go"
+stubs() { # stubs <dir> <buddy's gate body> <buddylist's body>
+	mkdir -p "$1"
+	printf '#!/bin/sh\nif [ "$1" = gate ]; then\n%s\nfi\necho "buddy help commit-gate"\n' "$2" > "$1/buddy"
+	printf '#!/bin/sh\n%s\n' "$3" > "$1/buddylist"
+}
+OKLIST='echo "usage: buddylist serve"; exit 2'
+# An installed binary the legs below must leave alone, or replace.
+old() { mkdir -p "$1" && printf '#!/bin/sh\necho old %s\n' "$2" > "$1/$2" && chmod 755 "$1/$2" && cp "$1/$2" "$1/$2.orig"; }
+
+# QA-10 (D-107): a new buddy whose GATE dies fails the install loud at build,
+# naming the probe, though `help` passed, and is NOT installed: built over
+# the target, it was already in place, and README's gate line refused every
+# gated call machine-wide from then on, the installing agent's Bash included
+# (the cross-check). The old binary stays byte-identical, and no new file is
+# left beside it.
+stubs "$WORK/stubs10" 'exit 2' "$OKLIST"
+old "$WORK/bin10" buddy
+out=$(inst9 "$WORK/settings.orig" BUDDY_BIN_DIR="$WORK/bin10" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs10" 2>&1) && rc=0 || rc=$?
+[ "$rc" -ne 0 ] || fail "QA-10: a buddy whose gate exits 2 must fail the install:
+$out"
+echo "$out" | grep -qxF "install: FAILED — $WORK/bin10/buddy: the new build's gate exited 2 on its probe (a Write in a fresh temp directory); not installed, $WORK/bin10/buddy left as it was" ||
+	fail "QA-10: the failure must name the gate probe and say nothing was installed:
+$out"
+cmp -s "$WORK/bin10/buddy" "$WORK/bin10/buddy.orig" || fail "QA-10: the old buddy must stay in place, byte-identical"
+[ "$(ls "$WORK/bin10" | sort | tr '\n' ' ')" = "buddy buddy.orig " ] || fail "QA-10: the new build must not be left beside the old: $(ls "$WORK/bin10")"
+
+# QA-11 (D-107, the code pass): the probe reaches the gate's Write path from
+# wherever it is run. A stub gate that exits 0 only on a decodable Write
+# payload stands in for the real one, whose parse-error deny exits 0 and so
+# could not tell. (a) A RELATIVE BUDDY_BIN_DIR (the checkout's; install.sh
+# cd's there): the probe runs from a temp directory, where a relative path
+# named nothing (127). (b) A TMPDIR holding a `"`: printed into the JSON, the
+# path broke it. Both legs move the probe through TMPDIR, which install.sh's
+# explicit mktemp template honours (macOS's bare `mktemp -d` does not, and
+# both legs passed the unfixed install until it did: mutants M21, M22).
+# Each installs the stubs, renamed over the old binaries: the
+# control that QA-10 and QA-12 see a refusal to rename, not a rename that
+# never happens.
+stubs "$WORK/stubs11" "exec python3 -I -c 'import json, sys
+d = json.load(sys.stdin)
+sys.exit(0 if d[\"tool_name\"] == \"Write\" and d[\"tool_input\"][\"file_path\"] else 2)' 2>/dev/null" "$OKLIST"
+old "$WORK/bin11" buddy
+rel=$(python3 -I -c 'import os, sys; print(os.path.relpath(os.path.realpath(sys.argv[1]), os.path.realpath(sys.argv[2])))' "$WORK/bin11" "$ROOT")
+case $rel in /* | '') fail "QA-11: no relative path from $ROOT to $WORK/bin11: '$rel'" ;; esac
+# That path climbs out of the checkout, and `..` stops at /, so from any
+# directory no deeper than the checkout it names the same file: the probe's
+# temp directory is put deeper than the checkout, where it names nothing (a
+# shallow TMPDIR let the unfixed install pass; mutant M21).
+deep=$(python3 -I -c 'import os, sys; print(os.path.join(sys.argv[1], *["d"] * (os.path.realpath(sys.argv[2]).count("/") + 1)))' "$WORK/deep" "$ROOT")
+mkdir -p "$deep"
+out=$(inst9 "$WORK/settings.orig" BUDDY_BIN_DIR="$rel" TMPDIR="$deep" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs11" 2>&1) ||
+	fail "QA-11a: an install to a relative BUDDY_BIN_DIR failed:
+$out"
+cmp -s "$WORK/bin11/buddy" "$WORK/stubs11/buddy" || fail "QA-11a: the new buddy must be renamed over the old one"
+mkdir -p "$WORK/t\"mp"
+old "$WORK/bin11b" buddy
+out=$(inst9 "$WORK/settings.orig" BUDDY_BIN_DIR="$WORK/bin11b" TMPDIR="$WORK/t\"mp" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs11" 2>&1) ||
+	fail "QA-11b: an install with a \" in TMPDIR failed:
+$out"
+cmp -s "$WORK/bin11b/buddy" "$WORK/stubs11/buddy" || fail "QA-11b: the new buddy must be renamed over the old one"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-11b: no done line"
+
+# QA-12 (D-107, the code pass and the cross-check): a new buddylist SIGKILLed
+# on its first run fails the install naming ITS failure, and says nothing of
+# the gate, which runs buddy (built and installed first, here): the old text
+# told the operator README's gate line refused every call. The old buddylist
+# stays.
+stubs "$WORK/stubs12" 'exit 0' 'kill -9 $$'
+old "$WORK/bin12" buddylist
+out=$(inst9 "$WORK/settings.orig" BUDDY_BIN_DIR="$WORK/bin12" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs12" 2>&1) && rc=0 || rc=$?
+[ "$rc" -ne 0 ] || fail "QA-12: a killed buddylist must fail the install:
+$out"
+echo "$out" | grep -qxF "install: FAILED — $WORK/bin12/buddylist: the new build exited 137 on its first run (SIGKILL: a broken ad-hoc signature); not installed, $WORK/bin12/buddylist left as it was" ||
+	fail "QA-12: the failure must name buddylist's first run:
+$out"
+echo "$out" | grep -qiE 'gate line|every gated call' && fail "QA-12: a buddylist failure says nothing of the gate:
+$out"
+cmp -s "$WORK/bin12/buddylist" "$WORK/bin12/buddylist.orig" || fail "QA-12: the old buddylist must stay in place"
+cmp -s "$WORK/bin12/buddy" "$WORK/stubs12/buddy" || fail "QA-12: buddy, built first, is installed"
+
 echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
 echo "  QA-6 the daemon waits past the old ten-poll window, says what launchd recorded, and fails last (also on a failed"
 echo "  kickstart); fake launchctl, real one guarded; QA-7 BUDDY_CHAT=off builds buddy alone, six-line hook report, the fold;"
-echo "  QA-8 remnants named on one line and left byte-identical)"
+echo "  QA-8 remnants named on one line and left byte-identical; QA-9 the gate line judged from decoded JSON: legacy named with"
+echo "  README's entry and the file untouched, custom and no-onFailure not verified, another event's line no gate, no python said;"
+echo "  QA-10 a new buddy whose gate dies fails the install, naming the probe, and the old one stays; QA-11 the probe passes"
+echo "  from a relative BUDDY_BIN_DIR and with a \" in TMPDIR, new builds renamed in; QA-12 a killed buddylist names itself,"
+echo "  not the gate, and the old one stays)"

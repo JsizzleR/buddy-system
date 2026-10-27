@@ -146,7 +146,8 @@ buddy init
 
 That creates `buddy.db` in the repo's git **common** directory, shared by
 every worktree and unseen by git. A repo without one is untouched: every hook
-is a silent no-op there. `init` also says whether each of the repo's main
+is a silent no-op there while `buddy` runs (an installed one that cannot run
+refuses, below). `init` also says whether each of the repo's main
 languages has a language-server plugin configured, with the command that
 fixes it ([details](docs/USAGE.md#language-servers--what-buddy-init-reports));
 re-running it is safe.
@@ -154,10 +155,15 @@ re-running it is safe.
 ### 3. Hook wiring
 
 Add these to `~/.claude/settings.json` (every repo; the ones never `buddy
-init`-ed stay off) or to one repo's `.claude/settings.local.json`. The
+init`-ed stay off while `buddy` runs) or to one repo's `.claude/settings.local.json`. The
 install script's report reads only the user-level file. Every line is guarded,
-so a missing binary turns the feature off rather than failing a tool call.
-Sessions started after this pick it up:
+so a missing binary turns the feature off rather than failing a tool call. The
+gate is the one line that refuses: a `buddy` that is installed but crashes, is
+killed or cannot run refuses the call (exit 2) rather than letting it through.
+For a gate that times out or cannot start, Claude Code's hooks reference says
+`"onFailure": "block"` (2.1.295 or later) does the same: documented, not
+measured here, and what an older build makes of the key is not measured
+either. Sessions started after this pick it up:
 
 ```json
 {
@@ -165,7 +171,8 @@ Sessions started after this pick it up:
     "SessionStart": [{"hooks": [{"type": "command",
       "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" hello 2>/dev/null; exit 0"}]}],
     "PreToolUse": [{"matcher": "Edit|Write|NotebookEdit|Bash", "hooks": [{"type": "command",
-      "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" gate; exit 0"}]}],
+      "command": "[ -x \"$HOME/bin/buddy\" ] || exit 0; { \"$HOME/bin/buddy\" gate; } 2>/dev/null || { echo \"buddy gate failed (status $?); refusing the tool call (the gate fails closed). Operator, from a terminal: sh scripts/install.sh in the buddy-system checkout\" >&2; exit 2; }",
+      "timeout": 10, "onFailure": "block"}]}],
     "PostToolUse": [{"matcher": "*", "hooks": [
       {"type": "command",
        "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"},
@@ -195,7 +202,19 @@ Sessions started after this pick it up:
 | `PostToolUse` | `buddylist alert` | tells a session a chat message named it (counts only, no text) | chat only |
 | `SessionEnd` | `buddylist presence --gone` | takes the session's buddy out of the chat room at once | chat only |
 
-The gate line deliberately has no `2>/dev/null`: when it denies, it says why.
+The gate's deny reasons travel on stdout as JSON, so its `2>/dev/null` hides
+nothing a verdict says; what it discards is a crash's own text, which would
+otherwise be the block reason the model reads, unfenced. To see that text, run
+the gate by hand from a terminal, as `install.sh` probes it:
+`echo '{"session_id":"s","tool_name":"Write","tool_input":{"file_path":"f"}}' | ~/bin/buddy gate`.
+While the installed
+binary cannot run, every matching call refuses in every session on the
+machine, in repositories never `buddy init`-ed and outside any repository too:
+a `buddy` that cannot run cannot tell them apart, and Bash is refused with the
+rest. Reinstall from a terminal; if the checkout cannot build, `chmod -x
+~/bin/buddy` turns the feature off (the `[ -x ]` guard) until it can. That
+switch is named here and not in the refusal, which the model reads.
+`scripts/install.sh` reports a gate still wired the old way (D-107).
 Why each hook behaves as it does is in [docs/USAGE.md](docs/USAGE.md#hooks-in-detail).
 
 ### 4. The commit gate (optional)

@@ -35,9 +35,11 @@ ledger row entered through the CLI (D-006).
    the worse design.
 2. **"No ledger" and "ledger unreadable" are different verdicts (D-005), and must stay
    different.** Provably not a repo, or never `buddy init`ed, means the feature is OFF
-   and every hook is a silent no-op. A ledger that exists but cannot be read means DENY
-   (fail closed). Collapsing these two into one silent-allow arm is how a safety feature
-   quietly stops existing.
+   and every hook is a silent no-op, while `buddy` runs: an installed `buddy` that cannot
+   run makes README's gate line refuse every gated call, ledger or none (D-107, the
+   operator's choice). A ledger that exists but cannot be read means DENY (fail closed).
+   Collapsing these two into one silent-allow arm is how a safety feature quietly stops
+   existing.
 3. **SQLite, not flat files (D-001).** Claims need transactional overlap checks; `O_EXCL`
    files lose to ABA, partial writes, and multi-scope atomicity. The driver is
    `modernc.org/sqlite` — pure Go, **no cgo**, deliberately. Ledger opens with
@@ -1098,6 +1100,25 @@ ledger row entered through the CLI (D-006).
     fish 3.0's `--debug-level` takes a value. These forms and B/C/F4 may be re-examined — this
     GIVEN records what was done, and does not forbid re-deriving them.
 
+108. **The gate's hook line fails closed when an installed `buddy` dies (D-107).** README's
+    entry, one spelling in `scripts/gate-hook.py`: `[ -x "$HOME/bin/buddy" ] || exit 0;
+    { "$HOME/bin/buddy" gate; } 2>/dev/null || { echo <one fixed line> >&2; exit 2; }`,
+    `timeout` 10, `onFailure: "block"`. The old `[ -x ] && buddy gate; exit 0` turned a
+    buddy that died before printing (a panic, SIGKILL, a corrupt binary) into "no
+    decision", and the call went ahead (measured with libc v1.67.1's pre-main panic under
+    sandbox-exec). No binary: off, silent. Exit 0: stdout passes untouched. Any other
+    status: exit 2, which blocks whatever stdout holds, with the fixed line; the crash's
+    own text is discarded (invariant 9). A timeout or a shell that cannot start blocks by
+    `onFailure` (Claude Code 2.1.295+; documented, not measured). The reach is the
+    operator's choice: a dead installed buddy refuses every gated call everywhere, ledger
+    or none, so GIVEN 2 holds "while `buddy` runs". `install.sh` reports README's, LEGACY
+    or custom and never edits settings, and builds beside the target, renaming in only
+    after a `gate` probe passes. Codex's wiring is wrapped the same way without the `[ -x ]`
+    guard. A binary that exits 0 having decided nothing (a zero-byte one included) is a
+    named residual. Do not propose a stdout-capturing deny JSON at exit 0, a shell-level
+    no-ledger shortcut (it fails open across repositories and in linked worktrees), or
+    passing a crash's stderr through as the reason.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
@@ -1116,8 +1137,10 @@ ledger row entered through the CLI (D-006).
   not `kill`.
 - On macOS, `cp` onto an existing Mach-O invalidates its ad-hoc code signature and the
   kernel SIGKILLs the next run (exit 137). Install with `rm` then `cp`, or `go build -o`
-  straight over the target. This bites hooks specifically, because every hook line ends in
-  `exit 0` — a killed binary and a binary with nothing to say are the same observation.
+  straight over the target (`install.sh` builds beside it and renames it in, D-107). This
+  bites hooks specifically: the chat and lifecycle hook lines end in `exit 0`, so a killed
+  binary and a binary with nothing to say are the same observation there, and the gate's
+  line turns a killed `buddy` into a refusal (D-107).
 - Hook latency budget is 100 ms. Measured: `gate` 20 ms, `beat` 13 ms, chat alert 1.2 ms
   warm / 5.9 ms cold.
 - IRC is the daily driver (`ergo`, loopback :6667, IRCv3 `echo-message`); the TOC/AIM

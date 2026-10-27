@@ -58,8 +58,9 @@ if [ -z "$BUDDY" ]; then
 	exit 0
 fi
 
-# NO TRAILING `exit 0`. Every Claude Code hook line in this project ends in one,
-# because a chat-side failure must never cost a tool call — but copying that
+# NO TRAILING `exit 0`. Every Claude Code hook line in this project but the
+# gate's ends in one, because a chat-side failure must never cost a tool call
+# (the gate's turns a dead buddy into exit 2 instead, D-107) — but copying that
 # idiom here would discard the gate's verdict and make the deny posture and the
 # fail-closed ledger arm both inert while still appearing to work. The gate's
 # exit status IS this hook's exit status: 0 allow, 1 refused on a claim

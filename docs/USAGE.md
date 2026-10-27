@@ -48,6 +48,14 @@ the paths tools declare (including cross-repo targets, against the *target*
 repo's ledger), but it cannot bind processes that bypass the harness. It is a
 seatbelt for agents, not a sandbox against them.
 
+**An installed binary that cannot run is not a missing one (D-107).** README's
+gate line turns a `buddy` that crashes, is killed or is corrupt into a refusal
+(exit 2) of every gated call in every session, in repositories never `buddy
+init`-ed and outside any repository too: a binary that cannot run cannot tell
+them apart. Its other lines end in `exit 0`, so for them a dead binary is a
+silent one. Reinstall from a terminal; `chmod -x ~/bin/buddy` turns the
+feature off (the `[ -x ]` guard) until the checkout builds again.
+
 **A cwd that was removed under a live session** (a lane that removed its own
 worktree) is discovered from its deepest existing ancestor, a dangling symlink
 on the way followed: the verdict is what an empty directory at that path would
@@ -232,18 +240,27 @@ replace `/absolute/path/to/buddy` before installing it in the appropriate
       "matcher": "^(apply_patch|Bash)$",
       "hooks": [{
         "type": "command",
-        "command": "BUDDY_HARNESS=codex /absolute/path/to/buddy gate"
+        "command": "{ BUDDY_HARNESS=codex /absolute/path/to/buddy gate; } 2>/dev/null || { echo \"buddy gate failed (status $?); refusing the tool call (the gate fails closed). Operator: rebuild the binary this hook names\" >&2; exit 2; }"
       }]
     }]
   }
 }
 ```
 
+The wrapper is README's fail-closed gate line for Codex (D-107): a `buddy` that
+dies before it decides (a panic, SIGKILL, a corrupt binary) exits 2, which Codex
+reads as a block with stderr as the reason, and the redirect keeps a crash's own
+multi-line text out of that reason. There is no `[ -x ]` guard, because wiring an
+absolute path is the opt-in here, so a binary missing from that path refuses
+too. Codex has no `onFailure`: a hook that times out or fails to start is a
+failed hook and the call goes ahead.
+
 The explicit `BUDDY_HARNESS=codex` marker identifies a Codex hook even if the
 hook process lacks the shell's native thread variable. It does not grant
 permissions. `buddy diagnose --codex-hooks <absolute hooks.json>` lists any
 buddy command in a layer that lacks it (see "Offline compatibility diagnostic"). Review the exact definition through Codex `/hooks`: new or changed
-untrusted hooks are skipped. Configuration, trust and observed enforcement are
+untrusted hooks are skipped, so an edited gate line fails open until it is
+trusted again. Configuration, trust and observed enforcement are
 separate facts. The repository installer does not change Codex permissions or
 hook trust. After opting in, run an actual Codex patch against a peer-held
 scope and a non-conflicting control, and confirm the former wrote nothing.
@@ -370,8 +387,11 @@ same one.
 an existing Mach-O invalidates its ad-hoc code signature and the kernel
 SIGKILLs the result — measured, exit 137 on the very next run.
 `go build -o ~/bin/buddy ./cmd/buddy` replaces the file, and is what
-`install.sh` does; `cp new ~/bin/buddylist` is not safe. It matters because the hook lines end in `exit 0`: a killed binary is
-indistinguishable from a binary that had nothing to say.
+`install.sh` does, building beside the target and renaming it in only after it
+runs (D-107); `cp new ~/bin/buddylist` is not safe. It matters because the chat
+and lifecycle hook lines end in `exit 0`: a killed binary is indistinguishable
+there from a binary that had nothing to say, and README's gate line refuses
+every gated call while `buddy` is killed.
 
 ## Claims in depth
 

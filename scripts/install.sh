@@ -22,14 +22,20 @@
 #   2. runs each built binary once (`buddy help`, bare `buddylist`, which
 #      prints its usage) and checks it says what it is — one that exits 137 was
 #      SIGKILLed for a broken ad-hoc signature, and a hook that ran it would
-#      have been silent (every hook line ends in `exit 0`);
+#      have been silent (every chat hook line ends in `exit 0`) or, through the
+#      gate's line, refused every matching tool call (D-107); and buddy runs
+#      `gate` once in a fresh temp directory, which must exit 0. Each is
+#      built BESIDE its target and renamed over it only once it passed, so a
+#      build that fails here leaves the old binary in place;
 #   3. installs the user-level skill (scripts/install-skill.sh);
 #   4. restarts the chat daemon under launchd (`kickstart -k`, never kill:
 #      KeepAlive respawns a killed daemon and the loser of the socket race
 #      dies — CLAUDE.md) and checks it is running again, waiting out the
 #      launch constraint a NEW build meets first (below);
 #   5. wires THIS checkout (scripts/setup-clone.sh: hooks path, ledger);
-#   6. REPORTS which Claude Code hooks are wired in ~/.claude/settings.json.
+#   6. REPORTS which Claude Code hooks are wired in ~/.claude/settings.json,
+#      and whether the gate's is README's fail-closed entry or the old line
+#      that let a crashed buddy's tool call through (D-107).
 #      It never edits that file: which hooks a user runs is theirs to choose,
 #      and a script that rewrote it would be a script that could remove one.
 #   A daemon that does not come back fails the install, but at the END: steps
@@ -89,6 +95,7 @@
 #                       remnants report reads             (default ~/.claude.json)
 #   BUDDY_MCP_JSON      the checkout's MCP registrations file it reads
 #                                                         (default <checkout>/.mcp.json)
+#   BUDDY_PYTHON        the python step 6a decodes settings with (default python3)
 set -eu
 CDPATH= cd -- "$(dirname -- "$0")/.."
 ROOT=$(pwd)
@@ -138,33 +145,74 @@ if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
 fi
 say "installing from $ROOT at $rev$dirty"
 
-# build <cmd> <target>: go build -o straight over the target, then run it once
+# build <cmd> <target>: go build -o a NEW file beside the target, run it once
 # and check it names itself — output alone is not enough, since a binary that
-# never ran and one that ran and said nothing look the same from a hook.
+# never ran and one that ran and said nothing look the same from a hook — and
+# only then rename it over the target.
+#
+# BESIDE, NOT OVER (D-107). Built straight over the target, a build whose gate
+# died was already in place when its probe found it, and README's gate line
+# refuses every gated call while the installed buddy cannot run: every session
+# on the machine, the Bash of an agent running this install included (the
+# cross-check). Renamed in only after every probe passed, a failed build leaves
+# the old binary where it was. A rename is one directory entry on one volume,
+# never a cp over a running Mach-O (CLAUDE.md), and a process still running the
+# old binary keeps it. The new file's path is absolute because the gate probe
+# runs it from a temporary directory (a relative BUDDY_BIN_DIR is the
+# checkout's, where this script cd'd first; the code pass's relative-path
+# finding).
 build() {
 	cmd=$1 target=$2
 	mkdir -p "$(dirname -- "$target")"
 	[ ! -d "$target" ] || die "$target is a directory, not a binary"
-	go build -o "$target" "./cmd/$cmd" || die "go build ./cmd/$cmd -o $target"
+	new=$target.new-$$
+	case $new in /*) ;; *) new=$ROOT/$new ;; esac
+	go build -o "$new" "./cmd/$cmd" || { rm -f "$new"; die "go build ./cmd/$cmd -o $target"; }
 	# buddy answers `help` with 0. buddylist has no help verb: run bare, it
 	# prints its usage and exits 2 — a USAGE exit, which is fine here, and
 	# distinct from 126/127 (cannot execute) and 137 (SIGKILL). (A first
 	# probe of this read `buddylist | head` and saw 0: head's status.)
 	if [ "$cmd" = buddy ]; then
-		out=$("$target" help 2>&1) && rc=0 || rc=$?
+		out=$("$new" help 2>&1) && rc=0 || rc=$?
 	else
-		out=$("$target" 2>&1) && rc=0 || rc=$?
+		out=$("$new" 2>&1) && rc=0 || rc=$?
 		[ "$rc" -ne 2 ] || rc=0
 	fi
 	if [ "$rc" -ne 0 ]; then
 		why=""
 		[ "$rc" -ne 137 ] || why=" (SIGKILL: a broken ad-hoc signature)"
-		die "$target exited $rc on its first run$why"
+		rm -f "$new"
+		die "$target: the new build exited $rc on its first run$why; not installed, $target left as it was"
 	fi
 	case $out in
 	*"$cmd "*) ;;
-	*) die "$target ran but did not name itself: $(printf '%s' "$out" | head -n 1)" ;;
+	*) rm -f "$new"; die "$target: the new build ran but did not name itself: $(printf '%s' "$out" | head -n 1); not installed, $target left as it was" ;;
 	esac
+	# `help` proves the binary starts, not that the gate does: a gate path that
+	# dies is a refusal of every gated call machine-wide once installed
+	# (D-107), so it is run once here on a Write inside a fresh temp
+	# directory and must exit 0. Its verdict is not read: a TMPDIR inside a
+	# paused repository would deny, and that is a decision too. The payload
+	# is a constant with no `cwd` and a relative path, which the gate
+	# resolves against its own working directory: a temp path printed into
+	# the JSON broke it when TMPDIR held a `"`, and the gate's parse-error
+	# deny exits 0, so the probe passed without reaching the Write (the code
+	# pass). The directory is named under $TMPDIR by an
+	# explicit template: macOS's bare `mktemp -d` ignores TMPDIR (it takes the
+	# per-user directory confstr names; measured), and the done-check moves
+	# the probe through TMPDIR.
+	if [ "$cmd" = buddy ]; then
+		probe=$(mktemp -d "${TMPDIR:-/tmp}/buddy-gate-probe.XXXXXX") || { rm -f "$new"; die "mktemp failed"; }
+		gout=$(cd "$probe" && printf '%s' '{"session_id":"install-probe","hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"probe"}}' |
+			"$new" gate 2>&1) && grc=0 || grc=$?
+		rm -rf "$probe"
+		if [ "$grc" -ne 0 ]; then
+			rm -f "$new"
+			first=$(printf '%s' "$gout" | head -n 1)
+			die "$target: the new build's gate exited $grc on its probe (a Write in a fresh temp directory)${first:+: $first}; not installed, $target left as it was"
+		fi
+	fi
+	mv -f "$new" "$target" || { rm -f "$new"; die "could not rename the new build over $target"; }
 	say "built $target"
 }
 
@@ -303,6 +351,20 @@ else
 		say "hooks: all $count wired in $SETTINGS"
 	else
 		say "hooks: NOT wired in $SETTINGS:$missing (README \"Hook wiring\"; busy is optional)"
+	fi
+	# 6a. The gate's own line, judged (D-107). The grep above finds `buddy\" gate`
+	# in the old fail-open line and the new one alike, and anywhere in the file;
+	# this decodes the JSON and reads each PreToolUse command that runs the gate
+	# against README's entry (scripts/gate-hook.py holds it). Only a python3 can
+	# decode it here, and install needs none for anything else, so without one
+	# the line says it did not look. Advisory like the rest: settings unchanged.
+	py=${BUDDY_PYTHON:-python3}
+	if ! command -v "$py" >/dev/null 2>&1; then
+		say "gate: not checked (no $py to decode $SETTINGS); README \"Hook wiring\" has the fail-closed entry (D-107)"
+	elif gate=$("$py" -I "$ROOT/scripts/gate-hook.py" report "$SETTINGS" 2>/dev/null) && [ -n "$gate" ]; then
+		say "$gate"
+	else
+		say "gate: not checked ($py could not run scripts/gate-hook.py); README \"Hook wiring\" has the fail-closed entry (D-107)"
 	fi
 fi
 

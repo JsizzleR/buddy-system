@@ -185,6 +185,7 @@ if [ "$run_hermetic" = 1 ]; then
   sh scripts/check-wait.sh
   sh scripts/check-skill.sh
   sh scripts/check-install.sh
+  sh scripts/check-gate-line.sh
   sh scripts/check-setup-clone.sh
   sh scripts/check-startup-report.sh
   sh scripts/check-wake-report.sh

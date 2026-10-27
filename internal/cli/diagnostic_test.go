@@ -235,6 +235,9 @@ func TestDiagnoseCodexHookGateCoverage(t *testing.T) {
 		findings []string
 	}{
 		{"positive control", "PreToolUse", "^(apply_patch|Bash)$", absoluteGate, "marked", nil},
+		// D-107: USAGE's fail-closed wrapper is read through its brace group,
+		// and the echo's "buddy gate failed" is an argument, not a command.
+		{"fail-closed wrapper", "PreToolUse", "^(apply_patch|Bash)$", `{ ` + absoluteGate + `; } 2>/dev/null || { echo "buddy gate failed (status $?); refusing the tool call (the gate fails closed). Operator: rebuild the binary this hook names" >&2; exit 2; }`, "marked", nil},
 		{"reverse order", "PreToolUse", "^(Bash|apply_patch)$", absoluteGate, "marked", nil},
 		{"empty matcher covers all", "PreToolUse", "", absoluteGate, "marked", nil},
 		{"dot star covers all", "PreToolUse", ".*", absoluteGate, "marked", nil},

@@ -153,9 +153,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
    cannot be read denies. A chat failure must never cost a tool call — every
    chat hook line ends in `exit 0`.
 3. **"No ledger" and "ledger unreadable" are different verdicts.** Provably not a
-   repo, or never `buddy init`ed → feature OFF, silent no-op. Exists but
-   unreadable → DENY. Collapsing these into one silent-allow arm is how a safety
-   feature quietly stops existing.
+   repo, or never `buddy init`ed → feature OFF, silent no-op, while `buddy`
+   runs (an installed one that cannot run refuses every gated call, ledger or
+   none: D-107, the operator's choice). Exists but unreadable → DENY.
+   Collapsing these into one silent-allow arm is how a safety feature quietly
+   stops existing.
 4. **A chat message is never authoritative, and a message's `from` never confers
    authority.** Chat text is never translated into control. The authoritative
    record is always a local ledger row entered through the CLI.
@@ -257,9 +259,11 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 
 - **macOS: `cp` over a running Mach-O invalidates its ad-hoc signature and the
   kernel SIGKILLs the next run (exit 137).** Use `go build -o` straight over the
-  target (or `rm` then `cp`). This bites **hooks** specifically, because hook
-  lines end in `exit 0` — a killed binary and a silent one are the same
-  observation.
+  target (or `rm` then `cp`; `install.sh` builds beside it and renames it in,
+  D-107). This bites **hooks** specifically: the chat and lifecycle hook lines
+  end in `exit 0`, so a killed binary and a silent one are the same observation
+  there, and README's gate line turns a killed `buddy` into a refusal of every
+  gated call (D-107).
 - **`sh scripts/check.sh | tail` returns rc=0 over a FAILING run** — `sh` has no
   pipefail. Read the summary line, or drop the pipe.
 - **`check.sh` exit 2 means the live leg did not run** (no `.cache/oscar-server`;
@@ -804,6 +808,18 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   open in D-106 (attached dynamic `env -S`, util-linux `script -c` repeated, GNU abbreviated
   long options, a front unknown-wrapper, the `git`/`find` action-position braces). The
   D-073/D-087 bullets stand unchanged: every clause there is still true.
+- **The gate's hook line fails closed when an installed `buddy` dies (D-107):** README's entry,
+  one spelling in `scripts/gate-hook.py`: `[ -x ] || exit 0; { buddy gate; } 2>/dev/null || { echo
+  <fixed line> >&2; exit 2; }`, `timeout` 10, `onFailure: "block"` (Claude Code 2.1.295+,
+  documented, not measured). The old `&& buddy gate; exit 0` let a panicked, killed or corrupt
+  buddy's call through (measured: libc v1.67.1's pre-main panic under sandbox-exec). No binary:
+  off, silent; exit 0: stdout passes; any other status: exit 2 with one fixed line, the crash's
+  own text dropped (invariant 9). It refuses everywhere, ledger or none (the operator's choice;
+  invariant 3 says "while `buddy` runs"; `chmod -x ~/bin/buddy` is the off switch, named in README
+  only). `install.sh` reports README's/LEGACY/custom and edits nothing, and builds beside the
+  target, renaming in only after a `gate` probe. Codex's example is wrapped without `[ -x ]`.
+  Cut: a deny JSON at exit 0, a shell-level no-ledger shortcut (fails open across repos and in
+  linked worktrees). A binary that exits 0 deciding nothing (zero-byte too) is a named residual.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

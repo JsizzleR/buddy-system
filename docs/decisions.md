@@ -8029,3 +8029,141 @@ N2-N4/N6 recorded) + round 6 (Fable, ACCEPT WITH CHANGES, all P3: F1 `source --`
 folded, the measurement wording, a test comment and the N1 record corrected).
 The operator's decision: land after round 6's fold, no 7th re-verify. Tests:
 `TestGateShellRouteReVerifyR6`.
+
+## D-107 — The gate's hook line fails closed when an installed `buddy` dies
+
+2026-10-27. orc-7's dependency review of 2026-10-27 (the operator: "do it");
+the operator's choice on the cross-check's first finding, relayed by orc-8.
+
+**The failure** — the documented and installed PreToolUse line was `[ -x
+"$HOME/bin/buddy" ] && "$HOME/bin/buddy" gate; exit 0`. `buddy gate` says deny
+with one JSON line on stdout and exit 0, and allow with nothing, so a `buddy`
+that DIED before printing left stdout empty, and `; exit 0` made the death the
+hook's "no decision": Claude Code let the tool call through, the opposite of
+invariant 2. Measured at dd7daff: `modernc.org/libc` v1.67.1's netdb init reads
+`/etc/services` before `main` and panics on any error but ENOENT; under a
+`sandbox-exec` profile denying that read, `buddy` exited 2 silently and the
+line exited 0 with nothing on stdout. The libc v1.73.4 pinned since tolerates
+a permission error there (measured, same profile: a deciding gate; EIO, EISDIR
+and ELOOP still panic, by its source), so that trigger is gone and the class is
+not: `cp` over a running Mach-O gets the next run SIGKILLed (CLAUDE.md), any
+Go panic exits 2, and a corrupt binary exits 126. Whether a real harness
+sandbox denies that read was not established; the kill path needs none.
+
+**The rule** — README's entry, held in one place (`scripts/gate-hook.py`):
+
+    [ -x "$HOME/bin/buddy" ] || exit 0; { "$HOME/bin/buddy" gate; } 2>/dev/null || { echo "buddy gate failed (status $?); refusing the tool call (the gate fails closed). Operator, from a terminal: sh scripts/install.sh in the buddy-system checkout" >&2; exit 2; }
+
+with matcher `Edit|Write|NotebookEdit|Bash`, `"timeout": 10` and `"onFailure":
+"block"`. Read from Claude Code's hooks reference (2.1.311): exit 2 blocks a
+PreToolUse call whatever stdout holds, with stderr as the reason unless stdout
+holds a blocking decision, whose own reason is used (a buddy that printed its
+deny and then died is refused with the deny's reason); any other
+non-zero exit, a timeout, or a hook that cannot start lets the call through
+unless `onFailure` is `"block"` (2.1.295 and later). So:
+- **No executable at `$HOME/bin/buddy`:** exit 0, silent. Installation is the
+  opt-in; a machine with no binary has no feature to fail.
+- **`buddy` exits 0:** its stdout passes through untouched, a deny or nothing.
+- **`buddy` exits non-zero, a signal included:** exit 2 with ONE fixed stderr
+  line naming the fix. Its own stderr is discarded with the brace group's: a
+  panic's text is multi-line and unfenced, and would be the model-visible
+  reason when stdout holds no blocking decision (invariant 9; the design
+  pass). The gate writes nothing to stderr on any path that decides.
+- **A timeout, or a shell that cannot start:** `onFailure: "block"`.
+  Documented, not measured: no native run has timed one out.
+- **The reach, the operator's choice.** A `buddy` that cannot run cannot tell
+  a repository with no ledger from one with, so an installed one that dies
+  refuses every matching call in every session on the machine, outside any
+  repository and Bash included. The cross-check named it a breach of invariant
+  3; the operator accepted it (a broken installed binary is a machine fault,
+  and the refusal names the fix) and scoped invariant 3, charter GIVEN 2 and
+  `SECURITY.md` to "while `buddy` runs". README names the operator's off
+  switch, `chmod -x ~/bin/buddy` (the `[ -x ]` guard), and the refusal does
+  not: the model reads it.
+- **`install.sh`** reports, never edits: step 6a decodes `~/.claude/settings.json`
+  and prints ONE line judging its PreToolUse gates together: README's, LEGACY
+  (with README's entry to paste), LEGACY beside README's (runs twice, decides
+  nothing when it matters), or custom with "NOT VERIFIED" and the first
+  reasons found, in this order: one gate hook's own (a dropped `onFailure` or
+  `timeout`, an `if`, `args` or `shell` key), else a matcher not read as an
+  exact list or missing a tool, else `disableAllHooks`. `build()` builds
+  BESIDE the target, runs `help` and a `gate` probe (a constant Write payload,
+  no `cwd`, in a fresh temp directory named under `$TMPDIR`), and renames the
+  build in only when both exit 0. The probe's verdict is not read: a TMPDIR
+  inside a governed repository may deny, and that is a decision too. A build
+  whose gate died used to be in place before its probe ran, refusing every
+  call machine-wide, the installing agent's Bash included.
+- **Codex.** USAGE's Codex example is wrapped the same way WITHOUT the `[ -x ]`
+  guard: wiring an absolute path is Codex's opt-in, so a missing binary
+  refuses; Codex blocks on exit 2 with stderr as the reason. An edited Codex
+  hook is skipped until re-trusted in `/hooks`, so a wrapped line is fail-open
+  until then. `buddy diagnose --codex-hooks` reads it `marked`, as it reads the
+  bare line.
+- **AGENT-SETUP** replaces the legacy entry on an upgrade rather than keeping
+  it beside the new one.
+
+**Considered and cut**
+- Capturing stdout and printing a fixed deny JSON with `exit 0` (the
+  dependency review's first proposal): it needs `$(...)` capture and JSON
+  quoted inside a JSON string, and an exit-0 verdict depends on Claude parsing
+  that JSON, where exit 2 depends on the code alone (the design pass).
+- A shell-level no-ledger shortcut (look for `buddy.db` before refusing): the
+  line cannot discover a ledger the way the gate does (the git common dir of
+  the cwd and of every target, linked worktrees' `commondir`, nested
+  repositories D-073, a vanished cwd D-102), so it fails open across
+  repositories and in linked worktrees.
+- Passing a crash's stderr through as the reason: unfenced, multi-line.
+- `[ -s ]` against a zero-byte executable: one instance of the class below,
+  named instead.
+
+**Not done, accepted**
+- A binary that runs and exits 0 having decided nothing: an executable
+  holding only `:`, or a ZERO-BYTE executable, which every shell runs as an
+  empty script (exit 0, nothing on either stream; measured under sh, bash,
+  dash and zsh). `install.sh` renames a probed build into place, so it never
+  leaves one.
+- A timeout on a Claude Code build before 2.1.295 (no `onFailure`), and what
+  such a build makes of the unknown key: not measured. No native run exercises
+  README's line (`qualify-claude-mods.py`'s control is a bare gate).
+- Codex has no `onFailure`: a Codex gate that times out or cannot start is a
+  failed hook, and the call goes ahead (its hooks reference).
+- An allow slower than 10 s now blocks (the gate measures 20 ms).
+- A session cwd with no search permission: `os.Getwd` fails and `cmd/buddy`
+  exits 1, so the call refuses (a Go probe; native not run). A REMOVED cwd
+  never reaches it: Claude Code 2.1.311 runs hooks from the original cwd, the
+  project root or home then (its hooks reference), and on macOS `buddy` exits
+  0 in a removed cwd anyway (measured).
+- `[ -x ]` false mid-copy: a hand copy's window; `install.sh` renames.
+- `buddy-adapter`'s own process killed: its wrapper denies every error from
+  `buddy gate`, not its own death; its strict gate check rejects an
+  `onFailure` key, and adapter workers launch with `--setting-sources ""`, so
+  README's entry never reaches them. That needs its own qualified contract.
+- A future gate deny on stderr with exit 2 would still block, its reason lost
+  to the redirect; no such path exists.
+- `install.sh` now replaces a non-object file at a target by the rename, where
+  `go build -o` refused one.
+- `diagnose` reads bare and wrapped Codex lines alike; a "bare gate fails open"
+  finding was not added.
+
+**Tests** — `scripts/check-gate-line.sh` (in `check.sh`): README's entry is
+`gate-hook.py`'s, whole; the exact command under `sh`, `dash` and `bash`
+against the real gate (its deny byte-equal to the bare binary's, two allows)
+and stubs, every HOME holding a space: absent and non-executable silent; exits
+1, 2, 126, 127, a real Go panic, SIGKILL before and after partial JSON,
+deny-then-exit-1, hostile multi-line stderr and a missing interpreter each exit
+2 with only the fixed line; the OLD line still lets the killed stub through
+(its marker proves the stub ran); the install report on 15 settings shapes and
+an over-deep file. `scripts/check-install.sh` QA-9 (the report, the file left
+byte-identical), QA-10 (a new buddy whose gate dies is not installed),
+QA-11 (the probe from a relative `BUDDY_BIN_DIR`, and with a `"` in TMPDIR),
+QA-12 (a killed buddylist names itself, not the gate). A `diagnostic_test.go`
+row: the wrapped Codex line reads `marked` with no finding, and
+`TestUsageCodexHookExampleDiagnosesMarked` now reads USAGE's wrapped example
+(both die when the walk stops at a brace group). Mutation: 28 mutants in
+private copies, each killed by its check, that walk and the probe's die line
+among them; M21 and M22
+(the relative path, the quote in TMPDIR) first SURVIVED because macOS's bare
+`mktemp -d` ignores TMPDIR, so the probe's directory is now named under
+`$TMPDIR` by template. Review: full (panel x3 opus + codex@xhigh design +
+codex@xhigh code + opus@xhigh cross-check, the operator's choice, not fable +
+codex@xhigh reverify x3).

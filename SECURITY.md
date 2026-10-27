@@ -31,6 +31,10 @@ its boundaries tells you what counts as a vulnerability.
   spelling of the path (a symlink, `..`, a case alias) or a nested governed
   repository, or when the ledger exists but cannot be read or is newer than
   the binary (those must deny, never allow).
+- README's gate line letting a tool call through when the installed `buddy`
+  crashes, is killed or cannot run: it must refuse (D-107). D-107 names what
+  it does not cover (a binary that exits 0 having decided nothing, a timeout
+  on a Claude Code build without `onFailure`).
 - Any path by which buddy copies transcript text, rather than the last turn's
   token counts, into the ledger or another session's context.
 - `buddy-adapter` (opt-in, never installed by `install.sh`) letting its worker
@@ -56,9 +60,12 @@ its boundaries tells you what counts as a vulnerability.
   refuse), and only in a checkout whose hooks path `setup-clone.sh` set. A
   process that never goes through a hook is not bound at all. It is a seatbelt
   for agents, not a sandbox against them.
-- **A repository with no ledger.** The gate is off there, including in a
-  repository git refuses that holds no `buddy.db`. A ledger that exists is the
-  switch; one that exists and cannot be read denies.
+- **A repository with no ledger.** While `buddy` runs, the gate is off there,
+  including in a repository git refuses that holds no `buddy.db`. A ledger
+  that exists is the switch; one that exists and cannot be read denies. An
+  installed `buddy` that cannot run refuses every gated call in every session,
+  ledger or none: it cannot tell them apart, and a refusal naming the fix was
+  chosen over a gate that fails open (D-107).
 - **Who a message says it is from.** `buddy msg` signs with the sender's
   registered label, but a process with no session signs as `operator`, or as
   its `--from`. A sender's name confers no authority, and message text is

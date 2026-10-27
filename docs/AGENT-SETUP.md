@@ -80,6 +80,12 @@ to `~/.claude/settings.json`. Then merge, never overwrite:
 - If it has `hooks`, append our entries to each event's array (`SessionStart`,
   `PreToolUse`, `PostToolUse`, `Stop`, `UserPromptSubmit`, `SessionEnd`),
   keeping every entry already there. Do not drop or reorder what the user has.
+- One exception, on an upgrade: a `PreToolUse` hook whose command is the old
+  `[ -x "$HOME/bin/buddy" ] && "$HOME/bin/buddy" gate; exit 0` is REPLACED by
+  the README's gate entry, not kept beside it. On its own that line lets the
+  tool call through when `buddy` crashes or is killed (D-107); beside the new
+  entry it decides nothing then, and runs the gate a second time on every
+  call. Show the user this replacement in the diff like any other change.
 - Claims-only: leave out the two `buddylist` lines (`alert`, `presence --gone`)
   and add `"env": {"BUDDY_CHAT": "off"}` at the top level, so every session's
   SessionStart digest stays free of chat hints.
@@ -87,7 +93,10 @@ to `~/.claude/settings.json`. Then merge, never overwrite:
 Show the user the diff before saving. **Checkpoint:** the file is still valid
 JSON (`python3 -m json.tool ~/.claude/settings.json >/dev/null`), and
 re-running the install command from step 1, in the same mode, now reports the
-hooks as wired (the six `buddy` lines claims-only, `all eight` with chat).
+hooks as wired (the six `buddy` lines claims-only, `all eight` with chat), and
+its `gate:` line reads `README's fail-closed gate entry in …`. A `LEGACY` or
+`custom` gate line means the gate entry is not the README's yet (a dropped
+`onFailure` or `timeout` counts): fix it before going on.
 
 ## 4. Turn it on in each repository
 
@@ -102,7 +111,9 @@ buddy init
 This creates `buddy.db` in the repo's git common directory, shared by all of
 its worktrees and invisible to git, and prints one line per main language
 saying whether a language-server plugin is configured for it (advisory only).
-A repository without a ledger is untouched: every hook is a silent no-op there.
+A repository without a ledger is untouched: every hook is a silent no-op there
+while `buddy` runs (an installed one that cannot run refuses every gated call,
+README "Hook wiring").
 Re-running `buddy init` is safe.
 
 Optional, per repository: the commit-time gate, a symlink to
@@ -133,6 +144,7 @@ was started after the file was saved.
 ## 6. Report
 
 Tell the user, in a few lines: where the binaries are, that the skill is
-installed, which hooks are wired (quote the install report's `hooks:` line),
+installed, which hooks are wired (quote the install report's `hooks:` and
+`gate:` lines),
 which repositories were `buddy init`-ed, and whether chat was set up or
 skipped. Point them at `buddy --help` and the README for everyday use.
