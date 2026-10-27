@@ -1007,6 +1007,16 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 	return j, true
 }
 
+// fishValueLetters are fish's short options that take a value, per its
+// documented options: -c and -C (commands), -d (debug categories), -o (debug
+// output file), -f (features), -p (profile file), and fish 3's -D (debug stack
+// frames). fishValueLong are the long spellings shell() does not otherwise
+// read. Re-verify r4 finding 1 (D-106).
+const fishValueLetters = "cCdofpD"
+
+var fishValueLong = map[string]bool{"--debug": true, "--debug-output": true, "--features": true,
+	"--profile": true, "--profile-startup": true, "--debug-stack-frames": true}
+
 // shell reads a shell's options: with -c (fish: --command) its first operand
 // is a certain script; with -s or no operand it reads its script from stdin;
 // otherwise its first operand is a script FILE, which stays cooperative.
@@ -1017,6 +1027,7 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 	var operands []shellWord
 	var fishCmds []shellWord // fish runs EACH -c/-C command (it repeats); analysed at the end unless -n
 	fishSawCommand := false  // fish got a -c/--command: it is in command mode, never reading stdin
+	fishUsage := false       // a fish option ended the line without its value: fish exits, reading no script
 	options := true
 	for j := 0; j < len(args); j++ {
 		a := args[j]
@@ -1066,12 +1077,33 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 					} else if j+1 < len(args) {
 						fishCmds = append(fishCmds, args[j+1])
 						j++
+					} else {
+						// No value: a fish usage error, so fish exits before
+						// reading stdin (`fish -C true --init-command <<<…`,
+						// re-verify r4 finding 2).
+						fishUsage = true
 					}
-				case opt == "--no-execute" && name == "fish":
+				case (opt == "--no-execute" || opt == "--version" || opt == "--print-debug-categories") && name == "fish":
 					// fish --no-execute (the long -n) checks syntax and runs
 					// nothing, so its -c commands are not analysed (G1,
-					// verdict3.md; D-106 operator fold 2026-10-27).
+					// verdict3.md; D-106 operator fold 2026-10-27). --version
+					// and --print-debug-categories print and exit while fish
+					// reads its options, before any command or script runs
+					// (documented; re-verify r4 finding 3).
 					noexec = true
+				case !inline && name == "fish" && fishValueLong[opt]:
+					// The value is the next word, never the script file:
+					// `fish --profile /tmp/p -c 'apply_patch …'` runs the -c
+					// (re-verify r4 finding 1, the long spelling).
+					if j+1 >= len(args) {
+						fishUsage = true
+					} else if args[j+1].overBudget {
+						// A brace too large to expand in the value position
+						// expands in place into options and a command (finding E).
+						w.exhausted("shell patch routing exceeds its brace expansion budget")
+						return
+					}
+					j++
 				case !inline && (opt == "--rcfile" || opt == "--init-file"):
 					if j+1 < len(args) && args[j+1].overBudget {
 						// The file argument is a brace word too large to expand;
@@ -1085,54 +1117,65 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 					j++
 				}
 				continue
-			case name == "fish" && len(t) > 1 && t[0] == '-' && strings.IndexAny(t[1:], "cC") >= 0 && t[1+strings.IndexAny(t[1:], "cC")] == 'C':
-				// fish -C TEXT: an init command, deferred to fishCmds so a later -n
-				// suppresses it (re-verify r2 finding 6). Only
-				// when C comes first: in -capply_patch < CHANGE.patch the C
+			case name == "fish" && len(t) > 1 && t[0] == '-':
+				// fish reads a cluster as getopt does, letter by letter, and the
+				// FIRST letter that takes a value takes the rest of the cluster,
+				// or else the next word, so no letter after it is an option.
+				// Finding the first c or C anywhere read the C inside
+				// `-p/tmp/initCommands.prof`, and its preceding n as -n, so
+				// `fish -p/tmp/initCommands.prof -c 'apply_patch …'` was allowed;
+				// a detached value was read as the script file (`fish -p /tmp/p
+				// -c …`) or as bash's `-o noexec` (`fish -o noexec -c …`)
+				// (re-verify r4 finding 1). In -capply_patch < CHANGE.patch the C
 				// is script text (Codex ninth code pass).
-				// An n (or s) BEFORE the C in the cluster applies, as the c branch
-				// does (`fish -nC apply_patch` is no-execute, re-verify r3 finding 2).
-				cc := strings.IndexRune(t, 'C')
-				if strings.ContainsRune(t[1:cc], 'n') {
+				// Letters BEFORE the value letter apply: -n checks syntax only
+				// (G2, `-nC`, re-verify r3 finding 2), -v prints the version and
+				// exits (re-verify r4 finding 3).
+				flags, letter, rest := t[1:], byte(0), ""
+				if k := strings.IndexAny(t[1:], fishValueLetters); k >= 0 {
+					flags, letter, rest = t[1:1+k], t[1+k], t[2+k:]
+				}
+				if strings.ContainsAny(flags, "nv") {
 					noexec = true
 				}
-				if strings.ContainsRune(t[1:cc], 's') {
+				if strings.ContainsRune(flags, 's') {
 					stdin = true
 				}
-				if cc+1 < len(t) {
-					fishCmds = append(fishCmds, shellWord{text: t[cc+1:], known: true})
-				} else if j+1 < len(args) {
-					fishCmds = append(fishCmds, args[j+1])
+				if letter == 0 {
+					continue
+				}
+				value, ok := shellWord{text: rest, known: true}, rest != ""
+				if !ok && j+1 < len(args) {
+					value, ok = args[j+1], true
 					j++
 				}
-				continue
-			case name == "fish" && len(t) > 1 && t[0] == '-' && strings.ContainsRune(t[1:], 'c'):
-				// fish runs EACH -c command (it repeats): `fish -c true -c "$x"`
-				// runs both, so the dynamic "$x" must be read, not treated as a
-				// positional (F1, verdict3.md). The command is attached (-ccmd) or
-				// the next word; options BEFORE the c in the cluster still apply, so
-				// `-nc'…'` suppresses execution (G2). The commands are analysed at
-				// the end, only if not under no-execute. D-106 operator fold (2026-10-27).
-				fishSawCommand = true
-				c := strings.IndexRune(t, 'c')
-				if strings.ContainsRune(t[1:c], 'n') {
-					noexec = true
+				switch {
+				case !ok:
+					// A value option ending the line is a fish usage error: fish
+					// exits before reading stdin (`fish -C true -C <<<…`,
+					// re-verify r4 finding 2; r2 finding 7 for -c).
+					fishUsage = true
+				case letter == 'c' || letter == 'C':
+					// fish runs EACH -c and -C command (it repeats): `fish -c true
+					// -c "$x"` runs both, so the dynamic "$x" is read, not treated
+					// as a positional (F1, verdict3.md). They are analysed at the
+					// end, so a LATER -n suppresses them (re-verify r2 finding 6).
+					fishCmds = append(fishCmds, value)
+				case value.overBudget:
+					// A brace too large to expand in the value position expands
+					// in place into options and a command (finding E).
+					w.exhausted("shell patch routing exceeds its brace expansion budget")
+					return
 				}
-				if strings.ContainsRune(t[1:c], 's') {
-					stdin = true
-				}
-				if c+1 < len(t) {
-					fishCmds = append(fishCmds, shellWord{text: t[c+1:], known: true})
-				} else if j+1 < len(args) {
-					fishCmds = append(fishCmds, args[j+1])
-					j++
+				if letter == 'c' {
+					fishSawCommand = true
 				}
 				continue
 			case len(t) > 1 && (t[0] == '-' || t[0] == '+'):
 				if strings.ContainsRune(t[1:], 'c') {
-					// fish's -c is handled in its own case above (it repeats, and
-					// -n before the c suppresses it); other shells read the rest of
-					// the cluster as more options.
+					// fish's '-' clusters are read in their own case above (its
+					// -c repeats, and its options take values); other shells read
+					// the rest of the cluster as more options.
 					command = true
 				}
 				if t[0] == '-' && strings.ContainsRune(t[1:], 's') {
@@ -1174,12 +1217,15 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 		// fishSawCommand == false) do NOT suppress stdin: fish still reads its
 		// main script from stdin or a file, so the switch below must run
 		// (re-verify r3 finding 1: `fish -C true <<'SH'…` reads the heredoc).
+		// An option missing its value is a usage error: fish exits and reads
+		// no script (re-verify r4 finding 2); the commands before it are still
+		// analysed, which can only over-refuse.
 		if !noexec {
 			for _, c := range fishCmds {
 				w.scriptOf([]shellWord{c}, depth, "fish runs command text built at run time", site.fds)
 			}
 		}
-		if fishSawCommand {
+		if fishSawCommand || fishUsage {
 			return
 		}
 	}

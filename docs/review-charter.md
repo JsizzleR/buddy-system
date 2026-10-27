@@ -1066,22 +1066,30 @@ ledger row entered through the CLI (D-006).
     change, NOT "only over-refuses"); treats `script` with a transcript file and no command as a
     shell reading stdin, so `script -q /dev/null <<'SH' … apply_patch … SH` is caught (C, both;
     playback `-p` excluded; the kernel control needs the heredoc padded past script's pty
-    buffer); refuses an over-budget brace consumed as an option/action value in the wrapper
-    grammar, `shell()`'s `-o`/`--rcfile`/`-S`, the `--`/lead loop, `findActions`, `gitRoute`,
-    `scriptFile` and `trap` (E, both); and FIXES fish F1/G1/G2 in `shell()` (repeated `-c`
-    refuses; `--no-execute`/`-n` allow). Finding D was refuted. `exec <<'SH'` read by a later
+    buffer); refuses an over-budget brace consumed as an option value in the wrapper grammar,
+    `shell()`'s `-o`/`--rcfile`/`-S` and fish's value options, the `--`/lead loop, `gitRoute`'s
+    `-C` value, `scriptFile` and `trap` (E, both; the `findActions` and any-word `gitRoute`
+    guards were added, then REVERTED as false-denying data braces, so those positions are OPEN
+    below); and FIXES fish F1/G1/G2 in `shell()` (repeated `-c` refuses; `--no-execute`/`-n`
+    allow). Finding D was refuted. `exec <<'SH'` read by a later
     statement stays the documented cooperative limit, tested as an accepted gap. Recorded OPEN
     (crafted brace-budget respellings, D-106; free under Claude's allow arm, so not fixed to avoid
     false-denying common data braces): the attached/assignment-dynamic `env -S`, the static
     option-tail `env -S '-u' {X,-S,apply_patch,…}` (F5), and `env -S <wrapper> {…}`; util-linux
-    `script -c` repeated and `-t` optional value; GNU abbreviated long options; a front
-    unknown-wrapper (`lockf -k`); and the `git` (`-C .`/`submodule`/`bisect`) and `find`
-    (`{-exec,…}` and the NESTED `-exec … {…,\;,-exec,apply_patch,…} \;`) action-position braces. BSD `script -T` playback is deliberately
-    over-refused (util-linux `-T` runs a shell). Three codex re-verify rounds fixed the fold's
-    false denials (fish long `--command`, a `fish -c true ""` panic, fish init-commands under a
-    later `--no-execute`, `fish --command` with no value, and the find/env-`S`-tail over-budget
-    guards, reverted). These forms and B/C/F4 may be re-examined — this GIVEN records what was
-    done, and does not forbid re-deriving them.
+    `script -c` repeated and `-t` optional value; GNU abbreviated long options (fish's
+    included); a front unknown-wrapper (`lockf -k`); and the `git` (`-C .`/`submodule`/`bisect`)
+    and `find` (`{-exec,…}` and the NESTED `-exec … {…,\;,-exec,apply_patch,…} \;`)
+    action-position braces. BSD `script -T` playback is deliberately over-refused (util-linux
+    `-T` runs a shell), as are fish `-h`/`--help` and an unknown fish option (not modelled).
+    Three codex re-verify rounds fixed the fold's false denials (fish long `--command`, a `fish
+    -c true ""` panic, fish init-commands under a later `--no-execute`, `fish --command` with no
+    value, and the find/env-`S`-tail over-budget guards, reverted). Round 4 found round 3's
+    `-nC` fold read a C inside another option's value (`fish -p/tmp/initCommands.prof -c
+    'apply_patch …'` allowed): fish clusters are now read as getopt does, the first value option
+    (`-c -C -d -o -f -p`, fish 3's `-D`, and their long spellings) taking the rest of the cluster
+    or the next word; a value option ending the line, `--version`/`-v` and
+    `--print-debug-categories` read no stdin. These forms and B/C/F4 may be re-examined — this
+    GIVEN records what was done, and does not forbid re-deriving them.
 
 ## Environment facts (measured, do not re-derive)
 

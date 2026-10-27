@@ -796,10 +796,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   shell expands in place into options and a command). D was refuted; `exec <<'SH'` read by a
   later statement stays the documented cooperative limit. fish F1/G1/G2 are FIXED in `shell()`
   (the operator's decision, from verdict3.md's stated behaviour, not fish's source; fish not on
-  this box, controls NOT RUN). The FULL review's code pass + cross-check found and folded more
-  (playback precision, `script -c`, over-budget in `findActions`/`gitRoute`/`scriptFile`/`trap`/
-  lead-operands); some respellings are recorded open in D-106 (attached dynamic `env -S`,
-  util-linux `script -c` repeated, GNU abbreviated long options, a front unknown-wrapper). The
+  this box, controls NOT RUN), and fish's option clusters are read as getopt does (a value
+  option takes the rest of the cluster or the next word; re-verify r4). The FULL review's code
+  pass + cross-check found and folded more (playback precision, `script -c`, over-budget in
+  `scriptFile`/`trap`/lead-operands and `gitRoute`'s `-C` value; the `findActions` and any-word
+  `gitRoute` guards were reverted as false-denying data braces); some respellings are recorded
+  open in D-106 (attached dynamic `env -S`, util-linux `script -c` repeated, GNU abbreviated
+  long options, a front unknown-wrapper, the `git`/`find` action-position braces). The
   D-073/D-087 bullets stand unchanged: every clause there is still true.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process

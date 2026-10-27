@@ -7727,7 +7727,8 @@ D-087) returned neither a found route nor an uncertainty for shell commands a
 real shell runs `apply_patch` for, or failed to discover the governed directory
 one changes into. Each line below is the one-line reproduction; each ran on this
 box against a stub `apply_patch` first on PATH (BSD `env`/`script`; fish not
-installed, so F1/G1/G2 stay open, below):
+installed, so F1/G1/G2 have no kernel control — they were FIXED from the stated
+behaviour, below):
 
 - **A** `x=; env -S "$x" -C /governed apply_patch`: env still processes the
   options AFTER a dynamic `-S` value (empty or option-only `$x` leaves `-C` in
@@ -7828,6 +7829,9 @@ were regressions the first follow-up fold introduced. Folded:
   lead-operand loop, `findActions`, `gitRoute` (any word), `scriptFile` and
   `trap` each refuse an over-budget brace as exhausted (it expands in place into
   a command). `--log-timing` was added to the script table (codex 3).
+  **SUPERSEDED in rounds 1-2:** the any-word `gitRoute` guard (kept for `-C`'s
+  value only) and both `findActions` guards were reverted as false-denying data
+  braces; those positions are recorded OPEN below.
 
 **Recorded open (respellings, named here and in the audit row; orc-7's
 allowance):**
@@ -7857,7 +7861,8 @@ allowance):**
   reopening is OPEN, alongside the top-level `find . {-exec,apply_patch,…} \;`
   (re-verify r3 finding 5). This SUPERSEDES the round-1 "closing a nested-action
   bypass" statement below.
-- **cross-check** — GNU `env`/`script` abbreviated long options (`--s=`, `--c`);
+- **cross-check** — GNU `env`/`script` abbreviated long options (`--s=`, `--c`;
+  fish's `--com`/`--init` and its documentation example's `--init-cmd` too, round 4);
   an unknown wrapper in front (`lockf -k f script …`) hiding C and env forms
   (pre-existing); util-linux `script -t`'s OPTIONAL value. Each verified by the
   cross-check; unbounded or util-linux or pre-existing, NOT RUN here.
@@ -7893,7 +7898,8 @@ above (finding 10). Documented, not
 changed: BSD `script -T` is playback, but `-T` is kept OUT of playback
 recognition because util-linux `-T` is timing and DOES run a shell, so the
 deny over-refuses BSD `-T` playback — the safe side for a security gate
-(finding 6). Docs reconciled: F5 removed from the open lists (now fixed), the
+(finding 6). Docs reconciled: F5 removed from the open lists (now fixed —
+**SUPERSEDED in round 2: F5 is OPEN again**, above), the
 audit A-01 row's fish line (finding 8), and the charter/audit open lists
 (finding 7).
 
@@ -7933,10 +7939,49 @@ note's superseded "closed" statements are corrected (findings 4, 5). The operato
 then directed a FOURTH re-verify on this fold before landing (so this is not the
 bound after all).
 
+**Re-verify round 4** (codex@xhigh, REJECT, 6; folded by lane a01-2) found round
+3's own side effect, a P1: `fish -p/tmp/initCommands.prof -c 'apply_patch <
+p.patch'` was ALLOWED under both harnesses — the `-C` branch took the first `c`/`C`
+anywhere in the cluster, so it read the C inside `-p`'s attached value as `-C` and
+the n before it as `-n` (finding 1; denied on `cbaa253`). The fix is the parse,
+not a guard: fish's `-` clusters are read in ONE case as getopt reads them, letters
+in order, the FIRST value option (`-c -C -d -o -f -p` per fish's documented
+options, and fish 3's `-D`) taking the rest of the cluster or else the next word,
+so no letter after it is an option; the long value options (`--profile`,
+`--profile-startup`, `--debug`, `--debug-output`, `--features`,
+`--debug-stack-frames`) consume their detached value. That also closes three
+pre-existing literal bypasses of the same shape: a detached value read as the
+script file (`fish -p /tmp/p -c 'apply_patch …'`, `fish --profile /tmp/p -c …`)
+and fish's `-o` value read as bash's `-o noexec` (`fish -o noexec -c …`); a
+consumed value word over the brace budget still exhausts (finding E). It frees one
+crafted form: `fish -pc 'apply_patch …'` gives `-p` the value `c`, so the quoted
+text is the script FILE (cooperative), allowed. Two false denials fixed: a value
+option ending the line (`fish -C true -C <<<'apply_patch'`, `--init-command`,
+any value option) is a fish usage error, so fish exits before reading stdin
+(`fishUsage`; the commands before it are still analysed, which can only
+over-refuse) (finding 2); and `--version`/`-v` and `--print-debug-categories`
+print and exit while fish reads its options (documented), so they suppress
+everything like `-n` — one more term in the existing `--no-execute` case and the
+cluster's flag letters (finding 3, crafted). Re-checked against the round-3 forms
+beside them: init-only stdin still DENIES, `fish -nC apply_patch` still ALLOWS,
+`-Cn`/`-cC`/`-Cc` still give the text after the letter as its value. Docs
+corrected: the charter's "`findActions` refuses over-budget action values" (those
+guards were reverted; finding 4), the audit table's OPEN summary now names F5 and
+the round-1 "F5 … (now fixed)" note carries its supersession (finding 5), and the
+stale fish "on hold"/"stay open" text (finding 6). Recorded, not fixed: fish's
+GNU-style abbreviated long options (`--com`, `--init`) join the abbreviation entry
+above, as does `--init-cmd`, the spelling in fish's own documentation example
+(unverified: not a prefix of `--init-command`); fish `-h`/`--help` (undocumented
+on that page) and an unknown fish option are not modelled, so a stdin or `-c`
+route after them may over-refuse, the safe side. fish is NOT installed on this
+box: every fish kernel control is NOT RUN. Tests:
+`TestGateShellRouteReVerifyR4` in `internal/cli/shellroute_test.go`.
+
 Review: full — adversarial self-review + panel (3 read-only Opus subagents:
 bypass sites, fixture-respelling, false-denial direction) + codex@xhigh design
 (on drafted code: the diff preceded the prompt) + codex@xhigh code (REJECT, 10;
 folded) + opus@xhigh cross-check (ACCEPT WITH CHANGES, 9; operator's choice, not
 fable) + codex@xhigh re-verify round 1 (REJECT, 8) + round 2 (REJECT, 9) + round 3
-(REJECT, 5), each folded → round 4 pending (operator's call); the item lands after
-it with the final reverify count and last verdict named in the landing commit.
+(REJECT, 5) + round 4 (REJECT, 6), each folded → a 5th re-verify through Fable
+(the operator's choice, run by the orchestrator) pending; the item lands after it
+with its verdict named in the landing commit.

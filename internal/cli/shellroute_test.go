@@ -1070,10 +1070,11 @@ func TestShellRetainedScriptsAreBounded(t *testing.T) {
 // real shell runs apply_patch (or changes directory into a governed repo) for,
 // while the recognizer returned neither found nor uncertainty. The fixes are in
 // patch.go; these are the regressions, each watched to fail without its fix.
-// F1/G1/G2 (fish) are on hold for the operator (D-087's harness dimension is
-// noted per finding). Each form here carries a kernel control where its shell
-// is on this box; a form the shell does not actually run would make the gate's
-// refusal a false denial dressed up as coverage.
+// F1/G1/G2 (fish) were then FIXED at the operator's decision, asserted in
+// TestGateShellRouteReviewFolds (fish not on this box, controls NOT RUN; D-087's
+// harness dimension is noted per finding). Each form here carries a kernel
+// control where its shell is on this box; a form the shell does not actually
+// run would make the gate's refusal a false denial dressed up as coverage.
 func TestGateShellRouteReReviewForms(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
@@ -1544,5 +1545,107 @@ func TestGateShellRouteReVerifyR3(t *testing.T) {
 		t.Logf("kernel control NOT RUN: fish is not installed on this box")
 		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+}
+
+// codex@xhigh re-verify round 4 (REJECT, 6) on 41e06e5: round 3's fish `-nC`
+// fold read a C inside ANOTHER option's value (a P1 bypass under both
+// harnesses), and two fish false denials (an init command missing its value;
+// --version). fish is NOT on this box, so every kernel control is NOT RUN, said
+// loudly; the gate's verdict is asserted regardless, each refusal beside a
+// control that allows and each allow beside a same-shape form that refuses.
+func TestGateShellRouteReVerifyR4(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	plain := t.TempDir()
+
+	// Finding 1: fish reads a cluster as getopt does, so the first letter that
+	// takes a value (c C d o f p, fish 3's D) takes the rest of the cluster or
+	// the next word. `-p/tmp/initCommands.prof` is a profile path; the C inside
+	// it, and its n read as -n, allowed the -c after it. A detached value was
+	// read as the script file, and fish's -o value as bash's `-o noexec`. Each
+	// runs a literal apply_patch, so it refuses under every harness, and only
+	// where a ledger governs.
+	for _, c := range []struct{ name, form string }{
+		{"p-attached", "fish -p/tmp/initCommands.prof -c 'apply_patch < p.patch'"},
+		{"p-detached", "fish -p /tmp/initCommands.prof -c 'apply_patch < p.patch'"},
+		{"profile-long-detached", "fish --profile /tmp/initCommands.prof -c 'apply_patch < p.patch'"},
+		{"o-value-is-not-noexec", "fish -o noexec -c 'apply_patch < p.patch'"},
+		{"d-detached-then-stdin", "fish -d proc <<'SH'\napply_patch < p.patch\nSH\n"},
+	} {
+		t.Run("finding1/"+c.name, func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.form), true, "apply_patch")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.form), true, "apply_patch")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, c.form), false, "")
+		})
+	}
+	// The value takes the WHOLE rest of the cluster: with no -c after it the
+	// command is data, and in `-pc` the c is the profile path, so the quoted
+	// text is the script FILE (cooperative) — both allowed under every harness.
+	for _, c := range []struct{ name, form string }{
+		{"p-attached-data-command", "fish -p/tmp/initCommands.prof -c 'echo ok'"},
+		{"pc-c-is-the-value", "fish -pc 'apply_patch < p.patch'"},
+	} {
+		t.Run("finding1/allow/"+c.name, func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.form), false, "")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.form), false, "")
+		})
+	}
+	// A consumed value is still checked for the brace budget (finding E): a
+	// shell expands `{x,-c,apply_patch,…}` in place into `-p x -c apply_patch`.
+	for _, form := range []string{
+		"fish -p {x,-c,apply_patch,x{1..300}}",
+		"fish --profile {x,-c,apply_patch,x{1..300}}",
+	} {
+		t.Run("finding1/budget/"+form[:10], func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "budget")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "budget")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, form), false, "")
+		})
+	}
+
+	// Finding 2: a value option ending the line is a fish usage error, so fish
+	// exits before reading stdin: ALLOW. Control: the same line with the value
+	// given reads stdin and refuses.
+	const hs = " <<<'apply_patch < p.patch'"
+	for _, form := range []string{
+		"fish -C true -C" + hs,
+		"fish -C true --init-command" + hs,
+		"fish -C true --profile" + hs,
+	} {
+		t.Run("finding2/"+form[13:], func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+		})
+	}
+	t.Run("finding2/control-value-given", func(t *testing.T) {
+		form := "fish -C true -C true" + hs
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "apply_patch")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "apply_patch")
+	})
+
+	// Finding 3: --version (-v) and --print-debug-categories print and exit
+	// while fish reads its options, before any command or script runs
+	// (documented): ALLOW. Control: without them fish reads stdin and refuses.
+	for _, form := range []string{
+		"fish -C true --version" + hs,
+		"fish -C true -v" + hs,
+		"fish -C true --print-debug-categories" + hs,
+		"fish -v -c 'apply_patch < p.patch'",
+	} {
+		t.Run("finding3/"+form[5:16], func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+		})
+	}
+	t.Run("finding3/control-no-exit-option", func(t *testing.T) {
+		form := "fish -C true" + hs
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "apply_patch")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "apply_patch")
 	})
 }
