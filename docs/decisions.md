@@ -7839,10 +7839,13 @@ allowance):**
   dynamic-text boundary.
 - **codex 7** — util-linux `script -c true -c apply_patch` (repeated `-c` runs
   the last): util-linux only, NOT RUN here, crafted, pre-existing.
-- **F5** — a CLEAN `env -S` OPTION value then an over-budget brace tail that
-  expands to `-S apply_patch`: the reconstruction masks the brace as `"$_"`;
-  catching it eagerly false-denied the echo case (codex 6), so it stays a
-  cooperative residue.
+- **git subcommand-position over-budget** (codex 10) — `git -C . {bisect,run,
+  apply_patch,x{1..300}}`: a blanket `gitRoute` over-budget guard would catch it
+  but false-denied data pathspecs (`git diff -- path{1..300}`, re-verify r1
+  finding 5), so the guard was reverted to `-C`'s value only. Crafted (also
+  needs an active bisect), NOT RUN here.
+  (F5 — a clean `env -S` OPTION value then an over-budget tail — is NOT open: the
+  re-verify's finding 3 fix, below, exhausts it along with `env -S env {…}`.)
 - **cross-check** — GNU `env`/`script` abbreviated long options (`--s=`, `--c`);
   an unknown wrapper in front (`lockf -k f script …`) hiding C and env forms
   (pre-existing); util-linux `script -t`'s OPTIONAL value. Each verified by the
@@ -7863,9 +7866,26 @@ were reverted in a private rsync'd copy (python, not sed) and watched to fail
 pattern's verified over-budget→exhausted and are covered by their deny-budget
 tests.
 
+**Re-verify round 1** (codex@xhigh, REJECT, 8; five were side effects of the
+second fold). Folded: fish's long `--command` joins `fishCmds` so it is analysed,
+not dropped in operands (finding 1); the fish `-c` case guards `len(t) > 1`
+before indexing (a `fish -c true ""` PANIC, finding 2); an over-budget `env -S`
+tail exhausts UNLESS the split value's first field is a data command, which
+denies `env -S env {…}` and re-closes F5 while keeping `env -S echo {…}` allowed
+(finding 3); the `-exec` inner separator scan checks over-budget, closing a
+nested-action bypass (finding 4); the blanket `gitRoute` over-budget guard was
+reverted (it false-denied `git diff -- path{1..300}`, finding 5) — the
+subcommand-position brace is recorded open above (finding 10). Documented, not
+changed: BSD `script -T` is playback, but `-T` is kept OUT of playback
+recognition because util-linux `-T` is timing and DOES run a shell, so the
+deny over-refuses BSD `-T` playback — the safe side for a security gate
+(finding 6). Docs reconciled: F5 removed from the open lists (now fixed), the
+audit A-01 row's fish line (finding 8), and the charter/audit open lists
+(finding 7).
+
 Review: full — adversarial self-review + panel (3 read-only Opus subagents:
 bypass sites, fixture-respelling, false-denial direction) + codex@xhigh design
 (on drafted code: the diff preceded the prompt) + codex@xhigh code (REJECT, 10;
-5 regressions + 3 over-budget folded, 2 recorded open) + opus@xhigh cross-check
-(ACCEPT WITH CHANGES, 9; operator's choice, not fable) + codex@xhigh re-verify
-(run by the orchestrator after this fold).
+8 folded, 2 recorded open) + opus@xhigh cross-check (ACCEPT WITH CHANGES, 9;
+operator's choice, not fable) + codex@xhigh re-verify round 1 (REJECT, 8; folded)
+→ round 2 pending (bound: 3 rounds).

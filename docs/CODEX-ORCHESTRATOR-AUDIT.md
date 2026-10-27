@@ -92,8 +92,10 @@ and fixed. Mutation and check results:
   `pwd -P` landing check — and the fix in `patch.go`, each reverted in a private
   rsync'd copy and its test watched to fail (7 guards, 7 killed). D stays refuted.
   The `exec <<'SH'` limit is tested as an accepted gap, not fixed. fish's F1/G1/G2
-  stay open for the operator: a turn writing their fixtures was stopped by a safety
-  classifier, the forms were not rephrased around it, and fish is not on this box.
+  were later FIXED in `shell()` at the operator's decision (from verdict3.md's
+  stated behaviour, not fish's source; fish not on this box, kernel controls NOT
+  RUN). An earlier turn drafting their fixtures was stopped by a safety classifier
+  and not rephrased around; the operator then chose the stated-behaviour route.
   The FULL-tier review (Codex design pass + a 3-subagent panel) then surfaced
   adjacent gaps, folded the same way (`TestGateShellRouteReReviewFollowUp`, 11
   guards mutation-covered): a `script -p` playback false denial the first C fix
@@ -107,12 +109,17 @@ and fixed. Mutation and check results:
   `gitRoute`/`scriptFile`/`trap`, and the corrected "not only over-refuses" for B).
   The operator then decided fish F1/G1/G2 be FIXED in this item (from verdict3.md's
   stated behaviour, not fish's source; fish not on box, controls NOT RUN). 18 guards
-  are mutation-covered (`TestGateShellRouteReReview*`, `TestGateShellRouteReviewFolds`).
-  Recorded OPEN as respellings (D-106): attached dynamic `env -S"$x"` jurisdiction,
-  util-linux `script -c` repeated, GNU abbreviated long options, a front
-  unknown-wrapper (`lockf -k`), util-linux `script -t` optional value. Hermetic only;
-  the native rerun of these forms is still owed (A-07). The Codex re-verify of this
-  fold is run by the orchestrator.
+  are mutation-covered. A codex@xhigh re-verify (round 1, REJECT, 8) then folded
+  five more fold side effects (fish long `--command`, a `fish -c true ""` panic,
+  `env -S env {…}` via a data-command-aware tail check that also re-closed F5, a
+  nested `-exec` bypass, and a `git diff -- path{1..300}` false denial from a too-
+  broad git guard now reverted). Recorded OPEN as respellings (D-106): attached
+  dynamic `env -S"$x"` jurisdiction, util-linux `script -c` repeated, GNU
+  abbreviated long options, a front unknown-wrapper (`lockf -k`), util-linux
+  `script -t` optional value, and the `git -C . {bisect,run,…}` subcommand-position
+  brace (crafted). Documented over-refusal: BSD `script -T` playback (denied
+  because util-linux `-T` runs a shell). Hermetic only; the native rerun of these
+  forms is still owed (A-07). Re-verify rounds 2-3 run by the orchestrator.
 - A-02: 27 of 28 mutants killed, one equivalent (D-077 A-02 continuation). The narrow
   contract built on 2026-10-12 has its own sweep (D-077 2026-10-12 continuation).
 - `sh scripts/check.sh hermetic` over the finished tree, the 2026-10-11

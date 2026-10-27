@@ -1073,8 +1073,12 @@ ledger row entered through the CLI (D-006).
     statement stays the documented cooperative limit, tested as an accepted gap. Recorded OPEN
     (respellings, D-106): attached dynamic `env -S"$x"` jurisdiction, util-linux `script -c`
     repeated, GNU abbreviated long options, a front unknown-wrapper (`lockf -k`), util-linux
-    `script -t` optional value. These forms and B/C/F4 may be re-examined — this GIVEN records
-    what was done, and does not forbid re-deriving them.
+    `script -t` optional value, and the `git -C . {bisect,run,…}` subcommand-position over-budget
+    brace (crafted). BSD `script -T` playback is deliberately over-refused (util-linux `-T` runs a
+    shell). A re-verify fold also fixed fish long `--command`, a `fish -c true ""` panic,
+    `env -S env {…}` (re-closing F5), and a nested `-exec` bypass, and reverted a too-broad git
+    guard that false-denied `git diff -- path{1..300}`. These forms and B/C/F4 may be
+    re-examined — this GIVEN records what was done, and does not forbid re-deriving them.
 
 ## Environment facts (measured, do not re-derive)
 

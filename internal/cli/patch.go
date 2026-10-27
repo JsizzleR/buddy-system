@@ -608,6 +608,21 @@ func isURL(s string) bool {
 // looksLikeScript: an operand worth parsing speculatively as shell text.
 func looksLikeScript(s string) bool { return strings.ContainsAny(s, " \t\n;&|<>()`$") }
 
+// splitRunsDataCommand reports whether env's -S split words run a DATA command
+// at their command position, so an over-budget TAIL after them is that
+// command's data and decides nothing (`env -S echo x{1..300}`). The common
+// case is the first field; leading env options (`-i`, `-u X`) are not modelled,
+// so anything but a bare data-command first field returns false and the caller
+// exhausts, the safe side (re-verify r1 finding 3).
+func splitRunsDataCommand(split string) bool {
+	fields := strings.Fields(split)
+	if len(fields) == 0 || strings.HasPrefix(fields[0], "-") {
+		return false
+	}
+	name := commandName(shellWord{text: fields[0], known: true})
+	return dataCommands[name] && dataExecOption[name] == ""
+}
+
 // command scans one simple command from its established command position.
 func (w *shellWalker) command(words []shellWord, site callSite, depth int) {
 	for i := 0; i < len(words); i++ {
@@ -957,14 +972,22 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 					if text.Len() > shellMaxScript {
 						break
 					}
-					// An over-budget brace in the tail is masked as "$_" and the
-					// rebuilt `env <split> ...` is re-analysed: the split value
-					// decides whether the tail is a command's data (`env -S echo
-					// x{1..300}` runs echo) or a position that matters. Refusing
-					// here eagerly false-denied the echo case (D-106 follow-up,
-					// FULL-review codex finding 6); the crafted `env -S '-u'
-					// {…apply_patch…}` that this would have caught is recorded
-					// open in D-106 as a cooperative residue instead.
+					if word.overBudget {
+						// The over-budget brace expands in place into env's argv AFTER
+						// the split words. If those run a DATA command the tail is its
+						// data and decides nothing (`env -S echo x{1..300}` only
+						// echoes); any other split value (a wrapper like `env`, an
+						// option like `-u`) can put the tail at a command position
+						// (`env -S env {…apply_patch…}` runs apply_patch, `env -S
+						// '-u' {…}` is F5), so it exhausts. D-106 codex 6 + re-verify
+						// r1 finding 3.
+						if splitRunsDataCommand(v.text) {
+							text.WriteString(` "$_"`)
+							continue
+						}
+						w.exhausted("shell patch routing exceeds its brace expansion budget")
+						return len(rest), true
+					}
 					if word.known {
 						text.WriteString(" " + shellQuote(word.text))
 					} else {
@@ -1034,6 +1057,18 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 			case strings.HasPrefix(t, "--"):
 				opt, value, inline := strings.Cut(t, "=")
 				switch {
+				case opt == "--command" && name == "fish":
+					// fish's long --command is one of its repeated commands, so it
+					// joins fishCmds and is analysed at the end like a short -c (not
+					// left in operands, which the fish early return does not read):
+					// `fish --command='apply_patch' -c true` ran apply_patch
+					// (re-verify r1, finding 1).
+					if inline {
+						fishCmds = append(fishCmds, shellWord{text: value, known: true})
+					} else if j+1 < len(args) {
+						fishCmds = append(fishCmds, args[j+1])
+						j++
+					}
 				case opt == "--command":
 					command = true
 					if inline {
@@ -1076,7 +1111,7 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 					j++
 				}
 				continue
-			case name == "fish" && t[0] == '-' && strings.ContainsRune(t[1:], 'c'):
+			case name == "fish" && len(t) > 1 && t[0] == '-' && strings.ContainsRune(t[1:], 'c'):
 				// fish runs EACH -c command (it repeats): `fish -c true -c "$x"`
 				// runs both, so the dynamic "$x" must be read, not treated as a
 				// positional (F1, verdict3.md). The command is attached (-ccmd) or
@@ -1285,6 +1320,15 @@ func (w *shellWalker) findActions(rest []shellWord, site callSite, depth int) {
 		}
 		k := j + 1
 		for k < len(rest) && !(rest[k].known && (rest[k].text == ";" || rest[k].text == "+")) {
+			if rest[k].overBudget {
+				// An over-budget brace WITHIN an action expands in place and can
+				// close this action and open another: `-exec true {x,\;,-exec,
+				// apply_patch,x{1..300}} \;` becomes `-exec true x \; -exec
+				// apply_patch … \;` (re-verify r1 finding 4). The outer guard
+				// never sees it because the separator scan consumes it.
+				w.exhausted("shell patch routing exceeds its brace expansion budget")
+				return
+			}
 			k++
 		}
 		w.command(rest[j+1:k], site, depth)
@@ -1298,15 +1342,13 @@ func (w *shellWalker) gitRoute(rest []shellWord, site callSite, depth int) {
 	seen := make(map[string]bool)
 	for j := 0; j < len(rest); j++ {
 		word := rest[j]
-		if word.overBudget {
-			// An over-budget brace in git's argv expands in place into a
-			// subcommand that runs one: `git -C . {bisect,run,apply_patch,
-			// x{1..300}}` becomes `git -C . bisect run apply_patch ...` (D-106
-			// follow-up, FULL-review codex finding 10). A 256+-field brace is
-			// non-idiomatic to git, so refusing it only over-refuses.
-			w.exhausted("shell patch routing exceeds its brace expansion budget")
-			return
-		}
+		// An over-budget brace elsewhere in git's argv is NOT refused here: most
+		// of git's words are data (refs, pathspecs, `git diff -- path{1..300}`),
+		// and a blanket guard false-denied them (re-verify r1 finding 5). The
+		// over-budget subcommand-position brace `git -C . {bisect,run,
+		// apply_patch,…}` (codex 10) is recorded OPEN in D-106 as crafted
+		// (it also needs an active bisect). Only `-C`'s directory value, below,
+		// is a non-data position and still exhausts.
 		if !word.known {
 			continue
 		}

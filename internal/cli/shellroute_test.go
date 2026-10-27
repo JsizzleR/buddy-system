@@ -1339,11 +1339,12 @@ func TestGateShellRouteReviewFolds(t *testing.T) {
 		name, form string
 		run        bool
 	}{
-		{"timeout-dashdash", "timeout -- {1,apply_patch,x{1..300}}", false},        // codex 8; timeout not on box
-		{"find-exec", `find . -maxdepth 0 {-exec,apply_patch,x{1..300}} \;`, true}, // codex 9
-		{"git-C-subcommand", "git -C . {bisect,run,apply_patch,x{1..300}}", false}, // codex 10; needs active bisect
-		{"source-devstdin", "source {/dev/stdin,x{1..300}}", false},                // cross-check; needs a sourcing shell on stdin
-		{"trap-action", "trap {apply_patch,EXIT,x{1..300}}; true", true},           // cross-check
+		{"timeout-dashdash", "timeout -- {1,apply_patch,x{1..300}}", false},                               // codex 8; timeout not on box
+		{"find-exec", `find . -maxdepth 0 {-exec,apply_patch,x{1..300}} \;`, true},                        // codex 9
+		{"env-S-env-tail", "env -S env {apply_patch,x{1..300}}", true},                                    // re-verify r1 finding 3 (env, not echo)
+		{"find-nested-exec", `find . -maxdepth 0 -exec true {x,\;,-exec,apply_patch,x{1..300}} \;`, true}, // re-verify r1 finding 4
+		{"source-devstdin", "source {/dev/stdin,x{1..300}}", false},                                       // cross-check; needs a sourcing shell on stdin
+		{"trap-action", "trap {apply_patch,EXIT,x{1..300}}; true", true},                                  // cross-check
 	}
 	for _, c := range overBudget {
 		t.Run("overbudget/"+c.name, func(t *testing.T) {
@@ -1385,4 +1386,55 @@ func TestGateShellRouteReviewFolds(t *testing.T) {
 			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, g.form), false, "")
 		})
 	}
+}
+
+// The codex@xhigh re-verify (round 1, REJECT, 8) on the fold found more — five
+// side effects of the fold itself. Folded (D-106). fish is NOT on this box, so
+// its controls are NOT RUN, said loudly; the gate verdict is asserted anyway.
+func TestGateShellRouteReVerifyR1(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	plain := t.TempDir()
+
+	// Finding 1: fish's LONG --command went to operands, which the fish early
+	// return ignores, so `fish --command='apply_patch' -c true` ran apply_patch.
+	// The long --command now joins fishCmds like a short -c. The value is a
+	// literal apply_patch, so it refuses under every harness.
+	t.Run("finding1/fish-long-command", func(t *testing.T) {
+		form := `fish --command='apply_patch < p.patch' -c true`
+		t.Logf("kernel control NOT RUN: fish is not installed on this box")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "apply_patch")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "apply_patch")
+	})
+
+	// Finding 2: an empty-string arg decoded as a known "" and the fish -c case
+	// indexed t[0] without a length guard — a PANIC. It must now ALLOW (true is
+	// analysed, "" ignored) and, above all, not crash. The positive control is
+	// that the gate answers at all.
+	t.Run("finding2/fish-empty-arg-no-panic", func(t *testing.T) {
+		form := `fish -c true ""`
+		t.Logf("kernel control NOT RUN: fish is not installed on this box")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+
+	// Finding 5: the blanket gitRoute over-budget guard false-denied data
+	// pathspecs. `git diff -- path{1..300}` is 300 data pathspecs with no
+	// command and must be ALLOWED. (The over-budget subcommand-position brace
+	// `git -C . {bisect,run,…}` is recorded OPEN in D-106 as crafted.)
+	t.Run("finding5/git-diff-pathspecs-allowed", func(t *testing.T) {
+		form := "git diff -- path{1..300}"
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+
+	// Finding 3's companion allow: env -S with a DATA command and over-budget
+	// args is not refused (only env/-u/wrapper split values are). Verified on
+	// this box: `env -S echo {apply_patch,x{1..300}}` does not run apply_patch.
+	t.Run("finding3/env-S-echo-allowed", func(t *testing.T) {
+		form := "env -S echo {apply_patch,x{1..300}}"
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+		_ = plain
+	})
 }
