@@ -7644,3 +7644,58 @@ verb or flag. The skill tests (`TestSkillNamesOnlyWhatHelpAnswers`,
 skill teaches, and the first draft failed one: a bare backticked `--model` was
 read as a flag of the nearest `buddy` verb. Review: lite (codex@xhigh + fable
 cross-check).
+
+## D-105 — `msg` signs an id the ledger does not know as `unregistered s-<8hex>`, never as the operator
+
+2026-10-27. The operator's round of 2026-10-27, relayed by orc-6;
+`docs/BEYOND-CODE-PLAN.md` section 4 step 3 (Codex finding 10 on that plan).
+
+**The failure** — a session not registered in this ledger signed as the
+operator. Measured 2026-10-26 (the plan's section 2): from another repo's
+checkout, a session registered only in this repo's ledger ran `buddy msg <that
+fleet's coordinator slug> --dry-run` and was told "would send … as operator",
+with its native id set or unset. `senderFor` looked the environment's id up,
+found no live row, and fell through to the no-session arm: "operator", or the
+`--from` it typed with nothing ahead of it. The same arm took an id whose row
+had ENDED. So a peer's text arrived under the one name a recipient treats as
+the operator's, and nothing on the line said otherwise. Correction ownership
+was already right (D-043's `senderSession` records such a sender as UNKNOWN);
+only the words were wrong. The plan's evidence is that a session CAN address a
+ledger it is not registered in, which a fleet of fleets makes routine.
+
+**The rule** — a session id in the environment (`BUDDY_SESSION`, then
+`CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID`, the order `environmentSession`
+already keeps) that is not a LIVE row here, absent or ended, signs
+`unregistered s-<8hex>`: the short form a hello under that id would mint
+(`defaultLabel`'s suffix). `--from` is a tag after it exactly as after a label:
+`unregistered s-66a24e29 (review)`. The bare terminal (no id in the
+environment) is unchanged: `operator`, or what `--from` typed. The send's
+result line, and the dry run's, says so ON the line, ahead of any wake
+(D-041's `| head -1` reader): `signed "unregistered s-66a24e29": your session
+id is not registered in this ledger (never said hello here, or ended); buddy
+hello --session <id> --label <name> registers you here`. A hello revives an
+ended id (D-032), so the one command serves both cases.
+- **Unchanged.** Never refused (`senderFor`'s settled line: a message is never
+  refused for want of a signature). `senderSession` and correction ownership
+  (D-043), the drain headers (D-097), and the 64-byte `fence.Line` of the
+  sender on a drained line and in `sent`: the stamp is one stored sender
+  string, rendered by every view exactly as a label is. `release --to`'s
+  notice shares `senderFor` and so the stamp; it is reached only by a live
+  holder, so in practice it signs a label. `pause` and `resume` carry no
+  sender stamp, so nothing changes for them.
+- **Not done.** Refusing the send, or requiring `hello` first: the settled
+  line above, and the cross-ledger case is exactly the one where the sender
+  has no row to make. Signing with the full session id: the short form is the
+  name every other view uses, and it fits the 64-byte column with a tag.
+  Stamping the ledger the sender IS registered in: buddy reads one ledger per
+  cwd and would have to search for it (the plan's option C, not taken).
+
+**Tests** — `TestUnregisteredSenderIsStampedNotOperator`, one fixture per row:
+an absent id under each of the three environment variables, an absent id with
+`--from`, an ENDED id with and without `--from`, and an id holding a space
+(pasted single-quoted) or a newline (not pasted: `<your session id>`, the
+stale note's rule for a name it cannot print as typed); each through the dry
+run, a real send and bravo's drained line. Controls in the same table: a live id
+(its label, with and without the tag, no clause) and the bare terminal
+(`operator`, and `--from` alone). `TestUnresolvedSenderIsNotTheOperator` and
+the other D-043 correction tests are unchanged and green.

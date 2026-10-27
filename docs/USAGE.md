@@ -572,6 +572,19 @@ with a claim slug whose claim had been *refused* — so it never opened, so the
 reply bounced with `no such target`, at the one party trying to unblock the
 sender.
 
+A session id in the environment that this ledger does not know as a live
+session (it never said hello here, or it ended) signs `unregistered s-<8hex>`,
+the short form a hello under that id would mint, with `--from` a tag after it
+(`unregistered s-66a24e29 (review)`); it is never signed as the operator, and
+never refused (D-105). The result line says so and names the fix:
+
+```text
+queued for bravo — …; message #12; signed "unregistered s-66a24e29": your session id is not registered in this ledger (never said hello here, or ended); `buddy hello --session 66a24e29-… --label <name>` registers you here
+```
+
+Only the bare terminal, with no session id in its environment, signs as
+`operator` (or as what `--from` typed).
+
 With no text on the command line, the body is read from **stdin** — unless stdin
 is a terminal, where it prints the usage line rather than waiting at a cursor:
 

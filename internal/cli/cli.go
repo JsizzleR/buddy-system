@@ -3386,7 +3386,7 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 		line += fmt.Sprintf("; %s was waiting on %s, and that wait is resolved by this (its `buddy wait check` says LANDED, handed to you)",
 			fence.Line(label, 64), strings.Join(resolved, ", "))
 	}
-	sender := senderFor(st, env, "")
+	sender, _ := senderFor(st, env, "")
 	sid, known := senderSession(st, env)
 	rcpt := observe(st, env, tgt.ID)
 	raws := make([]string, 0, len(moved))
@@ -3662,7 +3662,7 @@ func cmdMsg(args []string, env Env) error {
 	}
 	target := args[0]
 	fs := flag.NewFlagSet("msg", flag.ContinueOnError)
-	from := fs.String("from", "", "sender tag; the calling session's label is always stamped on (default: the label, or \"operator\" outside a session)")
+	from := fs.String("from", "", "sender tag; the calling session's label is always stamped on (default: the label; \"unregistered s-<8hex>\" for an id this ledger does not know, D-105; \"operator\" outside a session)")
 	dry := fs.Bool("dry-run", false, "resolve the target and measure the body, then send nothing")
 	lead := fs.Bool("lead", false, "declare the body a LEAD: not measured by you, early, possibly wrong (D-045)")
 	measured := fs.String("measured", "", "declare the body MEASURED by you; the value says what was counted, over what (required)")
@@ -3698,7 +3698,7 @@ func cmdMsg(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	sender := senderFor(st, env, *from)
+	sender, unregistered := senderFor(st, env, *from)
 	sid, known := senderSession(st, env)
 	opts := store.SendOpts{SenderSession: sid, SenderKnown: known, Supersedes: *supersedes, Kind: kind, KindNote: kindNote}
 	if *dry {
@@ -3721,8 +3721,12 @@ func cmdMsg(args []string, env Env) error {
 		if d := declaredKind(kind, kindNote); d != "" {
 			as += ", " + d
 		}
-		fmt.Fprintf(env.Stdout, "dry run: would send %d byte(s) to %s as %s — nothing was queued\n",
+		line := fmt.Sprintf("dry run: would send %d byte(s) to %s as %s — nothing was queued",
 			len(body), fence.Line(tgt.String(), 128), as)
+		if unregistered != "" {
+			line += "; " + unregisteredClause(unregistered)
+		}
+		fmt.Fprintln(env.Stdout, line)
 		return nil
 	}
 	// A DIRECT note is measured BEFORE the write, so the backlog it reports is
@@ -3764,6 +3768,12 @@ func cmdMsg(args []string, env Env) error {
 			line += fmt.Sprintf("; corrects #%d, which %d of %d addressed session(s) have a recorded delivery of",
 				*supersedes, deliveredCount(orig), len(orig.Recipients))
 		}
+	}
+	// On the result line, ahead of the wake, for the same reason the wake is
+	// on it (D-041): a sender reading `| head -1` must still learn it signed
+	// as nobody this ledger knows (D-105).
+	if unregistered != "" {
+		line += "; " + unregisteredClause(unregistered)
 	}
 	// The harness's own channel to a session at its prompt (D-039): named,
 	// never used — buddy wakes nothing. On the SAME line (D-041), because a
@@ -4221,8 +4231,9 @@ func msgKind(fs *flag.FlagSet, lead bool, measured, relay string) (kind, note st
 }
 
 // senderSession is WHO is sending, for ownership of a correction (D-043), and
-// deliberately not senderFor: that one falls back to the word "operator" for
-// display, and a failed session lookup read as the operator would let any
+// deliberately not senderFor: that one is display (it once fell back to the
+// word "operator" for such an id, D-105), and a failed session lookup read as
+// the operator would let any
 // session whose id did not resolve correct the operator's messages (Codex
 // design pass, D-043). A session id in the environment that is not a live
 // session is UNKNOWN; no id at all is the operator at a bare terminal.
@@ -4240,23 +4251,67 @@ func senderSession(st *store.Store, env Env) (id string, known bool) {
 	return "", false
 }
 
-func senderFor(st *store.Store, env Env, from string) string {
+// senderFor's arm for an id it cannot sign with a label:
+//
+// AN ID THIS LEDGER DOES NOT KNOW IS NOT THE OPERATOR (D-105). A session id in
+// the environment with no LIVE row here (it never said hello in this ledger,
+// or it ended) used to fall through to the no-session arm and sign as
+// "operator", or as whatever --from it typed: measured 2026-10-26, a session
+// registered in another repo's ledger addressed this one's coordinator and the
+// dry run said "would send … as operator", with its id set or unset
+// (BEYOND-CODE-PLAN section 2). The recipient read a peer's text as the
+// operator's. It now signs `unregistered s-<8hex>`, the short form hello
+// would mint for that id, and --from is a tag after it exactly as after a
+// label. The second value is that id, so the result line can say how to
+// register; "" for a live session and for the bare terminal. Still never
+// refused, and correction ownership stays senderSession's (D-043): an
+// unregistered sender is UNKNOWN there, and this changes only the words.
+func senderFor(st *store.Store, env Env, from string) (sender, unregistered string) {
 	label := ""
 	if id, _, err := environmentSession(env); err == nil && id != "" {
 		if si, ok, err := st.Session(id); err == nil && ok && si.Live() {
 			label = si.Label
+		} else {
+			label, unregistered = "unregistered "+shortSession(id), id
 		}
 	}
 	switch {
 	case label == "" && from == "":
-		return "operator"
+		return "operator", ""
 	case label == "":
-		return from
+		return from, ""
 	case from == "" || from == label:
-		return label
+		return label, unregistered
 	default:
-		return label + " (" + from + ")"
+		return label + " (" + from + ")", unregistered
 	}
+}
+
+// shortSession is the "s-<8hex>" a default label ends with (store's
+// defaultLabel), so the stamp on an unregistered sender is the name the room,
+// `buddy ls` and a hello under that id would give it.
+func shortSession(id string) string {
+	id = strings.ReplaceAll(id, "-", "")
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return "s-" + id
+}
+
+// unregisteredClause is what a send says about a sender senderFor stamped
+// `unregistered` (D-105): the fact and the one command that changes it. A
+// hello revives an ended id (D-032) as well as registering a new one. The id
+// is pasted shell-quoted, and only when the fence leaves it as it is: a
+// BUDDY_SESSION of "two words" printed bare would register "two" (Codex code
+// pass, D-105); the stale note's rule for a name it cannot print as typed.
+func unregisteredClause(id string) string {
+	paste := "<your session id>"
+	if fence.Line(id, 128) == id {
+		paste = shellQuote(id)
+	}
+	return "signed " + strconv.Quote("unregistered "+fence.Line(shortSession(id), 64)) +
+		": your session id is not registered in this ledger (never said hello here, or ended); `buddy hello --session " +
+		paste + " --label <name>` registers you here"
 }
 
 func cmdInbox(args []string, env Env) error {

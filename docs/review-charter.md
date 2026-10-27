@@ -1043,6 +1043,18 @@ ledger row entered through the CLI (D-006).
     tier column in the ledger, a receipt check before receipts follow the shape, or model
     names as constants in the skill.
 
+106. **`msg` signs an id the ledger does not know as `unregistered s-<8hex>` (D-105).** A
+    session id in the environment with no LIVE row here (absent, or ended) used to sign as
+    `operator`, or as its `--from` alone; measured 2026-10-26, a session registered in
+    another ledger addressing this one was told "would send … as operator". It now signs
+    the short form a hello would mint, `--from` a tag after it
+    (`unregistered s-66a24e29 (review)`), and the result line (and the dry run's) says it is
+    not registered here and names `buddy hello --session <id> --label <name>`, ahead of any
+    wake (D-041). The bare terminal is unchanged (`operator`, or its `--from`). Never
+    refused; `senderSession`'s UNKNOWN owner (D-043), the drain headers and the 64-byte
+    sender fence are untouched. Do not propose refusing the send, requiring hello first,
+    or signing with the full id.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
