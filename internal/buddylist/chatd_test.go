@@ -26,6 +26,11 @@ import (
 // CI run failed TestRelayBothWaysAndJournal on exactly that budget while the
 // same runner passed the uninstrumented leg in 1.0s. That is a timing-tuned
 // test failing for want of time, not a race — the detector reported none.
+//
+// A test that fails AT this budget is therefore a predicate that will never
+// hold, not a slow one: TestRelayBothWaysAndJournal did exactly that on Linux
+// CI (2026-10-27) because it waited for the wrong event, and no budget fixes
+// that. Never raise this to make such a failure go away.
 const settleBudget = 30 * time.Second
 
 // fakeConn scripts a server connection. Sends are recorded; events are pushed
@@ -113,9 +118,17 @@ func (f *fakeConn) recorded() []string {
 	defer f.mu.Unlock()
 	return append([]string(nil), f.sends...)
 }
+
+// ChatJoin queues the join event FIRST and records the send after it, so a
+// test that has seen "join <room>" in recorded() knows the ChatJoin is already
+// in the FIFO ahead of anything it pushes next. Recorded first, the two were
+// separate lock sections and a push between them put a ChatIn ahead of the
+// join — the same misordering TestRelayBothWaysAndJournal's `who` wait had,
+// through a narrower door.
 func (f *fakeConn) ChatJoin(room string) error {
+	err := f.emit(tocwire.ChatJoin{RoomID: "7", Room: room})
 	f.record("join " + room)
-	return f.emit(tocwire.ChatJoin{RoomID: "7", Room: room})
+	return err
 }
 func (f *fakeConn) ChatSend(roomID, text string) error {
 	f.record("send " + roomID + " " + text)
@@ -283,18 +296,18 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 	c := newFakeConn()
 	h.conns <- c
 
-	// Wait until joined (via who over the REAL socket).
-	deadline := time.Now().Add(settleBudget)
-	for {
-		resp, err := h.call(t, Request{Op: "who"})
-		if err == nil && resp.Connected {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("never connected")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	// Wait until JOINED, not until connected. `who` reports Connected the
+	// instant Run has published the connection, and Run then writes the
+	// "connected" system note to SQLite BEFORE it calls ChatJoin. A ChatIn
+	// pushed inside that window enters the fake's FIFO ahead of the ChatJoin,
+	// so the daemon has no name for room id 7 yet and journals the line under
+	// "room-7" — and the lobby wait below runs out its whole budget. That is
+	// what failed twice on Linux CI (2026-10-27, run 40425397069, 30.17s at
+	// line 301): a SQLite write on a loaded runner is wide enough for a 5 ms
+	// poll to land in. The real server never delivers CHAT_IN before
+	// CHAT_JOIN either, so waiting for the join is the honest precondition.
+	// The socket's readiness is still exercised: the say below is a call.
+	waitJoined(t, c, "lobby")
 
 	// Inbound: a peer talks in the room → journaled under the room name.
 	c.push(t, tocwire.ChatIn{RoomID: "7", From: "ana", Text: "hello fleet"})
