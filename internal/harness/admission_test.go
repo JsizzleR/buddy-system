@@ -581,7 +581,12 @@ func TestEmbeddedAdmissions(t *testing.T) {
 		// The installed Codex 0.164.0, every tier (2026-10-26, at 9b6980b). Its
 		// release notes were read first: nothing the contract reads changed, and
 		// the gate's denials fired with no hooks feature key in the fixture.
-		"codex 0.164.0": "d8990e3ee7acfbc26f91265b12a1a83f0fee40d0e0f8f1f40a37d4ec21f499cf"}
+		"codex 0.164.0": "d8990e3ee7acfbc26f91265b12a1a83f0fee40d0e0f8f1f40a37d4ec21f499cf",
+		// The installed Claude 2.1.311, start and resume only (2026-10-27, at
+		// 0e1a5d9): both compaction suites' providers saw one request no fixture
+		// turn answered, right after the summary reply, so compaction_observation
+		// was not earned and the record does not carry it.
+		"claude 2.1.311": "85d8c08707fcfd1e78ffa0204eefbc6ec9e4fe22f375fb2767ef85d957ed3161"}
 	if len(got) != len(want) {
 		t.Fatalf("embedded records %v", got)
 	}

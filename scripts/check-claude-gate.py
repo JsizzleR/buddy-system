@@ -1085,7 +1085,17 @@ def receipt_mutations(r):
 
 # ------------------------------------------------------------ synthetic run
 
-def synthetic(root, tag, version=CLAUDE_VERSIONS[-1]):
+# The positive control and its damage cases (renewal_same_identity among them)
+# need a version whose Write omission renews, so the default is the newest
+# RECORDED version that is also qualified for it. It was the newest recorded
+# version outright until 2.1.311 was recorded with start and resume only
+# (2026-10-27) and outside WRITE_RENEWAL_QUALIFIED: every synthetic then took
+# the unqualified arm, and the self-test died deleting a check that arm never
+# writes. The unqualified arm keeps its own control (unqualified_self_test).
+SYNTHETIC_VERSION = [v for v in CLAUDE_VERSIONS if v in WRITE_RENEWAL_QUALIFIED][-1]
+
+
+def synthetic(root, tag, version=SYNTHETIC_VERSION):
     """A coherent SYNTHETIC qualify-claude.py --trace-native run under root.
 
     Review F-33: a self-test that needs a native receipt in /private/tmp stops
