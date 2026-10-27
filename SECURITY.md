@@ -98,23 +98,24 @@ Pure Go, no cgo. `go version -m ~/bin/buddy` lists the modules a binary was
 built from; `go tool nm` says which left code in it. Measured 2026-10-27: the
 claims binary `buddy` (the gate, which runs on every tool call) is built from
 every module below except `open-oscar-server`, which only `buddylist` uses.
-`bigfft`, `golang.org/x/exp`, `go-isatty` and `go-strftime` are in the build
-but leave no code in either binary: the linker drops them as unreachable.
+`bigfft`, `go-isatty` and `go-strftime` are in the build but leave no code in
+either binary: the linker drops them as unreachable.
 
 | Module | Why it is here |
 | --- | --- |
 | `modernc.org/sqlite` | The ledger. A C-to-Go translation of SQLite, chosen so the build needs no cgo. |
 | `modernc.org/libc`, `mathutil`, `memory` | That translation's C runtime. |
-| `github.com/dustin/go-humanize`, `github.com/google/uuid`, `github.com/mattn/go-isatty`, `github.com/ncruces/go-strftime`, `golang.org/x/exp` | Imported by `modernc.org/libc`, not by our code. |
+| `github.com/dustin/go-humanize`, `github.com/google/uuid`, `github.com/mattn/go-isatty`, `github.com/ncruces/go-strftime` | Imported by `modernc.org/libc`, not by our code. |
 | `github.com/remyoudompheng/bigfft` | Imported by `modernc.org/mathutil`, not by our code. Its own README calls it "a toy proof-of-concept" not "expected to be used in any production system". Only `mathutil.BinaryLog` calls it, and nothing we link calls that: no code of it is in either binary. |
 | `mvdan.cc/sh/v3` | The gate parses a Bash command with it to find a shell-routed `apply_patch`. Parse only: nothing is expanded or run. |
 | `golang.org/x/sys`, `golang.org/x/text` | Process-table reads; Unicode normalization (the one folding rule) and TOC's charset. |
 | `github.com/mk6i/open-oscar-server` | The TOC/AIM wire format (`internal/tocwire`). `buddylist` only. |
 
-Three of these are pinned to commits rather than releases:
-`open-oscar-server`, `golang.org/x/exp`, and `bigfft`, whose pin is a 2023-01
-commit and which has no tagged release. `open-oscar-server` also raises the
-build's `modernc.org/libc` to v1.67.1, above the v1.66.10 that
-`modernc.org/sqlite` v1.40.1 declares, so the chat transport currently picks
-the claims binary's SQLite runtime. A vulnerability in any module whose code
-`buddy` links is in scope: report it here as well as upstream.
+Two of these are pinned to commits rather than releases: `open-oscar-server`
+and `bigfft`, whose pin is a 2023-01 commit and which has no tagged release.
+The build's `modernc.org/libc` is the v1.73.4 that `modernc.org/sqlite` v1.53.0
+declares, and `scripts/check-libc-pin.sh` fails the hermetic tier if anything,
+`open-oscar-server` included, moves it off the version sqlite declares (it
+once raised it to v1.67.1 over sqlite v1.40.1's v1.66.10). A vulnerability in
+any module whose code `buddy` links is in scope: report it here as well as
+upstream.
