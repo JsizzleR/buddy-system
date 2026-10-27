@@ -94,6 +94,15 @@ def resume_client(fleet, name, native_state=None):
 
 
 SUMMARY = "Fixed history summary BUDDY_COMPACT_HISTORY_290: original marker ran once; Buddy owns claims, READY and queued mail. No new authority."
+# The fixture's reply to the compaction request. 2.1.311 keeps a reply only when
+# it holds a <summary> block ("its reply has no <summary> block", in the
+# binary) and otherwise asks once more: on the untagged reply every completed
+# summary turn sent ONE request no fixture turn answered, and the provider's
+# error failed the cleanup checks (2026-10-27). History carries the reply as
+# "Summary:\n" + SUMMARY with the tag stripped (measured on 2.1.299, tagged),
+# so SUMMARY, the substring every check reads, is unchanged; 2.1.299's two
+# compaction suites gave the same verdict on every check, tagged and untagged.
+SUMMARY_REPLY = "<summary>" + SUMMARY + "</summary>"
 
 
 def provider_factory(harness):
@@ -128,7 +137,7 @@ def exercise(fleet):
     common.write_json(state / "compact-next.tmp", {"message_id": compact_queue["delivery"]["message_id"]})
     (state / "compact-next.tmp").rename(state / "compact-next.json")
     provider, client = fleet.providers[ROLE], fleet.clients[ROLE]
-    summary = provider.queue_turn("compact-summary", [], final_text=SUMMARY)
+    summary = provider.queue_turn("compact-summary", [], final_text=SUMMARY_REPLY)
     compact_wake = control(fleet, "compact", "send", message_id=compact_queue["delivery"]["message_id"])
     boundary = client.wait(lambda r: r.get("native_event", {}).get("kind") == "compaction_boundary")
     compact_turn = compact_wake["wake_delivery"]["turn_id"]

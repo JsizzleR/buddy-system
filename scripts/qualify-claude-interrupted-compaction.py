@@ -128,7 +128,7 @@ def exercise(fleet, mode):
             finished.set()
             return response
         provider._respond = held
-    script = provider.queue_turn("compact-summary", [], final_text=compact.SUMMARY)
+    script = provider.queue_turn("compact-summary", [], final_text=compact.SUMMARY_REPLY)
     try:
         client.send(dict(schema="buddy.control.v1", id="compact", operation="send", identity=identity,
             message_id=queued["delivery"]["message_id"]))
