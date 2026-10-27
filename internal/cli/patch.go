@@ -1681,7 +1681,14 @@ func shellLiteral(parts []syntax.WordPart, double bool) (string, bool) {
 		case *syntax.SglQuoted:
 			// Only this fixed quoted node enters the literal decoder: no
 			// substitutions, environment values, globbing or execution callbacks.
-			value, err := expand.Literal(nil, &syntax.Word{Parts: []syntax.WordPart{p}})
+			// A FRESH config per call, never nil: handed nil, the library
+			// prepares its package-global zero config IN PLACE (v3.12.0
+			// expand.go: cfg.Env and cfg.ifs are written into it), so two
+			// gate calls decoding quoted words at once raced on it (14
+			// internal/cli tests "race detected" on the D-108 squash). The
+			// explicit empty Environ says the decoder reads no environment.
+			cfg := &expand.Config{Env: expand.FuncEnviron(func(string) string { return "" })}
+			value, err := expand.Literal(cfg, &syntax.Word{Parts: []syntax.WordPart{p}})
 			if err != nil {
 				return "", false
 			}
