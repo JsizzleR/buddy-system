@@ -80,7 +80,9 @@
 #   a claim      its claim_id, only if it is 1..64 hex characters.
 #   a message    its msg_id, an integer.
 #   a pause      its control id; its target as `all`, as s-<8hex> when it is
-#                a session id the ledger knows, else "(a name, not shown)".
+#                a session id the ledger knows or has the shape of one (a
+#                UUID: the row may have been swept), else "(a name, not
+#                shown)".
 #   a project    the path as written in the operator's own list, with control
 #                characters shown as '?', so the line structure is the
 #                script's and not the file's.
@@ -313,15 +315,31 @@ report() {
 		2) unreadable "a journal file cannot be read"; return ;;
 		*) notread "a journal file is a link or not a regular file"; return ;;
 	esac
-	if ! sqlite3 -init /dev/null -batch "$snap/l.db" 'PRAGMA journal_mode=DELETE;' >/dev/null 2>&1 </dev/null; then
-		unreadable "not a SQLite database"
+	# Whether the bytes are SQLite is the LEDGER's property and the gate's
+	# verdict too; a fold failing for any other reason (a full TMPDIR, a copy
+	# SQLite will not open) is this script's own and says nothing about the
+	# gate. The first cut called every fold failure "not a SQLite database;
+	# the gate DENIES" (orc-6's review). An empty file is SQLite's empty
+	# database, which store.Open would initialise.
+	if [ ! -s "$snap/l.db" ]; then notread "an empty file"; return; fi
+	# SQLite's own words decide which side a fold failure is on: a body that
+	# is "not a database" or "malformed" behind a good header is the ledger's
+	# (store.Open fails the same way), anything else (a full disk, a copy it
+	# cannot open) is this script's. The text is matched, never printed.
+	if ! why=$(sqlite3 -init /dev/null -batch "$snap/l.db" 'PRAGMA journal_mode=DELETE;' 2>&1 >/dev/null </dev/null); then
+		case $why in
+			*"not a database"* | *malformed*) unreadable "not a SQLite database" ;;
+			*) notread "its private copy could not be opened" ;;
+		esac
 		return
 	fi
 	rm -f "$snap/l.db-wal" "$snap/l.db-shm" "$snap/l.db-journal"
 	# '%', '?' and '#' end or escape a URI path; nothing else in a path does.
-	uri="file:$(printf '%s' "$snap/l.db" | sed 's/%/%25/g; s/?/%3f/g; s/#/%23/g')?mode=ro&immutable=1"
-	ver=$(q 'PRAGMA user_version;') || { unreadable "not a SQLite database"; return; }
-	case $ver in '' | *[!0-9]*) unreadable "no schema version"; return ;; esac
+	# And "file://x/..." names an AUTHORITY x, so a TMPDIR spelled with a
+	# leading "//" has its slashes folded to one.
+	uri="file:$(printf '%s' "$snap/l.db" | sed 's|^//*|/|; s/%/%25/g; s/?/%3f/g; s/#/%23/g')?mode=ro&immutable=1"
+	ver=$(q 'PRAGMA user_version;') || { notread "its private copy could not be queried"; return; }
+	case $ver in '' | *[!0-9]*) notread "no schema version could be read"; return ;; esac
 	case " $known " in
 		*" $ver "*) ;;
 		*) P "== unavailable, schema $ver, which this report was not written against (it reads $known): $disp"; return ;;
@@ -366,6 +384,8 @@ report() {
 		SELECT 'M', msg_id, $now - created FROM und ORDER BY msg_id;
 		SELECT 'Z', id, CASE WHEN target = 'all' THEN 'all'
 			WHEN EXISTS (SELECT 1 FROM sessions s WHERE s.session_id = controls.target) THEN $(sid8 target)
+			WHEN length(target) = 36 AND length(replace(target, '-', '')) = 32
+				AND replace(target, '-', '') NOT GLOB '*[^0-9a-fA-F]*' THEN $(sid8 target)
 			ELSE '(a name, not shown)' END, $now - created
 			FROM controls WHERE kind = 'pause' AND cleared IS NULL ORDER BY id;
 	") || { notread "a query failed"; return; }
@@ -383,7 +403,7 @@ report() {
 		$1 == "C" {
 			printf "P\t== %s (schema %s): %s\n", ($2 > 0 ? "available" : "no live session"), ver, ENVIRON["DISP"]
 			printf "P\t  sessions: %d live, %d quiet (not ended, not seen 30m+), %d ended today\n", $2, $3, $4
-			printf "P\t  claims: %d open, %d STALE, %d unrenewed with the holder seen\n", $5, $6, $7
+			printf "P\t  claims: %d open, %d STALE (GONE not read), %d unrenewed with the holder seen\n", $5, $6, $7
 			printf "P\t  waits: %d open, %d past the deadline\n", $8, $9
 			printf "P\t  inbox: %d undelivered%s\n", $10, ($10 > 0 ? ", oldest " age($11) : "")
 			printf "P\t  paused: %d\n", $12
@@ -409,9 +429,13 @@ done 3<"$list"
 # not name. A cwd is used to find a ledger and is never printed.
 claude=${BUDDY_FLEET_CLAUDE:-claude}
 harness="harness list: not available (no claude agents --json here, or no jq)"
-if command -v jq >/dev/null 2>&1 && command -v "$claude" >/dev/null 2>&1 &&
-	agents=$("$claude" agents --json 2>/dev/null </dev/null) &&
-	cwds=$(printf '%s' "$agents" | jq -r 'if type == "array" then .[] | (.cwd // "" | if type == "string" and startswith("/") and (test("[\\n\\r]") | not) then . else "-" end) else error end' 2>/dev/null); then
+if ! command -v jq >/dev/null 2>&1 || ! command -v "$claude" >/dev/null 2>&1; then
+	:
+elif ! agents=$("$claude" agents --json 2>/dev/null </dev/null); then
+	harness="harness list: not available (claude agents --json failed)"
+elif ! cwds=$(printf '%s' "$agents" | jq -r 'if type == "array" then .[] | (.cwd // "" | if type == "string" and startswith("/") and (test("[\\n\\r]") | not) then . else "-" end) else error end' 2>/dev/null); then
+	harness="harness list: not read (claude agents --json gave JSON of an unexpected shape)"
+else
 	t=0 on=0 off=0 none=0 unk=0
 	: >"$work/others"
 	if [ -n "$cwds" ]; then
