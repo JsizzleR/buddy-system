@@ -1,0 +1,33 @@
+{
+ "checker": "check-claude-resume.py",
+ "exit": 0,
+ "verdict": {
+  "passed": true,
+  "checks": {
+   "schema_provider": true,
+   "artifact_hashes": true,
+   "original_evidence_hashes": true,
+   "same_captured_identity": true,
+   "exact_native_resume_argv": true,
+   "original_native_completed_idle": true,
+   "fresh_native_completed_idle": true,
+   "resume_observation_unknown": true,
+   "missing_history_refused_without_inference": true,
+   "transport_exit_is_not_logical_end": true,
+   "claims_preserved": true,
+   "READY_preserved": true,
+   "READY_targets_preserved": true,
+   "READY_exact_commit": true,
+   "queued_body_requires_explicit_retrieval": true,
+   "no_wake_or_approval_replay": true,
+   "fresh_approval_is_possible": true,
+   "resumed_gate_denial_and_control": true,
+   "native_history_in_fresh_provider_request": true,
+   "resume_rechecks_native_settings_and_mods": true,
+   "unknown_completion_and_telemetry": true,
+   "explicit_release_and_cleanup": true
+  },
+  "errors": []
+ },
+ "stderr": ""
+}
