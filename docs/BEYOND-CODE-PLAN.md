@@ -351,9 +351,11 @@ repo's cwd** (never `hello`, never a send):
   <its own id>`. Retiring first does NOT free the label (measured
   2026-10-27, section 6): label resolution matches ended rows too, and
   nothing deletes a session row, so a successor under the same label makes
-  `msg top` ambiguous in that ledger for good. Hence each top session wears
+  `msg top` ambiguous in that ledger for good, unless the old id is
+  re-registered under another label (`helloFrom` relabels a revived row).
+  Hence each top session wears
   its own numbered label, and peers address the claim slug (3.4(A)).
-  Measured count: three commands per coordinated ledger (the announcement,
+  Count: three commands per coordinated ledger (the announcement,
   the `bye`, the successor's `hello`) and one `release --to` in the fleet
   repo, in the handoff file's "Owed" section.
 - The top session's window is bounded like any session's: a hello digest
@@ -387,7 +389,7 @@ fleet of fleets":
   and sends from that cwd. Upward: each coordinator hand-registers in the
   fleet repo's ledger and reports there to the top session's claim slug
   (`cd <fleet> && buddy msg orc-<fleet> …`; the draft had `msg top`, which a
-  successor under the same label makes ambiguous for good, section 6),
+  successor under the same label makes ambiguous, section 6),
   where the top session's own hooks drain it and the wake line prints. A
   foreign registration identifies a SENDER; nothing is ever sent TO a
   foreign row. Chat (the `ops` room) stays optional visibility.
@@ -432,7 +434,8 @@ never in W. Counts and verdict words only; no body is quoted.
 Counts, per session per ledger, as A runs them. **Top session:** in each
 coordinated ledger, one hand `hello` at the start, one command per send
 (its result carries the recipient's wake line, row 3), one per timer read
-(row 11; each moves one column, row 10), and at handoff three (announce,
+(row 11; the fleet-ledger read moved one column, row 10, and the
+coordinated-ledger read could not be isolated), and at handoff three (announce,
 `bye`, the successor's `hello`); in the fleet ledger, nothing by hand for
 mail: its PostToolUse drains (row 5), its Stop records idle (row 8), and
 only that makes an upward send print its wake (rows 7 and 9); `inbox` is
@@ -453,7 +456,12 @@ minted id with no process, so its home-ledger side was not run; its fleet
 side is exactly the hand path rows 2, 4 and 12 measured. (3) Neither wake
 was delivered (the upward one addresses this lane itself). (4) Approvals and
 `pause` were not exercised; 3.2 stands as written. (5) One read each, not an
-hour of timer reads. The lane's hooks did not follow its `cd <fleet> && …`
+hour of timer reads, and only the fleet-ledger read was diffed: the
+coordinated-ledger read (row 11) ran on the lane's own live row, which its
+hooks beat on every call, so what that read alone moved could not be
+isolated. (6) A coordinator bound in the fleet ledger: orc-x never was; a
+coordinator whose hooks ever beat there is, and its `bye` there is then
+refused as row 13's was. The lane's hooks did not follow its `cd <fleet> && …`
 calls (the harness reset the cwd after each, and F's `last_seen` held between
 calls), so a top session keeps its cwd in the fleet repo by running each
 foreign command in a subshell; a coordinated ledger its hooks beat would
@@ -517,8 +525,9 @@ is one lane; the tier is per CLAUDE.md.
    before it landed (2026-10-27): the routing rule end to end over this
    checkout's ledger and a scratch fleet ledger, 16 steps, every downward and
    upward send delivered, the wake line printed both ways (upward only once
-   the top's Stop had reported idle), each timer read moving one column; one
-   gap found (a reused label is ambiguous for good, section 6), so the top
+   the top's Stop had reported idle), the fleet-ledger timer read moving
+   one column; one gap found (a reused label is ambiguous for good unless
+   the old id is re-registered under another label, section 6), so the top
    session wears a numbered label and is addressed by its claim slug. The
    table and what the fixture could not show are under 3.4(A).
 2. **`scripts/fleet-report.sh`** (lite): per coordinated ledger, counts and
@@ -737,7 +746,7 @@ gap; the rows are 3.4(A)'s table.
 
 | # | The plan said | Measured | Change |
 | --- | --- | --- | --- |
-| M1 | 3.3: retire the foreign `top` row with `bye` BEFORE the successor hand-registers, or `msg top` is ambiguous "until the operator sweeps" | Ambiguous in either order, and for good: label resolution (`store/target.go`, the exact-label arm) matches ended rows, and no code deletes a session row. Three pairs (rows 12 and 14): bye-then-hello and hello-then-bye both left `msg <label>` refused `ambiguous target … names 2 sessions as a label`; `hello` printed no label-worn-twice warning for an ended twin. A claim slug resolved past the duplicate (row 15) | 3.3 and 3.4(A): each top session wears its own numbered label (`top-<n>`, as coordinators wear `orc-<n>`), upward reports go to the claim slug `orc-<fleet>`, which `release --to` moves; the `bye` stays, so the foreign row reads ended rather than STALE. Not proposed: a label arm that skips ended rows (a resolver change, its own lite item if wanted) |
+| M1 | 3.3: retire the foreign `top` row with `bye` BEFORE the successor hand-registers, or `msg top` is ambiguous "until the operator sweeps" | Ambiguous in either order, and for good unless the old id is re-registered under another label (`helloFrom` relabels a revived row): label resolution (`store/target.go`, the exact-label arm) matches ended rows, and no code deletes a session row. Three pairs (rows 12 and 14): bye-then-hello and hello-then-bye both left `msg <label>` refused `ambiguous target … names 2 sessions as a label`; `hello` printed no label-worn-twice warning for an ended twin. A claim slug resolved past the duplicate (row 15) | 3.3 and 3.4(A): each top session wears its own numbered label (`top-<n>`, as coordinators wear `orc-<n>`), upward reports go to the claim slug `orc-<fleet>`, which `release --to` moves; the `bye` stays, so the foreign row reads ended rather than STALE. Not proposed: a label arm that skips ended rows (a resolver change, its own lite item if wanted) |
 
 Two smaller corrections, not gaps. The "four commands" at handoff count as
 three per coordinated ledger plus one `release --to` in the fleet repo (3.3).
