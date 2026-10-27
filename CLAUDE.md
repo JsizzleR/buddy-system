@@ -781,8 +781,9 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   in the environment with no LIVE row here (absent or ended) signed as `operator` (measured: a
   session from another ledger was told "would send … as operator"). Now the short form a hello
   would mint, `--from` a tag after it; the result and dry-run line say it is not registered here
-  and name `hello --session`, ahead of any wake. Bare terminal unchanged; never refused; D-043's
-  ownership, the drain headers and the 64-byte sender fence untouched.
+  and name `hello --session`, ahead of any wake. A notice, not a reply address: a reply goes to
+  the label the sender registers. Bare terminal unchanged; never refused; D-043's ownership, the
+  drain headers and the 64-byte sender fence untouched.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

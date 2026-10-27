@@ -3386,7 +3386,10 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 		line += fmt.Sprintf("; %s was waiting on %s, and that wait is resolved by this (its `buddy wait check` says LANDED, handed to you)",
 			fence.Line(label, 64), strings.Join(resolved, ", "))
 	}
-	sender, _ := senderFor(st, env, "")
+	// Signed from the ENVIRONMENT, like every send, not from the holder
+	// whoAmI found: `--session <holder>` run under an unregistered id signs
+	// `unregistered s-<8hex>`, and the line below says so (D-105).
+	sender, unregistered := senderFor(st, env, "")
 	sid, known := senderSession(st, env)
 	rcpt := observe(st, env, tgt.ID)
 	raws := make([]string, 0, len(moved))
@@ -3411,6 +3414,9 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 	}
 	// "queued", never "told": delivery is the recipient's act (D-032).
 	line += fmt.Sprintf("; notice queued for them: message #%d", id)
+	if unregistered != "" {
+		line += "; " + unregisteredClause(unregistered)
+	}
 	wake := wakeClause(env, rcpt, nowOf(env), id)
 	if wake != "" {
 		line += "; " + wake
@@ -4233,9 +4239,8 @@ func msgKind(fs *flag.FlagSet, lead bool, measured, relay string) (kind, note st
 // senderSession is WHO is sending, for ownership of a correction (D-043), and
 // deliberately not senderFor: that one is display (it once fell back to the
 // word "operator" for such an id, D-105), and a failed session lookup read as
-// the operator would let any
-// session whose id did not resolve correct the operator's messages (Codex
-// design pass, D-043). A session id in the environment that is not a live
+// the operator would let any session whose id did not resolve correct the
+// operator's messages (Codex design pass, D-043). A session id in the environment that is not a live
 // session is UNKNOWN; no id at all is the operator at a bare terminal.
 func senderSession(st *store.Store, env Env) (id string, known bool) {
 	id, _, err := environmentSession(env)
@@ -4266,6 +4271,11 @@ func senderSession(st *store.Store, env Env) (id string, known bool) {
 // register; "" for a live session and for the bare terminal. Still never
 // refused, and correction ownership stays senderSession's (D-043): an
 // unregistered sender is UNKNOWN there, and this changes only the words.
+// Unlike a label, the stamp is a NOTICE, not a reply address: `buddy msg
+// "unregistered s-…"` resolves to nothing, and a reply goes to the label the
+// sender registers with hello (orc-6's review, D-105). A failed read takes
+// this arm too: the safe direction, and the clause says "not found", which
+// stays true.
 func senderFor(st *store.Store, env Env, from string) (sender, unregistered string) {
 	label := ""
 	if id, _, err := environmentSession(env); err == nil && id != "" {
@@ -4287,9 +4297,9 @@ func senderFor(st *store.Store, env Env, from string) (sender, unregistered stri
 	}
 }
 
-// shortSession is the "s-<8hex>" a default label ends with (store's
-// defaultLabel), so the stamp on an unregistered sender is the name the room,
-// `buddy ls` and a hello under that id would give it.
+// shortSession is the "s-<8hex>" suffix of the default label a hello under
+// that id would mint (store's defaultLabel: "<worktree-base>/s-<8hex>", how
+// the room and `buddy ls` name it), so the stamp matches that suffix.
 func shortSession(id string) string {
 	id = strings.ReplaceAll(id, "-", "")
 	if len(id) > 8 {
@@ -4310,7 +4320,7 @@ func unregisteredClause(id string) string {
 		paste = shellQuote(id)
 	}
 	return "signed " + strconv.Quote("unregistered "+fence.Line(shortSession(id), 64)) +
-		": your session id is not registered in this ledger (never said hello here, or ended); `buddy hello --session " +
+		": your session id was not found as a live session in this ledger (never said hello here, or ended); `buddy hello --session " +
 		paste + " --label <name>` registers you here"
 }
 

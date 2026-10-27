@@ -7672,17 +7672,25 @@ already keeps) that is not a LIVE row here, absent or ended, signs
 environment) is unchanged: `operator`, or what `--from` typed. The send's
 result line, and the dry run's, says so ON the line, ahead of any wake
 (D-041's `| head -1` reader): `signed "unregistered s-66a24e29": your session
-id is not registered in this ledger (never said hello here, or ended); buddy
-hello --session <id> --label <name> registers you here`. A hello revives an
-ended id (D-032), so the one command serves both cases.
+id was not found as a live session in this ledger (never said hello here, or
+ended); buddy hello --session <id> --label <name> registers you here`
+("not found", because a failed read takes the same arm, the safe direction). A hello revives an
+ended id (D-032), so the one command serves both cases. The stamp is a
+NOTICE, not a reply address: unlike a label (D-019) it resolves to nothing
+(`buddy msg "unregistered s-66a24e29"` is no such target, and a bare
+`s-<8hex>` resolves only after a default-label hello); a reply goes to the
+label the sender registers.
 - **Unchanged.** Never refused (`senderFor`'s settled line: a message is never
   refused for want of a signature). `senderSession` and correction ownership
   (D-043), the drain headers (D-097), and the 64-byte `fence.Line` of the
   sender on a drained line and in `sent`: the stamp is one stored sender
-  string, rendered by every view exactly as a label is. `release --to`'s
-  notice shares `senderFor` and so the stamp; it is reached only by a live
-  holder, so in practice it signs a label. `pause` and `resume` carry no
-  sender stamp, so nothing changes for them.
+  string, rendered by every view exactly as a label is. `pause` and
+  `resume` carry no sender stamp, so nothing changes for them.
+- **`release --to`'s notice** shares `senderFor`, so it is signed with the
+  ENVIRONMENT's identity, not the holder's: `whoAmI` finds the holder by
+  `--session` or the cwd, so `release <slug> --session <live holder> --to X`
+  run under an unregistered id signs `unregistered s-<8hex>`, and its result
+  line now carries the same clause (orc-6's review).
 - **Not done.** Refusing the send, or requiring `hello` first: the settled
   line above, and the cross-ledger case is exactly the one where the sender
   has no row to make. Signing with the full session id: the short form is the
@@ -7697,5 +7705,8 @@ an absent id under each of the three environment variables, an absent id with
 stale note's rule for a name it cannot print as typed); each through the dry
 run, a real send and bravo's drained line. Controls in the same table: a live id
 (its label, with and without the tag, no clause) and the bare terminal
-(`operator`, and `--from` alone). `TestUnresolvedSenderIsNotTheOperator` and
-the other D-043 correction tests are unchanged and green.
+(`operator`, and `--from` alone). `TestReleaseToUnderAnUnregisteredIdSaysSo`:
+the handoff notice's stamp and clause, the holder's own id as control.
+`TestUnresolvedSenderIsNotTheOperator` and
+the other D-043 correction tests are unchanged and green. Review: lite
+(self-review + codex@xhigh code; orc-6's read-only review folded).

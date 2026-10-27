@@ -1052,8 +1052,10 @@ ledger row entered through the CLI (D-006).
     not registered here and names `buddy hello --session <id> --label <name>`, ahead of any
     wake (D-041). The bare terminal is unchanged (`operator`, or its `--from`). Never
     refused; `senderSession`'s UNKNOWN owner (D-043), the drain headers and the 64-byte
-    sender fence are untouched. Do not propose refusing the send, requiring hello first,
-    or signing with the full id.
+    sender fence are untouched. The stamp is a notice, not a reply address (it resolves to
+    no target); a reply goes to the label the sender registers. `release --to`'s notice is
+    signed the same way, from the environment, not the holder. Do not propose refusing the
+    send, requiring hello first, or signing with the full id.
 
 ## Environment facts (measured, do not re-derive)
 

@@ -579,11 +579,13 @@ the short form a hello under that id would mint, with `--from` a tag after it
 never refused (D-105). The result line says so and names the fix:
 
 ```text
-queued for bravo — …; message #12; signed "unregistered s-66a24e29": your session id is not registered in this ledger (never said hello here, or ended); `buddy hello --session 66a24e29-… --label <name>` registers you here
+queued for bravo — …; message #12; signed "unregistered s-66a24e29": your session id was not found as a live session in this ledger (never said hello here, or ended); `buddy hello --session 66a24e29-… --label <name>` registers you here
 ```
 
-Only the bare terminal, with no session id in its environment, signs as
-`operator` (or as what `--from` typed).
+The stamp is a notice, not a reply address: unlike a label it resolves to no
+target, so a reply waits for the label the sender registers. Only the bare
+terminal, with no session id in its environment, signs as `operator` (or as
+what `--from` typed).
 
 With no text on the command line, the body is read from **stdin** — unless stdin
 is a terminal, where it prints the usage line rather than waiting at a cursor:

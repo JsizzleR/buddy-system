@@ -108,3 +108,44 @@ func TestUnregisteredSenderIsStampedNotOperator(t *testing.T) {
 		})
 	}
 }
+
+// release --to's notice is signed from the ENVIRONMENT, like every send, not
+// from the holder whoAmI found: `--session sess-a` run under an unregistered
+// id signs `unregistered s-<8hex>`, and the result line says so (orc-6's
+// review, D-105). Control: the holder's own id signs its label, no clause.
+func TestReleaseToUnderAnUnregisteredIdSaysSo(t *testing.T) {
+	const ghost = "66a24e29-1111-2222-3333-444444444444"
+	for _, tc := range []struct {
+		env, stamp string
+		clause     bool
+	}{
+		{ghost, "unregistered s-66a24e29", true},
+		{"sess-a", "alpha", false},
+	} {
+		t.Run(tc.stamp, func(t *testing.T) {
+			boundedParallel(t)
+			f := newFixture(t)
+			f.initAndHello(t)
+			var out, errw string
+			var code int
+			f.asSession("sess-a", func() {
+				out, errw, code = f.run(t, f.repo, "", "claim", "outer", "--desc", "d", "--scope", "src")
+			})
+			if code != 0 {
+				t.Fatalf("claim: %s %s", out, errw)
+			}
+			f.asSession(tc.env, func() {
+				out, errw, code = f.run(t, f.repo, "", "release", "outer", "--session", "sess-a", "--to", "bravo")
+			})
+			if code != 0 || !strings.Contains(out, "notice queued for them") {
+				t.Fatalf("release --to: %d %s %s", code, out, errw)
+			}
+			if got := strings.Contains(out, "`buddy hello --session "+tc.env+" --label <name>` registers you here"); got != tc.clause {
+				t.Fatalf("the result line must name the registration exactly when the notice is signed unregistered (want %v): %q", tc.clause, out)
+			}
+			if ctx := f.beatB(t); !strings.Contains(ctx, "["+tc.stamp+"] handed you claim") {
+				t.Fatalf("the notice must be signed %q:\n%s", tc.stamp, ctx)
+			}
+		})
+	}
+}
