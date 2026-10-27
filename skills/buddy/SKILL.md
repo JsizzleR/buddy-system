@@ -384,11 +384,48 @@ every repo's coordinator wears alerts each of them to the others' mentions
    edit. The operator's standing decision (D-103).
 8. **Name each item's review tier and model in its brief** (Review depth,
    below): the tier by the change's class, under the operator's cap for the
-   run, and the model and effort the lane launches on. A lane's READY
+   run, and the model and effort the lane launches on, with the claim
+   description's two tokens (Picking the model, below). A lane's READY
    carries its receipt; read it against the tier you gave.
 
 A lane with a stale claim and no answer stays the operator's to free
 (`buddy sweep --force`): report it, never free it yourself.
+
+## When the deliverable is not code
+
+Research notes, a report, a runbook, configuration: a claim is a reservation
+on a path, and nothing in the ledger asks what the path holds. Everything
+above carries over, with four words translated:
+
+- **The directory must be a git repository; commits are optional.** Outside
+  one, every verb answers "not a git repository", and the session has no row,
+  no inbox and no brake. For a notes directory, run `git init` and then
+  `buddy init` there, once (the operator's call for a directory they keep:
+  it puts a `.git` in it). With no commit everything works except what needs
+  one: `BASE` reads `(none recorded)`, and `buddy wait --ready HEAD` is
+  refused.
+- **Commit becomes a path and a version word.** The deliverable is its paths;
+  the version is your own word for which state of them to read ("draft 2",
+  "sections 1-4 final").
+- **READY:** `buddy wait --on <run> --until 4h --note "READY: <path> <version word>"`,
+  plus the READY message naming the same path and version. It is a wait ON
+  the run, so the run's outcome reaches you as LANDED like any rider's. Until
+  some rider declares at a commit, `buddy who <run>` lists waiters by name and
+  age only, so the orchestrator reads your note with `buddy wait ls`, or in
+  your message. Never fake a commit to get the READY line.
+- **The shared tier becomes the workflow's own gate:** a review pass over the
+  assembled deliverable, a checklist script, a human read. With none, the run
+  is "read and accept", and its outcome still says which.
+- **Main becomes the directory the deliverables are integrated into.**
+  `.buddy/slot/main` still serializes integration, and the integrator holds
+  it from forming to landing.
+
+The gate checks the paths a tool call names. A call that names none
+(browsing, chat, an MCP tool) is allowed, so a deliverable written through an
+MCP tool (a doc connector, a spreadsheet) is not gated: claim it anyway,
+because the claim is the reservation peers read. The brake has the same edge:
+`pause` stops only the tools the gate is wired to see, and never `WebFetch`
+or `WebSearch`.
 
 ## Review depth: the tier follows the change class
 
@@ -471,11 +508,47 @@ For every tier:
 operator's instructions pin it otherwise. A full-tier item runs on the
 strongest model available, and so do its panel and its fold rounds, at high
 effort. Lite and chore items run on the operator's default
-lane model. That default is a standing decision in the operator's
+lane model, unless the pick rule below moves them. That default is a standing decision in the operator's
 instructions, not a constant of this skill: read it there. On 2026-10-26 it
 was Opus 5.5 at high effort. The orchestrator puts the model and effort on
 the launch (Running a fleet) and names them in the brief with the tier
 (D-104).
+
+### Picking the model from what past items measured
+
+For the orchestrator, at the start of each run, and only among the models
+the operator's cap for that run allows (for example "lanes on Opus or Fable;
+no Haiku lanes"). A full-tier item stays pinned as above. For the rest:
+
+- **A lane needs a model with auto mode**, the standing rule (Haiku 4.5
+  measured asking for every tool call).
+- **Before each sweep, run `sh scripts/model-report.sh --export <tsv>`**,
+  into the file your repo keeps for it, and read the report at the start of
+  each run. A plain `buddy sweep` deletes released claims, with their
+  descriptions and outcomes, after 24 hours; the export is the only record
+  that outlives it.
+- **Pick by class.** Default to the cap's cheaper model for a class where
+  the report shows its rework rate and its fail rate no worse than the other
+  model's. Escalate one step where either rate is clearly worse. In a cell
+  below the floor, use the cap's default (the default lane model, Opus 5.5 at
+  high effort today) and infer nothing. The floor and "clearly worse" are the
+  operator's numbers, set with the cap; until they are set, the proposal is
+  10 items per cell and twice the other model's rate. The report prints the
+  observed rates, so either number can be revised.
+- **Record the pick where the report reads it back:** the item's claim
+  description begins with two tokens, `model=<id> class=<word> `, each once,
+  then the description. `<word>` is one of `docs`, `code`, `test`,
+  `research`, `ops`; a missing, repeated or unlisted token is counted as
+  unknown and never printed. The lane makes the claim, so its brief gives the
+  exact start:
+  `buddy claim <item> --desc "model=<id> class=docs <what and why>" --scope <path>`.
+- **The item's outcome is its own release.** A RED along the way keeps the
+  claim: the lane fixes and declares again. Only a finished or abandoned item
+  is released, and with its outcome, so a lane's release after LANDED PASS is
+  `buddy release <item> --outcome pass --note "<reds> <runs>"`, never a bare
+  one; an abandoned item is `--outcome fail`. A handover is
+  `buddy release <item> --to <target>`, which keeps the claim open. A claim
+  of the same slug after a release is how the report counts rework.
 
 ## Running a fleet
 
@@ -676,6 +749,80 @@ if you find neither, ask rather than assume.
   Compaction is the other road: the harness's `/compact`, or `claude --autocompact <size>`
   at launch, shrinks a session in place. Hand off instead when compaction would
   lose what the next coordinator must know.
+
+## A fleet of fleets
+
+For one session over several coordinators, each running its own repo's
+fleet, with the operator reading one pane. Every name is per ledger
+(labels, slugs, the roster, the inbox, `pause`), and buddy has no
+cross-ledger verb, so this is a convention over the verbs above. It was run
+end to end over a real ledger and a scratch fleet ledger (2026-10-27); the
+measured results are in brackets.
+
+- **The fleet repo.** You live in a small git repository of your own
+  (`git init`, then `buddy init`): a file listing the coordinated project
+  paths, one per line, beside your briefs, handoff files and reports. You
+  have your own row, inbox and `pause` there, and hold the coordination
+  claim `orc-<fleet>` (`<fleet>` is its directory's name).
+- **Launch each coordinator in its own repo**, with the relay clause
+  (Running a fleet) naming you by label and full session id. One level up it
+  is the same clause and the same floor: a coordinator's install, push,
+  setting, permission, trust or mode stays the operator's, in that
+  coordinator's pane.
+- **Send every message in the RECIPIENT's home ledger**, where its hooks
+  drain it and `msg` prints its wake line.
+  - Down: once per coordinated ledger, register yourself there by hand,
+    `(cd <repo> && buddy hello --session $CLAUDE_CODE_SESSION_ID --label <your label> </dev/null)`,
+    then send from there, `(cd <repo> && buddy msg orc-<project> "<text>")`.
+    It signs with your label, and while the coordinator is idle the result
+    carries its wake address [printed; its own hooks recorded delivery
+    within a minute].
+  - Up: each coordinator's brief has it register by hand in the fleet ledger
+    (`buddy hello --session <its id> --label <its label> </dev/null`, run
+    there) and report to your claim slug there, never your label:
+    `(cd <fleet> && buddy msg orc-<fleet> "<text>")`. Your own hooks drain it
+    [one tool call drained two messages in one 277-byte notice], and once
+    your Stop has reported you idle, its result carries your wake address
+    [no address before that].
+  - A foreign registration only identifies a SENDER. Send nothing TO one: no
+    hook of its session runs in that ledger, so mail queued there is never
+    drained, and `msg` takes it without a warning ["registered … and not seen
+    since"].
+- **Keep your own cwd in the fleet repo**: run each foreign command in a
+  subshell, `(cd <repo> && buddy <verb> …)`, so your hooks keep beating your own
+  ledger. A row your hooks have beaten is bound to your process, and a `bye`
+  of a bound row while you are alive is refused [`stays live`].
+- **Read each fleet on a timer wait of your own**
+  (`buddy wait --until <dur> --note "<the fleets>"` in the fleet repo, then
+  the `/loop`): `(cd <repo> && buddy who orc-<project>)`, and
+  `buddy who <run>` there. A read moves only your row's `seen` in that ledger
+  [one column of one row], so your foreign rows read STALE only when you have
+  not looked for 30 minutes.
+- **Wear a label that is yours alone, numbered per successor** (`top-1`,
+  `top-2`, as coordinators are `orc-<n>`), and have peers address the claim
+  slug. A label is matched against ended rows too, and nothing removes a
+  session row, so once a successor wears the same label in a ledger,
+  `buddy msg <label>` is ambiguous there for good, whether or not the old row
+  said bye first [three times]. A claim slug resolves to its one holder past
+  a duplicate label [measured], and moves with `release --to`.
+- **Hand off** as Running a fleet says, and in each coordinated ledger, while
+  you are live and in this order: `(cd <repo> && buddy msg orc-<project> "<successor label> (session <id>) is your coordinator from now; it relays the same decisions I did.")`,
+  then `(cd <repo> && buddy bye $CLAUDE_CODE_SESSION_ID </dev/null)`, which
+  ends your unregistered-process row there [no output, exit 0]. After the
+  bye a send from you there signs as `operator` [`as operator`]. Your successor's first
+  act in each is its own hand `hello`. In the fleet repo, one
+  `buddy release orc-<fleet> <run> --to <successor>` hands every claim on.
+  That is three commands per coordinated ledger and one in the fleet repo.
+- **What the one window cannot do.** A tool approval waits in the pane that
+  asked for it; a reply typed in yours is not that approval. `pause` is per
+  ledger: pausing yourself pauses no coordinator and no lane. Stopping
+  everything is the operator's `buddy pause all --note "<why>"`, run in each
+  listed ledger from a bare shell. Whether you may run `pause` in a
+  coordinated ledger on the operator's relayed word is the operator's to
+  decide; until they say, do not.
+- **Your view is counts and exceptions**, not rosters concatenated: two
+  fleets' rosters together already pass the 9,000-byte digest budget. The
+  full roster is one `cd` away.
 
 ## Other verbs
 

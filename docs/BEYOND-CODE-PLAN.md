@@ -6,7 +6,9 @@ and counts taken on this machine the same evening. One Codex design pass ran
 over the draft (verdict: revise); every finding is in "Taken and refuted" at
 the end and folded into the sections it names. Section 1.4 was added after
 the pass, from the operator's own scenario. Baseline: main at 9b6980b when
-the lane opened.
+the lane opened. Steps 1 and 5 landed in the skill on 2026-10-27 (the
+`plan-skill` lane), after 3.4(A)'s routing rule was measured end to end;
+the numbers are under A, and what the measurement refuted is in section 6.
 
 Register: every part names the failure it answers, the number it rests on,
 the alternative it refuses, and what it cuts. Where a number was not taken,
@@ -346,11 +348,14 @@ repo's cwd** (never `hello`, never a send):
   <id>) is your coordinator from now", the skill's existing step), any
   continuing claim in the fleet repo moves with `release --to`, and the
   outgoing session retires each foreign row with `cd <repo> && buddy bye
-  <its own id>` BEFORE the successor hand-registers under the same label
-  there; otherwise that ledger holds two live `top` rows and `msg top` is
-  refused as ambiguous until the operator sweeps (measured in the fixture; a
-  sweep, plain or forced, ends no session row). Four commands per coordinated
-  ledger, in the handoff file's "Owed" section.
+  <its own id>`. Retiring first does NOT free the label (measured
+  2026-10-27, section 6): label resolution matches ended rows too, and
+  nothing deletes a session row, so a successor under the same label makes
+  `msg top` ambiguous in that ledger for good. Hence each top session wears
+  its own numbered label, and peers address the claim slug (3.4(A)).
+  Measured count: three commands per coordinated ledger (the announcement,
+  the `bye`, the successor's `hello`) and one `release --to` in the fleet
+  repo, in the handoff file's "Owed" section.
 - The top session's window is bounded like any session's: a hello digest
   under 9,000 bytes (D-034), drains of 20 messages / 8 KiB (D-036). Measured
   above: two rosters already exceed that. So the top view is per-fleet
@@ -377,9 +382,12 @@ fleet of fleets":
   RECIPIENT's home ledger, where the recipient's hooks drain it and `msg`
   prints its wake address. Downward: the top session hand-registers in each
   coordinated ledger (`cd <repo> && buddy hello --session
-  $CLAUDE_CODE_SESSION_ID --label top`) so its sends there sign as `top`,
+  $CLAUDE_CODE_SESSION_ID --label top-<n>`, a label numbered per successor)
+  so its sends there sign as `top-<n>`,
   and sends from that cwd. Upward: each coordinator hand-registers in the
-  fleet repo's ledger and reports there (`cd <fleet> && buddy msg top …`),
+  fleet repo's ledger and reports there to the top session's claim slug
+  (`cd <fleet> && buddy msg orc-<fleet> …`; the draft had `msg top`, which a
+  successor under the same label makes ambiguous for good, section 6),
   where the top session's own hooks drain it and the wake line prints. A
   foreign registration identifies a SENDER; nothing is ever sent TO a
   foreign row. Chat (the `ops` room) stays optional visibility.
@@ -393,10 +401,63 @@ fleet of fleets":
 above and the exception lines, under 9,000 bytes. Holds every invariant:
 nothing new reserves or refuses; chat stays the view; every row is
 CLI-entered by the machine user. Bends nothing; costs one hand `hello` per
-ledger per session and the four retirement commands at handoff. NOT
-MEASURED: a real top session over this fleet and a scratch second ledger
-running the routing rule end to end (step 4.1 measures it before the prose
-lands).
+ledger per session and the retirement commands at handoff (3.3).
+
+**Measured end to end, 2026-10-27** (the `plan-skill` lane, before step 1's
+prose landed). Two ledgers: this checkout's (W) and a scratch fleet repo (F:
+`git init`, `buddy init`, `notes/projects` naming this checkout, no commit).
+The lane's own session stood in for the top session, hand-registered in F as
+`top`; a minted id was the coordinator `orc-x`, hand-registered in F and
+never in W. Counts and verdict words only; no body is quoted.
+
+| # | Command | Ledger | Printed | In A, carried by |
+| --- | --- | --- | --- | --- |
+| 1 | `buddy hello --session <top> --label top </dev/null` | F | 4 lines, 1,090 bytes, exit 0 | hand |
+| 2 | `buddy hello --session <x> --label orc-x </dev/null` | F | 4 lines, 1,096 bytes; row with pid 0 and no process | hand |
+| 3 | `buddy msg orc-buddy-system "…"` from the worktree | W | one line, 549 bytes: `queued for orc-6 … last reported idle 40s ago … message #418; to wake it now: SendMessage to "uds:…"` | hand; the recipient's hooks recorded delivery inside 53 s, the wake not delivered |
+| 4 | `buddy msg top "…"` as orc-x, twice | F | `queued … registered 17s ago and not seen since …`; no wake address | hand |
+| 5 | `buddy beat`, PostToolUse payload on stdin | F | one `additionalContext` document, 277 bytes, both messages (#1 #2); `buddy sent` as orc-x: delivery recorded for each. The same beat bound the lane's own claude process to the `top` row (`BeatFrom`) | the top's PostToolUse |
+| 6 | `buddy inbox` after a third send | F | `#3`, one line; a second run `inbox empty` | hand, on demand |
+| 7 | `buddy msg top "…"` as orc-x, top bound, no idle report | F | `last seen 1m ago`; no wake address | hand |
+| 8 | `buddy idle`, Stop payload (`stop_hook_active`) | F | nothing; one `session_idle` row | the top's Stop |
+| 9 | `buddy msg top "…"` as orc-x, top bound and idle | F | `top last reported idle 1s ago … to wake it now: SendMessage to "uds:/tmp/cc-socks/<pid>.sock"` | hand |
+| 10 | `buddy who orc-x` as top | F | 10 lines, 755 bytes; ledger diff before/after: ONE column of ONE row, `last_seen` of top (D-086) | hand, on the timer |
+| 11 | `buddy who orc-buddy-system` from the worktree | W | 22 lines, 2,116 bytes | hand, on the timer |
+| 12 | `buddy bye <x> </dev/null` | F | nothing, exit 0; row ended | hand, at handoff |
+| 13 | `buddy bye <top> </dev/null`, top bound to a live process | F | `stays live: still registered to running process(es) <pid>`, exit 1 | — |
+| 14 | a successor `hello` under the label, before or after the old row's `bye` | F | either order: `buddy msg <label>` refused `ambiguous target … names 2 sessions as a label` (three pairs) | — |
+| 15 | `buddy msg orc-fleet --dry-run` past two `top` rows, top holding `orc-fleet` | F | `would send … to top (claim orc-fleet)`; the real send printed the wake line | hand |
+| 16 | `buddy msg orc-fleet --dry-run` from the ended orc-x | F | `… as operator` | — |
+
+Counts, per session per ledger, as A runs them. **Top session:** in each
+coordinated ledger, one hand `hello` at the start, one command per send
+(its result carries the recipient's wake line, row 3), one per timer read
+(row 11; each moves one column, row 10), and at handoff three (announce,
+`bye`, the successor's `hello`); in the fleet ledger, nothing by hand for
+mail: its PostToolUse drains (row 5), its Stop records idle (row 8), and
+only that makes an upward send print its wake (rows 7 and 9); `inbox` is
+there on demand. **Coordinator:** in the fleet ledger, one hand `hello`, one
+command per report, one `bye` at its own handoff; nothing new in its home
+ledger. The fixture's totals: F 6 session rows, 6 messages, all delivered;
+W one message (#418, delivered by its recipient's own hooks) and two reads
+on the lane's own live row. Cleanup in W: none owed (no row was made there;
+#418 ages out with the sweep TTL).
+
+What the fixture could not show. (1) A live top session whose cwd IS the
+fleet repo: its hooks were stood in for by hook payloads piped from the
+lane's shell (rows 5 and 8), which bound the lane's own process to the
+fleet row; the one command that measures it is the orchestrator's (D-056):
+`herdr tab create --workspace <ws> --cwd <fleet> --label top-1 --env BUDDY_LABEL=top-1`,
+then `herdr agent start top-1 …`. (2) A coordinator's own hooks: orc-x was a
+minted id with no process, so its home-ledger side was not run; its fleet
+side is exactly the hand path rows 2, 4 and 12 measured. (3) Neither wake
+was delivered (the upward one addresses this lane itself). (4) Approvals and
+`pause` were not exercised; 3.2 stands as written. (5) One read each, not an
+hour of timer reads. The lane's hooks did not follow its `cd <fleet> && …`
+calls (the harness reset the cwd after each, and F's `last_seen` held between
+calls), so a top session keeps its cwd in the fleet repo by running each
+foreign command in a subshell; a coordinated ledger its hooks beat would
+bind its process there, and row 13 is what `bye` then says.
 
 **(B) Small buddy additions.** A ledger registry written at `init`
 (`~/.buddy/ledgers`), `buddy sessions --every` / `ls --every` over it, `-C
@@ -452,10 +513,14 @@ is one lane; the tier is per CLAUDE.md.
    `buddy init` for a notes directory. The second is option A's recipe: the
    fleet repo and its project list, the relay clause one level up, the
    routing rule, the hand registration and its retirement at handoff, and
-   3.2's limits (approvals in the child's pane; pause per ledger). Before it
-   lands, MEASURE the NOT MEASURED item under A with a real top session over
-   this fleet and a scratch second ledger, and put the numbers in the
-   section.
+   3.2's limits (approvals in the child's pane; pause per ledger). Measured
+   before it landed (2026-10-27): the routing rule end to end over this
+   checkout's ledger and a scratch fleet ledger, 16 steps, every downward and
+   upward send delivered, the wake line printed both ways (upward only once
+   the top's Stop had reported idle), each timer read moving one column; one
+   gap found (a reused label is ambiguous for good, section 6), so the top
+   session wears a numbered label and is addressed by its claim slug. The
+   table and what the fixture could not show are under 3.4(A).
 2. **`scripts/fleet-report.sh`** (lite): per coordinated ledger, counts and
    exception lines, output capped under 9,000 bytes with a "N more" line; a
    `check-fleet-report.sh` self-test invoked from `check.sh` like
@@ -666,3 +731,17 @@ the code, the claim was re-read or re-measured before it was taken.
 
 Nothing was refuted outright. The one place the draft's measurement stood
 against a finding (8) is recorded above with its reason.
+
+**Refuted by the 3.4(A) measurement (2026-10-27, `plan-skill` lane).** One
+gap; the rows are 3.4(A)'s table.
+
+| # | The plan said | Measured | Change |
+| --- | --- | --- | --- |
+| M1 | 3.3: retire the foreign `top` row with `bye` BEFORE the successor hand-registers, or `msg top` is ambiguous "until the operator sweeps" | Ambiguous in either order, and for good: label resolution (`store/target.go`, the exact-label arm) matches ended rows, and no code deletes a session row. Three pairs (rows 12 and 14): bye-then-hello and hello-then-bye both left `msg <label>` refused `ambiguous target … names 2 sessions as a label`; `hello` printed no label-worn-twice warning for an ended twin. A claim slug resolved past the duplicate (row 15) | 3.3 and 3.4(A): each top session wears its own numbered label (`top-<n>`, as coordinators wear `orc-<n>`), upward reports go to the claim slug `orc-<fleet>`, which `release --to` moves; the `bye` stays, so the foreign row reads ended rather than STALE. Not proposed: a label arm that skips ended rows (a resolver change, its own lite item if wanted) |
+
+Two smaller corrections, not gaps. The "four commands" at handoff count as
+three per coordinated ledger plus one `release --to` in the fleet repo (3.3).
+And section 2's "no process registered, so it is unbound" holds only while
+none of that session's hooks runs in that ledger: the first hook-shaped
+`beat` there binds its process (row 5), and a bound row's hand `bye` from
+the live session is refused (row 13). Hence the subshell rule in 3.4(A).
