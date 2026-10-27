@@ -577,7 +577,11 @@ func TestEmbeddedAdmissions(t *testing.T) {
 		// The first record qualify-release.py wrote (D-081, 2026-10-14).
 		"codex 0.162.1": "74c6a6d263f40d65f99c27a815275f5b4ed0bcc2baecc396b4cf3255498bdfc0",
 		// qualify-release.py's first Claude record (2026-10-14, at 784ec7b).
-		"claude 2.1.299": "ba5ab7b8c195fa03ab8d5bf3915c76153b576a2c40e79a5c46e265e7ed9744b3"}
+		"claude 2.1.299": "ba5ab7b8c195fa03ab8d5bf3915c76153b576a2c40e79a5c46e265e7ed9744b3",
+		// The installed Codex 0.164.0, every tier (2026-10-26, at 9b6980b). Its
+		// release notes were read first: nothing the contract reads changed, and
+		// the gate's denials fired with no hooks feature key in the fixture.
+		"codex 0.164.0": "d8990e3ee7acfbc26f91265b12a1a83f0fee40d0e0f8f1f40a37d4ec21f499cf"}
 	if len(got) != len(want) {
 		t.Fatalf("embedded records %v", got)
 	}

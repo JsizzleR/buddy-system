@@ -1,0 +1,41 @@
+{
+ "checker": "check-codex-gate.py",
+ "exit": 0,
+ "verdict": {
+  "passed": true,
+  "checks": {
+   "receipt_location": true,
+   "contract": true,
+   "runner_verdict": true,
+   "artifact_hashes": true,
+   "hook_trust_reviewed_then_exact": true,
+   "one_native_thread": true,
+   "shell_routed_denial": true,
+   "malformed_patch_denied": true,
+   "unreadable_ledger_denied": true,
+   "allowed_control": true,
+   "lifecycle_same_incarnation": true,
+   "app_server_thread": true,
+   "evidence_hashes": true
+  },
+  "errors": [],
+  "evidence": "hashed",
+  "read": [
+   "captured-receipt.json",
+   "codex.stdout.jsonl",
+   "gate-wrapper.py",
+   "hook-invocations.jsonl",
+   "hooks-trusted.json",
+   "hooks-untrusted.json",
+   "lifecycle-invocations.jsonl",
+   "lifecycle-wrapper.py",
+   "requests.json",
+   "state/config.toml",
+   "work/allowed.txt",
+   "work/broken/.git/buddy.db",
+   "work/guarded.txt"
+  ],
+  "unbound": []
+ },
+ "stderr": ""
+}
