@@ -38,7 +38,10 @@
 #   - --export: the closed items only, the second run appends nothing and
 #     leaves the file byte-identical, a newly closed item is appended once,
 #     and no claim id is ever written twice; a file with a foreign header is
-#     refused, and a hand-planted row is DATA: counted, never printed.
+#     refused, and a hand-planted row is DATA: counted, never printed; a
+#     relative path that looks like an awk assignment or an option is a path;
+#   - a ledger at another schema is refused naming its version, and the same
+#     copy at 16 is read (the control).
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -74,6 +77,7 @@ SB=bbbbbbbb-0000-4000-8000-00000000000b
 SC=cccccccc-0000-4000-8000-00000000000c
 SD=dddddddd-0000-4000-8000-00000000000d
 SE=eeeeeeee-0000-4000-8000-00000000000e
+SF=ffffffff-0000-4000-8000-00000000000f
 P="$WORK/projects"
 # The harness's names, by hand: every byte outside [A-Za-z0-9] of an ASCII
 # path is one '-', and " é" is two: the space and the one UTF-16 unit.
@@ -164,6 +168,17 @@ as "$SD" claim d1-MARKSLUG --desc "model=x class=research" --scope d1
 as "$SD" release d1-MARKSLUG
 as "$SE" claim e1-MARKSLUG --desc "model=claude-opus-5-5 class=research" --scope e1
 as "$SE" release e1-MARKSLUG
+# Three more fail-then-reclaim pairs, each inside one second as a2's is: the
+# claim ids are random, so a tiebreak on them orders one pair right half the
+# time and these four together 1 time in 16 (orc-6's review). F has no
+# context row and no transcript: docs x unrecorded.
+hello "$SF" "$REPO" frank
+for i in 1 2 3; do
+	as "$SF" claim "f$i-MARKSLUG" --desc "model=claude-opus-5-5 class=docs try" --scope "f$i"
+	as "$SF" release "f$i-MARKSLUG" --outcome fail
+	as "$SF" claim "f$i-MARKSLUG" --desc "model=claude-opus-5-5 class=docs again" --scope "f$i"
+	as "$SF" release "f$i-MARKSLUG" --outcome pass
+done
 
 LEDGER="$REPO/.git/buddy.db"
 MARKS="MARKLABEL MARKLONG MARKSLUG MARKORC MARKSLOT MARKDESC MARKNL MARKTAB MARKNOTE MARKREP MARKWORD MARKMISS MARKOPEN MARKMODEL MARKCMD deadbeefdeadbeef"
@@ -190,7 +205,9 @@ real_sqlite=$(command -v sqlite3)
 mkdir -p "$WORK/shim"
 printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$PWD" "$*" >>"%s"\nexec "%s" "$@"\n' "$WORK/sqlite.log" "$real_sqlite" >"$WORK/shim/sqlite3"
 chmod +x "$WORK/shim/sqlite3"
-report() { ( cd "$REPO" && PATH="$WORK/shim:$PATH" CLAUDE_PROJECTS_DIR="$P" sh "$1" ${2:+--export "$2"} ) 2>&1; }
+# Stdin is /dev/null: an awk left with no file operand reads stdin, so a
+# regression there must fail here, not hang (the ./ mutant hung 45 min).
+report() { ( cd "$REPO" && PATH="$WORK/shim:$PATH" CLAUDE_PROJECTS_DIR="$P" sh "$1" ${2:+--export "$2"} ) </dev/null 2>&1; }
 
 # audit <file>... — no planted byte, and (for a report) every line a shape the
 # report prints. The shapes are spelled here, not copied from the script.
@@ -230,8 +247,8 @@ want() { # want <file> <ERE> <what>
 	grep -Eq "$2" "$1" || fail "$3:
 $(cat "$1")"
 }
-want "$out" '^items: 13 \(1 open\), 4 with no class token' "13 items (no slot, orc- or orchestrator claim among them), 1 open, 4 unknown"
-want "$out" '^model= token against the recorded model: 6 same, 2 differs, 3 none or repeated, 2 with no model recorded$' "the model= tokens"
+want "$out" '^items: 19 \(1 open\), 4 with no class token' "19 items (no slot, orc- or orchestrator claim among them), 1 open, 4 unknown"
+want "$out" '^model= token against the recorded model: 6 same, 2 differs, 3 none or repeated, 8 with no model recorded$' "the model= tokens"
 want "$out" '^code +claude-opus-5-5 +3 +3/3 +100% +1/3 +33% +1/3 +33% +1 \(n=3\) +1$' \
 	"code x opus: a1, a2 twice; one fail; the first a2 reworked; 2+0+0 requests, 3+0+0 tools"
 want "$out" '^docs +claude-fable-5-1 +2 +2/2 +100% +1/2 +50% +0/2 +0% +2 \(n=2\) +1$' \
@@ -243,7 +260,8 @@ want "$out" '^unknown +claude-opus-5-5 +4 +0/4 +0% +0/0 +- +0/4 +0% +0 \(n=4\) +
 want "$out" '^ops +unrecorded +1 +1/1 +100% +0/1 +0% +0/1 +0% +0 \(n=1\) +0$' "ops x unrecorded: no context row, an empty transcript"
 want "$out" '^research +other +1 +0/1 +0% +0/0 +- +0/1 +0% +- \(n=0\) +-$' "research x other: a model with a NUL and a tab"
 want "$out" '^research +unrecorded +1 +0/1 +0% +0/0 +- +0/1 +0% +- \(n=0\) +-$' "research x unrecorded: a revived session's claim"
-[ "$(grep -c '^below the floor: ' "$out")" = 7 ] || fail "want a floor line for each of the 7 cells under 10:
+want "$out" '^docs +unrecorded +6 +6/6 +100% +3/6 +50% +3/6 +50% +- \(n=0\) +-$' "docs x unrecorded: three fail-then-reclaim pairs"
+[ "$(grep -c '^below the floor: ' "$out")" = 8 ] || fail "want a floor line for each of the 8 cells under 10:
 $(cat "$out")"
 fl=$( cd "$REPO" && BUDDY_MODEL_FLOOR=3 CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" 2>&1 )
 printf '%s\n' "$fl" | grep -q '^below the floor: code x' && fail "BUDDY_MODEL_FLOOR=3: a 3-item cell is not under the floor:
@@ -262,9 +280,9 @@ audit "$WORK/leaky.txt" >/dev/null && fail "the audit's control failed: a report
 EXP="$WORK/register.tsv"
 report "$ROOT/scripts/model-report.sh" "$EXP" >"$WORK/e1.txt" || fail "the first export exited non-zero:
 $(cat "$WORK/e1.txt")"
-want "$WORK/e1.txt" '^export: 12 new closed item\(s\) appended$' "the first export: the 12 closed items, not the open one"
+want "$WORK/e1.txt" '^export: 18 new closed item\(s\) appended$' "the first export: the 18 closed items, not the open one"
 want "$WORK/e1.txt" '^Model report: per class x model, over the register --export names$' "an export reports over the register"
-want "$WORK/e1.txt" '^items: 12 \(0 open\)' "the register holds no open item"
+want "$WORK/e1.txt" '^items: 18 \(0 open\)' "the register holds no open item"
 [ "$(head -n 1 "$EXP")" = "$hdr" ] || fail "the register's header is not the columns"
 bad=$(sed 1d "$EXP" | LC_ALL=C grep -Ev "$row" || true)
 [ -z "$bad" ] || fail "an export row is not in the rendered form:
@@ -289,17 +307,30 @@ cell() { awk -F'\t' -v c="$1" -v o="$2" -v n="$3" -v k="$4" '$4 == c && $6 == o 
 [ "$(cell docs pass 1 1)" = 4/2 ] || fail "b1: want 4 requests and 2 tool calls, from the worktree's dir, got $(cell docs pass 1 1)"
 [ "$(cell ops aborted 1 1)" = 0/0 ] || fail "c1: an empty transcript is 0, never '-', got $(cell ops aborted 1 1)"
 [ "$(cell research none 1 1 | sort | tr '\n' ' ')" = "-/- -/- " ] || fail "d1, e1: no transcript is '-', never 0"
-# The rework chain survives the export: the second a2 names the first.
-first_a2=$(awk -F'\t' '$4 == "code" && $6 == "fail" { print $1 }' "$EXP")
-[ "$(awk -F'\t' -v id="$first_a2" '$12 == id' "$EXP" | wc -l | tr -d ' ')" = 1 ] ||
-	fail "the re-claim of a2 does not name the first claim as its prev_claim"
+# The rework chain survives the export: in each of the four pairs the failed
+# claim comes first and the re-claim names it, once.
+chain=$(awk -F'\t' 'NR > 1 && $11 == 2 { if ($6 == "fail") { f++; if ($10 != 1) bad++; first[$1] = 1 } else if ($12 != "-") named[$12]++ }
+	END { for (id in first) if (named[id] != 1) bad++; print f + 0, bad + 0 }' "$EXP")
+[ "$chain" = "4 0" ] || fail "want 4 failed first claims, each named once by its re-claim; got (fails, faults) $chain"
+# A relative --export path is a path, never an awk assignment or an option.
+for r in reg=1.tsv -dash.tsv; do
+	report "$ROOT/scripts/model-report.sh" "$r" >"$WORK/rel.txt" || fail "--export $r exited non-zero:
+$(cat "$WORK/rel.txt")"
+	want "$WORK/rel.txt" '^export: 18 new closed item' "--export $r did not append the 18 closed items"
+	[ "$(wc -l <"$REPO/$r" | tr -d ' ')" = 19 ] || fail "--export $r did not write $r in the cwd"
+	# Read back as a file, not as an assignment: the report covers it and the
+	# dedupe sees it (an awk operand `reg=1.tsv` read neither).
+	want "$WORK/rel.txt" '^items: 18 \(0 open\)' "--export $r: the report did not read the register back"
+	report "$ROOT/scripts/model-report.sh" "$r" >"$WORK/rel.txt" || fail "a second --export $r exited non-zero"
+	want "$WORK/rel.txt" '^export: 0 new closed item' "a second --export $r appended again"
+done
 # A newly closed item is appended once.
 as "$SA" release a6-MARKSLUG
 report "$ROOT/scripts/model-report.sh" "$EXP" >"$WORK/e3.txt" || fail "the third export exited non-zero"
 want "$WORK/e3.txt" '^export: 1 new closed item\(s\) appended$' "the released a6 was not appended once"
 dups=$(sed 1d "$EXP" | cut -f1 | sort | uniq -d)
 [ -z "$dups" ] || fail "a claim id was exported twice: $dups"
-[ "$(sed 1d "$EXP" | wc -l | tr -d ' ')" = 13 ] || fail "want 13 rows in the register"
+[ "$(sed 1d "$EXP" | wc -l | tr -d ' ')" = 19 ] || fail "want 19 rows in the register"
 
 # Read back, the register is DATA: a planted line is counted and never shown,
 # and a planted copy of an exported row is counted as repeated.
@@ -313,6 +344,20 @@ want "$WORK/e4.txt" '^export: 0 new closed item' "the planted register drew an a
 printf 'some other file\n' >"$WORK/foreign.tsv"
 if report "$ROOT/scripts/model-report.sh" "$WORK/foreign.tsv" >/dev/null; then fail "a file with a foreign header was appended to"; fi
 [ "$(cat "$WORK/foreign.tsv")" = "some other file" ] || fail "a refused export changed the file"
+
+# A ledger at a schema the query was not written for is refused by name.
+sqlite3 "$LEDGER" ".backup '$WORK/old.db'"
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=15;'
+old=$( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" sh "$ROOT/scripts/model-report.sh" 2>&1 ) &&
+	fail "a schema-15 ledger was read:
+$old"
+printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 15; this report reads schema 16 only$' ||
+	fail "the schema refusal did not name the version:
+$old"
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=16;'
+( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ) >"$WORK/v16.txt" 2>&1 ||
+	fail "the control failed: the same copy at schema 16 was refused"
+want "$WORK/v16.txt" '^items: 19 ' "the control failed: the copy at schema 16 did not report"
 
 # Refusals, each with its reason.
 for f in 0 x -1 07; do

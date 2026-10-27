@@ -61,8 +61,9 @@
 #           where the sweep removed the earlier claim before the re-claim was
 #           made (a released claim lives 24 hours), so a re-claim more than a
 #           day after the previous release starts a new chain (Codex): a
-#           slug digest would join it, and was not added, since invariant 9's
-#           list of what this may print names no derived value.
+#           slug digest would join it and was not added, because a slug is
+#           low-entropy and its digest reverses by dictionary, so printing
+#           the digest prints the slug.
 #   requests, tool_calls
 #           the holder's main-thread requests (deduplicated by requestId,
 #           else message.id; a `<synthetic>` record is not one) and tool_use
@@ -106,7 +107,7 @@
 #
 # KNOBS
 #   BUDDY_LEDGER         the ledger (default: <git common dir>/buddy.db of
-#                        the cwd; cost-report.sh's knob)
+#                        the cwd; cost-report.sh's knob), at schema 16
 #   BUDDY_MODEL_FLOOR    items a cell needs before its rates mean anything
 #                        (default 10, the operator's number, 5.2(b))
 #   CLAUDE_PROJECTS_DIR  where transcripts live (default ~/.claude/projects)
@@ -118,6 +119,12 @@ case $# in
 	0) ;;
 	2) [ "$1" = --export ] && [ -n "$2" ] || usage; export_to=$2 ;;
 	*) usage ;;
+esac
+# A bare awk operand `reg=1.tsv` is a variable assignment and `-x` an option:
+# a relative path is spelled ./ before anything reads it.
+case "$export_to" in
+	'' | /*) ;;
+	*) export_to=./$export_to ;;
 esac
 
 floor=${BUDDY_MODEL_FLOOR:-10}
@@ -151,7 +158,12 @@ chmod 700 "$work"
 
 stamp() { # size and mtime of the ledger and its WAL, or "-" for an absent one
 	for f in "$ledger" "$ledger-wal"; do
-		if [ -e "$f" ]; then stat -f '%z %Fm' "$f" 2>/dev/null || stat -c '%s %.9Y' "$f"; else echo -; fi
+		# GNU first: GNU `stat -f` is --file-system, which prints the statfs
+		# block on stdout AND exits 1, so `-f || -c` stamped free-space counters
+		# that move with this script's own cp (orc-6's review, from the option
+		# grammar; no GNU stat on the box this was written on). BSD `stat -c`
+		# fails with nothing on stdout, so this order cannot mix the two.
+		if [ -e "$f" ]; then stat -c '%s %.9Y' "$f" 2>/dev/null || stat -f '%z %Fm' "$f"; else echo -; fi
 	done
 }
 tries=0
@@ -177,6 +189,14 @@ done
 (cd "$work" && sqlite3 l.db 'PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode=DELETE;') >/dev/null
 q() { (cd "$work" && sqlite3 -batch -noheader -separator '	' 'file:l.db?mode=ro&immutable=1'); }
 [ "$(echo 'PRAGMA quick_check(1);' | q)" = ok ] || { echo "model-report: the ledger copy failed quick_check" >&2; exit 1; }
+# The schemas this query was written against, refused outside them by name
+# (D-037's spirit): an older ledger lacks columns it reads (set -e died on
+# "no such column"), and a newer one may mean something else by them.
+schema=$(echo 'PRAGMA user_version;' | q)
+case "$schema" in
+	16) ;;
+	*) echo "model-report: the ledger is at schema $schema; this report reads schema 16 only" >&2; exit 2 ;;
+esac
 
 # One row per item claim, every field already in its rendered form, plus
 # the full session id (column 13, charset-checked) and the holder's worktree
