@@ -221,17 +221,30 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   test evidence. Authorized drivers and workers (`AGENTS.md`) may build and test;
   report commands and results separately from review findings. A defect's
   reproducing test must still be watched to fail without the fix.
-- **Review depth is a tier, picked per change and named in the commit's
-  review line.** `chore`: no outside review (wording, a test-only change, skill
-  prose that names no new verb or flag). `lite`: at most ONE Codex code pass
-  through `codex-review.sh` on the finished diff, its findings fixed or
-  answered in the commit. `full`: a Codex DESIGN pass before the code, a code
-  pass after, and a re-verify pass on the fixes; for a change to what the gate
-  refuses or allows, the ledger schema, `internal/fence`, or an invariant
-  above. Tests and the mutation check are owed at every tier; a review is never
-  their substitute. The operator may cap the tier for a run of work (for
-  example "lite at most, optional, no second model family"), and a lane's brief
-  carries that cap: a lane never raises its own tier above it.
+- **Review depth is a tier, picked per change by its CLASS (never by the model
+  or the diff's size), named in the lane's brief and in the commit's receipt
+  line (D-104).** `chore`: no outside review required, the reason in the receipt
+  (wording, skill prose that names no new verb or flag). `lite`: a scoped
+  adversarial self-review, then ONE Codex code pass owed (more allowed, named in
+  the receipt) through `codex-review.sh` on the finished diff, its findings
+  fixed or answered in the commit; one round; a Fable cross-check optional. `full`, for a change to what the gate refuses or
+  allows, the ledger schema, `internal/fence`, or an invariant above: an
+  adversarial panel of read-only subagents (spawned without asking; anything
+  that mutates gets its own worktree), a Codex DESIGN pass before the code and a
+  code pass after, a Fable cross-check (required), and a Codex re-verify of the
+  fixes until it accepts or the brief's bound. A test-only change takes its
+  class's tier. A second model is allowed at any tier; the tier says when it is
+  required. The receipt, last in the body, names each layer that ran, each Codex
+  pass with its effort (the cross-check names its model):
+  `review: full (panel + codex@xhigh design + codex@xhigh code + fable + codex@xhigh reverify)`;
+  a bare `codex` cannot tell the pinned effort from a fallback.
+  Tests and the mutation check are owed at every tier; a review is never their
+  substitute. The operator may cap the tier for a run of work (for example "lite
+  at most, optional, no second model family"), and a lane's brief carries that
+  cap: a lane never raises its own tier above it. Lanes run on the operator's
+  default lane model (Opus 5.5 at high effort, as of 2026-10-26); a full-tier
+  item, its panel and its fold rounds on the strongest model available, at high
+  effort.
 - A guard's review scope is every site that **bypasses** it, not the diff that
   adds it.
 - Prefer naming the exact failing input and the resulting wrong behavior over
@@ -757,6 +770,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   housekeeping, a second opinion); its context is the scarce one before its handoff size (orc-3
   handed off at 322k, orc-4 at 397k). A subagent is not a lane: no claim, no landing, no message,
   under the parent's id and claims (D-099); what it finds is evidence once a test reproduces it.
+- **The review tier follows the change class; a receipt names what ran; the model is pinned per
+  tier (D-104):** full = read-only panel + Codex design and code passes + Fable cross-check +
+  Codex re-verify; lite = adversarial self-review + one Codex pass, one round, Fable optional;
+  chore = none required, with the reason. A test-only change takes its class's tier (4 of 36
+  chores since 2026-09-07 touched only test files). The receipt names each Codex pass's effort (0 of
+  15 lite/full receipts did). Lanes on the operator's default model; a full item, panel and folds on
+  the strongest. A receipt check, a tier column and model constants in the skill were cut.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

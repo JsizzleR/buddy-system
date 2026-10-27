@@ -7555,3 +7555,92 @@ resource before its handoff size; a subagent's is not.
 **Tests** — none new: skill prose, a CLAUDE.md bullet and this entry; no verb
 or flag. The skill tests still read every `buddy <verb> --flag` the skill
 teaches. Review: chore.
+
+## D-104 — The review tier follows the change class; a receipt names what ran; the model is pinned per tier
+
+2026-10-26. Operator's decision, given to orc-5: certain items take the full
+gate "with a fable/codex review", others the lite one; "lets also make this
+pattern part of the skill where possible/generic enough". The pattern is taken
+from another repository's review gate on this machine.
+
+**The failure** — the tier text here said only how many Codex passes each tier
+owed. Nothing said a full change gets a panel or a third read, nothing made a
+receipt say at what effort its second model ran, and `chore` listed "a test-only
+change" as an example, so a test of what the gate refuses could ship with no
+review at all. Measured over this repo's log (`git log`, the first body line
+beginning `review:` per commit; 55 commits carry one, 2026-09-07..10-26): 36
+chore, 12 lite, 3 full, 4 untiered; 4 of the 36 chores touched only test files
+(7 name a test in their receipt, one of those a records and docs commit); 0 of
+the 15 lite and full receipts names an effort; 0 names a panel or a cross-check.
+The model was not pinned per tier either: every lane on 2026-10-26 ran on Fable
+because each orchestrator copied the last one (the operator's note recording the
+default), and two of that day's three items were bounded fixes and a script run.
+The source repository measured what the missing layers buy: an independent
+second-family review found 3 real issues (2 critical) a same-family review
+missed; a second-model pass on a script below its full tier found an
+option-injection hole four other layers had missed; re-verify rounds caught two
+high-severity defects introduced while folding; and 8 of 14 receipts in one
+stretch named the second model with no effort, so a pinned pass and a silent
+fallback were the same string (all four read by this lane from that repository's
+decision record; it is not named here).
+
+**The rule** — the tier is picked per item by the change's CLASS, never by the
+model or the diff's size, named in the lane's brief and in the commit's receipt.
+- **full** (here: what the gate refuses or allows, the ledger schema,
+  `internal/fence`, an invariant): an adversarial panel of read-only subagents,
+  spawned without asking (no edits, builds, tests or writing git in the shared
+  checkout; anything that mutates gets its own worktree at a commit); a Codex
+  design pass before the code and a code pass after; a Fable cross-check,
+  required; and a Codex re-verify of the fixes, until it accepts or the brief's
+  bound.
+- **lite**: a scoped adversarial self-review and ONE Codex pass on the finished
+  diff, findings fixed or answered; one round, no re-verify loop; Fable
+  optional. "At most one" became "one": the pass is what makes it lite rather
+  than chore, and an operator's cap ("optional") still waives it for a run.
+- **chore**: no outside review required, with the reason in the receipt.
+- **Every tier.** A second model is allowed at any tier; the tier says when it
+  is required. A test-only change takes its class's tier (amends this file's old
+  chore example; past receipts are not revisited). The receipt is the last line
+  of the commit body and names each layer that ran, each second-model pass with
+  its own effort (the cross-check names its model):
+  `review: full (panel + codex@xhigh design + codex@xhigh code + fable + codex@xhigh reverify)`.
+  A layer the tier owes is skipped only on the operator's word (a cap), and the
+  receipt names it with the reason. Tests and the mutation check
+  are owed at every tier; a review is never test evidence. The operator caps the
+  tier per run and a lane never raises its own above it, nor lowers the brief's
+  on its own. A panel subagent is not a lane (D-103).
+- **The model per tier**: a full-tier item, its panel and its fold rounds on the
+  strongest model available at high effort; lite and chore on the operator's
+  default lane model, a standing decision in the operator's instructions (Opus
+  5.5 at high effort as of today). The skill names it as that day's default,
+  never as a constant, and the fleet recipe's launch line carries the model and
+  effort. `docs/BEYOND-CODE-PLAN.md` section 5's pick rule, if it lands,
+  replaces the fixed per-tier default with a per-class one.
+- **Decided by class** (the operator, 2026-10-27 00:08, relayed by orc-5): a
+  full-tier item runs on the strongest model available, with its panel and fold
+  rounds, at high effort; lite and chore on the default lane model; the
+  operator may still name any item for either. The operator's own instructions
+  were aligned the same night. The skill's "unless the operator's instructions
+  pin it otherwise" is that naming escape.
+
+The skill carries the pattern generically ("Review depth: the tier follows the
+change class"): which classes are full and which script runs the second model
+are the repo's own, named in its CLAUDE.md; the source repository is cited only
+as "another repo's review gate".
+
+- **Not done.** A receipt CHECK script here (a done-check warning when a full
+  receipt lacks the cross-check or a layer its effort): proposed as a follow-up
+  at lite, not built now, because this entry is the first to define the receipt's
+  shape and a check written before any receipt follows it would be tuned to
+  nothing. A tier column in the ledger or any table: this repo keeps the tier in
+  the brief and the commit, and nothing in buddy reads or enforces it (the same
+  reason D-103 gave a subagent no row). Naming models in the skill as constants:
+  the skill is installed user-level for every repo, and the default moves with
+  the operator's decisions (it moved on the day this was written).
+
+**Tests** — none new: skill prose, CLAUDE.md, this entry and a charter GIVEN; no
+verb or flag. The skill tests (`TestSkillNamesOnlyWhatHelpAnswers`,
+`TestSkillTeachesEveryVerbAndFlag`) still read every `buddy <verb> --flag` the
+skill teaches, and the first draft failed one: a bare backticked `--model` was
+read as a flag of the nearest `buddy` verb. Review: lite (codex@xhigh + fable
+cross-check).

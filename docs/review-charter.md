@@ -1028,6 +1028,21 @@ ledger row entered through the CLI (D-006).
     (D-099); its findings are evidence once a test reproduces them. Do not propose a ledger
     row or verb for subagents, or counting their tokens against the handoff size.
 
+105. **The review tier follows the change class; a receipt names what ran; the model is pinned
+    per tier (D-104).** Full (what the gate refuses or allows, the ledger schema,
+    `internal/fence`, an invariant): a read-only subagent panel, Codex design and code passes,
+    a required Fable cross-check, and a Codex re-verify of the fixes until it accepts or the
+    brief's bound. Lite: a scoped adversarial self-review and one Codex pass, one round, Fable
+    optional. Chore: no outside review required, with the reason. A test-only change takes its
+    class's tier; a second model is allowed at any tier. The receipt names each layer, each
+    second-model pass with its own effort, the cross-check by its model
+    (`review: full (panel + codex@xhigh design + codex@xhigh code + fable + codex@xhigh reverify)`;
+    measured, 0 of 15 lite/full receipts here named one). Lanes run on the
+    operator's default model; a full item, its panel and fold rounds on the strongest at high
+    effort; the skill states the default as that day's, never a constant. Do not propose a
+    tier column in the ledger, a receipt check before receipts follow the shape, or model
+    names as constants in the skill.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

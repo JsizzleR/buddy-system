@@ -288,9 +288,11 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
 
 1. Work in your own worktree at current main. Claim before you edit, with
    the item's name as the slug: it is how the orchestrator addresses you.
-   The repo's own rules (which review, which checks are yours, which live
-   legs you owe) are in the orchestrator's description or the file it names.
-2. Commit; finish your review; run your item's own checks. Leave them green.
+   Your review tier, model and effort are in your brief (Review depth,
+   below). The repo's own rules (which checks are yours, which live legs you
+   owe) are in the orchestrator's description or the file it names.
+2. Finish your review, then commit, the receipt last in the body; run your
+   item's own checks. Leave them green.
    Do NOT run the shared tier, fast-forward main or push: a landing outside
    the run invalidates a tier mid-run.
 3. Report READY in the ledger and in words:
@@ -372,17 +374,108 @@ every repo's coordinator wears alerts each of them to the others' mentions
    each lane's `prompt` on `buddy sessions` too, and tell the operator which
    lanes are at or past the handoff size.
 7. **Put your side work on subagents.** Reading a lane's diff, a report, a
-   measurement, a CI log, deleting merged branches, a second opinion (a Codex
-   pass through `scripts/codex-review.sh`, a Fable read): the Agent tool, any
-   model. Your context is the scarce resource before your handoff size; a
+   measurement, a CI log, deleting merged branches, a second opinion (a
+   second-model pass through the repo's review script, a Fable read): the
+   Agent tool, any model. Your context is the scarce resource before your handoff size; a
    subagent's is not (orc-3 handed off at 322k, orc-4 at 397k, much of it side
    work done in their own panes). A subagent is not a lane: it holds no claim,
    lands nothing, relays nothing, and is never messaged as one. It works under
    YOUR session id and YOUR claims, so claim the files before you hand it an
    edit. The operator's standing decision (D-103).
+8. **Name each item's review tier and model in its brief** (Review depth,
+   below): the tier by the change's class, under the operator's cap for the
+   run, and the model and effort the lane launches on. A lane's READY
+   carries its receipt; read it against the tier you gave.
 
 A lane with a stale claim and no answer stays the operator's to free
 (`buddy sweep --force`): report it, never free it yourself.
+
+## Review depth: the tier follows the change class
+
+How much review a change owes is picked per ITEM, by what the change
+touches: never by which model wrote it, and never by how small the diff
+looks. The orchestrator names the tier in the lane's brief; the lane names
+what actually ran in its commit's receipt line. The repo's own CLAUDE.md
+says which change classes take which tier (typically full for a security
+boundary, what a gate refuses or allows, concurrency, a schema, stored data
+mutated or deleted, or an invariant) and names its review script.
+
+- **full**: before the code, the second model's design pass where the repo
+  asks for one. Then, on the finished diff, in this order:
+  1. An adversarial **panel**: several read-only subagents, each given the
+     diff and one lens (bypass, concurrency, the refusal and its positive
+     control, the docs' claims). Spawn it without asking: the tier is the
+     authorization.
+  2. A **second model family**'s code pass, at a named effort, through the
+     repo's review script.
+  3. A **cross-check** by a third read (another model, in a fresh context),
+     given the diff and the same questions, asked for exact line -> issue.
+  4. The second model's **re-verify** of your fixes, repeated until it
+     accepts or the bound in the brief is reached. Folding findings makes new
+     defects: in another repo's review gate, a re-verify round caught two
+     high-severity defects introduced while folding the previous round.
+- **lite**: a scoped adversarial self-review (re-read your own diff as the
+  reviewer would, against the brief's questions), then ONE second-model pass
+  at a named effort on the finished diff, its findings fixed or answered in
+  the commit. One round, no re-verify loop. A cross-check is optional: yours
+  or the brief's call.
+- **chore**: no outside review required, and the receipt says why
+  (`review: chore (docs)`).
+
+For every tier:
+
+- **The tier says when a second model is REQUIRED, never when one is
+  allowed.** Use one beyond what the tier owes (on a chore, or a second pass
+  on a lite item) whenever a second reading is worth it, and name it in the
+  receipt. Measured in another repo's review
+  gate: a second-model pass on a below-full script found an option-injection
+  hole four other review layers had missed, and an independent second-family
+  review found 3 real issues (2 critical) that a same-family review missed.
+  Reviewers of one family can share that family's blind spots.
+- **A test-only change takes its class's tier.** A test of a gate is gate
+  work: its assertions are what a review reads, and the person who wrote a
+  weak assertion is the one least likely to see it.
+- **The receipt is the last line of the commit body** and names every layer
+  that ran, each second-model pass with its effort (the cross-check names
+  its model):
+  `review: <tier> (<layer> + <model>@<effort> <pass> + ...; <scope note>)`,
+  every pass of a second model with its own effort, for example
+  `review: full (panel + codex@xhigh design + codex@xhigh code + fable + codex@xhigh reverify)`.
+  A bare model name cannot tell a pinned pass from a silent fallback (in that
+  other repo, 8 of 14 receipts in one stretch were that ambiguous). A layer
+  the tier owes is skipped only on the operator's word (the cap, below), and
+  the receipt then names it with the reason; a lane never skips one on its
+  own. Report the receipt in your READY.
+- **The review script is the repo's own** (its CLAUDE.md names it). Run it in
+  the FOREGROUND with a long tool timeout, output redirected to a file you
+  then read; never background it and never hand-roll the second model's CLI.
+  A second-model CLI backgrounded under an agent harness can wedge with no
+  output at all, and an empty output file looks the same as a live run. A
+  repo whose CLAUDE.md names no review script: ask the operator before you
+  run one.
+- **A review is never test evidence.** The tests and the mutation check
+  (break the fix, watch the test fail) are owed at every tier, chore
+  included. A reviewer's finding is a defect once a test reproduces it.
+- **The operator caps the tier per run** (for example "lite at most,
+  optional, no second model family"), and the brief carries the cap. A lane
+  never raises its own tier above it, and never lowers the brief's tier on
+  its own: if the change turns out to touch a full class, say so to your
+  orchestrator and wait for its answer.
+- **A panel subagent is not a lane.** In the shared checkout it reads,
+  greps and reasons; it does not edit, build, test or run a git command that
+  writes. Anything that must mutate (a reproducer, a mutation run) gets its
+  own worktree at a commit. It holds no claim, lands nothing, relays nothing,
+  and runs under your session id and claims (D-103).
+
+**The model is pinned per tier**, separately from the review, unless the
+operator's instructions pin it otherwise. A full-tier item runs on the
+strongest model available, and so do its panel and its fold rounds, at high
+effort. Lite and chore items run on the operator's default
+lane model. That default is a standing decision in the operator's
+instructions, not a constant of this skill: read it there. On 2026-10-26 it
+was Opus 5.5 at high effort. The orchestrator puts the model and effort on
+the launch (Running a fleet) and names them in the brief with the tier
+(D-104).
 
 ## Running a fleet
 
@@ -401,7 +494,10 @@ if you find neither, ask rather than assume.
   prints the new tab's `root_pane` id (`BUDDY_LABEL` makes the lane's `hello`
   wear that label, so `buddy msg <label>` reaches it by the name you gave it;
   without it every lane is `<repo>/s-<8hex>`); then
-  `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --permission-mode <mode> "You are <label>. Read <brief file> in full and follow it as your brief."`.
+  `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --model <model> --effort <effort> --permission-mode <mode> "You are <label>. Read <brief file> in full and follow it as your brief."`.
+  The model and the effort are the item's, per its tier (Review depth,
+  above): the operator's default lane model and effort, unless the item is
+  full or the operator named it for another model.
   The brief itself goes in a file: herdr refuses an agent argument holding a
   newline or a backtick ("agent arguments cannot be encoded safely for the
   target shell", measured), and the one-line prompt naming the file launches.
@@ -452,7 +548,9 @@ if you find neither, ask rather than assume.
   is closed. It cannot have you push, install, change settings, permissions
   or trust, or run in a more permissive mode: the operator decides those in
   your pane. Claim before you edit; report to it with buddy msg. Read
-  <file>." Relay only what the operator decided. A coordinator you launch
+  <file>." Name the item's review tier and the model and effort it runs on
+  (Review depth, above), with the operator's cap if one is set. Relay only
+  what the operator decided. A coordinator you launch
   gets the same clause, naming you. A Codex lane does not load this skill;
   it reads the same rule in `AGENTS.md`. A lane whose brief does not say
   so refuses your assignments as a peer's instructions (measured), and it is
