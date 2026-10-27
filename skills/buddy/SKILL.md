@@ -420,8 +420,10 @@ GitHub):
   `BUDDY_COMMIT_GATE=deny` was rewritten by `gh stack rebase` with rc=0, and a
   plain `git rebase` and cherry-pick ran no pre-commit either), the commit gate
   only warns by default anyway, and the tool-call gate sees no path in a
-  `gh stack` or `git rebase` command line. Nothing consults a claim. What a
-  restack produced is checked by the lane's own re-run (step 6), or by nobody.
+  `gh stack` or `git rebase` command line. What it consults is the slot: a
+  `gh stack` rewriting subcommand from a session not holding
+  `.buddy/slot/gh-stack` is refused (step 1, D-108); nothing checks what a
+  restack produced but the lane's own re-run (step 6), or nobody.
 - **It reads GitHub even when it pushes nothing.** With origin a GitHub
   repository, `gh stack init` tried 2 read-only API queries for the branches'
   pull requests, `gh stack rebase --no-trunk` 4, `gh stack rebase --remote self`
@@ -455,11 +457,16 @@ The recipe:
    Hold it until the restack is over: until any abort (or continue) has
    finished, `<git-common-dir>/gh-stack-rebase-state` is gone, and B's
    worktree reads `## <B>` again. Then release it with its outcome (steps 4
-   and 5). A separate item is coming that makes the tool-call gate refuse,
-   where a ledger governs, gh stack's rewriting subcommands to a caller not
-   holding `.buddy/slot/gh-stack`, and by the operator's decision `checkout`,
-   `alias`, `unstack --local`, `rebase --abort` and `rebase --continue` as well. It
-   has not landed: today nothing refuses any of them.
+   and 5). The tool-call gate refuses, where a ledger governs, gh stack's
+   rewriting subcommands (rebase, sync, push, submit, merge, link,
+   unstack/delete, init, add, modify, and by the operator's decision
+   `checkout` and `alias`; `unstack --local`, `rebase --abort` and `rebase
+   --continue` with them: no flag is read) to a Bash call whose session does
+   not hold `.buddy/slot/gh-stack` in every ledger the command reaches, and
+   names the holder (D-108); `view` and the navigation commands pass. It
+   reads the literal command only: a dynamic word (`gh stack "$op"`), a
+   `gs` alias and a script file pass it, so the rule above is yours to keep,
+   and the network discipline below is the recipe's, not the gate's.
 2. Only when A and B have each reported READY in their own words
    (`buddy wait --on <run> --ready`, so `buddy who <run>` lists both at a
    commit) AND each shows `idle` on its first line in `buddy who <lane>`. No

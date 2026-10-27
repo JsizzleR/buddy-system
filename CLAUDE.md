@@ -820,6 +820,24 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   target, renaming in only after a `gate` probe. Codex's example is wrapped without `[ -x ]`.
   Cut: a deny JSON at exit 0, a shell-level no-ledger shortcut (fails open across repos and in
   linked worktrees). A binary that exits 0 deciding nothing (zero-byte too) is a named residual.
+- **The gate refuses gh stack's rewriting subcommands without `.buddy/slot/gh-stack` (D-108):**
+  `gh` left `dataCommands`; `ghRoute` (`internal/cli/ghstack.go`) reads `gh stack <sub>`,
+  `gh extension|ext|extensions exec stack <sub>`, the binary `gh-stack`, and the bare operand
+  `gh` of an unknown program (`sandbox-exec … gh stack init`, the recipe's shape); every other
+  gh command's operands stay data. Gated: rebase, sync, push, submit, merge, link,
+  unstack/delete, init, add, modify, checkout, alias; view and navigation pass; help only as
+  the sole word after the subcommand (`--help --help=false` runs rebase, measured); before
+  gh's command every dash word is skipped and the next word is the command (`gh --help=false
+  stack rebase` runs, measured; a value root flag, none today, is OPEN); after `stack` the word
+  after a value-shaped flag is tested as the subcommand then skipped as the value (`gh stack
+  --base main init a b` runs, measured; both readings refused). No flag modelling. Admitted iff an OPEN claim of the payload's `session_id` covers the slot by
+  containment, in EVERY governed ledger the command reaches (first refusal wins; unreadable
+  denies; none governed is off). Dynamic words OPEN under every harness, no Codex-only arm;
+  exhaustion at a route position refuses everywhere. One fenced deny line, D-090's holder
+  register. CERTAIN text only: an unknown program's quoted operand is never read for gh, so
+  `sed 's/gh stack rebase /…/'` and `claude -p "…; gh stack rebase"` pass and `watch 'gh
+  stack rebase'` is OPEN. Costs ~0.1 ms on a gated call. Git's "rebase
+  runs no pre-commit" is NOT closed by this.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

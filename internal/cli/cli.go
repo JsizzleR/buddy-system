@@ -2613,7 +2613,11 @@ func cmdGate(args []string, env Env) int {
 				dirs = append(dirs, existingDir(cp))
 			}
 		}
-		if shellPatch {
+		if shellPatch || route.ghStack != "" {
+			// A gh stack route reaches a governed repo through the same
+			// literal directory changes a patch does; without this a Bash
+			// call with an ambiguous identity from an ungoverned cwd
+			// discovered nothing and passed (D-108 design pass, P1).
 			shellDirs, routeErr := shellPatchDirs(h, env.getenv("HOME"))
 			dirs = append(dirs, shellDirs...)
 			if routeErr != nil {
@@ -2647,6 +2651,17 @@ func cmdGate(args []string, env Env) int {
 		}
 		if shellPatch {
 			deny(env, shellPatchReason(h, route))
+			return 0
+		}
+	}
+	if route.ghStack != "" {
+		// After the brake and the patch deny, before the paths (a Bash call
+		// has none): gh stack's rewriting subcommands need the caller to hold
+		// .buddy/slot/gh-stack in every ledger the command can reach (D-108,
+		// ghstack.go). With no home ledger it is the discovered directories
+		// that decide, as for a patch above.
+		if reason := gateGHStack(h, env, st, rc, route.ghStack, targetRepos); reason != "" {
+			deny(env, reason)
 			return 0
 		}
 	}

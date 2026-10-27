@@ -8167,3 +8167,248 @@ among them; M21 and M22
 `$TMPDIR` by template. Review: full (panel x3 opus + codex@xhigh design +
 codex@xhigh code + opus@xhigh cross-check, the operator's choice, not fable +
 codex@xhigh reverify x3).
+
+## D-108 — The gate refuses gh stack's rewriting subcommands without `.buddy/slot/gh-stack`
+
+2026-10-27. The operator (17:00): a known hazard gets enforcement with the
+feature, never "later if it gets used often"; gh-stack v0.3.0 was adopted the
+same day, with the skill's recipe (run19). The decisions on the design's open
+questions relayed by orc-8 (~17:20).
+
+**The failure** — a restack rewrites lanes' branches IN THEIR OWN WORKTREES
+(`gh stack rebase` runs `git -C <lane's worktree> rebase --onto …` for every
+stack branch), a plain `gh stack rebase` fetches origin and can fast-forward
+trunk, and one conflict holds the stack catalog's lock
+(`<git-common-dir>/gh-stack/`) for EVERY stack until `--abort`/`--continue`.
+The gate never saw any of it: `gh` sat in `dataCommands`
+(`internal/cli/patch.go`), `analyze` returned before `command()`, and every
+`gh stack …` was a pathless Bash call, pause-only (the trial: nothing refused
+it, nothing consulted a claim). The recipe says only the session holding
+`.buddy/slot/gh-stack` runs it; this is the gate's half of that rule.
+
+**The rule** (`internal/cli/ghstack.go`, `cmdGate`):
+- **Grammar.** `gh` leaves `dataCommands`; `command()` routes `gh` to `ghRoute`
+  and the extension binary `gh-stack` (by any path; `commandName` takes the
+  basename and folds) to `ghStackArgs`; an UNKNOWN program's bare operand `gh`
+  or `gh-stack` is a command position too (`sandbox-exec -p "$off" gh stack
+  init …` is exactly how the recipe runs it; the `--opt=gh` value form is not
+  read). `ghRoute` reads only gh's grammar: `stack <sub>` and
+  `extension|ext|extensions exec stack <sub>` (measured, all three; `exec
+  gh-stack` is "not found"); every other gh command's operands stay data and
+  are never scanned, so `gh pr comment -b "run gh stack rebase"` and `gh api
+  repos/{owner}/{repo}/pulls` pass as before. Leading dash words are read
+  past to reach the command and the subcommand: before gh's command every
+  dash word is skipped and the next word is read as the command (`gh
+  --help=false stack rebase` RAN rebase; gh refuses `gh --x stack` and `gh --
+  stack` itself, so those are over-refused rather than reading gh's unpinned
+  root flags, and `gh -R x stack rebase` reads `x` and passes, right while gh
+  has no value-taking root flag: the cross-check); after `stack`, the word after a
+  value-shaped flag (`--x` or a two-character `-x`, no `=`, not help or
+  version) is tested as the subcommand and, when it is not gated, skipped as
+  the value, because cobra's stripFlags hands it to the flag and finds the
+  subcommand after it: `gh stack --base main init a b` RAN init and `-m wip
+  add x` RAN add (the panel's bypass; the first draft read `main` as the
+  subcommand and allowed). Both readings are refused, so `--base rebase` stays
+  an over-refusal (and `--base rebase init a b`, which runs init, is refused
+  naming `rebase`: the wrong constant on a correct refusal, the cross-check)
+  and the rule holds if a root flag is added. An empty literal word is
+  skipped at every position the route reads: cobra drops it and runs the next
+  word (`gh '' stack --version` dispatched, `gh-stack '' rebase` RAN rebase,
+  `gh-stack '' init a b` ran init; the code pass asked, measured). CERTAIN text only: the route never
+  reads a quoted operand of an unknown program (speculative text, parsed for a
+  patch literal), because that reading denied the fleet's own commands:
+  `sed -i '' 's/gh stack rebase /…/'` parses as words whose first word's
+  basename is `gh`, `awk '/gh stack rebase /…'` the same, and a prompt
+  `claude -p "take the slot; gh stack rebase"` or one with the phrase in
+  backticks (the panel's false-denial pass). The bare operand `gh` of an
+  unknown program is still read.
+- **Gated:** rebase, sync, push, submit, merge, link, unstack and its alias
+  delete, init, add, modify, checkout (Q1: it fetches and imports), alias (Q2:
+  it installs `~/.local/bin/gs`, a spelling the gate cannot see). Allowed:
+  view, bottom/top/up/down/trunk/switch (they move the CALLER's HEAD, as `git
+  checkout <branch>` does), feedback, completion, help, `-h`/`--help`/
+  `-v`/`--version` alone, `gh stack help <x>`, `gh help stack`, an unknown
+  subcommand (the root prints help). No flag modelling (Q3): `unstack --local`,
+  `rebase --abort/--continue`, `--no-trunk`, `--remote self` all go through the
+  slot holder. The slot is the only test.
+- **Help forms, measured on the extension binary** (v0.3.0, a non-repository
+  directory, network denied): `rebase --help --help=false`, `--help=false
+  rebase` and `--help --help=false rebase` all RUN rebase (pflag lets a later
+  flag cancel help); `rebase --help`, `rebase -h x`, `help rebase`, `-- rebase`,
+  `-- init a b`, `--help init a b`, `-v init a b` and an unknown word print
+  help or the version and run nothing; `--base main init a b`, `-m wip add x`
+  and `--base -- init a b` RUN their subcommand, `--base rebase` and `--base
+  main --remote origin init a b` fail on the unknown flag. On gh: `gh
+  --help=false stack rebase` RAN rebase; `gh --help stack` and `gh --version
+  stack` reach the extension and run help or fail on the subcommand's flags;
+  `gh --x stack`, `gh -R x stack`, `gh -xy stack`, `gh -- stack`, `gh
+  extension --help=false exec stack`, `gh extension exec --help=false stack`
+  and `gh extension exec -- stack` are refused or "not found" by gh. So help
+  passes only as the sole word after the subcommand; `rebase -h x`, `rebase
+  --no-trunk --help` (Q4), `--help rebase`, `-- rebase`, `--base rebase`, `-h
+  init` and `gh --x stack rebase` are refused: documented over-refusals of
+  forms nobody types.
+- **The slot check.** The caller is admitted when an OPEN claim owned by the
+  payload's `session_id` covers `.buddy/slot/gh-stack` by invariant 14's
+  containment on invariant 13's fold (one `ClaimsTouching` read; a claim on
+  `.buddy/slot` or `.buddy` admits too, D-035's own note; a claim UNDER the slot
+  reserves nothing of it). No incarnation comparison: an open claim always
+  carries its owner's current incarnation (Hello over an ended session orphans
+  the old one's claims in the same transaction), the same predicate
+  `denyIfHeld`'s `OwnerOf` applies to every path. A subagent's hook carries the
+  parent's `session_id` (D-099), so a holder's subagents are admitted with it.
+  One slot per checkout (Q6): gh-stack's catalog and lock are one per git
+  common dir, the directory `buddy.db` lives in, so every linked worktree
+  shares both and no mapping is needed.
+- **Jurisdiction.** Every governed ledger the command can reach is asked: the
+  hook cwd's and each literal directory change the walker discovers
+  (`shellPatchDirs`: `cd`, `pushd`, `env -C`, `sudo -D`, `git -C`, `~`). ALL
+  must admit; the first refusal wins; an unreadable one DENIES (invariant 3);
+  a TARGET repo's pause applies (F-28); none governed is feature-off. A slot
+  held in checkout A does not admit `cd B && gh stack rebase` (the design
+  pass's P1), and discovery now also feeds the ambiguous-identity arm from an
+  ungoverned cwd, which used to run it only for a patch (P1, the second). A
+  ledger with no worktree root (bare) refuses rather than placing the slot
+  against nothing.
+- **Harness split: none.** A dynamic word at the command, `stack` or
+  subcommand position is OPEN under EVERY harness (`gh stack "$op"` passes
+  under Codex too): D-087's "cannot rule out" arm guards Codex's in-process
+  patch engine, and gh stack is a child process under either harness. A
+  literal refuses under every harness where a ledger governs. An over-budget
+  brace word at a position the route reads (`gh {stack,x{1..300}} rebase`,
+  the `exec`, `stack`, subcommand and help positions) exhausts everywhere, as
+  `git -C`'s value does; anywhere else in gh's argv it is data (`gh pr list
+  --label x{1..300}`, `gh stack rebase --remote x{1..300}` keep their own
+  verdicts). D-087's own classes are unchanged, and the one harness split
+  there is inherited: script text produced at run time (`echo 'gh stack
+  rebase' | bash`) and static text the bash parser rejects but another shell
+  runs (`() { gh stack rebase }`, zsh's anonymous function; `env -S 'gh stack
+  rebase #'`) are refused under Codex as uncertain and never read under
+  Claude (the panel's bypass pass).
+- **Precedence.** Pause, then the shell-patch deny (`gh stack rebase &&
+  apply_patch < p` is refused as a patch, slot or no slot; `refuses()` ignores
+  the gh match and recognition keeps reading past it), then the slot, then the
+  paths (a Bash call has none).
+- **The deny**, one line (invariant 9; label 64, slug 128, desc 512, repo root
+  512 through `fence.Line`; the subcommand is the table's constant): what runs,
+  why the slot (the shared catalog and lock, other lanes' branches), then
+  `Nobody holds .buddy/slot/gh-stack` and the `buddy claim gh-stack … --scope
+  .buddy/slot/gh-stack` fix line, or the holder (`held by session <label> (slug
+  "<slug>": <desc>; <state>)`) with D-090's register: ENDED "your own buddy
+  claim displaces it" (D-026, no sweep asked for), GONE and SILENT "ask the
+  operator: buddy release <slug> --session <holder id>" (D-022: it refuses
+  like a fresh one; a bare `buddy release <slug>` releases the CALLER's claims
+  and answers "not yours", the panel), live "ask the holder: buddy msg
+  <name>" where the name is `msgTargetFor`'s (a slug `all` would broadcast;
+  the holder's id then), and the slug and the holder's id are printed as a
+  command, both shell-quoted, only when each pastes back as printed (a
+  newline or an over-long value names them instead; the code pass: the
+  ledger does not restrict a session id's characters); `— in the TARGET repo's buddy ledger (<root>)` and
+  `(in <root>, after buddy hello --session <id> there)` for a discovered repo,
+  since a claim needs a live sessions row in that ledger (D-088). A claim an
+  overlapping one refuses is named by that refusal, not promised here. The
+  home ledger is checked by its handle, never by a key match.
+- **Cost (Q7).** `buddy gate` on `gh stack rebase --no-trunk b` in a fixture
+  ledger with two sessions, n=30 each: before the arm, allow, median 12.6 ms
+  (p90 13.0); after it, the holder allowed median 12.7 ms (p90 13.1), a lane
+  denied median 12.6 ms (p90 13.3). One claims read on the allow path; the
+  process table only to word a deny; nothing on a non-gh Bash call but the
+  brace expansion gh's words now get, like git's.
+
+**Considered and cut**
+- Flag modelling (`--no-trunk`, `--remote self`, `--local`): pflag's `--remote
+  --no-trunk` makes `--no-trunk` a remote NAME; `--remote self` is `git config`
+  at hook time, outside the 100 ms budget; each distinction is a fresh false
+  allow or false deny in a recognizer where the ten A-01 re-verify rounds each
+  introduced a defect. The recipe's discipline, not the gate's.
+- A `pre-rebase` git hook: fires only for `git rebase`, only where
+  `setup-clone.sh` ran, cannot tell gh-stack's child rebase from a lane's own,
+  and sees no session.
+- Parsing gh aliases (`~/.config/gh/config.yml`), the `gs` wrapper, `git config
+  gh-stack.remote`: the A-01 enumeration failure, a YAML dependency, the budget.
+- A Codex-only uncertainty for a dynamic gh word (D-087's count: ~10 denials,
+  0 protections). A per-stack slot (two restacks gh-stack itself serializes). An
+  exact-match special case beside containment (a second rule). A `buddy who
+  gh-stack` READY clause in the deny (READY is the recipe's condition, not gate
+  evidence). An incarnation comparison in the gate (the ledger guarantees it).
+- Scanning the operands of known data programs for `gh`, or reading the
+  `--opt=gh` value form as gh's argv.
+
+**Recorded OPEN** (cooperative, each with its control pinned ALLOW so a fold
+is deliberate)
+- A dynamic word at the command, `stack` or subcommand position (`$GH stack
+  rebase`, `gh "$c" rebase`, `gh stack "$op"`, `gh stack ${X:-rebase}`), script
+  text produced at run time under Claude (`echo 'gh stack rebase' | bash`,
+  `bash -c "$(…)"`), script files, `make` recipes, git aliases, `python -c`.
+- `gs rebase` (the alias `gh stack alias` installs; also Ghostscript), gh's own
+  aliases, `GIT_DIR=/other/.git gh stack rebase` (a workdir passed outside the
+  command; a literal `GIT_DIR=` could join discovery as HOME does, one fold at a
+  time), a bare terminal.
+- A word written at run time: `echo rebase | xargs gh stack`, `parallel gh
+  stack ::: rebase`, `f() { gh stack "$@"; }; f rebase` (the subcommand
+  position is empty or dynamic in the text the gate reads); a dynamic word
+  among the leading flags, `gh stack --base="$b" init a b` and `gh stack
+  "$flag" init a b`, ends the route before the literal `init` (the code
+  pass; pinned ALLOW; closing it needs the walker's word to carry its literal
+  dash prefix).
+- A value-taking root flag gh does not have today (`gh -X v stack rebase`
+  would hand `v` to the command position the route reads; gh is not pinned,
+  the cross-check).
+- The bare operand `gh` of an unknown program is a command position, so a
+  program handed files literally named `gh`, `stack` and `rebase` (`sed -n
+  1p gh stack rebase`) is refused: the accepted cost of the recipe's
+  `sandbox-exec … gh stack init` shape (the code pass; pinned).
+- A chain of more than 128 directory changes from an ungoverned cwd whose
+  governed landing is past discovery's cap is not placed (the patch arm's
+  boundary, D-073; crafted).
+- A workdir the walker does not model (D-073's class, the same gap as a
+  shell-routed patch): `uv run --directory /B gh stack rebase`, `pnpm -C /B
+  exec gh stack rebase`, `tmux new -d -c /B 'gh stack rebase'`, `cd "$B"`,
+  `cd -`, `CDPATH`, the `pushd` stack: the home ledger is asked, B's is not.
+- A quoted command line an UNKNOWN program runs: `watch 'gh stack rebase'`,
+  `watch -n 60 'flock /tmp/l gh stack rebase'`, `flock -c 'gh stack rebase'
+  f`, `su -c '…'`, `ssh host '…'`, `tmux new -d '…'`, `tmux send-keys
+  '…'`. Speculative text is not read for gh (above), so no prose, pattern or
+  prompt is denied (`claude -p "gh stack rebase next"`, `sed 's/gh stack
+  rebase /…/'`, `awk '/gh stack rebase /'` all pass, pinned), and these run
+  forms pass with them. The first two run it locally: cooperative, recorded.
+- gh's words now count toward the per-hook brace budget (1,024 fields) as
+  git's do; a hook with over a thousand brace fields in gh commands followed
+  by an unknown program's brace word exhausts where it did not before (the
+  panel; incidence about zero).
+- The association is by command, not by statement: `gh stack rebase; cd B`
+  needs B's slot (over-approximation).
+- A DELAYED hook from a dead incarnation of the same session is admitted by the
+  live incarnation's claim: `session_id` alone cannot tell them apart. Every
+  gate check's limitation (invariant 12), inherited, not introduced.
+- "Rewritten without the commit gate" is git's: rebase, cherry-pick, revert
+  and `am` never run pre-commit, and plain `git rebase` does the same today.
+  This change does not close that and must not be read as closing it. A lane
+  with UNCOMMITTED edits is protected by gh-stack itself ("uncommitted changes
+  in worktree"); a committed, parked lane is protected by the recipe's READY.
+- The recipe's network discipline (`sandbox-exec` with `(deny network*)`;
+  `init` and `rebase --no-trunk` send read-only GraphQL queries carrying the
+  operator's token) is the recipe's; the gate does not model sandboxing.
+
+**NOT RUN** — the operator-visible native measurement (Q5): `buddy init`, two
+`hello`ed sessions, a lane's `gh stack rebase --no-trunk b` denied naming the
+slot, the slot holder allowed, the lane still denied naming the holder. Owed
+after landing and `install.sh`.
+
+**Tests** (`internal/cli/ghstack_test.go`): 73 refused spellings, each with a
+kernel control where the box runs it (recording `gh`/`gh-stack` stubs first on
+PATH under `/bin/bash`, `/bin/zsh`, `/bin/sh`; `sandbox-exec` and `caffeinate`
+darwin-only), under both hook shapes, from both worktrees, nobody holding and
+then the holder admitted while the other session is refused naming it; 76
+allows (ordinary gh use, every data program the phrase is typed into, the
+dynamic and recorded-open forms pinned so a fold is deliberate); containment;
+ENDED/SILENT/GONE holders and the quoted id; jurisdiction (ungoverned cwd,
+cross-repo, an unreadable target ledger, the identity arm, a bare repo by cwd
+and by `cd`); precedence and the budget positions; a subagent under the
+holder; the one-line fence. **Mutation** (an rsync'd private copy, python
+edits, each watched to die): 23/23 killed: gh back in dataCommands; checkout not gated; equality for containment; the owner filter dropped; the operands() arm dropped; a Codex-only uncertainty on a dynamic gh word; the identity arm discovering only for a patch; allow at the first ledger that admits; help exempt at any position; leading dash words not read past; a target's pause ignored; a bare repo placed against nothing; an over-budget route word not exhausted; the deny naming the input word; speculative text read for gh (both guards); the release line without --session; a value flag's word not read as the subcommand; gh's leading dash words not skipped; the value word skipped without the gated test; an over-budget value not exhausted; an empty word read as the subcommand; an empty word before gh's command ending the route; the holder id printed unquoted. **Review:** full (panel x3
+opus: bypass sites, false denials, deny text and identity; codex@xhigh design,
+round 1 timed out at the watchdog, round 2 accepted with two P1s folded;
+codex@xhigh code, accepted, two forms recorded open and three questions
+folded; fable cross-check, accepted, four folds; codex@xhigh reverify x1,
+accepted). Timing per Q7 above.

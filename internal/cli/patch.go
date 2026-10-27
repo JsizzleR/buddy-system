@@ -100,6 +100,13 @@ func shellPatchCommand(h hookInput) bool { return shellPatchRoute(h).refuses() }
 type shellRoute struct {
 	found     bool   // apply_patch/applypatch reaches a command position
 	uncertain string // why the command cannot be ruled out; "" when it can
+	// ghStack is the gh stack subcommand the walk matched at a command
+	// position (a ghStackGated key, never the input word), "" when none. It
+	// is an ADJUDICATION request, not a refusal: refuses() ignores it, and
+	// cmdGate admits the call when the caller holds .buddy/slot/gh-stack
+	// (D-108, ghstack.go). Recognition keeps reading past it, so a patch
+	// literal in the same command still refuses first.
+	ghStack string
 }
 
 func (r shellRoute) refuses() bool { return r.found || r.uncertain != "" }
@@ -142,9 +149,12 @@ var (
 	// program that runs another language's text (awk, sed, python): those stay
 	// unknown programs, so an operand spelled exactly apply_patch still refuses.
 	// git is not here: it is read by gitRoute, because bisect run, submodule
-	// foreach and rebase --exec run their operands.
+	// foreach and rebase --exec run their operands. gh is not here either
+	// (D-108): it was, and every `gh stack rebase` was a pathless Bash call
+	// the gate never read; ghRoute (ghstack.go) now reads gh's own grammar,
+	// keeps every other gh command's operands data, and never scans them.
 	dataCommands = map[string]bool{"echo": true, "printf": true, "print": true, "grep": true, "egrep": true,
-		"fgrep": true, "rg": true, "ag": true, "ack": true, "gh": true, "which": true, "type": true, "whence": true,
+		"fgrep": true, "rg": true, "ag": true, "ack": true, "which": true, "type": true, "whence": true,
 		"where": true, "hash": true, "cat": true, "head": true, "tail": true, "wc": true, "ls": true, "stat": true,
 		"file": true, "tee": true, "make": true, "diff": true, "cmp": true, "uniq": true, "cut": true, "tr": true,
 		"jq": true, "printenv": true, "basename": true, "dirname": true, "realpath": true, "readlink": true,
@@ -688,6 +698,12 @@ func (w *shellWalker) command(words []shellWord, site callSite, depth int) {
 		case name == "git":
 			w.gitRoute(rest, site, depth)
 			return
+		case name == "gh":
+			w.ghRoute(rest)
+			return
+		case name == "gh-stack":
+			w.ghStackArgs(rest)
+			return
 		case name == "command" && lookupOnly(rest):
 			return // command -v / -V reports where a name resolves; it runs nothing
 		case dataCommands[name]:
@@ -749,6 +765,18 @@ func (w *shellWalker) operands(rest []shellWord, site callSite, depth int) {
 			// command position the same spelling is a relative path and still
 			// counts: `route://apply_patch` (Codex follow-up review).
 			name = ""
+		}
+		switch name {
+		// The bare operand gh or gh-stack of an unknown program is a command
+		// position (D-108): `sandbox-exec -p "$off" gh stack init …` is exactly
+		// how the skill's recipe runs it, and `flock f gh stack rebase` is the
+		// A-01 inversion. The bare word only: the `--opt=gh` value form below
+		// names a program the option runs, with the following operands as
+		// ITS data, not as gh's argv (Codex design pass, D-108).
+		case "gh":
+			w.ghRoute(rest[j+1:])
+		case "gh-stack":
+			w.ghStackArgs(rest[j+1:])
 		}
 		if opt, value, ok := strings.Cut(word.text, "="); ok && strings.HasPrefix(opt, "-") {
 			// --compress-program=apply_patch names the program it runs.

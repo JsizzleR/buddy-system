@@ -216,6 +216,37 @@ config), command names read from stdin (`xargs` with no command), `CDPATH`,
 that a later statement's shell reads, and a workdir passed outside the command.
 Other shell side effects and specialized tool paths keep that same boundary.
 
+**gh stack's rewriting subcommands need the gh-stack slot (D-108).** A Bash
+command that runs `gh stack rebase|sync|push|submit|merge|link|unstack|delete|init|add|modify|checkout|alias`
+(also `gh extension exec stack <sub>`, the extension binary `gh-stack <sub>`
+by any path, and `gh` as the bare operand of an unknown program such as
+`sandbox-exec`, through every wrapper, shell and compound command the patch
+recognizer reads) is refused, wherever a ledger governs it, unless the calling
+session holds an OPEN claim covering `.buddy/slot/gh-stack` (a claim on
+`.buddy/slot` or `.buddy` covers it too) in EVERY governed repo the command
+reaches: the cwd's and each literal `cd`/`pushd`/`env -C`/`sudo -D`/`git -C`
+it names. The deny names the holder (ended, gone, silent or live, with the move
+each needs) or says nobody holds it, and gives the `buddy claim gh-stack …
+--scope .buddy/slot/gh-stack` line. `gh stack view`, `up`/`down`/`top`/
+`bottom`/`trunk`/`switch`, `feedback`, `help`, a lone `-h`/`--help`/`-v`, and
+every other `gh` command pass; so does help as the only word after a gated
+subcommand (`gh stack rebase --help`), while `gh stack rebase -h x`,
+`rebase --no-trunk --help`, `gh stack --base rebase` and `gh --x stack rebase`
+are refused (the extension binary runs rebase for `--help --help=false`,
+`--help=false rebase` and `gh --help=false stack rebase`, and runs init for
+`gh stack --base main init a b`, so the gate skips leading dash words before
+gh's command, reads the word after a value-shaped flag after `stack` as the
+subcommand and then as the value, skips an empty word `''` wherever it reads a
+command, and does not model pflag).
+No flag is modelled: `unstack --local` and `rebase --abort` need the
+slot too. A dynamic word (`gh stack "$op"`) passes under every harness; text a
+pipeline produces keeps D-087's split. An unknown program's quoted operand is
+never read for gh, so `sed -i '' 's/gh stack rebase /…/'`, `awk '/gh stack
+rebase /'` and `claude -p "take the slot; gh stack rebase"` pass, and `watch
+'gh stack rebase'`, `flock -c '…'` and `gs` (the wrapper `gh stack alias`
+installs) are recorded open. The gate adds about 0.1 ms to a gated call and
+nothing to other Bash calls.
+
 **An identity conflict refuses only where a ledger governs.** The gate checks
 identity when the hook carries a harness marker (`BUDDY_HARNESS`, or the
 payload's `buddy_harness`) or `CODEX_THREAD_ID` is set. It then refuses the call,

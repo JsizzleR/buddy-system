@@ -1119,6 +1119,36 @@ ledger row entered through the CLI (D-006).
     no-ledger shortcut (it fails open across repositories and in linked worktrees), or
     passing a crash's stderr through as the reason.
 
+109. **The gate refuses gh stack's rewriting subcommands to a session not holding
+    `.buddy/slot/gh-stack` (D-108).** `gh` left `dataCommands`; `ghRoute` reads gh's own
+    grammar (`stack <sub>`, `extension|ext|extensions exec stack <sub>`, the binary
+    `gh-stack` by basename, and the bare operand `gh` of an unknown program such as
+    `sandbox-exec`), never any other gh command's operands. Gated: rebase, sync, push,
+    submit, merge, link, unstack/delete, init, add, modify, checkout, alias; view and the
+    navigation commands pass; help passes only as the sole word after the subcommand
+    (measured: `rebase --help --help=false` and `--help=false rebase` RUN rebase); before
+    gh's command every dash word is skipped and the next word is read as the command
+    (measured: `gh --help=false stack rebase` RUNS; gh has no value-taking root flag, a
+    future one is recorded OPEN); after `stack` the word after a value-shaped flag is tested
+    as the subcommand and then skipped as the value (measured: `gh stack --base main init a
+    b` RUNS; both readings are refused, so `gh stack --base rebase` is an over-refusal); an
+    empty word is skipped at every position the route reads (measured: `gh '' stack` and
+    `gh stack '' rebase` run). No flag modelling: the slot is the only test. Admitted when an OPEN claim owned by the payload's
+    `session_id` covers the slot by containment, in EVERY governed ledger the command reaches
+    (the hook cwd's and each literal directory change discovered); the first refusal wins, an
+    unreadable ledger denies, none governed is off. No Codex-only arm: a dynamic word at the
+    command/stack/subcommand positions is OPEN under every harness, a literal refuses under
+    every harness, exhaustion at a position the route reads refuses everywhere. One fenced
+    deny line naming the holder in D-090's register (a pasteable `buddy release <slug>
+    --session <holder>` for GONE/SILENT, `msgTargetFor`'s name for live). The route reads
+    CERTAIN text only, never an unknown program's quoted operand: `sed 's/gh stack rebase
+    /…/'`, `awk '/gh stack rebase /'` and `claude -p "…; gh stack rebase"` pass. Recorded
+    OPEN: `gs`, gh aliases, script text produced at run time under Claude, `watch 'gh stack
+    rebase'` and `flock -c '…'` (quoted command lines of unknown programs), `gh stack
+    rebase; cd B` needing B's slot. Do not propose flag modelling, a pre-rebase git hook, alias parsing, or a
+    Codex-only uncertainty for gh; and do not say this closes "rewritten without the commit
+    gate", which is git's.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
