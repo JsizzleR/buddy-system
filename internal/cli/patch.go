@@ -1090,8 +1090,17 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 				// suppresses it (re-verify r2 finding 6). Only
 				// when C comes first: in -capply_patch < CHANGE.patch the C
 				// is script text (Codex ninth code pass).
-				if c := strings.IndexRune(t, 'C'); c+1 < len(t) {
-					fishCmds = append(fishCmds, shellWord{text: t[c+1:], known: true})
+				// An n (or s) BEFORE the C in the cluster applies, as the c branch
+				// does (`fish -nC apply_patch` is no-execute, re-verify r3 finding 2).
+				cc := strings.IndexRune(t, 'C')
+				if strings.ContainsRune(t[1:cc], 'n') {
+					noexec = true
+				}
+				if strings.ContainsRune(t[1:cc], 's') {
+					stdin = true
+				}
+				if cc+1 < len(t) {
+					fishCmds = append(fishCmds, shellWord{text: t[cc+1:], known: true})
 				} else if j+1 < len(args) {
 					fishCmds = append(fishCmds, args[j+1])
 					j++
@@ -1157,18 +1166,22 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 		options = false
 		operands = append(operands, a)
 	}
-	if name == "fish" && (len(fishCmds) > 0 || fishSawCommand) {
-		// fish is in command mode (it saw a -c/--command), so it never reads
-		// stdin as a shell — even if the value was missing, which is a fish
-		// error, not a stdin shell (re-verify r2 finding 7). It ran its -c and
-		// init commands (not a script file or stdin); under no-execute it only
-		// checked their syntax (G1/G2/finding 6), so nothing is analysed then.
+	if name == "fish" {
+		// fish's -c and init commands are analysed (unless -n suppresses
+		// execution). A -c/--command puts fish in COMMAND mode, so it does not
+		// then read stdin — even a missing -c value is a fish error, not a
+		// stdin shell (finding 7). But init commands ALONE (`-C`/--init-command,
+		// fishSawCommand == false) do NOT suppress stdin: fish still reads its
+		// main script from stdin or a file, so the switch below must run
+		// (re-verify r3 finding 1: `fish -C true <<'SH'…` reads the heredoc).
 		if !noexec {
 			for _, c := range fishCmds {
 				w.scriptOf([]shellWord{c}, depth, "fish runs command text built at run time", site.fds)
 			}
 		}
-		return
+		if fishSawCommand {
+			return
+		}
 	}
 	switch {
 	case noexec:

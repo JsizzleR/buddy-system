@@ -1072,10 +1072,11 @@ ledger row entered through the CLI (D-006).
     refuses; `--no-execute`/`-n` allow). Finding D was refuted. `exec <<'SH'` read by a later
     statement stays the documented cooperative limit, tested as an accepted gap. Recorded OPEN
     (crafted brace-budget respellings, D-106; free under Claude's allow arm, so not fixed to avoid
-    false-denying common data braces): the attached/assignment-dynamic `env -S` and `env -S
-    <wrapper> {…}` forms, util-linux `script -c` repeated and `-t` optional value, GNU abbreviated
-    long options, a front unknown-wrapper (`lockf -k`), and the `git` (`-C .`/`submodule`/`bisect`)
-    and `find` (`{-exec,…}`) action-position braces. BSD `script -T` playback is deliberately
+    false-denying common data braces): the attached/assignment-dynamic `env -S`, the static
+    option-tail `env -S '-u' {X,-S,apply_patch,…}` (F5), and `env -S <wrapper> {…}`; util-linux
+    `script -c` repeated and `-t` optional value; GNU abbreviated long options; a front
+    unknown-wrapper (`lockf -k`); and the `git` (`-C .`/`submodule`/`bisect`) and `find`
+    (`{-exec,…}` and the NESTED `-exec … {…,\;,-exec,apply_patch,…} \;`) action-position braces. BSD `script -T` playback is deliberately
     over-refused (util-linux `-T` runs a shell). Three codex re-verify rounds fixed the fold's
     false denials (fish long `--command`, a `fish -c true ""` panic, fish init-commands under a
     later `--no-execute`, `fish --command` with no value, and the find/env-`S`-tail over-budget

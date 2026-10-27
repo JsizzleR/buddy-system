@@ -117,11 +117,12 @@ and fixed. Mutation and check results:
   path{1..300}`), which per the operator's direction (a false denial costs every
   Claude session a tool call; a crafted brace bypass is free under Claude's allow
   arm) were REVERTED, the crafted forms recorded open. Recorded OPEN as
-  respellings (D-106): the attached/assignment-dynamic `env -S` jurisdiction/budget
-  and `env -S <wrapper> {…}` forms, util-linux `script -c` repeated and `-t`
-  optional value, GNU abbreviated long options, a front unknown-wrapper
-  (`lockf -k`), and the `git` and `find` action-position braces
-  (`git -C .`/`submodule`/`bisect {…}`, `find . {-exec,…}`). Documented
+  respellings (D-106): the attached/assignment-dynamic `env -S` jurisdiction/budget,
+  the static option-tail `env -S '-u' {…}` (F5), and `env -S <wrapper> {…}`;
+  util-linux `script -c` repeated and `-t` optional value; GNU abbreviated long
+  options; a front unknown-wrapper (`lockf -k`); and the `git` and `find`
+  action-position braces (`git -C .`/`submodule`/`bisect {…}`, `find . {-exec,…}`
+  and the nested `find … -exec … {…,\;,-exec,apply_patch,…} \;`). Documented
   over-refusal: BSD `script -T` playback (util-linux `-T` runs a shell). Hermetic
   only; the native rerun of these forms is still owed (A-07). Re-verify round 3
   (the bound) run by the orchestrator; the item lands at the bound with the last

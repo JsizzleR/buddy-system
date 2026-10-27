@@ -7839,13 +7839,24 @@ allowance):**
   dynamic-text boundary.
 - **codex 7** — util-linux `script -c true -c apply_patch` (repeated `-c` runs
   the last): util-linux only, NOT RUN here, crafted, pre-existing.
-- **git subcommand-position over-budget** (codex 10) — `git -C . {bisect,run,
-  apply_patch,x{1..300}}`: a blanket `gitRoute` over-budget guard would catch it
-  but false-denied data pathspecs (`git diff -- path{1..300}`, re-verify r1
-  finding 5), so the guard was reverted to `-C`'s value only. Crafted (also
-  needs an active bisect), NOT RUN here.
-  (F5 — a clean `env -S` OPTION value then an over-budget tail — is NOT open: the
-  re-verify's finding 3 fix, below, exhausts it along with `env -S env {…}`.)
+- **git action-position over-budget** (codex 10, widened) — `git -C .
+  {bisect,run,apply_patch,x{1..300}}` and `git submodule {foreach,apply_patch,…}`:
+  a blanket `gitRoute` over-budget guard would catch them but false-denied data
+  pathspecs (`git diff -- path{1..300}`, re-verify r1 finding 5), so the guard was
+  reverted to `-C`'s value only. Crafted, NOT RUN here.
+- **F5 / the static `env -S` option-tail** — `env -S '-u' {X,-S,apply_patch,
+  x{1..300}}`: round 1 closed it with a data-command-first-field check, but round
+  2 REVERTED that check (it false-denied `env -S 'env echo' …` and quoted/
+  option-prefixed data forms, re-verify r2 finding 5), so F5 is OPEN again, with
+  the `env -S env {…}` wrapper tail (re-verify r3 finding 4 corrects the earlier
+  "F5 is NOT open" note).
+- **nested find action-position over-budget** — `find . -exec true
+  {x,\;,-exec,apply_patch,x{1..300}} \;`: round 1 closed it with an inner
+  separator-scan over-budget check, but round 2 REVERTED that (it false-denied
+  `find -exec grep -l foo path{1..300}`, re-verify r2 finding 4), so this nested
+  reopening is OPEN, alongside the top-level `find . {-exec,apply_patch,…} \;`
+  (re-verify r3 finding 5). This SUPERSEDES the round-1 "closing a nested-action
+  bypass" statement below.
 - **cross-check** — GNU `env`/`script` abbreviated long options (`--s=`, `--c`);
   an unknown wrapper in front (`lockf -k f script …`) hiding C and env forms
   (pre-existing); util-linux `script -t`'s OPTIONAL value. Each verified by the
@@ -7872,10 +7883,13 @@ not dropped in operands (finding 1); the fish `-c` case guards `len(t) > 1`
 before indexing (a `fish -c true ""` PANIC, finding 2); an over-budget `env -S`
 tail exhausts UNLESS the split value's first field is a data command, which
 denies `env -S env {…}` and re-closes F5 while keeping `env -S echo {…}` allowed
-(finding 3); the `-exec` inner separator scan checks over-budget, closing a
-nested-action bypass (finding 4); the blanket `gitRoute` over-budget guard was
-reverted (it false-denied `git diff -- path{1..300}`, finding 5) — the
-subcommand-position brace is recorded open above (finding 10). Documented, not
+(finding 3 — **SUPERSEDED in round 2: this data-command check was reverted, F5
+and `env -S env {…}` are OPEN**); the `-exec` inner separator scan checks
+over-budget, closing a nested-action bypass (finding 4 — **SUPERSEDED in round
+2: reverted; the nested `-exec … {…}` reopening is OPEN**); the blanket
+`gitRoute` over-budget guard was reverted (it false-denied `git diff --
+path{1..300}`, finding 5) — the subcommand-position brace is recorded open
+above (finding 10). Documented, not
 changed: BSD `script -T` is playback, but `-T` is kept OUT of playback
 recognition because util-linux `-T` is timing and DOES run a shell, so the
 deny over-refuses BSD `-T` playback — the safe side for a security gate
@@ -7907,10 +7921,22 @@ is budget, not only jurisdiction), `git submodule {foreach,…}` and the `git -C
 git residual is wider than bisect), and the `env -S env {…}` / `env -S '-u' {…}`
 wrapper/option split-value tails.
 
+**Re-verify round 3** (codex@xhigh, REJECT, 5) caught a P1 regression the round-2
+fold introduced — fish init commands (`-C`/`--init-command`) alone made the early
+return skip stdin, so `fish -C true <<'SH'…` was allowed — and a pre-existing
+`fish -nC` false denial. Fixed: the fish early return is gated on `fishSawCommand`
+ONLY (init commands are analysed but do not suppress stdin, finding 1); the fish
+`-C` cluster processes a preceding `n` like the `-c` branch (finding 2); the
+`kernelRuns` control fails on a shell LAUNCH error so a negative control cannot
+pass vacuously (finding 3); and the F5/nested-find OPEN records and the round-1
+note's superseded "closed" statements are corrected (findings 4, 5). The operator
+then directed a FOURTH re-verify on this fold before landing (so this is not the
+bound after all).
+
 Review: full — adversarial self-review + panel (3 read-only Opus subagents:
 bypass sites, fixture-respelling, false-denial direction) + codex@xhigh design
 (on drafted code: the diff preceded the prompt) + codex@xhigh code (REJECT, 10;
 folded) + opus@xhigh cross-check (ACCEPT WITH CHANGES, 9; operator's choice, not
-fable) + codex@xhigh re-verify round 1 (REJECT, 8; folded) + round 2 (REJECT, 9;
-false denials fixed, crafted bypasses recorded open) → round 3 pending (the bound;
-the item lands after it with the last verdict named).
+fable) + codex@xhigh re-verify round 1 (REJECT, 8) + round 2 (REJECT, 9) + round 3
+(REJECT, 5), each folded → round 4 pending (operator's call); the item lands after
+it with the final reverify count and last verdict named in the landing commit.

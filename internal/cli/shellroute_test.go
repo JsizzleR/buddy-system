@@ -16,6 +16,7 @@ package cli
 // see the marker before the gate's verdict means anything.
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,7 +63,15 @@ func kernelRuns(t *testing.T, shell, dir, cmd string) bool {
 	c.Dir = dir
 	c.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "MARK=" + mark, "HOME=" + dir}
 	c.Stdin = nil
-	out, _ := c.CombinedOutput()
+	out, err := c.CombinedOutput()
+	// A non-zero EXIT is fine (the form may fail after running, or not run), but
+	// a LAUNCH failure (the shell binary missing, say) must not pass as "did not
+	// run" — that makes a negative control (a `kernelRuns(...) == false` assertion
+	// for an ALLOW form) vacuously true (re-verify r3 finding 3).
+	var exitErr *exec.ExitError
+	if err != nil && !errors.As(err, &exitErr) {
+		t.Fatalf("kernel control: %s could not launch for %q: %v", shell, cmd, err)
+	}
 	// coproc and trap run the command asynchronously or at exit.
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if _, err := os.Stat(mark); err == nil {
@@ -1332,9 +1341,13 @@ func TestGateShellRouteReviewFolds(t *testing.T) {
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
 	})
 
-	// Over-budget words consumed where a command/action could expand in place
-	// (codex 8,9,10 + cross-check source/trap). Each refuses as exhausted, only
-	// where governed. find and trap RUN here; timeout/git-bisect/source do not.
+	// Over-budget words consumed where a command could expand in place, at
+	// positions that are NOT bulk data: the `--` lead operand, a sourced script
+	// name, and trap's action (codex 8 + cross-check source/trap). Each refuses
+	// as exhausted, only where governed. The find and env-S-tail over-budget
+	// guards were reverted in round 2 (they false-denied common data braces);
+	// those forms are recorded open in D-106. trap RUNS here; timeout/source do
+	// not (not on box / crafted).
 	overBudget := []struct {
 		name, form string
 		run        bool
@@ -1391,7 +1404,6 @@ func TestGateShellRouteReviewFolds(t *testing.T) {
 func TestGateShellRouteReVerifyR1(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
-	plain := t.TempDir()
 
 	// Finding 1: fish's LONG --command went to operands, which the fish early
 	// return ignores, so `fish --command='apply_patch' -c true` ran apply_patch.
@@ -1437,7 +1449,6 @@ func TestGateShellRouteReVerifyR1(t *testing.T) {
 		}
 		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
-		_ = plain
 	})
 }
 
@@ -1496,6 +1507,40 @@ func TestGateShellRouteReVerifyR2(t *testing.T) {
 	// ALLOW. fishSawCommand keeps it out of the stdin arm. fish not on box.
 	t.Run("finding7/fish-command-missing-value-allowed", func(t *testing.T) {
 		form := "fish --command <<'SH'\napply_patch < p.patch\nSH\n"
+		t.Logf("kernel control NOT RUN: fish is not installed on this box")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+}
+
+// codex@xhigh re-verify round 3 (REJECT, 5) found a P1 regression from the r2
+// fold (init commands wrongly suppressing stdin) and a pre-existing fish -C
+// cluster false denial. fish is NOT on this box, so controls are NOT RUN, said
+// loudly; the gate verdict is asserted regardless.
+func TestGateShellRouteReVerifyR3(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+
+	// Finding 1: an init command (`-C`/`--init-command`) alone does NOT put fish
+	// in command mode, so fish still reads its main script from stdin or a file.
+	// `fish -C true <<'SH' … apply_patch … SH` reads the heredoc; the r2 early
+	// return (on len(fishCmds) > 0) skipped it. Now it is caught — DENY.
+	for _, form := range []string{
+		"fish -C true <<'SH'\napply_patch < p.patch\nSH\n",
+		"fish --init-command=true /dev/stdin <<'SH'\napply_patch < p.patch\nSH\n",
+	} {
+		t.Run("finding1/fish-init-then-stdin", func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "buddy gate")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "runs apply_patch")
+		})
+	}
+
+	// Finding 2: `fish -nC apply_patch` — the n before the C in the cluster is
+	// no-execute, so the init command is only syntax-checked → ALLOW. The -C
+	// branch used to ignore the preceding n (the -c branch already handled it).
+	t.Run("finding2/fish-nC-noexec-allowed", func(t *testing.T) {
+		form := "fish -nC apply_patch"
 		t.Logf("kernel control NOT RUN: fish is not installed on this box")
 		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
