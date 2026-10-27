@@ -187,8 +187,8 @@ and reads it this way (D-073, audit A-01):
   `-C` directory change inside a `-S` string that carries a `#` comment, and
   the options after a dynamic `-S` value), and a here-document, here-string or
   duplicated descriptor that reaches a shell's stdin, including `sudo -s`,
-  `script` with a transcript file and no command, and a function wrapping
-  `bash -s`. A here-document fed to `cat` is data. A nested script inherits its
+  `script` with a transcript file and no command, `source` with no file or
+  `-` (fish reads stdin there), and a function wrapping `bash -s`. A here-document fed to `cat` is data. A nested script inherits its
   command's descriptors. An over-budget brace word placed where an option's
   value goes is refused, since a shell expands it into more options and a
   command.

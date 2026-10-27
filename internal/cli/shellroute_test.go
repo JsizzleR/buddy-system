@@ -1649,3 +1649,103 @@ func TestGateShellRouteReVerifyR4(t *testing.T) {
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "apply_patch")
 	})
 }
+
+// Fable re-verify round 5 (ACCEPT WITH CHANGES) on ea7397c: N1, fish's source
+// with no file (or the file -) reads its commands from stdin, so `fish -c source
+// <<<'apply_patch …'` was allowed under both harnesses (pre-existing); N5, fish
+// 3.0's --debug-level takes a value. fish is NOT on this box, so its kernel
+// controls are NOT RUN, said loudly; the bash/zsh controls below ARE run.
+func TestGateShellRouteReVerifyR5(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	plain := t.TempDir()
+	work := shellRouteWorkDir(t)
+
+	// N1 and N5: a literal apply_patch fish runs (`.` as source: fish 2/3 ran
+	// it; deprecated since 3.0, a current fish may not, so that form may only
+	// over-refuse), refused under every harness and only where a ledger governs.
+	for _, c := range []struct{ name, form string }{
+		{"N1-source-herestring", "fish -c source <<<'apply_patch < p.patch'"},
+		{"N1-source-dash", "fish -c 'source -' <<<'apply_patch < p.patch'"},
+		{"N1-dot-heredoc", "fish -c . <<'SH'\napply_patch < p.patch\nSH\n"},
+		{"N5-debug-level", "fish --debug-level 3 -c 'apply_patch < p.patch'"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.form), true, "apply_patch")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.form), true, "apply_patch")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, c.form), false, "")
+		})
+	}
+	// A pipeline into source is text produced at run time: uncertain, so it
+	// refuses under Codex and is allowed under Claude (D-087).
+	for _, form := range []string{
+		"echo 'apply_patch < p.patch' | fish -c source",
+		"fish -c 'cat cmds | source'",
+	} {
+		t.Run("N1-pipe/"+form[:12], func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "cannot rule out")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+		})
+	}
+	// Controls that ALLOW: a file's contents are cooperative, whether source
+	// names it or reads it as stdin, so the new arm keys on the missing operand
+	// and on stdin's source, not on the word source.
+	for _, c := range []struct{ name, form string }{
+		{"N1-source-names-a-file", "fish -c 'source f.fish' <<<'apply_patch < p.patch'"},
+		{"N1-source-dash-file-stdin", "fish -c 'source -' < cmds.fish"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.form), false, "")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.form), false, "")
+		})
+	}
+	// Documented over-refusal: bash, zsh, ksh and sh refuse source with no file
+	// and open a file named -, running nothing (the kernel controls prove it),
+	// but the gate reads stdin there too. Only an error form nobody writes is
+	// refused.
+	for _, form := range []string{
+		"source <<<'apply_patch < p.patch'",
+		". - <<<'apply_patch < p.patch'",
+	} {
+		t.Run("N1-over-refusal/"+form[:6], func(t *testing.T) {
+			for _, sh := range []string{"/bin/bash", "/bin/zsh", "/bin/ksh", "/bin/sh"} {
+				if shellOnBox(t, sh) && kernelRuns(t, sh, work, form) {
+					t.Fatalf("kernel control: %s ran apply_patch for %q; the deny is not an over-refusal", sh, form)
+				}
+			}
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "apply_patch")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "apply_patch")
+		})
+	}
+}
+
+// Fable re-verify round 6 (ACCEPT WITH CHANGES) on 0e10ce7, F1: fish's source
+// ends its options at --, so `source --` and `source -- -` still read stdin, and
+// the round-5 arm skipped them (rest[0] was "--"). One leading -- is now
+// dropped first. fish is NOT on this box, so its kernel controls are NOT RUN.
+func TestGateShellRouteReVerifyR6(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	plain := t.TempDir()
+	for _, c := range []struct{ name, form string }{
+		{"F1-source-dashdash", "fish -c 'source --' <<<'apply_patch < p.patch'"},
+		{"F1-source-dashdash-dash", "fish -c 'source -- -' <<<'apply_patch < p.patch'"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.form), true, "apply_patch")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.form), true, "apply_patch")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, c.form), false, "")
+		})
+	}
+	// Control: a file after the -- is sourced, so stdin is not read.
+	t.Run("F1-source-dashdash-file-allowed", func(t *testing.T) {
+		form := "fish -c 'source -- f.fish' <<<'apply_patch < p.patch'"
+		t.Logf("kernel control NOT RUN: fish is not installed on this box")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+}

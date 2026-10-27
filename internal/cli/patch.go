@@ -663,6 +663,20 @@ func (w *shellWalker) command(words []shellWord, site callSite, depth int) {
 			}
 			return
 		case name == "source" || name == ".":
+			if len(rest) > 0 && rest[0].known && rest[0].text == "--" {
+				rest = rest[1:] // fish's source ends its options at -- (Fable re-verify r6 F1)
+			}
+			if len(rest) == 0 || (rest[0].known && rest[0].text == "-") {
+				// fish's source with no file, or the file -, reads its commands
+				// from stdin (documented): `fish -c source <<<'apply_patch …'`
+				// ran apply_patch while scriptFile saw no operand (Fable
+				// re-verify r5 N1). bash, zsh, ksh and sh refuse a missing
+				// operand and open a file named -, running nothing (kernel
+				// controls in TestGateShellRouteReVerifyR5), so this
+				// over-refuses only their error forms.
+				w.stdinScript(site, depth)
+				return
+			}
 			w.scriptFile(rest, site, depth)
 			return
 		case name == "cd" || name == "pushd" || name == "chdir":
@@ -1015,7 +1029,8 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 const fishValueLetters = "cCdofpD"
 
 var fishValueLong = map[string]bool{"--debug": true, "--debug-output": true, "--features": true,
-	"--profile": true, "--profile-startup": true, "--debug-stack-frames": true}
+	"--profile": true, "--profile-startup": true, "--debug-stack-frames": true,
+	"--debug-level": true} // fish 3.0's spelling of -d (Fable re-verify r5 N5)
 
 // shell reads a shell's options: with -c (fish: --command) its first operand
 // is a certain script; with -s or no operand it reads its script from stdin;

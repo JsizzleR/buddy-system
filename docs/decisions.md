@@ -7840,7 +7840,8 @@ allowance):**
   whole word is unknown, so the wrapper breaks before `-C`; the literal is still
   found (refuses where the cwd/patch is governed) but the ungoverned-jurisdiction
   `-C` is not discovered. Narrow; the attached-dynamic word is the cooperative
-  dynamic-text boundary.
+  dynamic-text boundary. A shell's attached `-c"$x"` is the same boundary (round
+  5 N2, below).
 - **codex 7** — util-linux `script -c true -c apply_patch` (repeated `-c` runs
   the last): util-linux only, NOT RUN here, crafted, pre-existing.
 - **git action-position over-budget** (codex 10, widened) — `git -C .
@@ -7971,17 +7972,60 @@ the round-1 "F5 … (now fixed)" note carries its supersession (finding 5), and 
 stale fish "on hold"/"stay open" text (finding 6). Recorded, not fixed: fish's
 GNU-style abbreviated long options (`--com`, `--init`) join the abbreviation entry
 above, as does `--init-cmd`, the spelling in fish's own documentation example
-(unverified: not a prefix of `--init-command`); fish `-h`/`--help` (undocumented
-on that page) and an unknown fish option are not modelled, so a stdin or `-c`
-route after them may over-refuse, the safe side. fish is NOT installed on this
-box: every fish kernel control is NOT RUN. Tests:
-`TestGateShellRouteReVerifyR4` in `internal/cli/shellroute_test.go`.
+(unverified: not a prefix of `--init-command`); fish `-h`/`--help` is not
+modelled, the gate reading the `-c`/stdin route regardless (fish may run `-h` as
+a help command beside a `-c`, so whether that over-refuses is unverified; round 5
+N6), and an unknown fish option, on which fish exits, may over-refuse, the safe
+side. fish is NOT installed on this box: every fish kernel control is NOT RUN.
+Tests: `TestGateShellRouteReVerifyR4` in `internal/cli/shellroute_test.go`.
+
+**Re-verify round 5** (Fable, the operator's choice, run by orc-8: ACCEPT WITH
+CHANGES; the six round-4 fixes FIXED, no regression) named pre-existing forms the
+fold did not touch. The operator's decision: fold N1 narrowly, record the rest.
+
+- **N1, FIXED** — `fish -c source <<<'apply_patch < p.patch'` (also `source -`,
+  `.`) was ALLOWED under both harnesses: fish's `source` with no file, or the file
+  `-`, reads its commands from stdin (documented), but `scriptFile` returned on no
+  operand and passed over `-`. The `source`/`.` arm in `command()` now reads stdin
+  (`stdinScript`) in exactly those two cases, in front of `scriptFile`, so a
+  shell's own script-file operand is unchanged. A here-string or heredoc refuses
+  under every harness; a pipeline into `source` is uncertain (Codex refuses, Claude
+  allows, D-087); `source -` from a FILE is cooperative, like a script file.
+  Documented over-refusal, kernel-checked on bash, zsh, ksh and sh: each refuses
+  `source` with no file and opens a file named `-`, running nothing, so `source
+  <<<'…'` in those shells is now refused though it runs nothing; so is a PROGRAM
+  named `source` fed shell text on stdin (`./source <<<'…'`, the command name is a
+  basename). Round 6 (F1): fish's `source` ends its options at `--`, so one
+  leading `--` is dropped first and `fish -c 'source --'`/`'source -- -'` with a
+  here-string refuse too; `source -- f.fish` still names a file.
+- **N5, FIXED** — `fish --debug-level 3 -c 'apply_patch …'` (fish 3.0's spelling
+  of `-d`) is one more `fishValueLong` entry; on a current fish, which rejects the
+  option, consuming its word only over-refuses.
+- **N2, OPEN** — the ATTACHED dynamic `-c` (`bash -c"$x"`, `fish -c"$x"`): the
+  whole word is unknown, so it is read as the script-file operand and the Codex
+  uncertainty the detached `-c "$x"` raises is missed (both harnesses allow). The
+  same cooperative dynamic-text boundary as codex 4's `env -S"$x"`, above.
+- **N3, N4, documented over-refusals** — fish has no `-s`, but `shell()` reads it
+  as bash's stdin flag (`fish -s <<<'apply_patch'` refused; fish exits on the
+  invalid option); and a lone `-` ends the options and reads stdin, as in bash,
+  where fish would open a file named `-` (`fish - <<<'apply_patch'` refused). Both
+  the safe side.
+- **N6** — the `-h`/`--help` sentence above is hedged: not modelled, direction
+  unverified.
+
+Tests: `TestGateShellRouteReVerifyR5` in `internal/cli/shellroute_test.go` (N1's
+three refused forms and N5 beside an ungoverned-cwd control, the two pipeline
+forms, two allowing controls, and the bash/zsh over-refusal with its kernel
+control RUN here; fish controls NOT RUN).
 
 Review: full — adversarial self-review + panel (3 read-only Opus subagents:
 bypass sites, fixture-respelling, false-denial direction) + codex@xhigh design
 (on drafted code: the diff preceded the prompt) + codex@xhigh code (REJECT, 10;
 folded) + opus@xhigh cross-check (ACCEPT WITH CHANGES, 9; operator's choice, not
 fable) + codex@xhigh re-verify round 1 (REJECT, 8) + round 2 (REJECT, 9) + round 3
-(REJECT, 5) + round 4 (REJECT, 6), each folded → a 5th re-verify through Fable
-(the operator's choice, run by the orchestrator) pending; the item lands after it
-with its verdict named in the landing commit.
+(REJECT, 5) + round 4 (REJECT, 6), each folded + Fable re-verify round 5 (the
+operator's choice, run by the orchestrator; ACCEPT WITH CHANGES, N1/N5 folded,
+N2-N4/N6 recorded) + round 6 (Fable, ACCEPT WITH CHANGES, all P3: F1 `source --`
+folded, the measurement wording, a test comment and the N1 record corrected).
+The operator's decision: land after round 6's fold, no 7th re-verify. Tests:
+`TestGateShellRouteReVerifyR6`.

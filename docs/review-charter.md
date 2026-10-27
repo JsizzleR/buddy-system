@@ -1079,8 +1079,12 @@ ledger row entered through the CLI (D-006).
     `script -c` repeated and `-t` optional value; GNU abbreviated long options (fish's
     included); a front unknown-wrapper (`lockf -k`); and the `git` (`-C .`/`submodule`/`bisect`)
     and `find` (`{-exec,…}` and the NESTED `-exec … {…,\;,-exec,apply_patch,…} \;`)
-    action-position braces. BSD `script -T` playback is deliberately over-refused (util-linux
-    `-T` runs a shell), as are fish `-h`/`--help` and an unknown fish option (not modelled).
+    action-position braces, and a shell's ATTACHED dynamic `-c"$x"` (read as a script-file
+    operand, so Codex misses the uncertainty the detached `-c "$x"` raises; round 5 N2). BSD
+    `script -T` playback is deliberately over-refused (util-linux `-T` runs a shell), as are an
+    unknown fish option, fish `-s` (read as bash's stdin flag) and `fish -` (read as bash's
+    stdin), and `source`/`.` with no file or `-` in bash/zsh (an error there; fish reads stdin);
+    fish `-h`/`--help` is not modelled, its direction unverified.
     Three codex re-verify rounds fixed the fold's false denials (fish long `--command`, a `fish
     -c true ""` panic, fish init-commands under a later `--no-execute`, `fish --command` with no
     value, and the find/env-`S`-tail over-budget guards, reverted). Round 4 found round 3's
@@ -1088,7 +1092,10 @@ ledger row entered through the CLI (D-006).
     'apply_patch …'` allowed): fish clusters are now read as getopt does, the first value option
     (`-c -C -d -o -f -p`, fish 3's `-D`, and their long spellings) taking the rest of the cluster
     or the next word; a value option ending the line, `--version`/`-v` and
-    `--print-debug-categories` read no stdin. These forms and B/C/F4 may be re-examined — this
+    `--print-debug-categories` read no stdin. Fable rounds 5-6: `source`/`.` with no file or `-`,
+    after one leading `--`, reads stdin (fish's documented `source`, so `fish -c source
+    <<<'apply_patch …'` refuses), and
+    fish 3.0's `--debug-level` takes a value. These forms and B/C/F4 may be re-examined — this
     GIVEN records what was done, and does not forbid re-deriving them.
 
 ## Environment facts (measured, do not re-derive)
