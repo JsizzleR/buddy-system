@@ -1561,6 +1561,8 @@ The minutes are an upper bound, since they include your own turns. The `lsp`
 line says whether sessions use the tool at all. It takes the same
 `BUDDY_COST_DAYS` knob, and prints counts and bytes only.
 
+`sh scripts/model-report.sh [--export <tsv>]` reads the ledger's item claims (not slots, not `orc-*`) as rates per class × model: items, outcomes, fails, reworked items (the slug claimed again) and requests per item, the class from a description that begins `model=<id> class=<docs|code|test|research|ops> `, the model the holder's recorded one; `--export` appends each closed item not yet in the file, so the register outlives the sweep's 24 hours (run it before each sweep). Counts and ids only; `BUDDY_LEDGER` and `BUDDY_MODEL_FLOOR` (default 10) are its knobs.
+
 ## Structured adapters (experimental)
 
 Step 2 adds `buddy.adapter.v1` ledger receipts and a separate `buddy-adapter`
