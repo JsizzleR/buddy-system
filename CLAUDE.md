@@ -91,6 +91,7 @@ sh scripts/run-local.sh                   # bring up the local TOC stack + daemo
 scripts/cost-report.sh                    # 7-day context-cost baseline (counts and byte lengths only)
 sh scripts/startup-report.sh [repo]       # minutes and tool calls before each session's first edit (counts only)
 sh scripts/wake-report.sh [project]       # idle->wake warm/cold by what woke it, tokens re-written (counts only)
+sh scripts/fleet-report.sh <list-file>    # per listed project ledger: verdict, counts, STALE/mail/pause ids (counts and ids only)
 sh scripts/codex-review.sh <prompt-file> <out-file>
 python3 -I scripts/check-<name>.py <receipt> --self-test   # an evidence checker: reads a receipt, launches nothing
 python3 scripts/qualify-<name>.py ...                      # a native qualification: LAUNCHES claude/codex; operator-authorized only

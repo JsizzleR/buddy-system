@@ -188,6 +188,7 @@ if [ "$run_hermetic" = 1 ]; then
   sh scripts/check-setup-clone.sh
   sh scripts/check-startup-report.sh
   sh scripts/check-wake-report.sh
+  sh scripts/check-fleet-report.sh
 
   # QUALIFICATION SCRIPTS (review F-32). Before this, none of the .py/.mjs
   # files under scripts/ ran automatically and this file syntax-checked only

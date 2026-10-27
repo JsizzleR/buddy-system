@@ -1340,6 +1340,7 @@ sees, and where each fact lives:
   prints every conflict it counts: claims of yours that overlap each other
   move only together. Release-then-claim would mint new claims and land every
   rider with no outcome.
+- **Several ledgers at once**: `sh scripts/fleet-report.sh <list-file>` (one project path per line) prints each ledger's verdict (available, no live session, or unavailable and why), its counts, and its STALE claims, undelivered messages and pauses by id, read from a private copy and capped under 9,000 bytes; counts and ids only, never a label, slug, note or body.
 
 Buddy keeps no task table. The claim is the responsibility, `wait --ready` is
 the report, `release --outcome` is the close, and `who` is the view. A
