@@ -4,7 +4,8 @@ Status: PLAN, nothing built (2026-10-26). Written by the `beyond-code` lane on
 Fable, from the operator's question below, the docs this repo already holds,
 and counts taken on this machine the same evening. One Codex design pass ran
 over the draft (verdict: revise); every finding is in "Taken and refuted" at
-the end and folded into the sections it names. Baseline: main at 9b6980b when
+the end and folded into the sections it names. Section 1.4 was added after
+the pass, from the operator's own scenario. Baseline: main at 9b6980b when
 the lane opened.
 
 Register: every part names the failure it answers, the number it rests on,
@@ -133,6 +134,67 @@ a `.git` in a notes folder; it is not recommended first.
 - **Main** = the directory the deliverables are integrated into. With no
   branches, `.buddy/slot/main` is still the slot that serializes integration,
   and the integrator still holds it from forming to landing.
+
+### 1.4 A worked example: two repositories and eight tickets, one window
+
+Added after the Codex pass from the operator's scenario (2026-10-26 23:30):
+two coding projects, each git-tracked, and eight troubleshooting tickets
+that are not, each a session working one ticket with the tools in the
+session (MCP and the like); one orchestrator relays everything from all ten
+to one window, so the operator answers and directs in one place and no
+session's cache goes cold because a notice went unseen. Everything below is
+existing verbs and measured pieces; what is new is writing them as one loop.
+
+**Where the ten sessions live.** The eight tickets go in ONE repository,
+`tickets/`, made with `git init` and `buddy init` and never committed to;
+each session's cwd is its own `tickets/T-<n>/`, so all eight share one
+ledger (a cwd inside the repo finds it). Each wears its ticket as its label
+(`BUDDY_LABEL=T-<n>` on the tab, D-089) and claims its own directory, for
+addressing rather than protection. MCP-only work is untouched by the gate (a
+call with no path is allowed) and `beat` runs on every tool, so mail
+reaches each one. The orchestrator of the tickets lives in that repo too:
+it is the fleet repo of 3.4(A), and its pane is the one window. The two
+coding projects keep their own ledgers and their own `orc-<project>`
+coordinators, launched by the window session with the relay clause (D-083)
+and reporting upward by hand registration in `tickets/` (the routing rule).
+
+**The attention loop**, the part the rest of the plan left unsaid:
+
+1. A lane that needs the operator never asks in its own pane. Its brief
+   says: `buddy msg orc-tickets "NEED INPUT: <the question>"`, deliver the
+   wake line the result prints (D-041: the orchestrator is woken in seconds
+   as a peer message, D-039, instead of at its next tool call), then
+   `buddy wait --until 2h --note "waiting on operator: <topic>"` and arm
+   `/loop buddy wait check`. Measured: a lane follows a brief that names its
+   coordinator (D-056); a parked lane on the hour tier stays warm through
+   the check, and without it 145 of 149 wakes past an hour came back cold
+   (D-054).
+2. The orchestrator's drain prints the question in the one window with the
+   lane's label on it. The operator answers there, in words.
+3. The orchestrator sends `buddy msg T-<n> "<the answer>"` and delivers that
+   wake line too; the lane wakes, clears its wait, and goes on. A coding
+   lane's question travels the same way one hop longer: lane → its
+   `orc-<project>` → the window, and back.
+4. Between questions the window reads state, not text: `buddy sessions` in
+   `tickets/` (eight rows: `idle 12m`, `waiting 1h12m` with its note, claims,
+   prompt size), `cd <repo> && buddy who orc-<project>` for each coding
+   project, and `claude agents --json` for `waitingFor` across all ten.
+   Later, `fleet-report.sh` (4.2) prints that in one call.
+
+**What stays in the lanes' panes, by the relay floor (D-083).** A tool
+approval: a reply typed in the window is not that approval, and the lane's
+prompt sits until the operator answers it where it is. Lanes in auto mode on
+a model that has it (the operator's standing decision) remove most of those;
+what an MCP-tool lane in auto mode still stops for is NOT MEASURED and is the
+first measurement this scenario owes. `pause` is per ledger: stopping
+everything is three `pause all`, one per ledger, from a bare shell.
+
+**Cost.** Every relayed question and answer is context in the window session
+(a body up to 4,096 bytes, drains of 20 / 8 KiB), and its handoff size
+(D-064) is the ceiling; a round trip is one orchestrator turn each way. How
+many questions per hour ten lanes raise at one window is NOT MEASURED and
+is the second measurement owed: it decides whether one window session
+coordinates ten lanes or hands the tickets to a coordinator of their own.
 
 ## 2. Evidence from this machine (counts only, 2026-10-26)
 
