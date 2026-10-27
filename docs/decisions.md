@@ -7710,3 +7710,142 @@ the handoff notice's stamp and clause, the holder's own id as control.
 `TestUnresolvedSenderIsNotTheOperator` and
 the other D-043 correction tests are unchanged and green. Review: lite
 (self-review + codex@xhigh code; orc-6's read-only review folded).
+
+## D-106 — The A-01 re-review's open shell-recognizer forms (env -S jurisdiction, script, over-budget option values) are closed with regressions
+
+2026-10-27. The operator's choice for this item (relayed by orc-7): FULL tier,
+Opus 5.5 at xhigh with Codex as the second model and an Opus xhigh subagent
+cross-check (not Fable). Closes the forms a narrowed constrained Codex re-review
+of `wrapper()` and `shell()` reopened on 2026-10-12 (audit A-01; prompts,
+verdicts and kernel probes archived read-only at
+`~/Archives/buddy-system/2026-10-12-a01-rereview/`, SHA256SUMS beside them).
+That round's own fixes (the ninth code pass) had never been re-reviewed; the
+re-review found five it confirmed by source and refuted one as stated.
+
+**The failure** — the shell-patch recognizer (`internal/cli/patch.go`, D-073,
+D-087) returned neither a found route nor an uncertainty for shell commands a
+real shell runs `apply_patch` for, or failed to discover the governed directory
+one changes into. Each line below is the one-line reproduction; each ran on this
+box against a stub `apply_patch` first on PATH (BSD `env`/`script`; fish not
+installed, so F1/G1/G2 stay open, below):
+
+- **A** `x=; env -S "$x" -C /governed apply_patch`: env still processes the
+  options AFTER a dynamic `-S` value (empty or option-only `$x` leaves `-C` in
+  force), but the uncertain branch returned before reading `-C`, so from an
+  ungoverned cwd `/governed` was never discovered. (`env -S "" -C SUB pwd -P`
+  lands in SUB.)
+- **B** `env -S '-C /governed #' apply_patch`: BSD/macOS env splits `-C
+  /governed` out of the `-S` string and ignores the `#` comment, changing
+  directory before the trailing argv runs; the escape/comment branch skipped the
+  whole `-S` text, so the `-C` inside it was never discovered. (`env -S '-C SUB
+  #' pwd -P` lands in SUB.)
+- **C** `script -q /dev/null <<'SH'` … `apply_patch` … `SH`: BSD and util-linux
+  `script` with a transcript file (or none) and NO command spawn `$SHELL`, which
+  reads its script from the inherited stdin; `wrapper()` consumed the transcript
+  operand and reached the end of argv without reading stdin. (Runs only when the
+  heredoc is PADDED past `script`'s pty line-discipline buffer — 200 `:` lines
+  never ran here, 600 ran 8/8 with zero leaked children; this is why the
+  re-review's short-body probe saw it not run.)
+- **E** `env -u {X,-S,apply_patch,x{1..300}}`, `bash -o
+  {posix,-c,apply_patch,x{1..300}}`, `bash --rcfile {f,-c,apply_patch,x{1..300}}`,
+  `env -S {apply_patch,x{1..500}}`: an over-budget brace word consumed as an
+  option VALUE was skipped unchecked, but a shell expands it IN PLACE into more
+  options and a command (`env -u X -S apply_patch …`, `bash -o posix -c
+  apply_patch …`). All four run apply_patch here.
+- **D** as stated (`fish -c true -c 'apply_patch'`, read as first-operand-only)
+  is **refuted**: `shell()`'s `operands[1:]` already get speculative analysis.
+  The real repeated-`-c` gap is F1, below.
+
+**The rule** —
+
+- **A.** When env's `-S` value is dynamic, keep reading env's argv so a later
+  `-C`/`--chdir` is discovered and the literal after it is found; `script -c`'s
+  value is its whole command line with no further directory-changing argv, so it
+  still returns. Harness dimension (D-087): A changes the CODEX verdict only.
+  Under Claude a dynamic value is no refusal, so the walker already read past it
+  to the literal and discovered `-C`; under Codex it stopped at the uncertainty.
+- **B.** In the `-S` escape/comment branch, recover directory changes lexically
+  from the `-S` text itself (`w.lexicalDirectories`, honouring quotes), then keep
+  reading env's argv. Best-effort: the un-modelled escapes mean it may add a
+  directory a real env would skip (a `#` that BEGINS the split string), which
+  only over-refuses. B changes BOTH harnesses: jurisdiction discovery is always
+  non-literalOnly, so the skipped `-C` was missed under either.
+- **C.** A wrapper that reaches the end of its argv with no command runs a shell
+  reading the inherited stdin, so `script` (like `sudo -s`) calls `stdinScript`
+  there; a command operand or `-c` breaks the scan earlier, so the end means
+  none. C is a literal `apply_patch` read from the heredoc, so it refuses under
+  every harness. `exec` is not `script` and sets no shell mode, so the arm does
+  not fire for it (the cooperative limit below).
+- **E.** An over-budget value word refuses as an exhausted bound — the walk
+  stopped before it could rule out a literal — in the generic wrapper value-skip,
+  in `shell()`'s `-o`/`-O` and `--rcfile`/`--init-file`, and in the `-S` value
+  itself. Exhaustion refuses under every harness, and only where a ledger governs
+  (invariant 3).
+
+**Considered and cut** —
+
+- **Modelling `env -S`'s escapes and `${VAR}` expansion** (so B could re-analyze
+  the split string precisely instead of lexically): the escapes include `\c`
+  (truncate) and `${VAR}` (runtime value), which a static reading cannot resolve;
+  the lexical recovery plus the recorded uncertainty is the cheap conservative
+  side, as elsewhere in this recognizer.
+- **A one-line fix for the `exec <<'SH'` limit** (round 9's remaining crafted
+  P2, a persistent redirection a LATER statement's shell reads): the walker
+  scopes a redirection to its own statement; carrying it to sibling statements is
+  not one line, and it stays the documented cooperative limit (D-073, USAGE). A
+  regression asserts the gate ALLOWS it where governed WITH a kernel control
+  proving a real shell runs it, so the gap is genuine and accepted, and it guards
+  the C fix from over-reaching to `exec`.
+- **Closing F1/G1/G2 (fish) in this change.** F1 (`fish -c true -c "$x"`, a
+  repeated `-c` whose later command is dynamic), G1 (`fish --no-execute -c
+  'apply_patch'`, a false denial), G2 (`fish -nc'apply_patch'`, the attached-`c`
+  branch running before `-n` is read) are left open for the operator: a turn
+  drafting their fixtures was stopped by a safety classifier, and per the lane's
+  brief the forms were not rephrased around it. fish is not installed on this
+  box, so their kernel controls are NOT RUN regardless.
+
+**Follow-up folds (from the FULL-tier review: Codex design pass + a
+three-subagent panel).** The design pass (REJECT) and the panel surfaced
+adjacent gaps, folded as part of the item:
+
+- **F4** (a false denial the first C fix introduced): `script -p` REPLAYS a
+  recording and spawns no shell, so the stdin arm must not fire for it
+  (`playback` suppresses it). Verified on this box: `script -p f <<'SH' … SH`
+  runs nothing.
+- **F1a** (a C miss): `script -q -- /dev/null` with no command still reads
+  stdin; the `--` used to stop the scan before the transcript file was
+  consumed, so `--` now consumes the wrapper's lead operand. Verified: it runs.
+- **F1** (a C miss, util-linux): `script`'s value-option table lacked
+  util-linux's log-file/format options (`-O`/`-I`/`-B`/`-o`/`-E`/`-m`), so
+  `script -O a -I b <<'SH'` desynced the lead operand and the stdin arm never
+  fired. The table now over-reads them (safe on BSD, which lacks them). NOT RUN
+  here (macOS script is BSD).
+- **F5/F6** (over-budget value consumers the first E pass missed): a CLEAN
+  `env -S` value followed by an over-budget brace TAIL (the reconstruction
+  masked it as `"$_"`), and `git -C <over-budget-brace>` in `gitRoute`. Both now
+  exhaust. F5 verified; F6's running route needs an active bisect (crafted), so
+  only its verdict is tested.
+- **Accepted, not fixed** (documented over-refusals, both only where a ledger
+  governs, B's only under Codex): B's `lexicalDirectories` may read a `-C`/`cd`
+  token out of an ordinary `env -S` string that merely mentions one (e.g.
+  `env -S 'make -C /gov $T'`); and widening the C arm to `script` refuses a
+  `script FILE <command-shaped-word>` and a `script` fed an unquoted heredoc
+  with expansions or a pipe. **Residual, open:** util-linux `script -c` repeated
+  (runs the LAST `-c`; the arm returns after the first) — util-linux only, NOT
+  RUN here, pre-existing.
+
+**Tests** — `TestGateShellRouteReReviewForms` (C, the four E forms, the
+`exec <<'SH'` cooperative-limit allow), `TestGateShellRouteReReviewJurisdiction`
+(A under Codex, B under both; deny when the target dir is governed, allow when
+not), and `TestGateShellRouteReReviewFollowUp` (F4 allowed, F1a/F5/F6 refused),
+in `internal/cli/shellroute_test.go`. Each refused form carries a kernel control
+where its shell is on this box (C/F1a/F4 darwin-only and padded; A/B reproduce
+the directory change with `pwd -P`; F6's run route is crafted, verdict-only);
+the controls prove the gate is not dressing a form the shell would never run (or,
+for F4, one it does run) as coverage. Each of the 11 guards was reverted in a
+private rsync'd copy (python, not sed) and its named test watched to fail.
+Review: full — adversarial self-review + panel (3 read-only Opus subagents:
+bypass sites, fixture-respelling, false-denial direction) + codex@xhigh design
+pass (REJECT, 6 findings; 4 folded, 2 accepted). OWED at the lane's 300k handoff
+and handed to the orchestrator: the Codex code pass on the final diff, the
+opus@xhigh cross-check (operator's choice, not fable), and the Codex re-verify.

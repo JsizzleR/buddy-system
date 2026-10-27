@@ -786,6 +786,17 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   and name `hello --session`, ahead of any wake. A notice, not a reply address: a reply goes to
   the label the sender registers. Bare terminal unchanged; never refused; D-043's ownership, the
   drain headers and the 64-byte sender fence untouched.
+- **The A-01 re-review's open shell-recognizer forms are closed (D-106, amends D-073/D-087):**
+  the recognizer keeps reading env's argv past a DYNAMIC `env -S` value so a later `-C` is
+  found (A, Codex-verdict only); recovers a `-C` lexically from `env -S` text with a `#`
+  comment or escape (B); treats `script` with a transcript file and no command as reading
+  stdin, so `script -q /dev/null <<'SH' … apply_patch … SH` is caught (C, control needs the
+  heredoc padded past script's pty buffer); and refuses an over-budget brace word consumed as
+  an option VALUE — the wrapper grammar, `shell()`'s `-o`/`--rcfile`, the `-S` value (E, all a
+  shell expands in place into options and a command). D was refuted; `exec <<'SH'` read by a
+  later statement stays the documented cooperative limit; fish's F1/G1/G2 are open for the
+  operator (fish not on this box). The D-073/D-087 bullets stand unchanged: every clause there
+  is still true.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

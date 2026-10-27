@@ -177,7 +177,14 @@ var (
 		"unbuffer":   set(),
 		"repeat":     set(),
 		"arch":       set("-arch", "-e", "-d"),
-		"script":     set("-t", "-T", "-c", "--command"),
+		// util-linux script's log-file and format options take a value too
+		// (-O/-I/-B files, -o size, -E when, -m format); without them a no-command
+		// `script -O a -I b <<'SH'` desyncs the lead operand and the stdin arm
+		// below never fires (D-106, 2026-10-12 re-review follow-up). NOT RUN here
+		// (macOS script is BSD and lacks them); listing a value a box lacks only
+		// over-reads an option that never appears.
+		"script": set("-t", "-T", "-c", "--command", "-O", "--log-out", "-I", "--log-in",
+			"-B", "--log-io", "-o", "--output-limit", "-E", "--echo", "-m", "--logging-format"),
 	}
 	// Operands a wrapper takes before its command: timeout's duration,
 	// zsh repeat's count, script's transcript file.
@@ -762,6 +769,7 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 	}
 	lead := wrapperLeadOperands[name]
 	shellMode := false // sudo -s/-i, doas -s: with no command, a shell reads stdin
+	playback := false  // script -p/-T replays a recording: it spawns NO shell
 	j := 0
 	for j < len(rest) && !w.done() {
 		word := rest[j]
@@ -775,6 +783,15 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 		}
 		if t == "--" {
 			j++
+			// After `--` everything is an operand. Consume the wrapper's lead
+			// operands (script's transcript file) so a no-command `script -q --
+			// /dev/null <<'SH'` still reaches the stdin arm below; a further
+			// operand is the command and breaks the scan for command() to read
+			// (D-106, 2026-10-12 re-review follow-up).
+			for lead > 0 && j < len(rest) {
+				lead--
+				j++
+			}
 			break
 		}
 		if !strings.HasPrefix(t, "-") || t == "-" {
@@ -791,6 +808,14 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 		if (name == "sudo" || name == "doas") && (t == "--shell" || t == "--login" ||
 			!strings.HasPrefix(t, "--") && strings.ContainsAny(t[1:], "si")) {
 			shellMode = true
+		}
+		if name == "script" && (t == "--replay" ||
+			!strings.HasPrefix(t, "--") && strings.ContainsAny(t[1:], "pT")) {
+			// BSD `script -p` (and `-T`, which implies it) PLAYS BACK a recording
+			// and spawns no shell, so it never reads the inherited stdin as a
+			// script; firing the stdin arm for it is a false denial (D-106,
+			// 2026-10-12 re-review follow-up: `script -p f <<'SH'…` runs nothing).
+			playback = true
 		}
 		opt, value, inline := t, "", false
 		if strings.HasPrefix(t, "--") {
@@ -829,13 +854,26 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 			if !ok {
 				return len(rest), true
 			}
+			if v.overBudget {
+				// A brace word too large to expand sits in the -S value: a shell
+				// expands it in place into env's own argv, options and command
+				// included, before the gate ever sees the pieces (finding E,
+				// 2026-10-12 re-review). Refuse rather than skip it unchecked.
+				w.exhausted("shell patch routing exceeds its brace expansion budget")
+				return len(rest), true
+			}
 			if !v.known {
 				w.uncertainty(name + " " + opt + " runs text built at run time")
-				if w.literalOnly {
-					// Not Codex (D-087): the value is not a refusal, so the
-					// argv after it is still read. `env -S "$opts"
-					// apply_patch < p` runs the literal when $opts is empty
-					// (Codex code pass, D-087).
+				// env still PROCESSES the options after a dynamic -S value:
+				// `env -S "$x" -C /governed apply_patch` MAY change directory
+				// (an empty or option-only $x leaves -C in force), so -C
+				// must still be discovered and the literal after it still found
+				// (finding A, 2026-10-12 re-review). The uncertainty already
+				// refuses a Codex call where a ledger governs; under Claude the
+				// value is no refusal, so the literal after it is read anyway
+				// (D-087). script's -c value is its whole command line, with no
+				// further directory-changing argv, so under Codex it returns.
+				if name == "env" || w.literalOnly {
 					j += 2
 					continue
 				}
@@ -848,6 +886,15 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 				// A # comment ends the split text but not argv, so joining
 				// the rest after it would hide a command (Codex eighth pass).
 				w.uncertainty("env -S text with escapes, expansions or comments is not modelled")
+				// A directory change INSIDE the -S text is still discovered:
+				// `env -S '-C /governed #' apply_patch` splits to `-C /governed`
+				// and a `#` comment, and env changes directory before running
+				// the trailing argv (finding B, 2026-10-12 re-review). The
+				// lexical scan honours quotes; the escapes above make it
+				// best-effort, so it may add a directory a real env would skip
+				// (a `#` that begins the split string, say), which only
+				// over-refuses. Recognition ignores it (ctx == nil).
+				w.lexicalDirectories(v.text)
 				// Keep reading env's argv: an option after the -S text still
 				// changes directory (Codex ninth code pass).
 				j++
@@ -878,6 +925,15 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 					if text.Len() > shellMaxScript {
 						break
 					}
+					if word.overBudget {
+						// An over-budget brace in the tail expands in place into
+						// env's argv: `env -S '-u' {X,-S,apply_patch,x{1..300}}`
+						// becomes `env -u X -S apply_patch ...`, so replacing it
+						// with "$_" would hide the command (finding E follow-up,
+						// 2026-10-12 re-review). Refuse rather than mask it.
+						w.exhausted("shell patch routing exceeds its brace expansion budget")
+						return len(rest), true
+					}
 					if word.known {
 						text.WriteString(" " + shellQuote(word.text))
 					} else {
@@ -894,12 +950,27 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 		}
 		j++
 		if values[opt] && !inline {
+			if j < len(rest) && rest[j].overBudget {
+				// A brace word too large to expand sits where this option's
+				// value goes, and a shell expands it in place into more options
+				// and a command: `env -u {X,-S,apply_patch,x{1..300}}` becomes
+				// `env -u X -S apply_patch ...` (finding E, 2026-10-12
+				// re-review). Refuse rather than skip it unchecked.
+				w.exhausted("shell patch routing exceeds its brace expansion budget")
+				return len(rest), true
+			}
 			j++
 		}
 	}
-	if shellMode && j >= len(rest) {
-		// `sudo -s <<'SH'`: no command, so sudo's shell runs stdin (Codex
-		// ninth code pass).
+	if j >= len(rest) && (shellMode || (name == "script" && !playback)) {
+		// A wrapper that reaches the end of its argv with no command runs a
+		// shell that reads the inherited stdin: `sudo -s <<'SH'` (Codex ninth
+		// code pass), and `script -q /dev/null <<'SH' ... apply_patch ... SH`,
+		// where BSD and util-linux script with a transcript file (or none) and
+		// NO command spawn $SHELL on the heredoc (finding C, 2026-10-12
+		// re-review). A command operand or -c breaks the scan earlier, so
+		// reaching the end here means there is none; playback (-p) spawns no
+		// shell, so it is excluded.
 		w.stdinScript(site, depth)
 	}
 	return j, true
@@ -945,6 +1016,15 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 						j++
 					}
 				case !inline && (opt == "--rcfile" || opt == "--init-file"):
+					if j+1 < len(args) && args[j+1].overBudget {
+						// The file argument is a brace word too large to expand;
+						// a shell expands it in place into more options and a
+						// command: `bash --rcfile {f,-c,apply_patch,x{1..300}}`
+						// becomes `bash --rcfile f -c apply_patch ...` (finding E,
+						// 2026-10-12 re-review).
+						w.exhausted("shell patch routing exceeds its brace expansion budget")
+						return
+					}
 					j++
 				}
 				continue
@@ -981,6 +1061,15 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 				if strings.ContainsAny(t[1:], "oO") {
 					// The option's name is the next word. `+o noexec` turns
 					// execution back on like +n (Codex third code pass).
+					if j+1 < len(args) && args[j+1].overBudget {
+						// A brace word too large to expand sits where the option
+						// name goes; a shell expands it in place into more
+						// options and a command: `bash -o {posix,-c,apply_patch,
+						// x{1..300}}` becomes `bash -o posix -c apply_patch ...`
+						// (finding E, 2026-10-12 re-review).
+						w.exhausted("shell patch routing exceeds its brace expansion budget")
+						return
+					}
 					if j+1 < len(args) && args[j+1].known && args[j+1].text == "noexec" {
 						noexec = t[0] == '-'
 					}
@@ -1140,6 +1229,15 @@ func (w *shellWalker) gitRoute(rest []shellWord, site callSite, depth int) {
 		case t == "-C" && j+1 < len(rest):
 			// git -C DIR runs the subcommand, and whatever it executes,
 			// there (Codex fifth code pass).
+			if rest[j+1].overBudget {
+				// The directory word is a brace too large to expand, which a
+				// shell expands in place into git's own argv: `git -C
+				// {.,bisect,run,apply_patch,x{1..300}}` becomes `git -C .
+				// bisect run apply_patch ...` (finding E follow-up, 2026-10-12
+				// re-review; an over-budget value consumer outside wrapper/shell).
+				w.exhausted("shell patch routing exceeds its brace expansion budget")
+				return
+			}
 			w.directory(rest[j+1])
 			j++
 			continue

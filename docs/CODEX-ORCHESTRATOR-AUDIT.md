@@ -52,7 +52,7 @@ checkout's ledger to schema 15.
 
 | Item | State | Where |
 | --- | --- | --- |
-| A-01 static shell forms | **Closed, hermetic.** Every static form listed under A-01 is refused where a ledger governs, each with a kernel control that the real shell runs it. `pushd`, `~` and the nested forms are placed. The ten false-denial controls pass. The borderline forms are decided: covered, or recorded as the cooperative limit. One crafted case stays open by decision: a persistent `exec <<'SH'` redirection read by a later statement's shell. Native rerun still owed (A-07). **REOPENED 2026-10-12** by a re-review (bullet below). *2026-10-13, native on the final bytes:* the plain heredoc and `bash -lc` heredoc DENIED (15/15, 7/7), Codex paths 10/10, Claude Write paths 6/6. The re-review's open forms and `exec <<'SH'` have no native runner, so it stays reopened. | `internal/cli/patch.go`, `shellroute_test.go`; D-073 audit continuation; USAGE "Shell-routed patches" |
+| A-01 static shell forms | **Closed, hermetic.** Every static form listed under A-01 is refused where a ledger governs, each with a kernel control that the real shell runs it. `pushd`, `~` and the nested forms are placed. The ten false-denial controls pass. The borderline forms are decided: covered, or recorded as the cooperative limit. One crafted case stays open by decision: a persistent `exec <<'SH'` redirection read by a later statement's shell. Native rerun still owed (A-07). **REOPENED 2026-10-12** by a re-review (bullet below). *2026-10-13, native on the final bytes:* the plain heredoc and `bash -lc` heredoc DENIED (15/15, 7/7), Codex paths 10/10, Claude Write paths 6/6. The re-review's open forms and `exec <<'SH'` have no native runner, so it stays reopened. **RE-CLOSED hermetically 2026-10-27 (D-106)** for the re-review's confirmed forms: A (`env -S "$x" -C /gov`), B (`env -S '-C /gov #'`), C (`script` no-command stdin) and E (over-budget option values) are now refused where governed, each with a kernel control (C darwin-only, padded past script's pty buffer; A/B via `pwd -P`), and each fix reverted in a private copy with its test watched to die (7/7 mutants). D was refuted as stated. Still open: F1/G1/G2 (fish, not on this box) for the operator, and the `exec <<'SH'` persistent redirection as the documented cooperative limit. The native rerun of all these forms is still owed (A-07). | `internal/cli/patch.go`, `shellroute_test.go`; D-106; D-073 audit continuation; USAGE "Shell-routed patches" |
 | A-02 shared core | **Closed, hermetic; the narrow contract built 2026-10-12** (escaped descendants observed, recorded, reported at close and on stderr, never signalled; resume refuses while a recorded one lives; D-077 2026-10-12 continuation). **Shared core, 2026-10-08:** A durable pre-spawn ownership record, and a resume that refuses while the recorded adapter, leader or group lives. Also: `--wait-prior` and a single-use launch authorization. `.start` fences only Start; every spawn is fenced by the flock plus intent-before-spawn. Out by the operator's choice (2026-10-11, Codex's narrower contract): unpinned killing and `--end-prior`. Still owed: `Setsid` once Q1/Q3 pass, and the native rerun. *2026-10-13:* the native rerun is done, and the narrow contract held in V-12's job probe on both attempts (escaped shell and job recorded in `.proc`, reported on stderr, not signalled, adapter exit 0); the probe stays RED 3/4 on its pre-contract criterion, which is being updated. Still owed: `Setsid` and Q1-Q7; Q2, Q4 and Q5 are not observable with the current runners. |
 | A-07 native rerun | **Done 2026-10-13, operator-authorized.** All 16 suites on the final bytes, green on the first attempt; 13 independent checkers pass on the fresh receipts. Three suites (claude-mods, codex-shell-lifecycle-edge, standalone-adapters) have no independent checker yet: pending. | [Report section](CODEX-ORCHESTRATOR-VERIFICATION-REPORT.md#native-rerun-on-the-final-bytes-2026-10-13); `verification-evidence/2026-10-13/` | `internal/harness/ownership.go`, `ownership_test.go`, `cmd/buddy-adapter/resume_test.go`; D-077 A-02 continuation |
 | 3. Correct the record | **Done.** Report rows F-01, F-07, F-08, F-13, F-14, F-18, F-27 and F-41, and the mutation table. A-11 markers and anchors. A-13 sentences. A-10 test, with a 2 s stdin bound found necessary. A-14: tests for the target ledger's own label, and new guards for each patch.go guard the rewrite kept. | Report; `decisions.md` D-070, D-071, D-077; `review-charter.md` GIVEN 78; USAGE; CLAUDE.md |
@@ -85,6 +85,27 @@ and fixed. Mutation and check results:
   stopped mid-turn by a safety classifier, declined to resume, and this session did
   not take it over. Open for the operator. The prompts, verdicts and probes are in
   `~/Archives/buddy-system/2026-10-12-a01-rereview/` (SHA256SUMS beside them).
+  *Closed 2026-10-27 (D-106).* The four confirmed gaps (A, B, C, E) each got a
+  regression in `shellroute_test.go` (`TestGateShellRouteReReview*`) with a kernel
+  control where its shell is on this box — C darwin-only and padded past script's
+  pty line-discipline buffer (200 `:` lines never ran, 600 ran 8/8), A/B via a
+  `pwd -P` landing check — and the fix in `patch.go`, each reverted in a private
+  rsync'd copy and its test watched to fail (7 guards, 7 killed). D stays refuted.
+  The `exec <<'SH'` limit is tested as an accepted gap, not fixed. fish's F1/G1/G2
+  stay open for the operator: a turn writing their fixtures was stopped by a safety
+  classifier, the forms were not rephrased around it, and fish is not on this box.
+  The FULL-tier review (Codex design pass + a 3-subagent panel) then surfaced
+  adjacent gaps, folded the same way (`TestGateShellRouteReReviewFollowUp`, 11
+  guards mutation-covered): a `script -p` playback false denial the first C fix
+  introduced, a `script --` no-command miss, util-linux `script` log-options added
+  to the value table (NOT RUN here), and two over-budget value consumers the first
+  E pass missed (`env -S` clean-value-then-brace-tail, and `git -C <brace>`).
+  Accepted and documented: B's lexical over-refusal and the widened `script` arm's
+  `FILE <command>` / unquoted-heredoc over-refusals (only where governed). Residual
+  util-linux `script -c` repeat is open (NOT RUN here, pre-existing). Hermetic only;
+  the native rerun of these forms is still owed (A-07). OWED at the lane's handoff:
+  the Codex code pass on the final diff, an Opus xhigh cross-check, and the Codex
+  re-verify (design + panel done; see D-106).
 - A-02: 27 of 28 mutants killed, one equivalent (D-077 A-02 continuation). The narrow
   contract built on 2026-10-12 has its own sweep (D-077 2026-10-12 continuation).
 - `sh scripts/check.sh hermetic` over the finished tree, the 2026-10-11

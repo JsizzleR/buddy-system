@@ -1053,3 +1053,243 @@ func TestShellRetainedScriptsAreBounded(t *testing.T) {
 		}
 	})
 }
+
+// The 2026-10-12 re-review of wrapper() and shell() (a narrowed constrained
+// Codex pass, archived read-only at
+// ~/Archives/buddy-system/2026-10-12-a01-rereview/, verdict3.md) returned
+// REJECT on A, B, C and E and REFUTED D as stated. Each is a shell command a
+// real shell runs apply_patch (or changes directory into a governed repo) for,
+// while the recognizer returned neither found nor uncertainty. The fixes are in
+// patch.go; these are the regressions, each watched to fail without its fix.
+// F1/G1/G2 (fish) are on hold for the operator (D-087's harness dimension is
+// noted per finding). Each form here carries a kernel control where its shell
+// is on this box; a form the shell does not actually run would make the gate's
+// refusal a false denial dressed up as coverage.
+func TestGateShellRouteReReviewForms(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	work := shellRouteWorkDir(t)
+
+	// C: BSD and util-linux `script` with a transcript file (or none) and NO
+	// command spawn $SHELL, which reads its script from the inherited stdin.
+	// The gate missed it: wrapper() consumed the transcript operand and reached
+	// the end of argv without reading stdin. C refuses under EVERY harness: the
+	// heredoc holds a literal apply_patch at a command position. The kernel
+	// control needs the heredoc PADDED well past script's pty line-discipline
+	// buffer; a short body is swallowed before the spawned shell reads it
+	// (measured on this box: 200 ':' lines never ran, 600 ran 8/8 with zero
+	// leaked children, which is also why the re-review saw a short body not
+	// run). darwin-only: the form is BSD here, and the pty timing is not
+	// reproduced on CI's util-linux script. The gate's verdict is asserted on
+	// every platform; only the proof that the shell runs it is platform-bound.
+	t.Run("C/script-no-command-reads-stdin", func(t *testing.T) {
+		cForm := "script -q /dev/null <<'SH'\n" + strings.Repeat(":\n", 1500) + "apply_patch < p.patch\nexit\nSH\n"
+		if runtime.GOOS == "darwin" && shellOnBox(t, "/bin/bash") {
+			if !kernelRuns(t, "/bin/bash", work, cForm) {
+				t.Fatal("kernel control: a padded `script` heredoc does not run apply_patch")
+			}
+		} else {
+			t.Logf("kernel control not run on %s: script's no-command stdin shell is BSD- and pty-timing-specific", runtime.GOOS)
+		}
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, cForm), true, "buddy gate")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, cForm), true, "runs apply_patch")
+	})
+
+	// E: an over-budget brace word consumed as an OPTION VALUE was skipped
+	// unchecked, but a shell expands it IN PLACE into more options and a
+	// command. `env -u {X,-S,apply_patch,x{1..300}}` becomes
+	// `env -u X -S apply_patch ...`; `bash -o {posix,-c,apply_patch,x{1..300}}`
+	// becomes `bash -o posix -c apply_patch ...`; `--rcfile` is the same. An
+	// exhausted bound refuses under EVERY harness (the walk stopped before it
+	// could rule out a literal), and only where a ledger governs (invariant 3).
+	// The redirect is dropped from the finding's spelling so the control's temp
+	// dir needs no p.patch; the route is identical.
+	plain := t.TempDir()
+	for _, eForm := range []string{
+		"env -u {X,-S,apply_patch,x{1..300}}",
+		"bash -o {posix,-c,apply_patch,x{1..300}}",
+		"bash --rcfile {f,-c,apply_patch,x{1..300}}",
+		// An over-budget brace as the -S VALUE itself: a shell expands it into
+		// env's own argv, so `env -S {apply_patch,x{1..500}}` runs the
+		// apply_patch hidden in the first field, with no literal outside the
+		// brace for `found` to catch.
+		"env -S {apply_patch,x{1..500}}",
+	} {
+		t.Run("E/"+eForm, func(t *testing.T) {
+			if !kernelRuns(t, "/bin/bash", work, eForm) {
+				t.Fatalf("kernel control: bash does not run apply_patch for %q", eForm)
+			}
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, eForm), true, "budget")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, eForm), true, "budget")
+			// Only where a ledger governs.
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, eForm), false, "")
+		})
+	}
+
+	// The persistent `exec <<'SH'` redirection a LATER statement's shell reads
+	// is the ONE crafted form left open by decision (D-073, round 9): the
+	// walker scopes a redirection to its own statement, so `exec`'s heredoc is
+	// not carried to the trailing `bash`. This is a documented cooperative
+	// limit, not a fix: the gate ALLOWS it even where a ledger governs, and the
+	// control proves a real shell runs it, so the gap is genuine and accepted,
+	// not a form the shell would never run. It also guards the finding-C fix
+	// from over-reaching: `exec` is not `script`, so the no-command stdin arm
+	// must not fire for it.
+	t.Run("exec-heredoc-cooperative-limit", func(t *testing.T) {
+		execForm := "exec <<'SH'\napply_patch\nSH\nbash\n"
+		for _, sh := range []string{"/bin/bash", "/bin/zsh"} {
+			if shellOnBox(t, sh) && !kernelRuns(t, sh, work, execForm) {
+				t.Fatalf("control: %s does not run apply_patch for the exec-heredoc form", sh)
+			}
+		}
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, execForm), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, execForm), false, "")
+	})
+}
+
+// Jurisdiction from an UNGOVERNED cwd: findings A and B put the directory
+// change inside env's -S handling, which the recognizer failed to read, so a
+// patch bound for a governed repo was allowed from outside it. Each form
+// changes to the target and runs apply_patch there; it must refuse when the
+// target is governed and pass when it is not. The kernel control reproduces the
+// directory change with `pwd -P` and asserts the shell lands where the gate
+// says (the pattern of TestGateShellRouteJurisdiction).
+//
+// Harness dimension (D-087): A changes the CODEX verdict only — under Claude a
+// dynamic -S value is no refusal, so the walker already read past it to the
+// literal apply_patch and discovered -C; under Codex it stopped at the
+// uncertainty and missed -C. B changes BOTH harnesses: its -S value is a known
+// literal, and jurisdiction discovery (always non-literalOnly) skipped the -C
+// inside it under either harness.
+func TestGateShellRouteReReviewJurisdiction(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	plain := t.TempDir()
+	other := t.TempDir()
+	realRepo, _ := filepath.EvalSymlinks(f.repo)
+	realOther, _ := filepath.EvalSymlinks(other)
+
+	// A: `env -S "$x" -C <dir> apply_patch`. A real env with an empty or
+	// option-only $x still honours -C; the gate's uncertain branch returned
+	// before reading it. The assertion is under Codex, the harness the fix
+	// changes.
+	t.Run("A/env-S-dynamic-then-C", func(t *testing.T) {
+		for _, target := range []struct {
+			dir, real string
+			deny      bool
+		}{{f.repo, realRepo, true}, {other, realOther, false}} {
+			name := filepath.Base(target.dir)
+			if shellOnBox(t, "/bin/sh") {
+				land := "x=; env -S \"$x\" -C " + shellArg(target.dir) + " pwd -P"
+				k := exec.Command("/bin/sh", "-c", land)
+				k.Dir = plain
+				k.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + plain}
+				if out, err := k.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != target.real {
+					t.Fatalf("kernel control: sh lands in %q (err %v), want %q", out, err, target.real)
+				}
+			}
+			cmd := "x=; env -S \"$x\" -C " + shellArg(target.dir) + " apply_patch < p.patch"
+			t.Run(name, func(t *testing.T) {
+				wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
+			})
+		}
+	})
+
+	// B: `env -S '-C <dir> #' apply_patch`. BSD/macOS env splits `-C <dir>` out
+	// of the -S string and ignores the `#` comment, changing directory before
+	// the trailing argv runs; the gate skipped the whole -S text. B refuses
+	// under BOTH harnesses, so both are asserted. darwin-only control: GNU env's
+	// `#` handling is not assumed.
+	t.Run("B/env-S-dir-then-comment", func(t *testing.T) {
+		for _, target := range []struct {
+			dir, real string
+			deny      bool
+		}{{f.repo, realRepo, true}, {other, realOther, false}} {
+			name := filepath.Base(target.dir)
+			if runtime.GOOS == "darwin" && shellOnBox(t, "/bin/sh") {
+				land := "env -S " + shellQuote("-C "+target.dir+" #") + " pwd -P"
+				k := exec.Command("/bin/sh", "-c", land)
+				k.Dir = plain
+				k.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + plain}
+				if out, err := k.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != target.real {
+					t.Fatalf("kernel control: sh lands in %q (err %v), want %q", out, err, target.real)
+				}
+			}
+			cmd := "env -S " + shellQuote("-C "+target.dir+" #") + " apply_patch < p.patch"
+			t.Run(name, func(t *testing.T) {
+				wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, cmd), target.deny, "buddy gate")
+				wantGate(t, f, plain, bashHookJSON("sess-b", plain, cmd), target.deny, "")
+			})
+		}
+	})
+}
+
+// The FULL-tier review of D-106 (Codex design pass + a three-subagent panel)
+// surfaced adjacent gaps in the C and E fixes, folded here. Each is confirmed on
+// this box where its shell is BSD; the util-linux `script` log-option desync is
+// NOT RUN here (macOS script lacks those options) and is closed by over-reading
+// the option table, below.
+func TestGateShellRouteReReviewFollowUp(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	work := shellRouteWorkDir(t)
+	plain := t.TempDir()
+
+	// F4 (a false denial the first C fix introduced): `script -p` REPLAYS a
+	// recording and spawns no shell, so it never reads stdin as a script.
+	// The gate must ALLOW it. Control: the real shell runs NOTHING for it
+	// (otherwise the allow would be a miss).
+	t.Run("F4/script-playback-allowed", func(t *testing.T) {
+		pb := "script -p /dev/null <<'SH'\n" + strings.Repeat(":\n", 1500) + "apply_patch < p.patch\nexit\nSH\n"
+		if runtime.GOOS == "darwin" && shellOnBox(t, "/bin/bash") {
+			if kernelRuns(t, "/bin/bash", work, pb) {
+				t.Fatal("control: script -p playback unexpectedly ran apply_patch; the allow would be a miss")
+			}
+		} else {
+			t.Logf("kernel control not run on %s: BSD script -p playback", runtime.GOOS)
+		}
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, pb), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, pb), false, "")
+	})
+
+	// F1a (a C miss): `script -q -- /dev/null` with no command still reads
+	// stdin; the `--` used to stop the scan before the transcript file was
+	// consumed. Caught under every harness (literal in the heredoc).
+	t.Run("F1a/script-dashdash-reads-stdin", func(t *testing.T) {
+		dd := "script -q -- /dev/null <<'SH'\n" + strings.Repeat(":\n", 1500) + "apply_patch < p.patch\nexit\nSH\n"
+		if runtime.GOOS == "darwin" && shellOnBox(t, "/bin/bash") {
+			if !kernelRuns(t, "/bin/bash", work, dd) {
+				t.Fatal("kernel control: `script -q -- /dev/null` heredoc does not run apply_patch")
+			}
+		} else {
+			t.Logf("kernel control not run on %s: BSD script", runtime.GOOS)
+		}
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, dd), true, "buddy gate")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, dd), true, "runs apply_patch")
+	})
+
+	// F5 (an E miss): a CLEAN `env -S` value followed by an over-budget brace
+	// TAIL. The reconstruction used to replace the brace with "$_", hiding the
+	// `-S apply_patch` it expands into. Now exhausted; refuses under both.
+	t.Run("F5/env-S-clean-then-overbudget-tail", func(t *testing.T) {
+		form := "env -S '-u' {X,-S,apply_patch,x{1..300}}"
+		if !kernelRuns(t, "/bin/bash", work, form) {
+			t.Fatalf("kernel control: bash does not run apply_patch for %q", form)
+		}
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "budget")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "budget")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, form), false, "")
+	})
+
+	// F6 (an over-budget value consumer outside wrapper/shell): `git -C <brace>`
+	// takes the brace as the directory, but a shell expands it into git's argv
+	// (`git -C . bisect run apply_patch ...`). Now exhausted; refuses under both,
+	// only where governed. Control NOT RUN: the running route needs an active
+	// bisect in a real repo (crafted); the verdict is pure parsing.
+	t.Run("F6/git-C-overbudget", func(t *testing.T) {
+		form := "git -C {.,bisect,run,apply_patch,x{1..300}}"
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "budget")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "budget")
+		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, form), false, "")
+	})
+}

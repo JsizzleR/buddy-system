@@ -183,11 +183,15 @@ and reads it this way (D-073, audit A-01):
   defines shadows every name.
 - Script text a shell will run is read in turn: a `-c` operand (any option
   cluster, either sign: `bash -c --`, `bash +x -c`, csh, tcsh and fish
-  included, and fish's `-C`), `eval`'s and `trap`'s text, `env -S`, and a
-  here-document, here-string or duplicated descriptor that reaches a shell's
-  stdin, including `sudo -s` and a function wrapping `bash -s`. A
-  here-document fed to `cat` is data. A nested script inherits its command's
-  descriptors.
+  included, and fish's `-C`), `eval`'s and `trap`'s text, `env -S` (including a
+  `-C` directory change inside a `-S` string that carries a `#` comment, and
+  the options after a dynamic `-S` value), and a here-document, here-string or
+  duplicated descriptor that reaches a shell's stdin, including `sudo -s`,
+  `script` with a transcript file and no command, and a function wrapping
+  `bash -s`. A here-document fed to `cat` is data. A nested script inherits its
+  command's descriptors. An over-budget brace word placed where an option's
+  value goes is refused, since a shell expands it into more options and a
+  command.
 - **Uncertain text refuses where a ledger governs, and only there.** That
   covers script text produced at run time (`… | bash`, `bash -c "$(…)"`,
   `bash <(…)`, `eval "$x"`), a command that does not parse as bash (zsh's

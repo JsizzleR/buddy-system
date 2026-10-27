@@ -1057,6 +1057,23 @@ ledger row entered through the CLI (D-006).
     signed the same way, from the environment, not the holder. Do not propose refusing the
     send, requiring hello first, or signing with the full id.
 
+107. **The A-01 re-review's open shell-recognizer forms are closed (D-106).** The
+    shell-patch recognizer (`internal/cli/patch.go`, D-073/D-087) now: keeps reading env's argv
+    past a DYNAMIC `env -S` value so a later `-C` is discovered and the literal found (A,
+    Codex-verdict only — Claude already read past it); recovers a directory change lexically
+    from `env -S` text carrying a `#` comment or escape, e.g. `env -S '-C /gov #' apply_patch`
+    (B, both harnesses); treats `script` with a transcript file and no command as a shell
+    reading stdin, so `script -q /dev/null <<'SH' … apply_patch … SH` is caught (C, both;
+    the kernel control needs the heredoc padded past script's pty buffer); and refuses an
+    over-budget brace word consumed as an option VALUE in the wrapper grammar, `shell()`'s
+    `-o`/`--rcfile`, and the `-S` value itself (E, both — it expands in place into more options
+    and a command). Finding D (first-operand-only `fish -c true -c …`) was refuted as stated.
+    The `exec <<'SH'` persistent redirection a LATER statement reads stays the documented
+    cooperative limit (D-073), tested as an accepted gap, not fixed. The fish forms F1/G1/G2
+    remain open for the operator (fish not on this box). Do not propose modelling `env -S`'s
+    escapes/`${VAR}`, a one-line `exec <<` fix, or re-deriving that `script` with a command
+    runs that command, not stdin.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
