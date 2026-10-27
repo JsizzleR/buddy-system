@@ -250,7 +250,8 @@ repo's cwd** (never `hello`, never a send):
 - **The alert crosses rooms** (D-101): a message naming a slug in any room
   alerts every session holding that slug anywhere. Two fleets both holding a
   bare `orchestrator` tonight (the other repo's still does) is the measured
-  case: 14 of 29 journal messages in one week carried the word. Coordinators
+  case: 14 of the 29 retained journal messages (one room, 2026-10-15..20)
+  carried the word. Coordinators
   under a top session must wear `orc-<project>`, and the top session's own
   slug must be unique on the machine too.
 - **The coordination claim's description is 512 bytes** (D-030): a top
@@ -405,7 +406,14 @@ is one lane; the tier is per CLAUDE.md.
    through a private immutable copy with `sqlite3`, the way `buddy diagnose`
    reads (D-072) and `cost-report.sh` does, never through buddy verbs: a
    verb run under a registered id writes `last_seen`, and `store.Open` would
-   migrate an older ledger (Codex finding 8).
+   migrate an older ledger (Codex finding 8). **Invariant 9**: the script
+   prints counts and ids only, never a peer-written string: a session is
+   `s-<8hex>`, a claim its claim id, a project the path from the operator's
+   own list; no label, slug, note or description is ever rendered by it (the
+   full roster, fenced by buddy, is one `cd` away). The self-test plants a
+   label, a slug and a description carrying a newline and a 600-byte line in
+   a fixture ledger and fails on any raw newline or any of those bytes in
+   the output, so the rule cannot be defeated by a later "helpful" column.
 3. **`msg`'s stamp for an id the ledger does not know** (lite; verb path, not
    the gate). Contract (Codex finding 10): a session id in the environment
    that is not a LIVE row here (absent, or ended) signs `unregistered
@@ -421,7 +429,11 @@ is one lane; the tier is per CLAUDE.md.
    bare-terminal control, and the existing unknown-sender correction tests
    kept; mutate the arm and watch each die. `pause` and `resume` carry no
    sender stamp today, so nothing is proposed for them.
-4. **`scripts/model-report.sh` and its export** (lite), section 5.2(a).
+4. **`scripts/model-report.sh` and its export** (lite), section 5.2(a),
+   under the same invariant-9 rule as step 2: counts, ids, the model string
+   as the roster already renders it, and a class word only when it is one
+   of the skill's fixed vocabulary (5.2(b)); anything else is counted as
+   `other` and never printed. The same planted-newline self-test.
 5. **The pick rule in the skill** (chore), section 5.2(b).
 6. **Only then, if the report is read**: the item class column (full:
    schema), section 5.2(c).
@@ -503,7 +515,13 @@ every item not yet exported (by claim id) to a file in the repo the
 orchestrator keeps, so the register outlives the ledger's housekeeping; the
 orchestrator runs it before each sweep (a line in the skill's duties).
 **OPEN**: a sweep TTL knob instead; not proposed, since the TTL is also what
-keeps the roster small. A `check-model-report.sh` self-test in `check.sh`.
+keeps the roster small. Invariant 9: the report and the export render counts,
+claim ids, `s-<8hex>` session forms, the model string, and a class word only
+from the fixed vocabulary in (b); a description's other bytes, a slug, a
+label or a note are never printed, so no peer-written string reaches a line.
+A `check-model-report.sh` self-test in `check.sh` plants a newline and an
+over-long line in a fixture's descriptions and labels and fails on either
+appearing in the output or the export.
 
 (b) **The pick rule in the skill** (chore), applied by the orchestrator at the
 start of each run by reading that report, under the operator's cap per run
@@ -511,14 +529,19 @@ start of each run by reading that report, under the operator's cap per run
 - the standing rule stands: a lane needs a model with auto mode (Haiku 4.5
   measured asking for every call; and 0 tool calls across 14 sessions here);
 - default to the cap's cheaper model for a class where the report shows its
-  rework RATE and fail RATE no worse than the other model's, over at least
-  10 items each; escalate one step where its rework or fail rate is at least
-  twice the other's over at least 10 items each; with fewer than 10 on
-  either side, the cap's default and no inference;
+  rework RATE and fail RATE no worse than the other model's; escalate one
+  step where its rework or fail rate is clearly worse; below the floor, the
+  cap's default and no inference. The floor (10 items per cell) and "clearly
+  worse" (twice the other's rate) are PROPOSALS, not derived: nothing sets
+  them yet, since 0 item fails are recorded and a power calculation needs an
+  observed rate. The operator sets both numbers with the cap when the rule
+  lands, and the report prints the observed rates so they can be revised;
 - record the pick where the report can read it back: the item's claim
   description begins with two anchored tokens, `model=<id> class=<word> `,
-  each at most once, a missing or repeated token read as "unknown" and
-  counted as such (D-030's channel, 512 bytes; a grammar the orchestrator
+  each at most once, `<word>` from a fixed vocabulary the skill lists (for
+  example `docs`, `code`, `test`, `research`, `ops`), a missing, repeated or
+  unlisted token read as "unknown" and counted as such, never printed
+  (D-030's channel, 512 bytes; a grammar the orchestrator
   writes for the report, not prose; D-029's rule is about the id allocator
   and is not bent, Codex finding 11);
 - and the item's outcome is its own release (Codex finding 12): an
@@ -546,9 +569,11 @@ already works: reading a report and applying a written rule, with the
 operator's cap above it. For a learner that adjusts its own picks, each class
 needs both models tried on comparable items deliberately (otherwise the
 stronger model gets the harder items and shows more turns), with outcomes
-released per item: about 30 items per model per class. At this ledger's rate
-(73 item claims in about five weeks) across two models and a handful of
-classes that is two to three months of the export running, and it still
+released per item. "About 30 items per model per class" is a PROPOSAL for
+that floor, the operator's to set or a power calculation's once an item fail
+rate exists; at this ledger's measured rate (73 item claims in about five
+weeks) across two models and a handful of classes, that proposal is
+arithmetic for two to three months of the export running, and it still
 reads counts, never transcript text. Nothing in this plan proposes a
 learner, and buddy never picks a model: the pick is the orchestrator's,
 inside the operator's cap, visible in the claim.
