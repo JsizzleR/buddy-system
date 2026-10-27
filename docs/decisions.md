@@ -7766,10 +7766,13 @@ installed, so F1/G1/G2 stay open, below):
   to the literal and discovered `-C`; under Codex it stopped at the uncertainty.
 - **B.** In the `-S` escape/comment branch, recover directory changes lexically
   from the `-S` text itself (`w.lexicalDirectories`, honouring quotes), then keep
-  reading env's argv. Best-effort: the un-modelled escapes mean it may add a
-  directory a real env would skip (a `#` that BEGINS the split string), which
-  only over-refuses. B changes BOTH harnesses: jurisdiction discovery is always
-  non-literalOnly, so the skipped `-C` was missed under either.
+  reading env's argv. Best-effort BOTH ways: the lexical scan does not model env
+  `-S`'s own escapes, so it may add a directory a real env would skip (a `#` that
+  BEGINS the split string) AND may miss one `\_` (its separator) or `\c`
+  (truncation) would change — it is NOT "only over-refuses" (FULL-review
+  cross-check corrected this). The recorded uncertainty still refuses a Codex
+  call where a ledger governs. B changes BOTH harnesses: jurisdiction discovery
+  is always non-literalOnly, so the skipped `-C` was missed under either.
 - **C.** A wrapper that reaches the end of its argv with no command runs a shell
   reading the inherited stdin, so `script` (like `sudo -s`) calls `stdinScript`
   there; a command operand or `-c` breaks the scan earlier, so the end means
@@ -7796,56 +7799,73 @@ installed, so F1/G1/G2 stay open, below):
   regression asserts the gate ALLOWS it where governed WITH a kernel control
   proving a real shell runs it, so the gap is genuine and accepted, and it guards
   the C fix from over-reaching to `exec`.
-- **Closing F1/G1/G2 (fish) in this change.** F1 (`fish -c true -c "$x"`, a
-  repeated `-c` whose later command is dynamic), G1 (`fish --no-execute -c
-  'apply_patch'`, a false denial), G2 (`fish -nc'apply_patch'`, the attached-`c`
-  branch running before `-n` is read) are left open for the operator: a turn
-  drafting their fixtures was stopped by a safety classifier, and per the lane's
-  brief the forms were not rephrased around it. fish is not installed on this
-  box, so their kernel controls are NOT RUN regardless.
+- **fish F1/G1/G2 are FIXED (the operator's decision, 2026-10-27, relayed by
+  orc-7), from the stated behaviour in verdict3.md, not re-derived from fish's
+  source** (a turn re-deriving the parser was stopped by a safety classifier; the
+  operator chose to work from the stated behaviour and fish's documented
+  options). In `shell()`: fish runs EACH `-c` command, so a repeated `-c` whose
+  later value is dynamic is read and refuses under Codex (F1); `--no-execute`
+  (G1) and a `-n` before the attached `c` (G2) set no-execute, so fish only
+  checks syntax and the command is not analysed — ALLOW. fish is NOT installed
+  on this box, so every fish kernel control is NOT RUN, said loudly.
 
-**Follow-up folds (from the FULL-tier review: Codex design pass + a
-three-subagent panel).** The design pass (REJECT) and the panel surfaced
-adjacent gaps, folded as part of the item:
+**Second fold (the FULL-tier review's codex@xhigh CODE pass, REJECT 10, and
+opus@xhigh cross-check, ACCEPT WITH CHANGES 9).** Five of the ten codex findings
+were regressions the first follow-up fold introduced. Folded:
 
-- **F4** (a false denial the first C fix introduced): `script -p` REPLAYS a
-  recording and spawns no shell, so the stdin arm must not fire for it
-  (`playback` suppresses it). Verified on this box: `script -p f <<'SH' … SH`
-  runs nothing.
-- **F1a** (a C miss): `script -q -- /dev/null` with no command still reads
-  stdin; the `--` used to stop the scan before the transcript file was
-  consumed, so `--` now consumes the wrapper's lead operand. Verified: it runs.
-- **F1** (a C miss, util-linux): `script`'s value-option table lacked
-  util-linux's log-file/format options (`-O`/`-I`/`-B`/`-o`/`-E`/`-m`), so
-  `script -O a -I b <<'SH'` desynced the lead operand and the stdin arm never
-  fired. The table now over-reads them (safe on BSD, which lacks them). NOT RUN
-  here (macOS script is BSD).
-- **F5/F6** (over-budget value consumers the first E pass missed): a CLEAN
-  `env -S` value followed by an over-budget brace TAIL (the reconstruction
-  masked it as `"$_"`), and `git -C <over-budget-brace>` in `gitRoute`. Both now
-  exhaust. F5 verified; F6's running route needs an active bisect (crafted), so
-  only its verdict is tested.
-- **Accepted, not fixed** (documented over-refusals, both only where a ledger
-  governs, B's only under Codex): B's `lexicalDirectories` may read a `-C`/`cd`
-  token out of an ordinary `env -S` string that merely mentions one (e.g.
-  `env -S 'make -C /gov $T'`); and widening the C arm to `script` refuses a
-  `script FILE <command-shaped-word>` and a `script` fed an unquoted heredoc
-  with expansions or a pipe. **Residual, open:** util-linux `script -c` repeated
-  (runs the LAST `-c`; the arm returns after the first) — util-linux only, NOT
-  RUN here, pre-existing.
+- **Playback precision** (codex 1,2): the first fold read 'T' and the 'p' inside
+  an attached `-O/tmp/x.log` as BSD playback, wrongly allowing util-linux `-T`
+  (timing — a shell DOES run) and `-O` (log). Playback is now only a bare `-p`/
+  `--replay`; a clustered `-qp` over-refuses, the safe side.
+- **`script -c` supplies a command** (codex 5): with a dynamic value the scan
+  continued under Claude into the new stdin arm — a false denial. A `scriptCmd`
+  flag suppresses the arm.
+- **`env -S echo x{1..300}`** (codex 6): the first fold's over-budget-tail guard
+  false-denied it (echo is a data command whose args decide nothing). The guard
+  is removed; the crafted inverse it would have caught (`env -S '-u' {…}`) is
+  recorded open below.
+- **Over-budget value/action consumers** (codex 8,9,10 + cross-check): the `--`
+  lead-operand loop, `findActions`, `gitRoute` (any word), `scriptFile` and
+  `trap` each refuse an over-budget brace as exhausted (it expands in place into
+  a command). `--log-timing` was added to the script table (codex 3).
 
-**Tests** — `TestGateShellRouteReReviewForms` (C, the four E forms, the
-`exec <<'SH'` cooperative-limit allow), `TestGateShellRouteReReviewJurisdiction`
-(A under Codex, B under both; deny when the target dir is governed, allow when
-not), and `TestGateShellRouteReReviewFollowUp` (F4 allowed, F1a/F5/F6 refused),
-in `internal/cli/shellroute_test.go`. Each refused form carries a kernel control
-where its shell is on this box (C/F1a/F4 darwin-only and padded; A/B reproduce
-the directory change with `pwd -P`; F6's run route is crafted, verdict-only);
-the controls prove the gate is not dressing a form the shell would never run (or,
-for F4, one it does run) as coverage. Each of the 11 guards was reverted in a
-private rsync'd copy (python, not sed) and its named test watched to fail.
+**Recorded open (respellings, named here and in the audit row; orc-7's
+allowance):**
+
+- **codex 4** — `env -S"$x" -C /gov apply_patch` (ATTACHED dynamic `-S`): the
+  whole word is unknown, so the wrapper breaks before `-C`; the literal is still
+  found (refuses where the cwd/patch is governed) but the ungoverned-jurisdiction
+  `-C` is not discovered. Narrow; the attached-dynamic word is the cooperative
+  dynamic-text boundary.
+- **codex 7** — util-linux `script -c true -c apply_patch` (repeated `-c` runs
+  the last): util-linux only, NOT RUN here, crafted, pre-existing.
+- **F5** — a CLEAN `env -S` OPTION value then an over-budget brace tail that
+  expands to `-S apply_patch`: the reconstruction masks the brace as `"$_"`;
+  catching it eagerly false-denied the echo case (codex 6), so it stays a
+  cooperative residue.
+- **cross-check** — GNU `env`/`script` abbreviated long options (`--s=`, `--c`);
+  an unknown wrapper in front (`lockf -k f script …`) hiding C and env forms
+  (pre-existing); util-linux `script -t`'s OPTIONAL value. Each verified by the
+  cross-check; unbounded or util-linux or pre-existing, NOT RUN here.
+
+**Tests** — in `internal/cli/shellroute_test.go`:
+`TestGateShellRouteReReviewForms` (C, four E forms, `exec <<'SH'` cooperative
+limit), `TestGateShellRouteReReviewJurisdiction` (A under Codex, B both),
+`TestGateShellRouteReReviewFollowUp` (F4 allowed, F1a/F6 refused, finding-6
+allowed), and `TestGateShellRouteReviewFolds` (playback precision, `script -c`,
+the over-budget consumers, fish F1/G1/G2). Each refused form carries a kernel
+control where its shell is on this box (C/F1a/F4 darwin + padded past script's
+pty buffer; A/B via `pwd -P`; find/trap over-budget run here); util-linux script
+options, `timeout`, fish, an active git bisect and a sourcing-stdin shell are NOT
+RUN here, said loudly, with the gate's verdict asserted regardless. 18 guards
+were reverted in a private rsync'd copy (python, not sed) and watched to fail
+(11 original + 7 fold guards); the over-budget consumer guards reuse the E
+pattern's verified over-budget→exhausted and are covered by their deny-budget
+tests.
+
 Review: full — adversarial self-review + panel (3 read-only Opus subagents:
 bypass sites, fixture-respelling, false-denial direction) + codex@xhigh design
-pass (REJECT, 6 findings; 4 folded, 2 accepted). OWED at the lane's 300k handoff
-and handed to the orchestrator: the Codex code pass on the final diff, the
-opus@xhigh cross-check (operator's choice, not fable), and the Codex re-verify.
+(on drafted code: the diff preceded the prompt) + codex@xhigh code (REJECT, 10;
+5 regressions + 3 over-budget folded, 2 recorded open) + opus@xhigh cross-check
+(ACCEPT WITH CHANGES, 9; operator's choice, not fable) + codex@xhigh re-verify
+(run by the orchestrator after this fold).

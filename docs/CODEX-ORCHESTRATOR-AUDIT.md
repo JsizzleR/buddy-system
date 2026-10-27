@@ -100,12 +100,19 @@ and fixed. Mutation and check results:
   introduced, a `script --` no-command miss, util-linux `script` log-options added
   to the value table (NOT RUN here), and two over-budget value consumers the first
   E pass missed (`env -S` clean-value-then-brace-tail, and `git -C <brace>`).
-  Accepted and documented: B's lexical over-refusal and the widened `script` arm's
-  `FILE <command>` / unquoted-heredoc over-refusals (only where governed). Residual
-  util-linux `script -c` repeat is open (NOT RUN here, pre-existing). Hermetic only;
-  the native rerun of these forms is still owed (A-07). OWED at the lane's handoff:
-  the Codex code pass on the final diff, an Opus xhigh cross-check, and the Codex
-  re-verify (design + panel done; see D-106).
+  A second fold then folded the FULL review's codex@xhigh CODE pass (REJECT, 10 —
+  five of them regressions the first fold introduced: playback precision, `script
+  -c` with a command, the `env -S echo` over-budget false denial) and opus@xhigh
+  cross-check (ACCEPT WITH CHANGES, 9: more over-budget consumers in `findActions`/
+  `gitRoute`/`scriptFile`/`trap`, and the corrected "not only over-refuses" for B).
+  The operator then decided fish F1/G1/G2 be FIXED in this item (from verdict3.md's
+  stated behaviour, not fish's source; fish not on box, controls NOT RUN). 18 guards
+  are mutation-covered (`TestGateShellRouteReReview*`, `TestGateShellRouteReviewFolds`).
+  Recorded OPEN as respellings (D-106): attached dynamic `env -S"$x"` jurisdiction,
+  util-linux `script -c` repeated, GNU abbreviated long options, a front
+  unknown-wrapper (`lockf -k`), util-linux `script -t` optional value. Hermetic only;
+  the native rerun of these forms is still owed (A-07). The Codex re-verify of this
+  fold is run by the orchestrator.
 - A-02: 27 of 28 mutants killed, one equivalent (D-077 A-02 continuation). The narrow
   contract built on 2026-10-12 has its own sweep (D-077 2026-10-12 continuation).
 - `sh scripts/check.sh hermetic` over the finished tree, the 2026-10-11

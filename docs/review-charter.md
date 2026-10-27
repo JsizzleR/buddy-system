@@ -1062,17 +1062,19 @@ ledger row entered through the CLI (D-006).
     past a DYNAMIC `env -S` value so a later `-C` is discovered and the literal found (A,
     Codex-verdict only — Claude already read past it); recovers a directory change lexically
     from `env -S` text carrying a `#` comment or escape, e.g. `env -S '-C /gov #' apply_patch`
-    (B, both harnesses); treats `script` with a transcript file and no command as a shell
-    reading stdin, so `script -q /dev/null <<'SH' … apply_patch … SH` is caught (C, both;
-    the kernel control needs the heredoc padded past script's pty buffer); and refuses an
-    over-budget brace word consumed as an option VALUE in the wrapper grammar, `shell()`'s
-    `-o`/`--rcfile`, and the `-S` value itself (E, both — it expands in place into more options
-    and a command). Finding D (first-operand-only `fish -c true -c …`) was refuted as stated.
-    The `exec <<'SH'` persistent redirection a LATER statement reads stays the documented
-    cooperative limit (D-073), tested as an accepted gap, not fixed. The fish forms F1/G1/G2
-    remain open for the operator (fish not on this box). Do not propose modelling `env -S`'s
-    escapes/`${VAR}`, a one-line `exec <<` fix, or re-deriving that `script` with a command
-    runs that command, not stdin.
+    (B, both harnesses; best-effort BOTH ways — it can also MISS one env's `\_`/`\c` escapes
+    change, NOT "only over-refuses"); treats `script` with a transcript file and no command as a
+    shell reading stdin, so `script -q /dev/null <<'SH' … apply_patch … SH` is caught (C, both;
+    playback `-p` excluded; the kernel control needs the heredoc padded past script's pty
+    buffer); refuses an over-budget brace consumed as an option/action value in the wrapper
+    grammar, `shell()`'s `-o`/`--rcfile`/`-S`, the `--`/lead loop, `findActions`, `gitRoute`,
+    `scriptFile` and `trap` (E, both); and FIXES fish F1/G1/G2 in `shell()` (repeated `-c`
+    refuses; `--no-execute`/`-n` allow). Finding D was refuted. `exec <<'SH'` read by a later
+    statement stays the documented cooperative limit, tested as an accepted gap. Recorded OPEN
+    (respellings, D-106): attached dynamic `env -S"$x"` jurisdiction, util-linux `script -c`
+    repeated, GNU abbreviated long options, a front unknown-wrapper (`lockf -k`), util-linux
+    `script -t` optional value. These forms and B/C/F4 may be re-examined — this GIVEN records
+    what was done, and does not forbid re-deriving them.
 
 ## Environment facts (measured, do not re-derive)
 

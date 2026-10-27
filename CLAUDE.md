@@ -794,9 +794,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   heredoc padded past script's pty buffer); and refuses an over-budget brace word consumed as
   an option VALUE — the wrapper grammar, `shell()`'s `-o`/`--rcfile`, the `-S` value (E, all a
   shell expands in place into options and a command). D was refuted; `exec <<'SH'` read by a
-  later statement stays the documented cooperative limit; fish's F1/G1/G2 are open for the
-  operator (fish not on this box). The D-073/D-087 bullets stand unchanged: every clause there
-  is still true.
+  later statement stays the documented cooperative limit. fish F1/G1/G2 are FIXED in `shell()`
+  (the operator's decision, from verdict3.md's stated behaviour, not fish's source; fish not on
+  this box, controls NOT RUN). The FULL review's code pass + cross-check found and folded more
+  (playback precision, `script -c`, over-budget in `findActions`/`gitRoute`/`scriptFile`/`trap`/
+  lead-operands); some respellings are recorded open in D-106 (attached dynamic `env -S`,
+  util-linux `script -c` repeated, GNU abbreviated long options, a front unknown-wrapper). The
+  D-073/D-087 bullets stand unchanged: every clause there is still true.
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

@@ -1268,17 +1268,16 @@ func TestGateShellRouteReReviewFollowUp(t *testing.T) {
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, dd), true, "runs apply_patch")
 	})
 
-	// F5 (an E miss): a CLEAN `env -S` value followed by an over-budget brace
-	// TAIL. The reconstruction used to replace the brace with "$_", hiding the
-	// `-S apply_patch` it expands into. Now exhausted; refuses under both.
-	t.Run("F5/env-S-clean-then-overbudget-tail", func(t *testing.T) {
-		form := "env -S '-u' {X,-S,apply_patch,x{1..300}}"
-		if !kernelRuns(t, "/bin/bash", work, form) {
-			t.Fatalf("kernel control: bash does not run apply_patch for %q", form)
-		}
-		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "budget")
-		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "budget")
-		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, form), false, "")
+	// finding 6 (a false denial an earlier fold introduced and this one
+	// removed): `env -S echo x{1..300}` reconstructs to `env echo "$_"`; echo is
+	// a data command, so its over-budget args decide nothing and the command
+	// must be ALLOWED. The crafted inverse (a clean -S OPTION value then an
+	// over-budget brace tail that expands to `-S apply_patch`) is recorded open
+	// in D-106 as a cooperative residue rather than false-denying echo.
+	t.Run("finding6/env-S-data-command-overbudget-args-allowed", func(t *testing.T) {
+		form := "env -S echo x{1..300}"
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
 	})
 
 	// F6 (an over-budget value consumer outside wrapper/shell): `git -C <brace>`
@@ -1292,4 +1291,98 @@ func TestGateShellRouteReReviewFollowUp(t *testing.T) {
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "budget")
 		wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, form), false, "")
 	})
+}
+
+// The FULL-tier review's codex@xhigh CODE pass (REJECT, 10 findings) and the
+// opus@xhigh cross-check (ACCEPT WITH CHANGES, 9) on the first fold found
+// adjacent gaps — several regressions the first follow-up fold introduced.
+// Folded here (D-106). Forms whose shell or option set is NOT on this box
+// (util-linux `script` log/timing options; `timeout`; fish; an active git
+// bisect; a sourcing shell fed stdin) are asserted on the gate's verdict alone,
+// said loudly; the gate is pure text parsing and needs no shell.
+func TestGateShellRouteReviewFolds(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	work := shellRouteWorkDir(t)
+	plain := t.TempDir()
+	const h = "<<'SH'\napply_patch < p.patch\nSH\n"
+
+	// Playback precision (codex 1,2): util-linux `-T` (timing) and `-O<file>`
+	// (log-out) DO launch the stdin shell; the first fold read 'T' and the 'p'
+	// inside `-O/tmp/x.log` as BSD playback and allowed them. util-linux only,
+	// NOT RUN here (BSD `-T` is playback, `-O` is not an option).
+	for _, form := range []string{
+		"script -q -T timing /dev/null " + h,
+		"script -q -O/tmp/session.log " + h,
+		"script -q --log-timing timing /dev/null " + h, // codex 3: --log-timing added to the table
+	} {
+		t.Run("script-utillinux/"+form[:24], func(t *testing.T) {
+			t.Logf("kernel control NOT RUN: util-linux script option on this BSD box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "buddy gate")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), true, "runs apply_patch")
+		})
+	}
+
+	// script -c supplies a command (codex 5): with a dynamic value the scan
+	// continued to the end under Claude and hit the new stdin arm, a false
+	// denial. `scriptCmd` suppresses the arm. util-linux -c, NOT RUN here.
+	t.Run("finding5/script-c-dynamic-not-stdin", func(t *testing.T) {
+		form := "cmd=cat; script -q -c \"$cmd\" /dev/null " + h
+		t.Logf("kernel control NOT RUN: util-linux script -c on this BSD box")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+
+	// Over-budget words consumed where a command/action could expand in place
+	// (codex 8,9,10 + cross-check source/trap). Each refuses as exhausted, only
+	// where governed. find and trap RUN here; timeout/git-bisect/source do not.
+	overBudget := []struct {
+		name, form string
+		run        bool
+	}{
+		{"timeout-dashdash", "timeout -- {1,apply_patch,x{1..300}}", false},        // codex 8; timeout not on box
+		{"find-exec", `find . -maxdepth 0 {-exec,apply_patch,x{1..300}} \;`, true}, // codex 9
+		{"git-C-subcommand", "git -C . {bisect,run,apply_patch,x{1..300}}", false}, // codex 10; needs active bisect
+		{"source-devstdin", "source {/dev/stdin,x{1..300}}", false},                // cross-check; needs a sourcing shell on stdin
+		{"trap-action", "trap {apply_patch,EXIT,x{1..300}}; true", true},           // cross-check
+	}
+	for _, c := range overBudget {
+		t.Run("overbudget/"+c.name, func(t *testing.T) {
+			if c.run {
+				if !kernelRuns(t, "/bin/bash", work, c.form) {
+					t.Fatalf("kernel control: bash does not run apply_patch for %q", c.form)
+				}
+			} else {
+				t.Logf("kernel control NOT RUN: shell/tool not on this box or route is crafted")
+			}
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, c.form), true, "budget")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, c.form), true, "budget")
+			wantGate(t, f, plain, codexBashHookJSON("sess-b", plain, c.form), false, "")
+		})
+	}
+
+	// Fish F1/G1/G2 (operator's decision, 2026-10-27, relayed by orc-7), from
+	// the stated behaviour in verdict3.md, NOT re-derived from fish's source.
+	// fish is NOT installed on this box, so every kernel control is NOT RUN,
+	// said loudly; the gate verdict is asserted regardless.
+	t.Run("fish/F1-repeated-c-refuses", func(t *testing.T) {
+		// fish runs BOTH -c commands; the second is dynamic, so it is uncertain
+		// and refuses under Codex (like any dynamic command text, D-087) and is
+		// allowed under Claude.
+		form := `x=apply_patch; fish -c true -c "$x" < p.patch`
+		t.Logf("kernel control NOT RUN: fish is not installed on this box")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), true, "cannot rule out")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+	for _, g := range []struct{ name, form string }{
+		{"G1-no-execute-long", "fish --no-execute -c 'apply_patch < p.patch'"},
+		{"G2-n-before-attached-c", "fish -nc'apply_patch < p.patch'"},
+	} {
+		t.Run("fish/"+g.name, func(t *testing.T) {
+			// --no-execute / -n make fish check syntax only: it runs nothing, so
+			// the gate must ALLOW, under every harness.
+			t.Logf("kernel control NOT RUN: fish is not installed on this box")
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, g.form), false, "")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, g.form), false, "")
+		})
+	}
 }
