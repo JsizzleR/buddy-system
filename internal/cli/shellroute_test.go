@@ -1339,12 +1339,9 @@ func TestGateShellRouteReviewFolds(t *testing.T) {
 		name, form string
 		run        bool
 	}{
-		{"timeout-dashdash", "timeout -- {1,apply_patch,x{1..300}}", false},                               // codex 8; timeout not on box
-		{"find-exec", `find . -maxdepth 0 {-exec,apply_patch,x{1..300}} \;`, true},                        // codex 9
-		{"env-S-env-tail", "env -S env {apply_patch,x{1..300}}", true},                                    // re-verify r1 finding 3 (env, not echo)
-		{"find-nested-exec", `find . -maxdepth 0 -exec true {x,\;,-exec,apply_patch,x{1..300}} \;`, true}, // re-verify r1 finding 4
-		{"source-devstdin", "source {/dev/stdin,x{1..300}}", false},                                       // cross-check; needs a sourcing shell on stdin
-		{"trap-action", "trap {apply_patch,EXIT,x{1..300}}; true", true},                                  // cross-check
+		{"timeout-dashdash", "timeout -- {1,apply_patch,x{1..300}}", false}, // codex 8; timeout not on box
+		{"source-devstdin", "source {/dev/stdin,x{1..300}}", false},         // cross-check; needs a sourcing shell on stdin
+		{"trap-action", "trap {apply_patch,EXIT,x{1..300}}; true", true},    // cross-check
 	}
 	for _, c := range overBudget {
 		t.Run("overbudget/"+c.name, func(t *testing.T) {
@@ -1428,13 +1425,79 @@ func TestGateShellRouteReVerifyR1(t *testing.T) {
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
 	})
 
-	// Finding 3's companion allow: env -S with a DATA command and over-budget
-	// args is not refused (only env/-u/wrapper split values are). Verified on
-	// this box: `env -S echo {apply_patch,x{1..300}}` does not run apply_patch.
-	t.Run("finding3/env-S-echo-allowed", func(t *testing.T) {
+	// An env -S with a DATA command and over-budget args is allowed (the
+	// over-budget tail is now always masked; the crafted env/-u/wrapper forms
+	// are recorded open in D-106). The control proves the shell does NOT run
+	// apply_patch, so the allow is not a miss (re-verify r2 finding 9).
+	t.Run("env-S-echo-allowed", func(t *testing.T) {
+		work := shellRouteWorkDir(t)
 		form := "env -S echo {apply_patch,x{1..300}}"
+		if kernelRuns(t, "/bin/bash", work, form) {
+			t.Fatal("control: `env -S echo {…}` unexpectedly ran apply_patch; the allow would be a miss")
+		}
 		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
 		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
 		_ = plain
+	})
+}
+
+// The codex@xhigh re-verify round 2 (REJECT, 9) found that round 1's find and
+// env-S-tail over-budget guards false-denied common DATA braces, and that the
+// fish init-command / missing-value paths mis-handled no-execute and command
+// mode. Per the operator's direction (a false denial costs every Claude session
+// a tool call; a crafted brace-budget bypass costs nothing under Claude's allow
+// arm), the data-brace guards were REVERTED (the crafted forms recorded open in
+// D-106) and the fish paths fixed. These assert the false denials are gone.
+func TestGateShellRouteReVerifyR2(t *testing.T) {
+	f := newFixture(t)
+	f.initAndHello(t)
+	work := shellRouteWorkDir(t)
+
+	// Finding 4: an over-budget DATA brace inside/at a find action is no longer
+	// refused. grep runs; nothing else. Control: it does not run apply_patch.
+	t.Run("finding4/find-exec-data-brace-allowed", func(t *testing.T) {
+		form := `find . -maxdepth 0 -exec grep -l foo path{1..300} \;`
+		if kernelRuns(t, "/bin/bash", work, form) {
+			t.Fatal("control: find -exec grep data brace unexpectedly ran apply_patch")
+		}
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+
+	// Finding 5: env -S whose split value runs a data command (possibly quoted,
+	// behind `env` or a leading option) with an over-budget data tail is no
+	// longer refused. Controls: none runs apply_patch.
+	for _, form := range []string{
+		`env -S '"echo"' path{1..300}`,
+		"env -S 'env echo' path{1..300}",
+		"env -S '-i echo' path{1..300}",
+	} {
+		t.Run("finding5/"+form[:18], func(t *testing.T) {
+			if kernelRuns(t, "/bin/bash", work, form) {
+				t.Fatalf("control: %q unexpectedly ran apply_patch", form)
+			}
+			wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+			wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+		})
+	}
+
+	// Finding 6: fish's init commands are deferred, so a LATER --no-execute
+	// suppresses them; `fish --command true --no-execute --init-command
+	// apply_patch` runs nothing → ALLOW. fish not on box, control NOT RUN.
+	t.Run("finding6/fish-init-command-noexec-allowed", func(t *testing.T) {
+		form := "fish --command true --no-execute --init-command apply_patch"
+		t.Logf("kernel control NOT RUN: fish is not installed on this box")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
+	})
+
+	// Finding 7: `fish --command` with NO value is a fish error (missing
+	// required argument), not a stdin shell, so the heredoc must not be read →
+	// ALLOW. fishSawCommand keeps it out of the stdin arm. fish not on box.
+	t.Run("finding7/fish-command-missing-value-allowed", func(t *testing.T) {
+		form := "fish --command <<'SH'\napply_patch < p.patch\nSH\n"
+		t.Logf("kernel control NOT RUN: fish is not installed on this box")
+		wantGate(t, f, f.repo, codexBashHookJSON("sess-b", f.repo, form), false, "")
+		wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, form), false, "")
 	})
 }

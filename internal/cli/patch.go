@@ -608,21 +608,6 @@ func isURL(s string) bool {
 // looksLikeScript: an operand worth parsing speculatively as shell text.
 func looksLikeScript(s string) bool { return strings.ContainsAny(s, " \t\n;&|<>()`$") }
 
-// splitRunsDataCommand reports whether env's -S split words run a DATA command
-// at their command position, so an over-budget TAIL after them is that
-// command's data and decides nothing (`env -S echo x{1..300}`). The common
-// case is the first field; leading env options (`-i`, `-u X`) are not modelled,
-// so anything but a bare data-command first field returns false and the caller
-// exhausts, the safe side (re-verify r1 finding 3).
-func splitRunsDataCommand(split string) bool {
-	fields := strings.Fields(split)
-	if len(fields) == 0 || strings.HasPrefix(fields[0], "-") {
-		return false
-	}
-	name := commandName(shellWord{text: fields[0], known: true})
-	return dataCommands[name] && dataExecOption[name] == ""
-}
-
 // command scans one simple command from its established command position.
 func (w *shellWalker) command(words []shellWord, site callSite, depth int) {
 	for i := 0; i < len(words); i++ {
@@ -972,22 +957,14 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 					if text.Len() > shellMaxScript {
 						break
 					}
-					if word.overBudget {
-						// The over-budget brace expands in place into env's argv AFTER
-						// the split words. If those run a DATA command the tail is its
-						// data and decides nothing (`env -S echo x{1..300}` only
-						// echoes); any other split value (a wrapper like `env`, an
-						// option like `-u`) can put the tail at a command position
-						// (`env -S env {…apply_patch…}` runs apply_patch, `env -S
-						// '-u' {…}` is F5), so it exhausts. D-106 codex 6 + re-verify
-						// r1 finding 3.
-						if splitRunsDataCommand(v.text) {
-							text.WriteString(` "$_"`)
-							continue
-						}
-						w.exhausted("shell patch routing exceeds its brace expansion budget")
-						return len(rest), true
-					}
+					// An over-budget brace in the tail is masked as "$_": whether it
+					// matters depends on what the split value runs, which with quotes,
+					// leading env options and wrapper prefixes (`env -S 'env echo'`,
+					// `env -S '-i echo'`) cannot be read statically without false
+					// denials of common data forms (re-verify r2 finding 5). The
+					// crafted `env -S env {…apply_patch…}` / `env -S '-u' {…}` /
+					// assignment forms are recorded OPEN in D-106 (brace-budget
+					// bypasses, free under Claude's allow arm).
 					if word.known {
 						text.WriteString(" " + shellQuote(word.text))
 					} else {
@@ -1038,7 +1015,8 @@ func (w *shellWalker) wrapper(name string, rest []shellWord, site callSite, dept
 func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth int) {
 	command, stdin, noexec := false, false, false
 	var operands []shellWord
-	var fishCmds []shellWord // fish runs EACH -c command (it repeats); analysed at the end unless -n
+	var fishCmds []shellWord // fish runs EACH -c/-C command (it repeats); analysed at the end unless -n
+	fishSawCommand := false  // fish got a -c/--command: it is in command mode, never reading stdin
 	options := true
 	for j := 0; j < len(args); j++ {
 		a := args[j]
@@ -1062,7 +1040,10 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 					// joins fishCmds and is analysed at the end like a short -c (not
 					// left in operands, which the fish early return does not read):
 					// `fish --command='apply_patch' -c true` ran apply_patch
-					// (re-verify r1, finding 1).
+					// (re-verify r1, finding 1). Seeing it puts fish in command
+					// mode: a missing value is a fish error, not a stdin shell
+					// (re-verify r2 finding 7).
+					fishSawCommand = true
 					if inline {
 						fishCmds = append(fishCmds, shellWord{text: value, known: true})
 					} else if j+1 < len(args) {
@@ -1075,11 +1056,15 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 						operands = append(operands, shellWord{text: value, known: true})
 					}
 				case opt == "--init-command" && name == "fish":
-					// fish runs its init commands too (Codex seventh code pass).
+					// fish runs its init commands too, but --no-execute suppresses
+					// them like any command and may come LATER on the line, so they
+					// are deferred to fishCmds (analysed at the end only if not
+					// under -n): `fish --command true --no-execute --init-command
+					// apply_patch` runs nothing (re-verify r2 finding 6).
 					if inline {
-						w.scriptOf([]shellWord{{text: value, known: true}}, depth, "fish runs init text built at run time", site.fds)
+						fishCmds = append(fishCmds, shellWord{text: value, known: true})
 					} else if j+1 < len(args) {
-						w.scriptOf(args[j+1:j+2], depth, "fish runs init text built at run time", site.fds)
+						fishCmds = append(fishCmds, args[j+1])
 						j++
 					}
 				case opt == "--no-execute" && name == "fish":
@@ -1101,13 +1086,14 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 				}
 				continue
 			case name == "fish" && len(t) > 1 && t[0] == '-' && strings.IndexAny(t[1:], "cC") >= 0 && t[1+strings.IndexAny(t[1:], "cC")] == 'C':
-				// fish -C TEXT: an init command, run like -c's script. Only
+				// fish -C TEXT: an init command, deferred to fishCmds so a later -n
+				// suppresses it (re-verify r2 finding 6). Only
 				// when C comes first: in -capply_patch < CHANGE.patch the C
 				// is script text (Codex ninth code pass).
 				if c := strings.IndexRune(t, 'C'); c+1 < len(t) {
-					w.scriptOf([]shellWord{{text: t[c+1:], known: true}}, depth, "fish runs init text built at run time", site.fds)
+					fishCmds = append(fishCmds, shellWord{text: t[c+1:], known: true})
 				} else if j+1 < len(args) {
-					w.scriptOf(args[j+1:j+2], depth, "fish runs init text built at run time", site.fds)
+					fishCmds = append(fishCmds, args[j+1])
 					j++
 				}
 				continue
@@ -1118,6 +1104,7 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 				// the next word; options BEFORE the c in the cluster still apply, so
 				// `-nc'…'` suppresses execution (G2). The commands are analysed at
 				// the end, only if not under no-execute. D-106 operator fold (2026-10-27).
+				fishSawCommand = true
 				c := strings.IndexRune(t, 'c')
 				if strings.ContainsRune(t[1:c], 'n') {
 					noexec = true
@@ -1170,9 +1157,12 @@ func (w *shellWalker) shell(name string, args []shellWord, site callSite, depth 
 		options = false
 		operands = append(operands, a)
 	}
-	if name == "fish" && len(fishCmds) > 0 {
-		// fish ran -c commands (not a script file or stdin). Under no-execute
-		// it only checked their syntax (G1/G2), so nothing is analysed then.
+	if name == "fish" && (len(fishCmds) > 0 || fishSawCommand) {
+		// fish is in command mode (it saw a -c/--command), so it never reads
+		// stdin as a shell — even if the value was missing, which is a fish
+		// error, not a stdin shell (re-verify r2 finding 7). It ran its -c and
+		// init commands (not a script file or stdin); under no-execute it only
+		// checked their syntax (G1/G2/finding 6), so nothing is analysed then.
 		if !noexec {
 			for _, c := range fishCmds {
 				w.scriptOf([]shellWord{c}, depth, "fish runs command text built at run time", site.fds)
@@ -1304,15 +1294,15 @@ func (w *shellWalker) stdinScript(site callSite, depth int) {
 // established command position. One action's data program must not hide a
 // later action (Codex design review).
 func (w *shellWalker) findActions(rest []shellWord, site callSite, depth int) {
+	// An over-budget brace in find's argv is NOT refused: most of find's words
+	// are data (primaries and their values, `find . -name foo{1..300}`,
+	// `-exec grep -l foo path{1..300} \;`), and a guard here false-denied them
+	// (re-verify r1 finding 9 at the top level, r2 finding 4 inside an action).
+	// The crafted action-position brace `find . {-exec,apply_patch,…} \;` is
+	// recorded OPEN in D-106; a 256+-field brace is non-idiomatic and, under
+	// Claude's allow arm, that bypass costs nothing while the false denial cost
+	// every find with a large data brace a tool call (orc-7's direction).
 	for j := 0; j < len(rest); j++ {
-		if rest[j].overBudget {
-			// An over-budget brace expands in place into find's argv, an action
-			// and its command included: `find . {-exec,apply_patch,x{1..300}} \;`
-			// becomes `find . -exec apply_patch ... \;` (D-106 follow-up,
-			// FULL-review codex finding 9).
-			w.exhausted("shell patch routing exceeds its brace expansion budget")
-			return
-		}
 		switch rest[j].text {
 		case "-exec", "-execdir", "-ok", "-okdir":
 		default:
@@ -1320,15 +1310,6 @@ func (w *shellWalker) findActions(rest []shellWord, site callSite, depth int) {
 		}
 		k := j + 1
 		for k < len(rest) && !(rest[k].known && (rest[k].text == ";" || rest[k].text == "+")) {
-			if rest[k].overBudget {
-				// An over-budget brace WITHIN an action expands in place and can
-				// close this action and open another: `-exec true {x,\;,-exec,
-				// apply_patch,x{1..300}} \;` becomes `-exec true x \; -exec
-				// apply_patch … \;` (re-verify r1 finding 4). The outer guard
-				// never sees it because the separator scan consumes it.
-				w.exhausted("shell patch routing exceeds its brace expansion budget")
-				return
-			}
 			k++
 		}
 		w.command(rest[j+1:k], site, depth)

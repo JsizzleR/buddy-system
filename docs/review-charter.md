@@ -1071,14 +1071,16 @@ ledger row entered through the CLI (D-006).
     `scriptFile` and `trap` (E, both); and FIXES fish F1/G1/G2 in `shell()` (repeated `-c`
     refuses; `--no-execute`/`-n` allow). Finding D was refuted. `exec <<'SH'` read by a later
     statement stays the documented cooperative limit, tested as an accepted gap. Recorded OPEN
-    (respellings, D-106): attached dynamic `env -S"$x"` jurisdiction, util-linux `script -c`
-    repeated, GNU abbreviated long options, a front unknown-wrapper (`lockf -k`), util-linux
-    `script -t` optional value, and the `git -C . {bisect,run,…}` subcommand-position over-budget
-    brace (crafted). BSD `script -T` playback is deliberately over-refused (util-linux `-T` runs a
-    shell). A re-verify fold also fixed fish long `--command`, a `fish -c true ""` panic,
-    `env -S env {…}` (re-closing F5), and a nested `-exec` bypass, and reverted a too-broad git
-    guard that false-denied `git diff -- path{1..300}`. These forms and B/C/F4 may be
-    re-examined — this GIVEN records what was done, and does not forbid re-deriving them.
+    (crafted brace-budget respellings, D-106; free under Claude's allow arm, so not fixed to avoid
+    false-denying common data braces): the attached/assignment-dynamic `env -S` and `env -S
+    <wrapper> {…}` forms, util-linux `script -c` repeated and `-t` optional value, GNU abbreviated
+    long options, a front unknown-wrapper (`lockf -k`), and the `git` (`-C .`/`submodule`/`bisect`)
+    and `find` (`{-exec,…}`) action-position braces. BSD `script -T` playback is deliberately
+    over-refused (util-linux `-T` runs a shell). Three codex re-verify rounds fixed the fold's
+    false denials (fish long `--command`, a `fish -c true ""` panic, fish init-commands under a
+    later `--no-execute`, `fish --command` with no value, and the find/env-`S`-tail over-budget
+    guards, reverted). These forms and B/C/F4 may be re-examined — this GIVEN records what was
+    done, and does not forbid re-deriving them.
 
 ## Environment facts (measured, do not re-derive)
 

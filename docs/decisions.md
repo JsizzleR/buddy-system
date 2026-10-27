@@ -7883,9 +7883,34 @@ deny over-refuses BSD `-T` playback — the safe side for a security gate
 audit A-01 row's fish line (finding 8), and the charter/audit open lists
 (finding 7).
 
+**Re-verify round 2** (codex@xhigh, REJECT, 9) then showed round 1's find and
+env-`S`-tail over-budget guards false-denied common DATA braces: `find -exec
+grep -l foo path{1..300}`, `env -S 'env echo' path{1..300}` / `'"echo"'` /
+`'-i echo'` (quotes, leading options and wrapper prefixes defeat any static
+first-field test), and the find primary brace `find . -name foo{1..300}`. Per
+the operator's explicit direction — a false denial costs every Claude session a
+tool call; a crafted brace-budget bypass costs nothing under Claude's allow arm,
+and round 3 is the last — this fold is the CONSERVATIVE one: the find
+over-budget guards (both the inner separator scan and the outer primary scan)
+and the env-`S`-tail data-command check (so finding 3 of round 1 is reverted
+too) are REMOVED, the tail always masked. The crafted bypasses they would have
+caught are recorded OPEN below. Also fixed: fish init-commands (`-C`/
+`--init-command`) are deferred to `fishCmds` so a LATER `--no-execute` suppresses
+them (finding 6); `fish --command` with no value sets `fishSawCommand`, so it is
+a fish error, not a stdin shell (finding 7); the audit A-01 table row's fish line
+(finding 8); and the `env -S echo {…}` allow test gained an executable control
+(finding 9). Recorded OPEN (crafted, with reasons; orc-7's allowance): `env -S
+'X=/bin/echo' {…}` (assignment then over-budget brace, finding 1), `x=-u; env
+-S"$x" echo {…}` (attached-dynamic `-S`, finding 2 — the attached-dynamic residual
+is budget, not only jurisdiction), `git submodule {foreach,…}` and the `git -C .
+{bisect,run,…}` and `find . {-exec,…}` action-position braces (finding 3; the
+git residual is wider than bisect), and the `env -S env {…}` / `env -S '-u' {…}`
+wrapper/option split-value tails.
+
 Review: full — adversarial self-review + panel (3 read-only Opus subagents:
 bypass sites, fixture-respelling, false-denial direction) + codex@xhigh design
 (on drafted code: the diff preceded the prompt) + codex@xhigh code (REJECT, 10;
-8 folded, 2 recorded open) + opus@xhigh cross-check (ACCEPT WITH CHANGES, 9;
-operator's choice, not fable) + codex@xhigh re-verify round 1 (REJECT, 8; folded)
-→ round 2 pending (bound: 3 rounds).
+folded) + opus@xhigh cross-check (ACCEPT WITH CHANGES, 9; operator's choice, not
+fable) + codex@xhigh re-verify round 1 (REJECT, 8; folded) + round 2 (REJECT, 9;
+false denials fixed, crafted bypasses recorded open) → round 3 pending (the bound;
+the item lands after it with the last verdict named).
