@@ -119,8 +119,19 @@
 #              label one session drained is queued again for a later session
 #              wearing that label, and is not counted here.
 #   paused     uncleared pause controls.
+#   handoff    sessions not ended whose last observed prompt, for their
+#              current incarnation, is at or past the handoff size THIS
+#              script's environment declares (BUDDY_HANDOFF_AT, parsed as
+#              buddy parses it: "300k", "1M", a bare count; anything else is
+#              no size, said as such and nothing counted). D-113: the size
+#              was declared fleet-wide and 75 sessions across two repos ran
+#              past it in 4 days; busy tells the lane, nothing told the
+#              orchestrator. The size is the READER's, because the ledger
+#              does not store the one a session's own process declared, and
+#              the number is one request stale (invariant 10): a count to
+#              look at, never a verdict on anyone.
 # Then the exception lines: each STALE claim, each undelivered message, each
-# pause.
+# pause, each session at or past the handoff size (its s-<8hex> and prompt).
 #
 # THE CAP. Output stays under 9,000 bytes, the size a SessionStart digest is
 # held under (D-034), so it fits one hook output or one tool result. Every
@@ -162,6 +173,38 @@ unset _v
 known=16
 stale=1800 # store.StaleAfter
 keep=86400 # store.BroadcastKeep
+
+# handoff_of <declaration> — the size in tokens, or 0 for none: declaredWindow's
+# rules (internal/cli/transcript.go) in sh. Blanks trimmed around the whole
+# and around the number, one k/K or m/M suffix, an optional '+', decimal digits
+# only (leading zeros are decimal, never octal), and at most 2^40 tokens so
+# nothing downstream can wrap. Zero, negative, a fraction or a stray byte: 0.
+# The trim is the WHOLE string's, as strings.TrimSpace's, never a line's: a
+# per-line sed kept a leading newline Go drops (Codex code pass). TrimSpace's
+# two non-ASCII spaces (U+0085, U+00A0) are not trimmed here: such a value
+# reads as no size, said as such.
+_ws=$(printf ' \n\t\v\f\r')
+trim() {
+	_t=$1
+	while :; do case $_t in ["$_ws"]*) _t=${_t#?} ;; *) break ;; esac; done
+	while :; do case $_t in *["$_ws"]) _t=${_t%?} ;; *) break ;; esac; done
+}
+handoff_of() {
+	trim "$1"
+	_s=$_t
+	_m=1
+	case $_s in
+		*[kK]) _m=1000; _s=${_s%?} ;;
+		*[mM]) _m=1000000; _s=${_s%?} ;;
+	esac
+	trim "$_s"
+	_s=${_t#+}
+	case $_s in '' | *[!0-9]*) echo 0; return ;; esac
+	_s=$(printf '%s' "$_s" | sed 's/^0*//')
+	case $_s in '' | ??????????????*) echo 0; return ;; esac # zero, or past 13 digits
+	awk -v n="$_s" -v m="$_m" 'BEGIN { if (n + 0 > int(1099511627776 / m)) print 0; else printf "%.0f\n", n * m }'
+}
+handoff=$(handoff_of "${BUDDY_HANDOFF_AT:-}")
 
 # From here on no subprocess's diagnostics reach the output: an error message
 # quotes its operands, and an operand can be any path, a TMPDIR holding a
@@ -350,7 +393,11 @@ report() {
 	# other. TEMP views, because a WITH clause scopes to one statement; the
 	# temp schema is the connection's own, so the copy stays untouched. Rows:
 	# C (the counts), S (a STALE claim: id, holder, unrenewed seconds), M (an
-	# undelivered message: id, seconds), Z (a pause: id, target, seconds).
+	# undelivered message: id, seconds), Z (a pause: id, target, seconds), H
+	# (a session at or past the handoff size: id, prompt). A sample counts
+	# only for the incarnation that observed it, as the roster's does, and
+	# only when its prompt is an integer: SQLite orders TEXT above every
+	# number, so a malformed row would count (Codex code pass).
 	out=$(q "
 		CREATE TEMP VIEW oc AS
 			SELECT c.claim_id, c.session_id, c.renewed, s.session_id AS sid, s.ended, s.last_seen
@@ -368,6 +415,10 @@ report() {
 				OR (m.target = 'all' AND m.created >= $now - $keep AND EXISTS (
 					SELECT 1 FROM inbox_recipient r WHERE r.msg_id = m.msg_id AND NOT EXISTS (
 						SELECT 1 FROM inbox_delivery d WHERE d.msg_id = m.msg_id AND d.session_id = r.session_id))));
+		CREATE TEMP VIEW over AS
+			SELECT s.session_id, CAST(x.prompt AS INTEGER) AS prompt FROM sessions s
+			JOIN session_context x ON x.session_id = s.session_id AND x.incarnation = s.incarnation
+			WHERE s.ended IS NULL AND $handoff > 0 AND typeof(x.prompt) = 'integer' AND x.prompt >= $handoff;
 		SELECT 'C',
 			(SELECT count(*) FROM sessions WHERE ended IS NULL AND $now - last_seen <= $stale),
 			(SELECT count(*) FROM sessions WHERE ended IS NULL AND $now - last_seen > $stale),
@@ -379,7 +430,8 @@ report() {
 			(SELECT count(*) FROM session_waits WHERE cleared IS NULL AND deadline <= $now),
 			(SELECT count(*) FROM und),
 			(SELECT coalesce($now - min(created), -1) FROM und),
-			(SELECT count(*) FROM controls WHERE kind = 'pause' AND cleared IS NULL);
+			(SELECT count(*) FROM controls WHERE kind = 'pause' AND cleared IS NULL),
+			(SELECT count(*) FROM over);
 		SELECT 'S', $(cid claim_id), $(sid8 session_id), $now - renewed FROM stale ORDER BY renewed, claim_id;
 		SELECT 'M', msg_id, $now - created FROM und ORDER BY msg_id;
 		SELECT 'Z', id, CASE WHEN target = 'all' THEN 'all'
@@ -388,11 +440,18 @@ report() {
 				AND replace(target, '-', '') NOT GLOB '*[^0-9a-fA-F]*' THEN $(sid8 target)
 			ELSE '(a name, not shown)' END, $now - created
 			FROM controls WHERE kind = 'pause' AND cleared IS NULL ORDER BY id;
+		SELECT 'H', $(sid8 session_id), prompt FROM over ORDER BY session_id;
 	") || { notread "a query failed"; return; }
 
 	# The path reaches awk through ENVIRON, never -v: -v expands backslash
 	# escapes, and a listed path holding "\n" would print a line break.
-	printf '%s\n' "$out" | DISP=$disp LC_ALL=C awk -F '\t' -v ver="$ver" '
+	printf '%s\n' "$out" | DISP=$disp LC_ALL=C awk -F '\t' -v ver="$ver" -v at="$handoff" '
+		# tokens() in internal/cli: truncating, never rounding up past a size.
+		function tok(n) {
+			if (n >= 1000000) return int(n / 1000000) "." int(n % 1000000 / 100000) "M"
+			if (n >= 1000) return int(n / 1000) "k"
+			return n + 0
+		}
 		function age(s) {
 			if (s < 0) s = 0
 			if (s < 60) return s "s"
@@ -407,10 +466,13 @@ report() {
 			printf "P\t  waits: %d open, %d past the deadline\n", $8, $9
 			printf "P\t  inbox: %d undelivered%s\n", $10, ($10 > 0 ? ", oldest " age($11) : "")
 			printf "P\t  paused: %d\n", $12
+			if (at > 0) printf "P\t  handoff: %d not ended at or past %s (this report'"'"'s BUDDY_HANDOFF_AT; the last observed prompt)\n", $13, tok(at)
+			else printf "P\t  handoff: no size declared here (BUDDY_HANDOFF_AT unset or not a size), nothing counted\n"
 		}
 		$1 == "S" { printf "E\t  STALE claim %s  holder %s  unrenewed %s\n", $2, $3, age($4) }
 		$1 == "M" { printf "E\t  undelivered #%d  %s\n", $2, age($3) }
 		$1 == "Z" { printf "E\t  paused #%d  %s  %s\n", $2, $3, age($4) }
+		$1 == "H" { printf "E\t  over handoff %s  prompt %s\n", $2, tok($3) }
 	' >>"$rows"
 }
 

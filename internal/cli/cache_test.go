@@ -144,7 +144,7 @@ func TestCacheNoteSaysHotOrColdWithItsOwnNumber(t *testing.T) {
 			}
 			// And the whole context note carries it after the turn age, so
 			// the two clocks sit side by side.
-			full := contextNote(now, tc.c)
+			full := contextNote(now, tc.c, 0)
 			if tc.want == "" {
 				if strings.Contains(full, "cache") {
 					t.Errorf("no tier must print no cache word: %q", full)

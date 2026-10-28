@@ -1054,6 +1054,16 @@ The annotations after the id are what an orchestrator picks on:
   `beat`, and it refuses nothing. When compaction is enough, the harness's own
   `--autocompact <size>` is the tool instead.
 
+  The roster says it too, to whoever reads it (D-113): a live row whose last
+  observed prompt is at or past the size declared in the READER's environment
+  prints `prompt 342k OVER handoff 300k turn 3m`, so an orchestrator sees
+  which lanes are past it. The size is the reader's because the ledger does
+  not store each session's own; a lane launched with its own `--env
+  BUDDY_HANDOFF_AT` is judged against the reader's. An ended row keeps its
+  prompt and gets no word. A word only: it sorts, colours and refuses nothing.
+  `scripts/fleet-report.sh` counts the same sessions per ledger
+  (`handoff: N not ended at or past 300k`) and lists each by its `s-<8hex>`.
+
 - `cache 1h hot 48m` — which prompt-cache lifetime the session's last turn
   wrote (the API offers 5 minutes or 1 hour) and how much of it is left; past
   it, `cache 1h cold 3m` says how long ago it lapsed. A peer whose cache is

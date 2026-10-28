@@ -4628,6 +4628,8 @@ func fitness(st *store.Store, env Env, sessions []store.SessionInfo, now time.Ti
 	if err != nil {
 		return nil, err
 	}
+	// The READER's declared handoff size (D-113), read once per listing.
+	handoffAt := declaredWindow(env.getenv(EnvHandoffAt))
 	// Resolved only when some live row has a base, so a fleet without the
 	// Stop hook wired costs no git fork per listing.
 	var br *baseReader
@@ -4698,7 +4700,14 @@ func fitness(st *store.Store, env Env, sessions []store.SessionInfo, now time.Ti
 		// Comparing costs one string and drops the note rather than
 		// attributing a dead incarnation's footprint to a live one.
 		if c, ok := samples[si.SessionID]; ok && c.Incarnation == si.Incarnation {
-			parts = append(parts, contextNote(now, c))
+			// The handoff word on LIVE rows only (D-113): an ended session
+			// hands nothing off, and the word is for the reader choosing
+			// which live one should.
+			at := int64(0)
+			if si.Live() {
+				at = handoffAt
+			}
+			parts = append(parts, contextNote(now, c, at))
 		}
 		// THE BASE (D-038), live rows only: where a tree that has ended
 		// stood is nobody's next question, and each distinct base costs a
@@ -4755,7 +4764,22 @@ func procNote(env Env, procs []store.ProcRef) string {
 // running the same model, which is the common case; with a GUESSED
 // denominator the row would print a confident lie in the direction that
 // matters — 9% for a session that is actually at 45%.
-func contextNote(now time.Time, c store.ContextSample) string {
+//
+// `OVER handoff 300k` FOLLOWS THE PROMPT when it is at or past handoffAt, the
+// size the READER's own process declares (BUDDY_HANDOFF_AT, parsed as busy
+// parses it), and 0 says nothing (D-113). WHY: the size was declared
+// fleet-wide and 75 sessions across two repos still ran past it in 4 days
+// (2,224 requests over 300k; 38 of 115 roster rows here with a prompt size,
+// one at 726k). busy tells the LANE once per step (D-055, D-096); the
+// orchestrator's roster printed `prompt 342k` with no reference point, and
+// the orchestrator is the one that opens the successor. The reader's size,
+// not the row's: the ledger does not store the size a session's own process
+// declared (only the step it was told, handoff_step), so a lane launched with
+// its own `--env BUDDY_HANDOFF_AT` is judged here against the reader's. A
+// WORD, never a sort, a color or a refusal (invariant 10): the number is one
+// request stale by construction, like the prompt beside it, and its turn age
+// prints with it.
+func contextNote(now time.Time, c store.ContextSample, handoffAt int64) string {
 	var b strings.Builder
 	// MODEL AND EFFORT, because "which session do I hand this to" is partly a
 	// question about what the session IS. Measured over this box's seven
@@ -4782,6 +4806,9 @@ func contextNote(now time.Time, c store.ContextSample) string {
 	fmt.Fprintf(&b, "prompt %s", tokens(c.Prompt))
 	if c.Window > 0 {
 		fmt.Fprintf(&b, "/%s %d%%", tokens(c.Window), c.Prompt*100/c.Window)
+	}
+	if handoffAt > 0 && c.Prompt >= handoffAt {
+		fmt.Fprintf(&b, " OVER handoff %s", tokens(handoffAt))
 	}
 	fmt.Fprintf(&b, " turn %s", age(now, c.TurnAt))
 	if note := cacheNote(now, c); note != "" {

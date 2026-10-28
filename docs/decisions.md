@@ -8712,6 +8712,78 @@ style rules; landing lower meant cutting rules, which the brief ruled out.
 that name `CLAUDE.md` cite it in comments, or watch it as an authority file by path).
 `check-charter.sh` holds GIVEN 113.
 
+## D-113 — The roster says which sessions are past the handoff size; fleet-report counts them
+
+2026-10-28. The operator, in orc-10's pane: accepted the trajectory consult's recommendation 2,
+to put the handoff overrun on the orchestrator's view as a word, never a refusal. The handoff
+size stays 300k (the operator declined lowering it; another project runs 500k).
+
+**Evidence** — `BUDDY_HANDOFF_AT=300k` is declared fleet-wide in settings, and 75 sessions
+across two repos still ran past it in 4 days (2,224 requests over 300k); on this ledger 38 of
+115 roster rows with a prompt size were at or past 300k, one at 726k. D-055/D-096 tell the
+LANE, at `busy`, once per 25k step. Nothing told the orchestrator, which is the session that
+opens a successor (D-056), and its roster printed `prompt 342k` with no reference point.
+
+**The rule** —
+1. **`buddy sessions` prints `OVER handoff 300k` beside the prompt** (after the declared
+   window's percentage, before `turn`) on a LIVE row whose last observed prompt, for its
+   current incarnation, is at or past the size: `prompt 342k OVER handoff 300k turn 3m`. The
+   comparison is busy's (`>=`), so the roster and the lane's own line agree on the same
+   sample. An ended row keeps its prompt and gets no word: it hands nothing off. `who`
+   prints no prompt size on its row, so it gets nothing.
+2. **The size is the READER's**: `BUDDY_HANDOFF_AT` in the environment of the process running
+   `buddy sessions`, parsed by `declaredWindow` as busy parses it. Unset, unparseable, zero,
+   a fraction or past 2^40 tokens: no word. A fleet-wide settings declaration reaches the
+   orchestrator's Bash calls as it reaches its hooks (D-064), so the common case reads the
+   size every lane was given.
+3. **`scripts/fleet-report.sh` counts them per ledger**: a fixed line
+   `handoff: N not ended at or past 300k (this report's BUDDY_HANDOFF_AT; the last observed
+   prompt)`, or `handoff: no size declared here (…), nothing counted`, and one exception line
+   per session, `over handoff s-<8hex>  prompt 342k`, in session-id order, inside the 9,000-byte
+   cap like every other exception line. The script parses the variable by `declaredWindow`'s
+   rules in sh (the whole string trimmed as `strings.TrimSpace` trims it, not line by line;
+   leading zeros decimal, never octal; one `+`; the same 2^40 bound), and counts a sample
+   only when its prompt is an integer (SQLite orders TEXT above every number). Both from the
+   Codex code pass. Counts and ids only (invariant 9): no label, model string or anything a
+   peer wrote is selected. Residual: TrimSpace's two non-ASCII spaces (U+0085, U+00A0) are
+   not trimmed in sh, so such a value reads as "no size declared" there, said as such.
+4. **A word, never a control (invariant 10).** It refuses nothing, reorders no row, colours
+   nothing, and nothing reads it. The sample is one request stale by construction, and its
+   turn age prints beside it as it always has.
+
+**Said honestly, left open** — A lane launched with its own size (`herdr tab create --env
+BUDDY_HANDOFF_AT=500k`) is judged on the roster against the READER's size, not its own. The
+ledger does not store the size a session's process declared: `ContextSample.HandoffAt`
+reaches `RecordContext` only to reset `handoff_step`, and is never read back. Storing it per
+session is a schema change (D-037: every older binary on the machine then denies), so it is
+not done here and is recorded OPEN, to be taken up if the per-lane sizes are measured to
+differ from the orchestrator's in practice. One half-signal exists without schema:
+`session_context.handoff_step >= 0` says busy told that session at ITS OWN size and no later
+sample fell under it. It needs the `busy` hook wired and a turn opened after the crossing, so
+it lags and is absent on sessions without the hook; not rendered, also OPEN. And a live row
+D-091 folds (every registered process GONE) has no row on the default roster, so it carries
+no word there, while fleet-report counts it as not ended; `sessions --all` shows its word.
+
+**Not done** — A sort by prompt size, a colour, an `OVER` filter or flag, a refusal at the
+size, a `who` line, and a word on ended rows. No verb or flag, so the skill's usage tables are
+unchanged.
+
+**Test shape** — `TestContextNoteSaysOverHandoff`: under by one token, exactly at, over, the
+M form, a bare count, spaces and an upper-case suffix, and unset, malformed, a fraction, zero
+and a wrapping size silent, each silent row beside a speaking one that differs in one input;
+with a declared window the word follows the percentage. `TestRosterSaysOverHandoffOnLiveRows`:
+end to end through `beat` and `sessions`, the prompt printing with no declaration (the
+positive control), no word under the reader's size, the word over it, no word on a row with
+no observation, the row order unchanged, and the ended row keeping its prompt without the
+word. `check-fleet-report.sh`: a live session exactly at 300k counts, a quiet one at 299,999,
+an ended one at 900k, a superseded incarnation's 999,999 and a TEXT prompt do not, a planted
+session id at 400k prints as `s-(id not hex)`, a planted model string never prints; unset,
+`lots` and `0.3M` say no size, `300K` beside them counts, and so does `300K` with blanks and
+line breaks around it; the cap run, with no size, keeps every ledger's whole count block.
+Mutated: `>` for `>=` (both), the word on ended rows, the unset guard dropped, the
+incarnation match dropped, ended rows counted, a label for the id, the parser taking a
+fraction, a per-line trim, and the integer test dropped; each died.
+
 ## D-114 — The skill splits: a core every session loads, the fleet's recipe apart, the operator's conventions out of the shipped text
 
 2026-10-28 · the operator's decision (the trajectory consult's recommendation 5, accepted in

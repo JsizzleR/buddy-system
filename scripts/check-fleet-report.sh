@@ -56,6 +56,17 @@
 #     so a line `-b` is a project directory and never an option; a tab in a
 #     path prints as '?'; a backslash sequence prints as written, never
 #     expanded into a line break.
+#   - THE HANDOFF COUNT (D-113), against the REPORT's BUDDY_HANDOFF_AT:
+#     a live session exactly at 300k counts, a quiet one at 299,999 does
+#     not, an ended one at 900k does not, a sample from a superseded
+#     incarnation (999,999) does not, and a planted session id at 400k counts
+#     and prints as s-(id not hex), and a TEXT prompt (SQLite orders it above
+#     every number) does not count. Its model string is planted too. Unset
+#     and unparseable (lots, 0.3M) say "no size declared" and count nothing;
+#     the same run with 300K counts (the positive control), and with blanks
+#     and line breaks around it (Go's TrimSpace trims the whole string). The check
+#     unsets the variable it inherits, so the operator's own declaration
+#     never decides a result here.
 #   - The harness list: counts only, its planted session name never printed;
 #     "not available" without the command or when it fails, "not read" for
 #     JSON of another shape. A //-prefixed TMPDIR still reads every ledger.
@@ -78,7 +89,7 @@ trap 'chmod -R u+rwx "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT INT TERM
 go build -o "$WORK/bin/buddy" ./cmd/buddy || fail "could not build buddy"
 PATH="$WORK/bin:$PATH"
 export PATH
-unset CLAUDE_CODE_SESSION_ID BUDDY_SESSION BUDDY_LABEL || true
+unset CLAUDE_CODE_SESSION_ID BUDDY_SESSION BUDDY_LABEL BUDDY_HANDOFF_AT || true
 
 # The planted strings: a raw newline, then a 600-byte line, each tagged so a
 # leak names its source. FILL never occurs in anything the report prints.
@@ -91,6 +102,8 @@ SA=aaaaaaaa-1111-4111-8111-111111111111
 SB=bbbbbbbb-2222-4222-8222-222222222222
 SC=cccccccc-3333-4333-8333-333333333333
 SD=dddddddd-4444-4444-8444-444444444444
+SF=ffffffff-6666-4666-8666-666666666666
+SG=abcdef01-7777-4777-8777-777777777777
 
 L="$WORK/list"
 mkdir -p "$L"
@@ -157,6 +170,8 @@ SIDP=$(plant SID)
 # alone refuses it), and 600 hex characters (the length bound alone does).
 HEX600=$(awk 'BEGIN { for (i = 0; i < 300; i++) printf "ab" }')
 reg "$P" "$SIDP" p
+reg "$P" "$SF" pf
+reg "$P" "$SG" pg
 as "$P" "$SIDP" claim p-work --desc x --scope p >/dev/null
 as "$P" "$SIDP" claim p-cid --desc x --scope q >/dev/null
 as "$P" "$SIDP" claim p-long --desc x --scope r >/dev/null
@@ -174,6 +189,19 @@ db "$P" "UPDATE sessions SET last_seen = last_seen - 7200;
 	fail "the plant control failed: the planted session id is not in the ledger whole"
 [ "$(db "$P" "SELECT count(*) FROM claims c JOIN controls k ON k.target = c.session_id WHERE c.claim_id = 'PLANTCID' || char(10) || 'x' OR c.claim_id = '$HEX600';")" = 2 ] ||
 	fail "the plant control failed: the two planted claim ids, held by the planted session it pauses, are not in the ledger"
+
+# The handoff samples (D-113), by SQL as the planted ids are: a sample comes
+# from a transcript, which a fixture has no harness to write. A: SA (live) at
+# exactly 300k, SB (quiet) one token under, SC (ended) at 900k. P: the planted
+# session at 400k, SF's sample from a superseded incarnation at 999,999, SG's
+# prompt TEXT (SQLite orders TEXT above every number, so it must not count).
+ctx() { db "$1" "INSERT INTO session_context (session_id, incarnation, observed, turn_ms, model, prompt, cache_read, cache_write, output)
+	SELECT session_id, $2, strftime('%s','now'), strftime('%s','now') * 1000, 'PLANTMODEL', $3, 0, 0, 0 FROM sessions;"; }
+ctx "$A" incarnation "CASE session_id WHEN '$SA' THEN 300000 WHEN '$SB' THEN 299999 ELSE 900000 END"
+ctx "$P" "CASE session_id WHEN '$SF' THEN 'superseded' ELSE incarnation END" "CASE session_id WHEN '$SF' THEN 999999 WHEN '$SG' THEN 'PLANTPROMPT' ELSE 400000 END"
+[ "$(db "$A" "SELECT count(*) FROM session_context x JOIN sessions s USING (session_id) WHERE x.incarnation = s.incarnation;")" = 3 ] &&
+	[ "$(db "$P" "SELECT group_concat(prompt) FROM (SELECT prompt FROM session_context ORDER BY prompt);")" = 400000,999999,PLANTPROMPT ] ||
+	fail "the handoff samples are not in the fixture ledgers as planted"
 
 # The control for the plant: every planted string IS in a ledger, whole.
 for tag in LABEL_A LABEL_B LABEL_C SLUG DESC WAITNOTE FROM BODY PAUSENOTE; do
@@ -315,6 +343,8 @@ gate() {
 		-e '^  waits: [0-9]+ open, [0-9]+ past the deadline$' \
 		-e '^  inbox: [0-9]+ undelivered(, oldest [0-9]+(s|m|h[0-9]{2}m|d))?$' \
 		-e '^  paused: [0-9]+$' \
+		-e '^  handoff: ([0-9]+ not ended at or past [0-9]+(k|\.[0-9]M)? \(this report'"'"'s BUDDY_HANDOFF_AT; the last observed prompt\)|no size declared here \(BUDDY_HANDOFF_AT unset or not a size\), nothing counted)$' \
+		-e '^  over handoff s-([0-9a-fA-F]{8}|\(id not hex\))  prompt [0-9]+(k|\.[0-9]M)?$' \
 		-e '^  STALE claim ([0-9a-fA-F]{1,64}|\(id not hex\))  holder s-([0-9a-fA-F]{8}|\(id not hex\))  unrenewed [0-9]+(s|m|h[0-9]{2}m|d)$' \
 		-e '^  undelivered #[0-9]+  [0-9]+(s|m|h[0-9]{2}m|d)$' \
 		-e '^  paused #[0-9]+  (all|s-[0-9a-fA-F]{8}|s-\(id not hex\)|\(a name, not shown\))  [0-9]+(s|m|h[0-9]{2}m|d)$' \
@@ -338,6 +368,8 @@ in:
 $(cut -c1-200 "$1")"
 }
 
+BUDDY_HANDOFF_AT=300k
+export BUDDY_HANDOFF_AT
 res=$(run scripts/fleet-report.sh "$WORK/out1") || fail "the WAL-holding runner failed"
 [ "$res" = "0 same" ] || fail "want exit 0 and the source ledger's files unchanged, got '$res':
 $(cat "$WORK/out1")"
@@ -352,6 +384,17 @@ want "$o" "  waits: 2 open, 1 past the deadline" "waits"
 grep -q '^  inbox: 3 undelivered, oldest [0-9]' "$o" || fail "inbox: three undelivered, the drained one not counted:
 $(cat "$o")"
 want "$o" "  paused: 3" "paused"
+over="(this report's BUDDY_HANDOFF_AT; the last observed prompt)"
+# Scoped to A's block: P's carries the same count line.
+grep -A6 -xF -- "== available (schema 16): $A" "$o" | grep -qxF "  handoff: 1 not ended at or past 300k $over" ||
+	fail "handoff in A: SA at exactly 300k counts; SB under, SC ended:
+$(cat "$o")"
+want "$o" "  over handoff s-aaaaaaaa  prompt 300k" "the session at the handoff size, by its short id"
+grep -qE '^  over handoff s-(bbbbbbbb|cccccccc|ffffffff|abcdef01)  ' "$o" && fail "an under, ended, superseded or non-integer sample was counted:
+$(grep '^  over handoff' "$o")"
+grep -A6 -xF -- "== no live session (schema 16): -b" "$o" | grep -qxF "  handoff: 0 not ended at or past 300k $over" ||
+	fail "-b's ended session is not past the handoff size:
+$(cat "$o")"
 for id in $(db "$A" "SELECT claim_id FROM claims WHERE slug IN ('b-work', 'c-work') ORDER BY slug;"); do
 	grep -q "^  STALE claim $id  holder s-[bc]\{8\}  unrenewed 2h0[0-9]m$" "$o" || fail "the STALE line for claim $id:
 $(cat "$o")"
@@ -370,9 +413,10 @@ $(cat "$o")"
 grep -A5 -xF -- "== no live session (schema 16): -b" "$o" | grep -q '^  inbox: 1 undelivered' || fail "-b's queued mail"
 want "$o" "== unavailable, no ledger (not a repository; the gate's verdict there is OFF): $N" "a non-repository"
 # The planted ids: never printed, said as "(id not hex)"; the swept UUID by its short id.
-pb=$(grep -A12 -xF -- "== no live session (schema 16): $P" "$o" | sed 1d | sed '/^==/,$d')
-for l in "  sessions: 0 live, 1 quiet (not ended, not seen 30m+), 0 ended today" \
-	"  claims: 3 open, 3 STALE (GONE not read), 0 unrenewed with the holder seen" "  paused: 2"; do
+pb=$(grep -A16 -xF -- "== no live session (schema 16): $P" "$o" | sed 1d | sed '/^==/,$d')
+for l in "  sessions: 0 live, 3 quiet (not ended, not seen 30m+), 0 ended today" \
+	"  claims: 3 open, 3 STALE (GONE not read), 0 unrenewed with the holder seen" "  paused: 2" \
+	"  handoff: 1 not ended at or past 300k $over" "  over handoff s-(id not hex)  prompt 400k"; do
 	printf '%s\n' "$pb" | grep -qxF -- "$l" || fail "the planted-id ledger: want '$l' in:
 $pb"
 done
@@ -470,7 +514,25 @@ printf '%s\n' "$tmpout" | grep -vxF -e 'fleet-report: could not make a temporary
 	grep -q . && fail "a subprocess's diagnostics reached the output:
 $tmpout"
 
-# THE CAP: 500 more undelivered messages in the first ledger listed.
+# THE HANDOFF SIZE IS THE REPORT'S OWN, parsed as buddy parses it: unset and
+# unparseable say so and count nothing; 300K, beside them, counts, and so does
+# a value with blanks and line breaks around it, which TrimSpace drops whole.
+nl300=$(printf '\n\t 300K \n.')
+nl300=${nl300%.}
+for v in '' lots 0.3M 300K "$nl300"; do
+	hv=$(BUDDY_HANDOFF_AT=$v BUDDY_FLEET_CLAUDE="$WORK/no-such-claude" sh scripts/fleet-report.sh "$L/one" 2>&1) || fail "handoff '$v': the report failed"
+	case $v in
+		300K | "$nl300") wl="  handoff: 1 not ended at or past 300k $over" ;;
+		*) wl='  handoff: no size declared here (BUDDY_HANDOFF_AT unset or not a size), nothing counted' ;;
+	esac
+	printf '%s\n' "$hv" | grep -qxF -- "$wl" || fail "handoff '$v': want '$wl' in:
+$hv"
+	case $v in 300K | "$nl300") ;; *) printf '%s\n' "$hv" | grep -q '^  over handoff' && fail "handoff '$v': a line was printed with no size" ;; esac
+done
+
+# THE CAP: 500 more undelivered messages in the first ledger listed. No
+# handoff size, so the exception lines below are the 515 counted.
+unset BUDDY_HANDOFF_AT
 db "$A" "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 500)
 	INSERT INTO inbox (target, sender, body, created) SELECT '$SB', 'bulk', 'bulk', strftime('%s','now') - 600 FROM n;"
 res=$(run scripts/fleet-report.sh "$WORK/out2") || fail "the capped run's runner failed"
@@ -486,9 +548,9 @@ for v in "== no live session (schema 16): -b" "== unavailable, no such path: $WO
 done
 # Every readable ledger keeps its WHOLE count block under the cap, in order.
 for h in "== available (schema 16): $A" "== no live session (schema 16): -b" "== no live session (schema 16): $P"; do
-	blk=$(grep -A5 -xF -- "$h" "$WORK/out2" | sed 1d)
+	blk=$(grep -A6 -xF -- "$h" "$WORK/out2" | sed 1d)
 	got=$(printf '%s\n' "$blk" | sed 's/:.*//' | tr -d ' ' | tr '\n' ,)
-	[ "$got" = "sessions,claims,waits,inbox,paused," ] || fail "under the cap, '$h' lost part of its count block (got $got):
+	[ "$got" = "sessions,claims,waits,inbox,paused,handoff," ] || fail "under the cap, '$h' lost part of its count block (got $got):
 $(cat "$WORK/out2" | cut -c1-160)"
 done
 shown=$(grep -c '^  undelivered #' "$WORK/out2")

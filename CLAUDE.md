@@ -545,5 +545,6 @@ later amendment wins. To add one, append a line in number order:
 - D-110: `buddy update` reinstalls from the checkout install.sh stamped; it never fetches.
 - D-111: Every lane runs on the default lane model; Fable is for reviews only (amends D-104).
 - D-112: `CLAUDE.md` holds the rules and this index; each decision's record is in `docs/decisions.md`.
+- D-113: `buddy sessions` marks a live row past the reader's BUDDY_HANDOFF_AT with `OVER handoff <size>`; fleet-report counts them; a word, never a sort or refusal (invariant 10); a lane's own size is not stored (OPEN).
 - D-114: The skill splits by reader: `skills/buddy` (core, every session) and `skills/buddy-fleet` (coordinator); no model, date or operator default in shipped text (`docs/examples/fleet-conventions.md`).
 - D-115: Every brief names a review-round ceiling: lite one code pass folded once; full design + code + at most two re-verify rounds; the operator raises it; at it, fold narrowly, record the rest open.
