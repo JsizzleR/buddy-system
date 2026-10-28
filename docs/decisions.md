@@ -8883,3 +8883,79 @@ named, and two is the full tier's default. Tiers, layers and receipts are unchan
 the panel or the cross-check, each of which runs once.
 
 **Test shape** — Prose only; the skill tests hold every name the edited sections use.
+
+## D-117 — A subagent names its model or a hook refuses it; a coordinator may hand off at a batch boundary
+
+2026-10-28 · the operator's decision ("take your recommendations", in orc-10's pane; the
+recommendation was step 4.1 of `docs/CHEAPER-MODELS-PLAN.md`), carried out by lane
+agent-model-line under orc-11's brief. The plan's section 0 is this entry's measurement record.
+
+**What was wrong** — A subagent spawned with no `model` runs on its parent's. Over every
+main-session transcript of 2026-10-24..28 (197 files), 31 Agent calls named no model, 17 of them
+general-purpose: seven review-shaped from Opus parents (panel lenses and design reads), and five
+from Fable parents, four of them side work that ran on Fable by inheritance against D-111 and
+one a Fable review that forgot its param. The skill already said to name the model, and a
+receipt naming one cannot tell a chosen model from an inherited one (the plan's second Codex
+design pass). Separately, one orchestrator ran five unrelated tasks in one session and carried
+180k of finished work into every request of the fifth; each one-batch orchestrator peaked at
+292k-400k, so a second batch in place reaches the 300k handoff mid-batch, with lanes open.
+
+**The rule** — (1) Every review subagent (a panel lens, a cross-check, a re-verify read, a
+ruling) names its model on the Agent call, side work names the operator's side-work model, and
+the receipt's `panel` names it (`panel@<model>`): the core skill's "Your review" and the fleet
+skill's "Pick who does a piece by what it ends in". The call's `model` takes a family alias
+(`sonnet`, `opus`, `haiku`, `fable`), not a full id, and both skills say so. (2)
+`scripts/hooks/agent-model-gate.py`, a PreToolUse hook on the Agent tool, refuses (exit 2, one
+stderr line naming the aliases) a call whose type is missing, empty, `general-purpose` or
+`claude` (folded: NFC, strip, lower case) and whose `model` is not a non-empty string. Explore,
+Plan, a fork and every other named type are allowed: they inherit by design or carry their own
+`model:`. It takes the tool by both names, `Agent` and the older `Task`. It fails OPEN (exit 0)
+on stdin it cannot read, a non-object tool input, a type neither a string nor null (a null
+reads as omitted, and refuses), or any exception: it
+teaches a convention, and invariant 2's fail-closed is about the ledger's hooks; a broken
+python3 must not stop every subagent on the machine. Measured with its draft, 2026-10-28 16:18
+(Claude Code 2.1.312, `--settings`, matcher `Agent`): the unnamed general-purpose call was
+refused with 0 subagent transcripts, the same call with `model: sonnet` ran. The operator
+copies it and wires it by hand:
+`{"matcher": "Agent", "hooks": [{"type": "command", "command": "python3 -I \"$HOME/bin/agent-model-gate.py\""}]}`
+in `hooks.PreToolUse`; `install.sh` does not install it. (3) The fleet skill's "Handing off a
+coordinator" gains a bullet: hand off at a batch boundary too, when the last observed prompt is
+past the operator's batch-boundary size and the batch is independent of this conversation (the
+handoff file's three registers written and empty or handed, the batch's decisions in files, the
+successor's acknowledgment; a fold round on a lane this session briefed is not independent),
+after draining what is keyed to the session id (inbox, wait, loop, jobs). No size set means it
+does not fire. `docs/examples/fleet-conventions.md` carries both as operator lines with their
+Why, the sizes and models in angle brackets.
+
+**Exemptions, settled against the draft** — The plan's draft exempted only Explore, Plan and
+fork, so it refused `claude-code-guide`, `statusline-setup` and every custom agent named with
+no model, against the plan's own rule (1.3: a named custom type is exempt). Now every named
+type is allowed except `claude`, which the Agent tool lists as the catch-all, "FleetView's
+default when no agent name is typed": general-purpose under another name, inheriting the same
+way, so it is refused with it. The draft's refusal told the model to type `claude-opus-5-5`, a value the
+`model` parameter does not take; it names the aliases now, and the self-test refuses a full id
+in the line.
+
+**Not done** — The operator's two lines are theirs and are NOT taken by this entry: the
+settings floor (`CLAUDE_CODE_SUBAGENT_MODEL` in the settings `env` block, the plan's 1.3 point
+3) and the batch-boundary size (the plan's 3.3, a `~/.claude/CLAUDE.md` line); each is recorded
+as an amendment to D-117 when taken. Until a size is set the bullet does not fire. A named
+custom type with no `model:` inherits, and a HOME without the hook, or a harness feature that
+spawns agents without the Agent tool, is not seen: the settings floor is what covers them.
+Refused: `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (it overrides the model a call names, so a `fable`
+cross-check would not run on Fable). Cut: checking the alias's validity (the tool's schema
+refuses anything else first) and reading agent definitions per call. The report that shows the
+counts fall (the plan's 4.3) is a later step. No verb, flag, row or schema.
+
+**Test shape** — `agent-model-gate.py --self-test`, run by `check.sh`'s Python leg (and the
+leg's compile sweep and assert scan now cover `scripts/hooks/*.py`), runs the script as the
+harness does, one child per payload: 13 refusals (general-purpose, untyped, a null, empty or
+blank type, `General-Purpose`, a padded type, `claude`, an empty, blank, null or non-string
+model, the tool named `Task`), each beside its positive control (the same call with `model:
+opus`, allowed), 16 allows (Explore, Plan, fork, `claude-code-guide`, `statusline-setup`, a
+custom type, a non-Agent tool, garbage, empty stdin, a JSON list, a list tool input, a list
+type, and a general-purpose call naming each of the four aliases), and the header's settings
+line parsed as JSON. Mutants each killed: the model check dropped either way, the exemption
+widened to every type, no fold, `claude` not a catch-all, a truthy model test, `model !=
+"opus"`, failing closed, `Task` not taken, a full id in the refusal, a doubled escape in the
+header's settings line, the header not a raw string. The skill text is prose; the skill tests hold every name it uses.

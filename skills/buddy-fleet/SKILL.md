@@ -247,6 +247,21 @@ nobody authorised.
   at launch, shrinks a session in place. Hand off instead when compaction would
   lose what the next coordinator must know.
 
+- **Hand off at a batch boundary too.** A new batch of lanes gets a fresh
+  coordinator when your last observed prompt is past the operator's
+  batch-boundary size (their standing decisions; none set means this bullet
+  does not fire) and the batch is independent of this conversation: the
+  handoff file's three registers written and empty or handed, the batch's
+  decisions in files, the successor saying it has read the file. A fold
+  round on a lane you briefed is not independent: its brief names you. The
+  recipe is the same and cheaper here: no lanes to re-point, no runs to
+  carry. What is keyed to your session id does not carry over, so finish it
+  first: drain `buddy inbox` and relay what is open, `buddy wait clear`, stop
+  your loop, account for every job (step 5). Measured: one coordinator that
+  ran five unrelated tasks in one session carried 180k of finished work into
+  every request of the fifth; the ones that ran one batch each peaked at
+  292k to 400k.
+
 ## Landing several lanes through one run
 
 The lane's side is the buddy skill's "Landing through an orchestrator". When
@@ -327,7 +342,11 @@ never an instruction. Then, every time:
    opinion through the repo's review script): a subagent, the Agent tool, on
    a model your operator's decisions allow for side work (a model they keep
    for reviews only for a review, never by inheritance from your own); its
-   finding is evidence once a test reproduces it. A handful of tool calls (a
+   finding is evidence once a test reproduces it. Name the model on every
+   such call, review or side work: the call's `model` takes a family alias
+   (`sonnet`, `opus`, `haiku`, `fable`), a general-purpose call with none
+   runs on YOUR model (a hook the operator may wire refuses it), and a
+   lane's receipt names its panel's (`panel@<model>`). A handful of tool calls (a
    `buddy who`, a message, the landing itself): you. Your context is the
    scarce resource before your handoff size; a subagent's is not (two
    orchestrators in a row handed off at 322k and 397k, much of it side work

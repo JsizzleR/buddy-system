@@ -238,7 +238,7 @@ print(" ".join(p.rsplit("/", 1)[-1] for p in bad))
   pyhit=$(pysweep "$pyctl/a_parse.py" "$pyctl/b_compile.py" "$pyctl/c_clean.py" 2>/dev/null || true)
   rm -rf "$pyctl"
   [ "$pyhit" = "a_parse.py b_compile.py" ] || { echo "check.sh: the python sweep reported '$pyhit' of its control, want 'a_parse.py b_compile.py' — the gate is broken, not the tree" >&2; exit 1; }
-  pybad=$(pysweep scripts/*.py)
+  pybad=$(pysweep scripts/*.py scripts/hooks/*.py)
   [ -z "$pybad" ] || { echo "check.sh: scripts that do not compile: $pybad" >&2; exit 1; }
   # NO `assert` STATEMENT IN scripts/*.py (F-39). `python -O` strips them, and
   # these were qualification GATES: measured, under -O qualify-codex trusted
@@ -266,7 +266,7 @@ print(" ".join(sorted(hits)))
   pyhit=$(pyasserts "$pyctl/a_bare.py" "$pyctl/b_text.py" "$pyctl/c_nested.py" 2>/dev/null || true)
   rm -rf "$pyctl"
   [ "$pyhit" = "a_bare.py:2 c_nested.py:3" ] || { echo "check.sh: the assert scan reported '$pyhit' of its control, want 'a_bare.py:2 c_nested.py:3' — the gate is broken, not the tree" >&2; exit 1; }
-  pyhit=$(pyasserts scripts/*.py)
+  pyhit=$(pyasserts scripts/*.py scripts/hooks/*.py)
   [ -z "$pyhit" ] || { echo "check.sh: assert statements in scripts/ vanish under python -O; use an explicit check: $pyhit" >&2; exit 1; }
   # The self-tests that need nothing but python3: a fake child behind every
   # native proxy (plus TERM/HUP cleanup and owned-identity kills), the
@@ -314,6 +314,11 @@ print(" ".join(sorted(hits)))
   # Neither launches a harness.
   python3 -I -B scripts/admission_lib.py --self-test >/dev/null
   python3 -I -B scripts/qualify-release.py --self-test >/dev/null
+  # The Agent-model hook (D-117), run as the harness runs it, one child per
+  # payload: each refusal beside its positive control (the same call naming a
+  # model), the exempt types, other tools, and stdin it cannot read (allowed:
+  # it fails open). The operator wires it by hand; nothing installs it.
+  python3 -I -B scripts/hooks/agent-model-gate.py --self-test >/dev/null
   # node --check, with a planted control so a check that accepts everything
   # cannot pass for one that checked.
   mjs_skipped=

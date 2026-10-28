@@ -1224,6 +1224,18 @@ ledger row entered through the CLI (D-006).
     records it open. D-106 took six rounds and every fold regressed something. Do not propose
     re-verifying "until it accepts" without a named ceiling.
 
+117. **A subagent names its model or a hook refuses it; a batch boundary is a handoff point
+    (D-117).** `scripts/hooks/agent-model-gate.py` (PreToolUse, `Agent`, wired by the
+    operator by hand) refuses a call typed missing, empty, `general-purpose` or `claude`
+    whose `model` is not a non-empty string; every other named type, Explore, Plan and fork
+    pass. It fails OPEN on anything it cannot read: it teaches a convention, and invariant 2
+    is about the ledger's hooks, not this. Its refusal names the aliases the `model`
+    parameter takes (`sonnet`, `opus`, `haiku`, `fable`), never a full id. Both skills say to
+    name the model; the fleet skill hands off at a batch boundary past the operator's
+    batch-boundary size, none set meaning never. The settings floor and that size are the
+    operator's, not taken. Do not propose failing it closed, `_FORCE=1`, or a buddy verb for a
+    batch.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

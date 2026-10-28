@@ -548,3 +548,4 @@ later amendment wins. To add one, append a line in number order:
 - D-113: `buddy sessions` marks a live row past the reader's BUDDY_HANDOFF_AT with `OVER handoff <size>`; fleet-report counts them; a word, never a sort or refusal (invariant 10); a lane's own size is not stored (OPEN).
 - D-114: The skill splits by reader: `skills/buddy` (core, every session) and `skills/buddy-fleet` (coordinator); no model, date or operator default in shipped text (`docs/examples/fleet-conventions.md`).
 - D-115: Every brief names a review-round ceiling: lite one code pass folded once; full design + code + at most two re-verify rounds; the operator raises it; at it, fold narrowly, record the rest open.
+- D-117: Subagents name their model; a hook refuses an unnamed general-purpose Agent call; a coordinator hands off at a batch boundary.

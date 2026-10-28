@@ -52,6 +52,21 @@ skill).
   runs for mechanical side work (reading a lane's diff, reports, housekeeping)
   go on <a cheaper model>, never on the review model by inheritance.
 
+- **Every subagent names its model on the Agent call**: <lane model alias>
+  for a panel lens or a lane's review subagent, <review model alias> only
+  for a cross-check or a ruling the tier names, <cheaper model alias> for
+  side work (the call's `model` takes a family alias, not an id). A receipt
+  names its panel's: `panel@<model id>`. A PreToolUse hook on `Agent`
+  refuses a general-purpose call that names none
+  (`scripts/hooks/agent-model-gate.py` in this repository, copied to
+  `<~/bin>` and wired in `hooks.PreToolUse` by hand).
+  *Why:* over four days, 17 general-purpose calls named no model and ran on
+  their parent's: seven review lenses from lane parents, and four pieces of
+  side work that ran on the review model by inheritance, while the skill
+  already said to name it. A receipt cannot tell a chosen model from an
+  inherited one; the hook, measured, refused the unnamed call before any
+  subagent ran.
+
 - **The orchestrator uses agent tools itself** for side work: subagents, the
   repo's review script, a second opinion. Its own context is the scarce
   resource before its handoff size; a subagent's is not. A subagent is not a
@@ -84,6 +99,14 @@ skill).
   *Why:* one cost audit counted 75 sessions past 300k; one lane kept on went from
   402k to about 710k over four review rounds, every turn re-reading the whole
   prompt.
+
+- **A fresh orchestrator per batch**: an orchestrator past <100k> of prompt
+  that is handed a batch of lanes independent of its conversation (the
+  buddy-fleet skill's test) hands off first, by the skill's recipe.
+  *Why:* one orchestrator ran five tasks in one session and carried 180k of
+  finished work into every request of the last; each one-batch orchestrator
+  peaked at 292k to 400k, so a second batch in place reaches the 300k
+  handoff mid-batch, with lanes open.
 
 - **Landing is the orchestrator's, squashed.** Lanes commit as they go and
   never amend, squash, push or move main; each writes the one commit message

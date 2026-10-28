@@ -319,6 +319,14 @@ ceiling on review rounds. Run what it owes:
   Folding findings makes new defects: on one repo's gate work, every fold
   regressed something, and one change took six re-verify rounds. Past the
   ceiling, ask your orchestrator; only the operator raises it.
+- **Every review subagent names its model on the Agent call** (a panel lens,
+  a cross-check, a re-verify read, a ruling): the one your operator's
+  decisions name for that kind of review; side work names the one they keep
+  for side work. The call's `model` takes a family alias (`sonnet`, `opus`,
+  `haiku`, `fable`), not a full id. A call with none runs on YOUR model, and
+  a receipt cannot tell a chosen model from an inherited one; a hook the
+  operator may wire refuses a general-purpose call that names none. The
+  receipt's `panel` names it: `panel@<model>`.
 - **Never raise or lower the brief's tier on your own.** If the change turns
   out to touch a class that owes more, say so to your orchestrator and wait.
 - **A review is never test evidence.** The tests and the mutation check
