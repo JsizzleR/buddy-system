@@ -161,6 +161,7 @@ var verbs = map[string]verb{
 	"lifecycle":   {usageLifecycle, errVerb("lifecycle", cmdLifecycle)},
 	"adapter":     {usageAdapter, errVerb("adapter", cmdAdapter)},
 	"diagnose":    {usageDiagnose, errVerb("diagnose", cmdDiagnose)},
+	"update":      {usageUpdate, cmdUpdate},
 }
 
 func Run(args []string, env Env) int {
@@ -336,6 +337,10 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     call (CLAUDE.md and AGENTS.md always; a long session's
                                     context is a snapshot, and nothing else says it rotted)
 setup         init                  create the ledger for this repo
+              update [--dry-run]    reinstall from the checkout this buddy was installed
+                                    from: says where it stands (read locally, nothing
+                                    fetched) and which git commands you may want first,
+                                    then runs its scripts/install.sh; never pulls
 adapter       lifecycle             captured Codex incarnation events and JSON receipts;
                                     lifecycle --help lists the explicit adapter contract
               adapter               versioned captured-identity inbox and endpoint receipts;

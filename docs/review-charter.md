@@ -1160,6 +1160,21 @@ ledger row entered through the CLI (D-006).
     flag or row. Measured once: the first lane briefed under it had its commit refused by its
     permission classifier anyway, and the operator repeated the decision in the lane's pane.
 
+111. **`buddy update` runs install.sh in the checkout install.sh stamped into buddy, after a
+    local report (D-110).** The operator chose install only: it never fetches or pulls, and
+    `buddy` stays network-free. The checkout is an `-ldflags -X` stamp, not a record file
+    (a file drifts from the bytes it describes); a missing, relative, gone or foreign-module
+    stamp, or a non-regular `scripts/install.sh`, refuses naming install.sh, never a guess.
+    The installed commit is the vcs stamp of `$BUDDY_BIN_DIR/buddy`, the file the hooks run,
+    not the running process's. origin/main is "as of the last fetch", dated by FETCH_HEAD only
+    when it records origin's main, else by the ref's reflog entry. The report's git reads run
+    no filter, fsmonitor, lazy fetch or submodule. Dirty or off-main WARNS and installs (the
+    operator asked for guidance); one case refuses: an installed commit in the checkout that
+    HEAD does not contain (a downgrade is D-037's machine-wide deny); shallow or unknown
+    history says it cannot place it. install.sh runs with no stdin, its status the verb's.
+    Not a hook verb, opens no ledger, never delegable (D-083). Do not propose a pull, a
+    `--check` alias, or refusing a dirty or off-main tree.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

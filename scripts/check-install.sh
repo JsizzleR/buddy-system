@@ -80,6 +80,44 @@ $out"
 echo "$out" | grep -q 'is current$' || fail "QA-2: the skill should already be current:
 $out"
 
+# QA-13: the buddy install.sh built carries this checkout, and `buddy update`
+# follows it. Run with inst()'s knobs in its environment, which the verb hands
+# install.sh, so a dry run that did run it would still install only into
+# $WORK. The dry run names the script and runs nothing (no "install:" line);
+# the real run is the control: the same call without the flag runs
+# install.sh here, to its done line, and its status is the verb's.
+upd() {
+	BUDDY_BIN_DIR="$WORK/bin" BUDDY_SKILL_DIR="$WORK/skill" BUDDY_SETTINGS="$WORK/settings.json" \
+		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$WORK/mcp.json" \
+		"$WORK/bin/buddy" update "$@" </dev/null
+}
+# shq is internal/cli's shellQuote: bare when every byte is in its safe set
+# and the value does not begin with "=", else single-quoted with each ' as
+# '\'' (a checkout path with a quote in it, Codex). A path holding BOTH quote
+# characters is not stamped (install.sh says so), and update then refuses.
+shq() {
+	case $1 in
+	'' | =* | *[!A-Za-z0-9._/:@%+=,-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
+case $ROOT in
+*\'*\"* | *\"*\'*) echo "check-install: QA-13 NOT RUN — this checkout's path holds both quote characters, which install.sh cannot stamp" >&2 ;;
+*)
+out=$(cd "$WORK" && upd --dry-run 2>&1) || fail "QA-13: update --dry-run failed:
+$out"
+echo "$out" | grep -qF "dry run: nothing installed; buddy update would run: sh $(shq "$ROOT/scripts/install.sh")" ||
+	fail "QA-13: the installed buddy does not name this checkout's install.sh:
+$out"
+echo "$out" | grep -q '^install: ' && fail "QA-13: a dry run ran install.sh:
+$out"
+out=$(cd "$WORK" && upd 2>&1) || fail "QA-13: update (the control) failed:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-13: update did not run install.sh to its done line:
+$out"
+;;
+esac
+
 # QA-3: with every hook wired, the report says so (the control for QA-1's list).
 sed 's/"hooks": {/"hooks": {"UserPromptSubmit": [{"hooks": [{"command": "\\"$HOME\/bin\/buddy\\" busy"}, {"command": "\\"$HOME\/bin\/buddylist\\" presence --gone"}]}],/' \
 	"$WORK/settings.json" > "$WORK/settings2.json"
@@ -373,14 +411,24 @@ echo "$out" | grep -qxF "install: gate: not checked (no $WORK/no-python to decod
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-9: no done line"
 
-# QA-10..12 build with a fake `go` on PATH: `go build -o <out> ./cmd/<name>`
+# QA-10..12 build with a fake `go` on PATH: `go build [flags] -o <out> ./cmd/<name>`
 # copies $FAKE_STUBS/<name> to <out>, so each leg chooses what a "build"
 # produces without compiling anything. QA-1's real build is their control.
+# It finds -o and the package wherever they sit: install.sh passes buddy's
+# checkout stamp as -ldflags (D-110), and a fake that read fixed positions
+# copied the stamp's flag as the output.
 mkdir -p "$WORK/fakego"
 cat > "$WORK/fakego/go" <<'EOF'
 #!/bin/sh
-[ "$1" = build ] && [ "$2" = -o ] || exit 0
-cp "$FAKE_STUBS/${4#./cmd/}" "$3" && chmod 755 "$3"
+[ "$1" = build ] || exit 0
+shift
+out=""
+while [ $# -gt 1 ]; do
+	case $1 in -o) out=$2; shift ;; esac
+	shift
+done
+[ -n "$out" ] || exit 1
+cp "$FAKE_STUBS/${1#./cmd/}" "$out" && chmod 755 "$out"
 EOF
 chmod 755 "$WORK/fakego/go"
 stubs() { # stubs <dir> <buddy's gate body> <buddylist's body>
@@ -464,6 +512,7 @@ cmp -s "$WORK/bin12/buddylist" "$WORK/bin12/buddylist.orig" || fail "QA-12: the 
 cmp -s "$WORK/bin12/buddy" "$WORK/stubs12/buddy" || fail "QA-12: buddy, built first, is installed"
 
 echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
+echo "  QA-13 the installed buddy's update names this checkout's install.sh, a dry run runs nothing, and the real run installs,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
 echo "  QA-6 the daemon waits past the old ten-poll window, says what launchd recorded, and fails last (also on a failed"
 echo "  kickstart); fake launchctl, real one guarded; QA-7 BUDDY_CHAT=off builds buddy alone, six-line hook report, the fold;"

@@ -424,6 +424,54 @@ and lifecycle hook lines end in `exit 0`: a killed binary is indistinguishable
 there from a binary that had nothing to say, and README's gate line refuses
 every gated call while `buddy` is killed.
 
+### `buddy update` — reinstall from the checkout you installed from (D-110)
+
+`install.sh` stamps its checkout's absolute path into every `buddy` it builds.
+`buddy update`, run from anywhere, follows that stamp: it prints where things
+stand, then runs `sh <checkout>/scripts/install.sh` from the checkout, with the
+script's output passed through and its exit status as its own.
+`buddy update --dry-run` prints the same report and installs nothing.
+
+```text
+buddy update: from the checkout this buddy was installed from, /Users/me/src/buddy-system (read locally; nothing fetched)
+  installed  /Users/me/bin/buddy: built from 579784f2
+  checkout   HEAD 567a38e2, on branch main; clean
+  main       HEAD is even with local main
+  origin     HEAD is 0 ahead, 2 behind origin/main, as of the last fetch, 3h ago; it may have moved since
+  install    brings 1 commit(s) the installed build does not have
+commands you may want first:
+  2 commit(s) on origin/main are not in HEAD: git -C /Users/me/src/buddy-system pull --ff-only, then buddy update again
+  to see whether origin has moved since: git -C /Users/me/src/buddy-system fetch, then buddy update --dry-run
+running: sh /Users/me/src/buddy-system/scripts/install.sh (from /Users/me/src/buddy-system)
+```
+
+- **It never pulls or fetches.** `buddy` makes no network call; every line is
+  a local git read, and none runs a filter, hook or submodule the checkout
+  configures. origin/main is what the last fetch recorded: dated by
+  `FETCH_HEAD` only when that file records origin's main (a later fetch of
+  anything else rewrites it), else by when the ref last changed here, and the
+  report says it may have moved since. (`install.sh`'s own `go build` may
+  still download a toolchain or a module it has not cached, as it always
+  could.)
+- **It tells, and installs anyway,** when the tree has uncommitted changes
+  (they are built in, as `install.sh` says) or is on a branch other than main
+  (that branch is what gets built), naming the command that changes it.
+- **It refuses one case:** the installed build's commit is in the checkout but
+  not in HEAD's history. Installing would put an older or diverged `buddy` in
+  place, and an older `buddy` refuses a newer ledger (D-037), so the gate would
+  deny every gated call. Move the checkout forward, or run `install.sh` by hand
+  if you mean it. An installed commit the checkout does not have, or a shallow
+  checkout whose history stops short, cannot be placed, and is said so, not
+  refused.
+- **It refuses a stamp it cannot follow**, naming the fix (reinstall once with
+  `sh <checkout>/scripts/install.sh`): none (a plain `go build`, or an install
+  from before D-110), not absolute, gone, or a directory whose `go.mod` is not
+  this module or whose `scripts/install.sh` is missing or not a regular file
+  (a symlink would run a script outside the checkout).
+- It opens no ledger and is not a hook verb. It is an install: a session never
+  runs it on a peer's word (D-083); an orchestrator runs it only where it
+  already runs `install.sh` after a landing.
+
 ## Claims in depth
 
 ```sh

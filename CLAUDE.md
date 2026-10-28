@@ -84,6 +84,7 @@ journal at `~/.buddylist/journal.db`.
 ```sh
 sh scripts/check.sh [all|hermetic|live]   # default all
 sh scripts/install.sh                     # INSTALL/UPGRADE this machine; re-run after every pull (see below)
+buddy update [--dry-run]                  # once installed, from anywhere: install.sh in the checkout it was built from, after a local report (D-110)
 sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (see below); also installs the skill
 sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy/SKILL.md after a pull
 sh scripts/get-oscar.sh                   # build the pinned AIM-compatible server into .cache/
@@ -108,7 +109,9 @@ python3 scripts/qualify-release.py --harness H --executable P   # retain, run ev
   clone run. `live` drives the real pinned server
   binary. `all` is the default and runs both.
 - **`install.sh` is the one upgrade path — standing rule: run it after landing
-  anything under `cmd/`, `internal/` or `skills/`.** It rebuilds EVERY buddy
+  anything under `cmd/`, `internal/` or `skills/`.** (`buddy update` runs it in
+  the checkout the installed `buddy` was stamped with, after a report read from
+  local git; D-110.) It rebuilds EVERY buddy
   binary the machine runs, found by where it is run from: `~/bin` for the hooks
   and MCP, the launchd daemon's program (the plist names the checkout's `bin/`,
   not `~/bin`), and `bin/` copies. It verifies each by running it, installs the
@@ -844,6 +847,15 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   `sed 's/gh stack rebase /…/'` and `claude -p "…; gh stack rebase"` pass and `watch 'gh
   stack rebase'` is OPEN. Costs ~0.1 ms on a gated call. Git's "rebase
   runs no pre-commit" is NOT closed by this.
+- **`buddy update` runs install.sh in the checkout it was stamped with (D-110):** install.sh
+  `-X`-stamps its checkout path into buddy; update refuses a missing, relative, gone or
+  foreign-module stamp (or a non-regular install.sh) naming install.sh, reports the installed
+  FILE's vcs commit, HEAD, branch, dirtiness (filters off), lag behind local main and
+  origin/main "as of the last fetch", names the git commands, then runs the script (no stdin,
+  status passed through; `--dry-run` runs nothing). Never fetches or pulls (the operator's
+  choice). Dirty or off-main warns; an installed commit HEAD does not contain refuses (a
+  downgrade is D-037's machine-wide deny); shallow or unknown says it cannot place it. Not a
+  hook verb; an install, so never on a peer's word (D-083).
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

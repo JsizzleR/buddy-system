@@ -8470,3 +8470,124 @@ any differently from a briefed one is not measured.
 
 **Test shape** — Prose only. `TestSkillNamesOnlyWhatHelpAnswers` holds every `buddy <verb>
 --flag` the edited sections name; `check-charter.sh` holds GIVEN 110.
+
+## D-110 — `buddy update` reinstalls from the checkout install.sh stamped, after saying where it stands
+
+2026-10-27. The operator, in orc-9's pane (~20:30): "Add a buddy update
+command, to make it easier to update once you've already installed." Asked
+whether it should `git pull`, the operator chose INSTALL ONLY, and asked that
+it guide the user: which commands they need, and where the installed version
+stands against the checkout and main.
+
+**The rule** — `buddy update [--dry-run]`, run from anywhere:
+1. **The checkout is stamped into the binary.** `install.sh` builds every
+   `buddy` with `-ldflags -X …/internal/cli.installedFrom=<its checkout>`.
+   Stamped, not a record file beside the binary: a file drifts from the bytes
+   it describes (a later `go build -o ~/bin/buddy` would inherit a record it
+   did not earn), while a stamp travels with exactly the build `install.sh`
+   probed. Go splits `-ldflags` on spaces and honours `'` and `"` with no
+   escapes, so a checkout path holding BOTH quote characters is not stamped
+   (install.sh says so) and update then refuses. The source paths a
+   non-trimpath build embeds would also name a checkout, but a plain
+   `go build` in a scratch copy names that copy: not used.
+2. **The stamp is believed only as far as it checks out.** Refused, each
+   naming `sh <checkout>/scripts/install.sh` as the fix: no stamp (a plain
+   `go build`, or an install from before this), not absolute or holding a
+   control character, gone, no `go.mod`, a `go.mod` declaring another module
+   than `github.com/JsizzleR/buddy-system`, or a `scripts/install.sh` that is
+   missing or not a regular file (Lstat: a symlink would run a script outside
+   the checkout; Codex).
+3. **Report first, from local state only.** The installed commit is the vcs
+   stamp of the FILE install.sh replaces (`debug/buildinfo.ReadFile` of
+   `$BUDDY_BIN_DIR/buddy`, default `~/bin`), the one the hooks run, never the
+   running process's: the running buddy can be another copy, and a line says
+   so when it is (paths compared resolved, the checkout's own `bin/buddy`
+   included). Then the checkout's HEAD, branch and tracked-file dirtiness;
+   HEAD against local main (else master); HEAD against `origin/main` (else
+   master, looked for even with no local main) "as of the last fetch", dated
+   by the newer `FETCH_HEAD` (the worktree's own or the common dir's) ONLY
+   when it holds a line for `branch '<main>' of <remote.origin.url>`, since a
+   later fetch of anything else rewrites it (Codex), else by the ref's newest
+   reflog ENTRY ("origin/main last changed here N ago": `%gd` with
+   `--date=unix`, never `%ct`, the commit's own time), else "when that was,
+   git did not record"; always "it may have moved since"; and what the install
+   brings. Every git child is a read with `cleanGitEnv` (no inherited
+   `GIT_DIR`), `GIT_NO_LAZY_FETCH=1` (a partial clone's missing object would
+   otherwise be fetched from its promisor), `core.fsmonitor=false` (a program
+   `status` runs; dirty.go) and `--no-optional-locks`. The dirtiness read also
+   switches off every configured filter driver for that call
+   (`-c filter.<d>.clean= …smudge= …process= …required=false`, the drivers
+   found by READING config): `status` runs a changed file's clean filter, so a
+   dry run ran the checkout's program (Codex's P1, reproduced: a filter that
+   touches a marker). A driver name `-c` cannot spell leaves dirtiness unread.
+   Submodules are not entered. `buddy` makes no network call.
+4. **The commands, exactly.** Behind origin/main as last fetched, on main:
+   `git -C <checkout> pull --ff-only, then buddy update again`; on another
+   branch: `switch <main> && pull --ff-only`; not on main: the branch is what
+   gets built, and `switch <main>` changes that; dirty: the changes are built
+   in; and always, where an origin/main exists, `fetch, then buddy update
+   --dry-run` to learn whether origin moved.
+5. **Tells, and installs anyway**, for a dirty tree and a branch other than
+   main: the operator asked for guidance, `install.sh` itself says
+   "UNCOMMITTED changes" and installs them, and a deliberate lane-tree install
+   is the operator's to make. **One case refuses**: the installed commit is in
+   the checkout and NOT in HEAD's history. Installing would put an older or
+   diverged `buddy` in place, and an older buddy refuses a newer ledger
+   (D-037), so the gate would deny every gated call machine-wide. The refusal
+   names both ways on: move the checkout forward, or run `install.sh` by hand.
+   An installed commit the checkout does not have cannot be placed, nor can
+   any in a SHALLOW checkout (its counts stop at the boundary, so an upgrade
+   could count as a downgrade; Codex), and either is said so, not refused.
+6. **Then install**: `sh <checkout>/scripts/install.sh`, from the checkout,
+   output passed through, NO stdin (install.sh reads none, and a hook payload
+   a hand-wired hook line would pipe in has no business reaching it; Codex),
+   GIT_* removed (an inherited `GIT_DIR`
+   would stamp another tree's commit into the build), its exit status the
+   verb's (a signal: 128+n). `--dry-run` prints the report and what it would
+   run, and runs nothing; a dry run that forecasts the refusal exits 1 like
+   the refusal.
+- **Not a hook verb, no ledger.** No hook line README teaches runs it, and no
+  hook verb reaches it; a hook a user wires to it by hand is their own
+  install, run with no stdin. It is an install: D-083's never-delegable
+  list holds (a session never runs it on a peer's word); an orchestrator runs
+  it only where it already runs `install.sh` after a landing.
+- **Not done.** `git pull` (the operator's choice; `buddy` stays network-free;
+  `install.sh`'s own `go build` may still fetch a toolchain or module it has
+  not cached, as it always could). A `--check` alias (one flag, the repo's
+  `--dry-run` word). Refusing a dirty tree or another branch (above).
+
+**Tests** — `internal/cli/update_test.go`, every one against a FIXTURE
+checkout whose `scripts/install.sh` is a stub that records its physical cwd
+outside the checkout and exits with a status the test sets; nothing reads the
+real `~/bin` (BUDDY_BIN_DIR points at a path that does not exist, and the
+installed build is a seam). `TestUpdateRefusesARecordItCannotFollow`: no
+stamp, relative, a control character, gone, no go.mod, another module, no
+install.sh, each with and without `--dry-run`, nothing reported or run; the
+intact fixture as control runs the stub. `TestUpdateReportsWhereTheCheckoutStands`:
+even everywhere with FETCH_HEAD 3h old; behind origin/main with no FETCH_HEAD;
+another branch, ahead of main, dirty, no origin; installed older; installed
+commit unknown here; installed NEWER (refused, dry run too, stub not run);
+each state with lines that must and must not appear, dry and real.
+`TestUpdateRunsNoFilterTheCheckoutConfigures` (the dry run first, then a
+plain `git status` as the control that runs the filter: the other order lets
+the control's index refresh make the negative vacuous),
+`TestUpdateNoteResolvesTheCheckoutCopy` (an aliased checkout, an outside copy
+as control), the report table's FETCH_HEAD-of-another-branch, no-reflog,
+no-local-main and shallow rows, and a symlinked install.sh refused.
+`TestUpdatePassesInstallStatusThrough` (0, then 7; the stub reads no stdin), `TestUpdateDryRunRunsNothing`
+(with the flagless control), `TestUpdateReadsTheInstalledFileNotItself`,
+`TestUpdateAnswersHelpAndRefusesWhatItDoesNotKnow` (`--check`, a positional,
+the unstamped test binary refusing), `TestBuddyModuleIsTheRepoModule`. Every
+guard mutated in a private copy and watched to fail (25 mutants: each refusal,
+the dry-run return, the status, the downgrade, the pull and switch lines,
+dirtiness, the fetch age, the cwd, the target file, the note, `modified`, and
+each Codex fold: the filters left on, Stat for Lstat, the shallow check, any
+FETCH_HEAD line accepted, origin needing a local main, stdin passed, the
+checkout copy unresolved, `%ct` for `%gd`); and install.sh with the stamp
+removed, which QA-13 fails.
+`check-install.sh` QA-13: the buddy install.sh built names this checkout's
+install.sh on `update --dry-run` with no `install:` line, and the flagless
+control runs install.sh to its done line, both under inst()'s hermetic knobs,
+the expected path quoted as `shellQuote` quotes it (a checkout path with a
+quote; Codex) and NOT RUN, loudly, for one holding both quotes;
+QA-10..12's fake `go` now finds `-o` and the package wherever they sit.

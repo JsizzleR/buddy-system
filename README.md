@@ -103,7 +103,11 @@ sh scripts/install.sh                   # builds buddy + buddylist into ~/bin, i
 cd /path/to/your/repo && buddy init     # one ledger per repo, inside .git; every worktree shares it
 ```
 
-**Re-run `install.sh` after every pull.** It is also the upgrade, and it
+**Re-run `install.sh` after every pull** (or `buddy update`, from anywhere:
+it runs `install.sh` in the checkout the installed `buddy` was built from,
+after saying where that checkout stands against main and origin/main as last
+fetched, and which git commands you may want first; it never pulls, D-110).
+It is also the upgrade, and it
 rebuilds every copy it knows about (`~/bin`, the chat daemon's program, this
 checkout's `bin/`): a `buddy` older than the ledger's schema refuses to open
 it, and the gate then denies every write. It also installs the

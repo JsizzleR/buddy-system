@@ -3,6 +3,8 @@
 # this checkout, and say what it did. Safe to re-run after every pull.
 #
 #   sh scripts/install.sh
+#   buddy update          (once installed, from anywhere: runs this script in
+#                          the checkout the installed buddy was built from)
 #
 # WHY ONE SCRIPT. An upgrade touched four places by hand, and the one that was
 # forgotten was the one nobody could see. Measured 2026-09-26, right after a
@@ -19,6 +21,7 @@
 #   1. builds buddy and buddylist into $BUDDY_BIN_DIR (default ~/bin), and
 #      rebuilds any OTHER copy the machine runs: the program the launchd
 #      daemon agent names, and the checkout's own bin/ copies when present;
+#      every buddy carries this checkout's path, which `buddy update` reads;
 #   2. runs each built binary once (`buddy help`, bare `buddylist`, which
 #      prints its usage) and checks it says what it is — one that exits 137 was
 #      SIGKILLed for a broken ad-hoc signature, and a hook that ran it would
@@ -167,7 +170,22 @@ build() {
 	[ ! -d "$target" ] || die "$target is a directory, not a binary"
 	new=$target.new-$$
 	case $new in /*) ;; *) new=$ROOT/$new ;; esac
-	go build -o "$new" "./cmd/$cmd" || { rm -f "$new"; die "go build ./cmd/$cmd -o $target"; }
+	# buddy carries this checkout's path, which `buddy update` reinstalls
+	# from (internal/cli/update.go: a stamp travels with the bytes built and
+	# probed here; a record file beside them would not). go splits -ldflags
+	# on spaces and honours ' and " quotes with no escapes, so a path holding
+	# both cannot be passed: that build carries no stamp, and update refuses
+	# it naming this script, never a guess.
+	ldflags=""
+	if [ "$cmd" = buddy ]; then
+		x="github.com/JsizzleR/buddy-system/internal/cli.installedFrom=$ROOT"
+		case $ROOT in
+		*\'*\"* | *\"*\'*) say "NOTE — $ROOT holds both quote characters, so buddy cannot record it; buddy update will refuse and name this script" ;;
+		*\'*) ldflags="-X \"$x\"" ;;
+		*) ldflags="-X '$x'" ;;
+		esac
+	fi
+	go build -ldflags "$ldflags" -o "$new" "./cmd/$cmd" || { rm -f "$new"; die "go build ./cmd/$cmd -o $target"; }
 	# buddy answers `help` with 0. buddylist has no help verb: run bare, it
 	# prints its usage and exits 2 — a USAGE exit, which is fine here, and
 	# distinct from 126/127 (cannot execute) and 137 (SIGKILL). (A first

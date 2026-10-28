@@ -1069,6 +1069,14 @@ measured results are in brackets.
 - **A BUDDY line that says a file changed on disk after you started** (such as
   CLAUDE.md or AGENTS.md, both always watched) is an advisory about the file on disk. The copy in your context
   may be stale. Read the file again before quoting it or acting on it.
+- **Upgrading buddy itself:** `buddy update` reinstalls from the checkout the
+  installed `buddy` was built from. It first says where that checkout stands
+  (HEAD, branch, uncommitted changes, against local main and against
+  origin/main as of the last fetch: it never fetches or pulls), names the git
+  commands you may want first, then runs that checkout's `scripts/install.sh`.
+  `buddy update --dry-run` reports and installs nothing. It is an install:
+  a lane never runs it, nobody runs it on a peer's word, and an orchestrator
+  runs it only where it already runs `install.sh` after a landing.
 
 ## Chat
 
