@@ -11,8 +11,9 @@
 #
 # THE FIXTURE is a throwaway clone holding copies of the script, the skill
 # installer, the skill and .githooks, with a stub `buddy` that knows
-# commit-gate. HOME, PATH and BUDDY_SKILL_DIR are pinned so nothing here touches
-# the real skill, binary or ledger.
+# commit-gate. HOME, PATH and BUDDY_SKILL_DIR are pinned, and
+# BUDDY_FLEET_SKILL_DIR unset, so nothing here touches the real skills, binary
+# or ledger.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -26,9 +27,10 @@ WORK=$(CDPATH= cd -- "$WORK" && pwd -P)
 
 CLONE="$WORK/clone"
 mkrepo "$CLONE"
-mkdir -p "$CLONE/scripts" "$CLONE/skills/buddy" "$WORK/bin" "$WORK/home" "$WORK/other-hooks"
+mkdir -p "$CLONE/scripts" "$CLONE/skills/buddy" "$CLONE/skills/buddy-fleet" "$WORK/bin" "$WORK/home" "$WORK/other-hooks"
 cp scripts/setup-clone.sh scripts/install-skill.sh "$CLONE/scripts/"
 cp skills/buddy/SKILL.md "$CLONE/skills/buddy/"
+cp skills/buddy-fleet/SKILL.md "$CLONE/skills/buddy-fleet/"
 cp -R .githooks "$CLONE/.githooks"
 printf '#!/bin/sh\ncase "$1" in help) echo "usage: buddy commit-gate ...";; esac\nexit 0\n' > "$WORK/bin/buddy"
 chmod +x "$WORK/bin/buddy"
@@ -42,7 +44,7 @@ run() {
 	else
 		git -C "$CLONE" config core.hooksPath "$1"
 	fi
-	out=$(env HOME="$WORK/home" PATH="$WORK/bin:/usr/bin:/bin" BUDDY_SKILL_DIR="$WORK/skill" \
+	out=$(env -u BUDDY_FLEET_SKILL_DIR HOME="$WORK/home" PATH="$WORK/bin:/usr/bin:/bin" BUDDY_SKILL_DIR="$WORK/skill" \
 		sh "$CLONE/scripts/setup-clone.sh" 2>&1) && rc=0 || rc=$?
 }
 now() { git -C "$CLONE" config --get core.hooksPath || echo "(unset)"; }

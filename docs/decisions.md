@@ -8711,3 +8711,103 @@ style rules; landing lower meant cutting rules, which the brief ruled out.
 `CLAUDE.md` and holds its links; nothing else in the tree parses its sections (scripts and tests
 that name `CLAUDE.md` cite it in comments, or watch it as an authority file by path).
 `check-charter.sh` holds GIVEN 113.
+
+## D-114 — The skill splits: a core every session loads, the fleet's recipe apart, the operator's conventions out of the shipped text
+
+2026-10-28 · the operator's decision (the trajectory consult's recommendation 5, accepted in
+orc-10's pane), carried out by lane skill-split under a brief that relays it
+
+**What was wrong** — `skills/buddy/SKILL.md` was 73,144 bytes (about 18k tokens) and doubled
+in eight days (33,825 on 10-20). It was LOADED in 115 of 156 sessions in this repo and another
+repo over four days (orc-10's count of Skill-tool calls naming `buddy`), and once loaded it
+rides every later request of that session. Most of those sessions were lanes, which need
+claim, release, wait, msg, who, the gate and the landing handshake; the orchestrator's launch
+recipe, model picking, review-tier machinery, restacking, the beyond-code translation and the
+fleet of fleets were most of the bytes. And the shipped text carried this operator's own
+defaults as facts ("on 2026-10-28, Opus 5.5 at high effort", Fable by name as the review
+model, a `codex@xhigh` receipt), in a public repository whose skill other operators install.
+
+**The rule** — Two skills ship. `skills/buddy/SKILL.md` (`name: buddy`, 22,578 bytes) is the
+core: what buddy is, harness boundaries, claim before edit, a refusal and the waits, parking,
+the roster, messages (the wake line read, never discarded), landing as a lane (READY, LANDED,
+DONE, the hand-on at READY, the handoff to `<item>-2`), the relay clause from the lane's side,
+the lane's review (the receipt, the round ceiling, review never test evidence), slots, ids,
+the authority notice and chat. It names `buddy-fleet` once, for a session that coordinates
+others. `skills/buddy-fleet/SKILL.md` (`name: buddy-fleet`) is the coordinator's: its
+operator's standing decisions, opening lanes, assigning and ending them, handing off a
+coordinator, landing several lanes in one run (the orchestrator's steps and the integrator's
+claim), review depth and the round cap (D-115), the model pick, restacking with gh stack,
+non-code deliverables, Codex lanes and adapters (`buddy diagnose`), a fleet of fleets, and
+`buddy update`. Its description says it is for the orchestrator and "Not for a lane".
+
+Model ids, dates and this operator's defaults leave both skills: each says "the operator's
+default lane model" and "a model the operator keeps for reviews", read from the operator's
+instructions. D-111's rule stands where it binds: in the operator's own instructions (which
+already say it), in this repo's CLAUDE.md and GIVEN 112, and in
+`docs/examples/fleet-conventions.md`, a worked example of an operator's "Running a fleet"
+section drawn from how this operator runs fleets, generalized with `<placeholders>`, each rule
+with the measurement behind it. The shipped skills keep the generic rule: every lane on the
+operator's default lane model, full tier included, another only on the operator's naming,
+never the review model by inheritance. Measured model facts (a model without auto mode asks
+for every call) stay, as measurements.
+
+`scripts/install-skill.sh` installs both, the fleet skill beside the core
+(`BUDDY_FLEET_SKILL_DIR` overrides), and checks both destinations before writing either: a
+refused fleet destination leaves the core unrefreshed too, and the refusal names the path; one
+directory for both is refused, and each destination is locked. An
+old single-file install is a stale copy like any other: replaced, kept as `SKILL.md.bak`, and
+the fleet skill added beside it.
+
+**What it amends** — D-046's pointer (hello's line names `buddy --help`; the skill says how
+the verbs fit) stands: the core is that skill. D-104's "the skill states the default as that
+day's" (GIVENs 105, 112) no longer holds for the skill: it states no model; the operator's
+instructions do. D-062's landing recipe, D-082's launch, D-083/D-109's relay clause, D-103's
+side work and D-108's restack recipe are unchanged in substance, split by reader.
+
+**Not done** — A third skill for the adapter surface (it is a paragraph). A size gate on the
+core (D-116's prose-budget plan owns budgets). Removing an old monolith from a machine that
+never re-runs install-skill: it still works (a superset), and `buddy update` / `install.sh`
+refresh it. No verb, flag, row or schema.
+
+**Test shape** — `TestSkillNamesOnlyWhatHelpAnswers` reads each skill on its own (a flags-only
+span belongs to the verb last named, so a file boundary must not carry one across);
+`TestSkillTeachesEveryVerbAndFlag` reads the union; `TestSkillCoverageGateFires` cuts a name
+from both (reported) and from each alone (reported exactly when the other does not name it),
+including `--codex-hooks`, which only the fleet skill teaches;
+`TestSkillSplitPointsAtTheFleetSkill` holds the two frontmatter names, the core's pointer and
+the fleet description's "Not for a lane". `check-skill.sh` QA-1/2/3/7/8: both installed, both
+current, a stale single-file core replaced with the fleet skill added, the fleet-dir knob, a
+refused fleet dir installing neither; QA-9/10 one directory for both refused (a symlinked alias
+too) and a lock held in the fleet dir. The new test also holds each description to a valid
+YAML plain scalar (the first fleet description held "one item: a lane"). `check-install.sh` QA-1 and `check-setup-clone.sh`
+carry the second file. The doc-link test reads both skills and the example.
+
+## D-115 — A brief names a review-round ceiling; at it the lane stops, folds narrowly and records the rest open
+
+2026-10-28 · the operator's decision (the trajectory consult's recommendation 3, accepted in
+orc-10's pane), carried out by lane skill-split under a brief that relays it
+
+**What was wrong** — D-104 bounded a full item's re-verify "until it accepts or the brief's
+bound", and no text said what the bound was, so briefs rarely named one. D-106 took six
+re-verify rounds, each re-reading the lane's whole prompt, and on that work every fold
+regressed something an earlier round had accepted (the narrow-folds lesson). Rounds were the
+token cost, not landing.
+
+**The rule** — Every brief names a round ceiling with its tier. The default: lite, one
+second-model code pass folded once; full, a design pass, a code pass and at most TWO re-verify
+rounds; chore, none. The operator raises it per item; nobody else does. At the ceiling the
+lane folds what the last round raised that it can fold narrowly, answers the rest in the
+commit message, records it open (the decision record or the note the brief names), and
+reports READY. A lane on gate work is briefed to fold narrowly: fix the exact form found,
+test it, and record a crafted respelling open rather than widen a recognizer. It lives in the
+fleet skill's "Review depth" (a table and the reason), in its brief steps (Opening lanes; the
+orchestrator's step 8 names tier, ceiling and model), and in the core's "Your review" ("Stop
+at the round ceiling").
+
+**What it amends** — D-104's "until it accepts or the brief's bound": the bound is now always
+named, and two is the full tier's default. Tiers, layers and receipts are unchanged.
+
+**Not done** — A counter or check of rounds (nothing in buddy reads a review); a ceiling on
+the panel or the cross-check, each of which runs once.
+
+**Test shape** — Prose only; the skill tests hold every name the edited sections use.

@@ -117,7 +117,8 @@ scripted run of a similar choreography, read from the ledger beat by beat.
 
 **What was captured.** One Claude Code session (Opus, auto mode), the
 coordinator, following a brief of 21 numbered steps in a run of the
-[skill](../skills/buddy/SKILL.md)'s "Running a fleet" recipe, 2026-10-26, in
+[skill](../skills/buddy/SKILL.md)'s "Running a fleet" recipe (now in the
+[fleet skill](../skills/buddy-fleet/SKILL.md)), 2026-10-26, in
 a scratch clone with its own ledger under a throwaway home directory whose
 settings wire buddy's hooks and nothing else. The two lanes it opened
 (Sonnet, auto mode) followed the numbered briefs of the scripted run in

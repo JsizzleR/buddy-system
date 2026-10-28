@@ -43,10 +43,10 @@ session's own choice; what buddy refuses comes from the ledger.
 
 ## A session runs a fleet
 
-One Claude Code session coordinating two others, in a run of the
-[skill](skills/buddy/SKILL.md)'s "Running a fleet" recipe. The
+One Claude Code session coordinating two others, in a run of the fleet
+recipe now in the [buddy-fleet skill](skills/buddy-fleet/SKILL.md). The
 `SessionStart` hook registers it and prints what the ledger holds; `/buddy`
-loads the skill; it opens the two lanes in new terminal tabs with the
+loads the skill (the recipe was then part of it); it opens the two lanes in new terminal tabs with the
 harness (`herdr tab create`, `herdr agent start`), reads the roster and the
 claims from the ledger while they work, waits on each lane with the harness
 (`herdr agent wait`: lane-a came back `done`; lane-b came back `blocked`, the
@@ -80,10 +80,13 @@ already gone.
 
 ## Install in two minutes
 
-Requires Go 1.26+ and `git`. Developed and used on macOS. The hermetic suite
-passes on Linux in CI, where process identity is "cannot say", nothing is
-ever marked `GONE`, and nobody uses it day to day. The whole thing, from an
-empty directory to the first claim in another project:
+Requires Go 1.26+ and `git`. **Platforms.** macOS is where it is developed
+and used. On Linux the hermetic tier is green in CI (the live tier does not
+run there) with process identity degraded, because no harness process is
+found for a session: the roster never marks a session's process `GONE`,
+`buddy msg` prints no wake address, and `buddy who`'s JOBS line says "cannot
+say"; nobody uses it there day to day. Windows is not built or tried. The
+whole thing, from an empty directory to the first claim in another project:
 
 ![Two panes of one terminal. Left: git clone, a claims-only run of the install script reporting what it built and that no hooks are wired, the hook-wiring block saved to the settings file, and the re-run reporting all six wired. Right: buddy init in another project, the digest a new session there gets at SessionStart, its first claim, and buddy status showing the claim held](docs/assets/install.svg)
 
@@ -112,7 +115,10 @@ rebuilds every copy it knows about (`~/bin`, the chat daemon's program, this
 checkout's `bin/`): a `buddy` older than the ledger's schema refuses to open
 it, and the gate then denies every write. It also installs the
 [skill](skills/buddy/SKILL.md) to `~/.claude/skills/buddy/`, which teaches a
-session how the verbs fit together. Put `~/bin` on your `PATH`
+session how the verbs fit together, and the
+[fleet skill](skills/buddy-fleet/SKILL.md) beside it, which a session
+coordinating others loads (an example of the operator's own fleet
+conventions it reads: [docs/examples/fleet-conventions.md](docs/examples/fleet-conventions.md)). Put `~/bin` on your `PATH`
 (`BUDDY_BIN_DIR` overrides it; the hook lines spell the path out either way).
 
 #### Claims-only: no chat stack

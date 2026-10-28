@@ -18,6 +18,10 @@ set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
 CDPATH= cd -- "$ROOT"
+# BUDDY_FLEET_SKILL_DIR inherited from the caller would send the fleet skill
+# to a REAL skills directory (Codex code pass): unset, so it goes beside the
+# fixture's core.
+unset BUDDY_FLEET_SKILL_DIR
 
 fail() { echo "check-install: FAIL — $*" >&2; exit 1; }
 
@@ -63,6 +67,8 @@ $out"
 [ -x "$WORK/bin/buddy" ] && [ -x "$WORK/bin/buddylist" ] || fail "QA-1: binaries missing"
 "$WORK/bin/buddy" help 2>&1 | grep -q commit-gate || fail "QA-1: the installed buddy is not this checkout's"
 cmp -s skills/buddy/SKILL.md "$WORK/skill/SKILL.md" || fail "QA-1: skill not installed"
+# The fleet skill (D-114) goes beside the core: $WORK/skill's sibling.
+cmp -s skills/buddy-fleet/SKILL.md "$WORK/buddy-fleet/SKILL.md" || fail "QA-1: fleet skill not installed"
 echo "$out" | grep -qF 'hooks: NOT wired in' || fail "QA-1: the hook report is missing:
 $out"
 missing=$(echo "$out" | sed -n 's/.*NOT wired in [^:]*: *\(.*\) (README.*/\1/p')

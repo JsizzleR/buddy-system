@@ -1197,6 +1197,24 @@ ledger row entered through the CLI (D-006).
     always-loaded file (it saves nothing), dropping index lines for old decisions, or putting
     a decision's full text back into `CLAUDE.md`.
 
+115. **The skill splits by reader; the operator's conventions are not shipped (D-114).** The
+    core `skills/buddy/SKILL.md` (every session: claims, refusals, waits, messages, landing as
+    a lane, handoff, the gate) and `skills/buddy-fleet/SKILL.md` (the coordinator: launch,
+    landing a run, review depth, model pick, restack, fleet of fleets), both installed by
+    `install-skill.sh`, which checks both destinations before writing either. The 73 KB skill
+    was loaded in 115 of 156 sessions, mostly lanes. Neither skill names a model, a date or
+    this operator's defaults: "the operator's default lane model" and "a model the operator
+    keeps for reviews", read from the operator's instructions;
+    `docs/examples/fleet-conventions.md` is a worked example. This supersedes GIVENs 105 and
+    112's "the skill states the default as that day's". Do not propose putting model ids or
+    the operator's defaults back into a shipped skill, or one skill again.
+
+116. **A brief names a review-round ceiling (D-115).** Default: lite, one second-model code
+    pass folded once; full, design + code + at most two re-verify rounds; the operator raises
+    it per item. At the ceiling the lane folds narrowly, answers the rest in the commit, and
+    records it open. D-106 took six rounds and every fold regressed something. Do not propose
+    re-verifying "until it accepts" without a named ceiling.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

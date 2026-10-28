@@ -158,17 +158,67 @@ func TestHelloHelpLineTeachesTheTimerWait(t *testing.T) {
 	}
 }
 
+// skillFiles are the shipped skills (D-114): the core every session loads,
+// and the fleet skill only a coordinator loads. A name either one teaches must
+// exist, and every verb and flag must be taught by at least one of them.
+var skillFiles = []string{"../../skills/buddy/SKILL.md", "../../skills/buddy-fleet/SKILL.md"}
+
+// readSkills returns each skill's text, in skillFiles' order. Each is parsed
+// on its own: a flags-only span belongs to the verb most recently named, and
+// across a file boundary that verb would be the other file's.
+func readSkills(t *testing.T) []string {
+	t.Helper()
+	var bodies []string
+	for _, f := range skillFiles {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, string(b))
+	}
+	return bodies
+}
+
 func TestSkillNamesOnlyWhatHelpAnswers(t *testing.T) {
-	body, err := os.ReadFile("../../skills/buddy/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
+	for i, body := range readSkills(t) {
+		errs, checked := checkNamedVerbs(body, helpUsage)
+		for _, e := range errs {
+			t.Errorf("%s: %s", skillFiles[i], e)
+		}
+		if checked < 20 {
+			t.Fatalf("checked only %d names in %s; the parser no longer reads it", checked, skillFiles[i])
+		}
 	}
-	errs, checked := checkNamedVerbs(string(body), helpUsage)
-	for _, e := range errs {
-		t.Error(e)
+}
+
+// The split holds only if each skill loads for its own reader: the core
+// points a coordinator at the fleet skill by its name, and the fleet skill's
+// frontmatter name is the directory install-skill.sh installs it as. A renamed
+// directory or frontmatter would leave the pointer naming nothing.
+func TestSkillSplitPointsAtTheFleetSkill(t *testing.T) {
+	bodies := readSkills(t)
+	for i, want := range []string{"name: buddy\n", "name: buddy-fleet\n"} {
+		if !strings.HasPrefix(bodies[i], "---\n"+want) {
+			t.Errorf("%s does not open with frontmatter %q", skillFiles[i], want)
+		}
 	}
-	if checked < 20 {
-		t.Fatalf("checked only %d names in the skill; the parser no longer reads it", checked)
+	if !strings.Contains(bodies[0], "`buddy-fleet` skill") {
+		t.Errorf("the core skill no longer points a coordinator at the `buddy-fleet` skill")
+	}
+	if !strings.Contains(bodies[1], "Not for a lane") {
+		t.Errorf("the fleet skill's description no longer tells a lane it is not for it")
+	}
+	// The description is a YAML plain scalar: ": " or " #" inside one is a
+	// parse error or a comment (Codex code pass: the fleet skill's first
+	// description held "one item: a lane"), and a loader that rejects the
+	// frontmatter loses the one line that decides who loads the skill.
+	for i, body := range bodies {
+		for _, line := range strings.Split(body, "\n")[1:4] {
+			v, ok := strings.CutPrefix(line, "description: ")
+			if ok && (strings.Contains(v, ": ") || strings.Contains(v, " #") || strings.ContainsAny(v[:1], "'\"&*!|>%@`[]{}")) {
+				t.Errorf("%s: the description is not a valid YAML plain scalar (\": \", \" #\" or a leading indicator): %.80s", skillFiles[i], v)
+			}
+		}
 	}
 }
 
@@ -295,15 +345,14 @@ func untaught(taught map[string]map[string]bool) []string {
 }
 
 func TestSkillTeachesEveryVerbAndFlag(t *testing.T) {
-	body, err := os.ReadFile("../../skills/buddy/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
 	taught := map[string]map[string]bool{}
-	checkNamedVerbsInto(string(body), helpUsage, taught)
+	for _, body := range readSkills(t) {
+		checkNamedVerbsInto(body, helpUsage, taught)
+	}
 	for _, m := range untaught(taught) {
-		t.Errorf("%s is in the usage table and the skill never teaches it: add it to skills/buddy/SKILL.md "+
-			"in a backticked `buddy <verb> --flag` (then recopy it to ~/.claude/skills/buddy/), or exempt it in skillExempt WITH a reason", m)
+		t.Errorf("%s is in the usage table and neither skill teaches it: add it to skills/buddy/SKILL.md "+
+			"(what a lane does) or skills/buddy-fleet/SKILL.md (what a coordinator does) in a backticked "+
+			"`buddy <verb> --flag` (then re-run scripts/install-skill.sh), or exempt it in skillExempt WITH a reason", m)
 	}
 	// The exemptions must name things that exist, or a renamed verb would
 	// sit exempt forever while its new name went untaught.
@@ -320,21 +369,35 @@ func TestSkillTeachesEveryVerbAndFlag(t *testing.T) {
 // skill drops, and a subcommand the skill drops — each cut from the REAL skill,
 // so a parser that read nothing would fail here rather than pass above.
 func TestSkillCoverageGateFires(t *testing.T) {
-	body, err := os.ReadFile("../../skills/buddy/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
+	bodies := readSkills(t)
 	for _, cut := range []struct{ from, want string }{
 		{"--ready", "buddy wait --ready"},
 		{"--outcome", "buddy release --outcome"},
 		{"buddy sent", "buddy sent"},
 		{"wait check", "buddy wait check"},
+		{"--codex-hooks", "buddy diagnose --codex-hooks"}, // taught by the fleet skill alone
 	} {
-		text := strings.ReplaceAll(string(body), cut.from, "REMOVED")
 		taught := map[string]map[string]bool{}
-		checkNamedVerbsInto(text, helpUsage, taught)
+		for _, body := range bodies {
+			checkNamedVerbsInto(strings.ReplaceAll(body, cut.from, "REMOVED"), helpUsage, taught)
+		}
 		if !slices.Contains(untaught(taught), cut.want) {
-			t.Errorf("with every %q cut from the skill, the gate did not report %q", cut.from, cut.want)
+			t.Errorf("with every %q cut from both skills, the gate did not report %q", cut.from, cut.want)
+		}
+		// The control: cut from ONE skill only, the name is reported exactly
+		// when the other skill does not name it, so the union is what is read.
+		for i := range bodies {
+			taught := map[string]map[string]bool{}
+			for j, body := range bodies {
+				if j == i {
+					body = strings.ReplaceAll(body, cut.from, "REMOVED")
+				}
+				checkNamedVerbsInto(body, helpUsage, taught)
+			}
+			if slices.Contains(untaught(taught), cut.want) != !strings.Contains(bodies[1-i], cut.from) {
+				t.Errorf("with %q cut from %s only, the gate's report of %q does not follow whether %s still names it",
+					cut.from, skillFiles[i], cut.want, skillFiles[1-i])
+			}
 		}
 	}
 }

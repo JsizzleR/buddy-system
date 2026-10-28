@@ -103,8 +103,8 @@ else
 fi
 chmod +x "$ROOT/.githooks/"* 2>/dev/null || true
 
-# The user-level skill (skills/buddy/SKILL.md) is how a session in ANY repo
-# learns how the verbs fit; it is loaded from ~/.claude/skills, so a copy that
+# The user-level skills (skills/buddy/SKILL.md, and skills/buddy-fleet for a
+# coordinator) are how a session in ANY repo learns how the verbs fit; it is loaded from ~/.claude/skills, so a copy that
 # is not refreshed teaches last release's verbs. Before the binary check's
 # early exit below: the skill is useful whether or not buddy is built yet.
 sh "$ROOT/scripts/install-skill.sh"

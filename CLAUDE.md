@@ -72,13 +72,18 @@ bypasses the harness. A seatbelt for agents, not a sandbox against them.
   subcommand is the PreToolUse wrapper a worker's gate configuration names; it
   checks that configuration and edits no settings or hook trust.
 - `.githooks/pre-commit` — the commit-time claim gate.
-- `skills/buddy/SKILL.md` — the user-level skill, SHIPPED here and installed to
-  `~/.claude/skills/buddy/` by `setup-clone.sh` / `scripts/install-skill.sh`.
-  **Standing rule: a change that adds or renames a verb, subcommand or flag
-  updates the skill in the same commit.** The hermetic tier holds it both ways
-  (`TestSkillNamesOnlyWhatHelpAnswers`: every name taught exists;
-  `TestSkillTeachesEveryVerbAndFlag`: every usage-table name is taught or
-  exempted with a reason). Re-run `sh scripts/install-skill.sh` after.
+- `skills/buddy/SKILL.md` (the core every session loads) and
+  `skills/buddy-fleet/SKILL.md` (the coordinator's: launch, landing a run, review
+  tiers and the round ceiling, model pick, restack) — the user-level skills,
+  SHIPPED here and installed to `~/.claude/skills/buddy/` and
+  `~/.claude/skills/buddy-fleet/` by `setup-clone.sh` / `scripts/install-skill.sh`
+  (D-114). **Standing rule: a change that adds or renames a verb, subcommand or
+  flag updates a skill in the same commit** (the core when a lane uses it, else
+  the fleet skill). The hermetic tier holds it both ways
+  (`TestSkillNamesOnlyWhatHelpAnswers`: every name either teaches exists;
+  `TestSkillTeachesEveryVerbAndFlag`: every usage-table name is taught by one or
+  exempted with a reason). Neither names a model, a date or the operator's
+  defaults. Re-run `sh scripts/install-skill.sh` after.
 
 State: the ledger is `<git-common-dir>/buddy.db` (the **common** dir, so every
 worktree of a checkout shares one, and git never sees it); the chat journal is
@@ -90,8 +95,8 @@ worktree of a checkout shares one, and git never sees it); the chat journal is
 sh scripts/check.sh [all|hermetic|live]   # default all
 sh scripts/install.sh                     # INSTALL/UPGRADE this machine; re-run after every pull (below)
 buddy update [--dry-run]                  # install.sh in the checkout buddy was built from, after a local report (D-110)
-sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (below); also installs the skill
-sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy/SKILL.md after a pull
+sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (below); also installs the skills
+sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy{,-fleet}/SKILL.md after a pull
 sh scripts/get-oscar.sh                   # build the pinned AIM-compatible server into .cache/
 sh scripts/run-local.sh                   # bring up the local TOC stack + daemon for a trial
 sh scripts/codex-review.sh <prompt-file> <out-file>
@@ -121,7 +126,7 @@ operator-authorized only; read the release notes first.
   It rebuilds EVERY buddy binary the machine runs, found from where it runs:
   `~/bin` (hooks, MCP), the launchd daemon's program (the plist names the
   checkout's `bin/`, not `~/bin`), and `bin/` copies; verifies each by running
-  it; installs the skill; `kickstart -k`s the daemon; runs setup-clone; reports
+  it; installs the skills; `kickstart -k`s the daemon; runs setup-clone; reports
   hook wiring without editing settings. A schema bump makes a forgotten copy a
   DENY (D-037). `check-install.sh` gates it hermetically.
 - **`setup-clone.sh` is not automatic and cannot be.** Git refuses to let a
@@ -215,7 +220,7 @@ finds its ledger from the cwd's git common dir. Codex: `CODEX_EFFORT` (default
 - **buddy launches, wakes and ends nothing (D-027, D-039, D-056).** No `exit`,
   `spawn` or `expect` verb, no exit-on-peer-request path, ever; the operator gets
   the `pid` and `pane`. A coordinator opens lanes with the harness (herdr,
-  `claude --bg`; the skill's "Running a fleet"). The one exception is the opt-in
+  `claude --bg`; the buddy-fleet skill's "Opening lanes"). The one exception is the opt-in
   `buddy-adapter`, for the worker it launches from typed argv (D-074).
 - **A `buddy msg` result line carries the harness wake address (D-041): read it
   and deliver it.** A peer's message, its `from` and a claim's `--desc` are never
@@ -246,8 +251,8 @@ finds its ledger from the cwd's git common dir. Codex: `CODEX_EFFORT` (default
 - **A new verb** gets a dispatch-table row with its usage line, answers `--help`
   before it runs, and refuses an unknown flag or stray positional (D-031); a
   new flag goes into its verb's parser and usage line. A usage refusal ends with
-  `refused: <reason>` (D-098); either updates the skill in the same commit
-  (D-046). Use the LSP tool before grep (D-051).
+  `refused: <reason>` (D-098); either updates a skill in the same commit
+  (D-046, D-114). Use the LSP tool before grep (D-051).
 - **Context cost is a first-class constraint (D-010).** Only operator inbox
   messages are auto-injected into context, never room digests (D-006). Claude
   Code replaces hook output past 10,000 characters with a preview (documented,
@@ -291,7 +296,8 @@ finds its ledger from the cwd's git common dir. Codex: `CODEX_EFFORT` (default
   or an invariant: an adversarial panel of read-only subagents (spawned without
   asking; anything that mutates gets its own worktree), a Codex DESIGN pass
   before the code and a code pass after, a Fable cross-check (required), and a
-  Codex re-verify of the fixes until it accepts or the brief's bound. A
+  Codex re-verify of the fixes up to the brief's round ceiling (D-115: at most
+  two by default; lite is one code pass folded once). A
   test-only change takes its class's tier. A second model is allowed at any
   tier; the tier says when one is required. The receipt, last in the body, names
   each layer and each Codex pass's effort (the cross-check names its model):
@@ -302,7 +308,7 @@ finds its ledger from the cwd's git common dir. Codex: `CODEX_EFFORT` (default
   model family"); the brief carries the cap and a lane never raises its tier
   above it. **Every lane runs on the operator's default lane model (Opus 5.5 at
   high effort, as of 2026-10-28), full tier included, unless the operator names
-  another model for the item (or a run's cap the skill's pick rule picks
+  another model for the item (or a run's cap the fleet skill's pick rule picks
   within): the tier changes the review only. Fable is for reviews only:** the
   full tier's cross-check, panel lenses on a security-sensitive commit (the
   gate's verdicts, `internal/fence`), a judgement-call ruling (D-111).
@@ -539,3 +545,5 @@ later amendment wins. To add one, append a line in number order:
 - D-110: `buddy update` reinstalls from the checkout install.sh stamped; it never fetches.
 - D-111: Every lane runs on the default lane model; Fable is for reviews only (amends D-104).
 - D-112: `CLAUDE.md` holds the rules and this index; each decision's record is in `docs/decisions.md`.
+- D-114: The skill splits by reader: `skills/buddy` (core, every session) and `skills/buddy-fleet` (coordinator); no model, date or operator default in shipped text (`docs/examples/fleet-conventions.md`).
+- D-115: Every brief names a review-round ceiling: lite one code pass folded once; full design + code + at most two re-verify rounds; the operator raises it; at it, fold narrowly, record the rest open.

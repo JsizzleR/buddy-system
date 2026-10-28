@@ -83,8 +83,9 @@ its boundaries tells you what counts as a vulnerability.
 For anyone checking it against a machine policy.
 
 - **Claims only** (`BUDDY_CHAT=off sh scripts/install.sh`): binaries in `~/bin`
-  (and the checkout's `bin/` copies, if present), the agent skill at
-  `~/.claude/skills/buddy/SKILL.md`, a git hooks path per checkout, and one
+  (and the checkout's `bin/` copies, if present), the agent skills at
+  `~/.claude/skills/buddy/SKILL.md` and `~/.claude/skills/buddy-fleet/SKILL.md`,
+  a git hooks path per checkout, and one
   SQLite file in each repository's git directory. You add the Claude Code hook
   lines to your settings yourself; the installer reports them and never edits
   settings. No MCP server, no daemon, nothing listening, no network

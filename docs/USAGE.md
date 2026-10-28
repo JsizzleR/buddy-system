@@ -401,6 +401,9 @@ accepts a destination; its backup and locking behavior applies unchanged:
 BUDDY_SKILL_DIR="$HOME/.agents/skills/buddy" sh scripts/install-skill.sh
 ```
 
+The fleet skill goes beside it, in `buddy-fleet` (`BUDDY_FLEET_SKILL_DIR`
+overrides that).
+
 That user skill directory follows the current
 [Codex skill discovery guide](https://learn.chatgpt.com/docs/build-skills).
 Default installation still targets Claude. Installing a skill does not install

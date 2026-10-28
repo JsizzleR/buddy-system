@@ -30,7 +30,7 @@
 #      `gate` once in a fresh temp directory, which must exit 0. Each is
 #      built BESIDE its target and renamed over it only once it passed, so a
 #      build that fails here leaves the old binary in place;
-#   3. installs the user-level skill (scripts/install-skill.sh);
+#   3. installs the user-level skills, buddy and buddy-fleet (scripts/install-skill.sh);
 #   4. restarts the chat daemon under launchd (`kickstart -k`, never kill:
 #      KeepAlive respawns a killed daemon and the loser of the socket race
 #      dies — CLAUDE.md) and checks it is running again, waiting out the
@@ -86,6 +86,7 @@
 # KNOBS (the done-check, check-install.sh, uses all of them to stay hermetic):
 #   BUDDY_BIN_DIR       where the binaries go            (default ~/bin)
 #   BUDDY_SKILL_DIR     passed to install-skill.sh       (default ~/.claude/skills/buddy)
+#   BUDDY_FLEET_SKILL_DIR  likewise                       (default buddy-fleet beside it)
 #   BUDDY_DAEMON=off    skip step 4 (and the daemon's program in step 1)
 #   BUDDY_SETUP_CLONE=off  skip step 5
 #   BUDDY_SETTINGS      the settings file step 6 reads   (default ~/.claude/settings.json)
@@ -278,7 +279,7 @@ if [ "${BUDDY_REPO_BIN:-}" != off ]; then
 	done
 fi
 
-# 3. The skill.
+# 3. The skills.
 run_step install-skill sh "$ROOT/scripts/install-skill.sh"
 
 # 4. The daemon. LC_ALL=C in front of anything that reads process tables
