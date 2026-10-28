@@ -103,7 +103,7 @@ sh scripts/codex-review.sh <prompt-file> <out-file>
 ```
 
 Reports print counts, ids and byte lengths only: `scripts/cost-report.sh` (7-day
-context cost), `startup-report.sh [repo]` (minutes and tool calls before each
+context cost; prose classes against their ceilings, billed context), `startup-report.sh [repo]` (minutes and tool calls before each
 session's first edit), `wake-report.sh [project]` (idle→wake warm/cold by what
 woke it, tokens re-written), `fleet-report.sh <list-file>` (per listed project
 ledger: verdict, counts, STALE/mail/pause ids), `model-report.sh [--export F]`

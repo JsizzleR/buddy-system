@@ -1,6 +1,38 @@
 #!/bin/sh
 # Privacy-preserving Buddy cost report. It reads aggregate counts and byte
 # lengths only: no inbox body, chat text, prompt, or tool result is printed.
+#
+# The last two sections (docs/PROSE-BUDGET-PLAN.md section 5) are about the
+# checkout THIS SCRIPT lives in, not the cwd's: its prose budget, and the
+# transcripts whose recorded cwd is that checkout or one of its worktrees.
+#   Fixed prose      every class of docs/prose-budget.tsv with its members,
+#                    bytes, ceiling and headroom. The members come from
+#                    `check-prose-budget.sh --members`, the check's own
+#                    enumeration: a second list here would drift from it, and
+#                    a file the tier budgets that the report never counts is
+#                    the miss this exists to prevent. A class total is the sum
+#                    of its members, as the check sums it; a SECTION key
+#                    (`CLAUDE.md#Decisions`) is printed under its file and
+#                    labelled, never added; a member of two classes (CLAUDE.md
+#                    is every-request and, through AGENTS.md, read-first) is
+#                    labelled in the second. No grand total: one would count
+#                    those bytes twice.
+#   Context billed   one deduplicated request set: an assistant record with
+#                    usage, in the window, never `<synthetic>`, keyed by
+#                    message.id else requestId (measured 2026-10-28 over this
+#                    repo's 14,076 records: 6,861 unique either way, the two
+#                    ids 1:1, usage identical across a message's records, so
+#                    the plan's two counts were a fallback rule, not two
+#                    populations). Subagent requests count (they are billed);
+#                    `sessions` is main-thread session ids.
+# Skill exposure is computed over that same set: a request carries a skill
+# body when ITS TRANSCRIPT FILE loaded it earlier (a Skill call naming it, a
+# `/name` command, or a whole-file Read of its SKILL.md), so a subagent's file
+# never inherits its parent's load and a resumed file carries the copied one.
+# Residuals, named rather than estimated: a body re-attached after /compact is
+# not seen; a request first seen in a file without the load (resume order) is
+# not carried. Where a number is not in the transcripts at all (what a
+# startup read cost the requests after it) the report says NOT MEASURED.
 set -eu
 
 days=${BUDDY_COST_DAYS:-7}
@@ -114,11 +146,29 @@ else
 	echo "Ledger context fan-out: unavailable (set BUDDY_LEDGER=<git-common-dir>/buddy.db; in a worktree the common dir is NOT .git)"
 fi
 
+work=$(mktemp -d "${TMPDIR:-/tmp}/buddy-cost.XXXXXX")
+trap 'rm -rf "$work"' EXIT INT TERM
+events="$work/events"; transcripts="$work/transcripts"; jqerr="$work/jqerr"; stats="$work/stats"
+: >"$events"; : >"$stats"
+# The prose classes, from the check (header). Empty when this checkout has no
+# table or the check cannot run: the section then says unavailable.
+: >"$work/members"
+prose_ok=
+if [ -f "$root/docs/prose-budget.tsv" ] && [ -f "$root/scripts/check-prose-budget.sh" ] &&
+	sh "$root/scripts/check-prose-budget.sh" --members >"$work/members" 2>/dev/null; then
+	prose_ok=1
+fi
+# This checkout's worktree paths (the main one first): a transcript record is
+# this repo's when its cwd is one of them or under one, which also covers a
+# lane's worktree under .claude/worktrees after it was removed.
+# NUL-delimited: without -z git quotes a path holding a tab or a newline, and
+# the quoted spelling matches no recorded cwd (Codex code pass).
+git -C "$root" worktree list --porcelain -z 2>/dev/null >"$work/roots" || : >"$work/roots"
+roots_json=$(jq -Rsc 'split("\u0000") | map(select(startswith("worktree ")) | ltrimstr("worktree "))' <"$work/roots")
+rf_json=$(awk -F '\t' '$1 == "read-first" { print $2 }' "$work/members" | jq -R . | jq -cs .)
+stat_of() { sed -n "s/^$1=//p" "$stats"; }
+
 if [ -d "$claude_projects" ]; then
-	events=$(mktemp "${TMPDIR:-/tmp}/buddy-cost.XXXXXX")
-	transcripts=$(mktemp "${TMPDIR:-/tmp}/buddy-cost-files.XXXXXX")
-	jqerr=$(mktemp "${TMPDIR:-/tmp}/buddy-cost-jqerr.XXXXXX")
-	trap 'rm -f "$events" "$transcripts" "$jqerr"' EXIT INT TERM
 	find "$claude_projects" -type f -name '*.jsonl' -size +0c -print0 2>/dev/null >"$transcripts"
 	seen=$(tr -cd '\000' < "$transcripts" | wc -c | tr -d ' ')
 	# NO `-n 1`, NO PIPELINE, `-size +0c`, `<= 1` RATHER THAN `== 1`, AND THE FLOOR
@@ -187,11 +237,37 @@ if [ -d "$claude_projects" ]; then
 	# NOTE arm below, which names its evidence instead of blaming jq.
 	#
 	# The `F` row costs one line per file and the analysis awk below ignores it.
-	xargs -0 jq -r --arg cutoff "$cutoff_iso" '
+	#
+	# The prose sections' rows ride the same pass (U request, T tool call, K
+	# skill load), only for a record whose cwd is this checkout's; every field
+	# is a number, a fixed flag, or a key the awk below matches and never
+	# prints (an id, a file name, a skill name). A tool name is printed by the
+	# MCP section, so a name that is not one of the server's tools
+	# (internal/buddylist/mcp.go's mcpToolTable) is folded into `(other)`: a
+	# model-written name is transcript text like any other, and a SHAPE test
+	# still passed `mcp__buddylist__<any lowercase words>` (Codex code pass).
+	# The window compares at second precision: `…00.500Z` sorts before
+	# `…00Z` as a string (Codex code pass).
+	xargs -0 jq -r --arg cutoff "$cutoff_iso" --argjson roots "$roots_json" --argjson rf "$rf_json" '
+			def num: if type == "number" then floor else 0 end;
+			def inwin: type == "string" and .[0:19] >= ($cutoff | .[0:19]);
+			def known: IN("chat_send", "chat_read", "chat_status", "chat_ack", "chat_who", "dm", "set_status");
+			def path_is($p): type == "string" and (. == $p or endswith("/" + $p));
+			def ranged: (.input.offset // null) != null or (.input.limit // null) != null;
+			def reads($p): (.name == "Read" and (.input.file_path | path_is($p)))
+				or (.name == "Bash" and (.input.command | type == "string" and
+					any(splits("[|;&\n]"); test("^\\s*cat\\s") and (contains(" " + $p) or contains("/" + $p)))));
+			def whole($p): (.name == "Read" and (ranged | not) and (.input.file_path | path_is($p)))
+				or (.name == "Bash" and (.input.command | type == "string" and (test("[|;&<>\\n]") | not) and
+					test("^\\s*cat(\\s+\\S+)*\\s+(\\S*/)?" + ($p | gsub("\\."; "\\.")) + "(\\s+\\S+)*\\s*$")));
+			def skill: if .name == "Skill" then (.input.skill | strings)
+				elif .name == "Read" and (ranged | not) then
+					(.input.file_path | strings | capture("(^|/)skills/(?<s>[^/]+)/SKILL\\.md$")? | .s)
+				else empty end;
 			(if input_line_number <= 1 then (["F", input_filename] | @tsv) else empty end),
 			(if .type=="assistant" then .timestamp as $ts | .message.content[]? |
-				select(.type=="tool_use" and ((.name // "")|startswith("mcp__buddylist__")) and $ts >= $cutoff) |
-				["C",.id,.name,(.input|tojson|utf8bytelength),
+				select(.type=="tool_use" and ((.name // "")|startswith("mcp__buddylist__")) and ($ts | inwin)) |
+				["C",.id,(if (.name | ltrimstr("mcp__buddylist__") | known) then .name else "mcp__buddylist__(other)" end),(.input|tojson|utf8bytelength),
 					(if .name=="mcp__buddylist__chat_read" then
 						(if (.input.since_last // false) then "since_last"
 						 elif (.input.mentions_me // false) or (((.input.mentions // [])|length)>0) then "mentions"
@@ -200,7 +276,33 @@ if [ -d "$claude_projects" ]; then
 					 else "-" end)] | @tsv
 			elif .type=="user" then .message.content[]? | select(.type=="tool_result") |
 				["R",.tool_use_id,(.content|if type=="string" then utf8bytelength else (tojson|utf8bytelength) end)] | @tsv
-			else empty end)
+			else empty end),
+			((.cwd | if type == "string" then . else "" end) as $cwd
+			 | if $cwd == "" or (any($roots[]; . as $r | $cwd == $r or ($cwd | startswith($r + "/"))) | not) then empty else
+				(.sessionId | if type == "string" then . else "" end) as $sid
+				| (if .isSidechain == true then 1 else 0 end) as $sc
+				| (.timestamp | inwin) as $in
+				| if .type == "assistant" and (.message | type) == "object" and .message.model != "<synthetic>" then
+					(if $in and (.message.usage | type) == "object" then
+						(.message.usage) as $u
+						| ["U", input_filename, ((.message.id // .requestId // "") | tostring), $sid, $sc,
+							($u.input_tokens | num), ($u.cache_read_input_tokens | num),
+							($u.cache_creation_input_tokens | num), ($u.output_tokens | num)] | @tsv
+					 else empty end),
+					(.message.content[]? | select(type == "object" and .type == "tool_use" and (.id | type) == "string"
+						and (.input | type) == "object") | . as $t
+						| (["T", input_filename, .id, $sid, $sc, (if $in then 1 else 0 end),
+							(if any($rf[]; . as $p | $t | reads($p)) then 1 else 0 end),
+							(if (.input | tojson | contains("decisions.md")) then 1 else 0 end),
+							(if whole("docs/decisions.md") then 1 else 0 end)] | @tsv),
+						(skill | ["K", input_filename, $sid, $sc, ., $t.id] | @tsv))
+				  elif .type == "user" and (.message | type) == "object" then
+					((.message.content | strings | capture("<command-name>/?(?<c>[^<]{1,64})</command-name>")? | .c)
+					 | ["K", input_filename, $sid, $sc, ., "-"] | @tsv),
+					(.message.content[]? | select(type == "object" and .type == "tool_result" and .is_error == true
+						and (.tool_use_id | type) == "string") | ["E", .tool_use_id] | @tsv)
+				  else empty end
+			 end)
 		' <"$transcripts" 2>"$jqerr" >"$events" || true
 	parsed=$(awk -F '\t' '$1=="F" && !f[$2]++ {n++} END {print n+0}' "$events")
 
@@ -228,7 +330,146 @@ if [ -d "$claude_projects" ]; then
 			for(k in calls) printf "%s\tcalls=%d\targ_bytes=%d\tresult_bytes=%d\tavg_result_bytes=%.1f\n",k,calls[k],args[k],bytes[k],results[k]?bytes[k]/results[k]:0
 			for(k in reads) printf "chat_read_mode:%s\tcalls=%d\tresult_bytes=%d\tavg_result_bytes=%.1f\n",k,reads[k],rbytes[k],rresults[k]?rbytes[k]/rresults[k]:0
 		}' "$events" | sort
+
+	# The prose sections' numbers, from the U/T/K rows, in file order (jq keeps
+	# it, so a load precedes the requests after it). One request is counted
+	# once, at its first sight; a tool call likewise, by its id. A skill load
+	# counts only for a per-session member's skill name. Only numbers leave.
+	: >"$work/prompts"
+	LC_ALL=C awk -F '\t' -v members="$work/members" -v prompts="$work/prompts" '
+		BEGIN {
+			while ((getline l < members) > 0) {
+				split(l, f, "\t")
+				if (f[1] == "per-session") { n = f[2]; sub(/\/SKILL\.md$/, "", n); sub(/.*\//, "", n); sp[n] = f[2]; sb[n] = f[3] + 0 }
+			}
+		}
+		# A load is a call; its failed result (is_error) retracts it, before
+		# any request can follow, unless the file had already loaded that
+		# skill (Codex code pass). A slash command has no result to fail.
+		$1 == "K" && ($5 in sp) {
+			if (!(($2, $5) in ld)) { ld[$2, $5] = 1; lst[$2] = lst[$2] "\t" $5; if ($6 != "-") kid[$6] = $2 "\t" $5 "\t" $3 "\t" $4 }
+			if ($4 == 0) ls[$3]++
+			next
+		}
+		$1 == "E" && ($2 in kid) {
+			split(kid[$2], e, "\t"); delete kid[$2]; delete ld[e[1], e[2]]
+			lst[e[1]] = ""; for (k2 in ld) { split(k2, f2, SUBSEP); if (f2[1] == e[1]) lst[e[1]] = lst[e[1]] "\t" f2[2] }
+			if (e[4] == 0 && --ls[e[3]] <= 0) delete ls[e[3]]
+			next
+		}
+		$1 == "U" && $3 != "" && !useen[$3]++ {
+			q++; if ($5 == 0) ss[$4] = 1; else sq++
+			ti += $6; cr += $7; cw += $8; out += $9
+			print $6 + $7 + $8 > prompts
+			nl = split(lst[$2], a, "\t"); any = 0
+			for (i = 2; i <= nl; i++) { rode[a[i]]++; any = 1 }
+			r += any
+			next
+		}
+		$1 == "T" && !tseen[$3]++ {
+			if ($6 == 1 && $8 == 1) { dm++; if ($9 == 1) dw++ }
+			if ($5 == 0 && ++ord[$4] <= 10 && $7 == 1) ob[$4] = 1
+		}
+		END {
+			for (s in ss) { m++; if (s in ls) nload++; if (s in ob) nobey++ }
+			ps = 0
+			for (n in rode) ps += int((sb[n] + 3) / 4) * rode[n]
+			printf "sessions=%d\nrequests=%d\nsubagent_requests=%d\ncache_read=%.0f\ncache_write=%.0f\ninput=%.0f\noutput=%.0f\n", m, q, sq, cr, cw, ti, out
+			printf "loaded=%d\nrode=%d\nobeyed=%d\nps_tokens=%.0f\n", nload, r, nobey, ps
+			printf "dec_mentions=%d\ndec_whole=%d\n", dm, dw
+		}' "$events" >"$stats"
 else
 	echo
 	echo "Claude Buddy MCP usage: unavailable ($claude_projects not found)"
+fi
+
+# Codex passes in the window: every `codex@` from a commit's review receipt
+# (`review:` or `Review:`, last in the body, sometimes wrapped) to the body's
+# end, over what HEAD reaches. A pass no receipt names is not counted.
+if git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then
+	passes=$(git -C "$root" log --since="$cutoff_iso" --format='@@@commit%n%B' 2>/dev/null |
+		awk '/^@@@commit$/ { on = 0 } tolower($0) ~ /^review:/ { on = 1 } on { n += gsub(/codex@/, "") } END { print n + 0 }')
+	passes="passes in window: $passes, from receipts naming codex@"
+else
+	passes="passes NOT MEASURED: not a git checkout"
+fi
+q=$(stat_of requests); m=$(stat_of sessions)
+if [ -n "$q" ]; then
+	ann_ps="loaded in $(stat_of loaded) of $m sessions; rode $(stat_of rode) of $q requests"
+	ann_rf="obeyed in $(stat_of obeyed) of $m sessions, by a Read/cat of a listed file in the first 10 tool calls"
+else
+	ann_ps="loads NOT MEASURED: no transcripts read"
+	ann_rf="obedience NOT MEASURED: no transcripts read"
+fi
+
+echo
+if [ -n "$prose_ok" ]; then
+	echo "Fixed prose (docs/prose-budget.tsv)"
+	LC_ALL=C awk -F '\t' -v table="$root/docs/prose-budget.tsv" \
+		-v a1="" -v a2="$ann_ps" -v a3="$ann_rf" -v a4="$passes" '
+		function row(ind, k, b, note,   s, c) {
+			s = sprintf("%s%-" (44 - length(ind)) "s bytes=%-8d", ind, k, b)
+			if (k in ceil) {
+				c = ceil[k]
+				s = s sprintf(" ceiling=%-8d headroom=%d%%", c, int((c - b) * 100 / c))
+				if (b > c) s = s " OVER"
+			} else s = s " ceiling=none"
+			s = s sprintf("  est_tokens=%d", int((b + 3) / 4))
+			if (note != "") s = s "  (" note ")"
+			print s
+		}
+		BEGIN {
+			while ((getline l < table) > 0) {
+				if (l ~ /^#/ || l ~ /^[[:space:]]*$/) continue
+				split(l, f, "\t"); ceil[f[1]] = f[2] + 0
+			}
+		}
+		{ cl[NR] = $1; k[NR] = $2; b[NR] = $3; n = NR }
+		END {
+			split("every-request per-session read-first codex-pass", C, " ")
+			ann[1] = a1; ann[2] = a2; ann[3] = a3; ann[4] = a4
+			for (i = 1; i <= 4; i++) {
+				t = 0
+				for (j = 1; j <= n; j++) if (cl[j] == C[i]) t += b[j]
+				row("", C[i], t, ann[i])
+				for (j = 1; j <= n; j++) {
+					if (cl[j] != C[i]) continue
+					row("  ", k[j], b[j], (k[j] in first) ? "also in " first[k[j]] ", counted in each" : "")
+					if (!(k[j] in first)) first[k[j]] = C[i]
+					for (x = 1; x <= n; x++) {
+						if (cl[x] != "-" || done[x] || index(k[x], k[j] "#") != 1) continue
+						row("    ", k[x], b[x], "a section: inside " k[j] ", not added"); done[x] = 1
+					}
+				}
+			}
+			for (x = 1; x <= n; x++) {
+				if (cl[x] != "-" || done[x]) continue
+				if (!hdr++) print "in no class (budgeted, not added to any total)"
+				if (b[x] == "") print "  " k[x] "  GONE"; else row("  ", k[x], b[x], "")
+			}
+		}' "$work/members"
+else
+	echo "Fixed prose: unavailable (no docs/prose-budget.tsv beside this script, or its check could not enumerate)"
+fi
+
+echo
+if [ -n "$q" ] && [ "$roots_json" != "[]" ]; then
+	echo "Context billed (transcripts whose cwd is this checkout or a worktree of it, last $days day(s))"
+	printf 'sessions=%s  requests=%s  subagent_requests=%s  cache_read=%s  cache_write=%s  input=%s  output=%s\n' \
+		"$m" "$q" "$(stat_of subagent_requests)" "$(stat_of cache_read)" "$(stat_of cache_write)" "$(stat_of input)" "$(stat_of output)"
+	sort -n "$work/prompts" | awk '{ v[NR] = $1; s += $1 }
+		END { if (NR) printf "prompt mean=%.0f p50=%d p90=%d\n", s / NR, v[int((NR * 50 + 99) / 100)], v[int((NR * 90 + 99) / 100)]
+			else print "prompt mean=0 p50=0 p90=0" }'
+	er=$(awk -F '\t' '$1 == "every-request" { t += $3 } END { print t + 0 }' "$work/members")
+	awk -v er="$er" -v q="$q" -v ps="$(stat_of ps_tokens)" -v cr="$(stat_of cache_read)" -v ok="$prose_ok" 'BEGIN {
+		printf "est_share_of_cache_reads (estimates: bytes/4 x requests carrying it / cache_read): "
+		if (!ok) print "NOT MEASURED: no prose table"
+		else if (cr == 0) print "every-request=n/a  per-session=n/a  read-first=NOT MEASURED"
+		else printf "every-request=%.1f%%  per-session=%.1f%%  read-first=NOT MEASURED\n", int((er + 3) / 4) * q * 100 / cr, ps * 100 / cr }'
+	dm=$(stat_of dec_mentions); dw=$(stat_of dec_whole)
+	echo "docs/decisions.md tool calls: mentions=$dm whole_file=$dw ranged_or_search=$((dm - dw))"
+elif [ "$roots_json" = "[]" ]; then
+	echo "Context billed: unavailable ($root is not a git checkout, so no transcript is this repo's)"
+else
+	echo "Context billed: unavailable ($claude_projects not found)"
 fi

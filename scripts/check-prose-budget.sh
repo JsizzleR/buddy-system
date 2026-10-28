@@ -5,6 +5,11 @@
 # Usage: sh scripts/check-prose-budget.sh            judge this tree
 #        sh scripts/check-prose-budget.sh --sizes    print every budgeted key's
 #                                                    bytes and its formula ceiling
+#        sh scripts/check-prose-budget.sh --members  print `class<TAB>key<TAB>bytes`
+#                                                    for every enumerated member,
+#                                                    then `-<TAB>key<TAB>bytes` for
+#                                                    every other table key (a
+#                                                    section); judges nothing
 #
 # WHY A GATE. The cost of a text is its size times the requests that carry it.
 # CLAUDE.md rides every request of every session, a skill body every request
@@ -330,7 +335,30 @@ if [ "${1:-}" = --sizes ]; then
 	rm -rf "$W"
 	exit 0
 fi
-[ $# -eq 0 ] || fail "usage: sh scripts/check-prose-budget.sh [--sizes]"
+# --members: the enumeration, for scripts/cost-report.sh. The report prints
+# each class beside the requests that carried it, and a second list of what a
+# class contains would drift from this one (a file the check budgets and the
+# report never counts), so it reads it from here. A member of two classes
+# (the charter: read-first and codex-pass) is printed under each; a table key
+# that is no member (a section, a key whose text is gone) is printed once
+# under `-`, its bytes empty when gone.
+if [ "${1:-}" = --members ] && [ $# -eq 1 ]; then
+	W=$(mktemp -d -t prose-budget.XXXXXX)
+	members . "$W"
+	for c in $CLASSES; do
+		while IFS= read -r m; do printf '%s\t%s\t%s\n' "$c" "$m" "$(keysize . "$W" "$m")"; done < "$W/$c"
+	done
+	cat "$W/every-request" "$W/per-session" "$W/read-first" "$W/codex-pass" > "$W/all"
+	if [ -f "$TABLE" ]; then
+		sed -n 's/^\([^#	][^	]*\)	.*/\1/p' "$TABLE" | while IFS= read -r k; do
+			case " $CLASSES " in *" $k "*) continue ;; esac
+			grep -qxF -- "$k" "$W/all" || printf -- '-\t%s\t%s\n' "$k" "$(keysize . "$W" "$k")"
+		done
+	fi
+	rm -rf "$W"
+	exit 0
+fi
+[ $# -eq 0 ] || fail "usage: sh scripts/check-prose-budget.sh [--sizes|--members]"
 
 # Clause 2 first: the planted tree. See the header for what each file arms.
 FX=$(mktemp -d -t prose-budget-fixture.XXXXXX)

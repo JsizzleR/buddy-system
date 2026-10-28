@@ -204,6 +204,7 @@ if [ "$run_hermetic" = 1 ]; then
   done_check subagent-report
   done_check libc-pin
   done_check prose-budget
+  done_check cost-report
 
   # WIRING GATE (D-116). A check cannot grep for its own invocation once it is
   # not invoked (the prose-budget plan's first Codex pass), so the assertion
@@ -216,7 +217,7 @@ if [ "$run_hermetic" = 1 ]; then
   # and a planted control it must agree with (b ran; a required check that
   # did not run and a discovered one that did not run are both reported, and
   # the one that ran is not).
-  required="commit-gate pre-push local-hooks fence charter wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report subagent-report libc-pin prose-budget"
+  required="commit-gate pre-push local-hooks fence charter wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report subagent-report libc-pin prose-budget cost-report"
   wiring() { # <ran> <required> <discovered> — every name in the last two not in the first
     for n in $2 $3; do
       case "$1" in *" $n "*) ;; *) echo "$n" ;; esac
