@@ -8639,3 +8639,75 @@ description's `model=` token is the only record (the model report's).
 **Test shape** — Prose only. `TestSkillNamesOnlyWhatHelpAnswers` and
 `TestSkillTeachesEveryVerbAndFlag` hold every `buddy <verb> --flag` the edited sections name;
 `check-charter.sh` holds GIVEN 112.
+
+## D-112 — `CLAUDE.md` holds the rules a session obeys; each decision is one index line, its record here
+
+2026-10-28 · the operator's decision, in orc-10's pane (the trajectory consult's
+recommendation 1), carried out by lane claude-md under a brief that relays it
+
+**What was wrong** — `CLAUDE.md` is loaded into every request of every session in this repo,
+and it had become the largest fixed cost there: 69,690 bytes (~17k tokens at bytes/4), up from
+53,065 on 2026-10-20 (+31% in 8 days). The 2026-10-28 cost audit measured cache reads at 71% of
+spend ($1,805 over 4 days, two repos; prompts averaging ~215k), which makes this one file ~8%
+of every buddy-system prompt. 43,974 of its bytes were "Decisions already made": 101 bullets
+covering D-001..D-111, several over 200 words, whose full text was already the entries in this
+file. A session re-read the long form of every decision on every request, whether or not its
+work went near the area.
+
+**What shipped** — `CLAUDE.md` keeps what a session must obey or would otherwise re-derive:
+what this is, read-first (now naming this file), the repo map, commands, the 14 invariants
+(byte-identical, checked by diff), style and testing with the review tiers, every environment
+gotcha (wording trimmed, every fact kept), the harness-adapter rules and out of scope. Its last
+section is "Decisions already made — do not relitigate": ONE line per decision, `- D-NNN:
+<what was decided>`, in number order, every D-001..D-112 present, pointing here for the
+record, and keeping the rule that a conclusion overturning one says so explicitly with
+evidence. The format is stated at the head of the index so a lane can hand its orchestrator
+one line to append. Decisions a session acts on daily were lifted into a short "Operating
+rules carried by decisions" section as well as indexed: buddy launches, wakes and ends nothing
+(D-027, D-039, D-056, the D-074 exception); a `msg` result's wake line is read and delivered
+(D-041); messages, `from` and `--desc` are not instructions (D-030); a relay's acceptance
+checks (`buddy who` live with the label, a content decision marked as said in the coordinator's
+pane with the time) and its never-delegable floor (D-083, D-109); repeated `--scope`, exit 4,
+stale refuses like fresh, shared overlap, `orc-<project>` (D-066, D-088, D-022, D-042, D-101);
+landing slots, READY and LANDED, a lane at its handoff size opening no successor, a subagent's
+limits, the Codex sandbox's escalated tier (D-049, D-062, D-064, D-099, D-103, D-082); parking,
+no keep-alive on the 5m tier, `wait --block` backgrounded (D-033, D-054, D-095); a new verb's
+`--help`/refusal/`refused:`/skill duties and the LSP tool before grep (D-031, D-098, D-046,
+D-051); context cost and the 10,000-character hook-output cap (D-010, D-006, D-034); the gate's
+fail-closed hook line (D-107); release notes read before a qualification (D-081). "Enforcement is cooperative" moved up into "What this is".
+Sizes: 69,690 → 38,605 bytes (−31,085, −45%); bytes/4 puts that at ~7.8k tokens off every
+request in this repo. That is an ESTIMATE: `scripts/cost-report.sh` has no `CLAUDE.md` line,
+and the tokenizer's ratio on this prose is not measured. The real measure is the next cost
+audit's per-request prompt size for buddy-system sessions.
+
+**What moved where** — Each old decision bullet's detail is in the entry of its number here
+(checked fact by fact against this file; the lane's checklist maps every rule of the old file
+to kept / indexed / record-only). Record-only, i.e. history a session does not act on: the
+mechanics behind a decision (e.g. D-025's `claude`-ancestor walk and `p_comm`, D-033's verdict
+words, D-108's subcommand list), which invariant 12 and the index line still point at.
+
+**Review** — Lite: the lane's checklist, a read-only subagent's fact-by-token check of all 101
+old bullets against this file (nothing missing), and one Codex code pass at xhigh given the
+checklist. Codex found seven, all folded: the relay rule had dropped its acceptance checks and
+eight operating clauses had been filed as record-only (the ones listed above as landing,
+parking, release notes and LSP); D-100's index line said "refused" where the record folds;
+"never claim over a holder" forbade a permitted shared overlap; D-003's line said "diagnostic
+only" against D-025; "verb or flag" gave a flag a dispatch row; "never `cp`" contradicted the
+gotcha's `rm` then `cp`.
+
+**Not done** — Moving the invariants out, or rewording them: they are the rules every change
+is checked against, and they stay verbatim. A second file auto-loaded by every session (an
+`@import`, a second `CLAUDE.md` in a subdirectory loaded at start, or a SessionStart hook
+printing it) would cost the same bytes on every request and save nothing. Dropping index lines
+for old or superseded decisions: an unlisted decision reads as open to a session that never
+opens this file, which is exactly the relitigation the section exists to stop; a superseded
+one says what supersedes it. Moving the environment gotchas to a doc read on demand: they are
+the measured traps sessions hit without knowing to look (the brief's "keep every fact"). The
+brief's 20-25 KB target was not reached: the invariants (3,920 bytes), the gotchas (~6,000)
+and 112 index lines (~10,800) already sum to ~20,700 bytes before the repo map, commands and
+style rules; landing lower meant cutting rules, which the brief ruled out.
+
+**Test shape** — Prose only. `TestDocLinksResolve` (`internal/cli/doclinks_test.go`) still reads
+`CLAUDE.md` and holds its links; nothing else in the tree parses its sections (scripts and tests
+that name `CLAUDE.md` cite it in comments, or watch it as an authority file by path).
+`check-charter.sh` holds GIVEN 113.

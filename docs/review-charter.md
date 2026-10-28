@@ -1185,6 +1185,18 @@ ledger row entered through the CLI (D-006).
     non-review subagent is not on it. Do not propose "strongest model" wording, a lane on
     Fable the operator did not name, or a verb or check reading a lane's model.
 
+113. **`CLAUDE.md` holds the rules a session obeys; each decision is ONE index line there,
+    its record in `docs/decisions.md` (D-112).** The operator, 2026-10-28: the file is loaded
+    on every request and had grown to 69,690 bytes (~8% of a buddy-system prompt; cache reads
+    are 71% of spend), most of it long decision bullets duplicating the record. It keeps
+    what this is, read-first, repo map, commands, the 14 invariants VERBATIM, style and the
+    review tiers, every environment gotcha, a short "Operating rules carried by decisions"
+    section, and the index (`- D-NNN: <decision>`, number order, every decision listed).
+    A decision's absence from the long form is not its absence: the index line and the
+    record entry are the decision. Do not propose moving or rewording the invariants, a second
+    always-loaded file (it saves nothing), dropping index lines for old decisions, or putting
+    a decision's full text back into `CLAUDE.md`.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
