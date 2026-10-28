@@ -3,10 +3,23 @@
 An append-only ledger of the rulings this project is built on: what was wrong, what
 shipped, what was deliberately cut, and what remains broken. Newest entry last.
 
-`CLAUDE.md` carries the one-line summary of each of these ("Decisions already made");
-this file is the record behind it — the measurement, the rejected alternative, and the
-reason a cut was a cut. Reviews here are Codex passes; Codex cannot build or test, so a
-finding became evidence only once a reproducing test was written and watched to fail.
+`CLAUDE.md`'s "Decisions already made" carries one topical line per subject, each ending
+with the numbers that made it (D-118); this file is the record behind each number — the
+measurement, the rejected alternative, and the reason a cut was a cut. Read an entry by its
+`## D-NNN` heading, not the file whole. Reviews here are Codex passes; Codex cannot build or
+test, so a finding became evidence only once a reproducing test was written and watched to
+fail.
+
+From D-118 on, an entry ends with a fixed tail naming where its copies live, so a reviewer
+and the prose sweep can find them (entries before it have none; grep their number):
+
+    ### Where it lives
+    - index: CLAUDE.md § Decisions, the "<topic>" line (amended; number added) or (new subject)
+    - GIVEN: review-charter.md GIVEN <n> "<topic>" (amended; number added) or (new)
+    - code: <file:line or test name>, or none
+    - skill: <core|fleet> § <section>, or none
+    - USAGE: § <section>, or none
+    - amends: D-MMM <which clauses; whether the predecessor's text is wholly carried here>, or none
 
 **Adding a decision (D-116).** The copies a session or a Codex pass loads unasked are
 budgeted: `docs/prose-budget.tsv` holds their byte ceilings and `check-prose-budget.sh`
@@ -9051,3 +9064,82 @@ read, an unbudgeted import at the second hop, an unbudgeted titled link, an unbu
 in a second "Read this first" section, a vanished line, a misplaced directive; not the file under, the path-less directive or the
 second level of closure) and the wiring gate's planted control, each mutated and watched to
 fail.
+
+## D-118 — The decision index is topical: one line per subject, ending with the numbers that made it (amends D-112)
+
+2026-10-28 · the operator's decision, in orc-10's pane at about 16:40 (orc-10's
+recommendation, prose-budget step 3, taken with that step's OPEN amendment of D-112's shape),
+carried out by lane index-topical under orc-11's brief
+
+**What was wrong** — D-112 cut `CLAUDE.md`'s index from long bullets to one line per
+decision: the right one-time cut and the wrong durable shape. A line per decision grows the
+always-loaded file with every decision (11,471 bytes for D-001..D-115 at 2d5aa64, about 100
+bytes a line), so a byte ceiling on the section (D-116) either fires within days or is a
+report, not a bound (`docs/PROSE-BUDGET-PLAN.md` section 2's table). And an amended ruling
+stood twice, the earlier line beside the later one's "(amends D-xxx)": D-033 and D-095, D-055
+and D-096, D-070 and D-075, D-071 and D-079, D-083 and D-109, D-104 and D-111, among others.
+A reader had to do the precedence.
+
+**The rule** —
+1. The section holds one line per SUBJECT (29 at landing: ledger, scopes, claims, gate
+   jurisdiction, gate recognition, identity, messages, wakes, inbox, parking, views, chat,
+   fleet, review and models, the adapter, admission, this file, ...). A line says what stands
+   NOW, the later amendment's ruling in place of the earlier, and ends with every D-number
+   that made it. A number may sit on more than one line.
+2. Every D-number in the record stays on some line, superseded ones included. D-112's reason
+   holds: an unlisted decision reads as open to a session that never opens this file.
+3. A new decision amends its subject's line (dropping any clause it supersedes) and adds its
+   number; only a subject no line covers gets a new line. The section's preamble says so. A
+   lane that does not edit `CLAUDE.md` hands its orchestrator the amended line, not a new one.
+4. A ruling a session acts on daily stays where D-112 put it (the invariants, "Operating
+   rules carried by decisions", "Style and testing"), and the index line points there rather
+   than repeat it ("Identity": invariant 12; "Gate jurisdiction": invariant 3). Detail a line
+   cannot carry stays in the entry of the number the line names.
+5. This file's header carries the `### Where it lives` tail; entries from D-118 on end with it.
+
+**Sizes** — On 3d2bbf0 (D-116 and D-117 landed, their numbers folded into "This file" and
+"Review, models"): the index section 11,775 → 8,223 bytes (−30%); `CLAUDE.md` 39,975 →
+36,423 bytes. Their ceilings in `docs/prose-budget.tsv` are lowered to the table's formula
+(landed + 10%, rounded up to 4,096): `CLAUDE.md` 45,056 → 40,960 and `CLAUDE.md#Decisions`
+16,384 → 12,288. The plan's 8,192 for the section needs it at or under 7,447 bytes. Tokens at bytes/4 are
+an estimate (~900 per request), not a measurement.
+
+**Clause map (amends, retires)** — Every number keeps a line; what left the lines is in the
+entry of its number: D-013's resolve-before-store; D-016's "no row means unknown"; D-018's
+single escalation; D-011's "on the alert hook's identity"; D-021's cap measured on the rendered body; D-025, D-026 and D-069 now read
+through invariant 12; D-041's "never a line of its own"; D-047's "never as a command cut short"; D-058's "its row names no pane";
+D-066's one rendering function for scope lists; D-071's Claude pair (exact version and
+built-in Mod profile), now the record D-079 compiles in; D-076's "no wake or correction
+crosses"; D-078's "Bash renews nothing" (implied by "only from completed native writes");
+D-081's "a run binds its own binary"; D-082's done-aware wait and retry after the tab; D-088's
+"say where buddy looked"; D-022's "and says so"; D-097's short drain header; D-101's
+"never a bare `orchestrator`"; D-113's "a lane's own size is not stored (OPEN)". Nothing was
+retired from the record or from any other section of `CLAUDE.md`.
+
+**Still OPEN, the operator's (step 3's other parts, not done here)** —
+- An index-mention clause in a check: every `## D-NNN` number here appears in `CLAUDE.md`'s
+  decisions section (or on a `retired to the record:` line it may carry), as
+  `check-charter.sh` does for the charter. Nothing gates it today; this lane checked it with
+  a scratch script (every number present).
+- Cutting the "Read this first" list to what every session must read.
+- One file per decision (`docs/decisions/D-NNN.md`), on the write-side ground.
+
+**Review** — Lite: a scoped self-review, old index against new, number by number; one Codex
+code pass at xhigh on the finished diff, which found no lost ruling, no superseded one and no
+loophole in the preamble, and three lines that had dropped a qualifier, all folded: D-021's
+body comes from argv first ("never a TTY" alone lost the precedence), D-086's `last_seen`
+rule is for non-hook verbs, and D-066's comma refusal is `claim`'s (`release --scope 'a,b'`
+still removes a legacy literal scope).
+
+**Test shape** — Prose only. `TestDocLinksResolve` still holds `CLAUDE.md`'s links;
+`check-charter.sh` holds GIVEN 113.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "This file" line (amended; number added) and the preamble
+- GIVEN: review-charter.md GIVEN 113 "CLAUDE.md holds the rules..." (amended; number added)
+- code: none
+- skill: none
+- USAGE: none
+- amends: D-112's "one line per decision, `- D-NNN: <what>`, in number order" and its
+  "one line to append"; the rest of D-112 (what `CLAUDE.md` keeps, the operating-rules
+  section, every number listed, the invariants verbatim, no second always-loaded file) stands.

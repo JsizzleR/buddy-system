@@ -1185,17 +1185,21 @@ ledger row entered through the CLI (D-006).
     non-review subagent is not on it. Do not propose "strongest model" wording, a lane on
     Fable the operator did not name, or a verb or check reading a lane's model.
 
-113. **`CLAUDE.md` holds the rules a session obeys; each decision is ONE index line there,
-    its record in `docs/decisions.md` (D-112).** The operator, 2026-10-28: the file is loaded
-    on every request and had grown to 69,690 bytes (~8% of a buddy-system prompt; cache reads
-    are 71% of spend), most of it long decision bullets duplicating the record. It keeps
-    what this is, read-first, repo map, commands, the 14 invariants VERBATIM, style and the
-    review tiers, every environment gotcha, a short "Operating rules carried by decisions"
-    section, and the index (`- D-NNN: <decision>`, number order, every decision listed).
-    A decision's absence from the long form is not its absence: the index line and the
-    record entry are the decision. Do not propose moving or rewording the invariants, a second
-    always-loaded file (it saves nothing), dropping index lines for old decisions, or putting
-    a decision's full text back into `CLAUDE.md`.
+113. **`CLAUDE.md` holds the rules a session obeys and a topical decision index; each
+    decision's record is in `docs/decisions.md` (D-112, D-118).** The operator, 2026-10-28:
+    the file is loaded on every request and had grown to 69,690 bytes (~8% of a buddy-system
+    prompt; cache reads are 71% of spend), most of it long decision bullets duplicating the
+    record. It keeps what this is, read-first, repo map, commands, the 14 invariants
+    VERBATIM, style and the review tiers, every environment gotcha, a short "Operating rules
+    carried by decisions" section, and the index: one line per SUBJECT, saying what stands
+    now and ending with every D-number that made it, every decision's number on some line
+    (D-118 amends D-112's line per decision, which grew with every decision and could hold no
+    ceiling). A new decision amends its subject's line and adds its number; only a new
+    subject adds a line. A decision's absence from the long form is not its absence: its
+    number on a line and its record entry are the decision. Do not propose moving or
+    rewording the invariants, a second always-loaded file (it saves nothing), dropping a
+    decision's number from the index, one line per decision again, or putting a decision's
+    full text back into `CLAUDE.md`.
     **The always-loaded prose has ceilings (D-116).** `docs/prose-budget.tsv` holds bytes per
     text and per load class (every-request, per-session, read-first, codex-pass; class totals
     mandatory); `check-prose-budget.sh` enumerates the texts from its own list and fails the

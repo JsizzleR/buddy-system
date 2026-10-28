@@ -426,127 +426,40 @@ it as part of a fixture exercise. Exact checks and qualification gaps:
 
 ## Decisions already made — do not relitigate
 
-One line per decision; its record (what was measured, cut, amended, and why) is
-the entry of the same number in `docs/decisions.md`. Read it before proposing
-anything in its area. A conclusion that overturns one must say so explicitly and
-bring evidence; never quietly assume the opposite. Where entries differ, the
-later amendment wins. To add one, append a line in number order:
-`- D-NNN: <what was decided, 10-20 words> (amends D-xxx)`.
+One line per subject: what stands now (the later amendment wins), then the
+numbers that made it. Each number's record (measurement, cut, amendments, why) is
+its `## D-NNN` entry in `docs/decisions.md`: read it before proposing anything in
+its area, and overturn a decision only explicitly, with evidence, never by quietly
+assuming the opposite. A new decision amends its subject's line (dropping any
+clause it supersedes) and adds its number; only a new subject gets a new line.
+Every number stays on some line.
 
-- D-001: Claims live in a transactional SQLite ledger, not `O_EXCL` lock files.
-- D-002: Scopes are exact paths and directory prefixes; glob scopes were cut. Do not propose them.
-- D-003: Identity is `(session_id, incarnation)`; the pid is diagnostic, except the one decision in D-025.
-- D-004: Two binaries, so the claims ledger is never dragged behind the chat stack.
-- D-005: The gate fails closed on an unreadable ledger, silent where none exists; enforcement is cooperative.
-- D-006: Chat is never the lock, its text never control; room digests are never auto-injected.
-- D-007: IRC is the daily driver; TOC/AIM stays behind the `Conn` seam; CP1252 is TOC-only.
-- D-008: The journal records what the server saw, one connection's view.
-- D-009: Self-alerts are found by the `@sent` outbox row; `mentions_me` matches slugs first; alert cursor ≠ read cursor.
-- D-010: Context cost is a first-class constraint; the defaults were narrowed to fit it.
-- D-011: Presence is presentation only, on the alert hook's identity; no per-session TOC connections.
-- D-012: The commit gate reports claim collisions only, and warns before it denies.
-- D-013: `pause`, `resume` and `msg` share one target namespace, resolved before it is stored; a miss is refused.
-- D-014: A DM asks whether the recipient is online (ISON) and refuses only a definite no.
-- D-015: The roster is the orchestrator's view: labelled ages, observed context, a declared window.
-- D-016: Idle is reported by the Stop hook; busy is never inferred; no row means unknown.
-- D-017: A column is one token: `fence.Field` shows a space as `␣`; quoting was cut.
-- D-018: The transcript capture samples the newest turn, escalates once, and records the model.
-- D-019: A claim is granted or refused whole, naming the whole conflict set; `--dry-run` forecasts it.
-- D-020: The roster's cache timer comes from the transcript's `cache_creation` tiers, never inferred.
-- D-021: `msg` reads its body from stdin when argv has none, never a TTY; the cap is on the rendered body.
-- D-022: A stale claim refuses exactly like a fresh one, and says so.
-- D-023: `whose` reports both registers, `CLAIMED BY` then `DIRTY IN`, each printing `(none)`.
-- D-024: `chat_read` of a room the daemon neither serves nor remembers is refused, naming its rooms.
-- D-025: `bye` is fenced by the harness process that registered the session, never the pid alone.
-- D-026: A holder that said `bye` blocks no claim; `claim`, `hello`, `sweep` orphan ended owners.
-- D-027: `status` and `who` report every register of one session and grant nothing; no `exit` verb.
-- D-028: Authority files are watched by mtime, and a change is announced once on the next tool call.
-- D-029: `buddy ids`: seeded with a measured high-water mark, contiguous blocks, nothing reissued.
-- D-030: Coordination state is published as a claim, not messaged; no key/value store, no compel path.
-- D-031: Every verb answers `--help` and refuses what it does not understand; `sweep --dry-run` rolls back.
-- D-032: A send reports what the ledger holds about its recipient, never a prediction.
-- D-033: A parked session keeps its cache warm with `buddy wait` and its own `/loop buddy wait check`.
-- D-034: A hook-driven `hello` drains the inbox into the SessionStart digest, under 9,000 bytes.
-- D-035: A resource slot is a claim on `.buddy/slot/<name>`, capacity 1; no new scope kind.
-- D-036: The SessionStart claims list fits the budget ahead of messages: own first, then oldest.
-- D-037: An older binary refuses a newer ledger and the gate denies; never migrate down.
-- D-038: The Stop hook records HEAD; views compute the base's lag against main at read time.
-- D-039: `msg` names the harness wake address for a quiet recipient; buddy wakes nothing.
-- D-040: `busy` drains the inbox into the prompt that opens a turn.
-- D-041: `msg`'s wake address rides its result line, never a line of its own.
-- D-042: A `--shared` claim overlaps other shared claims and nothing else.
-- D-043: A correction (`msg --supersedes N`) names what it corrects, to the original's audience.
-- D-044: A repository git refuses, with no ledger in it, is feature-off, not unreadable.
-- D-045: `msg --lead|--measured|--relay` renders the kind of claim a message carries, as declared.
-- D-046: A session learns the verbs from hello's fixed line and the skill, not the chat server.
-- D-047: A wait rides hook output inside 1,024 bytes, never as a command cut short.
-- D-048: A base carrying a commit main dropped says so, found by main's reflog.
-- D-049: One long run closes out several sessions: `wait --ready`, `release --outcome`.
-- D-050: One script, `install.sh`, installs and upgrades every buddy binary the machine runs.
-- D-051: `buddy init` says whether this repo's languages have a configured language server.
-- D-052: `msg`'s wake address is also written to stderr, and `buddy sent` names it.
-- D-053: A test binary outliving its `go test` is ended from outside, and leaves a sample.
-- D-054: A park with no claim to name keeps warm on a timer wait (`wait --until`).
-- D-055: `busy` says when the last prompt is past the declared `BUDDY_HANDOFF_AT`.
-- D-056: A coordinator opens its own lanes with the harness; buddy launches and ends nothing.
-- D-057: The test suite never runs with git's local environment.
-- D-058: A `claude --bg` lane anchors at its own process, and its row names no pane.
-- D-059: A wake's text names its message and the second it was named, and no content.
-- D-060: The Stop hook cannot see the turn's reply; it says so, and the next prompt records it.
-- D-061: A `-race` forkExec child stuck before exec is ended by the test watchdog.
-- D-062: Landing through an orchestrator is a skill recipe over existing verbs; no task table.
-- D-063: `release <slug> --to <target>` hands an open claim on; its waits follow it.
-- D-064: The handoff size may be declared fleet-wide; `install.sh` says whether it is set.
-- D-065: `status` and `who` print a JOBS line of shells under the session's harness process.
-- D-066: `claim` refuses a comma in `--scope`; every scope list renders through one function.
-- D-067: `install.sh` waits out a new daemon build's launch constraint, skipping no later step.
-- D-068: Codex participates through the patch gate and native identity; roles are explicit.
-- D-069: Logical lifecycle events carry the incarnation captured at `lifecycle begin`.
-- D-070: Versioned adapter receipts; a separate `buddy-adapter` controls only workers it launches.
-- D-071: Claude admission is an exact version and built-in-Mod-profile pair, now from D-079's record.
-- D-072: `buddy diagnose` reads a private ledger snapshot and never promotes captures to readiness.
-- D-073: The gate checks every spelling a write can land on; jurisdiction decides before identity.
-- D-074: `buddy-adapter` is the one exception to "buddy launches, wakes and ends nothing".
-- D-075: Recovery admission is exact-version and terminal-evidence-bound (supersedes part of D-070).
-- D-076: Adapter mail is its own register in every legacy view; no wake or correction crosses.
-- D-077: The adapter owns its worker's process group and validates the descriptor before any child.
-- D-078: An adapter worker's claims renew only from completed native writes; Bash renews nothing.
-- D-079: Native admission is a committed exact-artifact record compiled into the adapter.
-- D-080: A qualification candidate is bound by typed sha256 and runs only against a loopback provider.
-- D-081: A qualification run binds its own binary; one release runner writes only earned tiers.
-- D-082: The fleet recipe: a brief in a file, a wait that knows `done`, a retry after the tab.
-- D-083: A launch brief delegates a bounded relay of the operator's decisions to one coordinator.
-- D-084: A ledger this process may not write gets its cause and fix named; the gate still denies.
-- D-085: Two disagreeing native ids refuse, naming the `env -u` remedy; a herdr tab leaks no id.
-- D-086: A non-hook verb under the native harness id moves `last_seen` and nothing else.
-- D-087: The gate's "cannot rule out" arm is Codex-only; a literal `apply_patch` refuses under every harness.
-- D-088: A claim refused by a holder exits 4; not-a-repository and no-ledger say where buddy looked.
-- D-089: `hello` takes its label from `$BUDDY_LABEL` when no `--label` is given.
-- D-090: STALE keys on the holder, not only on the claim's renewal; words only.
-- D-091: The roster folds dead rows into one line; `sessions --all` lists them (amends D-015).
-- D-092: `who` gives one EXIT line, scopes waiters to a named claim, and is `status` when bare.
-- D-093: `release` takes several slugs as one all-or-nothing transaction (narrows D-063).
-- D-094: `who <slug>` prints every scope of that claim, uncut.
-- D-095: `wait --on <slug> --block` exits with the verdict (amends D-033).
-- D-096: The handoff notice speaks once per 25k step past the size (amends D-055).
-- D-097: A plain drain gets a short header; no stderr wake copy onto stdout's file (amends D-052).
-- D-098: A refusal that shows the usage ends with `refused: <reason>`.
-- D-099: Mail reaches the session it was sent to; subagent hooks drain nothing.
-- D-100: A scope's backslashes fold to `/` before the absolute check, so `\etc` is refused.
-- D-101: The coordination claim is `orc-<project>`, never a bare `orchestrator` (amends D-030, D-062).
-- D-102: A vanished hook cwd is judged from its deepest existing ancestor (amends D-044).
-- D-103: The orchestrator uses agent tools for side work; a subagent is not a lane.
-- D-104: The review tier follows the change class; the receipt names each layer and Codex effort.
-- D-105: `msg` signs an id the ledger does not know as `unregistered s-<8hex>`, never as the operator.
-- D-106: The A-01 re-review's open shell-recognizer forms are closed (amends D-073, D-087).
-- D-107: The gate's hook line fails closed when an installed `buddy` dies.
-- D-108: The gate refuses gh stack's rewriting subcommands without `.buddy/slot/gh-stack`.
-- D-109: A relayed operator decision may carry the item's content and scope (amends D-083).
-- D-110: `buddy update` reinstalls from the checkout install.sh stamped; it never fetches.
-- D-111: Every lane runs on the default lane model; Fable is for reviews only (amends D-104).
-- D-112: `CLAUDE.md` holds the rules and this index; each decision's record is in `docs/decisions.md`.
-- D-113: `buddy sessions` marks a live row past the reader's BUDDY_HANDOFF_AT with `OVER handoff <size>`; fleet-report counts them; a word, never a sort or refusal (invariant 10); a lane's own size is not stored (OPEN).
-- D-114: The skill splits by reader: `skills/buddy` (core, every session) and `skills/buddy-fleet` (coordinator); no model, date or operator default in shipped text (`docs/examples/fleet-conventions.md`).
-- D-115: Every brief names a review-round ceiling: lite one code pass folded once; full design + code + at most two re-verify rounds; the operator raises it; at it, fold narrowly, record the rest open.
-- D-116: Byte ceilings in docs/prose-budget.tsv on what sessions and Codex load unasked, red in hermetic; check.sh fails a done-check that did not run; GIVENs topical.
-- D-117: Subagents name their model; a hook refuses an unnamed general-purpose Agent call; a coordinator hands off at a batch boundary.
+- **Ledger.** Transactional SQLite, not `O_EXCL` lock files; two binaries, so claims never ride the chat stack; an older binary refuses a newer ledger and the gate denies; never migrate down (D-001, D-004, D-037).
+- **Scopes.** Exact paths and directory prefixes; glob scopes were cut, do not propose them; `claim` refuses a comma in `--scope`; backslashes fold to `/` before the absolute check, so `\etc` is refused (D-002, D-066, D-100).
+- **Claims.** Granted or refused whole, naming the whole conflict set (`--dry-run` forecasts it); a stale claim refuses like a fresh one, STALE keyed on the holder too; `--shared` overlaps other shared claims only; a holder's refusal exits 4 (D-019, D-022, D-042, D-088, D-090).
+- **Handing on, slots.** `release <slug> --to <target>` hands a claim on with its waits; several slugs release all-or-nothing; a slot is a claim on `.buddy/slot/<name>`, capacity 1, no new scope kind (D-035, D-063, D-093).
+- **Coordination state** is a claim, not a message: no key/value store, no compel path; the coordination claim is `orc-<project>` (D-030, D-101).
+- **Gate jurisdiction.** Unreadable denies, none is silent (invariant 3); a repository git refuses, with no ledger, is feature-off; a vanished cwd is judged from its deepest existing ancestor; an unwritable ledger names cause and fix, still denying; a dead installed `buddy` refuses every gated call (D-005, D-044, D-084, D-102, D-107).
+- **Gate recognition.** It checks every spelling a write can land on, jurisdiction before identity; the "cannot rule out" arm is Codex-only, a literal `apply_patch` refuses under every harness; A-01's open shell forms are closed; gh stack's rewriting subcommands need `.buddy/slot/gh-stack` (D-073, D-087, D-106, D-108).
+- **Commit gate.** Reports claim collisions only, and warns before it denies (D-012).
+- **Identity.** `(session_id, incarnation)`, `bye`'s process fence and the logical token are invariant 12; disagreeing native ids refuse, naming `env -u`, and a herdr tab leaks none; a non-hook verb under the native id moves only `last_seen` (D-003, D-025, D-026, D-069, D-085, D-086).
+- **Verbs, session start.** `--help` first, the unknown refused, `refused: <reason>` last; `sweep --dry-run` rolls back; verbs are learned from hello's line and the skill, never chat; `$BUDDY_LABEL` labels `hello`; a changed authority file is announced once; `init` says whether a language server is configured; `buddy ids` reissues nothing (D-028, D-029, D-031, D-046, D-051, D-089, D-098).
+- **Skills** split by reader, `skills/buddy` (every session) and `skills/buddy-fleet` (coordinator); no model, date or operator default in shipped text (D-114).
+- **Messages.** One target namespace with `pause`/`resume`, a miss refused; the body from argv, else stdin, never a TTY; a send reports what the ledger holds, never a prediction; `--supersedes N` goes to the original's audience; `--lead|--measured|--relay` as declared; an unknown id signs `unregistered s-<8hex>`, never as the operator (D-013, D-021, D-032, D-043, D-045, D-105).
+- **Wakes.** buddy wakes nothing; `msg`'s result line carries the harness wake address, also on stderr (not onto stdout's file), and `sent` names it; a wake names its message and the second, no content (D-039, D-041, D-052, D-059, D-097).
+- **Inbox.** `hello` drains into the SessionStart digest under 9,000 bytes, claims ahead of messages (own, then oldest); `busy` into the prompt opening a turn; mail reaches the session it was sent to, subagent hooks drain nothing (D-034, D-036, D-040, D-097, D-099).
+- **Parking.** `buddy wait` and your own `/loop buddy wait check`; with no claim to name, `wait --until`; `--block` exits with the verdict; a wait rides hook output inside 1,024 bytes (D-033, D-047, D-054, D-095).
+- **Observations.** Idle comes from the Stop hook, busy is never inferred; the capture samples the newest turn and records the model; HEAD is recorded, lag against main computed at read time, a dropped commit found by main's reflog; the next prompt records the reply (D-016, D-018, D-038, D-048, D-060).
+- **Views.** `status` and `who` report every register (JOBS, one EXIT line) and grant nothing; `whose` prints `CLAIMED BY` then `DIRTY IN`; the roster: labelled ages, observed context, a declared window, a cache timer from the transcript, never inferred, dead rows folded (`--all`), `OVER handoff <size>` a word, never a sort or refusal (D-015, D-020, D-023, D-027, D-065, D-091, D-092, D-094, D-113).
+- **Handoff size.** `busy` says so once per 25k step past `BUDDY_HANDOFF_AT`; declarable fleet-wide, and `install.sh` says if set (D-055, D-064, D-096).
+- **Columns.** One token: `fence.Field` shows a space as `␣`; quoting was cut (D-017).
+- **Chat.** Never the lock, its text never control, no digest auto-injected; context cost is first-class, so defaults are narrow; IRC daily, TOC/AIM behind `Conn`, CP1252 TOC-only; the journal is one connection's view (D-006, D-007, D-008, D-010).
+- **Alerts, presence.** Self-alerts by the `@sent` row; `mentions_me` matches slugs first; alert cursor ≠ read cursor; presence is presentation only, no per-session TOC connections; a DM refuses only a definite ISON no; an unknown room's read is refused, naming its rooms (D-009, D-011, D-014, D-024).
+- **Launching.** buddy launches, wakes and ends nothing, no `exit` verb; a coordinator opens its own lanes with the harness; a `claude --bg` lane anchors at its own process; `buddy-adapter` is the one exception (D-027, D-039, D-056, D-058, D-074).
+- **Fleet.** Landing is a skill recipe over existing verbs, no task table: `wait --ready`, `release --outcome`, a brief in a file; a relay to one coordinator, carrying content and scope only when marked as said in its pane; a subagent is not a lane (D-049, D-062, D-082, D-083, D-103, D-109).
+- **Review, models.** The tier follows the change class; the receipt names each layer and Codex effort; every lane on the default lane model, Fable for reviews only; every brief names a round ceiling (lite: one pass folded once; full: at most two re-verifies); a subagent names its model, and a hook refuses an unnamed general-purpose Agent call; a coordinator may hand off at a batch boundary (D-104, D-111, D-115, D-117).
+- **Install.** `install.sh` upgrades every buddy binary the machine runs, waits out a new daemon's launch constraint, skips no later step; `buddy update` runs it from the stamped checkout, never fetches (D-050, D-067, D-110).
+- **Tests.** Never with git's local environment; a test binary outliving its `go test` is ended from outside and leaves a sample; the watchdog also ends a `-race` forkExec child stuck before exec (D-053, D-057, D-061).
+- **Codex, adapter.** Codex through the patch gate and native identity, roles explicit; versioned receipts; `buddy-adapter` controls only workers it launches, owns their process group, validates the descriptor before any child; its mail is its own register; its worker's claims renew only from completed native writes (D-068, D-070, D-074, D-076, D-077, D-078).
+- **Admission, qualification.** A committed exact-artifact record compiled into the adapter; recovery exact-version and terminal-evidence-bound; `diagnose` promotes nothing to readiness; a candidate bound by typed sha256, loopback only; one runner writes earned tiers only (D-071, D-072, D-075, D-079, D-080, D-081).
+- **This file.** The rules a session obeys and this topical index; each decision's record is its entry in `docs/decisions.md`; what a session or Codex pass loads unasked has byte ceilings in `docs/prose-budget.tsv`, red in the hermetic tier, raised only by the operator (D-010, D-112, D-116, D-118).

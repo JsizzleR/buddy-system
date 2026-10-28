@@ -8,8 +8,8 @@
 # the commit that needs the room. A lane never raises one; it names the overage in READY.
 # LOWER freely: a lane that trims a text lowers its line to the new formula value in the same commit.
 every-request	45056	2026-10-28 operator (D-116)	class total: every CLAUDE.md, rules, @ includes, skill descriptions; rides every request; 40,892 at landing
-CLAUDE.md	45056	2026-10-28 operator (D-116)	rules + index; 39,807 at landing (after D-112), room for the D-116 index line (D-117's is in); index-topical lowers it
-CLAUDE.md#Decisions	16384	2026-10-28 operator (D-116)	the index, one line per decision until index-topical (step 3) makes it topical; 11,607 at landing
+CLAUDE.md	40960	2026-10-28 index-topical (D-118), lowered	rules + topical index; 36,423 at landing (after D-118)
+CLAUDE.md#Decisions	12288	2026-10-28 index-topical (D-118), lowered	the index, topical lines naming D-numbers (D-118); 8,223 at landing; a new decision amends a line
 skills/buddy/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 543 at landing
 skills/buddy-fleet/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 542 at landing
 per-session	90112	2026-10-28 operator (D-116)	class total: every skill body, core + fleet (a coordinator loads both); 80,470 at landing
