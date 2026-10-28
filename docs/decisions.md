@@ -8591,3 +8591,51 @@ control runs install.sh to its done line, both under inst()'s hermetic knobs,
 the expected path quoted as `shellQuote` quotes it (a checkout path with a
 quote; Codex) and NOT RUN, loudly, for one holding both quotes;
 QA-10..12's fake `go` now finds `-o` and the package wherever they sit.
+
+## D-111 — Every lane runs on the default lane model, full tier included; Fable is for reviews only (amends D-104)
+
+2026-10-28 · the operator's decision, in orc-10's pane, carried out by lane model-pick under a
+brief that relays it
+
+**What was wrong** — D-104's model clause and its "Decided by class" bullet said a full-tier
+item "runs on the strongest model available", with its panel and fold rounds, and the skill,
+this repo's CLAUDE.md and GIVEN 105 repeated it. Another repository's fleet-6 orchestrator on
+this machine read "strongest model available" as Fable 5.1 and launched its full-tier lanes on
+`claude-fable-5-1`; the full-tier lanes before it there (2026-10-26 and 10-27) had run on
+Opus 5.5. A phrase that names no model is resolved by whoever reads it, and two readers
+resolved it two ways. The operator's ruling, verbatim: "fable is for reviews only".
+
+**The rule** — Every lane runs on the operator's default lane model (a standing decision in
+the operator's instructions; Opus 5.5 at high effort on 2026-10-28), full-tier items included,
+unless the operator names another model for the item, or sets a cap for the run that the
+skill's pick rule works within (the operator's word on the run, never Fable). The tier changes
+the REVIEW, never the model: a full-tier item's lane, its panel and its fold rounds run on
+that default. Fable is used only inside a review, within the operator's limits on its use: the
+full tier's cross-check, panel lenses on a security-sensitive commit (here: what the gate
+refuses or allows, `internal/fence`), and a judgement-call ruling. The pick rule (the skill's
+"Picking the model from what past items measured") never lands on Fable, and its example cap
+no longer names it. No text says "strongest model": each names the model or points at the
+operator's default.
+
+**What it amends** — D-104's "The model per tier" bullet (full tier on the strongest model;
+now: on the default) and its "Decided by class" bullet (the operator may name any item for
+either model: that naming escape stands, and is now the only way a lane runs on Fable).
+D-104's tier, layers and receipt are unchanged, and D-104 itself is left as written. D-103's
+Fable read is a second opinion, which is a review; side work that is not one (reports,
+housekeeping) goes to subagents on other models, as the operator's instructions already said.
+
+Where it lives: the skill's "Review depth" model paragraph, the pick rule's opening and the
+"Running a fleet" launch sentence; `CLAUDE.md`'s tier bullet, its D-104 bullet (an amendment
+note) and a D-111 bullet; GIVEN 105 (amended) and GIVEN 112 in the review charter. The
+skill reaches sessions only after `sh scripts/install-skill.sh` (or `buddy update`).
+
+**Not done** — D-104 cut model names as constants in the skill, because the default moves
+with the operator's decisions. This entry names one model, Fable, and only as the REVIEW
+model: the ruling is about Fable by name, and a text that left the model unnamed is exactly
+what was misread. The lane default stays unnamed as a constant (the skill names it as that
+day's). No verb, flag, row or check: nothing in buddy reads a lane's model, and the claim
+description's `model=` token is the only record (the model report's).
+
+**Test shape** — Prose only. `TestSkillNamesOnlyWhatHelpAnswers` and
+`TestSkillTeachesEveryVerbAndFlag` hold every `buddy <verb> --flag` the edited sections name;
+`check-charter.sh` holds GIVEN 112.

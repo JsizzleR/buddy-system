@@ -248,10 +248,13 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   Tests and the mutation check are owed at every tier; a review is never their
   substitute. The operator may cap the tier for a run of work (for example "lite
   at most, optional, no second model family"), and a lane's brief carries that
-  cap: a lane never raises its own tier above it. Lanes run on the operator's
-  default lane model (Opus 5.5 at high effort, as of 2026-10-26); a full-tier
-  item, its panel and its fold rounds on the strongest model available, at high
-  effort.
+  cap: a lane never raises its own tier above it. Every lane runs on the
+  operator's default lane model (Opus 5.5 at high effort, as of 2026-10-28),
+  full tier included, unless the operator names another model for the item (or a
+  run's cap the skill's pick rule picks within): the tier changes the review
+  only. Fable is for reviews only: the full tier's cross-check, panel lenses on
+  a security-sensitive commit (the gate's verdicts, `internal/fence`), a
+  judgement-call ruling (D-111).
 - A guard's review scope is every site that **bypasses** it, not the diff that
   adds it.
 - Prefer naming the exact failing input and the resulting wrong behavior over
@@ -780,18 +783,19 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   checkout was denied every call (run1); one beside it was allowed. Only exact ENOENT, no git
   discovery env; a dangling link on the way is followed; a relative tool path from it is refused
   where a ledger governs; init and diagnose stay strict; a deny names the cwd and the fix.
-- **The orchestrator uses agent tools itself (D-103):** subagents (any model), Codex passes through
-  `codex-review.sh` and Fable reads carry its side work (a lane's diff, reports, measurements,
-  housekeeping, a second opinion); its context is the scarce one before its handoff size (orc-3
-  handed off at 322k, orc-4 at 397k). A subagent is not a lane: no claim, no landing, no message,
-  under the parent's id and claims (D-099); what it finds is evidence once a test reproduces it.
-- **The review tier follows the change class; a receipt names what ran; the model is pinned per
-  tier (D-104):** full = read-only panel + Codex design and code passes + Fable cross-check +
-  Codex re-verify; lite = adversarial self-review + one Codex pass, one round, Fable optional;
-  chore = none required, with the reason. A test-only change takes its class's tier (4 of 36
-  chores since 2026-09-07 touched only test files). The receipt names each Codex pass's effort (0 of
-  15 lite/full receipts did). Lanes on the operator's default model; a full item, panel and folds on
-  the strongest. A receipt check, a tier column and model constants in the skill were cut.
+- **The orchestrator uses agent tools itself (D-103):** subagents (any model; Fable only for a
+  review, D-111), Codex passes through `codex-review.sh` and Fable reads carry its side work (a
+  lane's diff, reports, measurements, housekeeping, a second opinion); its context is the scarce
+  one before its handoff size (orc-3 handed off at 322k, orc-4 at 397k). A subagent is not a lane:
+  no claim, no landing, no message, under the parent's id and claims (D-099); what it finds is
+  evidence once a test reproduces it.
+- **The review tier follows the change class; a receipt names what ran (D-104):** full = read-only
+  panel + Codex design and code passes + Fable cross-check + Codex re-verify; lite = adversarial
+  self-review + one Codex pass, one round, Fable optional; chore = none required, with the reason.
+  A test-only change takes its class's tier (4 of 36 chores since 2026-09-07 touched only test
+  files). The receipt names each Codex pass's effort (0 of 15 lite/full receipts did). Lanes on
+  the operator's default model (D-111 amends the model clause). A receipt check, a tier column and
+  model constants in the skill were cut.
 - **`msg` signs an id the ledger does not know as `unregistered s-<8hex>` (D-105):** a session id
   in the environment with no LIVE row here (absent or ended) signed as `operator` (measured: a
   session from another ledger was told "would send … as operator"). Now the short form a hello
@@ -856,6 +860,14 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   choice). Dirty or off-main warns; an installed commit HEAD does not contain refuses (a
   downgrade is D-037's machine-wide deny); shallow or unknown says it cannot place it. Not a
   hook verb; an install, so never on a peer's word (D-083).
+- **Every lane runs on the default lane model, full tier included; Fable is for reviews only
+  (D-111, amends D-104's model clause):** another repo's fleet orchestrator read "a full-tier item
+  runs on the strongest model available" as Fable 5.1 and launched full-tier lanes on it (its
+  earlier full-tier lanes had run on Opus 5.5). The operator: "fable is for reviews only". The
+  tier changes the review, never the lane's model; a lane leaves the default only by the
+  operator's word (the item, or a run's cap the pick rule works within), and is on Fable only when
+  the operator names the item. The texts name the model or the operator's default, never
+  "strongest".
 - **Enforcement is cooperative, and saying so is the design.** The gate
   adjudicates declared paths, has a TOCTOU window, and cannot bind a process
   that bypasses the harness. A seatbelt for agents, not a sandbox against them.

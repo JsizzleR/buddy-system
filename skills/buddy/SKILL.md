@@ -407,18 +407,18 @@ every repo's coordinator wears alerts each of them to the others' mentions
    each lane's `prompt` on `buddy sessions` too, and tell the operator which
    lanes are at or past the handoff size.
 7. **Pick who does a piece by what it ends in.** A commit that lands: a lane
-   (it claims, reports READY, lands through the run). A finding (a lane's
-   diff read, a report, a measurement, a CI log, deleting merged branches, a
-   second opinion through the
-   repo's review script or a Fable read): a subagent, the Agent tool, any
-   model; its finding is evidence once a test reproduces it. A handful of tool
-   calls (a `buddy who`, a message, the landing itself): you. Your context is
-   the scarce resource before your handoff size; a
-   subagent's is not (orc-3 handed off at 322k, orc-4 at 397k, much of it side
-   work done in their own panes). A subagent is not a lane: it holds no claim,
-   lands nothing, relays nothing, and is never messaged as one. It works under
-   YOUR session id and YOUR claims, so claim the files before you hand it an
-   edit. The operator's standing decision (D-103).
+   (it claims, reports READY, lands through the run). A finding (a lane's diff
+   read, a report, a measurement, a CI log, deleting merged branches, a second
+   opinion through the repo's review script or a Fable read): a subagent, the
+   Agent tool, any model, Fable only for a review (Review depth, below); its
+   finding is evidence once a test reproduces it. A handful of tool calls (a
+   `buddy who`, a message, the landing itself): you. Your context is the
+   scarce resource before your handoff size; a subagent's is not (orc-3 handed
+   off at 322k, orc-4 at 397k, much of it side work done in their own panes).
+   A subagent is not a lane: it holds no claim, lands nothing, relays nothing,
+   and is never messaged as one. It works under YOUR session id and YOUR
+   claims, so claim the files before you hand it an edit. The operator's
+   standing decision (D-103).
 8. **Name each item's review tier and model in its brief** (Review depth,
    below): the tier by the change's class, under the operator's cap for the
    run, and the model and effort the lane launches on, with the claim
@@ -704,21 +704,28 @@ For every tier:
   own worktree at a commit. It holds no claim, lands nothing, relays nothing,
   and runs under your session id and claims (D-103).
 
-**The model is pinned per tier**, separately from the review, unless the
-operator's instructions pin it otherwise. A full-tier item runs on the
-strongest model available, and so do its panel and its fold rounds, at high
-effort. Lite and chore items run on the operator's default
-lane model, unless the pick rule below moves them. That default is a standing decision in the operator's
-instructions, not a constant of this skill: read it there. On 2026-10-26 it
-was Opus 5.5 at high effort. The orchestrator puts the model and effort on
-the launch (Running a fleet) and names them in the brief with the tier
-(D-104).
+**Every lane runs on the operator's default lane model, full-tier items
+included**, unless the operator names another model for the item (or sets a
+run's cap the pick rule below works within, never onto Fable). That default
+is a standing decision in the operator's instructions, not a constant of
+this skill: read it there (on 2026-10-28, Opus 5.5 at high effort). The tier
+changes the REVIEW, never the model: a full-tier item's lane, its panel and
+its fold rounds run on that default too. **Fable is for reviews only**: the
+full tier's cross-check, panel lenses on a security-sensitive commit (the
+repo's CLAUDE.md names which), and a judgement-call ruling, within any
+limits the operator set on Fable use. It is never a lane's model unless the
+operator named that item for it. The orchestrator puts the model and effort
+on the launch (Running a fleet) and names them in the brief with the tier
+(D-104, D-111: the old "strongest model available" was read as Fable, and
+full-tier lanes launched on it).
 
 ### Picking the model from what past items measured
 
 For the orchestrator, at the start of each run, and only among the models
-the operator's cap for that run allows (for example "lanes on Opus or Fable;
-no Haiku lanes"). A full-tier item stays pinned as above. For the rest:
+the operator's cap for that run allows (for example "lanes on Opus or
+Sonnet; no Haiku lanes"). A full-tier item stays on the default lane model,
+as above, and the pick never lands on Fable (Fable is for reviews only). For
+the rest:
 
 - **A lane needs a model with auto mode**, the standing rule (Haiku 4.5
   measured asking for every tool call).
@@ -769,9 +776,10 @@ if you find neither, ask rather than assume.
   wear that label, so `buddy msg <label>` reaches it by the name you gave it;
   without it every lane is `<repo>/s-<8hex>`); then
   `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --model <model> --effort <effort> --permission-mode <mode> "You are <label>. Read <brief file> in full and follow it as your brief."`.
-  The model and the effort are the item's, per its tier (Review depth,
-  above): the operator's default lane model and effort, unless the item is
-  full or the operator named it for another model.
+  The model and the effort are the operator's default lane model and
+  effort for every item, full tier included (Review depth, above), unless
+  the pick rule moved a lite or chore item or the operator named the item
+  for another model. Never Fable for a lane the operator did not name.
   The brief itself goes in a file: herdr refuses an agent argument holding a
   newline or a backtick ("agent arguments cannot be encoded safely for the
   target shell", measured), and the one-line prompt naming the file launches.

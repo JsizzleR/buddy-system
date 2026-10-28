@@ -1024,27 +1024,26 @@ ledger row entered through the CLI (D-006).
 
 104. **The orchestrator uses agent tools itself; a subagent is not a lane (D-103).** While it
     runs a fleet, the orchestrator puts side work (a lane's diff, reports, measurements,
-    housekeeping, a second opinion: subagents on any model, a Codex pass through
-    `codex-review.sh`, a Fable read) on subagents, because its own context is the scarce
-    resource before its handoff size (orc-3 handed off at 322k, orc-4 at 397k). A subagent
-    holds no claim, lands nothing, relays nothing, and runs under the parent's id and claims
-    (D-099); its findings are evidence once a test reproduces them. Do not propose a ledger
-    row or verb for subagents, or counting their tokens against the handoff size.
+    housekeeping, a second opinion: subagents on any model, Fable only for a review (D-111), a
+    Codex pass through `codex-review.sh`, a Fable read) on subagents, because its own context
+    is the scarce resource before its handoff size (orc-3 handed off at 322k, orc-4 at 397k).
+    A subagent holds no claim, lands nothing, relays nothing, and runs under the parent's id
+    and claims (D-099); its findings are evidence once a test reproduces them. Do not propose
+    a ledger row or verb for subagents, or counting their tokens against the handoff size.
 
-105. **The review tier follows the change class; a receipt names what ran; the model is pinned
-    per tier (D-104).** Full (what the gate refuses or allows, the ledger schema,
-    `internal/fence`, an invariant): a read-only subagent panel, Codex design and code passes,
-    a required Fable cross-check, and a Codex re-verify of the fixes until it accepts or the
-    brief's bound. Lite: a scoped adversarial self-review and one Codex pass, one round, Fable
-    optional. Chore: no outside review required, with the reason. A test-only change takes its
-    class's tier; a second model is allowed at any tier. The receipt names each layer, each
-    second-model pass with its own effort, the cross-check by its model
-    (`review: full (panel + codex@xhigh design + codex@xhigh code + fable + codex@xhigh reverify)`;
-    measured, 0 of 15 lite/full receipts here named one). Lanes run on the
-    operator's default model; a full item, its panel and fold rounds on the strongest at high
-    effort; the skill states the default as that day's, never a constant. Do not propose a
-    tier column in the ledger, a receipt check before receipts follow the shape, or model
-    names as constants in the skill.
+105. **The review tier follows the change class; a receipt names what ran (D-104).** Full
+    (what the gate refuses or allows, the ledger schema, `internal/fence`, an invariant): a
+    read-only subagent panel, Codex design and code passes, a required Fable cross-check, and
+    a Codex re-verify of the fixes until it accepts or the brief's bound. Lite: a scoped
+    adversarial self-review and one Codex pass, one round, Fable optional. Chore: no outside
+    review required, with the reason. A test-only change takes its class's tier; a second
+    model is allowed at any tier. The receipt names each layer, each second-model pass with
+    its own effort, the cross-check by its model (`review: full (panel + codex@xhigh design +
+    codex@xhigh code + fable + codex@xhigh reverify)`; measured, 0 of 15 lite/full receipts
+    here named one). Lanes run on the operator's default model, full items included (D-111
+    amends the model clause, GIVEN 112); the skill states the default as that day's, never a
+    constant. Do not propose a tier column in the ledger, a receipt check before receipts
+    follow the shape, or model names as constants in the skill.
 
 106. **`msg` signs an id the ledger does not know as `unregistered s-<8hex>` (D-105).** A
     session id in the environment with no LIVE row here (absent, or ended) used to sign as
@@ -1174,6 +1173,17 @@ ledger row entered through the CLI (D-006).
     history says it cannot place it. install.sh runs with no stdin, its status the verb's.
     Not a hook verb, opens no ledger, never delegable (D-083). Do not propose a pull, a
     `--check` alias, or refusing a dirty or off-main tree.
+
+112. **Every lane runs on the default lane model, full tier included; Fable is for reviews
+    only (D-111, amends D-104).** The operator, 2026-10-28: "fable is for reviews only".
+    Another repo's orchestrator read D-104's "a full-tier item runs on the strongest model
+    available" as Fable 5.1 and launched full-tier lanes on it. Now every lane, panel and fold
+    round runs on the operator's default lane model unless the operator names another for the
+    item (or sets a run's cap the skill's pick rule works within); the tier changes the review
+    only. Fable runs only inside a review: the full tier's cross-check, panel lenses on a
+    security-sensitive commit, a judgement-call ruling; the pick rule never lands on it, and a
+    non-review subagent is not on it. Do not propose "strongest model" wording, a lane on
+    Fable the operator did not name, or a verb or check reading a lane's model.
 
 ## Environment facts (measured, do not re-derive)
 
