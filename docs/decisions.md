@@ -8390,10 +8390,21 @@ is deliberate)
   `init` and `rebase --no-trunk` send read-only GraphQL queries carrying the
   operator's token) is the recipe's; the gate does not model sandboxing.
 
-**NOT RUN** — the operator-visible native measurement (Q5): `buddy init`, two
-`hello`ed sessions, a lane's `gh stack rebase --no-trunk b` denied naming the
-slot, the slot holder allowed, the lane still denied naming the holder. Owed
-after landing and `install.sh`.
+**Measured natively** (Q5, orc-9, 2026-10-27, the installed buddy at 579784f,
+gh 2.95.0 + gh-stack v0.3.0): a throwaway repo (`git init`, branch `b`,
+`buddy init`), every gh call under `sandbox-exec` denying the network and
+writes under `$HOME`. (a) A live session's real PreToolUse hook on
+`cd <repo> && … gh stack rebase --no-trunk b`, nobody holding: DENIED,
+naming the slot ("Nobody holds .buddy/slot/gh-stack. Take it first"). (b) A
+stand-in session holding the slot in the target repo's ledger while the
+caller held it in its cwd's ledger only: DENIED, naming the holder and the
+TARGET repo's ledger. Both ledgers the command reached had to admit. (c) The
+stand-in released; the caller `hello`ed in the repo and claimed the slot
+there: ALLOWED, and gh-stack ran (exit 2, "branch b is not part of a stack",
+its own answer for an empty repo). (d) The stand-in's call while the caller
+held the slot: denied, naming the holder ("ask the holder: buddy msg
+gh-stack"). Not native: (d) was a PreToolUse payload through the installed
+`buddy gate`, not a second live session's hook.
 
 **Tests** (`internal/cli/ghstack_test.go`): 73 refused spellings, each with a
 kernel control where the box runs it (recording `gh`/`gh-stack` stubs first on

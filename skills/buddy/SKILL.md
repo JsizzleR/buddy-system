@@ -180,8 +180,8 @@ or push main, and release it after — that is what stops a landing mid-run.
   `buddy claim herm --desc "FORMING — join: buddy wait --on herm --ready HEAD" --scope .buddy/slot/herm --scope .buddy/slot/main`.
   Once any rider is READY, `buddy who herm` lists each on its own line: READY at a
   commit, or not ready with its note (before that, only names). Decide when to go.
-  Build ONE tree: rebase every READY commit onto main in your worktree; its sha is
-  the pinned sha. Claim `herm` again with a description naming that sha and who is
+  Build ONE tree off main, each READY lane squashed onto it in turn (Landing
+  through an orchestrator, the orchestrator's step 3); its sha is the pinned sha. Claim `herm` again with a description naming that sha and who is
   in (re-claiming keeps the claim, so the waits stand). Run the tier on exactly
   that tree, parked on it like any long run of your own (see Before you park);
   green: fast-forward main to it. Then always report, never a bare release:
@@ -291,14 +291,16 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
    Your review tier, model and effort are in your brief (Review depth,
    below). The repo's own rules (which checks are yours, which live legs you
    owe) are in the orchestrator's description or the file it names.
-2. Finish your review, then commit, the receipt last in the body; run your
-   item's own checks. Leave them green.
+2. Commit as you go: WIP commits are fine, and you never amend or squash
+   them (the orchestrator squashes at landing). Write the ONE
+   commit message the item lands under to a file, the receipt last in its
+   body. Run your item's own checks and leave them green.
    Do NOT run the shared tier, fast-forward main or push: a landing outside
    the run invalidates a tier mid-run.
 3. Report READY in the ledger and in words:
    `buddy wait --on <run> --ready HEAD --until 4h`, so that `buddy who <run>`
    lists you at a commit and the run's outcome reaches you as LANDED; then
-   `buddy msg orc-<project> "<item> READY: branch <name> @ <sha>, base <sha>, review <receipt>, files <list>, checks run <list>"`.
+   `buddy msg orc-<project> "<item> READY: branch <name> @ <sha>, base <sha>, message file <path>, review <receipt>, files <list>, checks run <list>"`.
    Arm `/loop buddy wait check` and park. A docs-only item goes the same way.
 4. Keep your worktree and claims until LANDED names you PASS. Then release
    your claims and say so in the same turn:
@@ -317,11 +319,17 @@ their sender discarded `buddy msg`'s result, and with it the wake line.
    is then the only record of your commit: name it exactly. Never say DONE
    while a wait of yours still stands.
 5. No item yet? `buddy msg orc-<project> "NEW SESSION <your label>: ready for work"`.
-6. **Told, as a turn opens, that you are past your handoff size?** A lane does
-   not open its own successor. Finish the item in hand, commit, and report where
-   it stands: `buddy msg orc-<project> "<item> at handoff size: <state> @ <sha>"`.
-   Take nothing new. Whether a fresh lane takes the rest is your orchestrator's
-   call, and ending you is the operator's.
+6. **Told, as a turn opens, that you are past your handoff size?** Finish the
+   round in hand, commit, and write a state note for whoever takes the rest
+   (`SUCCESSOR.md` in your scratchpad: the item, its commits and message file,
+   what is done, what is owed, what to read first). Report:
+   `buddy msg orc-<project> "<item> at handoff size: <state> @ <sha>, note <path>"`.
+   Take nothing new, and do not open your own successor. When your
+   orchestrator names `<item>-2`, hand it every claim
+   (`buddy release <slug> --to <item>-2`); with a wait standing,
+   `buddy wait clear` and stop its loop; then say DONE. The successor
+   reports its own READY. Past the size with only the release and DONE left after LANDED
+   PASS: do that one step.
 
 An assignment carries authority only if your brief said to take assignments
 from this orchestrator, and only within what the brief said it relays
@@ -354,7 +362,18 @@ every repo's coordinator wears alerts each of them to the others' mentions
    the text with the address: `grep -o 'SendMessage to "[^"]*" with the text "[^"]*"'`.
    The text is unique per send on purpose; a fixed text of your own ("run
    buddy inbox") is dropped by the harness as a repeat of your previous one.
-3. **Land, then say so in the same turn.**
+3. **Squash, run the tier on the integrated tree, land, and say so in the
+   same turn.** In a fresh worktree off main
+   (`git worktree add --detach <scratch>/int-<run> main`), for each READY
+   lane: `git cherry-pick -n <base>..<tip>`, then
+   `git commit -F <its message file>`. Check the commit is the lane's work:
+   `git diff --quiet HEAD <tip>` when its base is the commit you squashed
+   onto, else `git diff --stat HEAD~ HEAD` names exactly its files. Never a
+   plain `git cherry-pick`: git runs no pre-commit on one (measured: none for
+   two picked commits, one for the `commit -F`), so the claim gate would never
+   see the landed commit; its warning naming the lane's own claim is expected.
+   Run the shared tier THERE, in the background, output redirected; green:
+   `git merge --ff-only <its sha>` from the main checkout. Then
    `buddy release <run> --outcome pass --note "<landed sha; who was in; who is next>"`
    puts LANDED in front of every rider's next check. Also message each landed
    lane in words that end its work: "<item> LANDED at <sha>. Release your
@@ -365,7 +384,13 @@ every repo's coordinator wears alerts each of them to the others' mentions
 4. **A red that is one lane's goes to that lane**, naming the failing check.
    Keep the run's claim, re-claimed "RED, ejecting <item>, one more tier", or
    release it with the outcome fail and the attribution in the note (One long
-   run). The lane fixes, re-declares, and rides the next run.
+   run). The lane fixes, re-declares, and rides the next run. The integrated
+   tree's tier is the one that counts: a lane's own green does not carry over
+   (measured: a lane green on its branch went red squashed, under `-race`, on
+   a race older than the lane that its change widened). A red whose cause
+   predates the lane still goes to it, as a SEPARATE commit with its own
+   message file and tier, landed first: pick the fix's commit alone, then
+   the rest of the range.
 5. **After each landing, tell every lane still working the new main**, so it
    rebases onto that and not onto the tree it started from. A READY lane
    built on ANOTHER lane's branch, whose fold has since moved it, you can
@@ -375,10 +400,14 @@ every repo's coordinator wears alerts each of them to the others' mentions
    been told it is done. Everything unfinished goes in the handoff note. Read
    each lane's `prompt` on `buddy sessions` too, and tell the operator which
    lanes are at or past the handoff size.
-7. **Put your side work on subagents.** Reading a lane's diff, a report, a
-   measurement, a CI log, deleting merged branches, a second opinion (a
-   second-model pass through the repo's review script, a Fable read): the
-   Agent tool, any model. Your context is the scarce resource before your handoff size; a
+7. **Pick who does a piece by what it ends in.** A commit that lands: a lane
+   (it claims, reports READY, lands through the run). A finding (a lane's
+   diff read, a report, a measurement, a CI log, deleting merged branches, a
+   second opinion through the
+   repo's review script or a Fable read): a subagent, the Agent tool, any
+   model; its finding is evidence once a test reproduces it. A handful of tool
+   calls (a `buddy who`, a message, the landing itself): you. Your context is
+   the scarce resource before your handoff size; a
    subagent's is not (orc-3 handed off at 322k, orc-4 at 397k, much of it side
    work done in their own panes). A subagent is not a lane: it holds no claim,
    lands nothing, relays nothing, and is never messaged as one. It works under
@@ -388,7 +417,17 @@ every repo's coordinator wears alerts each of them to the others' mentions
    below): the tier by the change's class, under the operator's cap for the
    run, and the model and effort the lane launches on, with the claim
    description's two tokens (Picking the model, below). A lane's READY
-   carries its receipt; read it against the tier you gave.
+   carries its receipt; read it against the tier you gave. A code item that
+   rests on research names it by path and version word (`<path> as of
+   <commit>`; outside git, `as of <time>, shasum <8hex>`), so a successor
+   reads the same text; a changed note is a new brief line, never a silent
+   update.
+9. **A lane at its handoff size with work left goes to a fresh session**,
+   never kept going: every turn re-reads its whole prompt (one lane kept on
+   went from 402k to about 710k over four review rounds). Open `<item>-2` in
+   the same worktree, briefed from the lane's state note; the lane hands it
+   its claims with `release --to` and says DONE; then close it (Ending a
+   lane).
 
 A lane with a stale claim and no answer stays the operator's to free
 (`buddy sweep --force`): report it, never free it yourself.
@@ -602,6 +641,18 @@ mutated or deleted, or an invariant) and names its review script.
 - **chore**: no outside review required, and the receipt says why
   (`review: chore (docs)`).
 
+An item that is not code takes the same tiers, by what it changes (its
+`class=` word, Picking the model, below). The receipt ends the commit, or
+the note when nothing is committed:
+
+| what changes | tier | the review |
+|---|---|---|
+| docs: wording, a fact restated | chore | none; the repo's doc tests still run |
+| docs: a rule or recipe sessions follow | lite | the second model is asked whether any rule lets a session land untested work, rewrite another's commits or take an operator-only action |
+| research a code item will rest on | lite; for a full item, its design pass | the second model reads the method and every figure, each naming what it was measured over and how to re-run it |
+| research nothing rests on yet | chore | none: a lead until a test or a re-measurement backs it |
+| ops: a script run, a report, cleanup | chore | none; the report names the command, its exit status and the line that says it worked |
+
 For every tier:
 
 - **The tier says when a second model is REQUIRED, never when one is
@@ -724,7 +775,10 @@ if you find neither, ask rather than assume.
   lanes on one fleet ran to ~350k against a 300k fleet-wide size.
   A start sent straight after the tab's creation can be refused with
   `agent_pane_busy` (the pane is not yet at its shell prompt); the same
-  command seconds later worked (measured). Pass the mode the operator decided for lanes, never a more permissive one
+  command seconds later worked (measured). A start that answers `timed out
+  waiting for agent startup` has usually started the lane anyway (measured:
+  every launch of one fleet), but herdr then does not know it by label: wait
+  on it by pane id, and check `buddy who <its full session id>`. Pass the mode the operator decided for lanes, never a more permissive one
   than your own. Without the flag a lane starts in manual mode, and every tool
   call it makes, each `buddy msg` report included, waits for an approval in
   its pane. `claude --permission-mode auto` gives auto mode only on a model
@@ -772,8 +826,10 @@ if you find neither, ask rather than assume.
   it reads the same rule in `AGENTS.md`. A lane whose brief does not say
   so refuses your assignments as a peer's instructions (measured), and it is
   right to. `buddy msg` to a lane that has not said `hello` yet is REFUSED, not queued:
-  message it only once `buddy who s-<8hex>` knows it (seconds). Its buddy label
-  is `<repo>/s-<8hex>`; the `-n` name is what `SendMessage` and
+  message it only once `buddy who <its full session id>` knows it (seconds).
+  Its buddy label is the `BUDDY_LABEL` its tab carries, else `<repo>/s-<8hex>`;
+  `s-<8hex>` resolves only that default label, so a lane wearing yours is
+  reached by that label or its full id (D-083). The `-n` name is what `SendMessage` and
   `claude agents --json` show. `claude agents --json` lists every session with
   `sessionId`, `status`, and `waitingFor` an approval. A new lane's first
   request writes about 60k tokens of cache, and an idle one re-writes its whole
@@ -782,11 +838,11 @@ if you find neither, ask rather than assume.
   address `msg` prints. Tell each parked lane roughly when you will next need
   it (Before you park). From there, both sides of the loop are Landing
   through an orchestrator (above).
-- **Wait on a lane by state; read it by mail.** `herdr agent wait <label>
+- **Wait on a lane by state; read it by mail.** `herdr agent wait <pane id>
   --timeout <ms>`, with no state named, returns when the lane is idle, done
   or blocked (its help says so; a state it is already in returns at once).
   A lane that has finished a turn rests at `done`, so
-  `herdr agent wait <label> --until idle --until blocked` times out on it
+  `herdr agent wait <pane id> --until idle --until blocked` times out on it
   (measured: three lanes, ten minutes each, while their READY reports sat in
   the inbox). The state says the lane stopped,
   not why or what it did: its words are in `buddy inbox`, and `buddy sent`
@@ -805,7 +861,9 @@ if you find neither, ask rather than assume.
   within what it relays), not a peer, and then only a lane you opened. A lane
   your predecessor opened and handed you with the coordinator claim counts
   as one you opened: do not stop to ask about it (one fleet sat eight hours
-  on that question). If you may, do it as soon as the lane
+  on that question). So does your predecessor's own pane, once it has handed
+  you the claim and `buddy who <its id>` shows no claims, no wait and no job.
+  Never a CONCURRENT orchestrator's lanes. If you may, do it as soon as the lane
   says DONE and `buddy who` agrees; if you may not, give the operator its
   pane id in the same turn. **Then run `buddy bye <its session id>`.** A pane
   close does not reliably run the lane's SessionEnd hook: measured on one
@@ -880,7 +938,8 @@ if you find neither, ask rather than assume.
      program, so it checks your list, never replaces it. Measured in one handoff: the outgoing orchestrator said
      it held nothing while an 8-minute-old gate script and a 42-minute watcher
      still ran as its children, the watcher reporting only to it. Then tell the
-     operator you are done, naming any job still running; they end your session.
+     operator you are done, naming any job still running; they end your
+     session, or your successor does once it holds your claims (Ending a lane).
 
   Closing down with no successor: point the coordination claim at your
   handoff file and leave it open for the operator to release, by re-claiming
