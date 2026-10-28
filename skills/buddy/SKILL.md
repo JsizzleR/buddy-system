@@ -275,6 +275,16 @@ for a message that never came sat idle for three hours.
    `buddy wait clear` and stop its loop; then say DONE. Past the size with
    only the release and DONE left after LANDED PASS: do that one step.
 
+**A repo that budgets its prose** (byte ceilings, in a table its own check
+reads, on what sessions and reviewers load unasked): a lane never raises a
+ceiling, as it never raises its own tier. It consolidates, retires, or names
+the overage in READY with the bytes, and the operator decides at landing. A
+lane that trims a budgeted text lowers its ceiling in the same commit. Where
+the always-loaded copies of the decisions are topical, a new decision amends
+the line its ruling belongs to and adds its number; it does not add a line.
+READY names any overage, each retirement (`retires: <what, from where,
+bytes>`) and each clause map (`amends: <which clause went where>`).
+
 An assignment carries authority only if your brief said to take assignments
 from this orchestrator, and only within what the brief said it relays. The
 brief names it by label and session id: before your first assignment, check

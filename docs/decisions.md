@@ -8,6 +8,19 @@ this file is the record behind it — the measurement, the rejected alternative,
 reason a cut was a cut. Reviews here are Codex passes; Codex cannot build or test, so a
 finding became evidence only once a reproducing test was written and watched to fail.
 
+**Adding a decision (D-116).** The copies a session or a Codex pass loads unasked are
+budgeted: `docs/prose-budget.tsv` holds their byte ceilings and `check-prose-budget.sh`
+fails the hermetic tier over one. The charter's GIVENs are TOPICAL: a new decision amends
+the GIVEN its ruling belongs to, adds its D-number and at most a clause, and fits the
+headroom or is offset by a removal in the same commit; it does not add a GIVEN. The
+`CLAUDE.md` index stays one line per decision until it is rewritten into topical lines
+(prose-budget step 3); until then a new decision adds its one line, which fits the
+`CLAUDE.md` and `CLAUDE.md#Decisions` ceilings or is offset, and from then on it amends a
+topical line as the charter does. This entry is where the why goes, at any length: no
+request carries this file unless a session reads it, so read it by `## D-NNN` heading, never
+whole. A lane never raises a ceiling: READY names the overage, any retirement and any clause
+map, and the operator decides at landing.
+
 ## D-001 — Claims live in a transactional SQLite ledger, not in lock files
 
 2026-08-14 · Codex design pass on the plan, verdict reject-as-written
@@ -8959,3 +8972,82 @@ line parsed as JSON. Mutants each killed: the model check dropped either way, th
 widened to every type, no fold, `claude` not a catch-all, a truthy model test, `model !=
 "opus"`, failing closed, `Task` not taken, a full id in the refusal, a doubled escape in the
 header's settings line, the header not a raw string. The skill text is prose; the skill tests hold every name it uses.
+
+## D-116 — The text loaded unasked has byte ceilings, red in the hermetic tier; the always-loaded copies of a decision are topical
+
+2026-10-28 · the operator's decision: the prose-budget plan (`docs/PROSE-BUDGET-PLAN.md`)
+accepted with orc-10's recommendation ("take your recommendations", orc-10's pane, about
+16:40), carried out as its step 1 by lane prose-budget-check under orc-11
+
+**What was wrong** — No file a session or a Codex pass loads unasked had a size bound.
+`CLAUDE.md` went 16,252 → 69,690 bytes between 09-08 and 10-28, the skill 0 → 73,144, the
+charter 10,497 → 99,972, each step a reasonable commit; the two gates over them (the skill's
+names, the charter's coverage) only push text in. Measured the week to 10-28: 5,254 requests
+in this repo at a mean prompt of 210,695 tokens, `CLAUDE.md` about 8% of the cache reads.
+D-112 and D-114 cut `CLAUDE.md` and the skill once; nothing held the cut. And at 8 to 12
+decisions a week, a copy that grows one line per decision outruns any ceiling with 10%
+headroom inside two weeks (the plan's runway table), so a ceiling alone is a check that
+fires weekly and is raised by reflex.
+
+**What shipped** — `docs/prose-budget.tsv`: one line per budgeted text (a path, a `## `
+section, a skill's `description`) and one per load class, `every-request`, `per-session`,
+`read-first`, `codex-pass`, the class totals MANDATORY so a new file spends its class's
+headroom. Ceilings are the landed size + 10% rounded up to 4,096 bytes; `CLAUDE.md`'s leaves
+room for D-116's index line, added at landing. `scripts/check-prose-budget.sh`
+enumerates the texts from its OWN list, not the table's (every `CLAUDE.md` and
+`CLAUDE.local.md`, `.claude/rules|agents|commands`, `@` imports to five hops, skill
+descriptions and bodies, the paths `CLAUDE.md`'s "Read this first" and `AGENTS.md`'s read
+paragraph name with one level of closure, `AGENTS.md`, the charter `codex-review.sh` names),
+and fails the tier on a text over its ceiling, a text with no line, a line whose text is
+gone, a startup directive naming a file outside the parsed sections, and a parsed section
+that is gone. A planted tree runs first and must yield exactly its ten failures. In
+`check.sh`, every
+done-check runs through `done_check`, which records the name after the check returned 0,
+and a wiring gate fails the tier when a name in its anchored list or a discovered
+`scripts/check-*.sh` did not run, so a line commented out, in a dead branch or deleted with
+its file fails. The topical policy, from today, for both copies: a new decision amends the
+charter GIVEN its ruling belongs to and adds its number, it does not add a GIVEN (this
+decision amends GIVEN 113); the `CLAUDE.md` index stays one line per decision until step 3
+rewrites it topically, each new line fitting the headroom or offset. The record's header
+says so where a lane adds an entry, and the core skill's landing recipe says a lane never
+raises a ceiling and READY names the overage, retirements and clause maps.
+
+**Measured at landing** — `read-first` is 985,707 bytes because `CLAUDE.md`'s "Read this
+first" names `docs/decisions.md` (634,169) and `docs/USAGE.md` (169,395); its ceiling is
+cut at that size, as the plan's step 1 says, and the record grows 5 to 9 KB a decision, so
+it crosses within weeks unless step 3 narrows the list. That is the conversation the ceiling
+is there to force, not a defect of the ceiling.
+
+**What the operator left where** — Step 3 (`index-topical`: the `CLAUDE.md` index rewritten
+into topical lines, amending D-112's shape) is ACCEPTED and runs next; its sub-questions
+(the index-mention clause, which startup reads stay, one file per decision) stay OPEN as the
+plan marks them. Steps 2 (the charter pilot and consolidation), 4 (`cost-report.sh`
+sections), 5 (the first retirement sweep) and 6 (the standing sweep) wait for next week's
+cost audit.
+
+**Not done** — A token count (bytes/4 misranks nothing); per-file ceilings without class
+totals; a warning tier; a ceiling on `docs/decisions.md` beyond what its place in the
+startup list requires; the operator's `~/.claude/CLAUDE.md`, outside the repo and never a
+destination for repo text.
+
+**Residuals** — A loader the check's list does not know, and a startup directive respelled
+past its forms, are cooperative (D-005's register); the audit's fixed-prefix median is the
+number that would show the first.
+
+**Review** — Lite: a self-review (it found that `@` imports were followed one hop and only
+from `CLAUDE.md`; now from every every-request file, five hops), then one Codex code pass at
+xhigh, folded once. Taken, each now in the planted tree or a mutation: a titled link's target
+(`[x](f.md "t")`) was dropped whole; a second "Read this first" section was never parsed; a
+block-scalar description stopped at its first blank line; `done_check x || …` ran the check
+with errexit off and recorded a failed check as run; the formula floored 110% before rounding
+up (3,724 bytes gave 4,096, not 8,192). OPEN, answered not folded: a done-check that exits 0
+without running its cases satisfies the wiring gate (`check-startup-report.sh` prints NOT RUN
+and exits 0 without `jq`). The gate proves a check ran and returned 0, not what it covered;
+the skip is that check's own design, reported loudly by it.
+
+**Test shape** — The check's planted tree (over a file, over a class whose member is under,
+a description over only past its blank line, an unbudgeted auto-load, an unbudgeted closure
+read, an unbudgeted import at the second hop, an unbudgeted titled link, an unbudgeted read
+in a second "Read this first" section, a vanished line, a misplaced directive; not the file under, the path-less directive or the
+second level of closure) and the wiring gate's planted control, each mutated and watched to
+fail.

@@ -1196,6 +1196,14 @@ ledger row entered through the CLI (D-006).
     record entry are the decision. Do not propose moving or rewording the invariants, a second
     always-loaded file (it saves nothing), dropping index lines for old decisions, or putting
     a decision's full text back into `CLAUDE.md`.
+    **The always-loaded prose has ceilings (D-116).** `docs/prose-budget.tsv` holds bytes per
+    text and per load class (every-request, per-session, read-first, codex-pass; class totals
+    mandatory); `check-prose-budget.sh` enumerates the texts from its own list and fails the
+    hermetic tier over a ceiling, on a text with no line, or on a line whose text is gone, and
+    `check.sh` fails when a `check-*.sh` did not run. Only the operator raises a ceiling, dated
+    in its line. GIVENs are topical: a new decision amends the GIVEN it belongs to and adds its
+    number, as this one does; it adds no GIVEN. Do not propose a warning, tokens instead of
+    bytes, per-file ceilings without class totals, or a GIVEN per decision.
 
 114. **The roster says `OVER handoff 300k` beside a live row's prompt at or past the READER's
     declared handoff size; fleet-report counts them (D-113).** The size is `BUDDY_HANDOFF_AT`

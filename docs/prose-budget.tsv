@@ -1,0 +1,26 @@
+# docs/prose-budget.tsv — byte ceilings on what a session or a Codex pass loads unasked (D-116).
+# Read and enforced by scripts/check-prose-budget.sh (hermetic tier); the plan is docs/PROSE-BUDGET-PLAN.md.
+# Columns, TAB-separated: key, ceiling_bytes, set (date and who), why.
+# A key is a path, a section (path#<heading text>: that `## ` heading to the next), a frontmatter
+# field (path:description), or a class total. The check, not this table, decides what must be here.
+# Ceiling = landed size + 10%, rounded up to 4,096 (`sh scripts/check-prose-budget.sh --sizes`).
+# RAISE only on the operator's word: edit the key's line, the date and the reason in `set`/`why`, in
+# the commit that needs the room. A lane never raises one; it names the overage in READY.
+# LOWER freely: a lane that trims a text lowers its line to the new formula value in the same commit.
+every-request	45056	2026-10-28 operator (D-116)	class total: every CLAUDE.md, rules, @ includes, skill descriptions; rides every request; 40,892 at landing
+CLAUDE.md	45056	2026-10-28 operator (D-116)	rules + index; 39,807 at landing (after D-112), room for the D-116 index line (D-117's is in); index-topical lowers it
+CLAUDE.md#Decisions	16384	2026-10-28 operator (D-116)	the index, one line per decision until index-topical (step 3) makes it topical; 11,607 at landing
+skills/buddy/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 543 at landing
+skills/buddy-fleet/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 542 at landing
+per-session	90112	2026-10-28 operator (D-116)	class total: every skill body, core + fleet (a coordinator loads both); 80,470 at landing
+skills/buddy/SKILL.md	28672	2026-10-28 operator (D-116)	core: what every session that loads the skill needs; 23,819 at landing (after D-114)
+skills/buddy-fleet/SKILL.md	65536	2026-10-28 operator (D-116)	coordinators only; 56,651 at landing
+read-first	1085440	2026-10-28 operator (D-116)	class total: what CLAUDE.md's Read this first and AGENTS.md's read paragraph name; 985,707 at landing, today's list; step 3 decides what stays
+README.md	28672	2026-10-28 operator (D-116)	named in Read this first; 22,566 at landing
+docs/README.md	4096	2026-10-28 operator (D-116)	named in Read this first; 3,385 at landing
+docs/DESIGN.md	16384	2026-10-28 operator (D-116)	named in Read this first and by AGENTS.md; 11,650 at landing
+docs/USAGE.md	188416	2026-10-28 operator (D-116)	named in Read this first as the per-feature reference; 169,395 at landing
+docs/decisions.md	700416	2026-10-28 operator (D-116)	named in Read this first since D-112, read by heading (452 of 453 calls); 634,169 at landing; grows 5-9 KB a decision
+codex-pass	122880	2026-10-28 operator (D-116)	class total: AGENTS.md + the charter, on every Codex pass; 109,321 at landing; lowered with step 2
+docs/review-charter.md	118784	2026-10-28 operator (D-116)	prepended to every Codex pass, and named in Read this first; 104,735 at landing; GIVENs topical from D-116
+AGENTS.md	8192	2026-10-28 operator (D-116)	every Codex run reads it; 4,586 at landing

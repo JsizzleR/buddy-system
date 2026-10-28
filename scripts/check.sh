@@ -176,22 +176,55 @@ if [ "$run_hermetic" = 1 ]; then
   go test -race ./... -count=1
 
   # Per-feature done-checks. A feature whose done-check is not invoked here is
-  # a feature nothing gates.
-  sh scripts/check-commit-gate.sh
-  sh scripts/check-pre-push.sh
-  sh scripts/check-local-hooks.sh
-  sh scripts/check-fence.sh
-  sh scripts/check-charter.sh
-  sh scripts/check-wait.sh
-  sh scripts/check-skill.sh
-  sh scripts/check-install.sh
-  sh scripts/check-gate-line.sh
-  sh scripts/check-setup-clone.sh
-  sh scripts/check-startup-report.sh
-  sh scripts/check-wake-report.sh
-  sh scripts/check-fleet-report.sh
-  sh scripts/check-model-report.sh
-  sh scripts/check-libc-pin.sh
+  # a feature nothing gates, and since D-116 that sentence is a gate (below).
+  # Each runs through done_check, which records the name only AFTER the check
+  # returned 0, so the gate judges what RAN, not what this file spells: a line
+  # commented out, inside a dead branch or a function nobody calls, or
+  # respelled to some other script records nothing. The `|| exit 1` is not
+  # redundant with set -e: a call written `done_check x || …` runs the body
+  # with errexit OFF, and the failed check was then recorded as run (Codex
+  # code pass). What a check does once running (a NOT RUN skip that exits 0)
+  # is its own controls' business: this proves it ran and returned 0.
+  ran=" "
+  done_check() { sh "scripts/check-$1.sh" || exit 1; ran="$ran$1 "; }
+  done_check commit-gate
+  done_check pre-push
+  done_check local-hooks
+  done_check fence
+  done_check charter
+  done_check wait
+  done_check skill
+  done_check install
+  done_check gate-line
+  done_check setup-clone
+  done_check startup-report
+  done_check wake-report
+  done_check fleet-report
+  done_check model-report
+  done_check libc-pin
+  done_check prose-budget
+
+  # WIRING GATE (D-116). A check cannot grep for its own invocation once it is
+  # not invoked (the prose-budget plan's first Codex pass), so the assertion
+  # lives here, where every hermetic run reaches it. Two parts: an ANCHORED
+  # list, so deleting a check's file together with its line still fails
+  # (discovery alone finds only the files that remain: the second pass); and
+  # DISCOVERY over scripts/check-*.sh, so a new check nobody wired fails too.
+  # Editing the anchor is a diff line in this file, which is the visibility
+  # wanted; it is not tamper-proofing. Two clauses, as above: the comparison,
+  # and a planted control it must agree with (b ran; a required check that
+  # did not run and a discovered one that did not run are both reported, and
+  # the one that ran is not).
+  required="commit-gate pre-push local-hooks fence charter wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report libc-pin prose-budget"
+  wiring() { # <ran> <required> <discovered> — every name in the last two not in the first
+    for n in $2 $3; do
+      case "$1" in *" $n "*) ;; *) echo "$n" ;; esac
+    done | sort -u | tr '\n' ' '
+  }
+  [ "$(wiring " b " "a b" "b c")" = "a c " ] || { echo "check.sh: the wiring gate reported '$(wiring " b " "a b" "b c")' of its control, want 'a c ' — the gate is broken, not the tree" >&2; exit 1; }
+  found=$(for s in scripts/check-*.sh; do [ -f "$s" ] || continue; s=${s#scripts/check-}; echo "${s%.sh}"; done)
+  unwired=$(wiring "$ran" "$required" "$found")
+  [ -z "$unwired" ] || { echo "check.sh: done-check(s) that did not run in this tier: $unwired— each scripts/check-<name>.sh runs here as \`done_check <name>\` and is named in \`required\` (a required check whose file is gone fails too)" >&2; exit 1; }
 
   # QUALIFICATION SCRIPTS (review F-32). Before this, none of the .py/.mjs
   # files under scripts/ ran automatically and this file syntax-checked only
