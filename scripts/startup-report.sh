@@ -33,8 +33,13 @@
 # no longer exists (a removed worktree), or when it does and git says it shares
 # this repo's common dir; an existing sibling that is another repo, or no repo,
 # does not. A file directly beside the repo (`<repo>-notes.md`) never does.
-# Transcripts are read from every registered worktree's directory as well: a
-# session started IN a worktree is filed under it. `min` is
+# A worktree the harness made, `<root>/.claude/worktrees/<n>`, is lexically
+# under its root, so an edit there counts whether or not it still exists —
+# unless it exists and git says it is ANOTHER repository's checkout.
+# Transcripts are read from every registered worktree's directory as well (a
+# session started IN a worktree is filed under it), and from every
+# `<root's name>--claude-worktrees-*` directory, present or removed, less one
+# whose worktree exists as another repository's checkout. `min` is
 # wall-clock between the two ends, so it is an UPPER bound: it includes the
 # operator's own turns and any time the session sat waiting. The tool columns count calls made in that window, and
 # `KB` is the bytes those calls returned. A session that never edited has no
@@ -50,10 +55,15 @@
 # (isCompactSummary) is never the typed prompt. "Last N days" is transcripts
 # MODIFIED in that window, so a session resumed today reports its original
 # startup. A repo path over 200 characters is not found: the harness shortens
-# and hashes those directory names. A worktree not named `<repo>-…` and since
-# REMOVED is gone from `git worktree list`, so an edit made in it cannot be told
-# from one made anywhere else, and its session counts as "no edit"; a session
-# STARTED in a removed worktree is not found at all.
+# and hashes those directory names. A worktree neither named `<repo>-…` nor
+# under `.claude/worktrees/` and since REMOVED is gone from `git worktree
+# list`, so an edit made in it cannot be told from one made anywhere else, and
+# its session counts as "no edit"; a session STARTED in one is not found at all.
+# A REMOVED harness worktree's directory is taken on its name alone: nothing
+# left on disk says whose it was, so a removed worktree of another repository
+# that was parked under this one's `.claude/worktrees/` is read as this
+# repo's, and a present one of another repository hides a removed one of ours
+# whose name encodes the same (`a.b` and `a-b`).
 #
 # KNOBS
 #   BUDDY_COST_DAYS      look back this many days (default 7; cost-report's knob)
@@ -82,6 +92,16 @@ parent=$(dirname -- "$top")
 base=$(basename -- "$top")
 rparent=$(CDPATH= cd -- "$parent" && pwd -P)
 common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
+# Run from a worktree the harness made (`<main>/.claude/worktrees/<n>`), the
+# main checkout as the operator spells it is $top with that cut off, kept only
+# when it shares this common dir: wake-report.sh's rule, for the same reason
+# (git lists the main checkout resolved, and the harness named its directory
+# from the spelling).
+under=${top%/.claude/worktrees/*}
+case "${top#"$under"/.claude/worktrees/}" in
+	"$top" | '' | */*) under= ;;
+	*) [ -n "$common" ] && [ "$(git -C "$under" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" = "$common" ] || under= ;;
+esac
 # Every worktree root: as git lists it (resolved), resolved again, and mapped
 # back through the repo's own parent as the operator spells it — git lists
 # /private/var where the harness, started in /var, named its directory from
@@ -90,6 +110,7 @@ common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/
 roots=$(
 	{
 		printf '%s\n' "$top"
+		if [ -n "$under" ]; then printf '%s\n' "$under"; fi
 		git -C "$top" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p'
 	} | while IFS= read -r r; do
 		[ -n "$r" ] || continue
@@ -102,9 +123,20 @@ roots=$(
 )
 nwt=$(git -C "$top" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)
 # Siblings named `<repo>-…` that exist and are NOT this repo's worktrees: the
-# one case the sibling rule must not claim.
+# one case the sibling rule must not claim. And the same test under every
+# root's `.claude/worktrees/`: a checkout there that is ANOTHER repository's
+# (a worktree of it parked under ours) is lexically inside this repo, and its
+# transcript directory carries this repo's prefix, so it is named here to be
+# left out of both. A directory there that is no checkout of its own resolves
+# to the enclosing one, ours, and stays in.
 excl=$(
-	for d in "$parent/$base"-*; do
+	{
+		for d in "$parent/$base"-*; do printf '%s\n' "$d"; done
+		printf '%s\n' "$roots" | while IFS= read -r r; do
+			[ -n "$r" ] || continue
+			for d in "$r/.claude/worktrees/"*; do printf '%s\n' "$d"; done
+		done
+	} | while IFS= read -r d; do
 		[ -d "$d" ] || continue
 		c=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || c=
 		[ -n "$common" ] && [ "$c" = "$common" ] && continue
@@ -120,12 +152,38 @@ excl=$(
 # given its two hyphens first.
 encode() { jq -rn --arg p "$1" '$p | gsub("[\\x{10000}-\\x{10FFFF}]"; "--") | gsub("[^A-Za-z0-9]"; "-")'; }
 proj="$projects/$(encode "$top")"
-projs=$(printf '%s\n' "$roots" | while IFS= read -r r; do
-	d="$projects/$(encode "$r")"
-	[ -d "$d" ] && printf '%s\n' "$d"
+# Plus the directory of every worktree the harness made under a root, present
+# or REMOVED: `<root>/.claude/worktrees/<n>` is filed as `<root's
+# name>--claude-worktrees-<n>`, and a removed one is gone from git's list. In
+# this repo every lane starts in one and it is removed once the work lands, so
+# reading registered worktrees alone found 14 sessions in a week where the
+# roster held about 30, nearly every lane missing (2026-10-28). Taken on the
+# harness's naming, as wake-report.sh takes it, less the directories of the
+# other repositories' checkouts found there ($excl), and their own harness
+# worktrees' (`<theirs>--claude-worktrees-*`), which carry our prefix too.
+xenc=$(printf '%s\n' "$excl" | while IFS= read -r x; do
+	if [ -n "$x" ]; then printf '%s\n' "$projects/$(encode "$x")"; fi
+done)
+hwt=$(printf '%s\n' "$roots" | while IFS= read -r r; do
+	for d in "$projects/$(encode "$r")--claude-worktrees-"*; do
+		[ -d "$d" ] || continue
+		printf '%s\n' "$xenc" | while IFS= read -r x; do
+			# An `if`, not `case`, inside $(...), as above.
+			rest=${d#"$x--claude-worktrees-"}
+			if [ "$d" = "$x" ] || [ "$rest" != "$d" ]; then echo x; fi
+		done | grep -q . || printf '%s\n' "$d"
+	done
 done | awk '!seen[$0]++')
+projs=$({
+	printf '%s\n' "$roots" | while IFS= read -r r; do
+		d="$projects/$(encode "$r")"
+		if [ -d "$d" ]; then printf '%s\n' "$d"; fi
+	done
+	printf '%s\n' "$hwt"
+} | awk 'NF && !seen[$0]++')
 
 echo "Startup report: $top and its $((nwt > 1 ? nwt - 1 : 0)) linked worktree(s), last $days day(s)"
+[ -z "$hwt" ] || echo "Transcripts read from $(printf '%s\n' "$hwt" | grep -c .) harness worktree dir(s) as well, present or removed."
 echo "An edit counts under any worktree, or under a removed sibling named $base-*."
 echo "From each session's first typed prompt to its first edit. Counts and bytes only."
 if [ -z "$projs" ]; then
@@ -155,10 +213,16 @@ def kind: if . == "Read" then "read"
   else "other" end;
 def size: if type == "string" then utf8bytelength else (tojson | utf8bytelength) end;
 def under($r): startswith($r + "/");
+def foreign: . as $p | any($excl[]; . as $x | $p | under($x));
 def sibling: . as $p | any($sibs[]; . as $s | $p | startswith($s) and ($p | ltrimstr($s) | contains("/")))
-  and (any($excl[]; . as $x | $p | under($x)) | not);
+  and ($p | foreign | not);
+# Under a root, a checkout of another repository vetoes only when it is
+# nested INSIDE that root: a worktree of ours parked under the .claude/worktrees
+# of another repository is a root of its own, and is not vetoed by its host.
+def inroot($r): . as $p | under($r)
+  and (any($excl[]; . as $x | ($x | under($r)) and ($p | under($x))) | not);
 def inrepo: . as $p | ($p | test("/\\.\\.(/|$)") | not)
-  and (any($roots[]; . as $r | $p | under($r)) or ($p | sibling));
+  and (any($roots[]; . as $r | $p | inroot($r)) or ($p | sibling));
 reduce (inputs | select(.isSidechain != true and .isMeta != true and .isCompactSummary != true)) as $e (
   {t0: null, t1: null, n: {read: 0, search: 0, bash: 0, lsp: 0, agent: 0, other: 0}, bytes: 0};
   ($e.message.content // null) as $c

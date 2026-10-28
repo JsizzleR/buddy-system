@@ -44,6 +44,12 @@
 #     encoded prefix, not a FILE with the worktree prefix (nor does one drop
 #     the real directory after it), not the transcripts of another repository
 #     a worktree is parked under; a named directory is read alone;
+#   - a named directory holding no transcript at all (missing, empty, or a
+#     repo checkout's path, said to be one) refuses, exit 2, naming it and
+#     what the argument is, with nothing on stdout; one whose transcripts are
+#     all older than the window prints the zero report, exit 0 (and a window
+#     reaching them reads them); a repo with no transcript directory, run
+#     with no argument, still says so, exit 0;
 #   - no body, tool result, command or prompt text reaches the report: markers
 #     are planted in each, and the control greps the fixture for them first.
 set -eu
@@ -305,9 +311,54 @@ for d in 0 x -1 07x; do
 		fail "BUDDY_WAKE_DAYS='$d' was accepted"
 	fi
 done
-none=$(CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh -nowhere 2>&1) ||
-	fail "a missing project directory is not an error, and exited non-zero"
-printf '%s\n' "$none" | grep -q '^no transcripts: ' || fail "a missing project directory was not said:
+# A named directory holding no transcript at all is refused, never reported as
+# a zero: one that does not exist, an empty one (by name and by path), and a
+# repo checkout's path, which says it is one. stdout stays empty, so nothing
+# reading it takes a header for a report.
+mkdir -p "$WORK/projects/-empty/a.jsonl"     # a directory, no transcript (Codex)
+: >"$WORK/projects/-empty/notes.txt"
+for arg in -nowhere -empty "$WORK/projects/-empty" "$repo"; do
+	rc=0
+	CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh "$arg" >"$WORK/o" 2>"$WORK/e" || rc=$?
+	[ "$rc" -eq 2 ] || fail "a named directory with no transcript ($arg) exited $rc, not 2:
+$(cat "$WORK/o" "$WORK/e")"
+	[ ! -s "$WORK/o" ] || fail "the refusal of $arg printed on stdout:
+$(cat "$WORK/o")"
+	grep -qF -- "$arg" "$WORK/e" || fail "the refusal did not name $arg:
+$(cat "$WORK/e")"
+	grep -q 'under .*, by name .* or by path' "$WORK/e" || fail "the refusal of $arg did not say what the argument is:
+$(cat "$WORK/e")"
+	grep -q 'With no argument, run from inside the repo' "$WORK/e" || fail "the refusal of $arg did not name the default:
+$(cat "$WORK/e")"
+done
+grep -q 'It is a git checkout' "$WORK/e" || fail "a repo checkout's path was not said to be one:
+$(cat "$WORK/e")"
+# The control for that note: a directory that is no checkout is not called one.
+CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh -empty >/dev/null 2>"$WORK/e" || true
+if grep -q 'git checkout' "$WORK/e"; then fail "an empty project directory was called a git checkout"; fi
+# The positive control: transcripts all older than the window are no refusal,
+# and print the honest zero (w2 alone, modified 10 days ago, in a 7-day window).
+# A directory named a.jsonl sorts first there: no reason to stop looking.
+mkdir -p "$WORK/projects/-old/a.jsonl"
+cp -p "$W/w2.jsonl" "$WORK/projects/-old/"
+old=$(BUDDY_WAKE_DAYS=7 CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh -old 2>&1) ||
+	fail "a directory whose transcripts are all older than the window was refused:
+$old"
+printf '%s\n' "$old" | grep -q '^sessions: 0 transcript(s) modified in the window, 0 with a request in it$' ||
+	fail "the out-of-window directory did not print the zero report:
+$old"
+printf '%s\n' "$old" | grep -q '^total  *0  *0  *0$' || fail "the out-of-window directory's total is not zero:
+$old"
+# And its control: the same directory, a window that reaches the file, reads it.
+BUDDY_WAKE_DAYS=11 CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh -old 2>&1 |
+	grep -q '^total  *0  *1  *400$' || fail "the control failed: an 11-day window did not read -old's transcript"
+# The default with no transcript directory for the repo still says so, exit 0:
+# a repo whose sessions have none yet is a true zero, and the line names it.
+mkrepo "$WORK/fresh"
+none=$(cd "$WORK/fresh" && CLAUDE_PROJECTS_DIR="$WORK/projects" sh "$ROOT/scripts/wake-report.sh" 2>&1) ||
+	fail "a repo with no transcript directory is not an error, and exited non-zero:
+$none"
+printf '%s\n' "$none" | grep -q '^no transcripts: .* does not exist$' || fail "a missing default directory was not said:
 $none"
 
 echo "check-wake-report: ok"

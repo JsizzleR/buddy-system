@@ -22,13 +22,23 @@
 #   - a prompt that is PASTED text (`<pasted_content …>`) opens a window,
 #     where every other leading `<` is taken for the harness's own;
 #   - `KB` is bytes, not characters, over string and array tool results;
-#   - worktrees: an edit in a registered linked worktree ends a window (G); a
+#   - worktrees: an edit in a registered linked worktree ends a window, one
+#     parked inside another repo's `.claude/worktrees/` too (G, never vetoed
+#     by its host); a
 #     session started IN one is found under its own transcript directory,
 #     named by hand from the path the harness saw (H, and git lists the
 #     resolved path, so this is the /var-versus-/private/var mapping on macOS);
 #     an edit under a REMOVED sibling named `<repo>-…` counts (I); a write into
 #     an EXISTING sibling that is another repo, or to a file beside the repo,
-#     does not (G's controls);
+#     does not (G's controls); a session started in a REMOVED harness
+#     worktree (`<repo>/.claude/worktrees/<n>`) is found by its transcript
+#     directory's name, and its edit there counts (J), while the directory of
+#     another repository's checkout parked under `.claude/worktrees/`, its own
+#     harness worktrees' directories, and an edit into it, and the harness
+#     worktree directory of a sibling that is another repo, are not read (J's
+#     controls, each a session that would list); run from a harness worktree
+#     through a symlinked spelling, the main checkout's directory by that
+#     spelling is read;
 #   - calls in a subagent sidechain and calls after the first edit (in a later
 #     message, or later in the edit's own message) are not counted; an LSP
 #     call is counted as lsp;
@@ -60,6 +70,10 @@ git -C "$repo" commit -q --allow-empty -m init
 wt="$repo-wt"
 git -C "$repo" worktree add -q --detach "$wt"
 mkrepo "$repo-other"                       # a sibling that is ANOTHER repo
+# A worktree of ours parked under that other repo's .claude/worktrees: a root
+# of its own, which its host must not veto (Codex).
+parked="$repo-other/.claude/worktrees/ours"
+git -C "$repo" worktree add -q --detach "$parked"
 realtop=$(CDPATH= cd -- "$repo" && pwd -P)
 proj="$WORK/projects/$(printf '%s' "$WORK" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g')-re-po-caf----"
 mkdir -p "$proj"
@@ -100,12 +114,13 @@ cat >"$proj/e.jsonl" <<EOF
 EOF
 # G: started in the main checkout; a Read, then writes into the sibling that is
 # another repo and to a file beside the repo (neither ends the window), then an
-# edit in the registered linked worktree two minutes in (it does).
+# edit two minutes in (it does) in the registered worktree of ours parked
+# inside that other repo.
 cat >"$proj/g.jsonl" <<EOF
 {"type":"user","timestamp":"2026-09-26T13:00:00.000Z","message":{"content":"work in the worktree"}}
 {"type":"assistant","timestamp":"2026-09-26T13:00:30.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Read","input":{"file_path":"$repo/a.go"}}]}}
 {"type":"assistant","timestamp":"2026-09-26T13:01:00.000Z","message":{"content":[{"type":"tool_use","id":"2","name":"Write","input":{"file_path":"$repo-other/x.go","content":"x"}},{"type":"tool_use","id":"3","name":"Write","input":{"file_path":"$repo-notes.md","content":"x"}}]}}
-{"type":"assistant","timestamp":"2026-09-26T13:02:00.000Z","message":{"content":[{"type":"tool_use","id":"4","name":"Edit","input":{"file_path":"$wt/b.go"}}]}}
+{"type":"assistant","timestamp":"2026-09-26T13:02:00.000Z","message":{"content":[{"type":"tool_use","id":"4","name":"Edit","input":{"file_path":"$parked/b.go"}}]}}
 EOF
 # H: started IN the linked worktree, so filed under ITS directory: "-wt" after
 # the repo's own "----", one '-' for the '-' and none for "wt".
@@ -122,6 +137,33 @@ cat >"$proj/i.jsonl" <<EOF
 {"type":"assistant","timestamp":"2026-09-26T15:01:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Bash","input":{"command":"true"}}]}}
 {"type":"assistant","timestamp":"2026-09-26T15:04:30.000Z","message":{"content":[{"type":"tool_use","id":"2","name":"Edit","input":{"file_path":"$repo-gone/d.go"}}]}}
 EOF
+# J: started in a harness worktree, `$repo/.claude/worktrees/gone`, removed
+# since (never created here), so git lists it nowhere: found by its transcript
+# directory's name, `<repo's>--claude-worktrees-gone`. A Write into
+# `.claude/worktrees/foreign`, which exists as ANOTHER repository's checkout,
+# is "other"; the edit in the removed worktree, five and a half minutes in,
+# ends the window: it is lexically under the main checkout.
+mkrepo "$repo/.claude/worktrees/foreign"
+mkdir -p "$proj--claude-worktrees-gone"
+cat >"$proj--claude-worktrees-gone/j.jsonl" <<EOF
+{"type":"user","timestamp":"2026-09-26T16:00:00.000Z","message":{"content":"in a harness worktree removed since"}}
+{"type":"assistant","timestamp":"2026-09-26T16:01:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Write","input":{"file_path":"$repo/.claude/worktrees/foreign/f.go","content":"x"}}]}}
+{"type":"assistant","timestamp":"2026-09-26T16:05:30.000Z","message":{"content":[{"type":"tool_use","id":"2","name":"Edit","input":{"file_path":"$repo/.claude/worktrees/gone/e.go"}}]}}
+EOF
+# J's controls, each a session that WOULD list (an edit in the main checkout)
+# if its directory were read: the directory of that foreign checkout, which
+# carries this repo's prefix (17:00), a harness worktree directory of the
+# sibling that is another repo, `<repo-other's>--claude-worktrees-x` (18:00),
+# and one of the foreign checkout's OWN harness worktrees, which carries this
+# repo's prefix too (19:00, Codex).
+for d in "$proj--claude-worktrees-foreign:17" "${proj}-other--claude-worktrees-x:18" \
+	"$proj--claude-worktrees-foreign--claude-worktrees-x:19"; do
+	mkdir -p "${d%:*}"
+	cat >"${d%:*}/k.jsonl" <<EOF
+{"type":"user","timestamp":"2026-09-26T${d##*:}:00:00.000Z","message":{"content":"another repository's session"}}
+{"type":"assistant","timestamp":"2026-09-26T${d##*:}:01:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Edit","input":{"file_path":"$repo/a.go"}}]}}
+EOF
+done
 # C: not JSON at all.
 printf 'not json\n' >"$proj/c.jsonl"
 # D: a full window, but older than the default seven days.
@@ -151,15 +193,28 @@ $out"
 printf '%s\n' "$out" | grep -q '^2026-09-26 15:00  *4\.5  *0  *0  *1  *0  *0  *0  *0$' ||
 	fail "I (an edit in a removed sibling worktree) is wrong or missing:
 $out"
-printf '%s\n' "$out" | grep -q '^5 session(s) reached an edit, 1 did not\.$' ||
-	fail "want five edited sessions and one without (the unparseable and the old one left out):
+printf '%s\n' "$out" | grep -q '^2026-09-26 16:00  *5\.5  *0  *0  *0  *0  *0  *1  *0$' ||
+	fail "J (a session started in a removed harness worktree, edit there) is wrong or missing:
 $out"
-# Medians over an ODD count (A E G H I): 2.0 3.5 [4.5] 6.5 12.5 min; calls
-# 0 1 [3] 5 5; KB 0 0 [0] 0 4.9. The widened run below adds D for an EVEN count.
-printf '%s\n' "$out" | grep -q '^median: 4\.5 min, 3 tool calls, 0 KB returned before the first edit$' ||
-	fail "the median line is wrong (odd count):
+for h in 17 18 19; do
+	if printf '%s\n' "$out" | grep -q "^2026-09-26 $h:00 "; then
+		fail "another repository's harness worktree directory was read ($h:00):
 $out"
-printf '%s\n' "$out" | grep -q '^lsp: 1 of 14 calls in the window (7%)$' ||
+	fi
+done
+printf '%s\n' "$out" | grep -q '^Transcripts read from 1 harness worktree dir(s) as well' ||
+	fail "the harness worktree directory read was not said:
+$out"
+printf '%s\n' "$out" | grep -q '^6 session(s) reached an edit, 1 did not\.$' ||
+	fail "want six edited sessions and one without (the unparseable and the old one left out):
+$out"
+# Medians over an EVEN count (A E G H I J): 2.0 3.5 [4.5 5.5] 6.5 12.5 min;
+# calls 0 1 [1 3] 5 5; KB 0 0 [0 0] 0 4.9. The widened run below adds D for
+# an ODD count.
+printf '%s\n' "$out" | grep -q '^median: 5\.0 min, 2 tool calls, 0 KB returned before the first edit$' ||
+	fail "the median line is wrong (even count):
+$out"
+printf '%s\n' "$out" | grep -q '^lsp: 1 of 15 calls in the window (7%)$' ||
 	fail "the lsp line is wrong:
 $out"
 if printf '%s\n' "$out" | grep -q '2026-08-01'; then
@@ -172,14 +227,37 @@ widened=$(BUDDY_COST_DAYS=36500 CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/
 printf '%s\n' "$widened" | grep -q '^2026-08-01 10:00  *12\.5 ' ||
 	fail "the control failed: a 36500-day window did not list the old transcript:
 $widened"
-# EVEN count (D A E G H I): (4.5 + 6.5) / 2 min, (3 + 5) / 2 calls, (0 + 0) / 2 KB.
-printf '%s\n' "$widened" | grep -q '^median: 5\.5 min, 4 tool calls, 0 KB returned before the first edit$' ||
-	fail "the median line is wrong (even count):
+# ODD count (D A E G H I J): 2.0 3.5 4.5 [5.5] 6.5 12.5 12.5 min; calls
+# 0 1 1 [3] 5 5 5; KB 0.
+printf '%s\n' "$widened" | grep -q '^median: 5\.5 min, 3 tool calls, 0 KB returned before the first edit$' ||
+	fail "the median line is wrong (odd count):
 $widened"
 # Oldest first: the rows are sorted by start, not by file name or find order.
 order=$(printf '%s\n' "$widened" | grep '^20[0-9][0-9]-' | cut -c1-16 | tr '\n' '|')
-[ "$order" = "2026-08-01 10:00|2026-09-26 10:00|2026-09-26 12:00|2026-09-26 13:00|2026-09-26 14:00|2026-09-26 15:00|" ] ||
+[ "$order" = "2026-08-01 10:00|2026-09-26 10:00|2026-09-26 12:00|2026-09-26 13:00|2026-09-26 14:00|2026-09-26 15:00|2026-09-26 16:00|" ] ||
 	fail "rows are not oldest first: $order"
+
+# Run from a harness worktree, `<main>/.claude/worktrees/lane`, through a
+# symlinked spelling of the main checkout: git lists the main checkout
+# resolved, the harness filed its transcripts under the spelling, and only the
+# cut of `/.claude/worktrees/<n>` off the run's own top recovers it (Codex).
+mkdir -p "$WORK/real"
+ln -s "$WORK/real" "$WORK/ln"
+mkrepo "$WORK/real/r2"
+git -C "$WORK/real/r2" commit -q --allow-empty -m init
+git -C "$WORK/real/r2" worktree add -q --detach "$WORK/real/r2/.claude/worktrees/lane"
+lproj="$WORK/projects/$(printf '%s' "$WORK" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g')-ln-r2"
+mkdir -p "$lproj"
+cat >"$lproj/l.jsonl" <<EOF
+{"type":"user","timestamp":"2026-09-26T20:00:00.000Z","message":{"content":"in the main checkout, by its link"}}
+{"type":"assistant","timestamp":"2026-09-26T20:01:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Edit","input":{"file_path":"$WORK/ln/r2/x.go"}}]}}
+EOF
+fromlane=$(CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/startup-report.sh "$WORK/ln/r2/.claude/worktrees/lane" 2>&1) ||
+	fail "the run from a harness worktree exited non-zero:
+$fromlane"
+printf '%s\n' "$fromlane" | grep -q '^2026-09-26 20:00  *1\.0 ' ||
+	fail "run from a harness worktree, the main checkout's transcripts by its linked spelling were not read:
+$fromlane"
 
 # Privacy, with its control: the markers ARE in the fixture.
 grep -q MARKER_OUTPUT "$proj/a.jsonl" || fail "the privacy control failed: the fixture lost its markers"

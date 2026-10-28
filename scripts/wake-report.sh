@@ -6,9 +6,10 @@
 #   sh scripts/wake-report.sh [project-dir]
 #
 # project-dir is a directory under ~/.claude/projects by name
-# (`-Users-me-src-repo`) or by path, read alone. Default: the one the harness
-# keeps for the cwd repo's main checkout, plus its linked worktrees' (see WHAT
-# IT MISSES).
+# (`-Users-me-src-repo`) or by path, read alone; one holding no transcript at
+# all (a repo checkout's path, a typo) is refused, exit 2. Default: the one the
+# harness keeps for the cwd repo's main checkout, plus its linked worktrees'
+# (see WHAT IT MISSES).
 #
 # WHY IT EXISTS (#45). "Are parked sessions coming back warm?" had no
 # instrument. D-033 took its five measurements of the cache edge by hand, and
@@ -115,6 +116,39 @@ if [ $# -eq 1 ]; then
 		*) proj="$projects/$1" ;;
 	esac
 	set --
+	# A named directory with no transcript in it at all, in the window or out
+	# of it, is the wrong directory, and is refused rather than reported: given
+	# a repo checkout's path (measured 2026-10-28), the report read a directory
+	# holding no *.jsonl and printed every table at 0, exit 0, where the same
+	# window run from inside the repo held 47 transcripts and 14 cold wakes. A
+	# plausible zero (D-031). A repo path is not taken to mean that repo's
+	# default: a named directory is read alone, and guessing which checkout and
+	# worktrees the operator meant is the default's job, from inside the repo.
+	# Transcripts all older than the window still print the honest zero.
+	# A regular file, and every match looked at: a directory named `*.jsonl`
+	# is no transcript, and the first match being one is no reason to stop.
+	has=
+	for f in "$proj"/*.jsonl; do
+		if [ -f "$f" ]; then has=1; break; fi
+	done
+	if [ -z "$has" ]; then
+		{
+			if [ -d "$proj" ]; then
+				echo "wake-report: $proj holds no transcript (*.jsonl), in the window or out of it"
+			elif [ -e "$proj" ]; then
+				echo "wake-report: $proj is not a directory"
+			else
+				echo "wake-report: $proj does not exist"
+			fi
+			# The likely mistake, said when it is cheap to see: the checkout's top.
+			if [ -e "$proj/.git" ]; then
+				echo "It is a git checkout, not a transcript directory: run the report from inside it with no argument."
+			fi
+			echo "The argument is a directory under $projects, by name (-Users-me-src-repo) or by path."
+			echo "With no argument, run from inside the repo, it reads the main checkout's directory and its harness worktrees'."
+		} >&2
+		exit 2
+	fi
 else
 	# The root as the operator spells it (pwd -L), which is what the harness
 	# names its directory from; --show-toplevel resolves symlinks.
@@ -234,8 +268,9 @@ cut=$(jq -n --argjson d "$days" 'now - $d * 86400 | floor')
 rows=$(mktemp) || exit 1
 trap 'rm -f "$rows"' EXIT INT TERM
 # -mtime is whole days, the grain BUDDY_WAKE_DAYS is in; -maxdepth 1 keeps
-# <session>/subagents/*.jsonl out.
-find "$@" -maxdepth 1 -name '*.jsonl' -mtime "-$days" | while IFS= read -r f; do
+# <session>/subagents/*.jsonl out; -type f, because a directory named *.jsonl
+# was counted as a transcript modified in the window, read as nothing (Codex).
+find "$@" -maxdepth 1 -name '*.jsonl' -type f -mtime "-$days" | while IFS= read -r f; do
 	jq -n -R -r --argjson cut "$cut" "$prog" "$f" 2>/dev/null || true
 done >"$rows"
 
