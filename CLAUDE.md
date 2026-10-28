@@ -107,7 +107,10 @@ context cost), `startup-report.sh [repo]` (minutes and tool calls before each
 session's first edit), `wake-report.sh [project]` (idle→wake warm/cold by what
 woke it, tokens re-written), `fleet-report.sh <list-file>` (per listed project
 ledger: verdict, counts, STALE/mail/pause ids), `model-report.sh [--export F]`
-(item claims' rates per class × model; F keeps them past the sweep). Python:
+(item claims' rates per class × model; F keeps them past the sweep),
+`subagent-report.sh [--since D] [--until D]` (Agent calls by model param and
+word, the model each ran on, subagent transcripts per session, orchestrators'
+first-launch prompt and landing reads, buddy-verb Bash bytes). Python:
 `python3 -I scripts/check-<name>.py <receipt> --self-test` is an evidence
 checker that launches nothing; `scripts/qualify-<name>.py` and
 `qualify-release.py --harness H --executable P` (retain, run every tier's suites
