@@ -692,6 +692,12 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
   neither; `s-<8hex>` resolves only a default label). The sender is the key and the brief the
   authority; nothing in buddy confers. Never delegable: install, push, settings, permission,
   trust, schema, a more permissive mode, work beyond the launcher's scope.
+  **Amended 2026-10-27 (D-109, the operator):** a brief may also relay the operator's decisions
+  on the item's content and scope (what the change says, adds or drops, inside the item), each message marking
+  it said in the coordinator's pane, with the time; those are the operator's, as if typed in
+  the lane's pane, and unmarked it is the coordinator's advice. The floor is unchanged. Measured
+  on its first lane: the permission classifier refused the commit anyway, and the operator said
+  it again in the lane's pane.
 - **A ledger this process may not write gets its cause and fix named (D-084):** Codex's
   workspace-write sandbox keeps the git common dir read-only, so every verb fails (CANTOPEN 14 at
   open, or READONLY 8 on a write while a peer holds it open). A failing verb whose error is that

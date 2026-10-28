@@ -882,7 +882,8 @@ ledger row entered through the CLI (D-006).
     trust, schema, a more permissive mode, work beyond the launcher's scope. Not chosen now:
     the sender's id on every drained line; a bare-shell `[operator]` row as the channel (a
     convenience, not a key); relaying through `herdr agent prompt` (a typed turn the lane
-    cannot tell from the operator's); any authority-conferring verb or flag.
+    cannot tell from the operator's); any authority-conferring verb or flag. D-109 widens
+    the relayed decisions to the item's content and scope (GIVEN 110).
 
 85. **A ledger this process may not write gets its cause and fix named; the gate still
     denies (D-084).** Codex's workspace-write sandbox keeps the git common dir read-only
@@ -1148,6 +1149,16 @@ ledger row entered through the CLI (D-006).
     rebase; cd B` needing B's slot. Do not propose flag modelling, a pre-rebase git hook, alias parsing, or a
     Codex-only uncertainty for gh; and do not say this closes "rewritten without the commit
     gate", which is git's.
+
+110. **A relayed operator decision may carry the item's content and scope (D-109, amends
+    D-083).** A brief may say its coordinator also relays the operator's decisions on what the
+    change says, adds or drops; each such message marks it said in the coordinator's pane, with
+    the time, and is then the operator's, as if typed in the lane's pane. Unmarked, it is the
+    coordinator's advice. The sender is still the key and the brief still the authority; the
+    floor (install, push, settings, permission, trust, schema, a more permissive mode, work
+    beyond the launcher's scope) is unchanged, and no other sender relays. Prose only: no verb,
+    flag or row. Measured once: the first lane briefed under it had its commit refused by its
+    permission classifier anyway, and the operator repeated the decision in the lane's pane.
 
 ## Environment facts (measured, do not re-derive)
 

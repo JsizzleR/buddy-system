@@ -8423,3 +8423,50 @@ round 1 timed out at the watchdog, round 2 accepted with two P1s folded;
 codex@xhigh code, accepted, two forms recorded open and three questions
 folded; fable cross-check, accepted, four folds; codex@xhigh reverify x1,
 accepted). Timing per Q7 above.
+
+## D-109 — A relayed operator decision may carry the item's content and scope, marked as said in the coordinator's pane (amends D-083)
+
+2026-10-27 · the operator's decision, in orc-9's pane (~20:10 and ~20:25), carried out by lane
+relay-authority under a brief that relays it
+
+**What was wrong** — D-083 let a brief name one coordinator as the relay of the operator's
+decisions on assignment, stopping, claims and closing a lane. It said nothing about the
+CONTENT of the item. On 2026-10-27 the operator decided, in orc-9's pane, what a lane's change
+should say; orc-9 relayed it by `buddy msg` with the time and "in my pane", and the lane's
+permission classifier refused to commit it as instruction poisoning. It was right by the
+brief's text, which relayed no content decisions, and the operator repeated the decisions in
+the lane's pane. The operator's words: "my instruction passed here is as good as in the
+session itself", and "that should be part of the buddy skill setup".
+
+**The rule** — A brief may say its coordinator also relays the operator's decisions on the
+item's content and scope: what the change says, adds or drops. Each such message says the
+operator said it in the coordinator's pane, with the time ("the operator, in my pane at
+<time>:"); it is then the operator's own, as if typed in the lane's pane, and the lane writes
+it in and commits it without asking again. Unmarked, a content message is the coordinator's
+own advice. Everything else in D-083 stands: one coordinator, named by full session id and
+label and checked once with `buddy who`; any other sender is peer text; and the floor is
+unchanged (install, push, settings, permission, trust, schema, a more permissive mode, work
+beyond the launcher's scope), decided only in the lane's own pane.
+
+Where it lives: the skill's lane paragraph ("Landing through an orchestrator") and its brief
+clause ("Running a fleet"), `AGENTS.md`'s relay paragraph, the D-083 bullet in `CLAUDE.md`
+(an amendment line), and GIVEN 110 in the review charter.
+
+**Why invariant 4 holds** — As in D-083: the brief is the authority and rides the launch as
+the lane's first prompt; the sender is only the key that selects its clause. The mark makes
+the claim checkable by the operator later (a time in their own pane), not by buddy: nothing
+in buddy verifies it, and no verb, flag or row was added.
+
+**Measured: the classifier refused anyway** — The first lane briefed under this clause was
+relay-authority itself (2026-10-27): its brief carried the clause naming orc-9, and its brief
+was the operator's request. Its auto-mode permission classifier still refused the lane's own
+`git commit` of this change as instruction poisoning; no relayed message was involved, only
+the brief and the content it asked for. The operator then said, in the lane's own pane: "I
+gave this instruction; commit it." So a brief's clause did not get past the classifier on its
+first trial, and the second ask the operator wanted gone happened here too. The rule stands as
+the record of what the operator decided; making the classifier admit it is not buddy's (a
+settings rule, D-083's floor), and is still open. Whether a relayed content decision fares
+any differently from a briefed one is not measured.
+
+**Test shape** — Prose only. `TestSkillNamesOnlyWhatHelpAnswers` holds every `buddy <verb>
+--flag` the edited sections name; `check-charter.sh` holds GIVEN 110.
