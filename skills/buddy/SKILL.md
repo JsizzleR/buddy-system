@@ -218,8 +218,9 @@ for a message that never came sat idle for three hours.
 
 **As a lane:**
 
-1. Work in your own worktree at current main. Claim before you edit, with
-   the item's name as the slug: it is how the orchestrator addresses you.
+1. Work in your own worktree at current main, or at the base your brief
+   names. Claim before you edit, with the item's name as the slug: it is
+   how the orchestrator addresses you.
    Your brief names your review tier, its round ceiling, and your model
    (Your review, below). The repo's own rules (which checks are yours, which
    live legs you owe) are in the orchestrator's description or the file it

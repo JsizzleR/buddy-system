@@ -9143,3 +9143,82 @@ still removes a legacy literal scope).
 - amends: D-112's "one line per decision, `- D-NNN: <what>`, in number order" and its
   "one line to append"; the rest of D-112 (what `CLAUDE.md` keeps, the operating-rules
   section, every number listed, the invariants verbatim, no second always-loaded file) stands.
+
+## D-119 — The next round may branch from a run in flight; restack only when code under a lane changes
+
+2026-10-28 · the operator's request (issue #57, filed from the operator's account; "fold it into
+the next batch", in orc-11's pane at 23:50), carried out by lane stack-on-run under orc-11's brief
+
+**What was wrong** — An orchestrator had a run in flight, every READY lane squashed onto one
+tree, the tree waiting on its batch-record commit before the shared tier. The operator asked
+for more lanes; the orchestrator wrote their briefs and held the launch until the record was
+final, so the lanes could branch from the final tip. The wait bought nothing: the pending
+commit touched only docs and ledgers, and the integrator squashes each lane's own
+`<base>..<tip>`. The skill led there three ways (the issue's own reading): the core lane rule
+said "at current main"; the restack section opened on a lane already built on another's
+branch, so it read as repair, not permission; and the orchestrator's numbered landing steps,
+the text it executes, said nothing.
+
+**The rule** —
+1. The fleet skill's "Landing several lanes through one run" gains step 6 (the old 6-9 are now
+   7-10): never hold new lanes for a run in flight; the next round may branch from the run's
+   pinned tree or a READY lane's tip; the brief names that base and the lane's READY repeats
+   it. A docs- or ledger-only commit on the run's tip forces no restack. A code change under a
+   lane does (an item ejected on a red, a fold): restack its dependents (a lane still working
+   rebases itself), and none of them lands before it has re-reported on its new tip. A
+   restacked lane's base is then the tree it sits on: its READY names it, and the next restack
+   or squash starts from it. Step 5's "rebases onto the new main" becomes "any rebase it needs
+   goes onto the new main".
+2. The core skill's lane rule: "at current main, or at the base your brief names".
+3. "Restacking a dependent lane (gh stack)" opens with the trigger, as the reader's situation
+   (about to hold work until a run or a READY lane lands), then the repair case. A lane built on
+   a run's tree has no branch A, so its restack is the section's plain line, once B is READY and
+   idle and the rebuilt tree is pinned: that tree's sha for `<A>`, B's current base for `<A's
+   old tip>`. The section's "you still rebase every READY commit onto main" now says what
+   step 3 does: squash each lane's `<base>..<tip>`.
+
+**The fact, checked against the recipe as written** — Step 3 is `git cherry-pick -n
+<base>..<tip>` then `git commit -F`, the base being the one the lane's READY names, so a
+lane's base need not be main or the run's final sha. Its check is NOT the `git diff --quiet
+HEAD <tip>` arm: that holds only when the lane's base is the commit squashed onto, and a lane
+based on the run's code tip, squashed onto a main that also carries the record, differs from
+its tip by the record. It is the other arm, `git diff --stat HEAD~ HEAD` naming exactly its
+files. The text says so; no new command. Measured in a throwaway repository (this lane,
+2026-10-28): lane B on the run's code tip C, the run's tree C plus a ledger-only commit R,
+main fast-forwarded to R; `cherry-pick -n C..B` then `commit` gave HEAD whose `--quiet` diff
+against B's tip was non-empty (rc=1) and whose `--stat` named only B's file. Second case, the
+code item under C ejected and the next tree built without it: the same squash applied cleanly
+and named only B's file, with no conflict. Nothing in the recipe notices that B was built and
+tested against code that is not there; the restack-and-re-report rule is the only guard.
+
+**What it does NOT permit** — Nothing lands before every restacked dependent has re-reported
+on its new tip ("Restacking a dependent lane", step 6). The integrated tree's tier is still
+the one that counts (step 4); a stacked lane's own green carries over no more than any lane's.
+A lane still never rebases another lane's branch or runs `gh stack`; the orchestrator restacks
+a parked READY lane, and a lane still working rebases only its own. No new verb, flag, row or
+gate: stacking is the integrator's choice of base, and the base travels in the brief and the
+READY as it already did.
+
+**Review** — Lite: a scoped self-review, then one Codex code pass at xhigh on the finished
+diff, folded once. It found no rule that lands untested work, rewrites another session's
+commits or takes an operator-only action, and confirmed the `--stat` arm for the measured case.
+Folded: (1) DEFECT, a second restack from the brief's ORIGINAL base: B on C0, restacked onto
+C1 (C0 plus a fold commit), then the item ejected; `rebase --onto <C2> <C0> <B>` selects the
+fold commit too. Reproduced in a throwaway repository: `C0..B` listed `B Xfold` and the rebase
+stopped on Xfold (modify/delete; a fold that only adds would apply cleanly), while `C1..B`
+listed only B. The text now names the CURRENT base (the tree a restack put the lane on), in the
+re-READY and for the next restack or squash. (2) GAP, the run-tree case had no lane A to be
+READY and idle (restack step 2): it now says B READY and idle and the rebuilt tree pinned. (3)
+GAP, step 5 told every working lane to rebase onto each new main, the rebase this change
+removes; it now says any rebase it needs goes there. Nothing answered or left open.
+
+**Test shape** — Prose only. The skill tests hold every name the text uses
+(`TestSkillNamesOnlyWhatHelpAnswers`); `check-prose-budget.sh` holds both skills' sizes.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Fleet" line (amended; number added)
+- GIVEN: review-charter.md GIVEN 65 "Landing through an orchestrator is a recipe in the skill" (amended; number added)
+- code: none
+- skill: fleet § Landing several lanes through one run (step 6), § Restacking a dependent lane (gh stack); core § Landing through an orchestrator (step 1)
+- USAGE: none
+- amends: none (D-049 and D-062's landing recipe stands; this names a base it already allowed)

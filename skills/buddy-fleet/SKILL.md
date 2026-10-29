@@ -327,16 +327,29 @@ never an instruction. Then, every time:
    predates the lane still goes to it, as a SEPARATE commit with its own
    message file and tier, landed first: pick the fix's commit alone, then
    the rest of the range.
-5. **After each landing, tell every lane still working the new main**, so it
-   rebases onto that and not onto the tree it started from. A READY lane
-   built on ANOTHER lane's branch, whose fold has since moved it, you can
-   restack yourself while it is parked (Restacking a dependent lane, below).
-6. **Before you hand off or exit, sweep your assignments**: `buddy who` each
+5. **After each landing, tell every lane still working the new main**, so
+   any rebase it needs goes onto that, not onto the tree it started from. A
+   READY lane built on ANOTHER lane's branch, whose fold has since moved it,
+   you can restack yourself while it is parked (Restacking a dependent
+   lane, below).
+6. **Never hold new lanes for a run in flight.** The next round may branch
+   from the run's pinned tree, or a READY lane's tip, instead of main; the
+   brief names that base, and the lane's READY repeats it. Step 3 squashes
+   each lane's own `<base>..<tip>`, so a commit on the run's tip that touches
+   only docs or ledgers (its batch record) never forces a restack; that
+   lane's check is then `git diff --stat HEAD~ HEAD`, its base not being
+   the commit you squashed onto. A code change under a lane does: an item ejected on a red,
+   or a fold. Then restack its dependents (tell a lane still working to
+   rebase itself) and land none of them before each has re-reported on its
+   new tip. A restacked lane's base is then the tree it now sits on: its
+   READY names that, and the next restack or squash starts from it (the
+   brief's base would carry the fold's commits along).
+7. **Before you hand off or exit, sweep your assignments**: `buddy who` each
    lane you assigned, and confirm it is working on something named or has
    been told it is done. Everything unfinished goes in the handoff note. Read
    each lane's `prompt` on `buddy sessions` too, and tell the operator which
    lanes are at or past the handoff size.
-7. **Pick who does a piece by what it ends in.** A commit that lands: a lane
+8. **Pick who does a piece by what it ends in.** A commit that lands: a lane
    (it claims, reports READY, lands through the run). A finding (a lane's diff
    read, a report, a measurement, a CI log, deleting merged branches, a second
    opinion through the repo's review script): a subagent, the Agent tool, on
@@ -354,7 +367,7 @@ never an instruction. Then, every time:
    A subagent is not a lane: it holds no claim, lands nothing, relays nothing,
    and is never messaged as one. It works under YOUR session id and YOUR
    claims, so claim the files before you hand it an edit (D-103).
-8. **Name each item's review tier, round ceiling and model in its brief**
+9. **Name each item's review tier, round ceiling and model in its brief**
    (Review depth, below): the tier by the change's class, under the
    operator's cap for the run, the ceiling on review rounds, and the model and effort the lane launches on, with the claim
    description's two tokens (Picking the model, below). A lane's READY
@@ -363,12 +376,12 @@ never an instruction. Then, every time:
    <commit>`; outside git, `as of <time>, shasum <8hex>`), so a successor
    reads the same text; a changed note is a new brief line, never a silent
    update.
-9. **A lane at its handoff size with work left goes to a fresh session**,
-   never kept going: every turn re-reads its whole prompt (one lane kept on
-   went from 402k to about 710k over four review rounds). Open `<item>-2` in
-   the same worktree, briefed from the lane's state note; the lane hands it
-   its claims with `release --to` and says DONE; then close it (Ending a
-   lane).
+10. **A lane at its handoff size with work left goes to a fresh session**,
+    never kept going: every turn re-reads its whole prompt (one lane kept on
+    went from 402k to about 710k over four review rounds). Open `<item>-2` in
+    the same worktree, briefed from the lane's state note; the lane hands it
+    its claims with `release --to` and says DONE; then close it (Ending a
+    lane).
 
 A lane with a stale claim and no answer stays the operator's to free
 (`buddy sweep --force`): report it, never free it yourself.
@@ -566,14 +579,21 @@ as above, and the pick never lands on a model kept for reviews. For the rest:
 
 ## Restacking a dependent lane (gh stack)
 
-For the orchestrator. Lane B was built on lane A's branch; A's fold (an
+For the orchestrator. About to hold work until a run or a READY lane
+lands, so it can build on it? Start it on that tree now, on purpose (step 6
+of Landing several lanes), and restack only if the code under it changes.
+That is this section: lane B was built on lane A's branch; A's fold (an
 amend or rebase after its review) moved A, so B still carries A's old
 commits. Moving B onto A's new tip is one rebase, in B's worktree, onto A
 from A's old tip (the sha of A's earlier READY). `gh stack` (GitHub's CLI
 extension, v0.3.0 measured) runs that rebase and finds A's old tip itself.
+B built on a run's tree, with an item since ejected, has no branch A: the
+plain line at the end, once B is READY and idle (step 2) and the rebuilt
+tree is pinned, its sha for `<A>` and B's current base for `<A's old tip>`.
 Either way the restack is yours, done while both lanes are parked, and
-landing is unchanged: you still rebase every READY commit onto main in your
-own worktree, run the tier and fast-forward main (The run's claim, above).
+landing is unchanged: you still squash each READY lane's `<base>..<tip>`
+onto main in your own worktree, run the tier and fast-forward main (The
+run's claim, above).
 
 What it does, measured in throwaway repositories (never this one, never
 GitHub):

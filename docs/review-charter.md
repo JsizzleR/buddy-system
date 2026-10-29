@@ -610,6 +610,10 @@ ledger row entered through the CLI (D-006).
     outcome plus words that end the lane's work. The orchestrator owes an answer to every READY,
     every `msg` result read for its wake line, the landing said in the same turn, a red routed to
     its lane, the new main to every lane still working, and `who` on every lane before handoff.
+    The next round may branch from a run in flight (its pinned tree or a READY lane's tip, named
+    in the brief): the squash takes each lane's own `<base>..<tip>`, so only a code change under
+    a lane (an ejection, a fold) forces a restack, and no dependent lands before it re-reports
+    on its restacked tip (D-119).
     Repo-specific parameters (tier, review, own checks, worktree names, id spaces) stay in the
     repo's own skill. Do not propose `buddy task` or any task table (every fact has a row:
     claim, `ready_sha`, `outcome`, inbox), a LANDED that also means "you may exit", or naming
