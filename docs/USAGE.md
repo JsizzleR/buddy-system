@@ -1657,7 +1657,9 @@ BUDDY_LEDGER="$common/buddy.db" scripts/cost-report.sh
 ```
 
 Set `BUDDY_COST_DAYS` to change the window. The report never prints messages,
-prompts, or tool results.
+prompts, or tool results. Its last two sections are the prose classes of
+`docs/prose-budget.tsv` against their ceilings and the context the week's
+requests were billed for (its header says how each is counted).
 
 For how long sessions spend before their first edit, which is the number a
 language server is meant to move:
@@ -1678,6 +1680,18 @@ line says whether sessions use the tool at all. It takes the same
 `BUDDY_COST_DAYS` knob, and prints counts and bytes only.
 
 `sh scripts/model-report.sh [--export <tsv>]` reads the ledger's item claims (not slots, not `orc-*`) as rates per class × model: items, outcomes, fails, reworked items (the slug claimed again) and requests per item, the class from a description that begins `model=<id> class=<docs|code|test|research|ops> `, the model the holder's recorded one; `--export` appends each closed item not yet in the file, so the register outlives the sweep's 24 hours (run it before each sweep). Counts and ids only; `BUDDY_LEDGER` and `BUDDY_MODEL_FLOOR` (default 10) are its knobs.
+
+`BUDDY_LEDGER` is a knob of `cost-report.sh` and `model-report.sh` only: `buddy`
+itself never reads it and finds its ledger from the cwd's git common dir.
+
+The other reports print counts, ids and byte lengths only, like these:
+`sh scripts/wake-report.sh [project]` (idle→wake warm or cold by what woke it,
+tokens re-written; see "Waiting without going cold"), `sh scripts/fleet-report.sh
+<list-file>` (per listed project ledger: verdict, counts, STALE, mail and pause
+ids; see "Landing through an orchestrator") and `sh scripts/subagent-report.sh
+[--since D] [--until D]` (Agent calls by model parameter and word, the model each
+ran on, subagent transcripts per session, orchestrators' first-launch prompt and
+landing reads, buddy-verb Bash bytes; its header says what each number feeds).
 
 ## Structured adapters (experimental)
 

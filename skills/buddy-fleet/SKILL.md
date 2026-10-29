@@ -16,11 +16,9 @@ permission mode they start in, whether you open and close their panes
 yourself, the handoff size, and the review caps are the OPERATOR's standing
 decisions, not constants of this skill. Find them in your instructions (the
 operator's CLAUDE.md, or your brief); if you find neither, ask rather than
-assume, and never fill a gap from what another orchestrator did (a fleet
-whose every orchestrator copied the last one's lane model ran its bounded
-fixes on the review model). A worked example of such a file, with the
-measurements behind each rule, is `docs/examples/fleet-conventions.md` in
-the buddy-system repository.
+assume, and never fill a gap from what another orchestrator did (D-104,
+D-111). A worked example of such a file, with the measurements behind each
+rule, is `docs/examples/fleet-conventions.md` in the buddy-system repository.
 
 ## Opening lanes
 
@@ -37,51 +35,45 @@ nobody authorised.
   wear that label, so `buddy msg <label>` reaches it by the name you gave it;
   without it every lane is `<repo>/s-<8hex>`); then
   `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --model <model> --effort <effort> --permission-mode <mode> "You are <label>. Read <brief file> in full and follow it as your brief."`.
-  The model and the effort are the operator's default lane model and
-  effort for every item, full tier included (Review depth, below), unless
-  the pick rule moved a lite or chore item or the operator named the item
-  for another model. A model the operator keeps for reviews is never a
-  lane's model unless the operator named that item for it.
-  The brief itself goes in a file: herdr refuses an agent argument holding a
-  newline or a backtick ("agent arguments cannot be encoded safely for the
-  target shell", measured), and the one-line prompt naming the file launches.
-  A lane that may run past the fleet-wide handoff size gets its own:
-  `herdr tab create … --env BUDDY_HANDOFF_AT=<n>`, which reaches the lane's
-  hooks (measured). Without it a lane hears the settings one, or nothing, and
-  lanes on one fleet ran to ~350k against a 300k fleet-wide size.
-  A start sent straight after the tab's creation can be refused with
-  `agent_pane_busy` (the pane is not yet at its shell prompt); the same
-  command seconds later worked (measured). A start that answers `timed out
-  waiting for agent startup` has usually started the lane anyway (measured:
-  every launch of one fleet), but herdr then does not know it by label: wait
-  on it by pane id, and check `buddy who <its full session id>`. Pass the mode the operator decided for lanes, never a more permissive one
-  than your own. Without the flag a lane starts in manual mode, and every tool
-  call it makes, each `buddy msg` report included, waits for an approval in
-  its pane. `claude --permission-mode auto` gives auto mode only on a model
-  that has it (measured: Sonnet 5 ran a Bash call unprompted; Haiku 4.5 still
-  asked for every one), so launch auto lanes on such a model. For a manual
-  lane the operator can pre-allow `Bash(buddy *)`, or answer the first report
-  "don't ask again for: buddy msg *". That is the operator's setting, never the
-  lane's or yours to change. A Codex lane:
+  The model and effort are the operator's default lane model and effort,
+  full tier included, unless the pick rule moved a lite or chore item or the
+  operator named the item for another model (Review depth, below).
+  The brief goes in a file: herdr refuses an agent argument holding a
+  newline or a backtick (D-082). A lane that may run past the fleet-wide
+  handoff size gets its own, `herdr tab create … --env BUDDY_HANDOFF_AT=<n>`,
+  which reaches the lane's hooks; without it a lane hears the settings one,
+  or nothing (D-064, D-096). A start refused with `agent_pane_busy` (the pane is not
+  yet at its shell prompt) works when retried seconds later (D-082). A start
+  that answers `timed out waiting for agent startup` has usually started the
+  lane anyway, but herdr then does not know it by label: wait on it by pane
+  id, and check `buddy who <its full session id>` (D-122).
+  Pass the mode the operator decided for lanes, never a more permissive one
+  than your own. Without the flag a lane starts in manual mode (D-056), and
+  every tool call it makes, each `buddy msg` report included, waits for an
+  approval in its pane. `claude --permission-mode auto` gives auto mode only on a
+  model that has it (a model without it still asks for every call; D-114),
+  so launch auto lanes on such a model. For a manual lane the operator can
+  pre-allow `Bash(buddy *)`, or answer the first report "don't ask again
+  for: buddy msg *": the operator's setting, never the lane's or yours to
+  change. A Codex lane:
   `herdr agent start <label> --kind codex --pane <pane id> -- -s workspace-write -a on-request "You are <label>. Read <brief file> in full and follow it as your brief."`;
   its brief says to request escalation for every buddy call up front
   (Harness boundaries).
 - **A launch must not hand the lane your identity.** A herdr tab's shell takes
-  the herdr server's environment, not yours (measured: a tab opened from a
-  Claude pane carried no `CLAUDE_CODE_SESSION_ID`), and `claude --bg` runs in
-  the claude daemon's, so neither leaks. A lane started as a child of your own
-  shell does inherit your id, and buddy then refuses every call it makes while
-  the two ids disagree: start one only with both unset, as
-  `env -u CLAUDE_CODE_SESSION_ID -u CODEX_THREAD_ID <harness> ...`. If
-  the herdr server was ever started from inside a session, every tab carries
-  that session's id; restart it from a plain terminal.
+  the herdr server's environment, and `claude --bg` the claude daemon's, so
+  neither leaks your `CLAUDE_CODE_SESSION_ID` (D-085). A lane started as a
+  child of your own shell inherits your id, and buddy then refuses every call
+  it makes while the two ids disagree: start one only with both unset, as
+  `env -u CLAUDE_CODE_SESSION_ID -u CODEX_THREAD_ID <harness> ...`. If the
+  herdr server was ever started from inside a session, every tab carries that
+  session's id; restart it from a plain terminal.
 - **Or in the background:** `claude --bg -n <label> "<brief>"` prints
   `backgrounded · <8hex> · <label>`. The lane runs in the claude daemon's
-  environment, not yours (measured): its row shows no pane, and no variable
-  you set on the launch reaches it, so `BUDDY_HANDOFF_AT` cannot be passed to
-  one. It picks its own session id (a --session-id flag is ignored), its row's
-  pid is its own (the pid `claude agents --json` shows), and the operator
-  opens it with `claude attach <8hex>`.
+  environment, not yours: its row shows no pane, and no variable you set on
+  the launch reaches it, so `BUDDY_HANDOFF_AT` cannot be passed to one. It
+  picks its own session id (a --session-id flag is ignored), its row's pid is
+  its own (the pid `claude agents --json` shows), and the operator opens it
+  with `claude attach <8hex>` (D-056, D-058).
 - **Either way, the brief rides the launch**, as the lane's first user
   prompt, so it carries your authority: put in it only what the operator gave
   you. Keep it a pointer. Name yourself by LABEL (the sender on every
@@ -93,31 +85,28 @@ nobody authorised.
   It relays the operator's decisions on this work: what you take next, what
   you stop or hand on, which claims you release, when a lane you opened is
   closed, and this item's content and scope (what the change says, adds or
-  drops, inside the item) when its message says the operator said it in its pane, with the
-  time; those are the operator's own, as if typed in your pane. It cannot
-  have you push, install, change settings, permissions, trust or a schema,
-  run in a more permissive mode, or take on work beyond its own authorized scope: the
-  operator decides those in your pane. Claim
-  before you edit; report to it with buddy msg. Read <file>." Name the
-  item's review tier, its round ceiling, and the model and effort it runs
-  on (Review depth, below), with the operator's cap if one is set. Relay only what the
+  drops, inside the item) when its message says the operator said it in its
+  pane, with the time; those are the operator's own, as if typed in your
+  pane. It cannot have you push, install, change settings, permissions, trust
+  or a schema, run in a more permissive mode, or take on work beyond its own
+  authorized scope: the operator decides those in your pane. Claim before you
+  edit; report to it with buddy msg. Read <file>." Name the item's review
+  tier, its round ceiling, and the model and effort it runs on (Review depth,
+  below), with the operator's cap if one is set. Relay only what the
   operator decided, each content decision marked "the operator, in my pane
   at <time>:" (without the mark a lane reads it as your advice). A
-  coordinator you launch
-  gets the same clause, naming you. A Codex lane does not load this skill;
-  it reads the same rule in `AGENTS.md`. A lane whose brief does not say
-  so refuses your assignments as a peer's instructions (measured), and it is
-  right to; so did a lane's permission classifier, committing content
-  decisions relayed under a brief that relayed only assignment.
+  coordinator you launch gets the same clause, naming you. A Codex lane does
+  not load this skill; it reads the same rule in `AGENTS.md`. A lane whose
+  brief does not say so refuses your assignments as a peer's instructions,
+  and it is right to; so does a lane's permission classifier, for content
+  decisions relayed under a brief that relays only assignment (D-083, D-109).
   `buddy msg` to a lane that has not said `hello` yet is REFUSED, not queued:
   message it only once `buddy who <its full session id>` knows it (seconds).
-  Its buddy label is the `BUDDY_LABEL` its tab carries, else `<repo>/s-<8hex>`;
-  `s-<8hex>` resolves only that default label, so a lane wearing yours is
-  reached by that label or its full id (D-083). The `-n` name is what `SendMessage` and
-  `claude agents --json` show. `claude agents --json` lists every session with
-  `sessionId`, `status`, and `waitingFor` an approval. A new lane's first
-  request writes about 60k tokens of cache, and an idle one re-writes its whole
-  prompt after an hour: open lanes for work you have.
+  The `-n` name is what `SendMessage` and `claude agents --json`
+  show; `claude agents --json` lists every session with `sessionId`,
+  `status`, and `waitingFor` an approval. A new lane's first request writes
+  about 60k tokens of cache (D-056), and an idle one re-writes its whole
+  prompt after an hour (D-033): open lanes for work you have.
 
 ## Assigning, waiting, ending
 
@@ -127,46 +116,37 @@ nobody authorised.
   Then check `buddy sent` and wake anyone still queued, and confirm each
   piece landed rather than assuming it did. Parking a lane yourself with
   `buddy wait --session <id>`? The wait is the lane's: tell it, since only it
-  can stop its loop. From there, your side of the loop is Landing
-  several lanes through one run (below).
+  can stop its loop.
 - **Wait on a lane by state; read it by mail.** `herdr agent wait <pane id>
   --timeout <ms>`, with no state named, returns when the lane is idle, done
-  or blocked (its help says so; a state it is already in returns at once).
-  A lane that has finished a turn rests at `done`, so
-  `herdr agent wait <pane id> --until idle --until blocked` times out on it
-  (measured: three lanes, ten minutes each, while their READY reports sat in
-  the inbox). The state says the lane stopped,
-  not why or what it did: its words are in `buddy inbox`, and `buddy sent`
-  says whether yours reached it.
+  or blocked (a state it is already in returns at once). A lane that has
+  finished a turn rests at `done`, so `--until idle --until blocked` times
+  out on it (D-082). The state says the lane stopped, not why or what it did:
+  its words are in `buddy inbox`, and `buddy sent` says whether yours reached
+  it.
 - **Ending a lane is the operator's act.** When its work has landed,
   `buddy who <lane>`'s EXIT line reads "no claims held; no wait declared; no
   shell found running under it", and it names no job of its own still running,
-  say so. A Codex lane's
-  JOBS line says `cannot say: no live harness process is registered for it`,
-  always: its hooks bind no process, so the line can never say "no shell" for
-  it. Do not wait for one; its DONE words ("no job running") are its account
-  of its jobs, and it owes them. Close a lane yourself
-  (`herdr pane close <pane id>`; `claude stop <8hex>` for a
-  background one) only if the operator told you that you may (in your pane,
-  as a standing decision, or relayed by the coordinator your brief names,
-  within what it relays), not a peer, and then only a lane you opened. A lane
-  your predecessor opened and handed you with the coordinator claim counts
-  as one you opened: do not stop to ask about it (one fleet sat eight hours
-  on that question). So does your predecessor's own pane, once it has handed
-  you the claim and `buddy who <its id>` shows no claims, no wait and no job.
-  Never a CONCURRENT orchestrator's lanes. If you may, do it as soon as the lane
-  says DONE and `buddy who` agrees; if you may not, give the operator its
-  pane id in the same turn. **Then run `buddy bye <its session id>`.** A pane
-  close does not reliably run the lane's SessionEnd hook: measured on one
-  fleet, 68 of 119 closed lanes never ran it (no `bye`, no presence), and
-  their rows stayed `live STALE … pid N GONE`. A hand-run `bye` ends a row
-  whose registered process is dead without `--force`; one that says the
-  session "stays live" means its process is still exiting: run it again a
-  few seconds later. A finished lane left open still costs: about 55
-  minutes into its idle time the harness compacts any session over 200k
-  tokens, before its cache expires. Measured on one fleet over five days:
-  12 such compactions of 312k to 583k, and 6 were in lanes that had already
-  said they were done and never ran again.
+  say so. A Codex lane's JOBS line always says `cannot say: no live harness
+  process is registered for it` (its hooks bind no process): do not wait for
+  "no shell"; its DONE words ("no job running") are its account of its jobs,
+  and it owes them (D-082). Close a lane yourself (`herdr pane close <pane
+  id>`; `claude stop <8hex>` for a background one) only if the operator told
+  you that you may (in your pane, as a standing decision, or relayed by the
+  coordinator your brief names, within what it relays), not a peer, and then
+  only a lane you opened. A lane your predecessor opened and handed you with
+  the coordinator claim counts as one you opened: do not stop to ask about
+  it (D-122). So does your predecessor's own pane, once it has handed you the
+  claim and `buddy who <its id>` shows no claims, no wait and no job. Never a
+  CONCURRENT orchestrator's lanes. If you may, do it as soon as the lane says
+  DONE and `buddy who` agrees; if you may not, give the operator its pane id
+  in the same turn. **Then run `buddy bye <its session id>`:** a pane close
+  does not reliably run the lane's SessionEnd hook, and its row stays `live
+  STALE … pid N GONE` (D-091). A hand-run `bye` ends a row whose registered
+  process is dead without `--force`; one that says the session "stays live"
+  means its process is still exiting: run it again a few seconds later. A
+  finished lane left open still costs: the harness compacts an idle session
+  over 200k tokens about 55 minutes in, before its cache expires (D-122).
 
 ## Handing off a coordinator
 
@@ -200,8 +180,8 @@ nobody authorised.
      them, and `buddy who <slug>` prints every one, uncut), repeating the scope flag once for
      each path you hold, never the handoff file in their place:
      `buddy claim orc-<project> --desc "HANDOFF: read <file>" --scope <each path you hold>`.
-  3. Open the successor the same way, in a herdr tab carrying the same size
-     (never in the background, where it would not reach it), with the brief "You are the next orchestrator, taking over from <your
+  3. Open the successor the same way, in a herdr tab carrying the same size,
+     with the brief "You are the next orchestrator, taking over from <your
      label>. Read <file>, then buddy inbox. Check that you can read the output
      of every running job it lists, then say so. I will hand you my claims."
      The successor does not `buddy wait --on` a claim it is about to be handed
@@ -216,7 +196,7 @@ nobody authorised.
      to wake it: deliver it. It refreshes each description by claiming again
      with the SAME scopes. Never release a run and have it claimed afresh: a
      new claim is a new claim id, so every rider's wait lands with no outcome
-     and its READY is lost (measured).
+     and its READY is lost (D-063).
      Then re-point your lanes: their briefs name YOU, by label and session id,
      as the coordinator whose relays they take, and nothing in the ledger
      changes that. While you are still live, `buddy msg` each lane you
@@ -229,9 +209,7 @@ nobody authorised.
      only: "holding nothing" says nothing about your processes, and closing your
      pane may end them. Its JOBS line counts the shells still running directly
      under your harness process; it cannot see a job that exec'd into another
-     program, so it checks your list, never replaces it. Measured in one handoff: the outgoing orchestrator said
-     it held nothing while an 8-minute-old gate script and a 42-minute watcher
-     still ran as its children, the watcher reporting only to it. Then tell the
+     program, so it checks your list, never replaces it (D-065). Then tell the
      operator you are done, naming any job still running; they end your
      session, or your successor does once it holds your claims (Ending a lane).
 
@@ -257,10 +235,9 @@ nobody authorised.
   recipe is the same and cheaper here: no lanes to re-point, no runs to
   carry. What is keyed to your session id does not carry over, so finish it
   first: drain `buddy inbox` and relay what is open, `buddy wait clear`, stop
-  your loop, account for every job (step 5). Measured: one coordinator that
-  ran five unrelated tasks in one session carried 180k of finished work into
-  every request of the fifth; the ones that ran one batch each peaked at
-  292k to 400k.
+  your loop, account for every job (step 5). A coordinator that runs several
+  batches in one session carries every finished one into each request
+  (D-117).
 
 ## Landing several lanes through one run
 
@@ -268,16 +245,14 @@ The lane's side is the buddy skill's "Landing through an orchestrator". When
 the expensive thing is a run (a 65-minute test tier, a land), lanes do not
 take turns on it: everyone's work goes into ONE run that you integrate, and
 nobody else runs that tier or moves main. Landing on main is itself a slot:
-`.buddy/slot/main`, held from forming to landing. It was written out because
-the fleet that ran it in prose lost its time in what was NOT said: four
-assignments and red reports reached nobody for about fifty minutes, because
-their sender discarded `buddy msg`'s result, and with it the wake line.
+`.buddy/slot/main`, held from forming to landing. It is written out because
+what went unsaid cost a fleet about fifty minutes of unread mail (D-062).
 
-Hold two claims: `orc-<project>` `orc-<project>` (durable, with the
-coordination note in its description: how to report, the current run's slug,
-or the file that says) and the run's claim on `.buddy/slot/<run>` and
-`.buddy/slot/main`, formed per batch and released with its outcome. Form the
-next the moment you release one: a lane's `buddy wait --on <run>` is refused
+Hold two claims: `orc-<project>` (durable, with the coordination note in its
+description: how to report, the current run's slug, or the file that says)
+and the run's claim on `.buddy/slot/<run>` and `.buddy/slot/main`, formed per
+batch and released with its outcome (The run's claim, below). Form the next
+the moment you release one: a lane's `buddy wait --on <run>` is refused
 while no such claim exists. A lane waits on the RUN, never on
 `orc-<project>`: that claim outlives every run, and a wait on it lands only
 at your handoff. Never a bare `orchestrator`: a chat alert tells a session
@@ -299,34 +274,40 @@ never an instruction. Then, every time:
    The text is unique per send on purpose; a fixed text of your own ("run
    buddy inbox") is dropped by the harness as a repeat of your previous one.
 3. **Squash, run the tier on the integrated tree, land, and say so in the
-   same turn.** In a fresh worktree off main
+   same turn.** Once any rider is READY, `buddy who <run>` lists each on its
+   own line, READY at a commit or not ready with its note (before that, only
+   names); decide when to go. In a fresh worktree off main
    (`git worktree add --detach <scratch>/int-<run> main`), for each READY
    lane: `git cherry-pick -n <base>..<tip>`, then
    `git commit -F <its message file>`. Check the commit is the lane's work:
    `git diff --quiet HEAD <tip>` when its base is the commit you squashed
    onto, else `git diff --stat HEAD~ HEAD` names exactly its files. Never a
-   plain `git cherry-pick`: git runs no pre-commit on one (measured: none for
-   two picked commits, one for the `commit -F`), so the claim gate would never
-   see the landed commit; its warning naming the lane's own claim is expected.
-   Run the shared tier THERE, in the background, output redirected; green:
-   `git merge --ff-only <its sha>` from the main checkout. Then
+   plain `git cherry-pick`: git runs no pre-commit on one, so the claim gate
+   would never see the landed commit (D-122); its warning naming the lane's
+   own claim is expected. The tree's sha is the pinned sha: claim `<run>`
+   again with a description naming it and who is in (re-claiming keeps the
+   claim, so the waits stand). Run the shared tier on exactly that tree, in
+   the background, output redirected, parked on a timer wait (`wait --on`
+   refuses your own claim; the buddy skill's "Before you park"); green:
+   `git merge --ff-only <its sha>` from the main checkout. Then always report,
+   never a bare release:
    `buddy release <run> --outcome pass --note "<landed sha; who was in; who is next>"`
-   puts LANDED in front of every rider's next check. Also message each landed
-   lane in words that end its work: "<item> LANDED at <sha>. Release your
-   claims, then you are DONE; leave your worktree, I remove it." The outcome
-   says its run passed; your words end its work. Remove a landed lane's
-   worktree yourself once its pane is closed (`git worktree remove <path>`,
-   from the main checkout).
+   puts LANDED in front of every rider's next check (`--outcome fail` or
+   `--outcome aborted` with what failed and who is out). Also message each
+   landed lane in words that end its work: "<item> LANDED at <sha>. Release
+   your claims, then you are DONE; leave your worktree, I remove it." The
+   outcome says its run passed; your words end its work. Remove a landed
+   lane's worktree yourself once its pane is closed (`git worktree remove
+   <path>`, from the main checkout).
 4. **A red that is one lane's goes to that lane**, naming the failing check.
-   Keep the run's claim, re-claimed "RED, ejecting <item>, one more tier", or
-   release it with the outcome fail and the attribution in the note (One long
-   run). The lane fixes, re-declares, and rides the next run. The integrated
-   tree's tier is the one that counts: a lane's own green does not carry over
-   (measured: a lane green on its branch went red squashed, under `-race`, on
-   a race older than the lane that its change widened). A red whose cause
-   predates the lane still goes to it, as a SEPARATE commit with its own
-   message file and tier, landed first: pick the fix's commit alone, then
-   the rest of the range.
+   Keep the run's claim, re-claimed "RED, ejecting <item>, one more tier", run
+   again and then release with the outcome; or release it now with the
+   outcome fail and the attribution in the note. The lane fixes, re-declares,
+   and rides the next run. The integrated tree's tier is the one that counts:
+   a lane's own green does not carry over (D-122). A red whose cause predates
+   the lane still goes to it, as a SEPARATE commit with its own message file
+   and tier, landed first: pick the fix's commit alone, then the rest of the
+   range.
 5. **After each landing, tell every lane still working the new main**, so
    any rebase it needs goes onto that, not onto the tree it started from. A
    READY lane built on ANOTHER lane's branch, whose fold has since moved it,
@@ -343,7 +324,7 @@ never an instruction. Then, every time:
    rebase itself) and land none of them before each has re-reported on its
    new tip. A restacked lane's base is then the tree it now sits on: its
    READY names that, and the next restack or squash starts from it (the
-   brief's base would carry the fold's commits along).
+   brief's base would carry the fold's commits along) (D-119).
 7. **Before you hand off or exit, sweep your assignments**: `buddy who` each
    lane you assigned, and confirm it is working on something named or has
    been told it is done. Everything unfinished goes in the handoff note. Read
@@ -359,12 +340,10 @@ never an instruction. Then, every time:
    such call, review or side work: the call's `model` takes a family alias
    (`sonnet`, `opus`, `haiku`, `fable`), a general-purpose call with none
    runs on YOUR model (a hook the operator may wire refuses it), and a
-   lane's receipt names its panel's (`panel@<model>`). A handful of tool calls (a
-   `buddy who`, a message, the landing itself): you. Your context is the
-   scarce resource before your handoff size; a subagent's is not (two
-   orchestrators in a row handed off at 322k and 397k, much of it side work
-   done in their own panes).
-   A subagent is not a lane: it holds no claim, lands nothing, relays nothing,
+   lane's receipt names its panel's (`panel@<model>`) (D-117). A handful of
+   tool calls (a `buddy who`, a message, the landing itself): you. Your
+   context is the scarce resource before your handoff size; a subagent's is
+   not. A subagent is not a lane: it holds no claim, lands nothing, relays nothing,
    and is never messaged as one. It works under YOUR session id and YOUR
    claims, so claim the files before you hand it an edit (D-103).
 9. **Name each item's review tier, round ceiling and model in its brief**
@@ -377,77 +356,69 @@ never an instruction. Then, every time:
    reads the same text; a changed note is a new brief line, never a silent
    update.
 10. **A lane at its handoff size with work left goes to a fresh session**,
-    never kept going: every turn re-reads its whole prompt (one lane kept on
-    went from 402k to about 710k over four review rounds). Open `<item>-2` in
-    the same worktree, briefed from the lane's state note; the lane hands it
-    its claims with `release --to` and says DONE; then close it (Ending a
-    lane).
+    never kept going: every turn re-reads its whole prompt (D-114, D-122).
+    Open `<item>-2` in the same worktree, briefed from the lane's state note;
+    the lane hands it its claims with `release --to` and says DONE; then
+    close it (Ending a lane).
 
 A lane with a stale claim and no answer stays the operator's to free
 (`buddy sweep --force`): report it, never free it yourself.
 
 ### The run's claim
 
-You are the run's integrator (any session can be, for a run of its own):
+You are the run's integrator (any session can be, for a run of its own). Form
+it with `buddy claim herm --desc "FORMING — join: buddy wait --on herm --ready HEAD" --scope .buddy/slot/herm --scope .buddy/slot/main`,
+hold it from forming to landing, read its riders with `buddy who herm`, and
+run it as step 3 says.
 
-- **Integrator:** hold the run from forming to landing, on its slot AND on main:
-  `buddy claim herm --desc "FORMING — join: buddy wait --on herm --ready HEAD" --scope .buddy/slot/herm --scope .buddy/slot/main`.
-  Once any rider is READY, `buddy who herm` lists each on its own line: READY at a
-  commit, or not ready with its note (before that, only names). Decide when to go.
-  Build ONE tree off main, each READY lane squashed onto it in turn (step 3
-  above); its sha is the pinned sha. Claim `herm` again with a description naming that sha and who is
-  in (re-claiming keeps the claim, so the waits stand). Run the tier on exactly
-  that tree, parked on it like any long run of your own: a timer wait
-  (`wait --on` refuses your own claim), the buddy skill's "Before you park";
-  green: fast-forward main to it. Then always report, never a bare release:
-  `buddy release herm --outcome pass --note "<landed sha; who was in; who is next>"`,
-  or `--outcome fail` / `--outcome aborted` with what failed and who is out.
-  Handing the run to another integrator mid-flight? `buddy release herm --to
+- **Handing the run to another integrator mid-flight?** `buddy release herm --to
   <session>` keeps it open, with its riders' waits; name several claims in one
   call (`buddy release herm orc-<project> --to <session>`) and they move as one
   transaction, with one notice. A successor already waiting on the run is
-  handed it and its wait LANDS, "handed to you". A red
-  run you will retry: keep the claim, re-claim with "RED — ejecting X, one more
-  tier", run again, then release with the outcome.
-- **A rider not done yet** declares `buddy wait --on herm --note "done in 10" --until 4h`;
-  its ETA is its own words, and nothing turns it into OVERDUE. The default 3h
-  can run out during a hold plus a 65-minute tier: EXPIRED with herm still
-  open means it declares again. By convention, joining while the
-  description says RUNNING puts you on the NEXT run. Buddy keeps no timer and
-  ejects nobody: a quiet rider is shown quiet, and going without it is the
-  integrator's call.
+  handed it and its wait LANDS, "handed to you".
+- **A rider not done yet** declares `buddy wait --on herm --note "done in 10" --until 4h`
+  (its side is the buddy skill's); its ETA is its own words, and nothing turns
+  it into OVERDUE. By convention, joining while the description says RUNNING
+  puts it on the NEXT run. Buddy keeps no timer and ejects nobody: a quiet
+  rider is shown quiet, and going without it is the integrator's call.
 
 ## Review depth: the tier follows the change class
 
-How much review a change owes is picked per ITEM, by what the change
-touches: never by which model wrote it, and never by how small the diff
-looks. The orchestrator names the tier in the lane's brief; the lane names
-what actually ran in its commit's receipt line. The repo's own CLAUDE.md
-says which change classes take which tier (typically full for a security
-boundary, what a gate refuses or allows, concurrency, a schema, stored data
-mutated or deleted, or an invariant) and names its review script.
+What each tier owes a lane, the review script's foreground rule, the round
+ceiling's stop, the receipt and "a review is never test evidence" are the
+buddy skill's "Your review"; this section is what the orchestrator adds. The
+tier is picked per ITEM by what the change touches: never by which model
+wrote it, never by how small the diff looks. You name it in the lane's brief;
+the lane names what actually ran in its commit's receipt. The repo's own
+CLAUDE.md says which change classes take which tier (typically full for a
+security boundary, what a gate refuses or allows, concurrency, a schema,
+stored data mutated or deleted, or an invariant) and names its review
+script; a repo whose CLAUDE.md names none: ask the operator before you run
+one.
 
-- **full**: before the code, the second model's design pass where the repo
-  asks for one. Then, on the finished diff, in this order:
-  1. An adversarial **panel**: several read-only subagents, each given the
-     diff and one lens (bypass, concurrency, the refusal and its positive
-     control, the docs' claims). Spawn it without asking: the tier is the
-     authorization.
-  2. A **second model family**'s code pass, at a named effort, through the
-     repo's review script.
-  3. A **cross-check** by a third read (another model, in a fresh context),
-     given the diff and the same questions, asked for exact line -> issue.
-  4. The second model's **re-verify** of your fixes, at most the brief's
-     round ceiling (below). Folding findings makes new defects: in another
-     repo's review gate, a re-verify round caught two high-severity defects
-     introduced while folding the previous round.
-- **lite**: a scoped adversarial self-review (re-read your own diff as the
-  reviewer would, against the brief's questions), then ONE second-model pass
-  at a named effort on the finished diff, its findings fixed or answered in
-  the commit. One round, no re-verify loop. A cross-check is optional: yours
-  or the brief's call.
-- **chore**: no outside review required, and the receipt says why
-  (`review: chore (docs)`).
+- **full**, beyond "Your review": the design pass runs where the repo asks
+  for one; the panel needs no asking, since the tier is the authorization;
+  the second model's code pass runs at a named effort through the repo's
+  review script; the cross-check is given the diff and the same questions
+  and asked for exact line -> issue.
+- **lite**: a cross-check is optional, the lane's or the brief's call.
+- **The tier says when a second model is REQUIRED, never when one is
+  allowed.** Use one beyond what the tier owes (on a chore, or a second
+  pass on a lite item) whenever a second reading is worth it, and name it in
+  the receipt: reviewers of one family can share its blind spots (D-104).
+- **A test-only change takes its class's tier.** A test of a gate is gate
+  work: its assertions are what a review reads, and the person who wrote a
+  weak assertion is the one least likely to see it.
+- **The receipt** names every layer that ran, each second-model pass with its
+  own effort and the cross-check with its model,
+  `review: <tier> (<layer> + <model>@<effort> <pass> + ...; <scope note>)`, for example
+  `review: full (panel + <second>@<effort> design + <second>@<effort> code + <third model> + <second>@<effort> reverify)`.
+  A layer the tier owes is skipped only on the operator's word (the cap), and
+  the receipt then names it with the reason; a lane never skips one on its
+  own (D-104).
+- **The operator caps the tier per run** (for example "lite at most,
+  optional, no second model family"), and the brief carries the cap. A lane
+  never raises its own tier above it, and never lowers the brief's.
 
 **Every brief names a round ceiling with its tier (D-115).** The default,
 which the operator may raise per item and nobody else may:
@@ -458,16 +429,13 @@ which the operator may raise per item and nobody else may:
 | full | a design pass, a code pass, then at most TWO re-verify rounds |
 | chore | none |
 
-At the ceiling the lane stops reviewing: it folds what the last round raised
-that it can fold narrowly, answers the rest in the commit message, and
-records it open (in the decision record or the note the brief names), then
-reports READY. Rounds are where the tokens go, not landing: one gate change
-took six re-verify rounds, each re-reading the lane's whole prompt, and on
-that work every fold regressed something the previous round had accepted. A
-finding left open and written down costs a later item; a seventh round costs
-now and may regress again. Brief a lane on gate work to fold narrowly: fix
-the exact form found, test it, and record a crafted respelling open rather
-than widen a recognizer to catch it.
+At the ceiling the lane folds what it can fold narrowly, answers the rest
+and records it open (in the decision record or the note the brief names),
+and reports READY. Rounds are where the tokens go, not landing, and on gate
+work every fold can regress what an earlier round
+accepted (D-115). Brief a lane on gate work to fold narrowly: fix the exact
+form found, test it, and record a crafted respelling open rather than widen
+a recognizer to catch it.
 
 An item that is not code takes the same tiers, by what it changes (its
 `class=` word, Picking the model, below). The receipt ends the commit, or
@@ -481,64 +449,14 @@ the note when nothing is committed:
 | research nothing rests on yet | chore | none: a lead until a test or a re-measurement backs it |
 | ops: a script run, a report, cleanup | chore | none; the report names the command, its exit status and the line that says it worked |
 
-For every tier:
-
-- **The tier says when a second model is REQUIRED, never when one is
-  allowed.** Use one beyond what the tier owes (on a chore, or a second pass
-  on a lite item) whenever a second reading is worth it, and name it in the
-  receipt. Measured in another repo's review
-  gate: a second-model pass on a below-full script found an option-injection
-  hole four other review layers had missed, and an independent second-family
-  review found 3 real issues (2 critical) that a same-family review missed.
-  Reviewers of one family can share that family's blind spots.
-- **A test-only change takes its class's tier.** A test of a gate is gate
-  work: its assertions are what a review reads, and the person who wrote a
-  weak assertion is the one least likely to see it.
-- **The receipt is the last line of the commit body** and names every layer
-  that ran, each second-model pass with its effort (the cross-check names
-  its model):
-  `review: <tier> (<layer> + <model>@<effort> <pass> + ...; <scope note>)`,
-  every pass of a second model with its own effort, for example
-  `review: full (panel + <second>@<effort> design + <second>@<effort> code + <third model> + <second>@<effort> reverify)`.
-  A bare model name cannot tell a pinned pass from a silent fallback (in that
-  other repo, 8 of 14 receipts in one stretch were that ambiguous). A layer
-  the tier owes is skipped only on the operator's word (the cap, below), and
-  the receipt then names it with the reason; a lane never skips one on its
-  own. Report the receipt in your READY.
-- **The review script is the repo's own** (its CLAUDE.md names it). Run it in
-  the FOREGROUND with a long tool timeout, output redirected to a file you
-  then read; never background it and never hand-roll the second model's CLI.
-  A second-model CLI backgrounded under an agent harness can wedge with no
-  output at all, and an empty output file looks the same as a live run. A
-  repo whose CLAUDE.md names no review script: ask the operator before you
-  run one.
-- **A review is never test evidence.** The tests and the mutation check
-  (break the fix, watch the test fail) are owed at every tier, chore
-  included. A reviewer's finding is a defect once a test reproduces it.
-- **The operator caps the tier per run** (for example "lite at most,
-  optional, no second model family"), and the brief carries the cap. A lane
-  never raises its own tier above it, and never lowers the brief's tier on
-  its own: if the change turns out to touch a full class, say so to your
-  orchestrator and wait for its answer.
-- **A panel subagent is not a lane.** In the shared checkout it reads,
-  greps and reasons; it does not edit, build, test or run a git command that
-  writes. Anything that must mutate (a reproducer, a mutation run) gets its
-  own worktree at a commit. It holds no claim, lands nothing, relays nothing,
-  and runs under your session id and claims (D-103).
-
-**Every lane runs on the operator's default lane model, full-tier items
-included**, unless the operator names another model for the item (or sets a
-run's cap the pick rule below works within). That default is a standing
-decision in the operator's instructions, not a constant of this skill: read
-it there. The tier changes the REVIEW, never the model: a full-tier item's
-lane, its panel and its fold rounds run on that default too. A model the
-operator keeps for reviews (a cross-check, a panel lens on a
-security-sensitive commit, a judgement-call ruling) is never a lane's model
-unless the operator named that item for it. The orchestrator puts the model
-and effort on the launch (Opening lanes) and names them in the brief with
-the tier (D-104, D-111: an older "the strongest model available" was read by
-one orchestrator as the review model, and its full-tier lanes launched on
-it).
+**Every lane runs on the operator's default lane model** (a standing
+decision in their instructions), unless the operator names another model for
+the item or sets a run's cap the pick rule below works within. The tier
+changes the REVIEW, never the model: a full-tier item's lane, its panel and
+its fold rounds run on that default too. A model the operator keeps for
+reviews (a cross-check, a panel lens on a security-sensitive commit, a
+judgement-call ruling) is never a lane's model unless the operator named
+that item for it (D-104, D-111).
 
 ### Picking the model from what past items measured
 
@@ -547,8 +465,7 @@ the operator's cap for that run allows (for example "lanes on these two
 models; never that one"). A full-tier item stays on the default lane model,
 as above, and the pick never lands on a model kept for reviews. For the rest:
 
-- **An auto-mode lane needs a model that has auto mode** (Haiku 4.5 was
-  measured asking for every tool call in auto mode).
+- **An auto-mode lane needs a model that has auto mode** (Opening lanes).
 - **Before each sweep, run `sh scripts/model-report.sh --export <tsv>`**,
   into the file your repo keeps for it, and read the report at the start of
   each run. A plain `buddy sweep` deletes released claims, with their
@@ -579,66 +496,41 @@ as above, and the pick never lands on a model kept for reviews. For the rest:
 
 ## Restacking a dependent lane (gh stack)
 
-For the orchestrator. About to hold work until a run or a READY lane
-lands, so it can build on it? Start it on that tree now, on purpose (step 6
-of Landing several lanes), and restack only if the code under it changes.
-That is this section: lane B was built on lane A's branch; A's fold (an
-amend or rebase after its review) moved A, so B still carries A's old
-commits. Moving B onto A's new tip is one rebase, in B's worktree, onto A
-from A's old tip (the sha of A's earlier READY). `gh stack` (GitHub's CLI
-extension, v0.3.0 measured) runs that rebase and finds A's old tip itself.
-B built on a run's tree, with an item since ejected, has no branch A: the
-plain line at the end, once B is READY and idle (step 2) and the rebuilt
-tree is pinned, its sha for `<A>` and B's current base for `<A's old tip>`.
-Either way the restack is yours, done while both lanes are parked, and
-landing is unchanged: you still squash each READY lane's `<base>..<tip>`
-onto main in your own worktree, run the tier and fast-forward main (The
-run's claim, above).
+Start dependent work on the tree it needs now (step 6 of Landing several
+lanes), and restack only if the code under it changes: lane B was built on
+lane A's branch, and A's fold (an amend or rebase after its review) moved A,
+so B still carries A's old commits. Moving B is one rebase, in B's worktree,
+onto A from A's old tip (the sha of A's earlier READY); `gh stack` (GitHub's
+CLI extension) runs it and finds A's old tip itself. B built on a run's tree
+with an item since ejected has no branch A: use the plain line at the end,
+once B is READY and idle (step 2) and the rebuilt tree is pinned, its sha
+for `<A>` and B's current base for `<A's old tip>`. Either way the restack is
+yours, done while both lanes are parked, and landing is unchanged (Landing
+several lanes, step 3).
 
-What it does, measured in throwaway repositories (never this one, never
-GitHub):
+What it does, as measured in throwaway repositories (D-108, D-122):
 
-- `gh stack rebase --no-trunk <B>` checked that B's worktree was clean
-  (untracked files included), then ran
-  `git -C <B's worktree> -c rebase.updateRefs=false -c rebase.autoStash=false rebase --onto <A> <base> <B>`,
-  finding A's old tip from A's reflog (`git merge-base --fork-point`) even
-  when the stack was recorded after the fold. It rewrites B's branch IN B's
-  worktree: a clean lane's checkout moves under it; one with uncommitted
-  changes is refused ("uncommitted changes in worktree") and nothing is
-  rewritten.
-- **No gate covers a restack.** Git runs no pre-commit hook on a rebase or a
-  plain cherry-pick (measured: a commit the gate refused under
-  `BUDDY_COMMIT_GATE=deny` was rewritten by `gh stack rebase` with rc=0, and a
-  plain `git rebase` and cherry-pick ran no pre-commit either), the commit gate
-  only warns by default anyway, and the tool-call gate sees no path in a
-  `gh stack` or `git rebase` command line. What it consults is the slot: a
-  `gh stack` rewriting subcommand from a session not holding
-  `.buddy/slot/gh-stack` is refused (step 1, D-108); nothing checks what a
-  restack produced but the lane's own re-run (step 6), or nobody.
-- **It reads GitHub even when it pushes nothing.** With origin a GitHub
-  repository, `gh stack init` tried 2 read-only API queries for the branches'
-  pull requests, `gh stack rebase --no-trunk` 4, `gh stack rebase --remote self`
-  2, `gh stack view` 8, each to api.github.com carrying the operator's token;
-  `gh stack unstack --local` tried none. (The first trial's origin was a local bare repository, so it
-  could not see this.) Under macOS's `sandbox-exec` with the network denied,
-  every query failed at the lookup, and each command did the same local work
-  and exited 0. The hooks git does run on a rebase (pre-rebase, post-rewrite)
-  run inside the same sandbox.
-- A plain `gh stack rebase` FETCHES origin and can fast-forward local main or
-  move the stack onto origin's main (the first trial). By their own help,
-  `gh stack push`, `gh stack submit`, `gh stack sync`, `gh stack merge` and
-  `gh stack link` act on GitHub, a bare `gh stack unstack` unstacks there too,
-  and `gh stack unstack <number>` goes straight to its API.
-- **A conflict stops in B's worktree** (exit 3), detached mid-rebase with
-  conflict markers, and locks the stack catalog (`<git-common-dir>/gh-stack`,
-  shared by every worktree) for EVERY stack: another restack is refused ("a
-  rebase operation is already in progress") until `gh stack rebase --abort`,
-  which put B back at its sha, checked out. While it is pending,
-  `<git-common-dir>/gh-stack-rebase-state` exists and B's worktree reads
-  `## HEAD (no branch)` in `git status --short --branch`; both clear when the
-  abort finishes. `gh stack view` does not show it: from the main checkout it
-  printed the same stack, conflict pending or not, and from B's worktree it
-  failed ("not on any branch").
+- `gh stack rebase --no-trunk <B>` rewrites B's branch IN B's worktree: a
+  clean lane's checkout moves under it; one with uncommitted changes
+  (untracked files included) is refused ("uncommitted changes in worktree")
+  and nothing is rewritten.
+- **No gate checks what a restack produced.** Git runs no pre-commit hook on
+  a rebase or a plain cherry-pick, and the commit gate only warns by default
+  anyway. The tool-call gate sees no path in a `gh stack` or `git rebase`
+  line; for `gh stack` it consults only the slot (step 1). Nothing checks
+  the result but the lane's own re-run (step 6), or nobody.
+- **It reads GitHub even when it pushes nothing**: `init` and `rebase` send
+  read-only API queries carrying the operator's token. With the network
+  denied (step 3's sandbox) each command does the same local work and exits
+  0. A plain `gh stack rebase` FETCHES origin and can fast-forward local
+  main; `push`, `submit`, `sync`, `merge`, `link` and a bare `unstack` act on
+  GitHub.
+- **A conflict stops in B's worktree** (exit 3), detached mid-rebase, and
+  locks the stack catalog (`<git-common-dir>/gh-stack`, shared by every
+  worktree) for EVERY stack ("a rebase operation is already in progress")
+  until `gh stack rebase --abort`. While it is pending, `<git-common-dir>/gh-stack-rebase-state` exists and B's worktree
+  reads `## HEAD (no branch)` in `git status --short --branch`; `gh stack
+  view` does not show it.
 
 The recipe:
 
@@ -648,16 +540,15 @@ The recipe:
    Hold it until the restack is over: until any abort (or continue) has
    finished, `<git-common-dir>/gh-stack-rebase-state` is gone, and B's
    worktree reads `## <B>` again. Then release it with its outcome (steps 4
-   and 5). The tool-call gate refuses, where a ledger governs, gh stack's
-   rewriting subcommands (rebase, sync, push, submit, merge, link,
-   unstack/delete, init, add, modify, and by the operator's decision
-   `checkout` and `alias`; `unstack --local`, `rebase --abort` and `rebase
-   --continue` with them: no flag is read) to a Bash call whose session does
-   not hold `.buddy/slot/gh-stack` in every ledger the command reaches, and
-   names the holder (D-108); `view` and the navigation commands pass. It
-   reads the literal command only: a dynamic word (`gh stack "$op"`), a
-   `gs` alias and a script file pass it, so the rule above is yours to keep,
-   and the network discipline below is the recipe's, not the gate's.
+   and 5). The tool-call gate refuses gh stack's rewriting subcommands
+   (rebase, sync, push, submit, merge, link, unstack/delete, init, add,
+   modify, checkout and alias; no flag is read, so `unstack --local`,
+   `rebase --abort` and `rebase --continue` too) to a Bash call whose session
+   does not hold `.buddy/slot/gh-stack` in every ledger the command reaches,
+   and names the holder (D-108); `view` and the navigation commands pass. It
+   reads the literal command only: a dynamic word (`gh stack "$op"`), a `gs`
+   alias and a script file pass it, so the rule above is yours to keep, and
+   the network discipline below is the recipe's, not the gate's.
 2. Only when A and B have each reported READY in their own words
    (`buddy wait --on <run> --ready`, so `buddy who <run>` lists both at a
    commit) AND each shows `idle` on its first line in `buddy who <lane>`. No
@@ -675,11 +566,11 @@ The recipe:
          sandbox-exec -p "$off" gh stack rebase --no-trunk <B> </dev/null) &&
        (cd <B's worktree> && sandbox-exec -p "$off" gh stack unstack --local </dev/null)
 
-   Chained, so the first refusal stops it (measured: `init` of a stack
-   already recorded exits 5, a conflicting rebase 3), and in subshells, so
-   your own cwd stays put. The unstack runs from B's worktree because, run
-   from the main checkout with two stacks recorded, it refuses ("branch main
-   belongs to multiple stacks"). Check the result:
+   Chained, so the first refusal stops it (`init` of a stack already
+   recorded exits 5, a conflicting rebase 3), and in subshells, so your own
+   cwd stays put. The unstack runs from B's worktree because, run from the
+   main checkout with two stacks recorded, it refuses ("branch main belongs
+   to multiple stacks"). Check the result:
    `git log --oneline <A>..<B>` lists only B's own commits.
 4. **A conflict: abort, report, and stop here.** `gh stack rebase --abort` at
    once, in the same sandbox (an unstack before it is refused, exit 7, while
@@ -703,19 +594,15 @@ The recipe:
    one.
 
 Never `gh stack` from a lane, and never any of it but the four commands
-above. Never `gh stack alias`, and never a `gs` wrapper or any other alias
-for it: the coming gate refuses `alias`, and a `gs` command line is
-invisible to it. A subagent runs under its parent's session id (D-099), so
-one of yours inherits your slot and may run the restack for you; a lane's
-subagent holds what the lane holds, which is no slot. Cut: the first trial's `gh stack rebase --remote self` (after
-`git remote add self <main checkout>`), which restacks both lanes onto local
-main without a fetch. It rewrites A's checkout too, adds a remote to the
-config every worktree shares, still reads GitHub, and does what your own
-rebase onto main already does when you build the run's tree, without moving
-anybody's checkout.
+above. Never `gh stack rebase --remote self`: it rewrites A's checkout too,
+adds a remote every worktree shares, and still reads GitHub (D-122). Never `gh stack
+alias`, and never a `gs` wrapper or any other alias for it: the gate refuses
+`alias`, and a `gs` command line is invisible to it. A subagent runs under
+its parent's session id (D-099), so one of yours inherits your slot and may
+run the restack for you; a lane's subagent holds what the lane holds, which
+is no slot.
 
-What gh stack saves is looking up A's old tip; it costs three commands and a
-slot claim. With gh stack missing or the catalog locked, the plain line does
+With gh stack missing or the catalog locked, the plain line does
 the same rebase under the same rules, except the slot (it touches no
 catalog): B's worktree must print nothing for
 `git -C <B's worktree> status --porcelain --untracked-files=all`, then, in
@@ -729,8 +616,8 @@ report.
 
 Research notes, a report, a runbook, configuration: a claim is a reservation
 on a path, and nothing in the ledger asks what the path holds. Everything
-above carries over, with four words translated (the lane's READY form is in
-the buddy skill too):
+above carries over, with four words translated (the lane's READY form is the
+buddy skill's):
 
 - **The directory must be a git repository; commits are optional.** Outside
   one, every verb answers "not a git repository", and the session has no row,
@@ -740,14 +627,13 @@ the buddy skill too):
   one: `BASE` reads `(none recorded)`, and `buddy wait --ready HEAD` is
   refused.
 - **Commit becomes a path and a version word.** The deliverable is its paths;
-  the version is your own word for which state of them to read ("draft 2",
-  "sections 1-4 final").
-- **READY:** `buddy wait --on <run> --until 4h --note "READY: <path> <version word>"`,
-  plus the READY message naming the same path and version. It is a wait ON
-  the run, so the run's outcome reaches you as LANDED like any rider's. Until
-  some rider declares at a commit, `buddy who <run>` lists waiters by name and
-  age only, so the orchestrator reads your note with `buddy wait ls`, or in
-  your message. Never fake a commit to get the READY line.
+  the version is the lane's own word for which state of them to read ("draft
+  2", "sections 1-4 final").
+- **READY** is a wait ON the run with the path and version word in its note,
+  `buddy wait --on <run> --until 4h --note "READY: <path> <version word>"`,
+  so the run's outcome reaches the lane as LANDED. Until some rider declares
+  at a commit, `buddy who <run>` lists waiters by name and age only: read the
+  note with `buddy wait ls`, or in the lane's message.
 - **The shared tier becomes the workflow's own gate:** a review pass over the
   assembled deliverable, a checklist script, a human read. With none, the run
   is "read and accept", and its outcome still says which.
@@ -767,12 +653,10 @@ or `WebSearch`.
 Logical sessions, adapters and recovery (`buddy lifecycle`, `buddy adapter`, and
 the separate opt-in `buddy-adapter` binary) are implementer surface, documented
 with what recovery admits and refuses in `docs/USAGE.md` ("Structured adapters").
-Adapter mail is its own channel: `buddy inbox` never shows it, and `buddy who`
-prints it on its own `ADAPTER` line. A worker that `buddy-adapter` launched has
-its claims renewed from its COMPLETED file writes (`buddy lifecycle renew`,
-D-078): a Claude Edit/Write/NotebookEdit or a Codex patch. A write made from
-Bash renews nothing, so a lane that only writes from a shell refreshes its claim
-by claiming it again. For an offline compatibility report, run
+A worker that `buddy-adapter` launched renews its claims only from completed
+file writes (`buddy lifecycle renew`, D-078), and its adapter mail is its own
+channel: both as the buddy skill's "Harness boundaries" says. For an offline
+compatibility report, run
 `buddy diagnose --harness codex --launch <json>` before a launch, or
 `buddy diagnose --receipt <saved-receipt> --evidence <capture>` afterwards;
 exit 0 means a report was produced, never readiness. Wiring Codex hooks by
@@ -790,9 +674,9 @@ paths and outstanding jobs in a succession handoff.
 For one session over several coordinators, each running its own repo's
 fleet, with the operator reading one pane. Every name is per ledger
 (labels, slugs, the roster, the inbox, `pause`), and buddy has no
-cross-ledger verb, so this is a convention over the verbs above. It was run
-end to end over a real ledger and a scratch fleet ledger; the
-measured results are in brackets.
+cross-ledger verb, so this is a convention over the verbs above, run end to
+end over a real ledger and a scratch fleet ledger (buddy-system's
+`docs/BEYOND-CODE-PLAN.md`).
 
 - **The fleet repo.** You live in a small git repository of your own
   (`git init`, then `buddy init`): a file listing the coordinated project
@@ -812,51 +696,49 @@ measured results are in brackets.
     `(cd <repo> && buddy hello --session $CLAUDE_CODE_SESSION_ID --label <your label> </dev/null)`,
     then send from there, `(cd <repo> && buddy msg orc-<project> "<text>")`.
     It signs with your label, and while the coordinator is idle the result
-    carries its wake address [printed; its own hooks recorded delivery
-    within a minute].
+    carries its wake address.
   - Up: each coordinator's brief has it register by hand in the fleet ledger,
     `(cd <fleet> && buddy hello --session <its id> --label <its label> </dev/null)`,
     and report to your claim slug there, never your label:
-    `(cd <fleet> && buddy msg orc-<fleet> "<text>")`. Your own hooks drain it
-    [one tool call drained two messages in one 277-byte notice], and once
-    your Stop has reported you idle, its result carries your wake address
-    [no address before that].
+    `(cd <fleet> && buddy msg orc-<fleet> "<text>")`. Your own hooks drain
+    it, and once your Stop has reported you idle, its result carries your
+    wake address (none before that).
   - A foreign registration only identifies a SENDER. Send nothing TO one: no
     hook of its session runs in that ledger, so mail queued there is never
-    drained, and `msg` takes it without refusing ["registered … and not seen
-    since"].
+    drained, and `msg` takes it without refusing ("registered … and not seen
+    since").
 - **Keep your own cwd in the fleet repo**: run each foreign command in a
   subshell, `(cd <repo> && buddy <verb> …)`, so your hooks keep beating your own
   ledger. A row your hooks have beaten is bound to your process, and a `bye`
-  of a bound row while you are alive is refused [`stays live`].
+  of a bound row while you are alive is refused (`stays live`).
 - **Read each fleet on a timer wait of your own**
   (`buddy wait --until <dur> --note "<the fleets>"` in the fleet repo, then
   the `/loop`): `(cd <repo> && buddy who orc-<project>)`, and
-  `buddy who <run>` there. A read moves only your row's `seen` in that ledger
-  [one column of one row, in the fleet ledger], so your foreign rows read STALE only when you have
-  not looked for 30 minutes.
+  `buddy who <run>` there. A read moves only your row's `seen` in that
+  ledger, so your foreign rows read STALE only when you have not looked for
+  30 minutes.
 - **Wear a label that is yours alone, numbered per successor** (`top-1`,
   `top-2`, as coordinators are `orc-<n>`), and have peers address the claim
   slug. A label is matched against ended rows too, and nothing removes a
   session row, so once a successor wears the same label in a ledger,
   `buddy msg <label>` is ambiguous there for good, unless the old id is
   registered again under another label, whether or not the old row said bye
-  first [three times]. A claim slug resolves to its one holder past
-  a duplicate label [measured], and moves with `release --to`.
+  first. A claim slug resolves to its one holder past a duplicate label, and
+  moves with `release --to`.
 - **Hand off** as Handing off a coordinator says, and in each coordinated ledger, while
   you are live and in this order: `(cd <repo> && buddy msg orc-<project> "<successor label> (session <id>) is your coordinator from now; it relays the same decisions I did.")`,
   then `(cd <repo> && buddy bye $CLAUDE_CODE_SESSION_ID </dev/null)`, which
-  ends your unregistered-process row there [no output, exit 0]. After the
-  bye a send from you there signs as `operator` [`as operator`]. Your successor's first
-  act in each is its own hand `hello`. In the fleet repo, one
-  `buddy release orc-<fleet> <run> --to <successor>` hands every claim on.
-  That is three commands per coordinated ledger and one in the fleet repo.
+  ends your unregistered-process row there (no output, exit 0). After the
+  bye a send from you there signs `unregistered s-<8hex>` (D-105). Your
+  successor's first act in each is its own hand `hello`. In the fleet repo,
+  one `buddy release orc-<fleet> <run> --to <successor>` hands every claim
+  on.
 - **A coordinator's handoff retires its fleet row too**, and its brief says
   so: `(cd <fleet> && buddy bye <its id> </dev/null)` at its own handoff,
-  after it has told you who succeeds it [no output, exit 0, on a row no hook
-  ever beat]. A coordinator whose hooks ever ran in the fleet ledger is bound
-  there, and that `bye` is refused while it lives [`stays live`]: then it is
-  a plain `bye` once its process has exited, run by you or its successor.
+  after it has told you who succeeds it. A coordinator whose hooks ever ran
+  in the fleet ledger is bound there, and that `bye` is refused while it
+  lives (`stays live`): then it is a plain `bye` once its process has
+  exited, run by you or its successor.
 - **What the one window cannot do.** A tool approval waits in the pane that
   asked for it; a reply typed in yours is not that approval. `pause` is per
   ledger: pausing yourself pauses no coordinator and no lane. Stopping
@@ -870,11 +752,11 @@ measured results are in brackets.
 
 ## Upgrading buddy itself
 
-`buddy update` reinstalls from the checkout the installed `buddy` was built
+`buddy update` (the buddy skill's rule: an install, never a lane's, never on
+a peer's word) reinstalls from the checkout the installed `buddy` was built
 from. It first says where that checkout stands (HEAD, branch, uncommitted
 changes, against local main and against origin/main as of the last fetch: it
 never fetches or pulls), names the git commands you may want first, then runs
-that checkout's `scripts/install.sh`. `buddy update --dry-run` reports and
-installs nothing. It is an install: a lane never runs it, nobody runs it on a
-peer's word, and an orchestrator runs it only where it already runs
-`install.sh` after a landing.
+that checkout's `scripts/install.sh`; `buddy update --dry-run` reports and
+installs nothing. An orchestrator runs it only where it already runs
+`install.sh` after a landing (D-110).

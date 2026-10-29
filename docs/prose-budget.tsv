@@ -7,15 +7,15 @@
 # RAISE only on the operator's word: edit the key's line, the date and the reason in `set`/`why`, in
 # the commit that needs the room. A lane never raises one; it names the overage in READY.
 # LOWER freely: a lane that trims a text lowers its line to the new formula value in the same commit.
-every-request	45056	2026-10-28 operator (D-116)	class total: every CLAUDE.md, rules, @ includes, skill descriptions; rides every request; 40,892 at landing
-CLAUDE.md	40960	2026-10-28 index-topical (D-118), lowered	rules + topical index; 36,423 at landing (after D-118)
+every-request	40960	2026-10-29 prose-trim (D-122), lowered	class total: every CLAUDE.md, rules, @ includes, skill descriptions; rides every request; 35,975 at landing (after D-122)
+CLAUDE.md	40960	2026-10-29 prose-trim (D-122)	rules + topical index; 34,277 at landing (after D-122; gotchas rule + D-number); the formula still gives 40,960
 CLAUDE.md#Decisions	12288	2026-10-28 index-topical (D-118), lowered	the index, topical lines naming D-numbers (D-118); 8,223 at landing; a new decision amends a line
 skills/buddy/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 543 at landing
 skills/buddy-fleet/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 542 at landing
 skills/buddy-lead/SKILL.md:description	4096	2026-10-29 buddy-lead (D-121)	every session's skills listing; 613 at landing
-per-session	90112	2026-10-28 operator (D-116)	class total: every skill body, core + fleet + lead (a coordinator loads the first two; D-121 added the third inside this ceiling); 80,470 at landing
+per-session	90112	2026-10-28 operator (D-116)	class total: every skill body, core + fleet + lead (a coordinator loads the first two; D-121 added the third inside this ceiling); 79,965 after D-122, the formula still gives 90,112
 skills/buddy/SKILL.md	28672	2026-10-28 operator (D-116)	core: what every session that loads the skill needs; 23,819 at landing (after D-114)
-skills/buddy-fleet/SKILL.md	65536	2026-10-28 operator (D-116)	coordinators only; 56,651 at landing
+skills/buddy-fleet/SKILL.md	57344	2026-10-29 prose-trim (D-122), lowered	coordinators only; 49,649 at landing (after D-122: review defers to the core, gh stack narrative to D-108/D-122)
 skills/buddy-lead/SKILL.md	8192	2026-10-29 buddy-lead (D-121)	a first-time user's helper: asks, routes to the other two skills and the docs, points at scripts/env-check.sh; 6,461 at landing
 read-first	1085440	2026-10-28 operator (D-116)	class total: what CLAUDE.md's Read this first and AGENTS.md's read paragraph name; 985,707 at landing, today's list; step 3 decides what stays
 README.md	28672	2026-10-28 operator (D-116)	named in Read this first; 22,566 at landing

@@ -105,15 +105,9 @@ sh scripts/run-local.sh                   # bring up the local TOC stack + daemo
 sh scripts/codex-review.sh <prompt-file> <out-file>
 ```
 
-Reports print counts, ids and byte lengths only: `scripts/cost-report.sh` (7-day
-context cost; prose classes against their ceilings, billed context), `startup-report.sh [repo]` (minutes and tool calls before each
-session's first edit), `wake-report.sh [project]` (idle→wake warm/cold by what
-woke it, tokens re-written), `fleet-report.sh <list-file>` (per listed project
-ledger: verdict, counts, STALE/mail/pause ids), `model-report.sh [--export F]`
-(item claims' rates per class × model; F keeps them past the sweep),
-`subagent-report.sh [--since D] [--until D]` (Agent calls by model param and
-word, the model each ran on, subagent transcripts per session, orchestrators'
-first-launch prompt and landing reads, buddy-verb Bash bytes). Python:
+Reports (`scripts/{cost,startup,wake,fleet,model,subagent}-report.sh`) print
+counts, ids and byte lengths only; `docs/USAGE.md` § Measuring context cost says
+what each reads and its knobs. Python:
 `python3 -I scripts/check-<name>.py <receipt> --self-test` is an evidence
 checker that launches nothing; `scripts/qualify-<name>.py` and
 `qualify-release.py --harness H --executable P` (retain, run every tier's suites
@@ -152,16 +146,13 @@ operator-authorized only; read the release notes first.
   prepends the review charter. Operator-authorized Codex drivers and workers use
   the roles in `AGENTS.md`; they are not constrained review passes.
 
-Knobs: `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
-`BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_COST_DAYS`, `BUDDY_CONTEXT_WINDOW` (e.g.
-`1M`/`200k`; DECLARED because the 1M and 200k Opus variants write the same model
-string into the transcript, so unset prints the prompt size with no percentage),
-`BUDDY_HANDOFF_AT` (declared handoff size, same syntax; D-055), `BUDDY_LABEL`
-(hello's label when no `--label`; D-089), `BUDDY_OSCAR_BIN`. `BUDDY_LEDGER` is a
-knob of `cost-report.sh` and `model-report.sh` ONLY: `buddy` does not read it and
-finds its ledger from the cwd's git common dir. Codex: `CODEX_EFFORT` (default
-`xhigh`; `max` is a second pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`,
-`CODEX_NO_CHARTER=1`.
+Knobs (`docs/USAGE.md` documents each `BUDDY_*`; `codex-review.sh`'s header each
+`CODEX_*`): `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
+`BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_CONTEXT_WINDOW` and `BUDDY_HANDOFF_AT`
+(declared, never inferred; D-055), `BUDDY_LABEL` (D-089), `BUDDY_COST_DAYS`,
+`BUDDY_OSCAR_BIN` (the live test's server); `BUDDY_LEDGER` is a report knob
+ONLY, `buddy` never reads it. `CODEX_EFFORT` (default `xhigh`; `max` is a second
+pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
 
 ## Invariants — never violate, and flag if a change would
 
@@ -328,10 +319,9 @@ finds its ledger from the cwd's git common dir. Codex: `CODEX_EFFORT` (default
 
 - **macOS: `cp` over a running Mach-O invalidates its ad-hoc signature; the
   kernel SIGKILLs the next run (exit 137).** `go build -o` straight over the
-  target (or `rm` then `cp`; `install.sh` builds beside it and renames in,
-  D-107). It bites **hooks**: chat and lifecycle hook lines end in `exit 0`, so
-  a killed binary looks silent there, and README's gate line turns a killed
-  `buddy` into a refusal of every gated call.
+  target, or `rm` then `cp` (D-107). It bites **hooks**: a killed chat or
+  lifecycle hook looks silent (`exit 0`); a killed `buddy` refuses every gated
+  call.
 - **`sh scripts/check.sh | tail` returns rc=0 over a FAILING run** (`sh` has no
   pipefail). Read the summary line, or drop the pipe.
 - **`check.sh` exit 2 means the live leg did not run** (no `.cache/oscar-server`;
@@ -341,71 +331,42 @@ finds its ledger from the cwd's git common dir. Codex: `CODEX_EFFORT` (default
   Go frame; the pclntab survives, and `testguard`'s watchdog symbolizes from it.
   `pgrep -f cli.test` matches the LINKER mid-build (its argv names the output):
   find a test binary as a child of its `go` process.
-- **A `-race` test binary can hang in `forkExec` → `readlen` until go test's 10m
-  timeout (darwin; D-061, #53, #55):** golang/go#79804. Since go1.26.0 the race
-  detector instruments darwin's `rawSyscall`; the fork child faults or spins in
-  `__tsan::TraceSwitchPartImpl` before exec, the parent waits in `readlen`, and
-  the child is left orphaned spinning with the parent's argv. Fixed in **Go
-  1.26.5**; `go.mod` pins `toolchain go1.26.8` (`GOTOOLCHAIN=auto` builds with
-  the fix). If it recurs, check `go version` in the repo first. D-061's watchdog
-  still ends a child stuck before exec. Not your diff, not git, not PATH.
+- **A `-race` test binary hung in `forkExec` → `readlen` until go test's 10m
+  timeout (darwin) is golang/go#79804, fixed in Go 1.26.5;** `go.mod` pins
+  `toolchain go1.26.8`. If it recurs, check `go version` in the repo first. Not
+  your diff, not git, not PATH (D-061).
 - **Restart the daemon when a change adds a journal table** (it migrates the
   journal at open). Hooks spawn a fresh binary per call: sessions need no restart.
 - **ergo exempts localhost from its own connection limits**, so presence is
   bounded at 16 connections in our code.
-- **`ISON` answers in two shapes:** `ISON one` → `303 me one` (plain parameter);
-  `ISON one two` → `303 me :one two` (trailing). Reading only the trailing form
-  passes every multi-name test and reports NOBODY online for a DM's single-name
-  query. An over-long ISON draws `417 Input line too long` and no 303, on a
-  connection that stays up, so the query is length-checked before the wire.
-- `pgrep`/`pkill` abort on non-ASCII patterns ("illegal byte sequence") and
-  report BUSY as FREE when they do; hence the ASCII fold in `codex-review.sh`.
-- **The same locale trap bites `ps | awk`:** a process on this box has non-ASCII
-  argv bytes, awk aborts the WHOLE scan (`towc: multibyte conversion failure`)
-  partway, a pid lookup returns nothing, and what depended on it is skipped.
-  `LC_ALL=C` in front of anything that reads `ps` (measured 2026-09-20; it killed
-  a daemon restart before it found the daemon).
-- **The chat daemon is supervised by launchd**
-  (`~/Library/LaunchAgents/com.buddy-system.buddylistd.plist`, `KeepAlive`).
-  KILLING it starts a race: launchd respawns it within ~10 s and whichever
-  instance loses the socket lock dies with `another daemon is already serving`;
-  if a hand-started copy wins, it runs unsupervised and launchd retries against
-  it forever. Restart with `launchctl kickstart -k
-  gui/$UID/com.buddy-system.buddylistd`, or kill the stray and let KeepAlive.
-- **A NEW daemon build is refused its first spawn for 10 s (macOS 27, D-067).**
-  The agent's launch constraint (`managed LWCR`) fails a changed binary at its
-  program path (`xpcproxy exited due to OS_REASON_CODESIGNING | Launch
-  Constraint Violation`); `backgroundtaskmanagementd` re-registers it 10.0 s
-  later (10.016, 10.015 s) and the next spawn runs. Go stamps the commit into
-  every build, so every install after a commit hits it. It follows the spawn,
-  not the file (a 15 s pause before the kickstart changed nothing). NOT the
-  cp-over-Mach-O kill. An unchanged binary restarts in 0.14 s; `install.sh`
-  waits up to 30 s. Read launchd's side with `/usr/bin/log show` (zsh's `log`
-  builtin shadows it).
-- **`/clear` mints a NEW session id in the same process** (same pid and pane; the
-  old row goes `ended`); `/compact` and `--resume` keep it. Nothing keyed by
-  session id (inbox, wait) crosses a `/clear`; mail queued to the old id is
-  stranded. An id that never took a turn has no transcript and cannot be resumed
-  (measured 2026-09-23, D-034).
+- **`ISON` answers in two shapes** (`303 me one` plain, `303 me :one two`
+  trailing; read both) **and an over-long one draws `417` and no 303**, so the
+  query is length-checked before the wire (D-014).
+- `pgrep`/`pkill` abort on non-ASCII patterns and report BUSY as FREE; hence the
+  ASCII fold in `codex-review.sh` (D-122).
+- **`ps | awk` aborts the WHOLE scan on another process's non-ASCII argv**
+  (`towc`), so a pid lookup silently returns nothing: `LC_ALL=C` in front of
+  anything that reads `ps` (D-122).
+- **The chat daemon is launchd's (`KeepAlive`): never kill it** — the respawn
+  races it for the socket lock (D-122). Restart with `launchctl kickstart -k
+  gui/$UID/com.buddy-system.buddylistd`, or kill a stray and let KeepAlive.
+- **A NEW daemon build is refused its first spawn for 10 s (macOS 27, D-067):** a
+  launch constraint, not the cp-over-Mach-O kill; `install.sh` waits it out.
+  Read launchd's side with `/usr/bin/log show` (zsh's `log` builtin shadows it).
+- **`/clear` mints a NEW session id in the same process;** `/compact` and
+  `--resume` keep it. Inbox and waits keyed by the old id are stranded; an id
+  that never took a turn cannot be resumed (D-034).
 - Hook latency budget: 100 ms. Measured: `gate` 20 ms, `beat` 13 ms, chat alert
   1.2 ms warm / 5.9 ms cold.
-- **Prompt cache and harness scheduler, measured 2026-09-23 (D-033):** a request
-  up to 3,602 s after the previous one read the cache; 3,633 s and later
-  re-wrote it. A self-paced `/loop` wake (ScheduleWakeup) rounds UP to the next
-  minute and fires 0-58 s late, so the tool's "any delay up to 3600 wakes warm"
-  is false: 9 of 11 one-hour wakes came back cold. A scheduled turn runs BOTH
-  `UserPromptSubmit` and `Stop`, so a keep-alive ping resets `idle`. Scheduled
-  tasks are session-only (not on disk); surviving `--resume` was not measured.
-- **A pre-push hook run from a LINKED worktree gets an ABSOLUTE `GIT_DIR`** (git
-  2.54) that `git -C` does not override: the tier's fixtures went into the real
-  repo (bare, format 99, every gate failed closed). D-057 unsets git's local env
-  at four layers (pre-push, `check.sh`, `lib.sh`, TestMain); keep them all.
-- Git, for anything touching hooks: `--name-only` **quotes** non-ASCII paths (use
-  `-z`); rename detection reports only the destination (`--no-renames` gives
-  both); `diff.relative=true` in a user config silently makes output
-  cwd-relative (pin `-c diff.relative=false`); a **partial commit** points
-  `GIT_INDEX_FILE` at a temporary index, so stripping `GIT_*` from a child git is
-  right for a background scan and **wrong** for a commit-time gate.
+- **The prompt cache holds about 3,600 s, and a `/loop` wake rounds up and fires
+  late, so a one-hour wake comes back cold;** a scheduled turn runs both
+  `UserPromptSubmit` and `Stop`, so a keep-alive resets `idle` (D-033, D-122).
+- **A pre-push hook run from a LINKED worktree gets an ABSOLUTE `GIT_DIR`** that
+  `git -C` does not override. D-057 unsets git's local env at four layers
+  (pre-push, `check.sh`, `lib.sh`, TestMain); keep them all.
+- Git, for anything touching hooks: the charter's "Git facts" (`-z` for
+  non-ASCII paths, `--no-renames`, `-c diff.relative=false`; a partial commit's
+  temporary `GIT_INDEX_FILE` must survive a commit-time gate's env scrub).
 - The macOS default volume is case-insensitive but case-preserving; a repo root
   can be aliased several ways.
 
@@ -468,4 +429,4 @@ Every number stays on some line.
 - **Tests.** Never with git's local environment; a test binary outliving its `go test` is ended from outside and leaves a sample; the watchdog also ends a `-race` forkExec child stuck before exec (D-053, D-057, D-061).
 - **Codex, adapter.** Codex through the patch gate and native identity, roles explicit; versioned receipts; `buddy-adapter` controls only workers it launches, owns their process group, validates the descriptor before any child; its mail is its own register; its worker's claims renew only from completed native writes (D-068, D-070, D-074, D-076, D-077, D-078).
 - **Admission, qualification.** A committed exact-artifact record compiled into the adapter; recovery exact-version and terminal-evidence-bound; `diagnose` promotes nothing to readiness; a candidate bound by typed sha256, loopback only; one runner writes earned tiers only (D-071, D-072, D-075, D-079, D-080, D-081).
-- **This file.** The rules a session obeys and this topical index; each decision's record is its entry in `docs/decisions.md`; what a session or Codex pass loads unasked has byte ceilings in `docs/prose-budget.tsv`, red in the hermetic tier, raised only by the operator (D-010, D-112, D-116, D-118).
+- **This file.** The rules a session obeys and this topical index; each decision's record is its entry in `docs/decisions.md`; what a session or Codex pass loads unasked has byte ceilings in `docs/prose-budget.tsv`, red in the hermetic tier, raised only by the operator; a gotcha or fleet recipe keeps its rule and a D-number, its measurement in the record (D-010, D-112, D-116, D-118, D-122).

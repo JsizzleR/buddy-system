@@ -9488,3 +9488,167 @@ budget table carries the two new lines at the formula (8,192 and 4,096).
 - skill: lead, whole (new); core and fleet unchanged
 - USAGE: none
 - amends: D-114 "Two skills ship" → every skills/*/SKILL.md, three today; its split, its no-model-no-date rule and its installer refusals stand
+
+## D-122 — CLAUDE.md's gotchas and the fleet skill keep their rules and D-numbers; the measurements behind them live in the record (amends D-112, D-114, D-116)
+
+2026-10-29 · the operator, in orc-12's pane at about 15:30 ("yes open the lane", answering the
+offer of prose-trim, rows 1 and 3 of a read-only context-bloat report, sha256 prefix bc931480)
+and at about 15:35 ("authorize agent tools as well, goal is to land fast here - but
+accurate"); carried out by lane prose-trim under orc-12's brief (orc-13 from the hand-off on).
+
+**What was wrong** — Per-session prose stood at 88,331 of its 90,112-byte ceiling (98%), and
+the every-request class carried CLAUDE.md at 37,322 bytes. The report (built on the 7-day
+cost report: 1,036 requests a day re-read CLAUDE.md; the per-session class rode 275 a day)
+found the cuttable part was not rules but their tails: measurement narratives under the
+environment gotchas that `docs/decisions.md` or the charter already held, a report-script
+paragraph and knob list `docs/USAGE.md` mostly held, and in the fleet skill a review section
+restating the core skill's "Your review", a gh stack trial narrative D-108 holds, and story
+clauses ("one fleet sat eight hours", "about 55 minutes") whose decisions already exist. Some
+of those facts lived in NO decision, only in CLAUDE.md, the charter or the fleet skill, so
+cutting first would have lost them; this entry records them first.
+
+**The rule** —
+1. An environment gotcha in CLAUDE.md is its rule plus a D-number. Every bullet stays (charter
+   GIVEN 113); its measurement lives in the entry it names, the charter, or the list below.
+2. CLAUDE.md's report scripts and knobs are pointers: `docs/USAGE.md` § Measuring context
+   cost now also says `BUDDY_LEDGER` is a report knob `buddy` never reads, what
+   `wake-report.sh`, `fleet-report.sh` and `subagent-report.sh` print, and what the cost
+   report's last two sections are; the `CODEX_*` knobs are `codex-review.sh`'s header's. The
+   Python checkers' rule (a `check-*.py` launches nothing; `qualify-*.py` launch and are
+   operator-authorized only) stays in CLAUDE.md.
+3. The fleet skill carries what only a coordinator needs: its "Review depth" defers to the
+   core skill's "Your review" and keeps the non-code tier table, the round-ceiling table, the
+   duty to name tier and ceiling in a brief, and the pick rule; gh stack keeps every recipe
+   step, exit code and refusal, its trial narrative going to D-108 and this entry; "The run's
+   claim" keeps only what landing step 3 does not say; a story clause is its rule and a
+   D-number. Every heading another file points at stays; every name the coverage tests read
+   keeps a backticked mention (`--codex-hooks`, `buddy diagnose`, `buddy adapter`,
+   `buddy lifecycle` are taught only there).
+4. D-114's no-model rule now holds in the fleet skill: the two auto-mode model names became
+   "a model without it". The Agent tool's `model` aliases (`sonnet`, `opus`, `haiku`,
+   `fable`) stay in landing step 8: they are the tool's parameter values, which D-117 says
+   both skills name, not an operator default.
+5. Two stale facts in the fleet skill were corrected in passing: a send after `bye` signs
+   `unregistered s-<8hex>` (D-105), not `operator`; the gh stack gate has landed (D-108),
+   not "coming".
+6. The ceilings follow the trim (D-116: a lane that trims lowers its line).
+
+
+**The environment facts behind the shortened gotchas** — each bullet in CLAUDE.md's
+"Environment gotchas" stays, as its rule plus a D-number (charter GIVEN 113: every gotcha
+kept). The measurement tails that left it are either in the entry named or recorded here,
+verbatim in substance, with where they came from:
+- `pgrep`/`pkill` abort on a non-ASCII pattern with "illegal byte sequence" and report BUSY as
+  FREE when they do; `codex-review.sh` ASCII-folds its prompt for it (CLAUDE.md since
+  e448599, 2026-09-07; the charter's "Environment facts").
+- `ps | awk`: a process on this box has non-ASCII argv bytes; awk aborts the WHOLE scan
+  partway (`towc: multibyte conversion failure`), a pid lookup returns nothing, and what
+  depended on it is skipped. Measured 2026-09-20, when it killed a daemon restart before it
+  found the daemon (CLAUDE.md since that day; the charter).
+- The chat daemon runs under `~/Library/LaunchAgents/com.buddy-system.buddylistd.plist` with
+  `KeepAlive`. Killing it starts a race: launchd respawns it within about 10 s and whichever
+  instance loses the socket lock dies with `another daemon is already serving`; if a
+  hand-started copy wins, it runs unsupervised and launchd retries against it forever
+  (CLAUDE.md since fff4e0f, 2026-09-20; the charter).
+- A new daemon build's refused first spawn (D-067): `xpcproxy exited due to
+  OS_REASON_CODESIGNING | Launch Constraint Violation`, re-registered 10.016 s and 10.015 s
+  later; Go stamps the commit into every build, so every install after a commit meets it;
+  a 15 s pause before the kickstart changed nothing; an unchanged binary restarts in 0.14 s;
+  `install.sh` waits up to 30 s (`BUDDY_DAEMON_WAIT`). All in D-067 but the 30 s, which is
+  `install.sh`'s header.
+- The `-race` forkExec hang (D-061, issues #53 and #55, golang/go#79804): since go1.26.0 the
+  race detector instruments darwin's `rawSyscall`; the fork child faults or spins in
+  `__tsan::TraceSwitchPartImpl` before exec, the parent waits in `readlen`, the child is left
+  orphaned spinning with the parent's argv; `GOTOOLCHAIN=auto` builds with the pinned
+  toolchain's fix; D-061's watchdog still ends a child stuck before exec (CLAUDE.md since
+  92572c1, 2026-09-27; the charter).
+- Prompt cache and scheduler (D-033, measured 2026-09-23): a request up to 3,602 s after the
+  previous one read the cache, 3,633 s and later re-wrote it; a self-paced `/loop` wake
+  (ScheduleWakeup) rounds UP to the next minute and fires 0-58 s late, so the tool's "any
+  delay up to 3600 wakes warm" is false: 9 of 11 one-hour wakes came back cold; a scheduled
+  turn runs both `UserPromptSubmit` and `Stop`; scheduled tasks are session-only, not on
+  disk, and surviving `--resume` was NOT measured (CLAUDE.md since 73cc243; the charter
+  carries the 9 of 11).
+- `/clear` (D-034): same pid and pane, the old row goes `ended`; mail queued to the old id is
+  stranded; an id that never took a turn has no transcript (`No conversation found`).
+- The linked-worktree pre-push `GIT_DIR` (D-057, git 2.54): the hermetic tier's fixtures went
+  into the real repository, which was left bare, format 99, every gate failing closed.
+- `ISON`'s two shapes and the `417 Input line too long` that leaves no 303 on a connection
+  that stays up: D-014 ("The measurement that mattered" and its second review finding).
+- The git facts for hooks (quoted non-ASCII paths, rename destinations, `diff.relative`, a
+  partial commit's temporary `GIT_INDEX_FILE`): the charter's "Git facts relevant to hooks".
+- The Mach-O `cp` kill: `install.sh` builds beside the target and renames it in (D-107).
+
+**The fleet skill's facts recorded here** — cut from `skills/buddy-fleet/SKILL.md` as it stood
+at 732c998 (old line numbers), each now cited "(D-122)" where its rule stays:
+- L154-155, since 3fde70a (2026-10-20): a lane a predecessor opened and handed on with the
+  coordinator claim counts as one you opened; one fleet sat eight hours on whether it could
+  close such lanes.
+- L165-169, since bb96a3d (2026-10-13): about 55 minutes into its idle time the harness
+  compacts any session over 200k tokens, before its cache expires. Measured on one fleet over
+  five days: 12 such compactions of 312k to 583k, 6 of them in lanes that had already said
+  they were done and never ran again.
+- L54-57, since 66cd7c2 (2026-10-26): a `herdr agent start` that answers `timed out waiting
+  for agent startup` has usually started the lane anyway (every launch of one fleet), but
+  herdr then does not know it by label: wait on it by pane id and check `buddy who <its full
+  session id>`. The rule stays in "Opening lanes".
+- L60-62 and L550-551 (D-114): `claude --permission-mode auto` gives auto mode only on a model
+  that has it; measured, Sonnet 5 ran a Bash call unprompted and Haiku 4.5 still asked for
+  every tool call in auto mode.
+- L308-309: git runs no pre-commit on a plain `git cherry-pick` (measured: none for two picked
+  commits, one for the `commit -F`).
+- L324-326, since 567a38e (2026-10-27): a lane green on its branch went red squashed, under
+  `-race`, on a race older than the lane that its change widened.
+- L380-381, since 567a38e: one lane kept on went from 402k to about 710k over four review rounds.
+- gh stack's first two trials (since 1ce19a7, 2026-10-11, and 1b0587d, 2026-10-27; D-108 holds
+  the gate): `gh stack rebase --no-trunk <B>` checked that B's worktree was clean (untracked
+  files included), then ran `git -C <B's worktree> -c rebase.updateRefs=false -c
+  rebase.autoStash=false rebase --onto <A> <base> <B>`, finding A's old tip from A's reflog
+  (`git merge-base --fork-point`) even when the stack was recorded after the fold. A commit the
+  gate refused under `BUDDY_COMMIT_GATE=deny` was rewritten by `gh stack rebase` with rc=0, and
+  a plain `git rebase` and cherry-pick ran no pre-commit either. `gh stack init` tried 2
+  read-only API queries for the branches' pull requests, `rebase --no-trunk` 4, `rebase
+  --remote self` 2, `view` 8, each to api.github.com carrying the operator's token;
+  `unstack --local` none (the first trial's origin was a local bare repository, so it could
+  not see this). Under `sandbox-exec` with the network denied, every query failed at the
+  lookup and each command did the same local work and exited 0; the hooks git runs on a
+  rebase (pre-rebase, post-rewrite) run inside the same sandbox. A plain `gh stack rebase`
+  FETCHES origin and can fast-forward local main or move the stack onto origin's main;
+  `gh stack unstack <number>` goes straight to its API. `gh stack rebase --abort` put B back
+  at its sha; `gh stack view` from the main checkout printed the same stack, conflict pending
+  or not, and from B's worktree failed ("not on any branch"). Cut from the recipe after the
+  first trial: `gh stack rebase --remote self` (after `git remote add self <main checkout>`),
+  which rewrites A's checkout too, adds a remote to the config every worktree shares, still
+  reads GitHub, and does what the coordinator's own rebase onto main already does.
+- Reasoning dropped as wording, no rule: a finding left open and written down costs a later
+  item, a seventh round costs now; what gh stack saves is looking up A's old tip, at three
+  commands and a slot claim; a fleet of fleets' upgrade is three commands per coordinated
+  ledger and one in the fleet repo. The fleet-of-fleets bracketed measurements are in
+  `docs/BEYOND-CODE-PLAN.md`'s table, which the section names.
+
+**Review** — Lite (orc-12 raised the report's chore: the trimmed text is a recipe sessions
+follow). A scoped self-review: one read-only subagent mapped every removed sentence of the
+fleet skill to where its fact now lives, and a second, independent one audited the diff for a
+rule with no home and found none. It raised four low findings, all folded: step 10's citation
+(D-064 → D-114, which records the hand-on to `<item>-2`); the landing intro's cause of the
+lost fifty minutes; the gh stack gate's scope (it sees no path in a `git rebase` line); and
+`--env`'s citation (D-064 added). One Codex code pass at xhigh on the finished diff found no
+rule or measurement left without a home, no operator-only action opened, no uniquely taught
+name lost, and every citation supported. Its one P2 is folded: "`gh stack rebase --remote
+self` included" could read as permitted and is now its own "Never". Nothing is answered
+unfolded or left open. Mutation: with `--codex-hooks` removed from a private copy of the fleet
+skill, `TestSkillTeachesEveryVerbAndFlag` failed, naming `buddy diagnose --codex-hooks`.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "This file." line (amended; number added)
+- CLAUDE.md: § Commands (the report paragraph and Knobs, now pointers), § Environment gotchas
+  (every bullet kept, tails here or in the entry each names)
+- USAGE: § Measuring context cost (`BUDDY_LEDGER`, the cost report's last two sections, the
+  wake, fleet and subagent reports)
+- skill: fleet, § Review depth, § Restacking a dependent lane (gh stack), § The run's claim,
+  story clauses throughout; core and lead unchanged
+- budget: `docs/prose-budget.tsv`, the CLAUDE.md, fleet skill, every-request and per-session
+  lines lowered to the formula
+- GIVEN: none changed (GIVEN 113's "every environment gotcha" holds: shortened, none deleted)
+- amends: D-112 (CLAUDE.md's gotchas carry rule + number, not the measurement); D-114 (the
+  fleet skill's model names removed); D-116 (ceilings lowered with the trim)

@@ -1196,11 +1196,12 @@ ledger row entered through the CLI (D-006).
     Fable the operator did not name, or a verb or check reading a lane's model.
 
 113. **`CLAUDE.md` holds the rules a session obeys and a topical decision index; each
-    decision's record is in `docs/decisions.md` (D-112, D-118).** The operator, 2026-10-28:
+    decision's record is in `docs/decisions.md` (D-112, D-118, D-122).** The operator, 2026-10-28:
     the file is loaded on every request and had grown to 69,690 bytes (~8% of a buddy-system
     prompt; cache reads are 71% of spend), most of it long decision bullets duplicating the
     record. It keeps what this is, read-first, repo map, commands, the 14 invariants
-    VERBATIM, style and the review tiers, every environment gotcha, a short "Operating rules
+    VERBATIM, style and the review tiers, every environment gotcha (as its rule and a
+    D-number, its measurement in the record: D-122), a short "Operating rules
     carried by decisions" section, and the index: one line per SUBJECT, saying what stands
     now and ending with every D-number that made it, every decision's number on some line
     (D-118 amends D-112's line per decision, which grew with every decision and could hold no
