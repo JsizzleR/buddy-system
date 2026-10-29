@@ -22,7 +22,7 @@ README.md	28672	2026-10-28 operator (D-116)	named in Read this first; 22,566 at 
 docs/README.md	4096	2026-10-28 operator (D-116)	named in Read this first; 3,385 at landing
 docs/DESIGN.md	16384	2026-10-28 operator (D-116)	named in Read this first and by AGENTS.md; 11,650 at landing
 docs/USAGE.md	188416	2026-10-28 operator (D-116)	named in Read this first as the per-feature reference; 169,395 at landing
-docs/decisions.md	700416	2026-10-28 operator (D-116)	named in Read this first since D-112, read by heading (452 of 453 calls); 634,169 at landing; grows 5-9 KB a decision
+docs/decisions.md	761856	2026-10-29 operator (D-116)	named in Read this first since D-112, read by heading (452 of 453 calls); 681,019 at the raise (97.2% of 700,416), set by the formula at 691,000 for run42 (D-123 + a D-118 amendment); grows 5-9 KB a decision; the read-first total binds first, near 737,000
 codex-pass	122880	2026-10-28 operator (D-116)	class total: AGENTS.md + the charter, on every Codex pass; 109,321 at landing; lowered with step 2
 docs/review-charter.md	118784	2026-10-28 operator (D-116)	prepended to every Codex pass, and named in Read this first; 104,735 at landing; GIVENs topical from D-116
 AGENTS.md	8192	2026-10-28 operator (D-116)	every Codex run reads it; 4,586 at landing

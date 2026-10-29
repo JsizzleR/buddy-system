@@ -115,7 +115,7 @@ ledger row entered through the CLI (D-006).
     (D-015), and the window is DECLARED, never derived.** `beat` reads the last 64 KB of
     the file the hook JSON names, takes the newest non-sidechain turn's token counts, and
     stores ONE row per session, read back only through a join on the current incarnation.
-    No message text is ever stored. Measured 2026-09-20: a session running the 1M-token
+    No message text is ever stored. Measured: a session running the 1M-token
     Opus variant records `"model":"claude-opus-5"`, identical to the 200k variant, so a
     percentage inferred from the model string is a fabrication — the denominator comes
     from `BUDDY_CONTEXT_WINDOW` or no percentage prints. The row says `prompt`, never
@@ -129,7 +129,7 @@ ledger row entered through the CLI (D-006).
     MEANS UNKNOWN: the hook is opt-in like every other one, so a fleet without it wired
     reports nobody idle, and absence must never be read as "mid-turn". Only `Stop` is
     wired by default; the optional `busy` verb on `UserPromptSubmit` retracts the mark for a
-    turn that runs no tool (issue #10), and measured on 2026-09-23 BOTH hooks run on a
+    turn that runs no tool (issue #10), and, measured, BOTH hooks run on a
     scheduled (`/loop`) turn, so a keep-alive ping resets `idle` (D-033).
 
 21. **A column is ONE token (D-017).** Peer text in a fixed-width column goes through
@@ -166,7 +166,7 @@ ledger row entered through the CLI (D-006).
 
 24. **The roster's `cache 1h hot 48m` / `cache 5m cold 3m` is read from the session's own
     transcript and never inferred (D-020).** `session_context` keeps the raw per-tier
-    write counts from `usage.cache_creation` (measured 2026-09-20: 2371 records, all
+    write counts from `usage.cache_creation` (measured: 2371 records, all
     carrying the object, all on the 1h tier, one pure read in 2371); the roster computes
     hot/cold against the turn's own time, judges a both-tier turn by the SHORTER tier, and
     prints nothing when no tier was recorded — an older harness was silent, not on 5m. The
@@ -393,7 +393,7 @@ ledger row entered through the CLI (D-006).
 
 44. **`msg`'s wake address rides its result line (D-041).** One send answers on ONE line. The
     D-039 address used to be a second line, and an orchestrator that read `msg … | head -1`
-    (measured, 2026-09-24) lost it, so an idle lane sat unwoken until the operator typed into
+    (measured) lost it, so an idle lane sat unwoken until the operator typed into
     it. Do not propose moving the address back onto a line of its own. It is ALSO written to
     stderr as one line (D-052): a sender that discarded stdout as a receipt (`>/dev/null`) lost
     it, measured. Stderr is empty when there is no wake; a `2>&1` reader sees it twice.
@@ -604,18 +604,15 @@ ledger row entered through the CLI (D-006).
     recurs, the toolchain in use is the first thing to check.
 
 65. **Landing through an orchestrator is a recipe in the skill, over existing verbs (D-062).**
-    One fleet repo ran the orchestration plan's increment-2 lifecycle live, in prose, in its own
-    skill, and MEASURED what the first version left unsaid: a lane sat idle three hours for a
-    "landed" message that never came, and four assignments and red reports reached nobody for
-    about fifty minutes because the sender discarded `msg`'s result and its wake line. The
-    skill's "Landing through an orchestrator" teaches both sides: the orchestrator holds a
-    durable `orchestrator` claim (its description the published note, D-030) AND a per-run
-    claim on `.buddy/slot/<run>` and `.buddy/slot/main` (D-049), formed again the moment one is
-    released; a lane waits on the RUN, never on `orchestrator`. READY is `wait --on <run>
-    --ready HEAD` plus a message carrying what the ledger does not hold; LANDED is the release's
-    outcome plus words that end the lane's work. The orchestrator owes an answer to every READY,
-    every `msg` result read for its wake line, the landing said in the same turn, a red routed to
-    its lane, the new main to every lane still working, and `who` on every lane before handoff.
+    The orchestrator holds a durable coordination claim (`orc-<project>`, D-101; its description
+    the published note, D-030) AND a per-run claim on `.buddy/slot/<run>` and `.buddy/slot/main`
+    (D-049), formed again the moment one is released; a lane waits on the RUN, never on the
+    coordination claim. READY is `wait --on <run> --ready HEAD` plus a message carrying what the
+    ledger does not hold; LANDED is the release's outcome plus words that end the lane's work.
+    The orchestrator owes an answer to every READY, every `msg` result read for its wake line,
+    the landing said in the same turn, a red routed to its lane, the new main to every lane
+    still working, and `who` on every lane before handoff (a missing LANDED and a discarded
+    wake line each left lanes unwoken, measured on one fleet).
     The next round may branch from a run in flight (its pinned tree or a READY lane's tip, named
     in the brief): the squash takes each lane's own `<base>..<tip>`, so only a code change under
     a lane (an ejection, a fold) forces a restack, and no dependent lands before it re-reports
@@ -628,14 +625,14 @@ ledger row entered through the CLI (D-006).
 66. **A holder hands an open claim on with `release <slug> --to <target>`, keeping its id (D-063).**
     Release-then-claim mints a new claim id, and a wait is resolved once to a claim id, so a
     successor re-claiming an in-flight run landed every rider with no outcome and dropped their
-    READY (measured, 2026-09-29). The transfer moves owner and incarnation in one transaction and
+    READY (measured). The transfer moves owner and incarnation in one transaction and
     keeps everything else; it refuses a sender not live under its incarnation, an ended or
     re-registered recipient, a recipient waiting on the claim, and any overlap the recipient could
     not have claimed. No consent step, no recorded previous holder: cut, see the record. Do not
     propose release-then-claim or `--outcome aborted` as the handoff of a run that carries on.
 
 67. **`status` and `who` print a JOBS line: the shells still running directly under the
-    session's registered harness process (D-065).** Measured 2026-09-29: an outgoing
+    session's registered harness process (D-065).** Measured: an outgoing
     orchestrator said it "holds nothing, close me" with a gate script and a 42-minute watcher
     still running as its children, and EXIT (the ledger only) was read as the session. A Bash
     tool call is `/bin/zsh`, a direct child of claude in its OWN process group, so the line reads
@@ -786,14 +783,14 @@ ledger row entered through the CLI (D-006).
     resolved once, identity-checked before exec. Do not propose discarding oversized
     frames, reading full Codex history on the live transport, or treating a free journal
     lock as proof the worker exited. **Resume is fail-closed on an ownership record
-    (D-077, 2026-10-07 continuation, audit A-02):** every spawn publishes `<receipt>.proc`
+    (D-077, audit A-02):** every spawn publishes `<receipt>.proc`
     (intent before the child, the leader's pid/start/pgid/sid before the first native
     byte) through a single-use launch authorization consumed before `cmd.Start`; resume
     refuses with no record, a record bound to another journal/receipt/identity, an
     intent-only record, or while the recorded adapter, leader or group lives (`kill(-pgid,
     0)`, ESRCH alone is absence); `--wait-prior` is a bounded passive re-check. `.start`
     fences only Start; the flock plus intent-before-spawn fence every spawn. **Narrow
-    contract (D-077, the operator's choice 2026-10-11):** descendants that left the group
+    contract (D-077, the operator's choice):** descendants that left the group
     are sampled every second (one `kern.proc.all` read; parentage only, every parent
     re-checked by pid and start time after the read), recorded in `.proc`, captured again
     before stdin closes on every adapter-initiated shutdown, reported at close (`ended`,
@@ -819,7 +816,7 @@ ledger row entered through the CLI (D-006).
     renew nothing; correlations never cross a resume. Do not propose renewing through
     `BeatLogical` (it erased idle), one event per tool result (it blocks the reader), or
     renewal from attempts or patch text. `lifecycle beat --path` is repeatable.
-    `tool_result_meta` (D-078 addendum, R', agreed by Fable and Codex): a frame whose list is
+    `tool_result_meta` (D-078 addendum): a frame whose list is
     not objects with string ids each naming a tool_result of that frame is unexpected; for a
     result, two entries are unknown; one entry with only `id`, `non_execution_kind`,
     `permission_decision` (string `decision`, optional string `source`, `reason_type`) is
@@ -846,7 +843,7 @@ ledger row entered through the CLI (D-006).
     record cannot bind its own binary; the contract id is bumped instead). A version-keyed
     parse rule whose outcomes are identical on every measured frame of every recorded
     version, proven by a committed hermetic replay, does not bump the contract id; a change
-    that alters any such outcome does, and requalifies (operator, 2026-10-14).
+    that alters any such outcome does, and requalifies (the operator's choice).
 81. **A qualification candidate (D-080)** is `buddy-adapter --qualify-candidate <artifact>
     --qualify-sha256 <hex>` in the shipped binary: the typed digest binds the artifact, the
     committed records are REPLACED by one synthesized record for those bytes, an observer
@@ -867,7 +864,7 @@ ledger row entered through the CLI (D-006).
     HEAD. Do not propose per-checker version lists or hand-written records.
 83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a
     start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082).**
-    Measured on the first mixed fleet (2026-10-14): `herdr agent start` refuses an agent
+    Measured on the first mixed fleet: `herdr agent start` refuses an agent
     argument holding a newline or a backtick, so the prompt is one line naming the brief
     file; `herdr agent wait` with no `--until` matches idle, done or blocked, and a finished
     lane rests at `done` (the trial's `--until idle --until blocked` timed out on all three
@@ -1036,28 +1033,27 @@ ledger row entered through the CLI (D-006).
     runs a fleet, the orchestrator puts side work (a lane's diff, reports, measurements,
     housekeeping, a second opinion: subagents on any model, Fable only for a review (D-111), a
     Codex pass through `codex-review.sh`, a Fable read) on subagents, because its own context
-    is the scarce resource before its handoff size (orc-3 handed off at 322k, orc-4 at 397k).
+    is the scarce resource before its handoff size.
     A subagent holds no claim, lands nothing, relays nothing, and runs under the parent's id
     and claims (D-099); its findings are evidence once a test reproduces them. Do not propose
     a ledger row or verb for subagents, or counting their tokens against the handoff size.
 
-105. **The review tier follows the change class; a receipt names what ran (D-104).** Full
-    (what the gate refuses or allows, the ledger schema, `internal/fence`, an invariant): a
-    read-only subagent panel, Codex design and code passes, a required Fable cross-check, and
-    a Codex re-verify of the fixes until it accepts or the brief's bound. Lite: a scoped
-    adversarial self-review and one Codex pass, one round, Fable optional. Chore: no outside
-    review required, with the reason. A test-only change takes its class's tier; a second
-    model is allowed at any tier. The receipt names each layer, each second-model pass with
-    its own effort, the cross-check by its model (`review: full (panel + codex@xhigh design +
-    codex@xhigh code + fable + codex@xhigh reverify)`; measured, 0 of 15 lite/full receipts
-    here named one). Lanes run on the operator's default model, full items included (D-111
-    amends the model clause, GIVEN 112); the skill states the default as that day's, never a
-    constant. Do not propose a tier column in the ledger, a receipt check before receipts
-    follow the shape, or model names as constants in the skill.
+105. **The review tier follows the change class; a receipt names what ran (D-104).** Full (what
+    the gate refuses or allows, the ledger schema, `internal/fence`, an invariant): a read-only
+    subagent panel, Codex design and code passes, a required Fable cross-check, and a Codex
+    re-verify of the fixes until it accepts or the brief's bound. Lite: a scoped adversarial
+    self-review and one Codex pass, one round, Fable optional. Chore: no outside review
+    required, with the reason. A test-only change takes its class's tier; a second model is
+    allowed at any tier. The receipt names each layer, each second-model pass with its own
+    effort, the cross-check by its model (`review: full (panel + codex@xhigh design +
+    codex@xhigh code + fable + codex@xhigh reverify)`). Lanes run on the operator's default
+    model, full items included (D-111 amends the model clause, GIVEN 112); no shipped skill
+    names it (D-114, GIVEN 115). Do not propose a tier column in the ledger, a receipt check
+    before receipts follow the shape, or model names as constants in the skill.
 
 106. **`msg` signs an id the ledger does not know as `unregistered s-<8hex>` (D-105).** A
     session id in the environment with no LIVE row here (absent, or ended) used to sign as
-    `operator`, or as its `--from` alone; measured 2026-10-26, a session registered in
+    `operator`, or as its `--from` alone; measured: a session registered in
     another ledger addressing this one was told "would send … as operator". It now signs
     the short form a hello would mint, `--from` a tag after it
     (`unregistered s-66a24e29 (review)`), and the result line (and the dry run's) says it is
@@ -1069,46 +1065,37 @@ ledger row entered through the CLI (D-006).
     signed the same way, from the environment, not the holder. Do not propose refusing the
     send, requiring hello first, or signing with the full id.
 
-107. **The A-01 re-review's open shell-recognizer forms are closed (D-106).** The
-    shell-patch recognizer (`internal/cli/patch.go`, D-073/D-087) now: keeps reading env's argv
-    past a DYNAMIC `env -S` value so a later `-C` is discovered and the literal found (A,
-    Codex-verdict only — Claude already read past it); recovers a directory change lexically
-    from `env -S` text carrying a `#` comment or escape, e.g. `env -S '-C /gov #' apply_patch`
-    (B, both harnesses; best-effort BOTH ways — it can also MISS one env's `\_`/`\c` escapes
-    change, NOT "only over-refuses"); treats `script` with a transcript file and no command as a
-    shell reading stdin, so `script -q /dev/null <<'SH' … apply_patch … SH` is caught (C, both;
-    playback `-p` excluded; the kernel control needs the heredoc padded past script's pty
-    buffer); refuses an over-budget brace consumed as an option value in the wrapper grammar,
-    `shell()`'s `-o`/`--rcfile`/`-S` and fish's value options, the `--`/lead loop, `gitRoute`'s
-    `-C` value, `scriptFile` and `trap` (E, both; the `findActions` and any-word `gitRoute`
-    guards were added, then REVERTED as false-denying data braces, so those positions are OPEN
-    below); and FIXES fish F1/G1/G2 in `shell()` (repeated `-c` refuses; `--no-execute`/`-n`
-    allow). Finding D was refuted. `exec <<'SH'` read by a later
-    statement stays the documented cooperative limit, tested as an accepted gap. Recorded OPEN
-    (crafted brace-budget respellings, D-106; free under Claude's allow arm, so not fixed to avoid
-    false-denying common data braces): the attached/assignment-dynamic `env -S`, the static
-    option-tail `env -S '-u' {X,-S,apply_patch,…}` (F5), and `env -S <wrapper> {…}`; util-linux
-    `script -c` repeated and `-t` optional value; GNU abbreviated long options (fish's
-    included); a front unknown-wrapper (`lockf -k`); and the `git` (`-C .`/`submodule`/`bisect`)
-    and `find` (`{-exec,…}` and the NESTED `-exec … {…,\;,-exec,apply_patch,…} \;`)
-    action-position braces, and a shell's ATTACHED dynamic `-c"$x"` (read as a script-file
-    operand, so Codex misses the uncertainty the detached `-c "$x"` raises; round 5 N2). BSD
-    `script -T` playback is deliberately over-refused (util-linux `-T` runs a shell), as are an
-    unknown fish option, fish `-s` (read as bash's stdin flag) and `fish -` (read as bash's
-    stdin), and `source`/`.` with no file or `-` in bash/zsh (an error there; fish reads stdin);
-    fish `-h`/`--help` is not modelled, its direction unverified.
-    Three codex re-verify rounds fixed the fold's false denials (fish long `--command`, a `fish
-    -c true ""` panic, fish init-commands under a later `--no-execute`, `fish --command` with no
-    value, and the find/env-`S`-tail over-budget guards, reverted). Round 4 found round 3's
-    `-nC` fold read a C inside another option's value (`fish -p/tmp/initCommands.prof -c
-    'apply_patch …'` allowed): fish clusters are now read as getopt does, the first value option
-    (`-c -C -d -o -f -p`, fish 3's `-D`, and their long spellings) taking the rest of the cluster
-    or the next word; a value option ending the line, `--version`/`-v` and
-    `--print-debug-categories` read no stdin. Fable rounds 5-6: `source`/`.` with no file or `-`,
-    after one leading `--`, reads stdin (fish's documented `source`, so `fish -c source
-    <<<'apply_patch …'` refuses), and
-    fish 3.0's `--debug-level` takes a value. These forms and B/C/F4 may be re-examined — this
-    GIVEN records what was done, and does not forbid re-deriving them.
+107. **The A-01 re-review's open shell-recognizer forms are closed (D-106).** The shell-patch
+    recognizer (`internal/cli/patch.go`, D-073/D-087) now: reads env's argv past a DYNAMIC `env
+    -S` value to a later `-C` (A, Codex verdict; Claude already read past it); recovers a
+    directory change lexically from `env -S` text with a `#` comment or escape (B, both
+    harnesses, best-effort BOTH ways: it can MISS an escape, not "only over-refuses"); reads
+    `script` with a transcript file and no command as a shell on stdin (C, both; playback `-p`
+    excluded; its kernel control needs the heredoc padded past script's pty buffer); refuses an
+    over-budget brace consumed as an option value in the wrapper grammar, `shell()`'s
+    `-o`/`--rcfile`/`-S`, fish's value options, the `--`/lead loop, `gitRoute`'s `-C`,
+    `scriptFile` and `trap` (E, both); fixes fish F1/G1/G2 (repeated `-c` refuses;
+    `--no-execute`/`-n` allow); reads a fish cluster as getopt does, the first value option
+    (`-c -C -d -o -f -p`, fish 3's `-D`, long spellings, `--debug-level`) taking the rest or
+    the next word, while a trailing value option, `--version`/`-v` and
+    `--print-debug-categories` read no stdin; and reads `source`/`.` with no file or `-` (after
+    one `--`) as stdin, as fish does. The fold's false-denial fixes stand (fish `--command`,
+    with a value or none, `-c true ""`, init-commands before `--no-execute`). D was refuted.
+    `exec <<'SH'` read by a later statement is the documented cooperative limit, tested as an
+    accepted gap. Deliberately over-refused: BSD `script -T` playback (util-linux `-T` runs a
+    shell), an unknown fish option, fish `-s` and `fish -` (read as bash's stdin), bash/zsh
+    `source`/`.` with no file or `-` (an error there); fish `-h`/`--help` is not modelled, its
+    direction unverified. Recorded OPEN, crafted brace-budget respellings free under Claude's
+    allow arm, left so common data braces are not false-denied (the `findActions`, any-word
+    `gitRoute` and `env -S`-tail over-budget guards were reverted for that): attached or
+    assignment-dynamic `env -S`; the static option-tail `env -S '-u' {X,-S,apply_patch,…}`
+    (F5); `env -S <wrapper> {…}`; util-linux `script -c` repeated and `-t`'s optional value;
+    GNU abbreviated long options (fish's too); a front unknown wrapper (`lockf -k`); `git` (`-C
+    .`/`submodule`/`bisect`) and `find` (`{-exec,…}`, the nested `-exec …
+    {…,\;,-exec,apply_patch,…} \;`) action-position braces; a shell's ATTACHED dynamic `-c"$x"`
+    (read as a script-file operand, so Codex misses the uncertainty a detached `-c "$x"`
+    raises). These forms and B/C/F4 may be re-examined: this GIVEN records what was done, and
+    does not forbid re-deriving them.
 
 108. **The gate's hook line fails closed when an installed `buddy` dies (D-107).** README's
     entry, one spelling in `scripts/gate-hook.py`: `[ -x "$HOME/bin/buddy" ] || exit 0;
@@ -1166,8 +1153,7 @@ ledger row entered through the CLI (D-006).
     coordinator's advice. The sender is still the key and the brief still the authority; the
     floor (install, push, settings, permission, trust, schema, a more permissive mode, work
     beyond the launcher's scope) is unchanged, and no other sender relays. Prose only: no verb,
-    flag or row. Measured once: the first lane briefed under it had its commit refused by its
-    permission classifier anyway, and the operator repeated the decision in the lane's pane.
+    flag or row.
 
 111. **`buddy update` runs install.sh in the checkout install.sh stamped into buddy, after a
     local report (D-110).** The operator chose install only: it never fetches or pulls, and
@@ -1184,16 +1170,15 @@ ledger row entered through the CLI (D-006).
     Not a hook verb, opens no ledger, never delegable (D-083). Do not propose a pull, a
     `--check` alias, or refusing a dirty or off-main tree.
 
-112. **Every lane runs on the default lane model, full tier included; Fable is for reviews
-    only (D-111, amends D-104).** The operator, 2026-10-28: "fable is for reviews only".
-    Another repo's orchestrator read D-104's "a full-tier item runs on the strongest model
-    available" as Fable 5.1 and launched full-tier lanes on it. Now every lane, panel and fold
-    round runs on the operator's default lane model unless the operator names another for the
-    item (or sets a run's cap the skill's pick rule works within); the tier changes the review
-    only. Fable runs only inside a review: the full tier's cross-check, panel lenses on a
-    security-sensitive commit, a judgement-call ruling; the pick rule never lands on it, and a
-    non-review subagent is not on it. Do not propose "strongest model" wording, a lane on
-    Fable the operator did not name, or a verb or check reading a lane's model.
+112. **Every lane runs on the default lane model, full tier included; Fable is for reviews only
+    (D-111, amends D-104).** The operator's rule; D-104's "a full-tier item runs on the
+    strongest model available" was read as Fable. Every lane, panel and fold round runs on the
+    operator's default lane model unless the operator names another for the item (or sets a
+    run's cap the skill's pick rule works within); the tier changes the review only. Fable runs
+    only inside a review: the full tier's cross-check, panel lenses on a security-sensitive
+    commit, a judgement-call ruling; the pick rule never lands on it, and a non-review subagent
+    is not on it. Do not propose "strongest model" wording, a lane on Fable the operator did
+    not name, or a verb or check reading a lane's model.
 
 113. **`CLAUDE.md` holds the rules a session obeys and a topical decision index; each
     decision's record is in `docs/decisions.md` (D-112, D-118, D-122).** The operator, 2026-10-28:
