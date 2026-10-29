@@ -585,7 +585,12 @@ func TestEmbeddedAdmissions(t *testing.T) {
 		// The installed Claude 2.1.311, every tier (2026-10-27, at 10081f5), once
 		// the compaction fixture's reply carried the <summary> block 2.1.311
 		// requires; at 0e1a5d9 it had earned start and resume only.
-		"claude 2.1.311": "85d8c08707fcfd1e78ffa0204eefbc6ec9e4fe22f375fb2767ef85d957ed3161"}
+		"claude 2.1.311": "85d8c08707fcfd1e78ffa0204eefbc6ec9e4fe22f375fb2767ef85d957ed3161",
+		// The installed Claude 2.1.312, every tier (2026-10-29, at bd503ce). Its
+		// release notes were read first: nothing the contract reads changed (the
+		// hook concurrency cap is for prompt and agent hooks, the gate is a
+		// command hook; the resume fix is the interactive terminal's).
+		"claude 2.1.312": "6b5ec691195e551b02c41df9f7d723f4ea61eaa03c2df90acefe3736f1aeb620"}
 	if len(got) != len(want) {
 		t.Fatalf("embedded records %v", got)
 	}

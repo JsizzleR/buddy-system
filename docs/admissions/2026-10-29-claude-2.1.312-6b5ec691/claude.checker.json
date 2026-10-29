@@ -1,0 +1,71 @@
+{
+ "checker": "check-claude-gate.py",
+ "exit": 0,
+ "verdict": {
+  "passed": true,
+  "checks": {
+   "receipt_location": true,
+   "contract": true,
+   "runner_verdict": true,
+   "artifact_hashes": true,
+   "gate_configuration": true,
+   "captured_identity": true,
+   "claim_denial_held": true,
+   "allowed_control": true,
+   "operator_denial": true,
+   "allowed_edit": true,
+   "peer_cannot_approve": true,
+   "first_turn": true,
+   "second_turn": true,
+   "duplicate_not_replayed": true,
+   "managed_refusal": true,
+   "endpoint_observed": true,
+   "clean_close": true,
+   "mods_inventory_at_init": true,
+   "renewal_runner_verdict": true,
+   "renewal_receipt_matches_evidence": true,
+   "renewal_capability_declared": true,
+   "renewal_claims_bound": true,
+   "renewal_unwritten_claims_unmoved": true,
+   "renewal_journal": true,
+   "edit_measurement": true,
+   "evidence_hashes": true
+  },
+  "errors": [],
+  "evidence": "hashed",
+  "read": [
+   "adapter-events.json",
+   "adapter.stderr",
+   "bin/claude-observer",
+   "launch.json",
+   "ledger-inspection.json",
+   "managed-hook-refusal/adapter-events.json",
+   "managed-hook-refusal/adapter.stderr",
+   "managed-hook-refusal/claude-managed-fixture",
+   "managed-hook-refusal/launch.json",
+   "managed-hook-refusal/native-observations.jsonl",
+   "managed-hook-refusal/result.json",
+   "native-observations.jsonl",
+   "provider-observations.json",
+   "renewal-cyg0u_ij.db",
+   "renewal-xay4nnj5.db",
+   "settings.json",
+   "source-manifest.json",
+   "unparsed-output.json",
+   "work/allowed.txt",
+   "work/guarded.txt",
+   "worker.json",
+   "worker.json.events",
+   "worker.json.proc"
+  ],
+  "traced": true,
+  "unhashed": [
+   "renewal-cyg0u_ij.db",
+   "renewal-xay4nnj5.db"
+  ],
+  "unbound": [
+   "renewal: Write omission unqualified on 2.1.312; the conservative outcome was checked"
+  ]
+ },
+ "stderr": ""
+}
