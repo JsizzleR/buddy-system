@@ -29,6 +29,17 @@ candidate_flags = admission.candidate_flags
 # The declared version a launch carries: the newest recorded build until
 # bind_codex binds the binary this run was given (D-080).
 CODEX_VERSION = admission.recorded_versions('codex')[-1]
+# From 0.165.0 Codex verifies an apply_patch's grammar BEFORE its PreToolUse
+# hooks (run40, 2026-10-29): the edge cases' malformed patch drew Codex's own
+# "apply_patch verification failed" and no hook run, where 0.164.0 ran the hook
+# and the gate denied it. Nothing was written either way, but the gate never
+# sees that patch, so from this version the suite expects Codex's refusal and
+# one gate row fewer. check-codex-gate.py draws the same line.
+VERIFIES_BEFORE_HOOKS = '0.165.0'
+
+
+def verifies_before_hooks(version):
+    return admission.version_key(version) >= admission.version_key(VERIFIES_BEFORE_HOOKS)
 
 
 def bind_codex(path):
@@ -405,7 +416,7 @@ def main():
         print('ROOT='+str(root),flush=True)
         adapter_main(args,root,work,state,env,buddy)
         return
-    patches=[DENY_PATCH,ALLOW_PATCH]
+    patches=[DENY_PATCH,ALLOW_PATCH];malformed=unreadable=None
     if args.edge_cases:
         broken=work/'broken';broken.mkdir();run(['git','init','-q',str(broken)],cwd=work,env=env)
         (broken/'.git/buddy.db').write_bytes(b'not a SQLite ledger')
@@ -459,9 +470,19 @@ sys.stdout.write(p.stdout);sys.stderr.write(p.stderr);sys.exit(p.returncode)
         (root/'requests.json').write_text(json.dumps(server.requests,indent=2))
     log=root/'hook-invocations.jsonl'
     records=[json.loads(x) for x in log.read_text().splitlines()] if log.exists() else []
+    # Each edge case is found by its patch text, never by its row's position:
+    # on 0.165.0 the malformed patch has no row, and the positional read passed
+    # malformed_patch_denied on the unreadable case's denial.
+    def rows_for(text):return [x for x in records if x['payload'].get('tool_input',{}).get('command')==text]
+    # Every request repeats the call's output; copies that disagree are no answer.
+    def output_of(call):
+        seen={json.dumps(x.get('output')) for q in server.requests for x in q['tool_outputs'] if x.get('call_id')==call}
+        return json.loads(seen.pop()) if len(seen)==1 else None
+    verified_first=verifies_before_hooks(CODEX_VERSION)
+    hooked=[x for x in patches if not(verified_first and x==malformed)]
     checks={
        'codex_exit_zero':p.returncode==0,
-       'all_actual_patch_hooks':len(records)==len(patches) and all(x['payload'].get('tool_name')==('Bash' if args.shell_patch and i==0 else 'apply_patch') for i,x in enumerate(records)),
+       'all_actual_patch_hooks':len(records)==len(hooked) and all(x['payload'].get('tool_name')==('Bash' if args.shell_patch and i==0 else 'apply_patch') for i,x in enumerate(records)),
        'guarded_unchanged':(work/'guarded.txt').read_text()=='original\n',
        'whole_denied_patch_unchanged':not (work/'collateral.txt').exists(),
        'allowed_control_written':(work/'allowed.txt').exists() and (work/'allowed.txt').read_text()=='allowed-control\n',
@@ -470,8 +491,12 @@ sys.stdout.write(p.stdout);sys.stderr.write(p.stderr);sys.exit(p.returncode)
     if args.shell_patch:
         checks['shell_routed_patch_hook_denied'] = bool(records) and records[0]['payload'].get('tool_name') == 'Bash' and '\"deny\"' in records[0]['stdout']
     if args.edge_cases:
-        checks['malformed_patch_denied']=len(records)>=3 and '\"deny\"' in records[1]['stdout'] and not(work/'malformed.txt').exists()
-        checks['unreadable_ledger_denied']=len(records)>=3 and '\"deny\"' in records[2]['stdout'] and not(work/'broken/should-not-exist.txt').exists()
+        if verified_first:
+            # Codex refused it before any hook: no gate row, and the model told so.
+            checks['malformed_patch_denied']=not rows_for(malformed) and str(output_of('call_buddy_2')).startswith('apply_patch verification failed') and not(work/'malformed.txt').exists()
+        else:
+            checks['malformed_patch_denied']=len(rows_for(malformed))==1 and '\"deny\"' in rows_for(malformed)[0]['stdout'] and not(work/'malformed.txt').exists()
+        checks['unreadable_ledger_denied']=len(rows_for(unreadable))==1 and '\"deny\"' in rows_for(unreadable)[0]['stdout'] and not(work/'broken/should-not-exist.txt').exists()
     if args.lifecycle:
         lifelog=root/'lifecycle-invocations.jsonl'
         life=[json.loads(x) for x in lifelog.read_text().splitlines()] if lifelog.exists() else []
