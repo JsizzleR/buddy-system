@@ -1270,6 +1270,14 @@ ledger row entered through the CLI (D-006).
     operator's, not taken. Do not propose failing it closed, `_FORCE=1`, or a buddy verb for a
     batch.
 
+118. **buddy's views say their facts; the why is in the skill (D-123).** hello's chat and help
+    lines, an ended roster row (no context note; D-091's 24-hour window unchanged), the
+    `who`/`status` suffixes, the `msg` wake clause and the plain inbox header were cut to words
+    only. Kept: every help-line name (D-046), the claims list and its descriptions uncut (a
+    hand-off path rides them), the wake address and "stays queued" (D-041, D-052), "cannot say"
+    apart from "none" (D-065), "untrusted", every fence, verdict and EXIT/JOBS clause. Do not
+    propose restoring an explanation the skill holds, or cutting a claim's description in hello.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

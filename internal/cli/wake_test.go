@@ -171,7 +171,7 @@ func TestMsgNamesTheWakeAddressOfAQuietRecipient(t *testing.T) {
 			// wakeText, so the test is a second statement of the format.
 			clause := `to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") +
 				`" with the text "buddy mail #1 is queued for you (` + f.clock.Local().Format("15:04:05") +
-				`): run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way`
+				`): run buddy inbox" (D-039; a different permission mode holds it for its user); this copy stays queued either way`
 			// Stderr carries the SAME clause, whole (D-052).
 			if wantErr := "buddy: message #1 to " + tc.to + " is queued; " + clause + "\n"; errw != wantErr {
 				t.Fatalf("want exactly one stderr line\n%s(and no body), got:\n%s", wantErr, errw)

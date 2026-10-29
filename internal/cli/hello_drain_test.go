@@ -289,7 +289,7 @@ func TestHelloClaimsListFitsTheBudget(t *testing.T) {
 		t.Fatalf("want %q:\n%s", want, out)
 	}
 	// What follows the list is not squeezed out by it.
-	if !strings.Contains(out, "BUDDY: chat tools (chat_read, chat_send) live on the buddylist MCP server, if it is in your tool list") {
+	if !strings.Contains(out, "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read ") {
 		t.Fatalf("the room line must survive a long list:\n%s", out)
 	}
 	// The claims come ahead of messages: the message is counted and stays queued.
@@ -424,7 +424,7 @@ func TestHelloClaimsRemainderFitsItsReserve(t *testing.T) {
 // in the operator's `env` rather than silently honoured.
 func TestHelloChatHintObeysBuddyChat(t *testing.T) {
 	boundedParallel(t)
-	const hint = "BUDDY: chat tools (chat_read, chat_send) live on the buddylist MCP server, if it is in your tool list; your label says this project's room is "
+	const hint = "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read "
 	cases := []struct {
 		name  string
 		set   bool // false = unset, the default

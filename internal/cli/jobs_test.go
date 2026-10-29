@@ -76,7 +76,7 @@ func TestStatusReportsJobsUnderTheHarnessProcess(t *testing.T) {
 	tbl[5].Born, tbl[7].Born = started, started-60_000_000 // pid 20 at 42m, pid 22 a minute older
 	f.procs, f.self = tbl, 31
 	out, _, _ := f.run(t, f.repo, "", "who", "orch")
-	want := "JOBS         2 shell(s) running directly under its harness process (pid 500) when sampled: pid 22 43m, pid 20 42m — the ledger does not track them, and closing its pane may end them\n"
+	want := "JOBS         2 shell(s) running directly under its harness process (pid 500) when sampled: pid 22 43m, pid 20 42m — untracked by the ledger; closing its pane may end them\n"
 	if !strings.Contains(out, want) {
 		t.Fatalf("want %q in:\n%s", want, out)
 	}
@@ -86,7 +86,7 @@ func TestStatusReportsJobsUnderTheHarnessProcess(t *testing.T) {
 
 	// Control: the same session with no shells left says so.
 	f.procs = measuredTable(500)[:5]
-	if out, _, _ := f.run(t, f.repo, "", "who", "orch"); !strings.Contains(out, "JOBS         no shell found directly under its harness process (pid 500) when sampled") {
+	if out, _, _ := f.run(t, f.repo, "", "who", "orch"); !strings.Contains(out, "JOBS         no shell found directly under its harness process (pid 500) when sampled, besides this report's own (") {
 		t.Fatalf("no shells:\n%s", out)
 	}
 	// Codex code pass: the pid reused between the liveness check and the

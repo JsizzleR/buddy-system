@@ -142,14 +142,14 @@ func jobsLine(env Env, st *store.Store, si store.SessionInfo) (line, exit string
 	}
 	under := "its harness process (pid " + strings.Join(pids, ", ") + ")"
 	if len(shells) == 0 {
-		return "JOBS         no shell found directly under " + under + " when sampled, besides any running this report (a job that exec'd into another program, or runs under a wrapper, is not seen)",
+		return "JOBS         no shell found directly under " + under + " when sampled, besides this report's own (one under a wrapper, or exec'd into another program, is not seen)",
 			"no shell found running under it"
 	}
 	items := make([]string, 0, len(shells))
 	for _, s := range shells {
 		items = append(items, fmt.Sprintf("pid %d %s", s.PID, age(now, time.UnixMicro(s.Born))))
 	}
-	return fmt.Sprintf("JOBS         %d shell(s) running directly under %s when sampled: %s — the ledger does not track them, and closing its pane may end them",
+	return fmt.Sprintf("JOBS         %d shell(s) running directly under %s when sampled: %s — untracked by the ledger; closing its pane may end them",
 			len(shells), under, joinCapped(items, 256)),
 		fmt.Sprintf("%d shell(s) running under it (JOBS above)", len(shells))
 }

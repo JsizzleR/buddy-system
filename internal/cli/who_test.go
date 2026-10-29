@@ -54,7 +54,7 @@ func TestStatusReportsEveryRegisterAndWhatExitWouldLeave(t *testing.T) {
 		"DIRTY PATHS  1 recorded to this session (observations, not locks): internal/api/x.go",
 		"INBOX        1 undelivered",
 		// One line answers the close test (D-092): claims, wait, jobs.
-		"EXIT         2 claim(s) held; no wait declared; its shells: cannot say (JOBS above) — ending now would leave the claim(s) held",
+		"EXIT         2 claim(s) held; no wait declared; its shells: cannot say (JOBS above) — ending now would leave the claim(s) held; `buddy release <slug>` first: ",
 		"`buddy release <slug>` first: api-work, docs-pass",
 	} {
 		if !strings.Contains(out, want) {
@@ -275,7 +275,7 @@ func TestExitLineAnswersTheCloseTest(t *testing.T) {
 	exit := func() string { out, _, _ := f.run(t, f.repo, "", "who", "orch"); return rowWith(t, out, "EXIT ") }
 
 	// Unreadable table first: "cannot say", never "none".
-	if got := exit(); got != "EXIT         no claims held; no wait declared; its shells: cannot say (JOBS above) — the ledger would be left holding no claim (dirty paths, if any, are observations and stay in the tree)" {
+	if got := exit(); got != "EXIT         no claims held; no wait declared; its shells: cannot say (JOBS above) — ending now would leave no claim" {
 		t.Fatalf("cannot say: %q", got)
 	}
 	// A table with the anchor and no shell under it: "none".

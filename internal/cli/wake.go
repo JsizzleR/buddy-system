@@ -147,12 +147,14 @@ func wakeAddr(env Env, r recipient, now time.Time) string {
 }
 
 // wakeFor renders the clause for one address and one message; "" for no
-// address.
+// address. The address and "stays queued" are what a sender acts on (D-041,
+// D-052); how the harness delivers the wake is the skill's to explain, so
+// the clause names D-039 and the one case that holds it (D-123).
 func wakeFor(addr string, id int64, now time.Time) string {
 	if addr == "" {
 		return ""
 	}
-	return fmt.Sprintf("to wake it now: SendMessage to %q with the text %q — the harness delivers that as a message from another session, never as your user's turn (D-039); a session in a different permission mode holds it for its user, and this copy stays queued either way",
+	return fmt.Sprintf("to wake it now: SendMessage to %q with the text %q (D-039; a different permission mode holds it for its user); this copy stays queued either way",
 		addr, wakeText(id, now))
 }
 

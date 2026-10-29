@@ -78,8 +78,8 @@ every signal lies both ways: the daemon's socket file is stale after a crash
 and absent mid-restart at SessionStart (launchd supervises the daemon), and a
 `buddylist` beside `buddy` or an MCP registration is invisible from a different
 `HOME` or a linked worktree. Off prints no chat line at all, not a replacement
-(the knob cannot prove "no chat here"); on prints the hint prefixed "if it is
-in your tool list", because presence was never guaranteed. The install recipe
+(the knob cannot prove "no chat here"); on prints the hint conditioned on the
+tools being "in your tool list", because presence was never guaranteed. The install recipe
 is the README's [claims-only subsection](../README.md#claims-only-no-chat-stack).
 
 `SessionEnd` (`bye`) is fenced by the **process**, not by the payload: the hook
@@ -747,7 +747,7 @@ unwoken:
 
 ```sh
 buddy msg bravo "take the router bundle"
-# queued for bravo — bravo last reported idle 10m ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call; to wake it now: SendMessage to "uds:/tmp/cc-socks/21180.sock" with the text "buddy mail #7 is queued for you (16:28:40): run buddy inbox" — the harness delivers that as a message from another session, never as your user's turn (D-039); …
+# queued for bravo — bravo last reported idle 10m ago; a session waiting at its prompt runs no tool, so delivery waits for its next tool call; to wake it now: SendMessage to "uds:/tmp/cc-socks/21180.sock" with the text "buddy mail #7 is queued for you (16:28:40): run buddy inbox" (D-039; a different permission mode holds it for its user); this copy stays queued either way
 ```
 
 The same wake also goes to stderr as one line,
@@ -868,11 +868,11 @@ buddy who <id|label|s-id|slug>    # the same report for any name a session answe
 #   api-work                 held 2h   scopes: internal/api
 #   docs-pass                held 20m  scopes: docs  unrenewed 40m, holder seen 2m ago (still refuses — ask the holder)
 # DIRTY PATHS  3 recorded to this session (observations, not locks): internal/api/x.go, …
-# BASE         079dd6a7 (3 behind main, 12m ago) — an observation at the end of its last reported turn
+# BASE         079dd6a7 (3 behind main, 12m ago), as of its last reported turn
 # INBOX        1 undelivered
-# ADAPTER      (none) — no adapter mail queued and no adapter endpoint recorded
-# JOBS         1 shell(s) running directly under its harness process (pid 30479) when sampled: pid 81311 12m — the ledger does not track them, and closing its pane may end them
-# EXIT         2 claim(s) held; no wait declared; 1 shell(s) running under it (JOBS above) — ending now would leave the claim(s) held, freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: api-work, docs-pass
+# ADAPTER      (none)
+# JOBS         1 shell(s) running directly under its harness process (pid 30479) when sampled: pid 81311 12m — untracked by the ledger; closing its pane may end them
+# EXIT         2 claim(s) held; no wait declared; 1 shell(s) running under it (JOBS above) — ending now would leave the claim(s) held; `buddy release <slug>` first: api-work, docs-pass
 ```
 
 A session has four names — its id, its label, the `s-<8hex>` short form, and
@@ -937,7 +937,9 @@ something folded:
 # (+ 612 ended more than 24h ago, 147 live with every registered process GONE — not listed: buddy sessions --all)
 ```
 
-`--all` lists every row. Your own row is always listed. Nothing in the ledger
+`--all` lists every row. Your own row is always listed. An ended row carries no
+model, prompt or cache note: those answer which live session to hand work to
+(D-123). Nothing in the ledger
 changes: a folded live row is still live to `who`, `msg` and the gate, and
 `buddy bye <id>` or `sweep --force` stay the ways to end one.
 

@@ -103,7 +103,7 @@ func TestBeatAnnouncesAChangedAuthorityFileOnce(t *testing.T) {
 				t.Fatalf("a session started after the change did not miss it:\n%s", ctx)
 			}
 			out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
-			if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (every watched file was read)") {
+			if !strings.Contains(out, "AUTHORITY    no watched file's mtime is later than this session's start (every watched file was read)") {
 				t.Fatalf("status after revival:\n%s", out)
 			}
 		})
@@ -332,7 +332,7 @@ func TestAuthorityListingAndAllClearDoNotOverclaim(t *testing.T) {
 	if strings.Contains(out, "nothing on the watch list has changed") {
 		t.Fatalf("the all-clear overclaims:\n%s", out)
 	}
-	if !strings.Contains(out, "AUTHORITY    no watched file carries a modification time later than this session's start (3 watched path(s) could not be read as a file and were not checked)") {
+	if !strings.Contains(out, "AUTHORITY    no watched file's mtime is later than this session's start (3 watched path(s) could not be read as a file and were not checked)") {
 		t.Fatalf("want the measured wording with the unread count:\n%s", out)
 	}
 	touch(t, filepath.Join(f.repo, "CLAUDE.md"), f.clock.Add(-time.Hour))

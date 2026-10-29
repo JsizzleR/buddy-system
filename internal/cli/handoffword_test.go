@@ -116,15 +116,16 @@ func TestRosterSaysOverHandoffOnLiveRows(t *testing.T) {
 		t.Fatalf("the word must not reorder the roster: %q, then %q", before, after)
 	}
 
-	// Ended: the prompt still prints, the word does not.
+	// Ended: neither the prompt nor the word prints (D-123: the context note
+	// is a live row's; the same row printed it above while live, the control).
 	if _, errw, code := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "bye"); code != 0 {
 		t.Fatal(errw)
 	}
 	got := row(t, "bravo")
-	if !strings.Contains(got, "ended") || !strings.Contains(got, "prompt 342k turn") {
-		t.Fatalf("positive control: the ended row must still carry its prompt:\n  %s", got)
+	if !strings.Contains(got, "ended") {
+		t.Fatalf("positive control: bravo's row must be the ended one:\n  %s", got)
 	}
-	if strings.Contains(got, "OVER") {
-		t.Fatalf("an ended session hands nothing off, so no word:\n  %s", got)
+	if strings.Contains(got, "prompt") || strings.Contains(got, "OVER") {
+		t.Fatalf("an ended session hands nothing off, so no context note and no word:\n  %s", got)
 	}
 }

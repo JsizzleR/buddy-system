@@ -233,10 +233,10 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		return err
 	}
 	if b, ok := bases[si.SessionID]; ok && b.Incarnation == si.Incarnation {
-		fmt.Fprintf(env.Stdout, "BASE         %s — an observation at the end of its last reported turn\n",
+		fmt.Fprintf(env.Stdout, "BASE         %s, as of its last reported turn\n",
 			strings.TrimPrefix(newBaseReader(env.Cwd).note(now, b), "base "))
 	} else {
-		fmt.Fprintln(env.Stdout, "BASE         (none recorded — the Stop hook records it at the end of each turn)")
+		fmt.Fprintln(env.Stdout, "BASE         (none recorded; the Stop hook records it)")
 	}
 
 	// INBOX — messages queued and not yet drained. For a live session that is
@@ -350,7 +350,7 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 			// Worded as the measurement: no watched file carries a later
 			// mtime, and how many could not be read at all — not "nothing
 			// changed", which a missing file would make untrue.
-			fmt.Fprintf(env.Stdout, "AUTHORITY    no watched file carries a modification time later than this session's start (%s)\n", unreadNote(unread))
+			fmt.Fprintf(env.Stdout, "AUTHORITY    no watched file's mtime is later than this session's start (%s)\n", unreadNote(unread))
 		}
 		for _, a := range changed {
 			fmt.Fprintf(env.Stdout, "AUTHORITY    %s changed on disk %s ago, AFTER this session started (%s ago) — its copy may be stale\n",
@@ -374,6 +374,12 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	// permission: nothing here says a session may be ended, and nothing that
 	// could be printed here would make it so (D-027). The jobs clause keeps
 	// "cannot say" apart from "none".
+	//
+	// THE TAIL SAYS WHAT ENDING LEAVES AND WHAT TO RUN, NOTHING ELSE (D-123).
+	// It also explained who would free a held claim later (hello, claim or
+	// sweep) and that dirty paths stay in the tree: 186-222 bytes on a line
+	// read ~33 times a day, for facts the skill and the ledger's own verbs
+	// already hold. The slugs to release stay, whole.
 	if !si.Live() {
 		fmt.Fprintln(env.Stdout, "EXIT         already ended")
 		return nil
@@ -390,13 +396,13 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	if jobsClause != "" {
 		clauses = append(clauses, jobsClause)
 	}
-	tail := " — the ledger would be left holding no claim (dirty paths, if any, are observations and stay in the tree)"
+	tail := " — ending now would leave no claim"
 	if len(held) > 0 {
 		slugs := make([]string, 0, len(held))
 		for _, c := range held {
 			slugs = append(slugs, c.Slug)
 		}
-		tail = fmt.Sprintf(" — ending now would leave the claim(s) held, freed only when some session next runs hello, claim or sweep — `buddy release <slug>` first: %s",
+		tail = fmt.Sprintf(" — ending now would leave the claim(s) held; `buddy release <slug>` first: %s",
 			joinCapped(slugs, 512))
 	}
 	fmt.Fprintln(env.Stdout, "EXIT         "+strings.Join(clauses, "; ")+tail)
@@ -467,7 +473,7 @@ func adapterRegister(a store.AdapterBacklog, now time.Time) string {
 		parts = append(parts, "a receiving endpoint is registered; it is woken through its adapter, never a legacy socket wake")
 	}
 	if len(parts) == 0 {
-		return "(none) — no adapter mail queued and no adapter endpoint recorded"
+		return "(none)"
 	}
 	return strings.Join(parts, "; ")
 }

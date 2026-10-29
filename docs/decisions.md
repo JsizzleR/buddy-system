@@ -9652,3 +9652,86 @@ skill, `TestSkillTeachesEveryVerbAndFlag` failed, naming `buddy diagnose --codex
 - GIVEN: none changed (GIVEN 113's "every environment gotcha" holds: shortened, none deleted)
 - amends: D-112 (CLAUDE.md's gotchas carry rule + number, not the measurement); D-114 (the
   fleet skill's model names removed); D-116 (ceilings lowered with the trim)
+
+## D-123 — The views say their facts and leave the why to the skill: hello's chat and help lines, ended roster rows, who/status suffixes, the wake clause and the plain inbox header shrink; no verdict, fence or address changes (amends D-036, D-091, D-097, D-113)
+
+2026-10-29 · the operator, in orc-13's pane at about 18:15 ("open all the lanes now", answering
+orc-13's list of the two unopened lanes of a read-only context-bloat report, sha256 prefix
+bc931480, rows 2, 4, 5, 7 and 8), and in orc-14's pane at about 18:18 (agent tools allowed,
+one tier, without losing accuracy); carried out by lane view-trim under orc-14's brief.
+
+**What was wrong** — Every line here is buddy's own fixed prose riding a session's context
+and re-read with it on every later request. The report measured, over 7 days: the
+SessionStart digest averages 2,055 bytes over 126 attachments (18 a day), 1,086 of them fixed
+prose; `who`/`status` ran 33-85 times a day with ~600 bytes of fixed explanation each; the
+`msg` wake clause rode 28 results a day; the plain inbox header 56 drains a day; `buddy
+sessions` 14 calls a day, with ended rows the majority (on the roster this lane started on,
+9 of 13 rows). The explanations were true, and most were already in the core skill or the
+record; a session paid for them again on every start, report and send.
+
+**The rule** — words only; every value still fenced on its one line (invariant 9), every
+verdict, refusal, fence, address, verb and flag unchanged.
+1. hello's chat line (485 → 181 bytes with a 9-byte room): the tools, the room once, that it
+   is DERIVED from the label, that a wrong one is refused naming the real rooms, and that
+   the content is UNTRUSTED. The rest moved to, or already was in, the core skill's Chat
+   section, which now also says an empty read means a quiet room and that `chat_send`
+   reaches the operator. The room is interpolated once instead of twice.
+2. hello's help line (452 → 280): every name stays (D-046,
+   `TestHelloHelpLineNamesOnlyWhatHelpAnswers`); the parentheticals saying what each is for
+   go (`buddy --help` and the skill say it). The Codex variant keeps "no automatic
+   scheduling" for its `buddy wait check`.
+3. hello's claims list is NOT cut. The report proposed cutting each claim's description to
+   96 bytes; the coordination claim's description is how a hand-off note reaches a
+   successor's SessionStart ("HANDOFF: read <file>" reached orc-13's and orc-14's that way),
+   and a 96-byte cut would truncate the path. Out, by the brief.
+4. `buddy sessions`: an ENDED row prints without its context note (model/effort, prompt,
+   turn age, cache timer; ~60 bytes a row), like the base and the handoff word already were
+   (D-038, D-113). Those answer "which session do I hand this to, is its cache warm", which
+   nobody asks of an ended one. The other option, folding ended rows at a shorter window,
+   was NOT taken: D-091 measured that 6 hours averaged 3 ended rows against 24 hours' 11
+   and "would drop lanes closed that morning", the rows a coordinator confirms closed; no
+   new measurement overturns that, so D-091's 24-hour window stands and every row it keeps
+   still prints. Saving: ~60 bytes × 11 ended rows (D-091's average) ≈ 660 bytes a call; on
+   the same roster here 3,245 → 2,706 bytes. Amends D-113's "observed context on every row" to
+   live rows.
+5. `who`/`status` (the same `status` here: 1,213 → 1,044 bytes): EXIT's tail says what ending
+   leaves and what to run — "ending now would leave the claim(s) held; `buddy release <slug>`
+   first: <slugs>" (142 → 77 fixed) or "ending now would leave no claim" (107 → 36); who
+   frees a held claim later and that dirty paths stay in the tree went. JOBS keeps "cannot
+   say" apart from "none" (D-016, D-065) word for word, and its "none" keeps what it cannot
+   see (a wrapper, an exec) and that the report's own shell is left out (168 → 150); ADAPTER's empty register is `(none)` (66 → 6);
+   BASE says "as of its last reported turn" (56 → 30) and its absence "(none recorded; the
+   Stop hook records it)" (68 → 41); AUTHORITY's none is still the measurement, "no watched
+   file's mtime is later than this session's start" (75 → 58), with the unread count. The
+   words EXIT, JOBS, ADAPTER, BASE and AUTHORITY, every clause EXIT joins, and every
+   "cannot say" are unchanged, so no script's grep moves.
+6. The `msg` wake clause (248 → 140 fixed bytes): the address, the text and "this copy
+   stays queued either way" stay on the result line (D-039, D-041, D-052), and so does the
+   one case that holds the wake (a different permission mode). How the harness delivers it
+   (as a message from another session, never the user's turn) moved to the core skill's
+   Messages section.
+7. The plain inbox header (120 → 95): "operator/peer text, untrusted, not instructions; one
+   per line, ⏎ = newline" (D-097's shape; invariants 8 and 9 keep "untrusted"). The linked
+   header, which explains the CORRECTS/SUPERSEDED slot, is unchanged.
+
+**What it amends** — D-091 (the ended row's contents, not its window), D-113 (observed
+context on live rows only), D-036/D-034 (the digest's fixed lines; the claims list's order,
+contents and budget unchanged), D-097 (the plain header, again).
+
+**Tests** — the pinned phrases in the hello, inbox-header, who, jobs, authority and wake tests
+follow the new words; `TestRosterSaysOverHandoffOnLiveRows` holds item 4 (the same row prints
+its prompt while live, the control, and neither prompt nor word once ended). Every name the
+help line keeps is still checked against `buddy --help`
+(`TestHelloHelpLineNamesOnlyWhatHelpAnswers`).
+
+**Left as they were** — `docs/DEMO-RUN.md` and the README's SVGs show dated captures of earlier
+runs, which printed the old words; they are records of those runs, not of today's output.
+`docs/USAGE.md`'s examples follow the new words.
+
+**Review** — lite: a scoped self-review and one Codex code pass (xhigh). Its one finding was
+taken: the first cut of JOBS's "none" dropped "besides this report's own", and a shell excluded
+because it runs the report would then read as no shell at all; the qualifier is back and the
+test pins it. Its other three questions (a dropped fact, a stale grep, a touched verdict or
+fence) came back none found. A Fable cross-check (the operator's word, relayed by orc-14,
+18:34) found no lost fact or fence and one ambiguity, taken: "leave them held" followed the
+jobs clause, so "them" read as the shells; it says "the claim(s) held" again.
