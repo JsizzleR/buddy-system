@@ -8986,6 +8986,31 @@ widened to every type, no fold, `claude` not a catch-all, a truthy model test, `
 "opus"`, failing closed, `Task` not taken, a full id in the refusal, a doubled escape in the
 header's settings line, the header not a raw string. The skill text is prose; the skill tests hold every name it uses.
 
+**Amended 2026-10-28: the operator's settings lines, two of three taken (orc-11's record)** —
+"Not done" above left the operator's lines to be recorded here when taken. What orc-11 did and
+measured, at the operator's word in its pane:
+- **The hook, wired.** `~/bin/agent-model-gate.py` copied from `scripts/hooks/agent-model-gate.py`
+  at bd503ce, its `--self-test` passing from there (13 refused, 29 allowed). `~/.claude/settings.json`
+  `hooks.PreToolUse` gained
+  `{"matcher": "Agent|Task", "hooks": [{"type": "command", "command": "python3 -I \"$HOME/bin/agent-model-gate.py\"", "timeout": 10}]}`:
+  the matcher is `Agent|Task`, not the `Agent` of the line above, because the measured run's
+  record named the tool `Task` (the script already takes both). Live in orc-11's session: an
+  unnamed general-purpose Agent call was refused with the hook's message, and the same call
+  naming `sonnet` ran.
+- **The settings floor, set and measured.** `"CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-5-5"` in
+  the user settings' `env` block, beside `BUDDY_HANDOFF_AT`. Measured by orc-11 at 23:52 in two
+  fresh `claude -p` sessions, parent `--model sonnet`, a custom agent with no `model` field (the
+  hook-exempt case the floor exists for), no model on the call: with only the user file setting
+  the variable, the subagent's transcript recorded `claude-opus-5-5`; the control (`--settings`
+  setting it to `inherit`) recorded `claude-sonnet-5-5`. So the user file's `env` reaches a fresh
+  session's subagents. The unnamed general-purpose arm cannot be measured now: the hook refuses
+  it first.
+- **The batch-boundary size: NOT taken.** The fleet skill's bullet still does not fire.
+
+This lane (stack-on-run) only read the settings to record them: `~/bin/agent-model-gate.py` is
+byte-identical to the repository's script, and `~/.claude/settings.json` carries the matcher,
+the command and the `env` line above.
+
 ## D-116 — The text loaded unasked has byte ceilings, red in the hermetic tier; the always-loaded copies of a decision are topical
 
 2026-10-28 · the operator's decision: the prose-budget plan (`docs/PROSE-BUDGET-PLAN.md`)
