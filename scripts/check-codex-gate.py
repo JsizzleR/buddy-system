@@ -68,6 +68,18 @@ ALLOW_PATCH = '*** Begin Patch\n*** Add File: allowed.txt\n+allowed-control\n***
 LIFECYCLE = ["SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd"]
 BLOCKED = "Command blocked by PreToolUse hook: "
 MATCHER = "^(apply_patch|Bash)$"
+# From 0.165.0 Codex verifies an apply_patch's grammar BEFORE its PreToolUse
+# hooks (run40, 2026-10-29): MALFORMED drew Codex's own refusal and no gate row,
+# where 0.164.0 ran the hook and the gate denied it. Nothing lands either way,
+# but the gate never sees that patch, so from this version the case is judged
+# as Codex's refusal and the gate rows are three. qualify-codex.py draws the
+# same line.
+VERIFIES_BEFORE_HOOKS = "0.165.0"
+VERIFY_FAILED = "apply_patch verification failed: "
+
+
+def verifies_before_hooks(version):
+    return g.admission.version_key(version) >= g.admission.version_key(VERIFIES_BEFORE_HOOKS)
 
 
 def wrapper_buddy(e, name):
@@ -109,10 +121,13 @@ def validate_gate(r, receipt_path):
     def hooks(): return e.lines("hook-invocations.jsonl")
     def life(): return e.lines("lifecycle-invocations.jsonl")
     def outputs():
+        # Each request repeats the earlier outputs; a later copy that differs is
+        # a second story told to the model, and fails every check that reads it.
         rows = {}
         for request in e.json("requests.json"):
             for x in request["tool_outputs"]:
-                rows.setdefault(x["call_id"], x["output"])
+                if rows.setdefault(x["call_id"], x["output"]) != x["output"]:
+                    raise ValueError(x["call_id"] + "'s output differs between requests")
         return rows
     def record(i, tool, command):
         v = hooks()[i]
@@ -120,6 +135,12 @@ def validate_gate(r, receipt_path):
         field = "command" if tool in ("Bash", "apply_patch") else None
         return (p["tool_name"] == tool and p["tool_input"][field] == command and v["returncode"] == 0 and
                 p["hook_event_name"] == "PreToolUse")
+    # The gate rows the run's version owes, in order; a version that verifies
+    # first owes none for MALFORMED. Raises on an unparsable version, so every
+    # check that reads a row fails with contract.
+    def expected(): return [c for c in (DENY_PATCH, MALFORMED, UNREADABLE, ALLOW_PATCH)
+                            if not (c == MALFORMED and verifies_before_hooks(version))]
+    def at(command): return expected().index(command)
 
     e.check("receipt_location", lambda: g.located(e, receipt_path))
     e.check("contract", lambda: g.admission.need("codex", version, e.root, r.get("codex_sha256")) and
@@ -155,7 +176,7 @@ def validate_gate(r, receipt_path):
     e.check("hook_trust_reviewed_then_exact", trust)
     def payloads():
         sid = captured()["session_id"]
-        return (len(hooks()) == 4 and all(v["payload"]["session_id"] == sid and v["payload"]["cwd"] == str(work) and
+        return (len(hooks()) == len(expected()) and all(v["payload"]["session_id"] == sid and v["payload"]["cwd"] == str(work) and
                 e.inside(v["payload"]["transcript_path"]) for v in hooks() + life()))
     e.check("one_native_thread", lambda: payloads() and captured()["harness"] == "codex" and
             captured()["event"] == "begin" and bool(captured()["incarnation"]))
@@ -164,12 +185,19 @@ def validate_gate(r, receipt_path):
     e.check("shell_routed_denial", lambda: record(0, "Bash", "apply_patch <<'EOF'\n" + DENY_PATCH + "\nEOF") and
             deny(hooks()[0]["stdout"]) and e.text("work/guarded.txt") == "original\n" and e.absent("work/collateral.txt") and
             outputs()["call_buddy_1"].startswith(BLOCKED))
-    e.check("malformed_patch_denied", lambda: record(1, "apply_patch", MALFORMED) and deny(hooks()[1]["stdout"]) and
-            e.absent("work/malformed.txt") and outputs()["call_buddy_2"].startswith(BLOCKED))
-    e.check("unreadable_ledger_denied", lambda: record(2, "apply_patch", UNREADABLE) and deny(hooks()[2]["stdout"]) and
+    def malformed():
+        if MALFORMED not in expected():
+            return (not any(v["payload"]["tool_input"].get("command") == MALFORMED for v in hooks()) and
+                    e.absent("work/malformed.txt") and outputs()["call_buddy_2"].startswith(VERIFY_FAILED))
+        return (record(at(MALFORMED), "apply_patch", MALFORMED) and deny(hooks()[at(MALFORMED)]["stdout"]) and
+                e.absent("work/malformed.txt") and outputs()["call_buddy_2"].startswith(BLOCKED))
+    e.check("malformed_patch_denied", malformed)
+    e.check("unreadable_ledger_denied", lambda: record(at(UNREADABLE), "apply_patch", UNREADABLE) and
+            deny(hooks()[at(UNREADABLE)]["stdout"]) and
             e.path("work/broken/.git/buddy.db").read_bytes() == b"not a SQLite ledger" and
             e.absent("work/broken/should-not-exist.txt") and outputs()["call_buddy_3"].startswith(BLOCKED))
-    e.check("allowed_control", lambda: record(3, "apply_patch", ALLOW_PATCH) and hooks()[3]["stdout"].strip() == "" and
+    e.check("allowed_control", lambda: record(at(ALLOW_PATCH), "apply_patch", ALLOW_PATCH) and
+            hooks()[at(ALLOW_PATCH)]["stdout"].strip() == "" and
             e.text("work/allowed.txt") == "allowed-control\n" and
             "Success. Updated the following files:\nA allowed.txt" in outputs()["call_buddy_4"])
     def lifecycle():
@@ -240,10 +268,13 @@ def synthetic(root, tag):
     def denial(reason):
         return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                   "permissionDecisionReason": reason}})
+    first = verifies_before_hooks(CODEX_VERSIONS[-1])
     hooks = [{"payload": payload("Bash", "apply_patch <<'EOF'\n" + DENY_PATCH + "\nEOF"), "stdout": denial("via the shell"), "returncode": 0},
              {"payload": payload("apply_patch", MALFORMED), "stdout": denial("unexpected patch line"), "returncode": 0},
              {"payload": payload("apply_patch", UNREADABLE), "stdout": denial("ledger unreadable"), "returncode": 0},
              {"payload": payload("apply_patch", ALLOW_PATCH), "stdout": "", "returncode": 0}]
+    if first:
+        hooks.pop(1)
     g.write(root, "hook-invocations.jsonl", g.jsonl(hooks))
     snaps = {"SessionStart": [inc, None, 0], "UserPromptSubmit": [inc, None, 0], "PostToolUse": [inc, None, 0],
              "Stop": [inc, None, 1], "SessionEnd": [inc, 1791000000, 1]}
@@ -251,7 +282,8 @@ def synthetic(root, tag):
                              **({"tool_name": "apply_patch"} if ev == "PostToolUse" else {})),
              "returncode": 0, "ledger_snapshot": snaps[ev]} for ev in LIFECYCLE]
     g.write(root, "lifecycle-invocations.jsonl", g.jsonl(life))
-    outs = [("call_buddy_1", BLOCKED + "via the shell"), ("call_buddy_2", BLOCKED + "unexpected patch line"),
+    outs = [("call_buddy_1", BLOCKED + "via the shell"),
+            ("call_buddy_2", VERIFY_FAILED + "invalid hunk" if first else BLOCKED + "unexpected patch line"),
             ("call_buddy_3", BLOCKED + "ledger unreadable"),
             ("call_buddy_4", "Exit code: 0\nOutput:\nSuccess. Updated the following files:\nA allowed.txt\n")]
     g.write(root, "requests.json", [{"path": "/v1/responses", "tool_outputs": [{"call_id": c, "output": o} for c, o in outs[:n]]}
@@ -271,6 +303,7 @@ def synthetic(root, tag):
 
 def file_mutations(root, r):
     root = Path(root)
+    first = verifies_before_hooks(CODEX_VERSIONS[-1])
     def edit_lines(name, fn):
         def run():
             rows = [json.loads(v) for v in (root / name).read_text().splitlines()]
@@ -291,8 +324,22 @@ def file_mutations(root, r):
         ("shell route allowed", edit_lines("hook-invocations.jsonl", lambda rows: rows[0].update(stdout="")), "shell_routed_denial"),
         ("missing allowed control", lambda: (root / "work/allowed.txt").unlink(), "allowed_control"),
         ("allowed control denied", edit_lines("hook-invocations.jsonl",
-            lambda rows: rows[3].update(stdout=rows[1]["stdout"])), "allowed_control"),
+            lambda rows: rows[-1].update(stdout=rows[0]["stdout"])), "allowed_control"),
         ("malformed patch landed", lambda: g.write(root, "work/malformed.txt", "x"), "malformed_patch_denied"),
+        # The two shapes' own damage (run40): each must fail the malformed case
+        # by its text, not by the row count another check also reads.
+        ("the gate's malformed row is gone" if not first else "the malformed patch reached the gate",
+         edit_lines("hook-invocations.jsonl", (lambda rows: rows.pop(1)) if not first else
+                    (lambda rows: rows.insert(1, dict(rows[1], payload=dict(rows[1]["payload"],
+                                                                         tool_input={"command": MALFORMED}))))),
+         "malformed_patch_denied"),
+        ("the model was told something else of the malformed patch", edit_json("requests.json",
+            lambda rows: [x.update(output="Exit code: 0\nOutput:\nSuccess.") for q in rows for x in q["tool_outputs"]
+                          if x["call_id"] == "call_buddy_2"]), "malformed_patch_denied"),
+        # Codex review (lite pass): only the LAST request's copy differs.
+        ("a later request says otherwise of the malformed patch", edit_json("requests.json",
+            lambda rows: [x.update(output="Exit code: 0\nOutput:\nSuccess.") for x in rows[-1]["tool_outputs"]
+                          if x["call_id"] == "call_buddy_2"]), "malformed_patch_denied"),
         ("nested ledger was readable", lambda: g.write(root, "work/broken/.git/buddy.db", b"SQLite format 3\0"), "unreadable_ledger_denied"),
         ("hooks trusted before review", edit_json("hooks-untrusted.json",
             lambda v: v["data"][0]["hooks"][0].update(trustStatus="trusted")), "hook_trust_reviewed_then_exact"),
@@ -323,7 +370,22 @@ SPLICE = [("hook-invocations.jsonl", "one_native_thread"), ("captured-receipt.js
 
 
 def gate_self_test():
-    return g.self_test_suite("codex-gate", validate, synthetic, receipt_mutations, file_mutations, SPLICE)
+    """Both shapes, whichever versions are recorded: the line is moved to the
+    newest recorded version (it verifies first) and past it (it runs the hook
+    first), then put back. The real line is held by the version cases."""
+    global VERIFIES_BEFORE_HOOKS
+    line, counts = VERIFIES_BEFORE_HOOKS, {}
+    if verifies_before_hooks("0.164.0") or not verifies_before_hooks("0.165.0") or not verifies_before_hooks("0.166.0"):
+        raise AssertionError("the verify-before-hooks line is not 0.165.0")
+    try:
+        for shape, moved in (("verifies_first", CODEX_VERSIONS[-1]), ("hook_first", "999.0.0")):
+            VERIFIES_BEFORE_HOOKS = moved
+            counts[shape] = g.self_test_suite("codex-gate-" + shape, validate, synthetic, receipt_mutations,
+                                              file_mutations, SPLICE)
+    finally:
+        VERIFIES_BEFORE_HOOKS = line
+    return {"positive": "passed", "rejected_mutations": sum(v["rejected_mutations"] for v in counts.values()),
+            "evidence": counts["hook_first"]["evidence"]}
 
 
 # ------------------------------------------------- the adapter mode (D-078)
