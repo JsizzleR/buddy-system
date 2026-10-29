@@ -590,7 +590,12 @@ func TestEmbeddedAdmissions(t *testing.T) {
 		// release notes were read first: nothing the contract reads changed (the
 		// hook concurrency cap is for prompt and agent hooks, the gate is a
 		// command hook; the resume fix is the interactive terminal's).
-		"claude 2.1.312": "6b5ec691195e551b02c41df9f7d723f4ea61eaa03c2df90acefe3736f1aeb620"}
+		"claude 2.1.312": "6b5ec691195e551b02c41df9f7d723f4ea61eaa03c2df90acefe3736f1aeb620",
+		// The installed Codex 0.165.0, every tier (2026-10-29, at f43a767), once
+		// the gate suite took its own refusal of the malformed patch: 0.165.0
+		// verifies a patch's grammar before PreToolUse hooks, so the gate never
+		// sees that one (at b44e8d3 start was not earned).
+		"codex 0.165.0": "a45099154d7fb4a5ed8a56f40966a95deb938e508bab23e6985035c709e9a85a"}
 	if len(got) != len(want) {
 		t.Fatalf("embedded records %v", got)
 	}

@@ -1,0 +1,34 @@
+{
+ "checker": "check-compaction.py",
+ "exit": 0,
+ "verdict": {
+  "passed": true,
+  "checks": {
+   "schema_provider": true,
+   "artifact_hashes": true,
+   "original_evidence_hashes": true,
+   "native_compact_request_reply": true,
+   "native_item_started": true,
+   "native_item_completed": true,
+   "same_compaction_item": true,
+   "ordered_compaction_journal": true,
+   "compaction_is_not_turn_completion": true,
+   "fixed_summary_ran": true,
+   "same_captured_identity": true,
+   "resume_not_end": true,
+   "claims_preserved": true,
+   "READY_preserved": true,
+   "READY_targets_preserved": true,
+   "READY_names_exact_commit": true,
+   "body_remained_queued": true,
+   "no_wake_or_approval_replay": true,
+   "fresh_turn_and_approval": true,
+   "reconcile_withdrawn_without_native_query": true,
+   "gate_and_positive_control": true,
+   "unknown_completion_and_telemetry": true,
+   "explicit_release_and_cleanup": true
+  },
+  "errors": []
+ },
+ "stderr": ""
+}
