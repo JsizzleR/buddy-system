@@ -9247,3 +9247,100 @@ removes; it now says any rebase it needs goes there. Nothing answered or left op
 - skill: fleet § Landing several lanes through one run (step 6), § Restacking a dependent lane (gh stack); core § Landing through an orchestrator (step 1)
 - USAGE: none
 - amends: none (D-049 and D-062's landing recipe stands; this names a base it already allowed)
+
+## D-120 — `install.sh` reports whether the Agent-model hook's copy is this checkout's and is wired; it installs neither (amends D-050, D-117)
+
+2026-10-29 · the operator's decision, in orc-11's pane at 23:58 on 2026-10-28 ("do all three",
+taking orc-11's recommendation), carried out by lane hook-drift under orc-11's brief
+
+**What was wrong** — `scripts/hooks/agent-model-gate.py` (D-117) runs from a COPY the operator
+put in `~/bin` and wired by hand in `~/.claude/settings.json` (wired 2026-10-28, matcher
+`Agent|Task`). `install.sh` neither installed that copy nor compared it, so a commit that changed
+the repo's script changed nothing any session ran, and nothing said so: the class of gap
+`buddy update` (D-110) closed for the binaries.
+
+**The rule** — `install.sh`'s step 6c prints the hook's state, in the register of its `hooks:`
+and `gate:` lines, and fails nothing:
+- The copy, `$BUDDY_BIN_DIR/agent-model-gate.py` against `scripts/hooks/agent-model-gate.py`, by
+  `cmp`: `current` (and through a symlink, naming its target), `DIFFERS` with the `cp` that makes
+  it current, a symlink to nothing or a non-regular file with a remedy that replaces the link
+  (`cp` writes THROUGH a symlink, into whatever it names), or not installed, "optional, the
+  operator's opt-in: docs/CHEAPER-MODELS-PLAN.md 1.3, D-117". Byte-identical is the test, so a
+  trailing-newline edit DIFFERS: the report cannot tell a harmless difference from a harmful one.
+- The wiring, decoded from `$BUDDY_SETTINGS`, never grepped (a `Bash` or `NotAgent` matcher
+  beside the command reads as wired to a grep): every `hooks.PreToolUse` command naming
+  `agent-model-gate.py`, judged by `gate-hook.py`'s `matcher_names` (D-107, loaded from its path,
+  so one reading of a matcher serves both reports). Wired is a matcher whose exact list holds
+  `Agent` (or selects every tool) on a `command` hook with no `if`, `args`, `shell` or async
+  whose command is exactly `python3 [flags] <script>`: `python3` or an absolute python3,
+  single-letter flags that take no argument, and one path, absolute or under `$HOME`/`${HOME}`
+  (bare or double-quoted) or `~/` (bare), and nothing after it. Every other shape is "custom; not
+  verified", never guessed. Each wired entry names the path it runs and that file's state,
+  compared by what the kernel resolves (`samefile`) when both exist; a second path is compared to
+  the checkout's script too, and a custom entry beside a wired one is named with it. A
+  regular-expression matcher or one of those keys is custom too; `disableAllHooks` is "NOT in
+  effect"; a matcher that misses
+  `Agent` (`Bash`, `NotAgent`, `Task` alone: the hook's payload names `Agent`, D-117's
+  measurement) is "NOT wired". Settings absent is "not wired"; unparseable, or no python, is
+  "not checked".
+- A wired path with no file behind it is said loudly: `python3` exits 2 on a missing script
+  (measured 2026-10-29) and exit 2 BLOCKS a PreToolUse call, so that wiring refuses every Agent
+  call on the machine.
+- Not installed and not wired is ONE line: an operator who never opted in is a valid state, and
+  a report that nagged every run would be one nobody read.
+- `buddy update` passes `install.sh`'s output through (`internal/cli/update.go`), so it carries
+  the lines; nothing in Go changed.
+
+**Why it still installs nothing** — The hook is the operator's opt-in (D-117: "the operator
+copies it and wires it by hand"), and `install.sh` edits no settings (D-050) for the same reason
+it never edits the buddy hook lines: a script that rewrote them could remove one. Copying the
+script without the wiring would put a file in `~/bin` no session runs; copying it under wiring
+the operator chose would be an install deciding what an opted-in hook runs. Report, and the
+remedy named, is the D-050 contract. The decoder runs `python3 -I -B`, because loading
+`gate-hook.py` as a module would otherwise write `scripts/__pycache__` into the checkout, a file
+`install.sh` never wrote before.
+
+**Review** — Lite: a scoped self-review, then one Codex code pass at xhigh, asked whether the
+report can say current or wired when it is not, and whether any line can fail the install, skip
+a step or touch a new file. It found four, each with an exact command, all folded once: (1) a
+token scan read `python3 -I -c pass <copy>` and a single-quoted `'$HOME/...'` (a literal path)
+as running the copy; (2) `normpath` collapsed `link/..` and called a different file "the copy
+above"; (3) a wired entry hid every custom entry beside it; (4) `python3 <missing>; exit 0`
+exits 0, so "BLOCKS" was false there. The fold is the one command shape above, `samefile`
+first, and custom entries named beside wired ones. It found no way to exit non-zero, skip a step
+or write a file.
+
+**Not covered** — Settings files other than `$BUDDY_SETTINGS` (a project's `.claude/settings.json`
+or `settings.local.json` wiring the hook is not read); a managed policy's hooks; a `python3` on
+PATH that is not a python (the shape is read, the interpreter is not run).
+
+**Test shape** — `check-install.sh` QA-14, under a throwaway HOME whose `bin` is the bin dir and
+the fake `go` (no compile): neither installed nor wired is one line; the control, a current copy
+under the operator's own entry; one trailing newline DIFFERS, and the printed remedy, run, makes
+it current; matchers `Bash`, `NotAgent` and `Task` not wired; `^Agent$` custom; `disableAllHooks`;
+installed and not wired; unparseable settings; no python; wired with the copy missing (the
+blocking line); a symlink to the script (current), to nothing, and to other bytes (left unwritten); a second entry's path named
+and compared (missing, then differing); the code pass's four: `-c pass`, a single-quoted
+`$HOME`, a trailing `; exit 0` and a double-quoted `~/` each not verified, a path through
+`link/..` reported as the file it resolves to, and a custom entry named beside a wired one.
+Every run exits 0 to `done`, leaves the settings file
+byte-identical and the bin dir holding only the binaries, and writes no `__pycache__` (the
+snapshot is taken before QA-1: taken at QA-14, the earlier legs' runs had already written one and
+a run without `-B` passed, measured). QA-13's real `buddy update` run shows the lines. Mutants,
+in a private copy, each killed with the unmutated copy GREEN beside them: a differing copy
+reported current, a `Bash` matcher read as wired, the missing-copy line dropped, a second path
+always current, the copy installed, drift exiting 1, the dangling-symlink arm dropped,
+`disableAllHooks` ignored; and after the fold, `normpath` restored, anything after the script
+allowed, a single-quoted `$HOME` allowed, `-c pass` allowed, the custom entries beside a wired
+one dropped. `-B` dropped is killed under Homebrew's python3 3.14 and SURVIVES
+under macOS's `/usr/bin/python3` 3.9, which never writes bytecode (`sys.flags.dont_write_bytecode`
+is 1 under `-I`, measured): the leg bites where the interpreter would write, CI's Linux included.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (amended; number added)
+- GIVEN: review-charter.md GIVEN 53 "`scripts/install.sh` is the one install and upgrade path" (amended; number added)
+- code: `scripts/install.sh` step 6c (`amg_wiring`); `scripts/check-install.sh` QA-14, QA-13
+- skill: none
+- USAGE: none
+- amends: D-050's step 6 (it now also reports this hook; still edits nothing); D-117's
+  "`install.sh` does not install it" (still true; it now reports it). Both stand otherwise.

@@ -471,7 +471,13 @@ ledger row entered through the CLI (D-006).
     program, the checkout's `bin/`), runs each once, installs the skill, `kickstart -k`s the
     daemon, runs setup-clone, and REPORTS hook wiring without editing settings. Every sub-step's
     status is the install's. Do not propose editing `~/.claude/settings.json` from it, or `cp`
-    for the binaries.
+    for the binaries. It also REPORTS, and never installs or fails on, the Agent-model hook
+    (D-120): whether `$BUDDY_BIN_DIR/agent-model-gate.py` is byte-identical to
+    `scripts/hooks/agent-model-gate.py` (naming the `cp` when not), and whether settings wire
+    a PreToolUse command naming it under a matcher selecting `Agent`, decoded with
+    `gate-hook.py`'s matcher reading; a wired path with no file is said loudly (python3 exits 2,
+    which blocks every Agent call). Do not propose that it copy the script: the hook is the
+    operator's opt-in (D-117).
 
 54. **`buddy init` says whether this repo's main languages have a language server (D-051).** Per
     language that is at least 10% of tracked source: the server on PATH (absolute entries,

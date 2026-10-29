@@ -24,6 +24,10 @@ CDPATH= cd -- "$ROOT"
 unset BUDDY_FLEET_SKILL_DIR
 
 fail() { echo "check-install: FAIL — $*" >&2; exit 1; }
+# Before ANY install runs: QA-14 checks the report wrote no __pycache__ into the
+# checkout, and every QA before it runs the same report (a snapshot taken at
+# QA-14 let a run without -B pass, measured).
+pyc_before=$([ -e scripts/__pycache__ ] && echo yes || echo no)
 
 WORK=$(mktemp -d) || fail "mktemp failed"
 trap 'rm -rf "$WORK"' EXIT INT TERM
@@ -120,6 +124,10 @@ $out"
 out=$(cd "$WORK" && upd 2>&1) || fail "QA-13: update (the control) failed:
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-13: update did not run install.sh to its done line:
+$out"
+# D-120: update passes install.sh's output through, the Agent-model hook's
+# report with it.
+echo "$out" | grep -q '^install: agent-model hook: ' || fail "QA-13: update's output lacks the agent-model hook report:
 $out"
 ;;
 esac
@@ -517,6 +525,137 @@ $out"
 cmp -s "$WORK/bin12/buddylist" "$WORK/bin12/buddylist.orig" || fail "QA-12: the old buddylist must stay in place"
 cmp -s "$WORK/bin12/buddy" "$WORK/stubs12/buddy" || fail "QA-12: buddy, built first, is installed"
 
+# QA-14 (D-120): the Agent-model hook's copy and wiring, reported, never
+# installed. Under a throwaway HOME whose bin is the bin dir, so the wiring's
+# "$HOME/bin/agent-model-gate.py" names the fixture's copy; the fake go keeps
+# each run from compiling. Arm (b), a current copy wired by the operator's
+# entry, is the control for every refusal: the copy that DIFFERS by one
+# trailing newline, the matchers that do not select Agent, and the rest. Every
+# run exits 0 to its done line (drift fails nothing), leaves the settings file
+# byte-identical, and writes no __pycache__ into the checkout.
+H14="$WORK/home14" A14="scripts/hooks/agent-model-gate.py"
+D14="$H14/bin/agent-model-gate.py"
+mkdir -p "$H14/bin"
+stubs "$WORK/stubs14" 'exit 0' "$OKLIST"
+WHY14="optional, the operator's opt-in: docs/CHEAPER-MODELS-PLAN.md 1.3, D-117"
+# amg <settings-file> [VAR=value ...]: sets got to the run's agent-model lines, after
+# checking it exited 0, said done and left the settings file as it was.
+amg() {
+	s14=$1; shift
+	[ ! -f "$s14" ] || cp "$s14" "$WORK/s14.orig"
+	o14=$(inst9 "$s14" HOME="$H14" BUDDY_BIN_DIR="$H14/bin" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs14" "$@" 2>&1) ||
+		fail "QA-14: install failed over $s14:
+$o14"
+	echo "$o14" | tail -1 | grep -qx 'install: done' || fail "QA-14: no done line:
+$o14"
+	[ ! -f "$s14" ] || cmp -s "$s14" "$WORK/s14.orig" || fail "QA-14: the settings file was touched"
+	got=$(echo "$o14" | grep '^install: agent-model hook: ' || true)
+}
+# Not called in $(...): fail there would end only the subshell.
+wire14() { # wire14 <file> <matcher JSON> <command JSON> [more entries JSON]
+	printf '{"hooks": {"PreToolUse": [{"matcher": %s, "hooks": [{"type": "command", "command": %s, "timeout": 10}]}%s]}}\n' "$2" "$3" "${4:+, $4}" > "$1"
+}
+CMD14='"python3 -I \"$HOME/bin/agent-model-gate.py\""'
+wire14 "$WORK/s14wired.json" '"Agent|Task"' "$CMD14"
+want_l() { [ "$1" = "$2" ] || fail "QA-14: $3:
+got:  $1
+want: $2"; }
+
+# (a) Neither installed nor wired, no settings file: ONE line, optional.
+amg "$WORK/s14absent.json"
+want_l "$got" "install: agent-model hook: not installed at $D14 and not wired in $WORK/s14absent.json ($WHY14)" "missing + settings absent is one line"
+[ ! -e "$D14" ] || fail "QA-14a: install.sh installed the hook copy"
+[ "$(ls -A "$H14/bin" | sort | tr '\n' ' ')" = "buddy buddylist " ] || fail "QA-14a: install.sh put more than its binaries in the bin dir: $(ls -A "$H14/bin")"
+# (b) The control: a current copy under the operator's own entry.
+cp "$A14" "$D14"
+amg "$WORK/s14wired.json"
+want_l "$got" "install: agent-model hook: $D14 is current (byte-identical to this checkout's scripts/hooks/agent-model-gate.py)
+install: agent-model hook: wired in $WORK/s14wired.json: matcher \"Agent|Task\" runs $D14 (the copy above)" "current + wired (the control)"
+# (c) One trailing newline DIFFERS, naming the remedy; the remedy, run, makes
+# it current again (and is the command the line printed, whole).
+printf '\n' >> "$D14"
+amg "$WORK/s14wired.json"
+line=$(echo "$got" | head -1)
+want_l "$line" "install: agent-model hook: $D14 DIFFERS from this checkout's scripts/hooks/agent-model-gate.py, and a hook that runs it runs those bytes; update it: cp $(shq "$ROOT/$A14") $(shq "$D14")" "a trailing newline differs"
+eval "${line##*update it: }"
+cmp -s "$A14" "$D14" || fail "QA-14c: the printed remedy did not make the copy current"
+# (d) Not wired: a matcher that does not select Agent, under the same command.
+for m in '"Bash"' '"NotAgent"' '"Task"'; do
+	wire14 "$WORK/s14m.json" "$m" "$CMD14"
+	amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
+	want_l "$got" "install: agent-model hook: NOT wired in $WORK/s14m.json: the PreToolUse entry naming agent-model-gate.py has matcher $m, which does not select Agent" "matcher $m is not wired"
+done
+# ... a regular expression, and an entry the whole file disables.
+wire14 "$WORK/s14m.json" '"^Agent$"' "$CMD14"
+amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: custom PreToolUse entry naming agent-model-gate.py in $WORK/s14m.json (matcher \"^Agent$\" not read as an exact list); not verified" "a regex matcher is not verified"
+sed 's/^{/{"disableAllHooks": true, /' "$WORK/s14wired.json" > "$WORK/s14m.json"
+amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: NOT in effect in $WORK/s14m.json: disableAllHooks is true" "disableAllHooks"
+# ... and no entry at all, beside a current copy: two lines, not one.
+printf '{"hooks": {}}\n' > "$WORK/s14m.json"
+amg "$WORK/s14m.json"
+want_l "$got" "install: agent-model hook: $D14 is current (byte-identical to this checkout's scripts/hooks/agent-model-gate.py)
+install: agent-model hook: not wired in $WORK/s14m.json" "installed, not wired"
+# (e) Unparseable settings: said, and nothing fails.
+printf '{"hooks": \n' > "$WORK/s14bad.json"
+amg "$WORK/s14bad.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14bad.json is not JSON this report can read (JSONDecodeError)" "unparseable settings"
+amg "$WORK/s14wired.json" BUDDY_PYTHON="$WORK/no-python"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: wiring not checked (no $WORK/no-python to decode $WORK/s14wired.json)" "no python"
+# (f) Wired with no copy behind it: python3 exits 2 on a missing script, and
+# exit 2 blocks, so this wiring refuses every Agent call; said loudly.
+rm -f "$D14"
+amg "$WORK/s14wired.json"
+want_l "$got" "install: agent-model hook: not installed at $D14 ($WHY14; to install: cp $(shq "$ROOT/$A14") $(shq "$D14"))
+install: agent-model hook: wired in $WORK/s14wired.json: matcher \"Agent|Task\" runs $D14 (the copy above; MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call)" "wired, copy missing"
+[ ! -e "$D14" ] || fail "QA-14f: install.sh installed the hook copy under a wired entry"
+# (g) A symlink: to this checkout's script, current through it; to nothing,
+# replace the link (cp would write through it).
+ln -s "$ROOT/$A14" "$D14"
+amg "$WORK/s14wired.json"; got=$(echo "$got" | head -1)
+want_l "$got" "install: agent-model hook: $D14 is current (byte-identical to this checkout's scripts/hooks/agent-model-gate.py), through a symlink to $ROOT/$A14" "a symlink to the script"
+rm -f "$D14"; ln -s "$WORK/nowhere.py" "$D14"
+amg "$WORK/s14wired.json"; got=$(echo "$got" | head -1)
+want_l "$got" "install: agent-model hook: $D14 is a symlink to nothing ($WORK/nowhere.py); replace the link: rm $(shq "$D14") && cp $(shq "$ROOT/$A14") $(shq "$D14")" "a dangling symlink"
+printf 'other\n' > "$WORK/nowhere.py"
+amg "$WORK/s14wired.json"; got=$(echo "$got" | head -1)
+want_l "$got" "install: agent-model hook: $D14 DIFFERS from this checkout's scripts/hooks/agent-model-gate.py; it is a symlink to $WORK/nowhere.py, so replace the link, not what it names: rm $(shq "$D14") && cp $(shq "$ROOT/$A14") $(shq "$D14")" "a symlink to other bytes"
+[ "$(cat "$WORK/nowhere.py")" = other ] || fail "QA-14g: install.sh wrote through the symlink"
+rm -f "$D14"; cp "$A14" "$D14"
+# (h) A second entry running a different path: both named, the other one
+# compared too, so a current copy beside a stale wired one is not "current".
+printf 'old\n' > "$WORK/other.py"
+wire14 "$WORK/s14two.json" '"Agent"' "$CMD14" '{"matcher": "Agent", "hooks": [{"type": "command", "command": "python3 -I '"$WORK"'/agent-model-gate.py"}]}'
+amg "$WORK/s14two.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: wired in $WORK/s14two.json: matcher \"Agent\" runs $D14 (the copy above); matcher \"Agent\" runs $WORK/agent-model-gate.py (MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call)" "a second entry's path"
+printf 'old\n' > "$WORK/agent-model-gate.py"
+amg "$WORK/s14two.json"; got=$(echo "$got" | tail -1)
+echo "$got" | grep -qF "runs $WORK/agent-model-gate.py (DIFFERS from this checkout's scripts/hooks/agent-model-gate.py)" ||
+	fail "QA-14h: a second wired path that differs is named:
+$got"
+# (i) The code pass's four: only `python3 [flags] <script>` alone has a known
+# script. -c runs other code, a single-quoted $HOME is a literal path, and a
+# trailing `; exit 0` makes a missing script exit 0, so each is not verified;
+# a path through `link/..` is the file the kernel resolves, not the copy; and
+# a custom entry beside a wired one is named, not dropped.
+for c in '"python3 -I -c pass $HOME/bin/agent-model-gate.py"' '"python3 -I '"'"'$HOME/bin/agent-model-gate.py'"'"'"' \
+	'"python3 -I \"$HOME/bin/agent-model-gate.py\"; exit 0"' '"python3 -I \"~/bin/agent-model-gate.py\""'; do
+	wire14 "$WORK/s14m.json" '"Agent"' "$c"
+	amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
+	want_l "$got" "install: agent-model hook: custom PreToolUse entry naming agent-model-gate.py in $WORK/s14m.json (its command is not python3 [flags] <script> alone); not verified" "command $c is not verified"
+done
+mkdir -p "$WORK/old14/sub" "$WORK/old14/bin"; ln -s "$WORK/old14/sub" "$H14/l14"
+printf 'old\n' > "$WORK/old14/bin/agent-model-gate.py"
+wire14 "$WORK/s14m.json" '"Agent"' '"python3 -I $HOME/l14/../bin/agent-model-gate.py"'
+amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: wired in $WORK/s14m.json: matcher \"Agent\" runs $H14/l14/../bin/agent-model-gate.py (DIFFERS from this checkout's scripts/hooks/agent-model-gate.py)" "a path through link/.. is what the kernel resolves"
+wire14 "$WORK/s14m.json" '"Agent"' "$CMD14" '{"matcher": "^Agent$", "hooks": [{"type": "command", "command": "python3 -I /nowhere/agent-model-gate.py"}]}'
+amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: wired in $WORK/s14m.json: matcher \"Agent\" runs $D14 (the copy above); and custom, not verified: matcher \"^Agent$\" not read as an exact list" "a custom entry beside a wired one"
+pyc_after=$([ -e scripts/__pycache__ ] && echo yes || echo no)
+[ "$pyc_before" = yes ] || [ "$pyc_after" = no ] || fail "QA-14: the report wrote scripts/__pycache__ into the checkout"
+
 echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
 echo "  QA-13 the installed buddy's update names this checkout's install.sh, a dry run runs nothing, and the real run installs,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
@@ -526,4 +665,6 @@ echo "  QA-8 remnants named on one line and left byte-identical; QA-9 the gate l
 echo "  README's entry and the file untouched, custom and no-onFailure not verified, another event's line no gate, no python said;"
 echo "  QA-10 a new buddy whose gate dies fails the install, naming the probe, and the old one stays; QA-11 the probe passes"
 echo "  from a relative BUDDY_BIN_DIR and with a \" in TMPDIR, new builds renamed in; QA-12 a killed buddylist names itself,"
-echo "  not the gate, and the old one stays)"
+echo "  not the gate, and the old one stays; QA-14 the Agent-model hook's copy current/DIFFERS/missing/symlinked and its"
+echo "  wiring decoded: wired, matchers that miss Agent, regex, disableAllHooks, a second path compared, a missing copy"
+echo "  that blocks, settings absent/unparseable, no python; nothing installed, settings untouched, no __pycache__)"

@@ -41,6 +41,9 @@
 #      that let a crashed buddy's tool call through (D-107).
 #      It never edits that file: which hooks a user runs is theirs to choose,
 #      and a script that rewrote it would be a script that could remove one.
+#      It also REPORTS whether the Agent-model hook's copy in the bin dir is
+#      this checkout's script, and whether settings wire it (D-120); it
+#      installs neither.
 #   A daemon that does not come back fails the install, but at the END: steps
 #   5 and 6 do not depend on it, and dying at step 4 skipped them.
 #
@@ -133,6 +136,14 @@ chat_off=""
 deferred=""
 say() { echo "install: $*"; }
 die() { echo "install: FAILED — $*" >&2; exit 1; }
+# shq: one word a shell reads back as the same path, for a remedy line meant
+# to be pasted (bare when every byte is safe, else single-quoted).
+shq() {
+	case $1 in
+	'' | *[!A-Za-z0-9._/:@%+=,-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+	*) printf '%s' "$1" ;;
+	esac
+}
 
 command -v go >/dev/null 2>&1 || die "no go toolchain on PATH"
 case $DAEMON_WAIT in
@@ -404,6 +415,193 @@ if [ -n "$chat_off" ]; then
 		fi
 	done
 	[ -z "$left" ] || say "chat: left alone:${left#;} (BUDDY_CHAT=off makes THIS install claims-only and says nothing about the machine; nothing was removed, stopped or unloaded)"
+fi
+
+# 6c. The Agent-model hook (D-117), reported (D-120). scripts/hooks/
+# agent-model-gate.py runs from a COPY the operator put in the bin dir and
+# wired by hand, so a commit that changes the repo's script changed nothing any
+# session runs, and nothing said so: the gap `buddy update` (D-110) closed for
+# the binaries. Two lines: is the copy this checkout's bytes, and does settings
+# wire a PreToolUse command naming it under a matcher that selects Agent.
+# REPORT ONLY, never a copy and never an edit: the hook is the operator's opt-in
+# (docs/CHEAPER-MODELS-PLAN.md 1.3), an operator who never took it is a valid
+# state, and drift fails nothing. Byte-identical is the test (cmp), so a
+# trailing-newline edit DIFFERS: the report cannot tell a harmless difference
+# from a harmful one, and saying which file differs is all it promises.
+#
+# The wiring is decoded, not grepped: a matcher of `Bash` or `NotAgent` beside
+# the command reads as wired to a grep. matcher_names is gate-hook.py's (D-107),
+# loaded from its path, so one reading of a matcher serves both reports; -B,
+# because importing it would otherwise write scripts/__pycache__ into the
+# checkout, a file install.sh never wrote before. A command's script is known
+# only in one shape, `python3 [flags] <script>` alone (CMD below); every other
+# command is "not verified", never guessed. A wired path that does not exist is said loudly: python3 exits 2 on
+# a missing script (measured, 2026-10-29), and exit 2 BLOCKS a PreToolUse call,
+# so that wiring refuses every Agent call on the machine.
+amg_wiring() { # amg_wiring <python> <settings> <copy> <checkout script> <gate-hook.py> <home>
+	amg_p=$1; shift
+	"$amg_p" -I -B - "$@" 2>/dev/null <<'PY'
+import importlib.util
+import json
+import os
+import re
+import sys
+
+settings_path, dst, src, gate_hook, home = sys.argv[1:]
+NAME = "agent-model-gate.py"
+spec = importlib.util.spec_from_file_location("gate_hook", gate_hook)
+gh = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gh)
+
+
+# Files that exist are compared by what the kernel resolves (samefile); a
+# lexical normpath first collapsed `link/..` and called a different file the
+# copy (Codex). Paths that do not both exist compare as spelled.
+def same(a, b):
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return a == b
+
+
+# The ONE command shape whose script is known: python3 (or an absolute
+# python3), single-letter flags that take no argument, and the script's path,
+# and nothing else. A token scan read `python3 -c pass <path>` and a
+# single-quoted '$HOME/...' (a literal path) as running the copy, and a
+# trailing `; exit 0` makes a missing script exit 0 (Codex): every other shape
+# is "not verified", never guessed. $HOME may be bare or double-quoted, ~/
+# only bare (the shell expands neither inside single quotes, nor ~ in double).
+CMD = re.compile(
+    r"\s*(?:python3?|/[A-Za-z0-9._/+-]*/python3(?:\.[0-9]+)?)(?:\s+-[IBEsSuOq]+)*\s+"
+    r"(?P<q>[\"']?)(?P<pre>\$HOME/|\$\{HOME\}/|~/|/)(?P<rest>[A-Za-z0-9._/+@%,:=-]*)(?P=q)\s*")
+
+
+def script_path(command):
+    m = CMD.fullmatch(command)
+    if not m:
+        return None
+    q, pre, rest = m.group("q", "pre", "rest")
+    if not (rest == NAME or rest.endswith("/" + NAME)):
+        return None
+    if pre == "/":
+        return "/" + rest
+    if not home or q == "'" or (pre == "~/" and q):
+        return None
+    return home + "/" + rest
+
+
+def state(p):
+    if same(p, dst):
+        what = "the copy above"
+    elif same(p, src):
+        what = "this checkout's own script: no copy to drift"
+    elif not os.path.isfile(p):
+        what = ""
+    else:
+        try:
+            with open(p, "rb") as a, open(src, "rb") as b:
+                what = "current" if a.read() == b.read() else "DIFFERS from this checkout's scripts/hooks/" + NAME
+        except OSError:
+            what = "not readable"
+    if not os.path.isfile(p):
+        what = (what + "; " if what else "") + (
+            "MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call")
+    return what
+
+
+def verdict():
+    try:
+        with open(settings_path, encoding="utf-8") as f:
+            s = json.load(f)
+    except (OSError, ValueError, RecursionError) as e:
+        return "unread", "wiring not checked: %s is not JSON this report can read (%s)" % (settings_path, type(e).__name__)
+    hooks = s.get("hooks") if isinstance(s, dict) else None
+    pre = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
+    found = []
+    for entry in pre if isinstance(pre, list) else []:
+        if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+            continue
+        for h in entry["hooks"]:
+            if isinstance(h, dict) and isinstance(h.get("command"), str) and NAME in h["command"]:
+                found.append((entry.get("matcher"), h))
+    if not found:
+        return "none", "not wired in %s" % settings_path
+    if s.get("disableAllHooks") is True:
+        return "off", "NOT in effect in %s: disableAllHooks is true" % settings_path
+    live, custom, missed = [], [], []
+    for m, h in found:
+        names = gh.matcher_names(m)
+        if names is None:
+            custom.append("matcher %s not read as an exact list" % json.dumps(m))
+            continue
+        if names != "*" and "Agent" not in names:
+            missed.append(json.dumps(m))
+            continue
+        why = [w for k, w in (("if", "an if rule narrows when it runs"), ("args", "exec form (args)"),
+                              ("shell", "a shell is set")) if k in h]
+        if h.get("type") != "command":
+            why.append("type is not command")
+        if h.get("async") is True or h.get("asyncRewake") is True:
+            why.append("async")
+        p = script_path(h["command"])
+        if p is None:
+            why.append("its command is not python3 [flags] <script> alone")
+        if why:
+            custom.extend(why)
+        else:
+            live.append("matcher %s runs %s (%s)" % (json.dumps(m), p, state(p)))
+    if live:
+        # A custom entry beside a wired one is named too: it may also select
+        # Agent and run something else (Codex).
+        also = "; and custom, not verified: %s" % "; ".join(custom) if custom else ""
+        return "wired", "wired in %s: %s%s" % (settings_path, "; ".join(live), also)
+    if custom:
+        return "custom", "custom PreToolUse entry naming %s in %s (%s); not verified" % (NAME, settings_path, "; ".join(custom))
+    return "off", "NOT wired in %s: the PreToolUse entry naming %s has matcher %s, which does not select Agent" % (
+        settings_path, NAME, ", ".join(missed))
+
+
+kind, text = verdict()
+print(kind + " " + " ".join(text.split()))
+PY
+}
+amg_src=$ROOT/scripts/hooks/agent-model-gate.py
+amg_dst=$BIN_DIR/agent-model-gate.py
+case $amg_dst in /*) ;; *) amg_dst=$ROOT/$amg_dst ;; esac
+amg_cp="cp $(shq "$amg_src") $(shq "$amg_dst")"
+amg_why="optional, the operator's opt-in: docs/CHEAPER-MODELS-PLAN.md 1.3, D-117"
+amg_copy=""
+if [ ! -e "$amg_dst" ] && [ ! -L "$amg_dst" ]; then
+	:
+elif [ -L "$amg_dst" ] && [ ! -e "$amg_dst" ]; then
+	# cp writes THROUGH a symlink into whatever it names, so every remedy for
+	# a link replaces the link.
+	amg_copy="$amg_dst is a symlink to nothing ($(readlink "$amg_dst" || true)); replace the link: rm $(shq "$amg_dst") && $amg_cp"
+elif [ ! -f "$amg_dst" ]; then
+	amg_copy="$amg_dst is not a regular file; move it aside, then: $amg_cp"
+elif cmp -s "$amg_src" "$amg_dst"; then
+	amg_copy="$amg_dst is current (byte-identical to this checkout's scripts/hooks/agent-model-gate.py)"
+	[ ! -L "$amg_dst" ] || amg_copy="$amg_copy, through a symlink to $(readlink "$amg_dst" || true)"
+elif [ -L "$amg_dst" ]; then
+	amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/agent-model-gate.py; it is a symlink to $(readlink "$amg_dst" || true), so replace the link, not what it names: rm $(shq "$amg_dst") && $amg_cp"
+else
+	amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/agent-model-gate.py, and a hook that runs it runs those bytes; update it: $amg_cp"
+fi
+amg_py=${BUDDY_PYTHON:-python3}
+if [ ! -f "$SETTINGS" ]; then
+	amg_kind=none amg_wire="not wired in $SETTINGS"
+elif ! command -v "$amg_py" >/dev/null 2>&1; then
+	amg_kind=unread amg_wire="wiring not checked (no $amg_py to decode $SETTINGS)"
+elif amg_v=$(amg_wiring "$amg_py" "$SETTINGS" "$amg_dst" "$amg_src" "$ROOT/scripts/gate-hook.py" "${HOME:-}") && [ -n "$amg_v" ]; then
+	amg_kind=${amg_v%% *} amg_wire=${amg_v#* }
+else
+	amg_kind=unread amg_wire="wiring not checked ($amg_py could not read $SETTINGS)"
+fi
+if [ -z "$amg_copy" ] && [ "$amg_kind" = none ]; then
+	say "agent-model hook: not installed at $amg_dst and $amg_wire ($amg_why)"
+else
+	say "agent-model hook: ${amg_copy:-not installed at $amg_dst ($amg_why; to install: $amg_cp)}"
+	say "agent-model hook: $amg_wire"
 fi
 
 # 7. The handoff size, reported (D-064). BUDDY_HANDOFF_AT in the settings `env`
