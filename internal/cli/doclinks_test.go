@@ -31,7 +31,7 @@ import (
 // docs/*.md is a glob so a new document is covered the day it lands.
 func docLinkFiles(t *testing.T, root string) []string {
 	t.Helper()
-	files := []string{"README.md", "CLAUDE.md", "AGENTS.md", "skills/buddy/SKILL.md", "skills/buddy-fleet/SKILL.md", "docs/examples/fleet-conventions.md"}
+	files := []string{"README.md", "CLAUDE.md", "AGENTS.md", "skills/buddy/SKILL.md", "skills/buddy-fleet/SKILL.md", "skills/buddy-lead/SKILL.md", "docs/examples/fleet-conventions.md"}
 	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
 	if err != nil {
 		t.Fatal(err)

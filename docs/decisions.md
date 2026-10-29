@@ -9344,3 +9344,147 @@ is 1 under `-I`, measured): the leg bites where the interpreter would write, CI'
 - USAGE: none
 - amends: D-050's step 6 (it now also reports this hook; still edits nothing); D-117's
   "`install.sh` does not install it" (still true; it now reports it). Both stand otherwise.
+
+## D-121 — A third skill leads a first-time user: it asks before it acts, routes to what exists, and its machine check is read-only (amends D-114)
+
+2026-10-29 · the operator's request, in orc-11's pane between 00:00 and 00:15 ("another skill
+... to help lead a first time user thru their journey by asking what theyre trying to do and any
+other onboarding questions ... along with checking their environment for ideal changes"; the
+name `buddy-lead` and Fable for the writing both the operator's), carried out by lane buddy-lead
+under orc-11's brief (orc-12 from the hand-off on), from a read-only research pass over this
+repo's own first-time journey and the machine changes two months of fleets had made.
+
+**What was wrong** — Nothing in the repo asked a new user what they were trying to do. The
+README's "Install in two minutes" and `docs/AGENT-SETUP.md` both stop at "installed and
+verified"; nothing routes claims-only against chat, one session against a fleet, Claude against
+Codex, and nothing says where a fleet user's own numbers (handoff size, lanes at once, lane
+model, review cap) go once D-114 took them out of the shipped skills. The first-time journey
+has fourteen decisions and steps in order and eight places users stuck (hooks wired into a
+session that predates them; a dead `~/bin/buddy` refusing every gated call; the install not
+re-run after a pull; a comma in `--scope`; mail that never wakes an idle session; a park gone
+cold; never sizing a handoff; a fleet launch in manual mode). And the operator had made a
+dozen changes to one machine for the pace of parallel development (a build cache off Spotlight
+and on its own volume, a scheduled cache trim, worktrees off the indexed volume, never sleep on
+AC, Time Machine exclusions), none written anywhere a new user would find, and two of them had
+silently drifted on the very machine that made them (the worktree tree indexed again; the
+Time Machine exclusions recorded as done not in effect).
+
+**The rule** —
+1. A third skill ships, `skills/buddy-lead/SKILL.md` (`name: buddy-lead`, 6,461 bytes,
+   description 613), installed beside the other two. Its reader is a first-time user or the
+   agent helping one; its description says it is not for a session already working an item
+   or coordinating lanes. It ASKS before anything happens, one question at a time, in an order
+   that stops early (what are you trying to do: own sessions apart, a fleet, or a look; which
+   agents; chat or not; which repositories; the fleet's standing decisions; a review step; may
+   I check the machine), and ROUTES each answer to the shipped text that already serves it
+   (`docs/AGENT-SETUP.md` for the install, the core skill's "Harness boundaries" and `USAGE`
+   "Codex participation" for Codex, README "Presence" for chat, `docs/examples/fleet-conventions.md`
+   for a fleet user's own conventions, the fleet skill for a coordinator). It restates none of
+   them. Every step ends in something the user can see working: the install report's
+   `hooks:` and `gate:` lines, `buddy init`'s language-server lines, a fresh session's row in
+   `buddy status`, a dry run with no conflicts, then the exercise: one claim granted, the same
+   claim refused from a second session with exit 4 naming the holder, the release, the second
+   grant. Nothing in it installs, edits a settings file or a shell profile, changes a
+   permission mode, runs `sudo`, or launches a session: each is the user's own act, the exact
+   command shown first, one at a time. D-114 holds: it names no model, date or operator
+   default; where a choice is the user's it asks and says where the answer is recorded (their
+   user-level CLAUDE.md, their settings' `env` block).
+2. The machine check is a script, not skill prose: `scripts/env-check.sh`, read-only. Twelve
+   checks, each the measured stall behind it in `--list` and the script's header: platform;
+   toolchain (Go 1.26+, git, python3); the install directory on PATH; free disk (advice at 88%
+   or under 30 GB, FAIL under 2 GB: a full disk fails a build with `link: mapping output file
+   failed`, read as a compile error, and the ledger's writes with it); the Go build cache and
+   the checkout against Spotlight (fseventsd at 77-96% CPU and a tier twice as slow before a
+   build cache and worktrees left the indexed volume); fseventsd's resident set and CPU (10 GB
+   after 24 days up); a scheduled cache trim (Go drops only entries unused five days; one
+   cache passed 100 GB inside that); the cache in Time Machine; sleep on AC (a maintenance
+   sleep froze an unattended run, three checks 5-16x slow); worktrees under `/tmp` (a symlink
+   to `/private/tmp`, two spellings of one path); transcripts and the harness scratch root.
+   One line per check, PASS / WARN / FAIL / CANNOT-ASSESS, and under anything not PASS one
+   `fix:` line: the command, whether it needs sudo, whether it is reversible. CANNOT-ASSESS is
+   its own verdict so "could not tell" never reads as PASS: a folder on an indexed volume is
+   CANNOT-ASSESS because Spotlight's privacy list is unreadable without sudo, and a missing
+   tool (not macOS) is CANNOT-ASSESS, not a pass. It writes nothing (not `go env -w`, not a
+   file of its own), signals nothing, runs no sudo, exits non-zero only on a FAIL (2 on a
+   usage error, `refused: <reason>` last), and does not repeat what already reports: hooks,
+   the gate entry, chat and the handoff size are `install.sh`'s lines, language servers
+   `buddy init`'s, harness compatibility `buddy diagnose`'s; its footer says so. Only the
+   GENERAL changes shipped; the operator's personal layout (which volume, which cadence,
+   never-sleep as a setting rather than `caffeinate` around a run) stays out. No verb: the
+   script is run from the checkout, and a `buddy doctor` verb would have put machine
+   judgement into the claims binary.
+3. `install-skill.sh` installs every `skills/*/SKILL.md`, the list read from the directory
+   (a third skill would otherwise have been a third edit of the installer, and
+   `check-prose-budget.sh` already enumerates the same way), with a floor of the three that
+   ship today so a checkout missing a skill directory is refused rather than installed short;
+   the pairwise same-directory refusal, the per-destination lock and "together or not at all"
+   stand from D-114. `BUDDY_FLEET_SKILL_DIR` stays; every other skill goes beside the core
+   under its own name.
+
+**Not done** — Checking the operator's personal rows (the trim's cadence, the dedicated
+volumes' names, `pmset` as a setting): personal, and a shipped check that names one machine's
+layout is a check that fails everywhere else. A `du` of the harness scratch root (12 s on this
+machine; an entry count instead). Running `install.sh` from the skill or the check (an
+install is the user's act; the skill quotes the report the user's run printed). Interactive
+prompts in the script (the skill asks; the script reports). Spotlight's privacy list (sudo).
+Any check of Claude Code's own settings beyond pointing at `install.sh`'s report. A doc of
+the checks (the script's `--list` and header hold the why; a doc nobody loads would drift).
+
+**Residuals** — `mdfind -onlyin <dir> -count` looked like a sudo-free read of whether a folder
+is indexed, and gave 0 for `/Applications` and for `$HOME` beside 236,499 for `~/Library/Caches`
+on this machine: not reliable as a signal, so it is not used, and CANNOT-ASSESS stands for the
+folder case. The `fseventsd` CPU figure is one `ps` sample (a decaying average), so a build
+that just ran reads as a WARN; the fix line says to sample again at a quiet moment. The
+budget: the lead skill's body spends the `per-session` class's headroom (88,072 of 90,112 at
+landing, the fleet skill having grown with D-119), leaving 2,040 bytes for the three skills
+together; the operator decides whether that ceiling moves.
+
+**Review** — Lite: a scoped self-review against the brief's four questions (can a user following
+it take an operator-only or irreversible action unasked; does the check change anything, need
+sudo, read outside what it names, or say PASS where it could not tell; does the skill restate
+the other two or the docs; does any shipped text carry a model, date or operator default), then
+one Codex code pass at xhigh on the finished diff, folded once. Taken, each now a fixture arm or
+a mutant: a bare `go version` from a checkout pinning a newer toolchain DOWNLOADS it under
+`GOTOOLCHAIN=auto`, and go writes telemetry counters at startup, so the script's `go` runs with
+`GOTOOLCHAIN=local GOTELEMETRY=off` and the stub refuses without them; a destination with a
+space stranded the installer's lock (the held list is one line per directory); a failed `du`,
+an unreadable scratch root and a checkout that is not a directory read as PASS through a zero
+or a fall-back to the root volume (CANNOT-ASSESS now, never a fallback); a commented crontab
+line or a plist that only sets `GOCACHE` counted as a scheduled trim; the fixture's commit
+could run the user's global `core.hooksPath` hooks (pinned to an empty directory); the no-write
+snapshot read names only (names and checksums, asserted on every run with a planted overwrite
+as the control); the upgrade step re-ran the install without the chosen chat mode; the
+fresh-session checkpoint assumed Claude's start hook (a Codex session runs `buddy hello`
+itself); "two lanes" and ">12h" were shipped constants; worktree paths split on spaces. Answered,
+not folded: the fleet skill's two model names and README's capture dates predate this change
+(measured facts, D-114's allowance), and are not this lane's.
+
+**Test shape** — `check-env-check.sh` (hermetic: every command the script reads is a stub
+that logs its argv, beside symlinks to the real awk/sed/grep/git; HOME, the checkout and the
+scratch root are fixtures): a good machine is 12 PASS, exit 0, no fix line, the fixture tree
+unchanged, no mutating call in the log (control: a planted `go env -w` and `sudo mdutil -i`
+through the same stubs, which the same detector reports), and each read-only command reached;
+a subfolder of an indexed volume is CANNOT-ASSESS with the reason, a `.noindex` cache PASS by
+name, fseventsd at 99.7% CPU a WARN pointing at the Spotlight lines; a bad machine is FAIL on
+old Go and a near-full disk, WARN on every advice check, exit 1, one fix line under each
+naming sudo and reversibility; a built buddy off PATH is the PATH advice; no python3 is a
+toolchain WARN; a non-macOS box is CANNOT-ASSESS wherever a tool is missing, never PASS, with
+a crontab trim found; `--list` runs nothing, `--help` exits 0, an unknown flag and a positional
+exit 2 with `refused:` last. `check-skill.sh` reads the skill count from `skills/` as the
+installer does (QA-1/2/3/7 cover the third copy; QA-11 a core directory named as another
+skill's refused; QA-12 a checkout of two skills refused, naming the count). `check.sh` runs
+`env-check` through `done_check` and names it in `required`. `TestSkillNamesOnlyWhatHelpAnswers`
+and `TestSkillTeachesEveryVerbAndFlag` read all three skills; `TestSkillSplitPointsAtTheFleetSkill`
+holds the third frontmatter name and that the lead skill names both other skills, "Not for a
+session already working an item" and `scripts/env-check.sh`; `TestSkillCoverageGateFires`'s
+one-skill control reads "any other skill names it" instead of "the other one";
+`TestDocLinksResolve` reads the third skill; `check-setup-clone.sh`'s fixture carries it. The
+budget table carries the two new lines at the formula (8,192 and 4,096).
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Skills" line (amended; number added); § Repo map, the skills bullet (amended)
+- GIVEN: review-charter.md GIVEN 115 "The skill splits by reader" (amended; number added)
+- code: scripts/env-check.sh, scripts/check-env-check.sh, scripts/install-skill.sh (the list from skills/, floor three), scripts/check-skill.sh QA-11/12, internal/cli/discover_help_test.go skillFiles
+- skill: lead, whole (new); core and fleet unchanged
+- USAGE: none
+- amends: D-114 "Two skills ship" → every skills/*/SKILL.md, three today; its split, its no-model-no-date rule and its installer refusals stand

@@ -118,7 +118,12 @@ it, and the gate then denies every write. It also installs the
 session how the verbs fit together, and the
 [fleet skill](skills/buddy-fleet/SKILL.md) beside it, which a session
 coordinating others loads (an example of the operator's own fleet
-conventions it reads: [docs/examples/fleet-conventions.md](docs/examples/fleet-conventions.md)). Put `~/bin` on your `PATH`
+conventions it reads: [docs/examples/fleet-conventions.md](docs/examples/fleet-conventions.md)),
+and the [lead skill](skills/buddy-lead/SKILL.md), which a first-time user (or
+the agent helping one) loads with `/buddy-lead`: it asks what you are trying
+to do before anything is installed, and its `sh scripts/env-check.sh` is a
+read-only look at the machine for settings that help many parallel sessions.
+Put `~/bin` on your `PATH`
 (`BUDDY_BIN_DIR` overrides it; the hook lines spell the path out either way).
 
 #### Claims-only: no chat stack

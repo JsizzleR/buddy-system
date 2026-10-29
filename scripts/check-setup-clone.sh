@@ -27,10 +27,12 @@ WORK=$(CDPATH= cd -- "$WORK" && pwd -P)
 
 CLONE="$WORK/clone"
 mkrepo "$CLONE"
-mkdir -p "$CLONE/scripts" "$CLONE/skills/buddy" "$CLONE/skills/buddy-fleet" "$WORK/bin" "$WORK/home" "$WORK/other-hooks"
+mkdir -p "$CLONE/scripts" "$CLONE/skills/buddy" "$CLONE/skills/buddy-fleet" "$CLONE/skills/buddy-lead" "$WORK/bin" "$WORK/home" "$WORK/other-hooks"
 cp scripts/setup-clone.sh scripts/install-skill.sh "$CLONE/scripts/"
 cp skills/buddy/SKILL.md "$CLONE/skills/buddy/"
 cp skills/buddy-fleet/SKILL.md "$CLONE/skills/buddy-fleet/"
+# install-skill.sh refuses a checkout with fewer than the three shipped skills (D-121).
+cp skills/buddy-lead/SKILL.md "$CLONE/skills/buddy-lead/"
 cp -R .githooks "$CLONE/.githooks"
 printf '#!/bin/sh\ncase "$1" in help) echo "usage: buddy commit-gate ...";; esac\nexit 0\n' > "$WORK/bin/buddy"
 chmod +x "$WORK/bin/buddy"

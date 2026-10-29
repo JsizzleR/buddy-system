@@ -158,10 +158,11 @@ func TestHelloHelpLineTeachesTheTimerWait(t *testing.T) {
 	}
 }
 
-// skillFiles are the shipped skills (D-114): the core every session loads,
-// and the fleet skill only a coordinator loads. A name either one teaches must
-// exist, and every verb and flag must be taught by at least one of them.
-var skillFiles = []string{"../../skills/buddy/SKILL.md", "../../skills/buddy-fleet/SKILL.md"}
+// skillFiles are the shipped skills (D-114, D-121): the core every session
+// loads, the fleet skill only a coordinator loads, and the lead skill a
+// first-time user's helper loads. A name any one teaches must exist, and every
+// verb and flag must be taught by at least one of them.
+var skillFiles = []string{"../../skills/buddy/SKILL.md", "../../skills/buddy-fleet/SKILL.md", "../../skills/buddy-lead/SKILL.md"}
 
 // readSkills returns each skill's text, in skillFiles' order. Each is parsed
 // on its own: a flags-only span belongs to the verb most recently named, and
@@ -192,12 +193,16 @@ func TestSkillNamesOnlyWhatHelpAnswers(t *testing.T) {
 }
 
 // The split holds only if each skill loads for its own reader: the core
-// points a coordinator at the fleet skill by its name, and the fleet skill's
-// frontmatter name is the directory install-skill.sh installs it as. A renamed
-// directory or frontmatter would leave the pointer naming nothing.
+// points a coordinator at the fleet skill by its name, the lead skill points
+// at both (it routes, it does not restate: D-121), and each frontmatter name
+// is the directory install-skill.sh installs it as. A renamed directory or
+// frontmatter would leave the pointer naming nothing.
 func TestSkillSplitPointsAtTheFleetSkill(t *testing.T) {
 	bodies := readSkills(t)
-	for i, want := range []string{"name: buddy\n", "name: buddy-fleet\n"} {
+	if len(bodies) != 3 {
+		t.Fatalf("skillFiles lists %d skills; this test knows the three that ship (core, fleet, lead)", len(bodies))
+	}
+	for i, want := range []string{"name: buddy\n", "name: buddy-fleet\n", "name: buddy-lead\n"} {
 		if !strings.HasPrefix(bodies[i], "---\n"+want) {
 			t.Errorf("%s does not open with frontmatter %q", skillFiles[i], want)
 		}
@@ -207,6 +212,11 @@ func TestSkillSplitPointsAtTheFleetSkill(t *testing.T) {
 	}
 	if !strings.Contains(bodies[1], "Not for a lane") {
 		t.Errorf("the fleet skill's description no longer tells a lane it is not for it")
+	}
+	for _, want := range []string{"`buddy` skill", "`buddy-fleet`", "Not for a session already working an item", "scripts/env-check.sh"} {
+		if !strings.Contains(bodies[2], want) {
+			t.Errorf("the lead skill no longer carries %q: it routes to the other skills and the read-only check, it restates neither", want)
+		}
 	}
 	// The description is a YAML plain scalar: ": " or " #" inside one is a
 	// parse error or a comment (Codex code pass: the fleet skill's first
@@ -385,18 +395,21 @@ func TestSkillCoverageGateFires(t *testing.T) {
 			t.Errorf("with every %q cut from both skills, the gate did not report %q", cut.from, cut.want)
 		}
 		// The control: cut from ONE skill only, the name is reported exactly
-		// when the other skill does not name it, so the union is what is read.
+		// when no other skill names it, so the union is what is read.
 		for i := range bodies {
 			taught := map[string]map[string]bool{}
+			others := false
 			for j, body := range bodies {
 				if j == i {
 					body = strings.ReplaceAll(body, cut.from, "REMOVED")
+				} else if strings.Contains(body, cut.from) {
+					others = true
 				}
 				checkNamedVerbsInto(body, helpUsage, taught)
 			}
-			if slices.Contains(untaught(taught), cut.want) != !strings.Contains(bodies[1-i], cut.from) {
-				t.Errorf("with %q cut from %s only, the gate's report of %q does not follow whether %s still names it",
-					cut.from, skillFiles[i], cut.want, skillFiles[1-i])
+			if slices.Contains(untaught(taught), cut.want) != !others {
+				t.Errorf("with %q cut from %s only, the gate's report of %q does not follow whether another skill still names it",
+					cut.from, skillFiles[i], cut.want)
 			}
 		}
 	}

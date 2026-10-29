@@ -9,8 +9,11 @@
 #
 # Each case has its positive control: a fresh install lands, a re-run on an
 # identical copy changes nothing (control that "current" is not "rewrote"),
-# and a stale copy is replaced with the old one kept, not lost. Two skills
-# ship (D-114), the core and buddy-fleet, installed together or not at all.
+# and a stale copy is replaced with the old one kept, not lost. Every
+# skills/*/SKILL.md ships (D-114, D-121: the core, buddy-fleet and buddy-lead
+# today), installed together or not at all; the installer takes the list from
+# the directory, with a floor of three, and the count here is read the same
+# way so a fourth skill is covered the day it lands.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -26,38 +29,64 @@ WORK=$(mktemp -d) || fail "mktemp failed"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 DIR="$WORK/skills/buddy"
 FDIR="$WORK/skills/buddy-fleet"
+LDIR="$WORK/skills/buddy-lead"
 SRC=skills/buddy/SKILL.md
 FSRC=skills/buddy-fleet/SKILL.md
+LSRC=skills/buddy-lead/SKILL.md
+# N is what ships: the same enumeration the installer makes, so the counts
+# below follow a fourth skill; the floor is the control that the glob read
+# something.
+N=$(set -- skills/*/SKILL.md; echo $#)
+[ "$N" -ge 3 ] || fail "found $N skills under skills/, want at least 3"
 
-# QA-1: a fresh install creates both directories, each with an identical copy:
-# the fleet skill beside the core by default, with no knob of its own set.
+# QA-1: a fresh install creates every directory, each with an identical copy:
+# the fleet and lead skills beside the core by default, no knob of theirs set.
 out=$(BUDDY_SKILL_DIR="$DIR" sh scripts/install-skill.sh) || fail "QA-1: install failed"
-[ "$(echo "$out" | grep -c '^install-skill: installed ')" -eq 2 ] || fail "QA-1: want two installed lines: $out"
+[ "$(echo "$out" | grep -c '^install-skill: installed ')" -eq "$N" ] || fail "QA-1: want $N installed lines: $out"
 cmp -s "$SRC" "$DIR/SKILL.md" || fail "QA-1: the installed core differs from the repo's"
 cmp -s "$FSRC" "$FDIR/SKILL.md" || fail "QA-1: the fleet skill was not installed beside the core"
+cmp -s "$LSRC" "$LDIR/SKILL.md" || fail "QA-1: the lead skill was not installed beside the core"
 
-# QA-2: a re-run over identical copies says current twice and writes no backup.
+# QA-2: a re-run over identical copies says current N times and writes no backup.
 out=$(BUDDY_SKILL_DIR="$DIR" sh scripts/install-skill.sh) || fail "QA-2: re-run failed"
-[ "$(echo "$out" | grep -c ' is current$')" -eq 2 ] || fail "QA-2: $out"
-[ ! -e "$DIR/SKILL.md.bak" ] && [ ! -e "$FDIR/SKILL.md.bak" ] || fail "QA-2: a current copy must not be backed up"
+[ "$(echo "$out" | grep -c ' is current$')" -eq "$N" ] || fail "QA-2: $out"
+[ ! -e "$DIR/SKILL.md.bak" ] && [ ! -e "$FDIR/SKILL.md.bak" ] && [ ! -e "$LDIR/SKILL.md.bak" ] || fail "QA-2: a current copy must not be backed up"
 
 # QA-3: a stale copy is replaced, and the stale one is kept as .bak. The stale
 # core is the shape every machine had before the split: one whole skill at
-# skills/buddy and no buddy-fleet. It is refreshed and the fleet skill added.
+# skills/buddy and nothing beside it. It is refreshed and the others added.
 printf 'an older skill\n' > "$DIR/SKILL.md"
-rm -rf "$FDIR"
+rm -rf "$FDIR" "$LDIR"
 out=$(BUDDY_SKILL_DIR="$DIR" sh scripts/install-skill.sh) || fail "QA-3: refresh failed"
 echo "$out" | grep -q '^install-skill: updated .*/buddy/SKILL.md ' || fail "QA-3: $out"
 echo "$out" | grep -q '^install-skill: installed .*/buddy-fleet/SKILL.md$' || fail "QA-3: the fleet skill was not added: $out"
+echo "$out" | grep -q '^install-skill: installed .*/buddy-lead/SKILL.md$' || fail "QA-3: the lead skill was not added: $out"
 cmp -s "$SRC" "$DIR/SKILL.md" || fail "QA-3: the stale copy was not replaced"
 [ "$(cat "$DIR/SKILL.md.bak")" = "an older skill" ] || fail "QA-3: the previous copy was not kept"
 
 # QA-7: BUDDY_FLEET_SKILL_DIR places the fleet skill anywhere, and nothing is
-# written beside the core then.
+# written beside the core then; the lead skill still goes beside the core.
 ODIR="$WORK/other/core"; OFDIR="$WORK/elsewhere/fleet"
 BUDDY_SKILL_DIR="$ODIR" BUDDY_FLEET_SKILL_DIR="$OFDIR" sh scripts/install-skill.sh >/dev/null || fail "QA-7: install failed"
 cmp -s "$FSRC" "$OFDIR/SKILL.md" || fail "QA-7: the fleet skill is not where the knob put it"
 [ ! -e "$WORK/other/buddy-fleet" ] || fail "QA-7: the knob was set, yet a copy went beside the core"
+cmp -s "$LSRC" "$WORK/other/buddy-lead/SKILL.md" || fail "QA-7: the lead skill does not go beside the core"
+
+# QA-11: a core directory NAMED like another skill's default makes two
+# destinations one directory: refused before anything is written, as QA-9
+# refuses the two knobs. QA-1 is the control (distinct directories install).
+XDIR="$WORK/x/buddy-lead"
+if out=$(BUDDY_SKILL_DIR="$XDIR" sh scripts/install-skill.sh 2>&1); then fail "QA-11: a core dir that is the lead skill's dir must be refused"; fi
+echo "$out" | grep -q 'name the same directory' || fail "QA-11: refused, but not as one directory for two: $out"
+[ ! -e "$XDIR/SKILL.md" ] || fail "QA-11: the refused install wrote a skill"
+
+# QA-12: a checkout with fewer than the three shipped skills is refused whole,
+# naming the count, before anything is written. QA-1 is the control.
+SHORT="$WORK/short"; mkdir -p "$SHORT/scripts" "$SHORT/skills/buddy" "$SHORT/skills/buddy-fleet"
+cp scripts/install-skill.sh "$SHORT/scripts/"; cp "$SRC" "$SHORT/skills/buddy/"; cp "$FSRC" "$SHORT/skills/buddy-fleet/"
+if out=$(BUDDY_SKILL_DIR="$WORK/short-dest/buddy" sh "$SHORT/scripts/install-skill.sh" 2>&1); then fail "QA-12: two skills in the checkout must be refused"; fi
+echo "$out" | grep -q 'found 2 skill(s)' || fail "QA-12: the refusal does not name the count: $out"
+[ ! -e "$WORK/short-dest" ] || fail "QA-12: the refused install wrote something"
 
 # QA-8: a fleet destination it must refuse refuses the WHOLE install: the
 # core is not refreshed either, and the refusal names the fleet path. The
@@ -111,7 +140,17 @@ if BUDDY_SKILL_DIR="$DIR" sh scripts/install-skill.sh >/dev/null 2>&1; then fail
 [ "$(cat "$DIR/SKILL.md")" = "held" ] || fail "QA-6: the refused run changed the copy"
 rmdir "$DIR/.install-skill.lock"
 
+# QA-13: a destination with a SPACE installs, and its locks are released (the
+# trap once split the held list on whitespace and left the lock, so every
+# later install refused; Codex code pass). QA-6 is the control that a held
+# lock does refuse.
+SPD="$WORK/with space/buddy"
+BUDDY_SKILL_DIR="$SPD" sh scripts/install-skill.sh >/dev/null || fail "QA-13: a destination with a space must install"
+cmp -s "$SRC" "$SPD/SKILL.md" || fail "QA-13: the core was not installed into the spaced path"
+[ ! -e "$SPD/.install-skill.lock" ] && [ ! -e "$WORK/with space/buddy-lead/.install-skill.lock" ] || fail "QA-13: a lock was left behind in a spaced destination"
+BUDDY_SKILL_DIR="$SPD" sh scripts/install-skill.sh >/dev/null || fail "QA-13: the re-run into the spaced path was refused (a stranded lock)"
+
 # QA-4: setup-clone.sh runs it — the step is wired, not merely available.
 grep -q 'scripts/install-skill.sh' scripts/setup-clone.sh || fail "QA-4: setup-clone.sh does not run install-skill.sh"
 
-echo "check-skill: GREEN (QA-1 fresh install of both, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + fleet added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob, QA-8 a refused fleet dir installs neither, QA-9 one dir for both refused, QA-10 fleet lock)"
+echo "check-skill: GREEN (QA-1 fresh install of all $N, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + others added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob + lead beside the core, QA-8 a refused fleet dir installs none, QA-9 one dir for two refused, QA-10 fleet lock, QA-11 core dir named as another skill refused, QA-12 a short checkout refused, QA-13 a spaced destination releases its locks)"

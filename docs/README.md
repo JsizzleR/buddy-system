@@ -9,6 +9,7 @@ to install it, and how to wire it into a repo. The rest, by what you need:
 | --- | --- |
 | [USAGE.md](USAGE.md) | Every feature in depth: hooks, claims, messages, the roster, waits, resource slots, long runs, authority files, the id register, the commit gate, chat internals |
 | [../skills/buddy/SKILL.md](../skills/buddy/SKILL.md) | The skill installed for agents: the order to use the verbs in, written for a session rather than the operator |
+| [../skills/buddy-lead/SKILL.md](../skills/buddy-lead/SKILL.md) | The first-time user's skill: the questions to ask before anything is installed, the steps that each end in something visibly working, and the read-only machine check `scripts/env-check.sh` |
 | [DEMO-RUN.md](DEMO-RUN.md) | Ledger captures from the earlier two-Claude run, beat by beat, plus the final ledger snapshot from the README's Claude Code/Codex run (short task briefs, a prescribed scenario, the buddy commands the sessions' own) |
 | [PICTURES.md](PICTURES.md) | How the README's pictures were made: what each is drawn from, what is typeset, the edits to captured text, the takes, the versions and the oddities the pictures keep |
 

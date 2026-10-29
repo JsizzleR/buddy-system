@@ -72,17 +72,19 @@ bypasses the harness. A seatbelt for agents, not a sandbox against them.
   subcommand is the PreToolUse wrapper a worker's gate configuration names; it
   checks that configuration and edits no settings or hook trust.
 - `.githooks/pre-commit` — the commit-time claim gate.
-- `skills/buddy/SKILL.md` (the core every session loads) and
+- `skills/buddy/SKILL.md` (the core every session loads),
   `skills/buddy-fleet/SKILL.md` (the coordinator's: launch, landing a run, review
-  tiers and the round ceiling, model pick, restack) — the user-level skills,
-  SHIPPED here and installed to `~/.claude/skills/buddy/` and
-  `~/.claude/skills/buddy-fleet/` by `setup-clone.sh` / `scripts/install-skill.sh`
-  (D-114). **Standing rule: a change that adds or renames a verb, subcommand or
+  tiers and the round ceiling, model pick, restack) and
+  `skills/buddy-lead/SKILL.md` (a first-time user's: asks before acting, routes to
+  the other two; its read-only machine check is `scripts/env-check.sh`) — the
+  user-level skills, SHIPPED here and installed to `~/.claude/skills/buddy/`,
+  `~/.claude/skills/buddy-fleet/` and `~/.claude/skills/buddy-lead/` by
+  `setup-clone.sh` / `scripts/install-skill.sh` (D-114, D-121). **Standing rule: a change that adds or renames a verb, subcommand or
   flag updates a skill in the same commit** (the core when a lane uses it, else
   the fleet skill). The hermetic tier holds it both ways
   (`TestSkillNamesOnlyWhatHelpAnswers`: every name either teaches exists;
   `TestSkillTeachesEveryVerbAndFlag`: every usage-table name is taught by one or
-  exempted with a reason). Neither names a model, a date or the operator's
+  exempted with a reason). None names a model, a date or the operator's
   defaults. Re-run `sh scripts/install-skill.sh` after.
 
 State: the ledger is `<git-common-dir>/buddy.db` (the **common** dir, so every
@@ -96,7 +98,8 @@ sh scripts/check.sh [all|hermetic|live]   # default all
 sh scripts/install.sh                     # INSTALL/UPGRADE this machine; re-run after every pull (below)
 buddy update [--dry-run]                  # install.sh in the checkout buddy was built from, after a local report (D-110)
 sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (below); also installs the skills
-sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy{,-fleet}/SKILL.md after a pull
+sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy{,-fleet,-lead}/SKILL.md after a pull
+sh scripts/env-check.sh [--list]          # read-only machine check for parallel sessions (D-121); PASS/WARN/FAIL/CANNOT-ASSESS, exit 1 on FAIL only
 sh scripts/get-oscar.sh                   # build the pinned AIM-compatible server into .cache/
 sh scripts/run-local.sh                   # bring up the local TOC stack + daemon for a trial
 sh scripts/codex-review.sh <prompt-file> <out-file>
@@ -447,7 +450,7 @@ Every number stays on some line.
 - **Commit gate.** Reports claim collisions only, and warns before it denies (D-012).
 - **Identity.** `(session_id, incarnation)`, `bye`'s process fence and the logical token are invariant 12; disagreeing native ids refuse, naming `env -u`, and a herdr tab leaks none; a non-hook verb under the native id moves only `last_seen` (D-003, D-025, D-026, D-069, D-085, D-086).
 - **Verbs, session start.** `--help` first, the unknown refused, `refused: <reason>` last; `sweep --dry-run` rolls back; verbs are learned from hello's line and the skill, never chat; `$BUDDY_LABEL` labels `hello`; a changed authority file is announced once; `init` says whether a language server is configured; `buddy ids` reissues nothing (D-028, D-029, D-031, D-046, D-051, D-089, D-098).
-- **Skills** split by reader, `skills/buddy` (every session) and `skills/buddy-fleet` (coordinator); no model, date or operator default in shipped text (D-114).
+- **Skills** split by reader, `skills/buddy` (every session), `skills/buddy-fleet` (coordinator) and `skills/buddy-lead` (a first-time user: asks before it acts, routes, its machine check read-only); no model, date or operator default in shipped text (D-114, D-121).
 - **Messages.** One target namespace with `pause`/`resume`, a miss refused; the body from argv, else stdin, never a TTY; a send reports what the ledger holds, never a prediction; `--supersedes N` goes to the original's audience; `--lead|--measured|--relay` as declared; an unknown id signs `unregistered s-<8hex>`, never as the operator (D-013, D-021, D-032, D-043, D-045, D-105).
 - **Wakes.** buddy wakes nothing; `msg`'s result line carries the harness wake address, also on stderr (not onto stdout's file), and `sent` names it; a wake names its message and the second, no content (D-039, D-041, D-052, D-059, D-097).
 - **Inbox.** `hello` drains into the SessionStart digest under 9,000 bytes, claims ahead of messages (own, then oldest); `busy` into the prompt opening a turn; mail reaches the session it was sent to, subagent hooks drain nothing (D-034, D-036, D-040, D-097, D-099).

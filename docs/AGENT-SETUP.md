@@ -39,8 +39,8 @@ BUDDY_CHAT=off sh scripts/install.sh    # claims-only: no server of any kind
 ```
 
 The script builds the binaries into `~/bin` (`BUDDY_BIN_DIR` overrides), runs
-each once to prove it starts, installs the skills to `~/.claude/skills/buddy/`
-and `~/.claude/skills/buddy-fleet/`,
+each once to prove it starts, installs the skills to `~/.claude/skills/buddy/`,
+`~/.claude/skills/buddy-fleet/` and `~/.claude/skills/buddy-lead/`,
 wires this checkout's own git hooks and ledger, and ends by REPORTING which
 Claude Code hooks are wired in `~/.claude/settings.json`. It never edits that
 file. Under `BUDDY_CHAT=off` it builds and checks only the claims half and
@@ -50,7 +50,7 @@ reports any chat remnants it found and left alone.
 
 ```sh
 "$HOME/bin/buddy" help | head -1       # buddy — the Buddy System: ...
-ls ~/.claude/skills/buddy/SKILL.md ~/.claude/skills/buddy-fleet/SKILL.md
+ls ~/.claude/skills/buddy/SKILL.md ~/.claude/skills/buddy-fleet/SKILL.md ~/.claude/skills/buddy-lead/SKILL.md
 ```
 
 The report's `hooks:` line will say `NOT wired` on a first install. That is
@@ -138,7 +138,8 @@ buddy claim demo --dry-run --desc x --scope README.md       # would claim: READM
 ```
 
 `/buddy` loads the skill, which teaches how the verbs fit together (a session
-that coordinates others also loads `/buddy-fleet`). If
+that coordinates others also loads `/buddy-fleet`; a user not yet sure what
+they want from buddy is led by `/buddy-lead`, which asks first). If
 `buddy status` says the session `has not said hello in this repo's ledger`, the
 SessionStart hook did not run: re-check step 3's spelling and that the session
 was started after the file was saved.

@@ -1238,7 +1238,18 @@ ledger row entered through the CLI (D-006).
     keeps for reviews", read from the operator's instructions;
     `docs/examples/fleet-conventions.md` is a worked example. This supersedes GIVENs 105 and
     112's "the skill states the default as that day's". Do not propose putting model ids or
-    the operator's defaults back into a shipped skill, or one skill again.
+    the operator's defaults back into a shipped skill, or one skill again. A third skill,
+    `skills/buddy-lead/SKILL.md`, leads a FIRST-TIME user (D-121): it asks before anything
+    happens, routes each answer to the text that already serves it (AGENT-SETUP, the two
+    skills, USAGE, the fleet-conventions example) and restates none, ends each step in
+    something visibly working, and never installs, edits settings, changes a mode, runs sudo
+    or launches on its own. Its machine check is `scripts/env-check.sh`, read-only: PASS /
+    WARN / FAIL / CANNOT-ASSESS per check with one `fix:` line (sudo? reversible?) under a
+    non-PASS, CANNOT-ASSESS where its own read could not tell (never PASS), exit non-zero on
+    FAIL only, nothing written or signalled, and it repeats nothing `install.sh`, `buddy init`
+    or `buddy diagnose` report. `install-skill.sh` installs every `skills/*/SKILL.md` from the
+    directory, floor three. Do not propose a `buddy doctor` verb, a check that applies a fix,
+    or the operator's personal machine layout as a shipped check.
 
 116. **A brief names a review-round ceiling (D-115).** Default: lite, one second-model code
     pass folded once; full, design + code + at most two re-verify rounds; the operator raises
