@@ -9149,6 +9149,14 @@ retired from the record or from any other section of `CLAUDE.md`.
 - Cutting the "Read this first" list to what every session must read.
 - One file per decision (`docs/decisions/D-NNN.md`), on the write-side ground.
 
+Amended 2026-10-29 (index-check, the operator's acceptance at 18:29 in orc-14's pane): the
+first OPEN item is closed. `scripts/check-index.sh`, run by `check.sh` and named in its
+`required` list, fails naming each `## D-NNN` heading whose number is on no line of the
+decisions section (heading to the next `## `; a citation elsewhere does not count, and any
+line inside counts, a `retired to the record:` one included), each number there with no
+heading, and any decision heading not spelled `## D-<digits>`. Numbers match whole (D-12 is
+not D-123's). Five planted faults arm it. The other two items stay open.
+
 **Review** — Lite: a scoped self-review, old index against new, number by number; one Codex
 code pass at xhigh on the finished diff, which found no lost ruling, no superseded one and no
 loophole in the preamble, and three lines that had dropped a qualifier, all folded: D-021's

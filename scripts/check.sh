@@ -192,6 +192,7 @@ if [ "$run_hermetic" = 1 ]; then
   done_check local-hooks
   done_check fence
   done_check charter
+  done_check index
   done_check wait
   done_check skill
   done_check install
@@ -218,7 +219,7 @@ if [ "$run_hermetic" = 1 ]; then
   # and a planted control it must agree with (b ran; a required check that
   # did not run and a discovered one that did not run are both reported, and
   # the one that ran is not).
-  required="commit-gate pre-push local-hooks fence charter wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report subagent-report libc-pin prose-budget cost-report env-check"
+  required="commit-gate pre-push local-hooks fence charter index wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report subagent-report libc-pin prose-budget cost-report env-check"
   wiring() { # <ran> <required> <discovered> — every name in the last two not in the first
     for n in $2 $3; do
       case "$1" in *" $n "*) ;; *) echo "$n" ;; esac
@@ -227,7 +228,7 @@ if [ "$run_hermetic" = 1 ]; then
   [ "$(wiring " b " "a b" "b c")" = "a c " ] || { echo "check.sh: the wiring gate reported '$(wiring " b " "a b" "b c")' of its control, want 'a c ' — the gate is broken, not the tree" >&2; exit 1; }
   found=$(for s in scripts/check-*.sh; do [ -f "$s" ] || continue; s=${s#scripts/check-}; echo "${s%.sh}"; done)
   unwired=$(wiring "$ran" "$required" "$found")
-  [ -z "$unwired" ] || { echo "check.sh: done-check(s) that did not run in this tier: $unwired— each scripts/check-<name>.sh runs here as \`done_check <name>\` and is named in \`required\` (a required check whose file is gone fails too)" >&2; exit 1; }
+  [ -z "$unwired" ] || { echo "check.sh: done-check(s) that did not run in this tier: ${unwired}— each scripts/check-<name>.sh runs here as \`done_check <name>\` and is named in \`required\` (a required check whose file is gone fails too)" >&2; exit 1; }
 
   # QUALIFICATION SCRIPTS (review F-32). Before this, none of the .py/.mjs
   # files under scripts/ ran automatically and this file syntax-checked only
