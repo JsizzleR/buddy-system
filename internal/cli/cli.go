@@ -162,6 +162,7 @@ var verbs = map[string]verb{
 	"adapter":     {usageAdapter, errVerb("adapter", cmdAdapter)},
 	"diagnose":    {usageDiagnose, errVerb("diagnose", cmdDiagnose)},
 	"update":      {usageUpdate, cmdUpdate},
+	"uninstall":   {usageUninstall, cmdUninstall},
 }
 
 func Run(args []string, env Env) int {
@@ -341,6 +342,10 @@ setup         init                  create the ledger for this repo
                                     from: says where it stands (read locally, nothing
                                     fetched) and which git commands you may want first,
                                     then runs its scripts/install.sh; never pulls
+              uninstall [--chat] [--dry-run]   remove what install.sh installed, from
+                                    that checkout's scripts/uninstall.sh, and say what it
+                                    leaves (settings, ledgers, journal: never touched);
+                                    --chat: the chat half only, claims-only from then on
 adapter       lifecycle             captured Codex incarnation events and JSON receipts;
                                     lifecycle --help lists the explicit adapter contract
               adapter               versioned captured-identity inbox and endpoint receipts;

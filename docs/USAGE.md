@@ -490,6 +490,55 @@ running: sh /Users/me/src/buddy-system/scripts/install.sh (from /Users/me/src/bu
   runs it on a peer's word (D-083); an orchestrator runs it only where it
   already runs `install.sh` after a landing.
 
+### `buddy uninstall` — remove it, or only the chat half (D-125)
+
+`buddy uninstall [--chat] [--dry-run]` follows the same stamp and runs
+`sh <checkout>/scripts/uninstall.sh` there, with the same knobs as `install.sh`
+(`BUDDY_BIN_DIR`, `BUDDY_SKILL_DIR`, `BUDDY_PLIST`, …). Every run prints its
+plan first: each path it will remove, and each it leaves with the reason.
+`--dry-run` prints the plan and removes nothing (launchctl is asked only
+`print`). With no stamp to follow, any clone's `sh scripts/uninstall.sh` does
+the same work.
+
+- **Full** removes, in this order: the chat daemon (`launchctl bootout` of
+  `com.buddy-system.buddylistd`, confirmed gone; its plist moved to
+  `~/.buddylist/<agent>.plist.removed-<time>`, never deleted, with the restore
+  command), every `buddylist` copy (`~/bin`, the daemon's program, the
+  checkout's `bin/`), each installed skill that is byte-identical to the
+  checkout's, then `buddy` itself, last, by one unlink. A stop anywhere leaves
+  the claims half working; running it again finishes.
+- **`--chat`** removes the daemon and the `buddylist` copies only, and keeps
+  the install claims-only: it first runs the installed buddy's
+  `BUDDY_CHAT=off buddy update` (a claims-only reinstall, so update's
+  downgrade refusal applies and the skills are refreshed as by any install),
+  and removes chat only once `~/bin/buddy` records chat off (D-124), so a
+  later `buddy update` does not bring it back. An exported `BUDDY_CHAT` that
+  is not `off` would override that on a later run, so `--chat` stops before
+  anything while one is exported.
+- **What it never touches, and names:** settings files (the hook lines left to
+  remove by hand; README's lines are guarded, so they do nothing meanwhile),
+  MCP registrations (one `cd <project> && claude mcp remove buddylist --scope
+  local` per project in `~/.claude.json`), Codex's `hooks.json` (its gate line
+  has no `[ -x ]` guard, so it refuses once buddy is gone), a pre-commit you
+  added README's `commit-gate` line to, every ledger and the chat journal,
+  `core.hooksPath`, `SKILL.md.bak` and any edited skill, the Agent-model hook's
+  copy, other `com.buddy-system.*` launchd agents (the chat server), and any
+  `buddylist` process launchd does not own (never signalled, D-122).
+- **What is ours** is read from the file's bytes (Go's build-info `path`
+  line), never by running it. A file that is not ours is left, with the `rm`
+  that removes it; a full run that leaves an executable at `~/bin/buddy` ends
+  `INCOMPLETE` and exits 1, because README's gate line still runs it.
+- **It stops before removing anything** when launchd cannot say whether the
+  daemon is loaded, when `bootout` fails, while an install is in flight (an
+  `.install-skill.lock`, or a `<target>.new-<pid>` whose pid is alive), or
+  when `--chat`'s update fails or leaves no off stamp (a failed update that
+  already rebuilt buddy claims-only says so: chat is then still running).
+- During the final unlink, one hook that checked `[ -x ~/bin/buddy ]` just
+  before may find it gone and refuse that one call; after it, no buddy means
+  every hook line is silent and the gate is off. Claims stay in the ledger.
+- Not guarded: an install STARTED after its checks can put buddy back. It is
+  the operator's act from a terminal, never a lane's (D-083).
+
 ## Claims in depth
 
 ```sh

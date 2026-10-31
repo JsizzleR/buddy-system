@@ -1265,6 +1265,20 @@ ledger row entered through the CLI (D-006).
     apart from "none" (D-065), "untrusted", every fence, verdict and EXIT/JOBS clause. Do not
     propose restoring an explanation the skill holds, or cutting a claim's description in hello.
 
+119. **Removal is `scripts/uninstall.sh [--chat] [--dry-run]`, which `buddy uninstall` runs in
+    the stamped checkout as update runs install.sh (D-125).** Never a knob of install. Order:
+    the daemon through launchd only (`print` by label, 113 is absent, any other status stops
+    the run before anything goes; `bootout`, confirmed), its plist MOVED to ~/.buddylist, the
+    buddylist copies, the skills identical to the checkout's, buddy LAST by one unlink, so a
+    stop leaves the claims half working and a re-run finishes. Ours is a build-info `path`
+    line in the bytes, never a run. A full run that leaves an executable at
+    `$BUDDY_BIN_DIR/buddy` exits INCOMPLETE. `--chat` first runs the installed buddy's
+    `BUDDY_CHAT=off buddy update` and removes chat only once D-124's stamp reads off. Settings,
+    MCP registrations, Codex hooks, ledgers, the journal, core.hooksPath, `.bak`, an edited
+    skill and the Agent-model copy are reported, never touched. Open: an install started
+    after its checks can republish buddy (no lock shared with install.sh). Do not propose a
+    `--purge`, editing settings, killing a daemon, or removing buddy before chat.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

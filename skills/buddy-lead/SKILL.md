@@ -82,7 +82,10 @@ Three rules before anything else:
    update` from anywhere: both keep the mode the last install recorded
    (claims-only stays claims-only; `BUDDY_CHAT=on` or `=off` on one run
    switches it), and say it on their first line. README "Install in two
-   minutes" says why a stale binary denies every write.
+   minutes" says why a stale binary denies every write. Chat installed by
+   accident: `buddy uninstall --chat --dry-run` shows what goes, then without
+   `--dry-run` it goes and buddy stays claims-only; `buddy uninstall` removes
+   everything (README "Uninstall").
 6. **A fleet** (answer (b)). The coordinator loads `/buddy-fleet` and reads
    the user's standing decisions from their instructions (question 5); its
    first fleet is a scratch item on as few lanes as their cap allows,

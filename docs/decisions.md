@@ -9863,3 +9863,124 @@ line break forged an `install: done` line (shown with `?`, 64 bytes, QA-7 row ad
 - skill: lead § 5 Upgrades; fleet § Upgrading buddy itself
 - USAGE: § `buddy update`; § the SessionStart chat hint
 - amends: D-050's claims-only paragraph ("off describes THIS INVOCATION": now this install, kept by the next); D-110's report (a `chat` line, and one more refusal). Both stand otherwise.
+
+## D-125 — `buddy uninstall [--chat] [--dry-run]` runs the stamped checkout's `scripts/uninstall.sh`: chat through launchd first, buddy last, settings and data only reported (amends D-110)
+
+2026-10-31 · the operator's decision, in orc-14's pane at about 01:10 ("we should also have a
+buddy uninstall command") and 01:13 ("a command/option for someone to easily undo the
+chat/disable chat or turn it all off and remove, etc. if it was accidentally enabled"; "check
+with fable as needed here"), carried out by lane uninstall under orc-14's brief (run43)
+
+**What was missing** — nothing removed what `install.sh` put in place, and nothing undid chat
+installed by accident. `install.sh`'s claims-only knob describes one invocation and removes
+nothing, by design: an install that uninstalled on a knob could remove the chat half by a typo
+in a settings env block. So removal is a verb, asked for by name.
+
+**The rule** — `scripts/uninstall.sh [--chat] [--dry-run]` does the work, with `install.sh`'s
+knobs and defaults; `buddy uninstall` runs it in the checkout the installed buddy's stamp names,
+exactly as `buddy update` runs `install.sh` (checkoutOf's checks, plus `scripts/uninstall.sh` a
+regular file; no stdin, `GIT_*` scrubbed, the script's status). A stamp it cannot follow is
+refused naming any clone's `sh scripts/uninstall.sh`, so a deleted checkout is not a dead end.
+A script, because the inverse finds what install.sh installs the way install.sh finds it, and it
+runs when the installed buddy cannot (D-107). Every run prints its whole plan first.
+- **Full**, in order: (1) the daemon through launchd only (D-122): `launchctl print
+  gui/$uid/com.buddy-system.buddylistd` by LABEL, plist or none (a loaded job outlives its
+  deleted plist); 0 is loaded and its `program` must be a `*/buddylist` whose bytes are ours, or
+  one already gone (else not ours, left, never booted out), 113 is launchd's not-found, anything
+  else, or no launchctl on macOS or beside a plist, stops the run before anything is removed;
+  `bootout`, then `print` must read 113 within 10 s. Its plist, when its Label is the agent and
+  its program a buddylist, is MOVED to `~/.buddylist/<agent>.plist.removed-<UTC>` with the
+  restore command: written by hand, not by install.sh, and left in place it is RunAtLoad at the
+  next login on a program that is gone. (2) every buddylist copy: `$BUDDY_BIN_DIR`, the daemon's
+  program, the checkout's `bin/`. (3) each installed skill byte-identical to the checkout's
+  (an edit or another release's copy is left and named; `.bak` always left). (4) buddy LAST,
+  the checkout's `bin/` copy before the hooks' copy, each by one unlink.
+- **`--chat`**: (1) and (2) only, after the installed buddy's own `env BUDDY_CHAT=off buddy
+  update`: chat-sticks' posture is a stamp in the binary (D-124), and only a build changes a
+  stamp. Through update, so its downgrade refusal (D-110) applies; then the stamp is read back
+  with D-124's reader (`go version -m`) and chat is removed only once it reads off. The other
+  order would leave chat removed and a buddy stamped on, whose next update rebuilds buddylist.
+  It is a claims-only REINSTALL, so it refreshes the skills as every install does. A failed
+  update that already left buddy stamped off says chat is still installed and running.
+  `--chat --dry-run` runs `buddy update --dry-run` for its verdict.
+- **Ours, never by running it.** A file is this project's when its bytes carry Go's build-info
+  line `path\t<module>/cmd/<name>` (grep -a, `$`-anchored: measured, buddy's does not match
+  buddylist's). An exit status or a usage string proves nothing about who wrote a program, and
+  running a foreign `buddylist` could start a daemon. A cp-broken signature keeps the bytes and
+  is removed; a foreign or zero-byte file is left with its `rm`. A full run that leaves an
+  executable at `$BUDDY_BIN_DIR/buddy` (`[ -x ]`, the gate line's own test, so a directory too)
+  ends `INCOMPLETE`, exit 1: README's gate line runs it, and one that cannot run refuses every
+  gated call. A path to act on holding a newline is refused before anything is planned.
+- **Never touched, named:** settings (the hook lines and `BUDDY_CHAT` env), MCP registrations
+  (decoded per project from `~/.claude.json`, one `cd … && claude mcp remove buddylist --scope
+  local` each), Codex's `hooks.json` (no `[ -x ]` guard: it refuses once buddy is gone), a
+  pre-commit holding README step 4's `commit-gate` line (not enumerable), every ledger and the
+  journal, `core.hooksPath` (uninstall cannot know who set it; the linked pre-commit exits 0
+  without buddy), the Agent-model copy (D-120), other `com.buddy-system.*` agents, and any
+  buddylist process launchd does not own (never signalled). `--purge` is out of scope.
+- **Stops before removing anything**: launchd uncertain, `bootout` failing or unconfirmed, an
+  install in flight (an `.install-skill.lock`; a `<target>.new-<pid>` whose pid is alive, a dead
+  one's leftover is named, not a stop, or a killed install would lock uninstall out for good).
+
+**What a session sees** — every stop before step (4) leaves the claims half installed and
+working, and chat half-removed is harmless (invariant 2); running again finishes, since every
+step skips what is absent. During the unlink, one hook that passed `[ -x ~/bin/buddy ]` just
+before and execs just after gets ENOENT and the gate line refuses that ONE call. After it, no
+buddy: every README hook line is silent, the gate allows, the commit gate exits 0, and every
+claim stays in its ledger (invariant 11); a session that ran the uninstall in its own Bash never
+gets a `bye`, so its row is stale on a reinstall, which is harmless. An interrupted full run
+(plist moved, buddy kept, stamp on) followed by `buddy update` rebuilds buddylist with no
+daemon: finish the uninstall, or restore the plist with the line it printed.
+
+**Open** — an install STARTED after uninstall's checks can republish buddy: install.sh renames
+`buddy.new-<pid>` over `$BUDDY_BIN_DIR/buddy` after uninstall unlinked it, and no lock is shared
+with install.sh (chat-sticks' file; orc-14 takes it as a follow-up after run43). An exported
+`BUDDY_CHAT` that is not `off` overrides the stamp on a later install or update, and brings chat
+back, so `--chat` stops before anything while one is exported.
+
+**Tests** — `scripts/check-uninstall.sh` (hermetic, in check.sh's done-checks and its required
+list): one real install into a throwaway prototype, each case a fresh copy, uninstall.sh run
+from a scratch git checkout, HOME a throwaway, a fake launchctl and a guard one first on PATH
+that must never be reached. Dry runs change nothing (a checksum of every file) and reach only
+`print`; the full run removes every artifact and leaves the never-touched set byte-identical
+(U-4, the control for every stop); a re-run finishes clean; launchd uncertain, a failed
+bootout, a live in-flight build stop with nothing removed, a dead one's leftover does not; a
+foreign buddy and an edited skill are left and the run says INCOMPLETE; a buddy whose tail is
+cut is still ours and goes. `--chat` for real (U-3: the prototype's install.sh-stamped buddy is
+rebuilt claims-only, chat goes, buddy stays and runs), and against a STUB buddy built as this
+module's `cmd/buddy` with D-124's stamp for what a real install cannot be made to do: stamped
+off it removes chat and keeps buddy and skills; stamped on, an update that fails, or an
+exported `BUDDY_CHAT=on`, it stops. The verb's own dry run is driven from the prototype's stamped buddy.
+`internal/cli/uninstall_test.go`: the script runs in the stamped checkout with the flags given,
+its status passes through, every unfollowable stamp is refused naming the clone's script, and
+help, unknown flags and stray positionals behave as D-031 and D-098 say.
+
+**Review** — full (D-104): a Codex design pass (xhigh) before code blocked on six findings, all
+taken (the --chat downgrade, unguarded hook lines, bootout keyed on the plist, ownership by
+execution, skill edits, test isolation) and one recorded open (the shared lock, above); a Fable
+lens on the design blocked on two, both taken (INCOMPLETE on an executable left at the hooks'
+path; a failed update that already stamped off), plus the per-project MCP lines, the dead-pid
+leftover and update's dry-run verdict. A read-only panel (Opus on the script, Sonnet on the verb
+and the check's hermeticity) found no path to the real machine and these, taken: a plist under
+another Label had its program removed while its job stayed loaded (now every buddylist copy is
+left with such a job or plist); `--chat` read launchd only after the posture flip (now before,
+and every stop after a flip says chat is still running); lists split on spaces and globbed (a
+checkout under "My Code" or "bs[12]"; now newline-only, globbing off, U-12); a planned symlink
+unlinked silently; weak assertions (prefix greps, a vacuous no-call check, the verb's stdin and
+`GIT_*` unpinned). Measured with it: a `-trimpath` build records no `-ldflags`, so the stamp
+reads as nothing; `--chat` stops and names it (reported to orc-14 for D-124). The Codex code
+pass (xhigh) blocked on four, all taken: a newline in a knob's path split one checked removal
+into two unchecked ones (U-6c); a missing launchctl read as no daemon and removed the program
+under a loaded job (U-6b); a job running a foreign program named buddylist was booted out on its
+basename (U-11c); a directory at the hooks' path passed the gate line's `[ -x ]` and the run
+said done (U-9c). The Fable cross-check of the finished diff found nothing blocking (no stop
+leaves a present buddy unrunnable, no `--chat` removal precedes the stamp reading off) and three,
+taken: an exported `BUDDY_CHAT` not `off` let `--chat` say done over a posture the next update
+overrides (now a stop, U-3f); a print naming no program read as a foreign job (now uncertain,
+U-11e); the gone-program arm had no case (U-11d). A Codex re-verify (xhigh) found two folds incomplete, both taken: a
+checkout path ending in a newline lost it to `$(pwd)` and read as a sibling's (U-6d); an
+unsearchable directory made a foreign program read as gone (U-11f: gone now means absent under a
+searchable ancestor). The second
+re-verify (xhigh, the last the ceiling allows) confirmed the first and found the walk climbed past
+a symlinked ancestor into an unsearchable directory; taken (the walk stops at a symlink, which
+must resolve; U-11g), by test and mutation only: no Codex round re-read it.

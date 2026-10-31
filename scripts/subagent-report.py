@@ -63,7 +63,7 @@ BUDDY = re.compile(r"(?:^|[\n;&|(]\s*|\$\(|`)\s*(?:env\s+\S+\s+)?buddy\s+([a-z][
 VERBS = frozenset(
     "init hello bye beat idle busy gate commit-gate claim release ls sweep pause"
     " resume msg sent inbox sessions whose status who authority ids wait lifecycle"
-    " adapter diagnose update".split())
+    " adapter diagnose update uninstall".split())
 
 # A lane launch, in command position, as wake-report.sh matches `buddy wait`:
 # a commit message or a grep pattern that NAMES the command is not a launch.

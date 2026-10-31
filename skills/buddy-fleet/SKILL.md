@@ -762,3 +762,11 @@ installs nothing. Its `chat` line is the posture the install keeps (D-124):
 a claims-only machine stays one unless a run says `BUDDY_CHAT=on`. An
 orchestrator runs it only where it already runs `install.sh` after a landing
 (D-110).
+
+`buddy uninstall` runs that checkout's `scripts/uninstall.sh`: the chat
+daemon booted out through launchd, the binaries, the skills, buddy last; it
+edits no settings and deletes no ledger or journal, and names what it leaves.
+`buddy uninstall --chat` removes the chat half only, rebuilding buddy
+claims-only first (`BUDDY_CHAT=off buddy update`) so a later update keeps
+chat off; `--dry-run` prints the plan. The operator's act, never relayed
+(D-125).

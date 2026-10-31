@@ -126,6 +126,20 @@ read-only look at the machine for settings that help many parallel sessions.
 Put `~/bin` on your `PATH`
 (`BUDDY_BIN_DIR` overrides it; the hook lines spell the path out either way).
 
+#### Uninstall
+
+```sh
+buddy uninstall --dry-run    # the plan: what goes, what stays and why; removes nothing
+buddy uninstall --chat       # chat installed by accident: remove the chat half, keep claims, and stay claims-only
+buddy uninstall              # everything install.sh put in place, buddy last
+```
+
+It runs `scripts/uninstall.sh` in the checkout `buddy` was installed from (or
+run that script from any clone). The chat daemon is booted out through launchd
+and its plist moved to `~/.buddylist`; settings, MCP registrations, ledgers
+and the chat journal are never touched, and it names the hook lines and MCP
+entries left for you to remove ([docs/USAGE.md](docs/USAGE.md#buddy-uninstall--remove-it-or-only-the-chat-half-d-125)).
+
 #### Claims-only: no chat stack
 
 ```sh
