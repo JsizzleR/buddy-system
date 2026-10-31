@@ -134,14 +134,20 @@ BUDDY_CHAT=off sh scripts/install.sh
 
 builds and verifies `buddy` alone, skips every chat path, and reports hook
 wiring against the six `buddy` lines; a `buddylist`, daemon plist or MCP
-registration already on the machine is reported and left where it was. Then
-declare it to every session, so `hello` prints no chat hint:
+registration already on the machine is reported and left where it was. The
+`buddy` it builds records the choice, so every later `sh scripts/install.sh`
+or `buddy update` stays claims-only with `BUDDY_CHAT` unset, and says so on
+its first line (`chat: off (kept: …)`; `buddy update --dry-run` says it too).
+`BUDDY_CHAT=on` on one run turns chat back on, and is kept the same way
+(D-124); any other value is refused. Then declare it to every session, so
+`hello` prints no chat hint:
 
 ```json
 { "env": { "BUDDY_CHAT": "off" } }
 ```
 
-in `~/.claude/settings.json`. Wire the six `buddy` lines from
+in `~/.claude/settings.json` (that line is `hello`'s alone: the install never
+reads it, and says when it disagrees with the recorded choice). Wire the six `buddy` lines from
 [step 3](#3-hook-wiring), leave out the two `buddylist` lines, and do not
 register the buddylist MCP server. What you lose is the visibility half; the
 ledger's own views (`buddy sessions`, `who`, `ls`, `msg`, `inbox`, `sent`)

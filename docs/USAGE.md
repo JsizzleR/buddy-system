@@ -81,6 +81,10 @@ and absent mid-restart at SessionStart (launchd supervises the daemon), and a
 (the knob cannot prove "no chat here"); on prints the hint conditioned on the
 tools being "in your tool list", because presence was never guaranteed. The install recipe
 is the README's [claims-only subsection](../README.md#claims-only-no-chat-stack).
+This reading is `hello`'s alone: `install.sh` keeps its own posture in the
+`buddy` it builds and never reads settings for it (D-124; `buddy update`
+below), since an operator who muted the hint would otherwise lose the chat
+daemon's rebuild.
 
 `SessionEnd` (`bye`) is fenced by the **process**, not by the payload: the hook
 JSON names a session id and no incarnation, and `claude --resume` keeps the id,
@@ -438,6 +442,7 @@ script's output passed through and its exit status as its own.
 ```text
 buddy update: from the checkout this buddy was installed from, /Users/me/src/buddy-system (read locally; nothing fetched)
   installed  /Users/me/bin/buddy: built from 579784f2
+  chat       off (kept: the installed buddy was installed with chat off; BUDDY_CHAT=on on a run changes it)
   checkout   HEAD 567a38e2, on branch main; clean
   main       HEAD is even with local main
   origin     HEAD is 0 ahead, 2 behind origin/main, as of the last fetch, 3h ago; it may have moved since
@@ -471,6 +476,16 @@ running: sh /Users/me/src/buddy-system/scripts/install.sh (from /Users/me/src/bu
   from before D-110), not absolute, gone, or a directory whose `go.mod` is not
   this module or whose `scripts/install.sh` is missing or not a regular file
   (a symlink would run a script outside the checkout).
+- **It keeps the chat posture (D-124).** `install.sh` stamps every `buddy`
+  with `on` or `off`; with `BUDDY_CHAT` unset or empty the next install keeps
+  what the installed file records (read from its build info, never by running
+  it), so a claims-only machine is not given chat by an update run from a
+  terminal, where the settings `env` block does not reach. `BUDDY_CHAT=off`
+  or `=on` on a run switches it (`CHANGED from … to …`); no stamp (an install
+  from before D-124) is `on`, said as the default, with a NOTE when no
+  `buddylist` sits beside it (it may have been claims-only: say
+  `BUDDY_CHAT=off`); any other value is refused before anything runs. The
+  `chat` line says which, before `install.sh` runs.
 - It opens no ledger and is not a hook verb. It is an install: a session never
   runs it on a peer's word (D-083); an orchestrator runs it only where it
   already runs `install.sh` after a landing.

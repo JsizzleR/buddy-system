@@ -51,17 +51,34 @@
 # chat entirely absent (CLAUDE.md, invariant 1), but this script always built
 # buddylist and its hook report nagged "NOT wired: buddylist alert buddylist
 # presence" on every run of a deployment that allows no server of any kind. With
-# BUDDY_CHAT=off (trimmed, lower-cased, exactly `off`; anything else is the
-# default) steps 1, 2 and 4 touch only the claims half: buddy is built and
+# chat off (BUDDY_CHAT trimmed and lower-cased, exactly `off`, or that posture
+# kept; below) steps 1, 2 and 4 touch only the claims half: buddy is built and
 # verified, no buddylist is built anywhere, the daemon step is skipped, and the
 # hook report counts the six buddy lines. It is CONFIGURATION, never a probe:
 # a socket file, a buddylist beside buddy or an MCP registration each lie in
 # both directions (a stale socket; a daemon mid-restart under launchd; a
-# different HOME). And "off" describes THIS INVOCATION, not the machine: a
+# different HOME). And "off" describes THIS INSTALL, not the machine: a
 # buddylist already in the bin dir, the daemon's plist and an MCP registration
 # are REPORTED as left alone, and nothing is removed, stopped or unloaded. An
 # install that uninstalled on a knob would be an install that could remove the
 # chat half by a typo in a settings env block.
+#
+# THE POSTURE IS KEPT (D-124). Read from this invocation alone, off lasted one
+# run: README puts BUDDY_CHAT=off in settings' env block, which reaches
+# sessions and not a terminal, so the operator's `buddy update` from a
+# terminal built buddylist again and fetched its modules (measured
+# 2026-10-31, a claims-only laptop). So every buddy built here is stamped with
+# the posture it was built under (-X …installedChat=on|off, like D-110's
+# checkout), and a run whose BUDDY_CHAT is unset or empty keeps what
+# $BUDDY_BIN_DIR/buddy records. BUDDY_CHAT=off or =on on a run is the switch,
+# said as CHANGED when it flips the stamp; any other value is refused, since a
+# typo that read as the default was the silent failure; no stamp (a fresh bin
+# dir, a buddy built before D-124 or by hand) is on, said as the default. The
+# stamp travels with the bytes it describes, so a bin dir carries its own and a
+# hand `go build -o` over it inherits nothing it did not earn. Settings' env
+# value is NOT read for the posture: it is hello's knob, and an operator who
+# muted the hint there would lose the daemon's rebuild (6b' says when the two
+# disagree).
 #
 # A NEW DAEMON BUILD IS REFUSED ITS FIRST SPAWN (measured 2026-10-03, macOS
 # 27). The agent carries a launch constraint (`managed LWCR` in `launchctl
@@ -97,7 +114,8 @@
 #   BUDDY_PLIST         the daemon agent's plist          (default ~/Library/LaunchAgents/<agent>.plist)
 #   BUDDY_LAUNCHCTL     the launchctl step 4 runs         (default launchctl; the done-check's is a fake)
 #   BUDDY_DAEMON_WAIT   seconds step 4 waits for running  (default 30)
-#   BUDDY_CHAT=off      claims-only: install and check the claims half only
+#   BUDDY_CHAT=off|on   claims-only, or chat, from this run on (unset: keep
+#                       what $BUDDY_BIN_DIR/buddy records; none: on)
 #   BUDDY_CLAUDE_JSON   the user-level MCP registrations file the claims-only
 #                       remnants report reads             (default ~/.claude.json)
 #   BUDDY_MCP_JSON      the checkout's MCP registrations file it reads
@@ -128,8 +146,6 @@ MCP_JSON=${BUDDY_MCP_JSON:-$ROOT/.mcp.json}
 # divergences fall the safe way: this script installs MORE than hello
 # believes is there, and it refuses nothing. chat_off is set or empty.
 chat=$(printf '%s' "${BUDDY_CHAT:-}" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-chat_off=""
-[ "$chat" != off ] || chat_off=1
 
 # deferred holds a failure that must not stop the steps after it (the daemon,
 # step 4); it is reported, and fails the install, at the end.
@@ -160,6 +176,59 @@ if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
 fi
 say "installing from $ROOT at $rev$dirty"
 
+# The chat posture (D-124): this run's BUDDY_CHAT when it says off or on, else
+# what the installed buddy records, else on. Read from the FILE's build info,
+# never by running it: a buddy that is SIGKILLed or panics would otherwise read
+# as "no posture" and put chat back. Its own -X is FIRST in the flags (build
+# below), so the match is anchored at the start of the value and a checkout
+# path spelling the same words further on cannot be read as it. go prints the
+# value quoted (it always holds a space); escapes, if any, come after the
+# prefix. A file that is no Go binary, or none at all, records nothing. The
+# same reading as update.go's chatOf: the dots are literal there, so here too.
+# Only a line that BEGINS with go's tab, "build", tab is a build setting: the
+# first line go prints is the file's own path, and a bin dir spelled
+# `build -ldflags="-X '…installedChat=on'` was read as the stamp (Codex). A
+# path holding a line break and that tab is the one crafted form left open.
+CHAT_X=github.com/JsizzleR/buddy-system/internal/cli.installedChat
+chat_re=$(printf '%s' "$CHAT_X" | sed 's/[.]/[.]/g')
+tab=$(printf '\t')
+installed_chat=""
+if [ -f "$BIN_DIR/buddy" ]; then
+	installed_chat=$(go version -m "$BIN_DIR/buddy" 2>/dev/null |
+		LC_ALL=C sed -n -E "s#^${tab}build${tab}-ldflags=\"-X '$chat_re=(on|off)'.*#\\1#p" | head -n 1)
+fi
+case $chat in
+off | on) posture=$chat ;;
+'') posture=${installed_chat:-on} ;;
+*)
+	# One line, bounded: a line break in the value would print a forged
+	# `install:` line after the refusal (Codex; invariant 9's register).
+	shown=$(printf '%s' "$BUDDY_CHAT" | LC_ALL=C tr -c '[:print:]' '?' | head -c 64)
+	die "BUDDY_CHAT must be off or on, or unset to keep what $BIN_DIR/buddy records, not '$shown'" ;;
+esac
+chat_off=""
+[ "$posture" != off ] || chat_off=1
+# One line, said BEFORE anything is built: building buddylist fetches its
+# modules, and a posture said at the end was said too late (D-124).
+if [ -n "$chat" ] && [ -n "$installed_chat" ] && [ "$chat" != "$installed_chat" ]; then
+	say "chat: CHANGED from $installed_chat to $posture by BUDDY_CHAT=$chat on this run; every later install keeps $posture until BUDDY_CHAT says otherwise"
+elif [ -n "$chat" ]; then
+	say "chat: $posture (BUDDY_CHAT=$chat on this run; kept by every later install until BUDDY_CHAT says otherwise)"
+elif [ -n "$installed_chat" ]; then
+	say "chat: $posture (kept: $BIN_DIR/buddy was installed with chat $installed_chat; BUDDY_CHAT=$([ "$posture" = on ] && echo off || echo on) on a run changes it)"
+else
+	say "chat: on (the default: no buddy at $BIN_DIR/buddy records a chat posture; BUDDY_CHAT=off on a run makes this install claims-only, and later installs keep it)"
+	# Said, never acted on (orc-14's ask, D-124): a buddy with no readable
+	# posture and no buddylist beside it is what a claims-only install from
+	# before D-124 (or under -trimpath, or by hand) leaves. Deciding off from
+	# it would be the probe the header rejects (a buddylist removed by hand
+	# reads the same), so it is a NOTE before buddylist is built, and the
+	# dry run of buddy update says it before anything runs.
+	if [ -f "$BIN_DIR/buddy" ] && [ ! -e "$BIN_DIR/buddylist" ]; then
+		say "chat: NOTE — $BIN_DIR/buddy records no chat posture (built before D-124, by hand, or under -trimpath) and has no buddylist beside it; if this install was claims-only, interrupt now and re-run with BUDDY_CHAT=off"
+	fi
+fi
+
 # build <cmd> <target>: go build -o a NEW file beside the target, run it once
 # and check it names itself — output alone is not enough, since a binary that
 # never ran and one that ran and said nothing look the same from a hook — and
@@ -187,17 +256,25 @@ build() {
 	# probed here; a record file beside them would not). go splits -ldflags
 	# on spaces and honours ' and " quotes with no escapes, so a path holding
 	# both cannot be passed: that build carries no stamp, and update refuses
-	# it naming this script, never a guess.
-	ldflags=""
+	# it naming this script, never a guess. The chat posture is stamped on
+	# every buddy, FIRST and always single-quoted (its value is a fixed word),
+	# so the next install finds it at the start of the flags (D-124). Built
+	# -trimpath=false on the command line, which wins over GOFLAGS: under
+	# -trimpath go leaves -ldflags out of the build info (measured, go 1.26),
+	# so a GOFLAGS=-trimpath shell would install a buddy whose posture the
+	# next install cannot read, and chat would come back (the cross-check).
+	ldflags="" trim=""
 	if [ "$cmd" = buddy ]; then
+		trim=-trimpath=false
+		ldflags="-X '$CHAT_X=$posture'"
 		x="github.com/JsizzleR/buddy-system/internal/cli.installedFrom=$ROOT"
 		case $ROOT in
 		*\'*\"* | *\"*\'*) say "NOTE — $ROOT holds both quote characters, so buddy cannot record it; buddy update will refuse and name this script" ;;
-		*\'*) ldflags="-X \"$x\"" ;;
-		*) ldflags="-X '$x'" ;;
+		*\'*) ldflags="$ldflags -X \"$x\"" ;;
+		*) ldflags="$ldflags -X '$x'" ;;
 		esac
 	fi
-	go build -ldflags "$ldflags" -o "$new" "./cmd/$cmd" || { rm -f "$new"; die "go build ./cmd/$cmd -o $target"; }
+	go build $trim -ldflags "$ldflags" -o "$new" "./cmd/$cmd" || { rm -f "$new"; die "go build ./cmd/$cmd -o $target"; }
 	# buddy answers `help` with 0. buddylist has no help verb: run bare, it
 	# prints its usage and exits 2 — a USAGE exit, which is fine here, and
 	# distinct from 126/127 (cannot execute) and 137 (SIGKILL). (A first
@@ -298,7 +375,7 @@ run_step install-skill sh "$ROOT/scripts/install-skill.sh"
 # Claims-only is named first: it is the broader statement, and with no buddylist
 # built there is nothing a restart could put into service.
 if [ -n "$chat_off" ]; then
-	say "daemon: skipped (BUDDY_CHAT=off: claims-only install)"
+	say "daemon: skipped (chat off: claims-only install)"
 elif [ "${BUDDY_DAEMON:-}" = off ]; then
 	say "daemon: skipped (BUDDY_DAEMON=off)"
 elif [ ! -f "$PLIST" ]; then
@@ -398,14 +475,14 @@ else
 	fi
 fi
 
-# 6b. Claims-only says so, and names what it found of the chat half and left
-# alone. The knob describes this invocation, so a buddylist, a daemon plist or
+# 6b. Claims-only names what it found of the chat half and left alone (its
+# posture line came first, before step 1). The posture describes this install,
+# so a buddylist, a daemon plist or
 # an MCP registration already on the machine is neither an error nor removed:
 # a stale buddylist beside a NEW buddy is exactly the D-037 denial this script
 # exists to prevent, and the operator should know it is there. The MCP check is
 # a grep for the key, as step 7's is: a false "left alone" only says so.
 if [ -n "$chat_off" ]; then
-	say "chat: off (claims-only install)"
 	left=""
 	[ ! -e "$BIN_DIR/buddylist" ] || left="$left; buddylist at $BIN_DIR/buddylist"
 	[ ! -e "$PLIST" ] || left="$left; the daemon agent's plist at $PLIST"
@@ -414,7 +491,22 @@ if [ -n "$chat_off" ]; then
 			left="$left; a buddylist MCP server registered in $f"
 		fi
 	done
-	[ -z "$left" ] || say "chat: left alone:${left#;} (BUDDY_CHAT=off makes THIS install claims-only and says nothing about the machine; nothing was removed, stopped or unloaded)"
+	[ -z "$left" ] || say "chat: left alone:${left#;} (chat off makes THIS install claims-only and says nothing about the rest of the machine; nothing was removed, stopped or unloaded)"
+fi
+# 6b'. Settings' BUDDY_CHAT is hello's knob (cli.go, EnvChat), never this
+# script's: a chat machine whose operator wrote off there only to mute the hint
+# would otherwise lose its daemon rebuild at the next schema bump, and the old
+# buddylist then refuses the migrated ledger (D-037; the cross-check, D-124).
+# A disagreement either way is said and acted on by neither. A grep, as step
+# 7's is: a false note only says so.
+if [ -f "$SETTINGS" ]; then
+	sc=$(sed -n 's/.*"BUDDY_CHAT"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SETTINGS" | head -n 1 |
+		LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+	if [ "$sc" = off ] && [ -z "$chat_off" ]; then
+		say "chat: NOTE — $SETTINGS declares BUDDY_CHAT=off to every session (hello prints no chat hint), but this install is chat on; to make it claims-only: BUDDY_CHAT=off on a run"
+	elif [ "$sc" != off ] && [ -n "$chat_off" ]; then
+		say "chat: NOTE — this install is claims-only, but $SETTINGS does not declare BUDDY_CHAT=off, so every session's hello still prints the chat hint (README \"Claims-only\")"
+	fi
 fi
 
 # 6c. The Agent-model hook (D-117), reported (D-120). scripts/hooks/

@@ -78,10 +78,11 @@ Three rules before anything else:
    `buddy who <label>` is everything the ledger holds about one. The user has
    now seen the whole mechanism; `/buddy` is what their sessions load from
    here.
-5. **Upgrades.** After every pull, the step-1 install command again, in the
-   same mode (claims-only keeps its `BUDDY_CHAT=off`; `buddy update` runs it
-   from anywhere, in the mode of the shell that calls it): README "Install in
-   two minutes" says why a stale binary denies every write.
+5. **Upgrades.** After every pull, `sh scripts/install.sh` again, or `buddy
+   update` from anywhere: both keep the mode the last install recorded
+   (claims-only stays claims-only; `BUDDY_CHAT=on` or `=off` on one run
+   switches it), and say it on their first line. README "Install in two
+   minutes" says why a stale binary denies every write.
 6. **A fleet** (answer (b)). The coordinator loads `/buddy-fleet` and reads
    the user's standing decisions from their instructions (question 5); its
    first fleet is a scratch item on as few lanes as their cap allows,

@@ -9743,3 +9743,123 @@ test pins it. Its other three questions (a dropped fact, a stale grep, a touched
 fence) came back none found. A Fable cross-check (the operator's word, relayed by orc-14,
 18:34) found no lost fact or fence and one ambiguity, taken: "leave them held" followed the
 jobs clause, so "them" read as the shells; it says "the claim(s) held" again.
+
+## D-124 — A claims-only install stays claims-only: install.sh stamps the chat posture into buddy and keeps it while BUDDY_CHAT is unset (amends D-050, D-110)
+
+2026-10-31. The operator, in orc-14's pane (~01:05): on a second laptop installed with chat
+off, "when i did a buddy update it pulled down oscar instead of matching that i had the chat
+off on that install." And (~01:13): turning chat off, or back on, should be one easy explicit
+act; removing the chat half is D-125's.
+
+**What was wrong** — `install.sh` read `BUDDY_CHAT` from its own invocation only; nothing
+recorded it (its header: "off describes THIS INVOCATION"). README puts `BUDDY_CHAT=off` in
+settings' `env` block, which reaches Claude sessions and their hooks, not a terminal, and
+`buddy update` (D-110) runs `install.sh` with the terminal's environment. So the update built
+`buddylist`, and `go build ./cmd/buddylist` fetched `github.com/mk6i/open-oscar-server/wire`
+(`go list -deps`: `cmd/buddy` has no oscar package). The only workaround was remembering
+`BUDDY_CHAT=off buddy update` every time.
+
+**The rule**
+1. **Stamped.** Every `buddy` install.sh builds carries
+   `-X '…/internal/cli.installedChat=on|off'`, FIRST in its `-ldflags` and always
+   single-quoted, then D-110's checkout stamp. Always one of the two words, so an install.sh
+   build records its posture positively and "no stamp" means only "not built by a D-124
+   install.sh". Built with `-trimpath=false` on the command line: under `-trimpath` go leaves
+   `-ldflags` out of the build info (measured: `GOFLAGS=-trimpath go build` shows
+   `-trimpath=true` and no `-ldflags`; `-trimpath=false` on the command line wins over GOFLAGS
+   and the flags come back), so a `GOFLAGS=-trimpath` shell would have installed a buddy whose
+   posture the next install could not read.
+2. **Read from the file, never by running it.** install.sh reads `$BUDDY_BIN_DIR/buddy` with
+   `go version -m` (a sed anchored at the start of the `-ldflags` value, dots literal);
+   `buddy update` reads the same file's `debug/buildinfo` `-ldflags` setting (`chatOf`, a
+   prefix match). Anchored, so a checkout path later in the flags spelling
+   `cli.installedChat=off` is not a posture. Running the installed buddy would read a
+   SIGKILLed or panicking one as "no posture" and put chat back.
+3. **The posture of a run.** `BUDDY_CHAT` (ASCII-trimmed, lower-cased) `off` or `on` is the
+   switch; unset or empty keeps what the installed file records; no stamp (a fresh bin dir, a
+   buddy built before this or by hand) is `on`, today's default. Any other value is REFUSED
+   before anything is built: read as the default, a typo (`of`, `no`) built chat on a
+   claims-only machine, the silent failure this closes. `hello` keeps its non-refusing reading
+   (anything but `off` prints the hint): a SessionStart hook that refused a settings typo would
+   cost every session.
+4. **Said first, and loudly when it changes.** install.sh's line after "installing from" is
+   `chat: <posture> (<why>)`, before any build (building buddylist is the fetch); a run that
+   flips the stamp says `chat: CHANGED from <a> to <b> by BUDDY_CHAT=<b> on this run`.
+   `buddy update` (dry run or not) prints the same forecast as its `chat` line, and refuses a
+   bad value itself, running nothing. Turning chat off removes nothing (D-050's "left alone"
+   report stands); removal is D-125, which records claims-only by running install.sh with
+   `BUDDY_CHAT=off` (one rebuild of buddy, no record file).
+5. **No readable stamp, no buddylist beside it: said, never acted on.** orc-14 asked (relaying
+   the uninstall lane's measurement of `-trimpath`) what happens when the installed buddy
+   carries no readable posture but looks claims-only. It is what a claims-only install from
+   before D-124, a hand build, or a `-trimpath` build leaves, and install.sh says so as a
+   `chat: NOTE —` line in the default arm, before buddylist is built; `buddy update`'s dry run
+   says it before anything runs. Deciding off from it would be the probe the header rejects
+   (a buddylist removed by hand reads the same, and a chat machine's next schema bump would
+   then skip its daemon), so the posture stays the default. install.sh's own builds are
+   `-trimpath=false`, which wins over `GOFLAGS=-trimpath` (QA-15a installs under it and reads
+   `off` back; the mutant dropping it dies there).
+6. **Settings is hello's knob, reported, never read for the posture.** install.sh says, as a
+   NOTE, when settings' `BUDDY_CHAT` disagrees with the posture either way (off there beside a
+   chat install; not off there beside a claims-only one, whose sessions still print the
+   hint), and acts on neither.
+
+**Rejected**
+- *Read `BUDDY_CHAT` from settings' `env` block* (orc-14's second candidate): the
+  configuration README already asks for. Failing input (the Fable cross-check): a chat machine
+  whose operator wrote `off` there only to mute hello's hint; the next update after a schema
+  bump skips the daemon's rebuild, and the old buddylist refuses the migrated ledger (D-037),
+  so chat dies quietly. A grep also matches the key anywhere in the file. And no command could
+  record it: install.sh never edits settings (D-050).
+- *A record file* (beside the binary, or under `~/.buddy`): a hand `go build -o ~/bin/buddy`
+  would inherit a posture it did not earn, each bin dir install.sh rebuilds would need its
+  own, and D-110 rejected a record file for the same drift. The stamp travels with the bytes,
+  and `BUDDY_BIN_DIR` moves both.
+- *Infer it from a missing buddylist*: a probe, which the header rejects; it lies both ways
+  (a removed binary; the operator's laptop already had one again after the bad update).
+- *Fall back to settings only for an unstamped buddy* (the first update after this lands): the
+  same split-brain as the first rejection, for one run; the default-on line says how to keep
+  claims-only, and the dry run says it before anything is built.
+
+**Checks** — `check-install.sh` QA-15: a claims-only install under `GOFLAGS=-trimpath` (its
+build info carries the stamp first), then a re-run and a real `buddy update` with
+`BUDDY_CHAT` unset build no buddylist, read from a recording `go` in front of the real one,
+which logs every build's package, so the proof does not rest on an empty module cache; with
+`GOPROXY=off` besides. The update's dry run names the kept posture; `BUDDY_CHAT=on` says
+CHANGED and builds buddylist (the recorder's control), and the next unset run keeps on;
+QA-15f: an unstamped buddy without buddylist draws the NOTE, and with one beside it does not
+(the control). QA-7:
+any other value is refused before a build, after the ` OFF ` fold's control. Go:
+`TestChatOfReadsOnlyTheLeadingStamp` (the anchor, with the path-spelling control) and
+`TestUpdateSaysTheChatPosture` (kept, default, CHANGED, folded, refused without running the
+stub; the other rows are the control that it runs), `TestUpdateReadsTheBinDirTheShellResolves`
+(through `link/..`, with the plain bin dir as control). Mutants, in a private clone, each
+killed with the unmutated clone GREEN: the carry-forward dropped (QA-15b), `-trimpath=false`
+dropped (QA-15a), the chat `-X` moved after the checkout's (QA-15a), the refusal turned into
+the default (QA-7), Go's carry-forward dropped and its prefix match made a substring match
+(the two Go tests); after the fold, the shell refusal unfenced (QA-7) and `filepath.Join`
+restored (the bin-dir test), and each NOTE dropped (QA-15f;
+`TestUpdateNotesAnUnstampedBuddyWithoutBuddylist`). The header-line anchor has no gate: its crafted input is a bin
+dir named `build -ldflags="-X '…installedChat=on'` relative to the checkout, which a hermetic
+leg would have to create inside it; reproduced once by hand instead (the old reading said
+`on` over an `off` build, the new one `off`), and recorded open with the line-break form.
+
+**Review** — lite: a scoped self-review (the Go refusal printed the operator's value
+unfenced: fenced, with a two-line row in the test), a Fable cross-check of the design call
+(the operator's word, relayed by orc-14, 01:13: "check with fable as needed here"), and one
+Codex code pass (xhigh), folded once. Fable: no settings fallback (its failing input is the
+first rejection above), refuse an unknown value, stamp over file, and `-trimpath` drops
+`-ldflags` (taken, measured). Codex, all five taken: the sed matched `go version -m`'s FILE
+line, so a bin dir spelled like a stamp supplied one (anchored on go's leading tab); the same
+input restored chat on an unset re-run; `filepath.Join` cleaned `link/..` so the forecast read
+another file than install.sh replaced (joined by hand, test added); QA-15b's negative check
+had no positive recorder check beside it (added); and the shell refusal printed a value whose
+line break forged an `install: done` line (shown with `?`, 64 bytes, QA-7 row added).
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (amended; number added)
+- GIVEN: review-charter.md GIVEN 53 "`scripts/install.sh` is the one install and upgrade path" (amended; number added)
+- code: `scripts/install.sh` (the posture block after "installing from", `build`'s ldflags, 6b'); `internal/cli/update.go` (`chatOf`, `chatAsked`, `chatPosture`, the `chat` line); `scripts/check-install.sh` QA-7, QA-15; `internal/cli/update_test.go`
+- skill: lead § 5 Upgrades; fleet § Upgrading buddy itself
+- USAGE: § `buddy update`; § the SessionStart chat hint
+- amends: D-050's claims-only paragraph ("off describes THIS INVOCATION": now this install, kept by the next); D-110's report (a `chat` line, and one more refusal). Both stand otherwise.

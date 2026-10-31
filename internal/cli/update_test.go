@@ -94,6 +94,12 @@ func builtAt(rev string, modified bool) func(string) (builtFrom, bool) {
 
 func runUpd(t *testing.T, src updateSource, args ...string) (int, string, string) {
 	t.Helper()
+	return runUpdEnv(t, src, nil, args...)
+}
+
+// runUpdEnv is runUpd with more of the environment answered (BUDDY_CHAT).
+func runUpdEnv(t *testing.T, src updateSource, more map[string]string, args ...string) (int, string, string) {
+	t.Helper()
 	if src.sh == "" {
 		src.sh = "/bin/sh"
 	}
@@ -104,6 +110,9 @@ func runUpd(t *testing.T, src updateSource, args ...string) (int, string, string
 	rc := runUpdate(args, Env{
 		Stdin: strings.NewReader(`{"hook_event_name":"Stop"}`), Stdout: &out, Stderr: &errb,
 		Now: func() time.Time { return updNow }, Getenv: func(k string) string {
+			if v, ok := more[k]; ok {
+				return v
+			}
 			if k == "BUDDY_BIN_DIR" {
 				return updBin
 			}
@@ -510,5 +519,142 @@ func TestUpdateNoteResolvesTheCheckoutCopy(t *testing.T) {
 	_, out, _ = runUpd(t, updateSource{checkout: alias, exe: "/elsewhere/buddy"}, "--dry-run")
 	if !strings.Contains(out, "note       this buddy, /elsewhere/buddy, is not that file") {
 		t.Fatalf("control: an outside copy must be named:\n%s", out)
+	}
+}
+
+// D-124: install.sh stamps the chat posture FIRST in buddy's -ldflags, and this
+// reads only that leading -X, so a checkout path that spells the same words
+// later in the flags is not a posture. The sed in install.sh is the same
+// reading; check-install.sh holds it to real builds.
+func TestChatOfReadsOnlyTheLeadingStamp(t *testing.T) {
+	t.Parallel()
+	from := " -X '" + buddyModule + "/internal/cli.installedFrom=/x'"
+	for _, c := range []struct{ flags, want string }{
+		{"-X '" + chatStamp + "=off'" + from, "off"},
+		{"-X '" + chatStamp + "=on'" + from, "on"},
+		{"-X '" + chatStamp + "=off'", "off"},
+		// The control for the anchor: the same words after another -X.
+		{"-X '" + buddyModule + "/internal/cli.installedFrom=/x/cli.installedChat=off'", ""},
+		{from[1:] + " -X '" + chatStamp + "=off'", ""},
+		{"-X '" + chatStamp + "=offline'", ""},
+		{"-X '" + strings.Replace(chatStamp, ".", "X", 1) + "=off'", ""},
+		{"", ""},
+	} {
+		if got := chatOf(c.flags); got != c.want {
+			t.Errorf("chatOf(%q) = %q, want %q", c.flags, got, c.want)
+		}
+	}
+}
+
+// The dry run says the posture install.sh will use, before it runs: kept from
+// the installed stamp when BUDDY_CHAT is unset, CHANGED when a run flips it,
+// the default when nothing is stamped, and a value that is neither word is
+// refused without running install.sh (the stub's record stays absent; the
+// other rows are the control that it runs).
+func TestUpdateSaysTheChatPosture(t *testing.T) {
+	boundedParallel(t)
+	stamped := func(chat string) func(string) (builtFrom, bool) {
+		return func(string) (builtFrom, bool) { return builtFrom{chat: chat}, true }
+	}
+	for _, c := range []struct {
+		name, asked, installed string
+		want                   string
+		refuses                bool
+	}{
+		{"kept off", "", "off", "chat       off (kept: the installed buddy was installed with chat off; BUDDY_CHAT=on on a run changes it)", false},
+		{"kept on", "", "on", "chat       on (kept: the installed buddy was installed with chat on; BUDDY_CHAT=off on a run changes it)", false},
+		{"default", "", "", "chat       on (the default: the installed buddy records no chat posture", false},
+		{"default, no buddylist beside it", "", "", "chat       NOTE: it has no buddylist beside it; if this install was claims-only", false},
+		{"switched on", "on", "off", "chat       CHANGED from off to on by BUDDY_CHAT=on;", false},
+		{"switched off, folded", " OFF ", "on", "chat       CHANGED from on to off by BUDDY_CHAT=off;", false},
+		{"asked, same", "off", "off", "chat       off (BUDDY_CHAT=off on this run;", false},
+		{"asked, unstamped", "off", "", "chat       off (BUDDY_CHAT=off on this run;", false},
+		{"refused", "no", "off", "chat       BUDDY_CHAT=\"no\" is neither off nor on", true},
+		{"refused, one line", "of\nf", "", "chat       BUDDY_CHAT=\"of⏎f\" is neither off nor on", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newUpdFix(t)
+			src := updateSource{checkout: f.c, buildOf: stamped(c.installed)}
+			rc, out, errs := runUpdEnv(t, src, map[string]string{EnvChat: c.asked}, "--dry-run")
+			if !strings.Contains(out, c.want) {
+				t.Fatalf("want %q in:\n%s", c.want, out)
+			}
+			if c.refuses != (rc == 1) || c.refuses != strings.Contains(errs, "neither off nor on") {
+				t.Fatalf("refuses=%v: rc=%d stderr=%q", c.refuses, rc, errs)
+			}
+			rc, _, _ = runUpdEnv(t, src, map[string]string{EnvChat: c.asked})
+			if c.refuses == f.ran(t) || c.refuses != (rc == 1) {
+				t.Fatalf("refuses=%v: the real run rc=%d ran=%v", c.refuses, rc, f.ran(t))
+			}
+		})
+	}
+}
+
+// The file the report reads is the file install.sh replaces, through a
+// symlink and `..` as the shell resolves them (Codex): filepath.Join cleaned
+// link/../bin to <checkout>/bin, another directory than the one the link's
+// parent holds. The plain relative bin dir is the control.
+func TestUpdateReadsTheBinDirTheShellResolves(t *testing.T) {
+	boundedParallel(t)
+	f := newUpdFix(t)
+	other := t.TempDir()
+	for _, d := range []string{filepath.Join(other, "child"), filepath.Join(other, "bin"), filepath.Join(f.c, "bin")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, p := range []string{filepath.Join(other, "bin", "buddy"), filepath.Join(f.c, "bin", "buddy")} {
+		if err := os.WriteFile(p, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(other, "child"), filepath.Join(f.c, "link")); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ dir, want string }{
+		{"link/../bin", filepath.Join(other, "bin", "buddy")},
+		{"bin", filepath.Join(f.c, "bin", "buddy")},
+	} {
+		var asked string
+		src := updateSource{checkout: f.c, buildOf: func(p string) (builtFrom, bool) { asked = p; return builtFrom{}, true }}
+		runUpdEnv(t, src, map[string]string{"BUDDY_BIN_DIR": c.dir}, "--dry-run")
+		got, err := filepath.EvalSymlinks(asked)
+		if err != nil {
+			t.Fatalf("%s: read %q, which does not resolve: %v", c.dir, asked, err)
+		}
+		want, err := filepath.EvalSymlinks(c.want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("BUDDY_BIN_DIR=%s: read %q (%s), want %s", c.dir, asked, got, want)
+		}
+	}
+}
+
+// The NOTE is said only when no buddylist sits beside the unstamped buddy:
+// a bin dir that holds one is the control, and a stamped buddy never draws it.
+func TestUpdateNotesAnUnstampedBuddyWithoutBuddylist(t *testing.T) {
+	boundedParallel(t)
+	f := newUpdFix(t)
+	bin := t.TempDir()
+	src := func(chat string) updateSource {
+		return updateSource{checkout: f.c, buildOf: func(string) (builtFrom, bool) { return builtFrom{chat: chat}, true }}
+	}
+	note := "NOTE: it has no buddylist beside it"
+	_, out, _ := runUpdEnv(t, src(""), map[string]string{"BUDDY_BIN_DIR": bin}, "--dry-run")
+	if !strings.Contains(out, note) {
+		t.Fatalf("no buddylist beside an unstamped buddy must be noted:\n%s", out)
+	}
+	_, out, _ = runUpdEnv(t, src("on"), map[string]string{"BUDDY_BIN_DIR": bin}, "--dry-run")
+	if strings.Contains(out, note) {
+		t.Fatalf("a stamped buddy is not noted:\n%s", out)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "buddylist"), nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, out, _ = runUpdEnv(t, src(""), map[string]string{"BUDDY_BIN_DIR": bin}, "--dry-run")
+	if strings.Contains(out, note) {
+		t.Fatalf("control: a buddylist beside it draws no note:\n%s", out)
 	}
 }

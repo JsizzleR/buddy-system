@@ -477,7 +477,9 @@ ledger row entered through the CLI (D-006).
     a PreToolUse command naming it under a matcher selecting `Agent`, decoded with
     `gate-hook.py`'s matcher reading; a wired path with no file is said loudly (python3 exits 2,
     which blocks every Agent call). Do not propose that it copy the script: the hook is the
-    operator's opt-in (D-117).
+    operator's opt-in (D-117). It stamps each buddy with its chat posture and keeps it while
+    `BUDDY_CHAT` is unset (D-124: `off`/`on` switch, anything else refused, no stamp is on); do
+    not propose reading the posture from settings, which is `hello`'s knob.
 
 54. **`buddy init` says whether this repo's main languages have a language server (D-051).** Per
     language that is at least 10% of tracked source: the server on PATH (absolute entries,

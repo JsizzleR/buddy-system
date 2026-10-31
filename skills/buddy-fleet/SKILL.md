@@ -758,5 +758,7 @@ from. It first says where that checkout stands (HEAD, branch, uncommitted
 changes, against local main and against origin/main as of the last fetch: it
 never fetches or pulls), names the git commands you may want first, then runs
 that checkout's `scripts/install.sh`; `buddy update --dry-run` reports and
-installs nothing. An orchestrator runs it only where it already runs
-`install.sh` after a landing (D-110).
+installs nothing. Its `chat` line is the posture the install keeps (D-124):
+a claims-only machine stays one unless a run says `BUDDY_CHAT=on`. An
+orchestrator runs it only where it already runs `install.sh` after a landing
+(D-110).

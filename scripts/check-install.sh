@@ -318,11 +318,11 @@ $out"
 echo "$out" | grep -q 'built .*buddylist' && fail "QA-7: a claims-only install reports building buddylist:
 $out"
 cmp -s skills/buddy/SKILL.md "$WORK/skill7/SKILL.md" || fail "QA-7: skill not installed"
-echo "$out" | grep -qxF 'install: chat: off (claims-only install)' || fail "QA-7: the chat line is missing:
+echo "$out" | grep -qxF 'install: chat: off (BUDDY_CHAT=off on this run; kept by every later install until BUDDY_CHAT says otherwise)' || fail "QA-7: the chat line is missing:
 $out"
 echo "$out" | grep -qF 'left alone' && fail "QA-7: nothing was left alone in an empty bin dir:
 $out"
-echo "$out" | grep -qF 'daemon: skipped (BUDDY_CHAT=off: claims-only install)' || fail "QA-7: the daemon step must say it was skipped for claims-only:
+echo "$out" | grep -qF 'daemon: skipped (chat off: claims-only install)' || fail "QA-7: the daemon step must say it was skipped for claims-only:
 $out"
 missing=$(echo "$out" | sed -n 's/.*NOT wired in [^:]*: *\(.*\) (README.*/\1/p')
 [ "$missing" = "buddy busy" ] || fail "QA-7: hook report named '$missing', want 'buddy busy'"
@@ -331,18 +331,31 @@ echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-7: no done line"
 # default, which the all-but-buddylist assertions above would then fail on.
 out=$(inst_claims BUDDY_CHAT=' OFF ' 2>&1) || fail "QA-7: ' OFF ' install failed:
 $out"
-echo "$out" | grep -qxF 'install: chat: off (claims-only install)' || fail "QA-7: ' OFF ' must fold to off:
+echo "$out" | grep -qF 'install: chat: off (BUDDY_CHAT=off on this run;' || fail "QA-7: ' OFF ' must fold to off:
 $out"
 [ ! -e "$WORK/bin7/buddylist" ] || fail "QA-7: ' OFF ' built buddylist"
-out=$(inst_claims BUDDY_CHAT=no 2>&1) || fail "QA-7: BUDDY_CHAT=no install failed:
+# Anything else is REFUSED before a build (D-124): read as the default, a typo
+# built chat on a claims-only machine, the silent failure this closed. The
+# ' OFF ' run just above, to its done line, is the control.
+out=$(inst_claims BUDDY_CHAT=no 2>&1) && fail "QA-7: BUDDY_CHAT=no must be refused:
 $out"
-echo "$out" | grep -qF 'chat: off' && fail "QA-7: BUDDY_CHAT=no is the default, not off:
+echo "$out" | grep -qxF "install: FAILED — BUDDY_CHAT must be off or on, or unset to keep what $WORK/bin7/buddy records, not 'no'" || fail "QA-7: the refusal must name the two words:
 $out"
-[ -x "$WORK/bin7/buddylist" ] || fail "QA-7: the default under BUDDY_CHAT=no must build buddylist"
+echo "$out" | grep -q '^install: built ' && fail "QA-7: a refused BUDDY_CHAT built something:
+$out"
+[ ! -e "$WORK/bin7/buddylist" ] || fail "QA-7: a refused BUDDY_CHAT built buddylist"
+# ... on ONE line: a line break in the value is shown as ?, never printed.
+out=$(inst_claims BUDDY_CHAT="bad
+install: done" 2>&1) && fail "QA-7: a two-line BUDDY_CHAT must be refused:
+$out"
+echo "$out" | grep -qxF "install: FAILED — BUDDY_CHAT must be off or on, or unset to keep what $WORK/bin7/buddy records, not 'bad?install: done'" ||
+	fail "QA-7: the refused value must be shown on one line:
+$out"
+echo "$out" | grep -qx 'install: done' && fail "QA-7: the refused value printed a forged done line:
+$out"
 
-# QA-8: the remnants report. A stale buddylist in the bin dir (QA-7's last run
-# left a real one; it is replaced by a marker file so cmp can prove it was not
-# rebuilt), a plist at BUDDY_PLIST, a .claude.json and a checkout .mcp.json
+# QA-8: the remnants report. A stale buddylist in the bin dir (a marker file,
+# so cmp can prove it was not rebuilt), a plist at BUDDY_PLIST, a .claude.json and a checkout .mcp.json
 # each naming buddylist as an MCP server are each NAMED on one `left alone`
 # line, and none is touched: the marker is byte-identical afterwards and the
 # guard launchctl is never reached, although a plist now exists for step 4 to
@@ -365,10 +378,102 @@ $left"
 done
 cmp -s "$WORK/bin7/buddylist" "$WORK/stale8" || fail "QA-8: the stale buddylist was touched"
 [ -f "$WORK/plist7" ] && [ -f "$WORK/claude7.json" ] && [ -f "$WORK/mcp7.json" ] || fail "QA-8: a remnant was removed"
-echo "$out" | grep -qF 'daemon: skipped (BUDDY_CHAT=off: claims-only install)' || fail "QA-8: the daemon step must be skipped with a plist present:
+echo "$out" | grep -qF 'daemon: skipped (chat off: claims-only install)' || fail "QA-8: the daemon step must be skipped with a plist present:
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-8: no done line"
 [ ! -e "$GUARD/reached" ] || fail "QA-8: the REAL launchctl was reached: $(cat "$GUARD/reached")"
+
+# QA-15 (D-124): the posture is KEPT. A claims-only install, then a re-run and
+# a `buddy update` with BUDDY_CHAT unset, build no buddylist: the operator's
+# laptop, where update from a terminal (no settings env there) built chat
+# again and fetched its modules. "Never built" is read from a recording `go`
+# in front of the real one, which logs every build's package, so the proof
+# does not rest on the module cache being empty (a warm cache builds
+# buddylist without fetching anything); GOPROXY=off besides, so a fetch could
+# only fail. The recorder's control is the switch back (BUDDY_CHAT=on), whose
+# log names ./cmd/buddylist. The first install runs under GOFLAGS=-trimpath,
+# which drops -ldflags from build info unless install.sh overrides it (the
+# cross-check; measured): a stamp it cannot read would put chat back.
+# Every run is under env -u BUDDY_CHAT, so a caller's own value cannot decide
+# a leg. Mutants: the carry-forward dropped (unset is on), -trimpath=false
+# dropped, the chat -X moved after the checkout's; each kills a line below.
+REALGO=$(command -v go)
+mkdir -p "$WORK/recgo" "$WORK/bin15"
+printf '#!/bin/sh\n[ "$1" != build ] || echo "$*" >> "%s/builds15"\nexec %s "$@"\n' "$WORK" "$(shq "$REALGO")" > "$WORK/recgo/go"
+chmod 755 "$WORK/recgo/go"
+cp "$WORK/settings.orig" "$WORK/settings15.json"
+inst15() {
+	rm -f "$WORK/builds15"
+	env -u BUDDY_CHAT PATH="$WORK/recgo:$PATH" GOPROXY=off \
+		BUDDY_BIN_DIR="$WORK/bin15" BUDDY_SKILL_DIR="$WORK/skill15" BUDDY_SETTINGS="$WORK/settings15.json" \
+		BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_LAUNCHCTL="$GUARD/launchctl" \
+		BUDDY_PLIST="$WORK/plist15" BUDDY_CLAUDE_JSON="$WORK/claude15.json" BUDDY_MCP_JSON="$WORK/mcp15.json" \
+		"$@"
+}
+built15() { [ -f "$WORK/builds15" ] && grep -q "\./cmd/$1\$" "$WORK/builds15"; }
+# (a) Claims-only, explicitly, under GOFLAGS=-trimpath.
+out=$(inst15 GOFLAGS=-trimpath BUDDY_CHAT=off sh scripts/install.sh 2>&1) || fail "QA-15a: claims-only install failed:
+$out"
+built15 buddy || fail "QA-15a: the recorder saw no buddy build, so it records nothing: $(cat "$WORK/builds15" 2>/dev/null)"
+built15 buddylist && fail "QA-15a: claims-only built buddylist"
+go version -m "$WORK/bin15/buddy" > "$WORK/vm15" 2>&1 || fail "QA-15a: go version -m failed: $(cat "$WORK/vm15")"
+grep -qF -e "-ldflags=\"-X 'github.com/JsizzleR/buddy-system/internal/cli.installedChat=off'" "$WORK/vm15" ||
+	fail "QA-15a: the installed buddy does not carry the posture first in its flags:
+$(cat "$WORK/vm15")"
+echo "$out" | grep -qxF "install: chat: NOTE — this install is claims-only, but $WORK/settings15.json does not declare BUDDY_CHAT=off, so every session's hello still prints the chat hint (README \"Claims-only\")" ||
+	fail "QA-15a: a claims-only install beside settings that do not say so is noted:
+$out"
+# (b) Re-run, BUDDY_CHAT unset: kept, said before anything is built.
+out=$(inst15 sh scripts/install.sh 2>&1) || fail "QA-15b: re-run failed:
+$out"
+first=$(echo "$out" | sed -n '2p')
+[ "$first" = "install: chat: off (kept: $WORK/bin15/buddy was installed with chat off; BUDDY_CHAT=on on a run changes it)" ] ||
+	fail "QA-15b: the second line must be the kept posture, before any build:
+$out"
+built15 buddy || fail "QA-15b: the recorder saw no buddy build, so the next line tests nothing: $(cat "$WORK/builds15" 2>/dev/null)"
+built15 buddylist && fail "QA-15b: a re-run with BUDDY_CHAT unset built buddylist: $(cat "$WORK/builds15")"
+[ ! -e "$WORK/bin15/buddylist" ] || fail "QA-15b: a buddylist appeared"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-15b: no done line"
+case $ROOT in
+*\'*\"* | *\"*\'*) echo "check-install: QA-15c NOT RUN — this checkout's path holds both quote characters, which install.sh cannot stamp" >&2 ;;
+*)
+# (c) buddy update, the operator's path: the dry run names the posture, and the
+# real run builds no buddylist.
+out=$(cd "$WORK" && inst15 "$WORK/bin15/buddy" update --dry-run </dev/null 2>&1) || fail "QA-15c: update --dry-run failed:
+$out"
+echo "$out" | grep -qxF "  chat       off (kept: the installed buddy was installed with chat off; BUDDY_CHAT=on on a run changes it)" ||
+	fail "QA-15c: the dry run must name the kept posture:
+$out"
+out=$(cd "$WORK" && inst15 "$WORK/bin15/buddy" update </dev/null 2>&1) || fail "QA-15c: update failed:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-15c: update did not run install.sh to its done line:
+$out"
+built15 buddy || fail "QA-15c: update built no buddy, so the leg tested nothing: $(cat "$WORK/builds15" 2>/dev/null)"
+built15 buddylist && fail "QA-15c: buddy update on a claims-only install built buddylist: $(cat "$WORK/builds15")"
+[ ! -e "$WORK/bin15/buddylist" ] || fail "QA-15c: a buddylist appeared"
+;;
+esac
+# (d) The switch back: said as a change, and buddylist IS built (the
+# recorder's control); the settings note now points the other way.
+printf '{"env": {"BUDDY_CHAT": "off"}}\n' > "$WORK/settings15.json"
+out=$(inst15 BUDDY_CHAT=on sh scripts/install.sh 2>&1) || fail "QA-15d: BUDDY_CHAT=on install failed:
+$out"
+echo "$out" | grep -qxF "install: chat: CHANGED from off to on by BUDDY_CHAT=on on this run; every later install keeps on until BUDDY_CHAT says otherwise" ||
+	fail "QA-15d: the switch must say CHANGED:
+$out"
+built15 buddylist || fail "QA-15d: chat on built no buddylist: $(cat "$WORK/builds15" 2>/dev/null)"
+[ -x "$WORK/bin15/buddylist" ] || fail "QA-15d: buddylist missing"
+echo "$out" | grep -qxF "install: chat: NOTE — $WORK/settings15.json declares BUDDY_CHAT=off to every session (hello prints no chat hint), but this install is chat on; to make it claims-only: BUDDY_CHAT=off on a run" ||
+	fail "QA-15d: settings that say off beside a chat install are noted:
+$out"
+# (e) ... and kept on by the next unset run, which rebuilds buddylist.
+out=$(inst15 sh scripts/install.sh 2>&1) || fail "QA-15e: re-run failed:
+$out"
+echo "$out" | grep -qxF "install: chat: on (kept: $WORK/bin15/buddy was installed with chat on; BUDDY_CHAT=off on a run changes it)" ||
+	fail "QA-15e: on is kept:
+$out"
+built15 buddylist || fail "QA-15e: kept on, buddylist must be rebuilt"
+[ ! -e "$GUARD/reached" ] || fail "QA-15: the REAL launchctl was reached: $(cat "$GUARD/reached")"
 
 # QA-9 (D-107): the gate's own line is judged, not grepped. The old fail-open
 # line is named LEGACY with README's entry to paste, and the file is left
@@ -653,6 +758,24 @@ want_l "$got" "install: agent-model hook: wired in $WORK/s14m.json: matcher \"Ag
 wire14 "$WORK/s14m.json" '"Agent"' "$CMD14" '{"matcher": "^Agent$", "hooks": [{"type": "command", "command": "python3 -I /nowhere/agent-model-gate.py"}]}'
 amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
 want_l "$got" "install: agent-model hook: wired in $WORK/s14m.json: matcher \"Agent\" runs $D14 (the copy above); and custom, not verified: matcher \"^Agent$\" not read as an exact list" "a custom entry beside a wired one"
+# QA-15f (after QA-14, whose fake go and stubs it uses): an unstamped buddy
+# with no buddylist beside it (a claims-only install
+# from before D-124) is NOTED, never acted on; one with a buddylist beside it
+# is the control. QA-10's fake go builds, and its `version -m` reads nothing,
+# so the stub buddy is unstamped. BUDDY_CHAT empty is unset.
+note15="NOTE — $WORK/bin15f/buddy records no chat posture (built before D-124, by hand, or under -trimpath) and has no buddylist beside it"
+old "$WORK/bin15f" buddy
+out=$(inst9 "$WORK/settings.orig" BUDDY_CHAT= BUDDY_BIN_DIR="$WORK/bin15f" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs14" 2>&1) ||
+	fail "QA-15f: install over an unstamped buddy failed:
+$out"
+echo "$out" | grep -qF "install: chat: $note15" || fail "QA-15f: the unstamped buddy without buddylist must be noted:
+$out"
+[ -e "$WORK/bin15f/buddylist" ] || fail "QA-15f: the default built no buddylist, so the control below has none beside it"
+out=$(inst9 "$WORK/settings.orig" BUDDY_CHAT= BUDDY_BIN_DIR="$WORK/bin15f" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs14" 2>&1) ||
+	fail "QA-15f: re-run failed:
+$out"
+echo "$out" | grep -qF "records no chat posture (built before" && fail "QA-15f: with buddylist now beside it (the control), no note:
+$out"
 pyc_after=$([ -e scripts/__pycache__ ] && echo yes || echo no)
 [ "$pyc_before" = yes ] || [ "$pyc_after" = no ] || fail "QA-14: the report wrote scripts/__pycache__ into the checkout"
 
@@ -660,8 +783,11 @@ echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempot
 echo "  QA-13 the installed buddy's update names this checkout's install.sh, a dry run runs nothing, and the real run installs,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
 echo "  QA-6 the daemon waits past the old ten-poll window, says what launchd recorded, and fails last (also on a failed"
-echo "  kickstart); fake launchctl, real one guarded; QA-7 BUDDY_CHAT=off builds buddy alone, six-line hook report, the fold;"
-echo "  QA-8 remnants named on one line and left byte-identical; QA-9 the gate line judged from decoded JSON: legacy named with"
+echo "  kickstart); fake launchctl, real one guarded; QA-7 BUDDY_CHAT=off builds buddy alone, six-line hook report, the fold, another value refused;"
+echo "  QA-8 remnants named on one line and left byte-identical; QA-15 the posture is kept by a re-run and by buddy update"
+echo "  (no buddylist build recorded, GOPROXY=off, under GOFLAGS=-trimpath), the dry run names it, BUDDY_CHAT=on switches back,"
+echo "  an unstamped buddy without buddylist noted (and not with one);"
+echo "  QA-9 the gate line judged from decoded JSON: legacy named with"
 echo "  README's entry and the file untouched, custom and no-onFailure not verified, another event's line no gate, no python said;"
 echo "  QA-10 a new buddy whose gate dies fails the install, naming the probe, and the old one stays; QA-11 the probe passes"
 echo "  from a relative BUDDY_BIN_DIR and with a \" in TMPDIR, new builds renamed in; QA-12 a killed buddylist names itself,"

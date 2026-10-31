@@ -69,6 +69,7 @@ import (
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
+	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
 const usageUpdate = "usage: buddy update [--dry-run]   (reinstall from the checkout this buddy was installed from: report\n" +
@@ -78,6 +79,15 @@ const usageUpdate = "usage: buddy update [--dry-run]   (reinstall from the check
 // -ldflags -X. Empty for any other build. A plain var with no initializer:
 // -X sets only such a string.
 var installedFrom string
+
+// installedChat is the chat posture install.sh stamped, "on" or "off" (D-124),
+// so the next install keeps it. Nothing reads the variable in-process: the
+// posture that counts is the one in the FILE install.sh replaces, read from
+// its build info like its commit (readBuilt), never by running it. It exists
+// so the -X has a target; chatStamp is its name in that flag.
+var installedChat string
+
+const chatStamp = buddyModule + "/internal/cli.installedChat"
 
 // buddyModule is the module path a checkout's go.mod must declare to be this
 // project's. A test holds it to the repo's own go.mod.
@@ -99,10 +109,12 @@ type updateSource struct {
 	buildOf func(path string) (b builtFrom, ok bool)
 }
 
-// builtFrom is a build's own vcs stamp: rev "" when it records none.
+// builtFrom is a build's own vcs stamp: rev "" when it records none. chat is
+// its stamped chat posture, "" when it records none.
 type builtFrom struct {
 	rev      string
 	modified bool
+	chat     string
 }
 
 func cmdUpdate(args []string, env Env) int {
@@ -131,9 +143,50 @@ func readBuilt(path string) (builtFrom, bool) {
 			b.rev = s.Value
 		case "vcs.modified":
 			b.modified = s.Value == "true"
+		case "-ldflags":
+			b.chat = chatOf(s.Value)
 		}
 	}
 	return b, true
+}
+
+// chatOf is the posture an install.sh build's -ldflags records. install.sh
+// writes that -X FIRST and single-quoted, so only the start of the value is
+// read: a checkout path later in the flags that spells the same words cannot
+// be taken for it. install.sh's own reading is this one, in sed.
+func chatOf(ldflags string) string {
+	for _, w := range []string{"on", "off"} {
+		if strings.HasPrefix(ldflags, "-X '"+chatStamp+"="+w+"'") {
+			return w
+		}
+	}
+	return ""
+}
+
+// chatAsked is this run's BUDDY_CHAT as install.sh reads it: ASCII
+// whitespace trimmed (sed's [[:space:]] under LC_ALL=C), then the repo's one
+// fold (invariant 13). The fold maps nothing outside ASCII onto o, n or f, so
+// a value on one line is off or on here exactly when it is for install.sh
+// (sed trims each line, so "\noff" is off here and refused there: the
+// divergence falls to a refusal, which installs nothing). "" is unset.
+func chatAsked(env Env) string {
+	return store.Fold(strings.Trim(env.getenv(EnvChat), " \t\n\v\f\r"))
+}
+
+// chatPosture is install.sh's choice, forecast: this run's off or on, else the
+// installed stamp, else on. bad is set when BUDDY_CHAT is anything else,
+// which install.sh refuses.
+func chatPosture(asked, installed string) (posture string, bad bool) {
+	switch asked {
+	case "off", "on":
+		return asked, false
+	case "":
+		if installed != "" {
+			return installed, false
+		}
+		return "on", false
+	}
+	return "", true
 }
 
 func runUpdate(args []string, env Env, src updateSource) int {
@@ -312,21 +365,28 @@ func assess(c string, src updateSource, env Env) updateReport {
 
 	// The installed build: the file install.sh replaces, which is the one
 	// the hooks run (README spells $HOME/bin/buddy; BUDDY_BIN_DIR moves both).
+	// Joined by hand, not filepath.Join, for a value the user gave: Join
+	// cleans `link/..` lexically, and install.sh's shell resolves it through
+	// the link, so the report read one file and install.sh replaced another
+	// (Codex: a posture forecast of off over a bin dir install.sh kept on).
 	binDir := env.getenv("BUDDY_BIN_DIR")
 	if binDir == "" {
 		if h, err := os.UserHomeDir(); err == nil {
 			binDir = filepath.Join(h, "bin")
 		}
 	} else if !filepath.IsAbs(binDir) {
-		binDir = filepath.Join(c, binDir)
+		binDir = c + string(filepath.Separator) + binDir
 	}
 	var inst builtFrom
+	haveInst := false
 	if binDir == "" {
 		add("  installed  no home directory, so where install.sh puts buddy cannot be said")
 	} else {
-		target := filepath.Join(binDir, "buddy")
+		target := binDir + string(filepath.Separator) + "buddy"
 		var ok bool
-		if inst, ok = src.buildOf(target); !ok {
+		inst, ok = src.buildOf(target)
+		haveInst = ok
+		if !ok {
 			add("  installed  no buddy build at %s to compare with; install.sh puts one there", shellQuote(target))
 		} else if isSHA(inst.rev) {
 			mod := ""
@@ -347,6 +407,37 @@ func assess(c string, src updateSource, env Env) updateReport {
 		}
 		if src.exe != "" && src.exe != resolved && src.exe != repoBin {
 			add("  note       this buddy, %s, is not that file: install.sh leaves it as it is", shellQuote(src.exe))
+		}
+	}
+
+	// The chat posture install.sh will use (D-124), said before it runs:
+	// building buddylist fetches its modules, so a claims-only machine must
+	// see "on" here, not after the fetch. Words parallel install.sh's line.
+	asked := chatAsked(env)
+	switch posture, bad := chatPosture(asked, inst.chat); {
+	case bad:
+		// Quoted and fenced: the operator's own value, but a line break in it
+		// would still fabricate report lines (invariant 9).
+		v := strconv.Quote(fence.Line(env.getenv(EnvChat), 64))
+		add("  chat       BUDDY_CHAT=%s is neither off nor on", v)
+		r.refusal = fmt.Sprintf("BUDDY_CHAT=%s is neither off nor on, and install.sh refuses it: set off or on, or unset it to keep what the installed buddy records (D-124)", v)
+	case asked != "" && inst.chat != "" && asked != inst.chat:
+		add("  chat       CHANGED from %s to %s by BUDDY_CHAT=%s; every later install keeps %s until BUDDY_CHAT says otherwise", inst.chat, posture, asked, posture)
+	case asked != "":
+		add("  chat       %s (BUDDY_CHAT=%s on this run; kept by every later install until BUDDY_CHAT says otherwise)", posture, asked)
+	case inst.chat != "":
+		other := "on"
+		if posture == "on" {
+			other = "off"
+		}
+		add("  chat       %s (kept: the installed buddy was installed with chat %s; BUDDY_CHAT=%s on a run changes it)", posture, inst.chat, other)
+	default:
+		add("  chat       on (the default: the installed buddy records no chat posture; BUDDY_CHAT=off on a run makes this install claims-only, and later installs keep it)")
+		// install.sh's NOTE, forecast: said, never acted on (see there).
+		if haveInst && binDir != "" {
+			if _, err := os.Lstat(binDir + string(filepath.Separator) + "buddylist"); os.IsNotExist(err) {
+				add("  chat       NOTE: it has no buddylist beside it; if this install was claims-only (before D-124, by hand, or under -trimpath), run BUDDY_CHAT=off buddy update instead")
+			}
 		}
 	}
 
