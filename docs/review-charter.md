@@ -1229,9 +1229,11 @@ ledger row entered through the CLI (D-006).
     `$BUDDY_BIN_DIR/buddy` exits INCOMPLETE. `--chat` first runs the installed buddy's
     `BUDDY_CHAT=off buddy update` and removes chat only once D-124's stamp reads off. Settings,
     MCP registrations, Codex hooks, ledgers, the journal, core.hooksPath, `.bak`, an edited
-    skill and the Agent-model copy are reported, never touched. Open: an install started
-    after its checks can republish buddy (no lock shared with install.sh). Do not propose a
-    `--purge`, editing settings, killing a daemon, or removing buddy before chat.
+    skill and the Agent-model copy are reported, never touched. Install and uninstall hold ONE
+    lock for their whole run (D-126): `$BUDDY_BIN_DIR/.buddy-install.lock`, a symlink naming
+    the holder's pid and start time, a dead or reused pid taken over; not HOME-keyed, not a
+    mkdir'd directory. Do not propose a `--purge`, editing settings, killing a daemon, or
+    removing buddy before chat.
 
 120. **hello obeys the chat posture install.sh stamped, below an explicit `BUDDY_CHAT` (D-127,
     amends D-124).** `BUDDY_CHAT` (trimmed, store.Fold) `off` mutes the hint and `on` prints it

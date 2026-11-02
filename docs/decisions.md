@@ -9932,9 +9932,9 @@ gets a `bye`, so its row is stale on a reinstall, which is harmless. An interrup
 (plist moved, buddy kept, stamp on) followed by `buddy update` rebuilds buddylist with no
 daemon: finish the uninstall, or restore the plist with the line it printed.
 
-**Open** — an install STARTED after uninstall's checks can republish buddy: install.sh renames
-`buddy.new-<pid>` over `$BUDDY_BIN_DIR/buddy` after uninstall unlinked it, and no lock is shared
-with install.sh (chat-sticks' file; orc-14 takes it as a follow-up after run43). An exported
+**Open** — an install STARTED after uninstall's checks could republish buddy: install.sh renamed
+`buddy.new-<pid>` over `$BUDDY_BIN_DIR/buddy` after uninstall unlinked it, and no lock was shared
+with install.sh. Closed by D-126 (one lock, held by both for their whole run). An exported
 `BUDDY_CHAT` that is not `off` overrides the stamp on a later install or update, and brings chat
 back, so `--chat` stops before anything while one is exported.
 
@@ -9984,6 +9984,96 @@ searchable ancestor). The second
 re-verify (xhigh, the last the ceiling allows) confirmed the first and found the walk climbed past
 a symlinked ancestor into an unsearchable directory; taken (the walk stops at a symlink, which
 must resolve; U-11g), by test and mutation only: no Codex round re-read it.
+
+## D-126 — `install.sh` and `uninstall.sh` share one lock, `$BUDDY_BIN_DIR/.buddy-install.lock`, held for the whole run; a held one stops the other before it changes anything (amends D-125)
+
+2026-11-02 · the operator's decision, in orc-15's pane, to open a lane for D-125's Open
+follow-up; the design is lane install-lock's, under orc-15's brief (run45)
+
+**What was missing** — D-125 recorded it open: an install STARTED after uninstall's checks
+renamed `buddy.new-<pid>` over `$BUDDY_BIN_DIR/buddy` after uninstall had unlinked it, so a
+finished uninstall could leave buddy installed (and its INCOMPLETE line depended on which won).
+Uninstall refused only an install already in flight (a live `.new-<pid>`, an install-skill lock);
+nothing stopped one that started later, and nothing stopped an uninstall under a running install.
+
+**The rule** — both scripts source `scripts/install-lock.sh` and take ONE lock before anything
+else: install.sh before it reads the posture or builds, uninstall.sh before it asks launchd or
+plans. Each holds it to its exit (an EXIT trap; HUP, INT and TERM exit through it). A lock held by
+a live run stops the other with exit 1, changing nothing, naming the holder (script, pid, start
+time, checkout) and what to do: let it finish, then run again, or `rm` the lock if that pid is not
+the run. `buddy update` then prints `install.sh exited 1`; no `internal/cli` change.
+- **Where:** `$BUDDY_BIN_DIR/.buddy-install.lock` (default `~/bin`; a relative bin dir resolved
+  against the checkout, as install.sh does). It is the knob both scripts share for the file the race
+  is about, whichever checkout runs them, and a scratch `BUDDY_BIN_DIR` gets a scratch lock.
+  HOME-keyed was rejected: `check-install.sh` runs install.sh under the REAL HOME with a scratch
+  bin dir, so every done-check would contend with a real install, and the lock would sit in the
+  operator's HOME. Two bin dirs are two installs and share no lock; their skills and daemon steps
+  can still interleave, which is no worse than running them one after the other. An uninstall
+  whose bin dir does not exist makes it for the lock and removes it again at exit if empty.
+- **What:** a symlink whose target text is the holder, made by `ln -sn` (one `symlink(2)`,
+  atomic, failing when the name exists). An atomic `mkdir` directory with a pid file inside was
+  rejected: between the mkdir and the write a killed run leaves a lock that names nobody, which
+  no reader can judge stale. The text starts `/dev/null/`, which never resolves, and `-n` keeps
+  ln from linking INSIDE a symlink to a directory (measured: `ln -s` onto a link to a writable
+  directory "took" the lock). A directory, a file or a foreign symlink at the name is refused,
+  never taken over.
+- **Stale:** the holder is its pid AND that process's start time (`ps -o lstart`, under
+  `LC_ALL=C TZ=UTC0`: ps prints local time, so two runs under different TZs read a live holder as
+  a reused pid). A pid that is gone, or alive but started at another time (pid reuse), is a stale
+  lock: taken over, said as `lock: TOOK OVER … (killed, or its pid reused)`. No start time from
+  ps falls back to the pid alone, which can only err toward refusing. Takeover renames the link
+  aside (of two takers one rename wins) and checks the renamed text is the one judged stale; a
+  lock taken fresh in between is put back, with HUP, INT and TERM ignored while it is aside, so an
+  interrupted taker cannot strand it. Left open: a SIGKILL in that instant, or three runs racing
+  one stale lock, can lose the fresh one; the stop names the aside file.
+- **Nested:** `uninstall --chat` runs `buddy update`, which runs install.sh, inside its lock. It
+  passes its lock text as `BUDDY_INSTALL_LOCK_HELD` on that one command, and an install that
+  finds the lock held by a live holder with exactly that text runs inside it, registered as
+  `<lock>.inner`. The outer run, ending while that install still runs (update killed alone leaves
+  its install child running), HANDS the lock over by one rename onto the inner's text rather than
+  removing it; the install releases it when it ends. The variable is cooperative, like every guard
+  here (D-005, invariant 6).
+- **Dry runs** take no lock and change nothing: `uninstall --dry-run` says a held lock (`would
+  stop`) or a stale one (`would take it over`). install.sh has no dry run; `buddy update
+  --dry-run` runs no install.sh and does not read the lock.
+- **Kept from D-125:** the `.new-<pid>` and install-skill-lock checks, because an install.sh from
+  a checkout older than this decision takes no lock.
+- **Folded here after D-127** (orc-15's ask): hello obeys buddy's posture stamp, so the
+  claims-only settings notes of install.sh (6b') and `uninstall --chat` now speak only when
+  settings declare `BUDDY_CHAT=on`, which outranks the stamp; they no longer ask for an `off`
+  line (QA-15a and b, U-3b).
+
+**Tests** — `scripts/check-uninstall.sh` U-13, the overlap a fixture, never a sleep: the check
+holds the lock as a live run would (its own pid and start time). U-13a: an install under an
+uninstall's lock stops, names it, and the tree is byte-identical. U-13b: the reverse; launchd is
+not even asked. U-13f: a dry run under a held lock plans and says so. U-13c: a dead pid's lock is
+taken over and the run finishes, leaving none. U-13d: a live pid with another start time is taken
+over by an install that does its whole job. U-13e: the real overlap, uninstall's first
+`launchctl print` (the fake's hook) running install.sh while uninstall holds the lock: the
+install stops and changes no binary or skill, and the uninstall removes everything and says
+done. U-13g: a foreign symlink to a writable directory at the name stops an install. U-13h: a
+real install stopped inside its `go build` (a fake go gated on a FIFO, so no sleep) still holds
+its lock, and an uninstall then stops naming it. U-13i: an outer lock ending while its nested
+install runs hands the lock over, a second uninstall stops, and the install's end leaves no lock
+and no `.inner`. The check's installs run under `TZ=XST+11`. U-3's real `--chat` is the nested
+control. Mutations, each watched to fail: install.sh without the take (U-13a) or releasing right
+after it (U-13h), uninstall.sh without it (U-13b), `--chat` without the variable (U-3), the
+start-time comparison dropped (U-13d), the TZ pin dropped (U-13a), `ln -s` without `-n` (U-13g),
+the dry run's report dropped (U-13f), no hand-over (U-13i), no `.inner` (U-13i), and the
+check's own gate never opened (U-13h FAILS at `GATE_LIMIT`, never hangs). The gated install
+holds neither FIFO, so a case failing while one is gated ends it (it once held one, and a
+mutant's failing U-13i left the check blocked for 53 minutes, orc-15); a watchdog bounds each
+gated run (`GATE_LIMIT`, 300 s) and the check's exit ends it. The signal
+deferral during a takeover is held by reading only: no case can deliver a signal in that window.
+
+**Review** — lite (D-104): a scoped self-review, then one Codex code pass (xhigh), folded once
+(D-115). Codex found three defects and a test gap, all taken: the start time followed TZ, so a
+live holder under another TZ was taken over (now UTC); a nested install outlived the uninstall
+that lent it the lock when `buddy update` alone was killed (now handed over, U-13i); an
+interrupted takeover could strand a live run's lock moved aside (now signals deferred there);
+no case saw a real install hold its lock mid-run (U-13h). It found no defect in exit cleanup,
+traps in command substitutions, `ln -sn` on a dangling link, the rename of a link, the
+newline-only `IFS` with globbing off, or the helpers' variables.
 
 ## D-127 — hello reads the chat posture install.sh stamped: a claims-only install prints no chat hint with no settings line; an explicit BUDDY_CHAT off or on outranks the stamp (amends D-124)
 

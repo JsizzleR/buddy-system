@@ -420,11 +420,18 @@ go version -m "$WORK/bin15/buddy" > "$WORK/vm15" 2>&1 || fail "QA-15a: go versio
 grep -qF -e "-ldflags=\"-X 'github.com/JsizzleR/buddy-system/internal/cli.installedChat=off'" "$WORK/vm15" ||
 	fail "QA-15a: the installed buddy does not carry the posture first in its flags:
 $(cat "$WORK/vm15")"
-echo "$out" | grep -qxF "install: chat: NOTE — this install is claims-only, but $WORK/settings15.json does not declare BUDDY_CHAT=off, so every session's hello still prints the chat hint (README \"Claims-only\")" ||
-	fail "QA-15a: a claims-only install beside settings that do not say so is noted:
+# Settings that do not say BUDDY_CHAT: hello obeys the stamp (D-127), so no
+# note; (b) is the control, settings saying on.
+echo "$out" | grep -qF "install: chat: NOTE — this install is claims-only" &&
+	fail "QA-15a: a claims-only install beside settings that do not declare BUDDY_CHAT is noted, but hello obeys the stamp (D-127):
 $out"
-# (b) Re-run, BUDDY_CHAT unset: kept, said before anything is built.
+# (b) Re-run, BUDDY_CHAT unset: kept, said before anything is built; settings
+# now declaring on, which outranks the stamp, is noted (D-127).
+printf '{"env": {"BUDDY_CHAT": " On "}}\n' > "$WORK/settings15.json"
 out=$(inst15 sh scripts/install.sh 2>&1) || fail "QA-15b: re-run failed:
+$out"
+echo "$out" | grep -qxF "install: chat: NOTE — this install is claims-only, but $WORK/settings15.json declares BUDDY_CHAT=on to every session, which outranks the install's stamp, so every session's hello still prints the chat hint; remove it from settings (D-127)" ||
+	fail "QA-15b: settings declaring BUDDY_CHAT=on beside a claims-only install are not noted:
 $out"
 first=$(echo "$out" | sed -n '2p')
 [ "$first" = "install: chat: off (kept: $WORK/bin15/buddy was installed with chat off; BUDDY_CHAT=on on a run changes it)" ] ||

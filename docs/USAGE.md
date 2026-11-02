@@ -542,8 +542,17 @@ the same work.
 - During the final unlink, one hook that checked `[ -x ~/bin/buddy ]` just
   before may find it gone and refuse that one call; after it, no buddy means
   every hook line is silent and the gate is off. Claims stay in the ledger.
-- Not guarded: an install STARTED after its checks can put buddy back. It is
-  the operator's act from a terminal, never a lane's (D-083).
+- **One lock with `install.sh` (D-126).** Both hold
+  `$BUDDY_BIN_DIR/.buddy-install.lock` (a symlink naming the holder's script,
+  pid, start time and checkout) for their whole run, so while one runs the
+  other stops before it changes anything, exits 1 and names the holder
+  (`buddy update` then says `install.sh exited 1`). A lock whose pid is gone,
+  or now belongs to a process started at another time, is taken over and said
+  (`lock: TOOK OVER`). A dry run takes none and says when one is held.
+  `--chat`'s own `buddy update` runs inside the uninstall's lock
+  (`BUDDY_INSTALL_LOCK_HELD`, set by uninstall.sh on that one command, never
+  by hand), and if the uninstall ends first the lock passes to that install. Uninstall is the operator's act from a terminal, never a lane's
+  (D-083).
 
 ## Claims in depth
 

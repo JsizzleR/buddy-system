@@ -46,6 +46,9 @@
 #      installs neither.
 #   A daemon that does not come back fails the install, but at the END: steps
 #   5 and 6 do not depend on it, and dying at step 4 skipped them.
+#   Before step 1 it takes the install lock it shares with uninstall.sh
+#   ($BUDDY_BIN_DIR/.buddy-install.lock, D-126) and holds it to the end; one
+#   held by a live uninstall or install stops it before anything changes.
 #
 # CLAIMS-ONLY (BUDDY_CHAT=off). The architecture promises that claims work with
 # chat entirely absent (CLAUDE.md, invariant 1), but this script always built
@@ -168,6 +171,20 @@ esac
 # Bounded too: a value past the shell's integer range breaks the comparison in
 # the wait, which then reads as that long a wait having expired (Codex).
 [ ${#DAEMON_WAIT} -le 4 ] || die "BUDDY_DAEMON_WAIT must be at most 9999 seconds, not '$DAEMON_WAIT'"
+
+# THE INSTALL LOCK (D-126), shared with uninstall.sh and held for the whole
+# run: an install started while an uninstall ran renamed buddy back in after
+# the uninstall unlinked it (D-125's Open). Taken before the posture is read,
+# since that read is of the buddy an uninstall removes. A held lock stops this
+# run here, before anything is built, exit 1 (`buddy update` then says
+# install.sh exited 1). scripts/install-lock.sh says where, what and why.
+. "$ROOT/scripts/install-lock.sh"
+lock_dir=$BIN_DIR
+case $lock_dir in /*) ;; *) lock_dir=$ROOT/$lock_dir ;; esac
+mkdir -p "$lock_dir" || die "could not create $lock_dir"
+trap 'ilock_release' EXIT
+ilock_signals
+ilock_take install.sh "$lock_dir/.buddy-install.lock"
 
 rev=$(git rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
 dirty=""
@@ -498,14 +515,17 @@ fi
 # would otherwise lose its daemon rebuild at the next schema bump, and the old
 # buddylist then refuses the migrated ledger (D-037; the cross-check, D-124).
 # A disagreement either way is said and acted on by neither. A grep, as step
-# 7's is: a false note only says so.
+# 7's is: a false note only says so. Since D-127 hello obeys the stamp when
+# BUDDY_CHAT says neither off nor on, so a claims-only install needs no
+# settings line; the one claims-only case left to say is settings declaring
+# on, which outranks the stamp and keeps the hint (orc-15's ask, run45).
 if [ -f "$SETTINGS" ]; then
 	sc=$(sed -n 's/.*"BUDDY_CHAT"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SETTINGS" | head -n 1 |
 		LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 	if [ "$sc" = off ] && [ -z "$chat_off" ]; then
 		say "chat: NOTE — $SETTINGS declares BUDDY_CHAT=off to every session (hello prints no chat hint), but this install is chat on; to make it claims-only: BUDDY_CHAT=off on a run"
-	elif [ "$sc" != off ] && [ -n "$chat_off" ]; then
-		say "chat: NOTE — this install is claims-only, but $SETTINGS does not declare BUDDY_CHAT=off, so every session's hello still prints the chat hint (README \"Claims-only\")"
+	elif [ "$sc" = on ] && [ -n "$chat_off" ]; then
+		say "chat: NOTE — this install is claims-only, but $SETTINGS declares BUDDY_CHAT=on to every session, which outranks the install's stamp, so every session's hello still prints the chat hint; remove it from settings (D-127)"
 	fi
 fi
 

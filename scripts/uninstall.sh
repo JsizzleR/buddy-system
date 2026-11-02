@@ -73,10 +73,16 @@
 # chat SERVER, not buddy's), a buddylist process launchd does not own (never
 # signalled), and any file not identified as ours.
 #
-# NOT GUARDED: an install STARTED after this one's checks can republish what it
-# removes (no lock is shared with install.sh). One in flight is refused: an
-# install-skill lock or a `<target>.new-<pid>` build beside a target, checked
-# first and again just before buddy goes.
+# ONE LOCK WITH install.sh (D-126): an install STARTED after this one's checks
+# republished what it removed (D-125's Open), so both hold
+# $BUDDY_BIN_DIR/.buddy-install.lock for their whole run, and either stops,
+# changing nothing, while the other holds it (scripts/install-lock.sh). --chat's
+# own `buddy update` runs inside this run's lock, named to it by
+# BUDDY_INSTALL_LOCK_HELD, and is handed the lock if this run ends first. A
+# dry run takes no lock and says when one is held.
+# An install from a checkout older than D-126 takes none, so what was refused
+# before still is: an install-skill lock or a `<target>.new-<pid>` build
+# beside a target, checked first and again just before buddy goes.
 #
 # KNOBS: install.sh's, with the same defaults: BUDDY_BIN_DIR, BUDDY_SKILL_DIR,
 # BUDDY_FLEET_SKILL_DIR, BUDDY_PLIST, BUDDY_LAUNCHCTL, BUDDY_REPO_BIN=off,
@@ -173,6 +179,25 @@ die() {
 	[ -z "$flipped" ] || echo "uninstall: NOTE — $BIN_DIR/buddy is already rebuilt claims-only (chat off), so chat is still installed and RUNNING and no later install rebuilds its buddylist: run this again once that is fixed, or put chat back: BUDDY_CHAT=on sh <checkout>/scripts/install.sh" >&2
 	exit 1
 }
+
+# The install lock (D-126; see the header), taken before launchd is asked or
+# anything is planned, and held to the end. A missing bin dir is made for it
+# and removed again at exit if still empty: with no directory there is no
+# lock, and an install creates the directory before it takes one.
+. "$ROOT/scripts/install-lock.sh"
+LOCK=$BIN_DIR/.buddy-install.lock
+made_bin=""
+if [ -n "$dry" ]; then
+	ilock_peek "$LOCK"
+else
+	if [ ! -d "$BIN_DIR" ]; then
+		mkdir -p -- "$BIN_DIR" || die "could not create $BIN_DIR to hold the install lock in; nothing was removed."
+		made_bin=1
+	fi
+	trap 'ilock_release; [ -z "$made_bin" ] || rmdir -- "$BIN_DIR" 2>/dev/null || true' EXIT
+	ilock_signals
+	ilock_take uninstall.sh "$LOCK"
+fi
 
 dest() {
 	case $1 in
@@ -315,7 +340,8 @@ if [ -n "$chat_only" ]; then
 		[ "$rc" -eq 0 ] || die "buddy update --dry-run exited $rc, so --chat would stop there; nothing was removed."
 	else
 		say "running: BUDDY_CHAT=off $(shq "$BIN_DIR/buddy") update"
-		env BUDDY_CHAT=off "$BIN_DIR/buddy" update </dev/null && rc=0 || rc=$?
+		# Inside this run's lock: the install it runs would otherwise stop on it.
+		env BUDDY_CHAT=off BUDDY_INSTALL_LOCK_HELD="$ILOCK_ME" "$BIN_DIR/buddy" update </dev/null && rc=0 || rc=$?
 		# install.sh renames the new buddy in before its later steps (skills,
 		# setup-clone), so a failed update can already have stamped it off
 		# while chat still runs (the Fable lens): read, never assumed.
@@ -443,8 +469,13 @@ if [ -f "$SETTINGS" ]; then
 	fi
 	if grep -q '"BUDDY_CHAT"' "$SETTINGS" && [ -z "$chat_only" ]; then
 		say "settings: $SETTINGS sets BUDDY_CHAT in env; it does nothing without buddy, remove it by hand if you like"
-	elif [ -n "$chat_only" ] && ! grep -q '"BUDDY_CHAT"[[:space:]]*:[[:space:]]*"off"' "$SETTINGS"; then
-		say "settings: add \"env\": {\"BUDDY_CHAT\": \"off\"} to $SETTINGS so each session's hello prints no chat hint (README, Claims-only)"
+	elif [ -n "$chat_only" ]; then
+		# Since D-127 hello obeys buddy's off stamp unless BUDDY_CHAT says off
+		# or on, so only an `on` in settings keeps the hint; read as install.sh
+		# reads it (trimmed, lower-cased). A grep: a false note only says so.
+		sc=$(sed -n 's/.*"BUDDY_CHAT"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SETTINGS" | head -n 1 |
+			LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+		[ "$sc" != on ] || say "settings: $SETTINGS declares BUDDY_CHAT=on to every session, which outranks buddy's claims-only stamp, so each session's hello still prints the chat hint; remove it from settings (D-127)"
 	fi
 fi
 # MCP registrations. ~/.claude.json keeps a local-scope one under each

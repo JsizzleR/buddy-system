@@ -25,7 +25,11 @@ unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON
 
 fail() { echo "check-uninstall: FAIL — $*" >&2; exit 1; }
 WORK=$(mktemp -d) || fail "mktemp failed"
-trap 'rm -rf "$WORK"' EXIT INT TERM
+# The gated install's watchdog (U-13h/i) too: a case that fails while one is
+# armed left it sleeping out its bound (measured under a mutant).
+# `|| true`: under set -e a failed kill of a watchdog already ended set the
+# check's status to 1 after its ok line (measured).
+trap '[ -z "${gwd:-}" ] || kill "$gwd" 2>/dev/null || true; rm -rf "$WORK"' EXIT INT TERM
 gocache=$(go env GOCACHE) gomodcache=$(go env GOMODCACHE)
 AGENT=com.buddy-system.buddylistd
 macos=""
@@ -53,6 +57,11 @@ cat > "$FAKE/launchctl" <<'EOF'
 echo "$*" >> "$FAKE_DIR/calls"
 case $1 in
 print)
+	# FAKE_ON_PRINT: a script run once, at the first print, which uninstall
+	# asks while it holds the install lock (U-13e: the real overlap).
+	if [ -n "${FAKE_ON_PRINT:-}" ] && [ ! -e "$FAKE_DIR/on-print.rc" ]; then
+		sh "$FAKE_ON_PRINT" > "$FAKE_DIR/on-print.out" 2>&1 && echo 0 > "$FAKE_DIR/on-print.rc" || echo $? > "$FAKE_DIR/on-print.rc"
+	fi
 	[ -z "${FAKE_PRINT_RC:-}" ] || exit "$FAKE_PRINT_RC"
 	[ -f "$FAKE_DIR/loaded" ] || exit 113
 	[ -z "${FAKE_NO_PROGRAM:-}" ] || { printf 'gui/501/x = {\n\tstate = running\n}\n'; exit 0; }
@@ -69,11 +78,11 @@ chmod +x "$FAKE/launchctl" "$GUARD/launchctl"
 # byte-identical. cp to NEW paths only (never over a running Mach-O).
 R=$WORK/case
 setup() {
-	rm -rf "$R" "$FAKE/calls" "$FAKE/loaded"
+	rm -rf "$R" "$FAKE/calls" "$FAKE/loaded" "$FAKE/on-print.rc" "$FAKE/on-print.out"
 	cp -Rp "$P" "$R"
 	LA=$R/home/Library/LaunchAgents
 	mkdir -p "$R/co/scripts" "$R/co/bin" "$R/daemon" "$LA" "$R/home/.buddylist" "$R/home/.codex"
-	cp scripts/uninstall.sh "$R/co/scripts/"
+	cp scripts/uninstall.sh scripts/install-lock.sh "$R/co/scripts/"
 	cp -R skills "$R/co/skills"
 	mkrepo "$R/co"
 	git -C "$R/co" config core.hooksPath .githooks
@@ -108,7 +117,8 @@ EOF
 # snap: every file and link under the case, with its checksum.
 # Go's own telemetry counters under the scratch HOME are not ours (every
 # `go version -m` bumps one; measured on U-3c), so they are not in it.
-snap() { (cd "$R" && find . \( -type f -o -type l \) ! -path './home/Library/Application Support/go/*' | LC_ALL=C sort | while IFS= read -r f; do cksum "$f"; done); }
+# A link by its text: the install lock is a link that resolves to nothing.
+snap() { (cd "$R" && find . \( -type f -o -type l \) ! -path './home/Library/Application Support/go/*' | LC_ALL=C sort | while IFS= read -r f; do if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink "$f")"; else cksum "$f"; fi; done); }
 kept() { [ "$(cksum $KEEP)" = "$keep_sum" ] || fail "$1: a file uninstall must never touch changed:
 $(cksum $KEEP)"; }
 # un: uninstall.sh from the scratch checkout, everything pointed into $R.
@@ -411,6 +421,222 @@ $out"
 gone "$R/my co[x]/bin/buddy" "$R/my co[x]/bin/buddylist" "$R/bin/buddy"
 there "$R/my cox/bin/buddy"
 
+# U-13: the install lock install.sh and uninstall.sh share (D-126). The test
+# holds it itself, as a live run would (this shell's pid and start time), so
+# the overlap is a fixture, never a race; U-13e is the real one, through the
+# fake launchctl. U-4 is the control for every refusal (the same case,
+# unlocked), the prototype install and U-13d the install's.
+. "$ROOT/scripts/install-lock.sh"
+LK=$R/bin/.buddy-install.lock
+hold() { # hold <by> <pid> <started>: a lock as install-lock.sh writes one
+	ln -sn "$ILOCK_TAG pid=$2 by=$1 started=$3; from=/the/test" "$LK"
+}
+me_started=$(ilock_started $$)
+[ -n "$me_started" ] || fail "U-13: ps gives no start time for this shell, so the lock cases cannot be built"
+# A TZ of its own: the lock's start time must not depend on it (Codex: ps
+# prints local time, and a live holder read as a reused pid).
+inst() { # install.sh, this checkout's, every knob into $R
+	env HOME="$R/home" PATH="${IPATH:-}$GUARD:$PATH" TZ=XST+11 GOCACHE="$gocache" GOMODCACHE="$gomodcache" \
+		BUDDY_BIN_DIR="$R/bin" BUDDY_SKILL_DIR="$R/skills/buddy" BUDDY_SETTINGS="$R/none.json" \
+		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$R/none-mcp.json" \
+		BUDDY_CLAUDE_JSON="$R/home/.claude.json" sh "$ROOT/scripts/install.sh"
+}
+# U-13a: an uninstall holds the lock, so an install changes nothing, says who
+# holds it, and exits 1.
+label=U-13a; setup; hold uninstall.sh $$ "$me_started"; before=$(snap)
+out=$(inst 2>&1) && fail "U-13a: an install under a live uninstall's lock must stop:
+$out"
+echo "$out" | grep -qF "install: FAILED — uninstall.sh (pid $$, started $me_started, from /the/test) holds $LK, so a buddy install or uninstall is running; nothing was changed" || fail "U-13a: the stop does not name the holder:
+$out"
+[ "$(snap)" = "$before" ] || fail "U-13a: a stopped install changed the tree:
+$out"
+# U-13b: the reverse: an install holds it, so an uninstall removes nothing,
+# and asks launchd nothing.
+XENV=; label=U-13b; setup; hold install.sh $$ "$me_started"; before=$(snap)
+out=$(un 2>&1) && fail "U-13b: an uninstall under a live install's lock must stop:
+$out"
+echo "$out" | grep -qF "uninstall: STOPPED — install.sh (pid $$, started $me_started, from /the/test) holds $LK" || fail "U-13b: the stop does not name the holder:
+$out"
+[ "$(snap)" = "$before" ] || fail "U-13b: a stopped uninstall changed the tree:
+$out"
+[ ! -s "$FAKE/calls" ] || fail "U-13b: launchd was asked before the lock was taken:
+$(cat "$FAKE/calls")"
+# U-13f: a dry run takes no lock: it says a held one and plans as ever.
+label=U-13f; setup; hold install.sh $$ "$me_started"; before=$(snap)
+out=$(un --dry-run 2>&1) || fail "U-13f: a dry run must not stop on the lock:
+$out"
+echo "$out" | grep -qF "uninstall: lock: NOTE — install.sh (pid $$, started $me_started, from /the/test) holds $LK; a real run now would stop" || fail "U-13f: the dry run does not say the lock is held:
+$out"
+[ "$(snap)" = "$before" ] || fail "U-13f: a dry run changed the tree"
+# U-13g: a symlink at the lock's name that neither script wrote, to a
+# writable directory, is refused, never taken: `ln -s` without -n linked
+# INSIDE the directory and read as taken (measured on /etc and a scratch dir).
+label=U-13g; setup; mkdir -p "$R/elsewhere"; ln -s "$R/elsewhere" "$LK"; before=$(snap)
+out=$(inst 2>&1) && fail "U-13g: an install over a foreign symlink at the lock must stop:
+$out"
+echo "$out" | grep -qF "$LK is a symlink neither install.sh nor uninstall.sh wrote (it names $R/elsewhere)" || fail "U-13g: the stop does not name the link:
+$out"
+[ "$(snap)" = "$before" ] || fail "U-13g: a stopped install changed the tree:
+$out"
+# U-13c: a lock whose pid is dead (a killed run) is taken over, said, and the
+# run finishes and leaves no lock.
+label=U-13c; setup
+sh -c 'exit 0' & dead=$!; wait "$dead" || true
+hold install.sh "$dead" "$me_started"
+out=$(un 2>&1) || fail "U-13c: a dead holder's lock must not stop the run:
+$out"
+echo "$out" | grep -qF "uninstall: lock: TOOK OVER $LK from install.sh (pid $dead," || fail "U-13c: the takeover is not said:
+$out"
+gone $bins "$LK"
+echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-13c: no done line:
+$out"
+# U-13d: a live pid that started at another time is a reused pid, not the
+# holder: an install takes it over, does its whole job and releases.
+label=U-13d; setup; hold uninstall.sh $$ "Thu Jan 1 00:00:00 1970"
+out=$(inst 2>&1) || fail "U-13d: an install over a reused pid's lock failed:
+$out"
+echo "$out" | grep -qF "install: lock: TOOK OVER $LK from uninstall.sh (pid $$, started Thu Jan 1 00:00:00 1970" || fail "U-13d: the takeover is not said:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "U-13d: no done line:
+$out"
+gone "$LK"
+# U-13e: the real overlap: uninstall's first launchctl print runs install.sh
+# while uninstall holds the lock. The install stops, changing no binary or
+# skill, and the uninstall then removes everything, buddy too, and says done.
+label=U-13e; setup
+cat > "$WORK/on-print.sh" <<HOOK
+cksum "$R/bin/buddy" "$R/bin/buddylist" "$R/skills/buddy/SKILL.md"
+env HOME="$R/home" GOCACHE="$gocache" GOMODCACHE="$gomodcache" BUDDY_BIN_DIR="$R/bin" \\
+	BUDDY_SKILL_DIR="$R/skills/buddy" BUDDY_SETTINGS="$R/none.json" BUDDY_DAEMON=off \\
+	BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$R/none-mcp.json" \\
+	sh "$ROOT/scripts/install.sh" && rc=0 || rc=\$?
+cksum "$R/bin/buddy" "$R/bin/buddylist" "$R/skills/buddy/SKILL.md"
+exit \$rc
+HOOK
+XENV=FAKE_ON_PRINT=$WORK/on-print.sh
+out=$(un 2>&1) || fail "U-13e: uninstall failed:
+$out"
+XENV=
+[ "$(cat "$FAKE/on-print.rc" 2>/dev/null)" = 1 ] || fail "U-13e: the install run inside uninstall's lock did not stop (status $(cat "$FAKE/on-print.rc" 2>/dev/null)):
+$(cat "$FAKE/on-print.out" 2>/dev/null)"
+grep -qF "install: FAILED — uninstall.sh (pid " "$FAKE/on-print.out" || fail "U-13e: the install does not name the uninstall holding the lock:
+$(cat "$FAKE/on-print.out")"
+grep -q '^install: built' "$FAKE/on-print.out" && fail "U-13e: the install built something under the lock"
+[ "$(head -3 "$FAKE/on-print.out")" = "$(grep -v '^install: ' "$FAKE/on-print.out" | tail -3)" ] || fail "U-13e: a binary or skill changed under the lock:
+$(cat "$FAKE/on-print.out")"
+gone $bins $skillmds "$LK"
+echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-13e: no done line:
+$out"
+
+# A gated go: `go build` says ready on GATE_READY and blocks until a line
+# arrives on GATE_GO, then fails; everything else is the real go. With both
+# FIFOs held open read-write here, nothing blocks on an open, and a run that
+# ends before its build says so on the ready FIFO instead of hanging the check.
+mkdir -p "$WORK/gatego"
+realgo=$(command -v go)
+cat > "$WORK/gatego/go" <<EOF
+#!/bin/sh
+if [ "\$1" = build ]; then
+	echo ready > "\$GATE_READY"
+	read -r x < "\$GATE_GO" || x=eof
+	[ "\$x" = go ] || { echo "gated go build: TIMED OUT (\$x)" >&2; exit 1; }
+	echo "gated go build: released" >&2; exit 1
+fi
+exec "$realgo" "\$@"
+EOF
+chmod +x "$WORK/gatego/go"
+mkfifo "$WORK/gate.ready" "$WORK/gate.go"
+exec 4<>"$WORK/gate.ready" 5<>"$WORK/gate.go"
+# gated_inst: install.sh in the background, stopped inside its first build
+# with the lock held; returns once it is there. The group and the install
+# hold neither FIFO open (the fake go opens the go FIFO by path), so a case
+# that fails while one is gated ends it: this shell's exit closes the last
+# writer and the fake build reads EOF. They did hold them, and a failing
+# U-13i under a mutant left the install blocked for good, holding the
+# caller's stdout (orc-15, measured: 53 min). A watchdog bounds each gated
+# run at GATE_LIMIT seconds (default 300) and makes a hang a FAIL, never a
+# wait: it says timeout on both FIFOs. Its status is caught, never
+# left to set -e: the group inherits it, and an install that failed as the
+# fake build makes it ended the group before it said so, hanging the check
+# on the FIFO (measured).
+gated_inst() {
+	IPATH="$WORK/gatego:"
+	{
+		exec 5>&-
+		export GATE_READY="$WORK/gate.ready" GATE_GO="$WORK/gate.go"
+		[ -z "$1" ] || export BUDDY_INSTALL_LOCK_HELD="$1"
+		inst > "$WORK/gated.out" 2>&1 4>&- && grc=0 || grc=$?
+		echo "exited $grc" >&4
+	} &
+	gated=$!
+	IPATH=
+	(
+		exec 4>&- 5>&- </dev/null >/dev/null 2>&1
+		sleep "${GATE_LIMIT:-300}" &
+		gs=$!
+		trap 'kill "$gs" 2>/dev/null; exit 0' TERM
+		wait "$gs"
+		echo timeout > "$WORK/gate.ready"
+		echo timeout > "$WORK/gate.go"
+	) &
+	gwd=$!
+	read -r r <&4
+	[ "$r" = ready ] || { kill "$gwd" 2>/dev/null || true; fail "$label: the install never reached its build ($r):
+$(cat "$WORK/gated.out")"; }
+}
+gate_open() { # let the gated install go on, and see it end
+	echo go >&5
+	wait "$gated" || true
+	read -r r <&4
+	kill "$gwd" 2>/dev/null || true
+	! grep -q 'gated go build: TIMED OUT' "$WORK/gated.out" || fail "$label: the gated install was held past ${GATE_LIMIT:-300}s, so the case hung:
+$(cat "$WORK/gated.out")"
+	[ "$r" = "exited 1" ] || fail "$label: the gated install did not end as its fake build made it ($r):
+$(cat "$WORK/gated.out")"
+}
+# U-13h: a REAL install holds its lock for its whole run: stopped inside its
+# build, an uninstall stops naming it and changes nothing; once the install
+# ends, no lock is left (Codex: U-13a..g never saw a live install's lock).
+label=U-13h; setup
+gated_inst ""
+before=$(snap)
+out=$(un 2>&1) && rc=0 || rc=$?
+after=$(snap)
+gate_open
+[ "$rc" -ne 0 ] || fail "U-13h: an uninstall while an install runs must stop:
+$out"
+echo "$out" | grep -qF "uninstall: STOPPED — install.sh (pid " || fail "U-13h: the stop does not name the running install:
+$out"
+[ "$after" = "$before" ] || fail "U-13h: a stopped uninstall changed the tree:
+$out"
+gone "$LK"
+# U-13i: the hand-over. The check, as an uninstall holding the lock, runs a
+# nested install (BUDDY_INSTALL_LOCK_HELD, as --chat's update does) and ends
+# while that install still runs, as when update alone is killed (Codex). The
+# lock passes to the install, so a second uninstall stops; when the install
+# ends, no lock and no .inner is left.
+label=U-13i; setup
+say() { printf '%s\n' "$*" >> "$WORK/say.out"; }
+die() { fail "U-13i: the check's own lock: $*"; }
+shq() { printf "'%s'" "$1"; }
+rm -f "$WORK/say.out"
+ilock_take uninstall.sh "$LK"
+gated_inst "$ILOCK_ME"
+case $(readlink "$LK.inner" 2>/dev/null) in *" by=install.sh "*) ;; *) fail "U-13i: the nested install did not register in $LK.inner:
+$(cat "$WORK/gated.out")" ;; esac
+ilock_release
+[ "$(readlink "$LK" 2>/dev/null)" = "$(readlink "$LK.inner" 2>/dev/null)" ] || fail "U-13i: ending, the outer run did not hand the lock to its running install:
+$(cat "$WORK/say.out" 2>/dev/null)"
+grep -qF "lock: handed $LK to the install.sh this run started" "$WORK/say.out" || fail "U-13i: the hand-over is not said"
+out=$(un 2>&1) && rc=0 || rc=$?
+gate_open
+[ "$rc" -ne 0 ] || fail "U-13i: an uninstall while the handed-to install runs must stop:
+$out"
+echo "$out" | grep -qF "uninstall: STOPPED — install.sh (pid " || fail "U-13i: the stop does not name the install:
+$out"
+gone "$LK" "$LK.inner"
+exec 4>&- 5>&-
+
 # U-3: --chat. Real path when install.sh stamps the posture (D-124), else the
 # stop it must make, and the success path against a stamped STUB buddy.
 label=U-3
@@ -474,7 +700,7 @@ there "$R/bin/buddy" "$R/co/bin/buddy" $skillmds
 grep -q '^bootout' "$FAKE/calls" || fail "U-3b: the daemon was not booted out"
 [ -z "$macos" ] || gone "$(plist)"
 kept U-3b
-echo "$out" | grep -qF 'add "env": {"BUDDY_CHAT": "off"}' || fail "U-3b: the hello hint is not named (the fixture's env says on):
+echo "$out" | grep -qF "settings: $R/settings.json declares BUDDY_CHAT=on to every session, which outranks buddy's claims-only stamp" || fail "U-3b: settings declaring on are not named (the fixture's env says on; D-127):
 $out"
 echo "$out" | tail -1 | grep -qx 'uninstall: done: the chat half is removed and buddy stays, claims-only' || fail "U-3b: no done line:
 $out"
