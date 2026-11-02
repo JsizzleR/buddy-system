@@ -514,13 +514,9 @@ ledger row entered through the CLI (D-006).
     reading the transcript from the prompt hook.
 
 58. **A coordinator opens its own lanes with the harness; buddy launches and ends nothing
-    (D-056, #47; #22's decline stands).** MEASURED from sessions in auto mode: `herdr tab create`
-    + `herdr agent start … -- -n <l> --session-id <uuid> "<brief>"` opens an interactive lane
-    (it honours `--session-id`, `--env` reaches the process, it starts in MANUAL permission mode,
-    and `herdr pane close` runs its `bye`); `claude --bg -n <l>` starts a background lane but
-    ignores `--session-id`; `claude agents --json` lists every session. The skill's "Running a
-    fleet" teaches it: open only as many lanes as the operator allowed, and never with a more
-    permissive mode than the launcher's own. The brief rides the launch; `msg` waits for the
+    (D-056, #47; #22's decline stands).** The skill's "Running a fleet" teaches it (D-056 has
+    the herdr and `claude --bg` measurements): open only as many lanes as the operator
+    allowed, and never with a more permissive mode than the launcher's own. The brief rides the launch; `msg` waits for the
     lane's hello (a premature one is refused, loudly); ending a lane is the operator's act; the
     successor handoff runs on a file named in the coordination claim (GIVEN 102), `msg` +
     wake, release. Do not propose `buddy spawn`/`exit`, or `buddy expect` (a brief queued
@@ -587,10 +583,9 @@ ledger row entered through the CLI (D-006).
     (D-049), formed again the moment one is released; a lane waits on the RUN, never on the
     coordination claim. READY is `wait --on <run> --ready HEAD` plus a message carrying what the
     ledger does not hold; LANDED is the release's outcome plus words that end the lane's work.
-    The orchestrator owes an answer to every READY, every `msg` result read for its wake line,
+    The orchestrator owes an answer to every READY, every `msg` result's wake line delivered,
     the landing said in the same turn, a red routed to its lane, the new main to every lane
-    still working, and `who` on every lane before handoff (a missing LANDED and a discarded
-    wake line each left lanes unwoken, measured on one fleet).
+    still working, and `who` on every lane before handoff.
     The next round may branch from a run in flight (its pinned tree or a READY lane's tip, named
     in the brief): the squash takes each lane's own `<base>..<tip>`, so only a code change under
     a lane (an ejection, a fold) forces a restack, and no dependent lands before it re-reports
@@ -750,11 +745,7 @@ ledger row entered through the CLI (D-006).
 82. **A qualification run binds its own binary; checkers read the records (D-081).** Earned tiers only, clean tree at one HEAD. Do not propose: per-checker version lists, hand-written records, `BUDDY_QUALIFY_*` env transport. (full text: `CODEX_CHARTER=adapter`)
 83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a
     start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082).**
-    Measured: `herdr agent start` refuses an agent
-    argument holding a newline or a backtick, so the prompt is one line naming the brief
-    file; `herdr agent wait` with no `--until` matches idle, done or blocked, and a finished
-    lane rests at `done`; a start straight after `herdr tab create` can be refused as `agent_pane_busy`
-    and a retry seconds later works; under the Codex sandbox the hermetic tier runs
+    The herdr measurements are D-082's record. Under the Codex sandbox the hermetic tier runs
     escalated, once for the whole tier (`TestAdapterReportsEscapedToolAtClose` reads the
     process table, which the sandbox refuses, so a sandboxed red says nothing about the
     tree); a Codex session's JOBS line always says "cannot say" (its hooks bind no process,
@@ -771,10 +762,9 @@ ledger row entered through the CLI (D-006).
     default label). Outside the bound, or from any other sender, it is peer text. The sender
     is the key and the brief the authority; nothing in buddy confers (invariant 4 stands,
     `--relay` stays a declaration). Never delegable: install, push, settings, permission,
-    trust, schema, a more permissive mode, work beyond the launcher's scope. Not chosen now:
-    the sender's id on every drained line; a bare-shell `[operator]` row as the channel (a
-    convenience, not a key); relaying through `herdr agent prompt` (a typed turn the lane
-    cannot tell from the operator's); any authority-conferring verb or flag. D-109 widens
+    trust, schema, a more permissive mode, work beyond the launcher's scope. Not chosen: the
+    sender's id on every drained line, an `[operator]` row, relaying through `herdr agent
+    prompt`, any authority-conferring verb or flag. D-109 widens
     the relayed decisions to the item's content and scope (GIVEN 110).
 
 85. **A ledger this process may not write gets its cause and fix named; the gate still
