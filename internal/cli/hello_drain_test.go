@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -415,57 +418,158 @@ func TestHelloClaimsRemainderFitsItsReserve(t *testing.T) {
 	}
 }
 
-// The chat hint obeys BUDDY_CHAT (EnvChat). A claims-only install has no
-// buddylist MCP server, and every session there was told at SessionStart to
-// call chat_read/chat_send anyway: ~500 bytes a session, and an instruction
-// that could only fail. `off` — trimmed, folded by the repo's one rule — prints
-// NO chat line; every other value, unset included, prints the softened hint.
+// The chat hint obeys BUDDY_CHAT (EnvChat), then the posture install.sh
+// stamped into the binary (D-127). A claims-only install has no buddylist MCP
+// server, and every session there was told at SessionStart to call
+// chat_read/chat_send anyway: ~500 bytes a session, and an instruction that
+// could only fail. `off` — trimmed, folded by the repo's one rule — prints NO
+// chat line, `on` prints the softened hint, whatever the stamp says; any other
+// value, unset included, leaves it to the stamp, and an unstamped binary (the
+// stamp "") prints the hint for everything but off, exactly as before D-127.
 // It is configuration, not a probe: "0" is not off, so a misspelling is loud
 // in the operator's `env` rather than silently honoured.
+//
+// The unstamped rows are the positive control for the stamped ones: the same
+// knob values, the hint present, so a stamp-off row that loses its hint is the
+// stamp's doing. Mutation (drop the stamp read in chatOff): every stamp-off
+// row whose BUDDY_CHAT is not on or off fails.
 func TestHelloChatHintObeysBuddyChat(t *testing.T) {
 	boundedParallel(t)
 	const hint = "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read "
-	cases := []struct {
+	type knob struct {
 		name  string
 		set   bool // false = unset, the default
 		value string
-		hint  bool
-	}{
-		{"unset", false, "", true},
-		{"off", true, "off", false},
-		{"OFF with trailing space", true, "OFF ", false},
-		{"on", true, "on", true},
-		{"0 is not off", true, "0", true},
-		{"empty is unset", true, "", true},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t)
-			f.initAndHello(t)
-			if tc.set {
-				f.env[EnvChat] = tc.value
-			} else {
-				delete(f.env, EnvChat)
+	knobs := []knob{
+		{"unset", false, ""},
+		{"off", true, "off"},
+		{"OFF with trailing space", true, "OFF "},
+		{"on", true, "on"},
+		{"On padded", true, " On "},
+		{"0 is not off", true, "0"},
+		{"empty is unset", true, ""},
+	}
+	// The decision, spelled out per row rather than recomputed, so a table
+	// that agrees with a wrong chatOff cannot be written by accident.
+	cases := []struct {
+		stamp string
+		hint  map[string]bool // knob name -> hint printed
+	}{
+		{"", map[string]bool{"unset": true, "off": false, "OFF with trailing space": false, "on": true, "On padded": true, "0 is not off": true, "empty is unset": true}},
+		{"on", map[string]bool{"unset": true, "off": false, "OFF with trailing space": false, "on": true, "On padded": true, "0 is not off": true, "empty is unset": true}},
+		{"off", map[string]bool{"unset": false, "off": false, "OFF with trailing space": false, "on": true, "On padded": true, "0 is not off": false, "empty is unset": false}},
+	}
+	for _, c := range cases {
+		for _, k := range knobs {
+			want, ok := c.hint[k.name]
+			if !ok {
+				t.Fatalf("stamp %q: no decision for knob %q", c.stamp, k.name)
 			}
-			out := helloB(t, f)
-			// Positive control for the knob: the digest was produced and the
-			// claims register is there whatever the knob says.
-			if !strings.Contains(out, "BUDDY: you are session") || !strings.Contains(out, "BUDDY: no live claims.") {
-				t.Fatalf("digest missing its fixed lines:\n%s", out)
-			}
-			got := strings.Contains(out, hint)
-			if got != tc.hint {
-				t.Fatalf("BUDDY_CHAT=%q (set=%v): want hint=%v, got %v:\n%s", tc.value, tc.set, tc.hint, got, out)
-			}
-			if !tc.hint {
-				// Nothing about chat at all: no replacement line, since the
-				// knob cannot prove "no chat here".
-				for _, word := range []string{"buddylist MCP", "chat_read", "chat_send"} {
-					if strings.Contains(out, word) {
-						t.Fatalf("BUDDY_CHAT=%q must print nothing about chat; found %q:\n%s", tc.value, word, out)
+			t.Run("stamp="+c.stamp+"/"+k.name, func(t *testing.T) {
+				f := newFixture(t)
+				f.chatStamp = c.stamp
+				f.initAndHello(t)
+				if k.set {
+					f.env[EnvChat] = k.value
+				} else {
+					delete(f.env, EnvChat)
+				}
+				out := helloB(t, f)
+				// Positive control for the knob: the digest was produced and
+				// the claims register is there whatever the knob says.
+				if !strings.Contains(out, "BUDDY: you are session") || !strings.Contains(out, "BUDDY: no live claims.") {
+					t.Fatalf("digest missing its fixed lines:\n%s", out)
+				}
+				got := strings.Contains(out, hint)
+				if got != want {
+					t.Fatalf("stamp %q, BUDDY_CHAT=%q (set=%v): want hint=%v, got %v:\n%s", c.stamp, k.value, k.set, want, got, out)
+				}
+				if !want {
+					// Nothing about chat at all: no replacement line, since
+					// neither knob nor stamp can prove "no chat here".
+					for _, word := range []string{"buddylist MCP", "chat_read", "chat_send"} {
+						if strings.Contains(out, word) {
+							t.Fatalf("stamp %q, BUDDY_CHAT=%q must print nothing about chat; found %q:\n%s", c.stamp, k.value, word, out)
+						}
 					}
 				}
+			})
+		}
+	}
+}
+
+// The stamp the table above plays through Env.ChatStamp is the one install.sh
+// really writes (D-127). The linker IGNORES an -X naming a variable that does
+// not exist, so renaming installedChat, or chatStamp drifting from it, would
+// leave every install stamped in its build info (install.sh and update read
+// that, and agree) while hello read "" and printed the hint again: the seam
+// test would still pass. So this builds cmd/buddy with -ldflags spelled the way
+// install.sh spells them (the chat -X first and single-quoted, then the
+// checkout's) and runs its hello in a scratch repo, BUDDY_CHAT unset: no chat
+// line. The same binary with BUDDY_CHAT=on is the positive control (the hint
+// path is alive in it, and the variable outranks the stamp), and readBuilt
+// reading "off" back is install.sh's and update's view of the same file.
+func TestHelloStampedBinaryOmitsChatHint(t *testing.T) {
+	boundedParallel(t)
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "buddy")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	ldflags := "-X '" + chatStamp + "=off' -X '" + buddyModule + "/internal/cli.installedFrom=" + root + "'"
+	// -trimpath=false as install.sh passes it: under GOFLAGS=-trimpath go
+	// leaves -ldflags out of the build info (D-124), and readBuilt below
+	// would read no stamp from a binary that has one.
+	build := exec.CommandContext(ctx, "go", "build", "-trimpath=false", "-ldflags", ldflags, "-o", bin, "./cmd/buddy")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	if b, ok := readBuilt(bin); !ok || b.chat != "off" {
+		t.Fatalf("install.sh's reading of the build: chat %q (ok=%v), want off", b.chat, ok)
+	}
+	f := newFixture(t)
+	home := filepath.Join(dir, "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := func(stdin string, extra []string, args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, bin, args...)
+		cmd.Dir = f.repo
+		// Never os.Environ(): the suite runs under a Claude session whose
+		// id and BUDDY_* settings would leak into the binary under test.
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}, extra...)
+		cmd.Stdin = strings.NewReader(stdin)
+		out, err := cmd.Output()
+		if err != nil {
+			var stderr []byte
+			if ee, ok := err.(*exec.ExitError); ok {
+				stderr = ee.Stderr
 			}
-		})
+			t.Fatalf("buddy %v: %v\n%s%s", args, err, out, stderr)
+		}
+		return string(out)
+	}
+	run("", nil, "init")
+	for _, tc := range []struct {
+		name  string
+		extra []string
+		hint  bool
+	}{
+		{"BUDDY_CHAT unset: the stamp mutes it", nil, false},
+		{"BUDDY_CHAT=on outranks the stamp (positive control)", []string{"BUDDY_CHAT=on"}, true},
+	} {
+		out := run(hookJSON("sess-"+fmt.Sprint(tc.hint), f.repo, "", ""), tc.extra, "hello", "--label", "stamped")
+		if !strings.Contains(out, "BUDDY: you are session") {
+			t.Fatalf("%s: no digest:\n%s", tc.name, out)
+		}
+		if got := strings.Contains(out, "chat_read"); got != tc.hint {
+			t.Fatalf("%s: want a chat line %v, got %v:\n%s", tc.name, tc.hint, got, out)
+		}
 	}
 }

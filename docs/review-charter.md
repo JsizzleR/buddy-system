@@ -1279,6 +1279,13 @@ ledger row entered through the CLI (D-006).
     after its checks can republish buddy (no lock shared with install.sh). Do not propose a
     `--purge`, editing settings, killing a daemon, or removing buddy before chat.
 
+120. **hello obeys the chat posture install.sh stamped, below an explicit `BUDDY_CHAT` (D-127,
+    amends D-124).** `BUDDY_CHAT` (trimmed, store.Fold) `off` mutes the hint and `on` prints it
+    whatever the stamp says; any other value, unset included, leaves it to the stamp read
+    in-process (`installedChat`, the hook runs the stamped file); unstamped prints for all but
+    `off`, as before. Never refused. Do not propose the stamp outranking the variable, reading
+    the installed file's build info per SessionStart, or install.sh writing settings.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

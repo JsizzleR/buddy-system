@@ -153,15 +153,18 @@ registration already on the machine is reported and left where it was. The
 or `buddy update` stays claims-only with `BUDDY_CHAT` unset, and says so on
 its first line (`chat: off (kept: …)`; `buddy update --dry-run` says it too).
 `BUDDY_CHAT=on` on one run turns chat back on, and is kept the same way
-(D-124); any other value is refused. Then declare it to every session, so
-`hello` prints no chat hint:
+(D-124); any other value is refused. `hello` reads the same record, so no
+session is told about chat tools that are not there, with nothing in settings
+(D-127). A `buddy` that records no choice (built by hand, or before D-124)
+needs it declared to every session instead:
 
 ```json
 { "env": { "BUDDY_CHAT": "off" } }
 ```
 
-in `~/.claude/settings.json` (that line is `hello`'s alone: the install never
-reads it, and says when it disagrees with the recorded choice). Wire the six `buddy` lines from
+in `~/.claude/settings.json`. That line is `hello`'s alone, and outranks the
+record either way (`on` brings the hint back); the install never reads it,
+and says when it disagrees with the recorded choice. Wire the six `buddy` lines from
 [step 3](#3-hook-wiring), leave out the two `buddylist` lines, and do not
 register the buddylist MCP server. What you lose is the visibility half; the
 ledger's own views (`buddy sessions`, `who`, `ls`, `msg`, `inbox`, `sent`)

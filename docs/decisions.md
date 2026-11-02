@@ -9984,3 +9984,82 @@ searchable ancestor). The second
 re-verify (xhigh, the last the ceiling allows) confirmed the first and found the walk climbed past
 a symlinked ancestor into an unsearchable directory; taken (the walk stops at a symlink, which
 must resolve; U-11g), by test and mutation only: no Codex round re-read it.
+
+## D-127 — hello reads the chat posture install.sh stamped: a claims-only install prints no chat hint with no settings line; an explicit BUDDY_CHAT off or on outranks the stamp (amends D-124)
+
+2026-11-02. chat-sticks suggested it as D-124's follow-up; the operator, in orc-15's pane on
+2026-11-02, said to open a lane for it (run45).
+
+**What was wrong** — D-124 stamped the posture into every `buddy` install.sh builds, so
+`buddy update` and a re-run keep a claims-only install claims-only. But `hello` decided its
+~500-byte chat hint from `BUDDY_CHAT` in the hook's environment alone (`chatOff`), so a
+claims-only machine still needed `"env": {"BUDDY_CHAT": "off"}` in settings, or every
+SessionStart told the session to call `chat_read`/`chat_send`, MCP tools that do not exist
+there. The install said so (`chat: NOTE — … does not declare BUDDY_CHAT=off`) and the README
+taught the line as a required step.
+
+**The rule**
+1. **The variable, then the stamp.** `BUDDY_CHAT` trimmed and folded (store.Fold, invariant
+   13) `off` mutes the hint and `on` prints it, whatever the stamp says. Any other value, unset
+   and empty included, leaves it to the stamp: `off` mutes, `on` prints. That is install.sh's
+   own order (a run's `BUDDY_CHAT` beats the record, D-124 rule 3), and the variable is the
+   narrower declaration: one settings file, one session's env, one shell.
+2. **Unstamped is as before.** A `buddy` with no stamp (a hand `go build`, a test binary, one
+   built before D-124) prints the hint for everything but `off`, exactly as D-124 rule 3 left
+   it. That case is what the settings line is still for. A `-trimpath` build is NOT unstamped
+   here: go drops `-ldflags` from its build info, so install.sh and update cannot read its
+   posture (D-124 rule 1), but the `-X` still set the variable, and hello obeys it (Codex).
+3. **Its own stamp, not the installed file's.** `hello` reads `installedChat`, the variable the
+   `-X` sets, in-process (`Env.chatStamp`). The hook runs `$BUDDY_BIN_DIR/buddy`, the file
+   install.sh replaces, so the running stamp IS that install's choice; a hand-run copy
+   elsewhere answers for itself. update and install.sh still read the FILE's build info,
+   because they decide about a binary they did not start as (D-124 rule 2).
+4. **No refusal, no probe.** A value that is neither word is not a declaration and is not
+   refused (a SessionStart hook that refused a settings typo would cost every session, D-124
+   rule 3); it is read as unset. The stamp is configuration recorded at install time, not a
+   probe of what runs (the reasons autodetection was rejected, in `chatOff`'s header and
+   `docs/USAGE.md`, stand), so `hello` still
+   prints no replacement line when muted.
+
+**Rejected**
+- *The stamp outranks the variable.* `BUDDY_CHAT=on` in one session's env (a chat stack run
+  by hand beside a claims-only install, a trial) could not bring the hint back, and `off`
+  would mute only by accident of agreeing; the two readers of the same pair (install.sh and
+  hello) would disagree on precedence.
+- *A value that is neither word counts as "on"* (today's reading, kept for unstamped). On a
+  claims-only stamp a settings typo (`"0"`, `"no"`) would print the hint for tools that are not
+  there: the failure this closes, reached by a misspelling.
+- *Read the installed file's build info at every SessionStart* (as update does). A file read
+  and a path resolution on a hook that runs that very file, and it would answer for a
+  different binary when a session runs a checkout's `bin/buddy` by hand.
+- *Have install.sh write the settings line.* install.sh never edits settings (D-050, D-120).
+- *A record file beside buddy.* D-124 rejected it: the stamp cannot drift from the binary.
+
+**Tests** — `TestHelloChatHintObeysBuddyChat` crosses the stamp (`""`, `on`, `off`, through
+the `Env.ChatStamp` seam, since every test in the package is parallel and the package variable
+is process-wide) with `BUDDY_CHAT` unset, `off`, `OFF `, `on`, ` On `, `0`, empty: the decision
+spelled out per row. The unstamped rows are the positive control. `TestHelloStampedBinaryOmitsChatHint`
+builds `cmd/buddy` with install.sh's own `-ldflags` (the chat `-X` first and single-quoted,
+then the checkout's) and runs its `hello` in a scratch repo: no chat line with `BUDDY_CHAT`
+unset, the hint with `on` (the control), and `readBuilt` reads `off` back. It exists because
+the linker ignores an `-X` naming a missing variable: a rename of `installedChat` would leave
+install.sh and update reading the stamp while hello read nothing. Mutations, each in a private
+copy: dropping the stamp read fails the three stamp-off rows that are not `on`/`off` and the
+build test; renaming the variable the seam reads fails the build test alone (the seam test
+cannot see it, which is why it exists); the stamp before the variable fails the stamp-off `on`
+rows and the build test's control.
+
+**Left to install-lock** (reported to orc-15) — `scripts/install.sh`'s `chat: NOTE — this
+install is claims-only, but … does not declare BUDDY_CHAT=off, so every session's hello still
+prints the chat hint` and its assertion in `scripts/check-install.sh`, and `scripts/uninstall.sh
+--chat`'s advice to add the settings line, say what is no longer true; the case still worth a
+note is a settings `BUDDY_CHAT=on` on a claims-only install.
+
+**Review** — lite (D-104). A scoped self-review took one: the build test passes
+`-trimpath=false` as install.sh does, or a `GOFLAGS=-trimpath` shell would drop `-ldflags`
+from the build info and the readBuilt check would fail on a binary carrying its stamp. One
+Codex code pass (xhigh) found no runtime defect and three doc findings, all taken: README and
+rule 2 called a `-trimpath` build unstamped, but its `-X` still sets the variable hello reads;
+AGENT-SETUP pointed at `buddy update --dry-run` to tell a stamped buddy, which refuses a hand
+build before any `chat` line; the core skill's "silent on a claims-only install" left out
+`BUDDY_CHAT=on`. Folded once (D-115).

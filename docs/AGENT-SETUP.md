@@ -87,9 +87,11 @@ to `~/.claude/settings.json`. Then merge, never overwrite:
   tool call through when `buddy` crashes or is killed (D-107); beside the new
   entry it decides nothing then, and runs the gate a second time on every
   call. Show the user this replacement in the diff like any other change.
-- Claims-only: leave out the two `buddylist` lines (`alert`, `presence --gone`)
-  and add `"env": {"BUDDY_CHAT": "off"}` at the top level, so every session's
-  SessionStart digest stays free of chat hints.
+- Claims-only: leave out the two `buddylist` lines (`alert`, `presence --gone`).
+  The `buddy` a claims-only install builds records it, and `hello` reads that,
+  so every session's SessionStart digest stays free of chat hints (D-127); add
+  `"env": {"BUDDY_CHAT": "off"}` at the top level only for a `buddy` that
+  records no choice: one built by hand, or by an install.sh before D-124.
 
 Show the user the diff before saving. **Checkpoint:** the file is still valid
 JSON (`python3 -m json.tool ~/.claude/settings.json >/dev/null`), and

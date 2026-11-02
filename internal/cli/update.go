@@ -81,10 +81,12 @@ const usageUpdate = "usage: buddy update [--dry-run]   (reinstall from the check
 var installedFrom string
 
 // installedChat is the chat posture install.sh stamped, "on" or "off" (D-124),
-// so the next install keeps it. Nothing reads the variable in-process: the
-// posture that counts is the one in the FILE install.sh replaces, read from
-// its build info like its commit (readBuilt), never by running it. It exists
-// so the -X has a target; chatStamp is its name in that flag.
+// so the next install keeps it. update does not read the variable
+// in-process: the posture that counts there is the one in the FILE install.sh
+// replaces, read from its build info like its commit (readBuilt), never by
+// running it. hello does read it (Env.chatStamp, D-127): the hook runs that
+// installed file, so its own stamp is the install's choice. chatStamp is its
+// name in the -X flag.
 var installedChat string
 
 const chatStamp = buddyModule + "/internal/cli.installedChat"

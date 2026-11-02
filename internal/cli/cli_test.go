@@ -111,6 +111,10 @@ type fixture struct {
 	// of sockets by default for the reason env is: the real one on this box
 	// holds the developer's own sessions.
 	sockDir string
+	// chatStamp is the chat posture the buddy under test was "built" with
+	// (Env.ChatStamp, D-127). EMPTY, as in a plain go build, so every older
+	// test sees the unstamped behaviour it was written against.
+	chatStamp string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -176,6 +180,7 @@ func (f *fixture) runReader(t *testing.T, cwd string, stdin io.Reader, args ...s
 		},
 		ProcTable: func() ([]procEntry, int, bool) { return f.procs, f.self, true },
 		SockDir:   f.sockDir,
+		ChatStamp: func() string { return f.chatStamp },
 	})
 	return out.String(), errw.String(), code
 }

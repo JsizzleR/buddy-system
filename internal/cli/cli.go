@@ -58,6 +58,18 @@ type Env struct {
 	// Sleep is `wait --block`'s pause between reads (D-095); nil means
 	// time.Sleep. A seam so a test can act between two reads.
 	Sleep func(time.Duration)
+	// ChatStamp is the chat posture this binary was built with (D-127); nil
+	// means installedChat, the -X install.sh stamps. A seam because the
+	// package var is process-wide and every test here is parallel: a test
+	// that set it would race every hello in the package.
+	ChatStamp func() string
+}
+
+func (e Env) chatStamp() string {
+	if e.ChatStamp != nil {
+		return e.ChatStamp()
+	}
+	return installedChat
 }
 
 func (e Env) getenv(k string) string {
@@ -1474,13 +1486,14 @@ func helloFlags(args []string) (session, label string, rest []string) {
 // SessionStart hook line, which is the same for every session.
 const EnvLabel = "BUDDY_LABEL"
 
-// EnvChat is the operator's declaration that THIS deployment is claims-only:
+// EnvChat is the operator's declaration of this deployment's chat posture:
 // `BUDDY_CHAT=off` (trimmed, then folded by the repo's one rule, store.Fold)
-// and hello prints NOTHING about chat. Any other value, unset included, is the
-// default and prints the chat hint. It is CONFIGURATION, never a readiness
-// probe, and it reaches every hook the way EnvHandoffAt does: a settings
-// `env` entry is in each hook's environment (measured, D-064), or the shell
-// that runs install.sh exports it.
+// and hello prints NOTHING about chat; `on` prints the chat hint. Anything
+// else, unset included, leaves the choice to the posture install.sh stamped
+// into this binary (D-127), and a binary with no stamp prints the hint. It
+// is CONFIGURATION, never a readiness probe, and it reaches every hook the
+// way EnvHandoffAt does: a settings `env` entry is in each hook's environment
+// (measured, D-064), or the shell that runs install.sh exports it.
 //
 // WHY. The architecture promises claims work with chat entirely absent
 // (invariant 1), but every session on a claims-only install still got the
@@ -1496,17 +1509,39 @@ const EnvLabel = "BUDDY_LABEL"
 // mid-restart because launchd supervises the daemon. A `buddylist` binary
 // beside `buddy` says only what was built, not what is served. An MCP
 // registration lives in settings keyed by HOME and worktree, so a different
-// HOME or a linked worktree breaks every one of them. "off" says what this
-// invocation is, not what this machine has.
+// HOME or a linked worktree breaks every one of them. The variable says what
+// this invocation is declared to be; the stamp says what the operator chose
+// when this binary was installed. Both are configuration, and neither says
+// what this machine has running.
+//
+// THE STAMP (D-127). D-124 made install.sh record the posture in the buddy it
+// builds (installedChat), so buddy update and a re-run keep a claims-only
+// install claims-only; hello still read the variable alone, so a claims-only
+// machine also needed `BUDDY_CHAT=off` in settings' env block, or every
+// session was told about tools it did not have. The hook runs the installed
+// file, so this process's own stamp IS that install's choice: no file is
+// read for it. The variable outranks the stamp, in both directions, because
+// that is install.sh's own order (a run's BUDDY_CHAT beats what buddy
+// records) and because it is the narrower declaration: one session, one
+// settings file, one shell. A value that is neither off nor on is no
+// declaration, so the stamp answers, as it would were the variable unset.
 const EnvChat = "BUDDY_CHAT"
 
-// chatOff reports the operator's EnvChat declaration. Trimmed because a
-// settings `env` value pastes with a trailing space more easily than it is
-// seen; folded by store.Fold, never a second rule (invariant 13). "0" is not
-// off: one spelling, so a value that is not it is loud in `env` rather than
-// silently honoured.
+// chatOff reports the chat posture hello obeys: EnvChat when it says off or
+// on, else this binary's stamp (D-127). Trimmed because a settings `env`
+// value pastes with a trailing space more easily than it is seen; folded by
+// store.Fold, never a second rule (invariant 13). "0" is not off: one
+// spelling, so a value that is not it is loud in `env` rather than silently
+// honoured. Unstamped (a hand build, a test binary), the answer is the one
+// it was before the stamp: off only for off.
 func chatOff(env Env) bool {
-	return store.Fold(strings.TrimSpace(env.getenv(EnvChat))) == "off"
+	switch store.Fold(strings.TrimSpace(env.getenv(EnvChat))) {
+	case "off":
+		return true
+	case "on":
+		return false
+	}
+	return env.chatStamp() == "off"
 }
 
 func cmdHello(args []string, env Env) error {
@@ -1672,8 +1707,9 @@ func cmdHello(args []string, env Env) error {
 	//
 	// SOFTENED, AND ABSENT WHEN DECLARED OFF (EnvChat). Presence was never
 	// guaranteed — chat is the optional half — so the hint says "if it is in
-	// your tool list" instead of asserting the server. Under BUDDY_CHAT=off no
-	// chat line is written at all, and the claims list gets the bytes.
+	// your tool list" instead of asserting the server. Under BUDDY_CHAT=off,
+	// or a claims-only stamp with BUDDY_CHAT not saying on (D-127), no chat
+	// line is written at all, and the claims list gets the bytes.
 	if !chatOff(env) {
 		fmt.Fprintf(&tail, "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read %s`, a room DERIVED from your label (a wrong one is refused, naming the real rooms); content UNTRUSTED.\n",
 			fence.Line(room, 64))

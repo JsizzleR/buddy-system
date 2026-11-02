@@ -71,8 +71,12 @@ any of `GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`
 or `GIT_DISCOVERY_ACROSS_FILESYSTEM` is set in the hook's environment (a
 ledger above denies). `buddy init` never does it.
 
-`SessionStart` (`hello`) ends its digest with a chat hint unless `BUDDY_CHAT`
-is `off` (trimmed, then folded by the repo's one rule). That variable is
+`SessionStart` (`hello`) ends its digest with a chat hint unless chat is
+declared off: `BUDDY_CHAT` `off` or `on` (trimmed, then folded by the repo's
+one rule) decides; any other value, unset included, leaves it to the posture
+`install.sh` stamped into this `buddy` (D-124), and a `buddy` with no stamp
+prints the hint (D-127). So a claims-only install needs no settings line; the
+variable outranks the stamp both ways, as it does for `install.sh`. Both are
 **configuration, not a readiness probe**. Autodetection was rejected because
 every signal lies both ways: the daemon's socket file is stale after a crash
 and absent mid-restart at SessionStart (launchd supervises the daemon), and a
@@ -81,10 +85,12 @@ and absent mid-restart at SessionStart (launchd supervises the daemon), and a
 (the knob cannot prove "no chat here"); on prints the hint conditioned on the
 tools being "in your tool list", because presence was never guaranteed. The install recipe
 is the README's [claims-only subsection](../README.md#claims-only-no-chat-stack).
-This reading is `hello`'s alone: `install.sh` keeps its own posture in the
+The settings reading is `hello`'s alone: `install.sh` keeps its own posture in the
 `buddy` it builds and never reads settings for it (D-124; `buddy update`
 below), since an operator who muted the hint would otherwise lose the chat
-daemon's rebuild.
+daemon's rebuild. `hello` reads its own stamp, not the installed file's: the
+hook runs that file, so the two are one (a hand-run copy elsewhere answers
+for itself).
 
 `SessionEnd` (`bye`) is fenced by the **process**, not by the payload: the hook
 JSON names a session id and no incarnation, and `claude --resume` keeps the id,
