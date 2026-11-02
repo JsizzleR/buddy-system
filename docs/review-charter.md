@@ -69,9 +69,7 @@ ledger row entered through the CLI (D-006).
 10. **Sessions are identified by `(session_id, incarnation)` (D-003).** A delayed `bye`
     from a dead incarnation must not orphan a live one; a delayed `beat` must not resurrect
     an ended session. The pid is never identity — but since D-025 it is AUTHORITATIVE for
-    exactly one decision: a hook-driven `bye` ends a session only when no registered
-    harness process (pid + kernel start time, `session_procs`) is still alive. On the
-    roster it is diagnostic only.
+    exactly one decision, a hook-driven `bye` (GIVEN 29). On the roster it is diagnostic only.
 11. **Dirty paths are OBSERVATIONS and may never refuse anything.** `dirty_paths` records
     which session's tool call named which file. It exists so a message about an
     uncommitted hunk can be ADDRESSED to someone. Attribution comes only from a tool call
@@ -109,19 +107,17 @@ ledger row entered through the CLI (D-006).
     age only when the state is a dated event (`ended 29d`). `--by seen|started`, both
     DESC, live rows above ended ones, ties broken on `session_id`; an unknown key is
     refused. `PAUSED`, `claims N` and the context footprint trail the id, so the fixed
-    columns never move. A header line was cut: the common case is ONE row quoted into
-    chat, where a header is gone and the labels have to ride with the numbers.
+    columns never move. A header line was cut: a row quoted into chat loses it, so the
+    labels ride with the numbers.
 19. **The context footprint is an OBSERVATION read from the session's own transcript
     (D-015), and the window is DECLARED, never derived.** `beat` reads the last 64 KB of
     the file the hook JSON names, takes the newest non-sidechain turn's token counts, and
     stores ONE row per session, read back only through a join on the current incarnation.
-    No message text is ever stored. Measured: a session running the 1M-token
-    Opus variant records `"model":"claude-opus-5"`, identical to the 200k variant, so a
-    percentage inferred from the model string is a fabrication — the denominator comes
+    No message text is ever stored. Measured: the 1M-token and 200k variants record the same
+    model string, so a percentage inferred from it is a fabrication — the denominator comes
     from `BUDDY_CONTEXT_WINDOW` or no percentage prints. The row says `prompt`, never
     "context left", and the turn's own age prints beside it always. Every failure of the
-    capture is silent and costs the beat nothing. Measured cost on a 2.3 MB transcript:
-    16.5 ms per beat against 16.4 ms without.
+    capture is silent and costs the beat nothing.
 
 20. **Idle is reported; busy is never inferred (D-016).** A `Stop` hook line
     (`buddy idle`) writes a `session_idle` row keyed to the reporting incarnation, and
@@ -134,17 +130,16 @@ ledger row entered through the CLI (D-006).
 
 21. **A column is ONE token (D-017).** Peer text in a fixed-width column goes through
     `fence.Field`, which renders spaces as `␣` exactly as `fence.Line` renders line
-    breaks as `⏎`. `%-24s` is a minimum width, so a label with a space in it owned the
-    state column of its own row (measured). Quoting was tried and cut —
+    breaks as `⏎`. Quoting was cut —
     `strings.Fields` splits inside quotes, so it fools only a human. Refusing a bad
     label at intake was also cut: `hello` runs from a hook line ending in `exit 0`, so a
     refusal there turns the feature off silently and repairs nothing already stored.
     Every roster row carries a gutter (`*` the caller, `-` the rest) so the field count
     never depends on which row is read.
 22. **The context capture samples the NEWEST turn in the window, escalates once, and
-    reports what the model is (D-018).** `turn_ms` is milliseconds — the only column
-    here that is not whole Unix seconds — because at second resolution two turns in one
-    second compared equal and the older one won. The scan takes the greatest timestamp,
+    reports what the model is (D-018).** `turn_ms` is milliseconds, the only column
+    here not in whole Unix seconds: at second resolution two turns in one second compared
+    equal. The scan takes the greatest timestamp,
     not the last record positionally. One escalation, 64 KB then a 512 KB cap, paid only
     after a miss. Model and effort print when the transcript recorded them and are never
     inferred from each other. `session_context` is the one table that may be DROPPED in
@@ -161,57 +156,47 @@ ledger row entered through the CLI (D-006).
     on `pkg` is refused, because prefix scopes have no subtraction — and releasing the last
     scope releases the claim. `msg` signs with the sender's LABEL (the one form D-013
     guarantees resolves), read from the environment only, with an explicit `--from` kept as
-    a tag after it; measured on a live ledger, 1 of 111 direct messages was signed with a
-    label and 104 with a claim slug, 14 of which no longer resolved.
+    a tag after it.
 
 24. **The roster's `cache 1h hot 48m` / `cache 5m cold 3m` is read from the session's own
     transcript and never inferred (D-020).** `session_context` keeps the raw per-tier
-    write counts from `usage.cache_creation` (measured: 2371 records, all
-    carrying the object, all on the 1h tier, one pure read in 2371); the roster computes
+    write counts from `usage.cache_creation` (measured); the roster computes
     hot/cold against the turn's own time, judges a both-tier turn by the SHORTER tier, and
     prints nothing when no tier was recorded — an older harness was silent, not on 5m. The
-    turn time is the response's, so the true expiry is slightly earlier; the remaining time
-    is printed so the edge is visible. The tier carries its own clock (`tier_ms`, the
+    turn time is the response's, so the true expiry is slightly earlier. The tier carries its own clock (`tier_ms`, the
     WRITER's time) and its columns are guarded by it, separately from the row's `turn_ms`
-    guard. Schema 5 rebuilds `session_context` (D-018 allows it).
+    guard.
 
 25. **`buddy msg` takes its body from stdin when argv carries none, and the body cap is
     measured on the RENDERED form (D-021).** A TTY is never read (`stdinIsTTY`, the same
     guard `readHook` uses). Argv wins when present and the ONE cap applies to whichever
     source won — checking stdin only left the guard reachable around via argv. The cap is
     `renderedLen(body) > 4096`, not `len(body)`, because `fence.Line` expands a line break
-    to `⏎` at three bytes: `strings.Repeat("x", 4094) + "\nZ"` is 4096 raw, 4098 rendered,
-    and the `Z` was silently lost. Stdin is read to a 64 KiB bound before trimming; a
+    to `⏎` at three bytes, so a raw-length cap silently cut the end. Stdin is read to a 64 KiB bound before trimming; a
     heredoc's trailing newline is trimmed before the cap and costs nothing. The usage path
-    exits NON-ZERO and always has — the field report's `rc=0` was `sh` having no pipefail.
+    exits NON-ZERO (a reported `rc=0` was `sh` having no pipefail).
 
 26. **A STALE claim refuses a new overlapping claim exactly as a fresh one does (D-022),
     and a holder that has SAID BYE does not (D-026).** `scopeConflicts` tests
     `state='open'` and `owner not ended` — staleness has no bearing, positive `ended`
-    does. What frees a scope: the holder's `release`, orphaning of an ended owner (which
-    runs in `hello`, `sweep` AND, since D-026, first inside `claim`'s own transaction —
-    and since D-033 inside `wait check`'s, the same statement), and `sweep --force`. **`bye` itself still touches no claim row** (invariant 12). The
+    does. What frees a scope: the holder's `release`, orphaning of an ended owner (in
+    `hello`, `sweep`, first inside `claim`'s own transaction (D-026) and inside `wait
+    check`'s (D-033), the same statement), and `sweep --force`. **`bye` itself still touches no claim row** (invariant 12). The
     dry run excludes ended owners by the same predicate so it forecasts the claim, and
     prints a `note:` line for each ended holder it would displace — "acquirable after
     cleanup" is not "unreserved". The PreToolUse gate and the commit gate still read
     `state='open'` alone (hot path, deny is the safe direction); the deny names the plain
     `buddy sweep` as the remedy for a holder that has said bye. A refusal and the dry run
-    both annotate an unrenewed claim by what the ledger knows about its HOLDER (D-090:
-    `— STALE: claim unrenewed 3h, holder not seen 3h; it still refuses, so ask the
-    operator` for a quiet, GONE or ended holder; `— claim unrenewed 34m; holder seen 5s
-    ago; ... ask the holder: buddy msg <slug>` for a live one; nothing for a live
-    holder's slot), one judgement every claim view renders, and a refusal prints the
-    whole set even when there is only one conflict.
+    both annotate an unrenewed claim by its HOLDER (D-090, GIVEN 91), and a refusal prints
+    the whole set even when there is only one conflict.
 
 27. **`buddy whose <path>` reports the claim registers first, then `DIRTY IN` (D-023).**
     `CLAIMED BY` is invariant 14 containment and the relation the gate reads; `HELD UNDER`
     is a claim on a path inside the one asked about and reserves nothing about it — they
-    are kept apart on purpose. The claim lookup consults NO FILESYSTEM (an `os.Stat` gate
-    made a claim under a not-yet-created directory read as `(none)`), and reads ONE
-    snapshot rather than matching ids and materializing them separately. `(none)` prints
-    explicitly rather than being omitted — the defect was a silent answer read as "nobody
-    has this" — and an unrenewed claim carries D-090's holder words and "still refuses",
-    D-022's qualifier. A `.buddy/slot/` path consults no git (D-092).
+    are kept apart on purpose. The claim lookup consults NO FILESYSTEM (a claim under a
+    not-yet-created directory must not read `(none)`), and reads ONE snapshot. `(none)`
+    prints explicitly rather than being omitted, and an unrenewed claim carries D-090's
+    holder words and "still refuses", D-022's qualifier. A `.buddy/slot/` path consults no git (D-092).
     Neither register is a lock: dirty rows stay observations (invariant 10). It was NOT
     renamed to `buddy dirty`.
 
@@ -226,12 +211,10 @@ ledger row entered through the CLI (D-006).
     the rooms it serves (D-024).** An empty read now means a quiet room and nothing else.
     Both clauses are load-bearing: "not served" alone would refuse an archived room and the
     `@sent`/`@dm` pseudo-rooms; "no history" alone would refuse a configured room nobody has
-    spoken in. The check runs only on an empty result (an equivalent-mutation guard: it buys
-    cost, not behaviour). The SessionStart room name is still DERIVED from the label and the
-    digest now SAYS so — it is `path.Base(worktree)` while the ledger is in the git COMMON
+    spoken in. The check runs only on an empty result (an equivalent mutation: it buys cost, not behaviour). The SessionStart room name is still
+    DERIVED from the label and the digest now SAYS so — it is `path.Base(worktree)` while the ledger is in the git COMMON
     dir, so a linked worktree's name is wrong; deriving it differently was cut because labels
     are a stable addressing namespace (D-013) and already-minted ones would not change.
-    `servesRoom` is shared with the presence path, which has always done this check.
 
 29. **A `bye` is fenced by the registered PROCESS, found by NAME (D-025).** Hook-driven
     `hello` and `beat` register the `claude` ancestor of the hook (walked up to 16 hops by
@@ -250,8 +233,8 @@ ledger row entered through the CLI (D-006).
     slug). Exit 0 for any report produced, 1 when none could be. There is NO `exit` verb
     and no exit-on-peer-request path, and none will be built (issue #20). `hello` warns
     once when a `--label` is worn by another live session; `msg` appends the recipient's
-    outstanding idle report on a send, only when a current-incarnation idle row exists
-    (D-016: absence says nothing), worded as the observation and not a prediction.
+    current-incarnation idle report only when one exists (D-016: absence says nothing), as
+    GIVEN 35's observation, never a prediction.
 
 31. **Authority files are watched by mtime, announced ONCE per change on the next tool
     call, and the wording is an advisory (D-028).** The list is in the ledger (`buddy
@@ -272,7 +255,8 @@ ledger row entered through the CLI (D-006).
 33. **Coordination state is published as a claim's `--desc`, never a message, and there is
     no key/value store and no compel path (D-030).** The digest already injects every live
     claim into every session and re-claiming refreshes the description; the convention is
-    an `orchestrator` claim (nothing reserved) carrying a bounded summary or a pointer. A
+    the coordination claim (`orc-<project>`, GIVEN 102; nothing reserved) carrying a
+    bounded summary or a pointer. A
     claim has no `from` and is never read as an instruction; `pause` and `msg` remain the
     only control rows. Do not propose a store, a reserved slug, or auto-injection.
 
@@ -306,8 +290,8 @@ ledger row entered through the CLI (D-006).
     write.
     **Pacing is from the check itself, not the ledger's cache clock.** A check runs before its own
     beat, so the ledger's newest observation is the previous request; pacing from it pinged twice
-    a period. Measured: warm at <= 3,602 s, cold at >= 3,633 s; self-paced wakes fire 0-58 s late
-    (they round up to the minute); 9 of 11 one-hour wakes were cold. The observation is used only
+    a period. Measured: the cache holds about 3,600 s and a self-paced wake rounds up to the
+    minute and fires late, so a one-hour wake usually comes back cold. The observation is used only
     for the tier (no keep-alive on 5m or both tiers) and for the lagged read/COLD WRITE counts line.
     `wait check` speaks ONLY for `$CLAUDE_CODE_SESSION_ID` (no `--session`). `wait check`
     orphans ended holders first, as `claim` does; `wait` REFUSES a claim whose holder said bye
@@ -324,9 +308,8 @@ ledger row entered through the CLI (D-006).
     count and marks nothing, because its output reaches whoever ran it and not the session. It
     uses beat's header, `fence.Line` and write-then-mark, and it is bounded twice: by one beat's
     20 messages / 8 KiB, and by the room the rest of the digest leaves under `helloBudget` (9,000
-    bytes for the whole digest). Claude Code documents a 10,000-character cap on hook output
-    injected into context, with a preview and a file path past it (documented, not measured),
-    and an over-cap digest would hide the claims list. Oldest first, stopping at the first
+    bytes for the whole digest). Claude Code documents a 10,000-character cap on injected
+    hook output (not measured), past which a digest would hide the claims list. Oldest first, stopping at the first
     message that does not fit; the rest are counted (`N queued message(s) not shown here`) and
     stay queued. It does not wake a session already at its prompt; that is still D-027's "no".
     Do not propose dropping either bound, a drain on a hand-run hello, or skipping past a
@@ -370,33 +353,30 @@ ledger row entered through the CLI (D-006).
 
 42. **`msg` names the harness's wake address for a quiet recipient; buddy still wakes nothing
     (D-039).** Measured: a harness SendMessage wakes an idle session and is recorded as a
-    marked peer message (`isMeta`, `origin.kind="peer"`, host-verified sender pid, plus a "not
-    typed by your user" note), never as the operator's turn. A body cannot forge the wrapper,
-    because the host escapes the tag. For a quiet target (idle, stale, or registered and not
+    marked peer message (host-verified sender pid), never as the operator's turn. A body
+    cannot forge the wrapper, because the host escapes the tag. For a quiet target (idle, stale, or registered and not
     seen since) with exactly one live registered process whose `/tmp/cc-socks/<pid>.sock`
     exists as a socket, `msg` prints `SendMessage to "uds:…"` with a text ending "run buddy
     inbox" that names the message id and the second (D-059, see 61). The body stays in the
     ledger. One observation serves the
     result line and the wake line. No send from buddy, no pane injection, no broadcast wake, no
     name mapping. Do not propose buddy calling the harness, carrying the body in the wake, or
-    deriving the address from anything but a live, birth-time-checked registered pid. The one
-    exception is the separate opt-in `buddy-adapter`, which writes wake input only to the worker
-    it launched (D-074, see 75), and no socket wake is ever offered for an adapter recipient (D-076).
+    deriving the address from anything but a live, birth-time-checked registered pid. The opt-in
+    `buddy-adapter` is the one exception (D-074, GIVEN 75); no socket wake is offered an adapter
+    recipient (D-076, GIVEN 77).
 
 43. **`busy` drains the inbox into the prompt that opens a turn (D-040).** UserPromptSubmit
     runs beat's drain (the same bound, fence, and order of write first, mark after) as ONE
     `hookEventName: "UserPromptSubmit"` document. It prints nothing when nothing is queued, and
-    it carries only the inbox. Measured: an operator's `ok` into an idle lane opened a turn
-    without the approval queued for it, and the lane saw the approval only because it chose to
-    run `buddy inbox`. It wakes nothing. Do not propose moving beat's notices onto the prompt,
+    it carries only the inbox. It wakes nothing. Do not propose moving beat's notices onto the prompt,
     or claiming a SendMessage wake fires UserPromptSubmit (unmeasured).
 
 44. **`msg`'s wake address rides its result line (D-041).** One send answers on ONE line. The
-    D-039 address used to be a second line, and an orchestrator that read `msg … | head -1`
-    (measured) lost it, so an idle lane sat unwoken until the operator typed into
-    it. Do not propose moving the address back onto a line of its own. It is ALSO written to
+    D-039 address used to be a second line, and a reader of `msg … | head -1` lost it
+    (measured). Do not propose moving the address back onto a line of its own. It is ALSO written to
     stderr as one line (D-052): a sender that discarded stdout as a receipt (`>/dev/null`) lost
-    it, measured. Stderr is empty when there is no wake; a `2>&1` reader sees it twice.
+    it, measured. Stderr is empty when there is no wake, and the copy is skipped when stderr
+    is stdout's own file (D-097, GIVEN 98).
     `buddy sent` names the same wake on each still-queued recipient that the same
     `wakeClause` says needs one. No "after N minutes" threshold: `msg` prints it at age zero.
 
@@ -422,9 +402,7 @@ ledger row entered through the CLI (D-006).
     refusal (not "not a git repository") with a `.git` above the path, the nearest `.git`
     (through `gitdir:` and `commondir` for a linked worktree) is checked for `buddy.db` without
     git. Only a positive "does not exist" allows. A present ledger, an unreadable path, an
-    unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny. Measured: an empty `git init`
-    in `/private/tmp` denied every write under `/tmp` fleet-wide via "dubious ownership".
-    A cwd that does not exist at all (exact ENOENT) is not a refusal: since D-102 it is
+    unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny. A cwd that does not exist at all (exact ENOENT) is not a refusal: since D-102 it is
     discovered from its deepest existing ancestor first, and this check applies there.
 
 48. **A message says what kind of claim it carries, as the SENDER's declaration (D-045).**
@@ -437,7 +415,7 @@ ledger row entered through the CLI (D-006).
 
 49. **A session learns the verbs from the digest and a skill, never the chat server (D-046).**
     `hello` prints one fixed line pointing at `buddy --help` and naming the easy-to-miss verbs.
-    `skills/buddy/SKILL.md` (user-level, copied into `~/.claude/skills/`) says how they fit.
+    The core skill (GIVEN 115) says how they fit.
     A test checks every verb and flag either one names against the usage table. The claims list
     reserves the queued-message count line and its own remainder at their rendered worst case.
     Do not propose the MCP `instructions` field (chat can be absent) or a full verb list in the
@@ -463,7 +441,7 @@ ledger row entered through the CLI (D-006).
     ages and notes. `release --outcome pass|fail|aborted [--note]` rides every waiter's LANDED, and
     a rider is told when a release carried no outcome or the claim was orphaned. Membership is the
     integrator's `--desc`. Do not propose a batch table, a hold timer, OVERDUE, auto-eject, or
-    "first GO wins"; all were designed and cut by Codex and Fable passes. The skill must teach
+    "first GO wins"; all were cut. The skill must teach
     every verb and flag in the usage table, or exempt it with a reason (a hermetic test).
 
 53. **`scripts/install.sh` is the one install and upgrade path (D-050).** It rebuilds every buddy
@@ -488,8 +466,7 @@ ledger row entered through the CLI (D-006).
     line that fixes it (PATH steps included, `--scope` named, `/reload-plugins` or a restart).
     Advisory: it never fails init, never blocks (FIFO settings, a git wrapper holding the pipe),
     never prints before "ledger ready", never runs in a hook, installs and edits nothing.
-    `scripts/startup-report.sh` measures the window to the first edit, counts only. Do not
-    propose a SessionStart line, auto-install, `claude plugin list`, a committed code map, or
+    `scripts/startup-report.sh` measures it, counts only. Do not propose a SessionStart line, auto-install, `claude plugin list`, a committed code map, or
     counting untracked files.
 
 55. **A test binary that outlives its `go test` is ended from outside (D-053, #43).**
@@ -502,31 +479,29 @@ ledger row entered through the CLI (D-006).
     unpreemptible goroutine reproduces #43 and runs no Go code at all (so no in-process wall
     can fire); Go drops SIGXCPU and darwin sent no SIGKILL at the hard RLIMIT_CPU; `go test`
     binaries have no symbol table. Do not propose RLIMIT_CPU, an in-process AfterFunc wall,
-    or `SetTraceback("crash")` (it would SIGABRT every panicking test). The cause of #43's
-    wedge is not known; the watchdog's sample is what will name it.
+    or `SetTraceback("crash")` (it would SIGABRT every panicking test). #43's cause is
+    unknown; the watchdog's sample will name it.
 
 56. **A park with no claim to name keeps warm on a TIMER wait, and is told so before it parks
-    (D-054, #44, #45).** MEASURED over one fleet's week: 3 of 129 sessions declared a wait,
-    145 of 149 wakes past an hour were cold and 0 of 19 at 50–60 minutes; the costly parks
+    (D-054, #44, #45).** MEASURED: wakes past an hour mostly come back cold, and the costly parks
     were a session's own hour-plus run (the integrator of a shared run included: `wait --on`
     refuses your own claim) and a lane waiting for its orchestrator. The skill's "Before you
     park", `hello`'s help line naming `--until` alone, and a timer declaration's third line
     (clear it when something else wakes you first; `--session <id>` named when declared for
     another session; no "stop the loop" off the hour tier) teach it. A check is one tool call
-    inside a turn of about three requests (median 3, mean 4.05), and USAGE's cost table is
-    priced that way. `scripts/wake-report.sh` re-measures, counts only. Do not propose a
+    inside a turn of about three requests, and USAGE's cost table is priced that way.
+    `scripts/wake-report.sh` re-measures, counts only. Do not propose a
     pid/background-task wait target, `wait --on` your own claim, a Stop-hook nudge, inferring a
     park from idleness, or "always keep warm" (past four hours the fleet's parks broke even).
 
 57. **A session that DECLARED a handoff size is told, once per turn, when it has grown past it
-    (D-055, #46).** MEASURED over one fleet repo, 15 days: 4 orchestrator successions, 3 begun
-    by the operator noticing the size. `BUDDY_HANDOFF_AT` (parsed as `BUDDY_CONTEXT_WINDOW` is;
+    (D-055, #46).** `BUDDY_HANDOFF_AT` (parsed as `BUDDY_CONTEXT_WINDOW` is;
     unset or unparseable is off) is set on the one process it applies to. When the LAST
     OBSERVED prompt for the current incarnation is at or past it, `busy` (UserPromptSubmit)
-    puts one line ahead of the inbox in its single document, on every turn-opening prompt,
-    even with nothing queued. The line names the size, the turn's age and the threshold, and
-    points at the skill's recipe for BOTH arms: a coordinator's "Hand off before you are full",
-    a lane's "Landing through an orchestrator" step 6 (D-064: the size may be declared
+    puts one line ahead of the inbox in its single document, even with nothing queued (once
+    per 25k step since D-096, GIVEN 97). The line names the size, the turn's age and the threshold, and
+    points at the skill's handoff recipe for a coordinator and for a lane (D-064: the size
+    may be declared
     fleet-wide in the settings `env` block, measured to reach the hook, so lanes hear it too,
     and a lane opens no successor). `install.sh` reports whether it is set there. The drain (D-040) is unchanged. It is an
     observation (invariant 10): it refuses, reserves and schedules nothing, and infers no role.
@@ -542,15 +517,13 @@ ledger row entered through the CLI (D-006).
     fleet" teaches it: open only as many lanes as the operator allowed, and never with a more
     permissive mode than the launcher's own. The brief rides the launch; `msg` waits for the
     lane's hello (a premature one is refused, loudly); ending a lane is the operator's act; the
-    successor handoff runs on a file named in the `orchestrator` claim, `msg` + wake, release.
-    Do not propose `buddy spawn`/`exit`, or `buddy expect` (a brief queued before hello). The
-    separate opt-in `buddy-adapter` is the one recorded exception, for the worker it launches
-    from typed argv (D-074, see 75); `buddy` itself still launches and ends nothing.
+    successor handoff runs on a file named in the coordination claim (GIVEN 102), `msg` +
+    wake, release. Do not propose `buddy spawn`/`exit`, or `buddy expect` (a brief queued
+    before hello). The opt-in `buddy-adapter` is the one exception (D-074, GIVEN 75).
 
 59. **The test suite never runs with git's local environment (D-057, #49).** MEASURED (git
     2.54): a push from a linked worktree hands the pre-push hook an ABSOLUTE `GIT_DIR`, and the fixtures'
-    `git -C <tmp>` inherited it and made the real repository bare with
-    repositoryformatversion=99. `git rev-parse --local-env-vars` (united with a fixed copy) is
+    `git -C <tmp>` inherited it and made the real repository bare. `git rev-parse --local-env-vars` (united with a fixed copy) is
     unset by pre-push before the tier, by check.sh first thing, by sourcing lib.sh, and by
     `testguard.ScrubGitEnv()` inside the TestMain of every package that imports os/exec and
     names "git" (a gate enforces it, and a second keeps the four fixed copies of the list
@@ -571,8 +544,7 @@ ledger row entered through the CLI (D-006).
 
 61. **A wake's text names its message and the second it was named (D-059, #51).** MEASURED:
     Claude Code drops a peer message identical to the previous one from the same sender
-    (SendMessage still reports success; a delivery notice says so minutes later), so one fixed
-    wake text lost a second wake to the same lane. The text is `buddy mail #<id> is queued for you (<HH:MM:SS>): run
+    (SendMessage still reports success), so one fixed wake text lost a second wake. The text is `buddy mail #<id> is queued for you (<HH:MM:SS>): run
     buddy inbox`: the send's id (a broadcast's own on a `sent` row) and the local time the wake
     was named. Two suggestions for one message in one displayed second are still identical;
     that residual is accepted. No body, sender or kind. Do not propose a fixed text, carrying
@@ -580,8 +552,8 @@ ledger row entered through the CLI (D-006).
 
 62. **The Stop hook cannot see its turn's reply; it names its turn, and the next prompt records
     the footprint (D-060, #52).** MEASURED (2.1.283, interactive): the turn's final usage record
-    lands ~96 ms after the Stop hook's process starts (p50 96.2, p90 98.0, max 108.3), and `idle`
-    is done by ~26 ms. It was missing at every Stop measured. `idle` reads once. If a user record
+    lands ~96 ms after the Stop hook's process starts, and `idle` is done by ~26 ms. `idle`
+    reads once. If a user record
     is at or after the newest usage record, the reply is pending: no footprint, the mark dated now
     and fenced by that record. A Stop whose `prompt_id` turn is on disk behind a newer prompt
     records nothing. `busy` re-reads, fenced by incarnation start, before D-055's note, so a
@@ -590,10 +562,9 @@ ledger row entered through the CLI (D-006).
     writer, reading `last_assistant_message` (text, no usage), or a clock threshold for freshness.
 
 63. **A `-race` forkExec can leave its child stuck before exec, and the watchdog ends it (D-061,
-    #53).** MEASURED: the child spins in ThreadSanitizer's slot lock (`forkAndExecInChild` →
-    `__tsan::SlotLock` / `TraceSwitchPartImpl`), held by a parent thread at fork, and never
-    execs. The parent waits in `readlen` to the timeout. It is `-race` only (toy: 8/8 forkers hung;
-    0 of 356k forks without -race), not git, PATH or the hook. The child keeps the watchdog's pipe
+    #53).** MEASURED: the child spins in ThreadSanitizer's slot lock, held by a parent thread
+    at fork, and never execs. The parent waits in `readlen` to the timeout. It is `-race` only (measured), not
+    git, PATH or the hook. The child keeps the watchdog's pipe
     (close-on-exec acts only at exec), so the watchdog has a holder arm. Target gone and pipe held
     means it ends the target's same-binary children, orphaned, same start time, in its own
     process group, seen while the target lived, never itself. It holds its executable's fd so
@@ -625,18 +596,16 @@ ledger row entered through the CLI (D-006).
     the fleet repo.
 
 66. **A holder hands an open claim on with `release <slug> --to <target>`, keeping its id (D-063).**
-    Release-then-claim mints a new claim id, and a wait is resolved once to a claim id, so a
-    successor re-claiming an in-flight run landed every rider with no outcome and dropped their
-    READY (measured). The transfer moves owner and incarnation in one transaction and
+    Release-then-claim mints a new claim id, and a wait resolves once to a claim id, so a
+    re-claimed run landed every rider with no outcome and dropped their READY (measured). The transfer moves owner and incarnation in one transaction and
     keeps everything else; it refuses a sender not live under its incarnation, an ended or
     re-registered recipient, a recipient waiting on the claim, and any overlap the recipient could
-    not have claimed. No consent step, no recorded previous holder: cut, see the record. Do not
+    not have claimed. A consent step and a recorded previous holder were cut. Do not
     propose release-then-claim or `--outcome aborted` as the handoff of a run that carries on.
 
 67. **`status` and `who` print a JOBS line: the shells still running directly under the
-    session's registered harness process (D-065).** Measured: an outgoing
-    orchestrator said it "holds nothing, close me" with a gate script and a 42-minute watcher
-    still running as its children, and EXIT (the ledger only) was read as the session. A Bash
+    session's registered harness process (D-065).** Measured: EXIT (the ledger only) was read
+    as the whole session while its shells still ran. A Bash
     tool call is `/bin/zsh`, a direct child of claude in its OWN process group, so the line reads
     `kern.proc.all` by parent (D-061's cut of that scan was for a different purpose), counts
     shells only (MCP servers, gopls, caffeinate are not), excludes the caller's ancestor chain,
@@ -647,9 +616,8 @@ ledger row entered through the CLI (D-006).
     reparenting a session's processes from buddy (D-027, D-056).
 
 68. **`claim` refuses a `--scope` that holds a comma; every listing of a claim's scopes goes through
-    `scopeList` (D-066, issue #56).** Measured: 78 claims by 30 of 99 sessions on one fleet were a
-    comma list granted as one literal path, covering none of the files; 0 tracked paths there or
-    here contain a comma. Refused whole in `cmdClaim`, before the ledger and the dry-run branch.
+    `scopeList` (D-066, issue #56).** Measured: comma lists were granted as one literal path
+    covering no file, and no tracked path contains a comma. Refused whole in `cmdClaim`, before the ledger and the dry-run branch.
     The fix command is printed only when it pastes back as meant: no part the fence alters, none
     `NormalizeScope` refuses, and not cut short. `scopeList` renders each scope with `fence.Field`,
     joined by `, `, whole items, and always shows the first. `NormalizeScope`, the store and
@@ -667,11 +635,8 @@ ledger row entered through the CLI (D-006).
     precedence, but `wait check` requires native identity and rejects a conflicting
     override. Codex hooks must not borrow a Claude ancestor or identify a logical
     session by app-server pid. Unfenced Codex lifecycle hooks refuse (D-069 below).
-    As of D-068, production lifecycle integration and a mixed fleet were unqualified, and it
-    introduced no task table or structured adapter schema; D-073 (see 74) since refuses
-    shell-routed patches where a ledger governs and checks every spelling of a target, and the
-    plan's status table says what is qualified now. `AGENTS.md` joins `CLAUDE.md`
-    as always watched, with eight additional configured paths.
+    D-068 added no task table; shell-routed patches are GIVEN 74's (D-073), and the plan's
+    status table says what is qualified now. `AGENTS.md` is always watched (GIVEN 31).
 
 70. **Codex lifecycle observations require the adapter's captured incarnation
     (D-069).** `lifecycle begin` returns `buddy.lifecycle.v1` JSON. Live registrations
@@ -685,11 +650,10 @@ ledger row entered through the CLI (D-006).
     refuse alongside idle/bye. Manual local/operator paths retain their authority.
     The adapter must durably capture receipts and serialize events within an
     incarnation; failed receipt publication is an uncertain outcome, not a reason
-    to retry begin blindly. This increment added no schema change, process binding, worker
-    launcher, automatic wake or inferred completion (D-070 and D-074 later add the opt-in
-    adapter; D-076 lets a PostToolUse renew the claims covering the paths it observed). Installed-hook qualification with a
-    local deterministic provider is distinct from production/provider/mixed-fleet
-    evidence; consult the current plan receipt for what actually ran.
+    to retry begin blindly. D-069 added no schema change, process binding, worker launcher,
+    automatic wake or inferred completion (the opt-in adapter is D-070/D-074; D-076's
+    renewal, GIVEN 77). Native-hook qualification with a local deterministic provider is not
+    production, provider or mixed-fleet evidence; the plan receipt says what ran.
 
 71. **Minimal structured adapters preserve captured identity and separate
     delivery stages (D-070).** `buddy.adapter.v1` exposes bounded ledger
@@ -705,8 +669,7 @@ ledger row entered through the CLI (D-006).
     operator input descriptor may answer pending approvals; peer/coordinator
     input cannot. Codex checks effective gate hash/trust; Claude checks bounded
     gate settings and the pinned built-in Mod profile (D-071). No install, trust
-    mutation, existing-session attach or task table. See the plan receipt for
-    actual executed and native qualification rather than inferring it here.
+    mutation, existing-session attach or task table. Qualification: the plan receipt.
 
 72. **Claude admission uses a pinned native built-in Mod profile (D-071).**
     `hooks.mods: "builtin-only-<version>"` selects the separately checked profile
@@ -734,8 +697,8 @@ ledger row entered through the CLI (D-006).
     commands, hooks, plugin reloads and inbox drains are not run. Supplied native
     version/trust captures are historical snapshots, even when their input hash
     matches; current installed version and enforcement remain unknown. Exit 0
-    means report produced, not readiness or authority. This is the concrete
-    read-only consumer deferred by D-037, separate from `adapter inspect`.
+    means report produced, not readiness or authority. It is the read-only consumer D-037
+    deferred, separate from `adapter inspect`.
 
 74. **The gate checks every spelling a write can land on, decides jurisdiction before
     identity, and adds a nested repo's ledger to the home one (D-073).** Shell-routed
@@ -839,8 +802,7 @@ ledger row entered through the CLI (D-006).
     refuses). Then contract id, platform, tier and profile, the exact version text, and
     the live checks, unchanged. Tiers are `start`, `resume`, `compaction_observation`;
     each needs the code's suites with an independent checker's pass. Capabilities are
-    tiers intersected with code support, and reconcile is never granted. 2.1.289 and
-    2.1.290 are retired (no binary or hash). Do not propose a runtime registry, ranges or
+    tiers intersected with code support, and reconcile is never granted. Do not propose a runtime registry, ranges or
     probing alone, a metadata hash cache, or invalidation by adapter hash (an embedded
     record cannot bind its own binary; the contract id is bumped instead). A version-keyed
     parse rule whose outcomes are identical on every measured frame of every recorded
@@ -866,11 +828,10 @@ ledger row entered through the CLI (D-006).
     HEAD. Do not propose per-checker version lists or hand-written records.
 83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a
     start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082).**
-    Measured on the first mixed fleet: `herdr agent start` refuses an agent
+    Measured: `herdr agent start` refuses an agent
     argument holding a newline or a backtick, so the prompt is one line naming the brief
     file; `herdr agent wait` with no `--until` matches idle, done or blocked, and a finished
-    lane rests at `done` (the trial's `--until idle --until blocked` timed out on all three
-    lanes); a start straight after `herdr tab create` can be refused as `agent_pane_busy`
+    lane rests at `done`; a start straight after `herdr tab create` can be refused as `agent_pane_busy`
     and a retry seconds later works; under the Codex sandbox the hermetic tier runs
     escalated, once for the whole tier (`TestAdapterReportsEscapedToolAtClose` reads the
     process table, which the sandbox refuses, so a sandboxed red says nothing about the
@@ -896,7 +857,7 @@ ledger row entered through the CLI (D-006).
 
 85. **A ledger this process may not write gets its cause and fix named; the gate still
     denies (D-084).** Codex's workspace-write sandbox keeps the git common dir read-only
-    (measured: CANTOPEN 14 at open, READONLY 8 on a write while a peer holds the ledger open).
+    (measured: CANTOPEN 14 at open, READONLY 8 on a write while a peer holds it open).
     A failing VERB whose error is that family, over a ledger the OS refuses `O_RDWR`
     (EPERM/EACCES), appends the cause and "request escalation up front"; anything else is
     unchanged. The gate is not routed through it. Do not propose opening read-only to get a
@@ -917,8 +878,7 @@ ledger row entered through the CLI (D-006).
     Run-time script text and a command the bash-mode parser rejects refuse only when
     `classifyHook` says Codex; a literal `apply_patch`/`applypatch` at a command position,
     including in a wrapper's argv after a dynamic value, and an exhausted work bound refuse
-    under every harness. Measured: ~10 Claude denials in ~9 of 144 sessions on one fleet,
-    none protecting anything. Do not propose restoring the arm for Claude, or a lexical
+    under every harness. Measured: its Claude denials protected nothing. Do not propose restoring the arm for Claude, or a lexical
     search of text the parser rejects.
 
 89. **`claim` refused by a holder exits 4, and so does a dry run that forecasts it (D-088).**
@@ -975,24 +935,23 @@ ledger row entered through the CLI (D-006).
     prompts print it once; the NEWEST sample under the size (in RecordContext's ordered
     upsert, every hook's sample carrying the declared size) or a new incarnation resets it
     to -1, and the claim matches the row's prompt, so a stale busy moves nothing. The
-    `UserPromptSubmit` payload carries no turn origin (2.1.304's builder) and the turn's
-    transcript record is not on disk at hook time (measured, 7 of 7 turns), so turns are not
-    told apart. Do not propose per-turn repetition, a set of told steps a stale sample can
+    `UserPromptSubmit` payload carries no turn origin and the turn's transcript record is not
+    on disk at hook time (measured), so turns are not told apart. Do not propose per-turn repetition, a set of told steps a stale sample can
     undo, storing it in another table, or reading the turn's origin from the transcript.
 
 98. **A drain with no CORRECTS/SUPERSEDED link or declared kind gets the short inbox header;
     `msg`'s stderr wake copy is skipped when stderr is stdout's open file (D-097, amends
     D-052).** Same file is fstat device and inode; a socket, a non-file or a failed stat gets
     the copy. The rendering under either header is unchanged (invariant 9), and budgets measure
-    the long header. Grouping hello's claims by holder was measured (~4%) and not done.
+    the long header. Grouping hello's claims by holder was measured and not done.
 
 99. **A refusal that shows the usage ends with `  refused: <reason>`, usage first (D-098).**
     `usageRefusal`: `parseFlags`, `noStray`, `init`, `release`'s argument refusals. A refusal
     with no usage is one line already. Do not propose moving the reason back above the usage.
 
 100. **Mail reaches the session it was sent to (D-099).** A hook payload with `agent_id` (a
-    subagent's tool call, under the PARENT's session id; documented and in the 2.1.304
-    hook-input schema, not measured on a live payload) beats for the session but drains no
+    subagent's tool call, under the PARENT's session id; documented, not measured on a live
+    payload) beats for the session but drains no
     mail and consumes no authority or LANDED notice; only the dirty-path warning shows.
     Every drain (beat, busy, idle, `inbox`) holds the ledger's write lock from its read to
     its mark (`store.Drain`), write first and mark after. `idle` checks for queued legacy
@@ -1015,8 +974,7 @@ ledger row entered through the CLI (D-006).
 
 102. **The coordination claim is `orc-<project>` (D-101).** `<project>` is the main checkout's
     directory name. A bare `orchestrator` slug, worn by every repo's coordinator, made the
-    chat alert (which matches claim slugs in every room, D-009) tell each coordinator about
-    the others' mentions. Nothing in buddy reads the name. Do not propose a reserved prefix,
+    chat alert (D-009) tell each about the others' mentions. Nothing in buddy reads the name. Do not propose a reserved prefix,
     a derived default in code, or scoping the alert to a session's derived room.
 
 103. **A vanished hook cwd is discovered from its deepest existing ancestor (D-102).** The
@@ -1027,14 +985,13 @@ ledger row entered through the CLI (D-006).
     followed, not climbed past; an empty link target gives up); both ends re-read after.
     `shellPatchDirs` places any base whose `Stat` is ENOENT the same way. A relative tool path from it is unplaceable and refused
     where a ledger governs; beat and lifecycle renewal ignore it. `init`/`diagnose` stay strict.
-    Measured: a lane that removed its worktree inside the checkout was denied every call, its
-    DONE report included, while one beside the checkout was allowed. Do not propose allowing a
+    Do not propose allowing a
     vanished cwd wholesale (it drops the home ledger's brake) or denying it wholesale.
 
 104. **The orchestrator uses agent tools itself; a subagent is not a lane (D-103).** While it
     runs a fleet, the orchestrator puts side work (a lane's diff, reports, measurements,
-    housekeeping, a second opinion: subagents on any model, Fable only for a review (D-111), a
-    Codex pass through `codex-review.sh`, a Fable read) on subagents, because its own context
+    housekeeping, a second opinion; Fable only for a review, D-111, GIVEN 112) on subagents
+    and `codex-review.sh`, because its own context
     is the scarce resource before its handoff size.
     A subagent holds no claim, lands nothing, relays nothing, and runs under the parent's id
     and claims (D-099); its findings are evidence once a test reproduces them. Do not propose
@@ -1043,7 +1000,7 @@ ledger row entered through the CLI (D-006).
 105. **The review tier follows the change class; a receipt names what ran (D-104).** Full (what
     the gate refuses or allows, the ledger schema, `internal/fence`, an invariant): a read-only
     subagent panel, Codex design and code passes, a required Fable cross-check, and a Codex
-    re-verify of the fixes until it accepts or the brief's bound. Lite: a scoped adversarial
+    re-verify of the fixes up to the brief's round ceiling (D-115, GIVEN 116). Lite: a scoped adversarial
     self-review and one Codex pass, one round, Fable optional. Chore: no outside review
     required, with the reason. A test-only change takes its class's tier; a second model is
     allowed at any tier. The receipt names each layer, each second-model pass with its own
@@ -1055,10 +1012,8 @@ ledger row entered through the CLI (D-006).
 
 106. **`msg` signs an id the ledger does not know as `unregistered s-<8hex>` (D-105).** A
     session id in the environment with no LIVE row here (absent, or ended) used to sign as
-    `operator`, or as its `--from` alone; measured: a session registered in
-    another ledger addressing this one was told "would send … as operator". It now signs
-    the short form a hello would mint, `--from` a tag after it
-    (`unregistered s-66a24e29 (review)`), and the result line (and the dry run's) says it is
+    `operator`, or as its `--from` alone. It now signs
+    the short form a hello would mint, `--from` a tag after it, and the result line (and the dry run's) says it is
     not registered here and names `buddy hello --session <id> --label <name>`, ahead of any
     wake (D-041). The bare terminal is unchanged (`operator`, or its `--from`). Never
     refused; `senderSession`'s UNKNOWN owner (D-043), the drain headers and the 64-byte
@@ -1104,8 +1059,7 @@ ledger row entered through the CLI (D-006).
     { "$HOME/bin/buddy" gate; } 2>/dev/null || { echo <one fixed line> >&2; exit 2; }`,
     `timeout` 10, `onFailure: "block"`. The old `[ -x ] && buddy gate; exit 0` turned a
     buddy that died before printing (a panic, SIGKILL, a corrupt binary) into "no
-    decision", and the call went ahead (measured with libc v1.67.1's pre-main panic under
-    sandbox-exec). No binary: off, silent. Exit 0: stdout passes untouched. Any other
+    decision", and the call went ahead (measured). No binary: off, silent. Exit 0: stdout passes untouched. Any other
     status: exit 2, which blocks whatever stdout holds, with the fixed line; the crash's
     own text is discarded (invariant 9). A timeout or a shell that cannot start blocks by
     `onFailure` (Claude Code 2.1.295+; documented, not measured). The reach is the
@@ -1165,8 +1119,8 @@ ledger row entered through the CLI (D-006).
     The installed commit is the vcs stamp of `$BUDDY_BIN_DIR/buddy`, the file the hooks run,
     not the running process's. origin/main is "as of the last fetch", dated by FETCH_HEAD only
     when it records origin's main, else by the ref's reflog entry. The report's git reads run
-    no filter, fsmonitor, lazy fetch or submodule. Dirty or off-main WARNS and installs (the
-    operator asked for guidance); one case refuses: an installed commit in the checkout that
+    no filter, fsmonitor, lazy fetch or submodule. Dirty or off-main WARNS and installs; one
+    case refuses: an installed commit in the checkout that
     HEAD does not contain (a downgrade is D-037's machine-wide deny); shallow or unknown
     history says it cannot place it. install.sh runs with no stdin, its status the verb's.
     Not a hook verb, opens no ledger, never delegable (D-083). Do not propose a pull, a
@@ -1214,7 +1168,7 @@ ledger row entered through the CLI (D-006).
     prints beside it. A word only (invariant 10): no sort, colour, filter, refusal or `who`
     line. fleet-report prints `s-<8hex>` and the prompt, never a label or model string. A
     lane's own declared size is not stored (schema), so it is judged against the reader's:
-    recorded open, not a defect of this change. Do not propose a sort or refusal on size.
+    recorded open. Do not propose a sort or refusal on size.
 
 115. **The skill splits by reader; the operator's conventions are not shipped (D-114).** The
     core `skills/buddy/SKILL.md` (every session: claims, refusals, waits, messages, landing as
@@ -1242,7 +1196,7 @@ ledger row entered through the CLI (D-006).
 116. **A brief names a review-round ceiling (D-115).** Default: lite, one second-model code
     pass folded once; full, design + code + at most two re-verify rounds; the operator raises
     it per item. At the ceiling the lane folds narrowly, answers the rest in the commit, and
-    records it open. D-106 took six rounds and every fold regressed something. Do not propose
+    records it open (D-106's folds regressed). Do not propose
     re-verifying "until it accepts" without a named ceiling.
 
 117. **A subagent names its model or a hook refuses it; a batch boundary is a handoff point
