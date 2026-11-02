@@ -9,6 +9,11 @@ timing out with nothing to show.
 If a review's conclusion depends on overturning something in this file, say so explicitly
 and give the evidence. Do not quietly assume the opposite.
 
+A GIVEN ending `(full text: `CODEX_CHARTER=adapter`)` is a one-line stub: its rule,
+D-numbers and fences bind as written; its full text, which only adapter code rests on, is
+`docs/review-charter-adapter.md`, appended under that flag (D-128). If your finding needs a
+stubbed GIVEN's detail and you were handed only the stub, say so; do not re-derive it.
+
 ## What this project is
 
 The Buddy System coordinates several concurrent Claude Code sessions working in one
@@ -671,22 +676,7 @@ ledger row entered through the CLI (D-006).
     gate settings and the pinned built-in Mod profile (D-071). No install, trust
     mutation, existing-session attach or task table. Qualification: the plan receipt.
 
-72. **Claude admission uses a pinned native built-in Mod profile (D-071).**
-    `hooks.mods: "builtin-only-<version>"` selects the separately checked profile
-    matching the exact declared and observed native version. The admitted pairs are
-    the committed admission records (D-079), not this GIVEN; each new build joins
-    only after its own qualification. Start and resume reject a cross-version/profile pair;
-    no semver range or automatic conversation upgrade is admitted. Legacy
-    `no_mods` evidence refuses. The adapter checks effective settings, reloads
-    plugins in its owned child before input, requires exactly the two expected
-    native built-ins with their source/path identities and no reload errors,
-    then checks effective settings again. Missing/additional inventory refuses.
-    The agents-md built-in contains a Mod, so empty optional configuration is
-    not evidence of Mod absence. This is a startup snapshot, not continuous
-    attestation, plugin startup isolation or a read-only diagnostic. Native
-    initialization/reload precedes inventory admission. Actual native claim denial is a
-    separate check; optional/managed Mods outside the profile and later native
-    configuration changes remain unqualified.
+72. **Claude admission uses a pinned native built-in Mod profile (D-071).** The admitted pairs are the D-079 records; legacy `no_mods` refuses. Do not propose: semver ranges, an automatic conversation upgrade. (full text: `CODEX_CHARTER=adapter`)
 
 73. **Offline compatibility diagnostics do not open the source ledger with
     SQLite (D-072).** `buddy diagnose` reads a bounded stable main-file image
@@ -718,14 +708,7 @@ ledger row entered through the CLI (D-006).
     wake and approve nothing. `buddy` gains no launch, wake or exit verb. Do not cite D-056
     or D-039 against the adapter, or the adapter as precedent for a `buddy` verb.
 
-76. **Recovery admission is exact-version and terminal-evidence-bound (D-075).** Codex
-    resumes the captured thread; Codex `reconcile` is withdrawn until a bounded history
-    read is qualified (D-077). Claude resume
-    needs every journalled turn's terminal result for its exact input (`completed`,
-    `aborted_streaming`, `aborted_tools`) and idle; anything unfinished or unknown refuses
-    before ledger refresh and launch, and SDK history never substitutes. Manual compaction
-    is admitted only on versions where its boundary and local result were measured. D-075
-    supersedes D-070's "Claude resume is unsupported".
+76. **Recovery admission is exact-version and terminal-evidence-bound (D-075).** Codex `reconcile` is withdrawn (D-077); D-075 supersedes D-070's "Claude resume is unsupported". Do not propose: reconcile back, SDK history as terminal evidence. (full text: `CODEX_CHARTER=adapter`)
 
 77. **Adapter mail is its own register in the legacy views (D-076).** `who`/`status` print
     an `ADAPTER` line beside `INBOX`; a send counts adapter mail separately and never claims
@@ -733,38 +716,7 @@ ledger row entered through the CLI (D-006).
     correction of adapter mail refuses. A lifecycle PostToolUse renews only claims covering
     the paths it names. `hello --session` still refuses non-hook stdin and names `</dev/null`.
 
-78. **The adapter owns its worker's process group and validates the operator descriptor
-    before any child (D-077).** `--operator-fd` must be open, `O_RDONLY`, a FIFO/char
-    device/regular file, and is marked close-on-exec before the version probe; anything else
-    refuses with no child and no journal. Close ends the worker's process group (TERM, then
-    KILL as soon as the leader exits or after 2 s at most — the grace is the leader's, so a
-    tool can get TERM and KILL back to back) while its leader is unreaped, and closes the
-    stdout reader; INT/TERM/HUP run
-    Close. A refusal before any native byte is `not_submitted` and retryable; a write that
-    may have happened stays uncertain. An unrecorded event makes state unknown, never
-    `observed_absent`. Claude gate settings use exact case-sensitive keys, no duplicates, a
-    matcher that is `""`, `*` or `.*`, or a literal list (plain or `^(…)$`-anchored) naming
-    all three tools, `timeout` 10-600 s. Executables are absolute,
-    resolved once, identity-checked before exec. Do not propose discarding oversized
-    frames, reading full Codex history on the live transport, or treating a free journal
-    lock as proof the worker exited. **Resume is fail-closed on an ownership record
-    (D-077, audit A-02):** every spawn publishes `<receipt>.proc`
-    (intent before the child, the leader's pid/start/pgid/sid before the first native
-    byte) through a single-use launch authorization consumed before `cmd.Start`; resume
-    refuses with no record, a record bound to another journal/receipt/identity, an
-    intent-only record, or while the recorded adapter, leader or group lives (`kill(-pgid,
-    0)`, ESRCH alone is absence); `--wait-prior` is a bounded passive re-check. `.start`
-    fences only Start; the flock plus intent-before-spawn fence every spawn. **Narrow
-    contract (D-077, the operator's choice):** descendants that left the group
-    are sampled every second (one `kern.proc.all` read; parentage only, every parent
-    re-checked by pid and start time after the read), recorded in `.proc`, captured again
-    before stdin closes on every adapter-initiated shutdown, reported at close (`ended`,
-    `survivors`, `unknown`; `unattributable` is always "unknown") and on one stderr line,
-    and NEVER signalled; resume refuses waitably while a recorded one lives, and outright
-    on overflow (256), an unresolved discovery error or a malformed section. Excluded, do
-    not re-propose: record rollback detection (invariant 6), killing what the adapter
-    cannot pin (a pid and start-time re-read is not a pin), `--end-prior`. Setsid waits on
-    native qualification Q1/Q3.
+78. **The adapter owns its worker's process group and validates the operator descriptor before any child (D-077).** Resume is fail-closed on a `.proc` ownership record (audit A-02); escaped descendants are recorded, never signalled (the narrow contract). Do not propose: discarding oversized frames, full Codex history on the live transport, a free journal lock as proof of exit, record rollback detection, killing the unpinned, `--end-prior`. (full text: `CODEX_CHARTER=adapter`)
 
 79. **An adapter-launched worker's claims renew from COMPLETED native writes, through the
     controller (D-078).** No PostToolUse joins the adapter's gate contract (that route is a
@@ -793,39 +745,9 @@ ledger row entered through the CLI (D-006).
     on executed results) or treating `accept` as completion. The field is `@internal`;
     exact-build admission is why relying on it is acceptable.
 
-80. **Native admission is a committed exact-artifact record, embedded in the adapter
-    (D-079).** `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`
-    (`buddy.admission.v1`), strict parse (unknown, duplicate or missing keys, a malformed
-    hash, an unearned tier, a `reconcile` grant: each its own refusal; one bad record
-    refuses every launch). Before anything runs, the executable is hashed and matched by
-    bytes, and Codex's whole release tree is matched to its manifest (an undeclared entry
-    refuses). Then contract id, platform, tier and profile, the exact version text, and
-    the live checks, unchanged. Tiers are `start`, `resume`, `compaction_observation`;
-    each needs the code's suites with an independent checker's pass. Capabilities are
-    tiers intersected with code support, and reconcile is never granted. Do not propose a runtime registry, ranges or
-    probing alone, a metadata hash cache, or invalidation by adapter hash (an embedded
-    record cannot bind its own binary; the contract id is bumped instead). A version-keyed
-    parse rule whose outcomes are identical on every measured frame of every recorded
-    version, proven by a committed hermetic replay, does not bump the contract id; a change
-    that alters any such outcome does, and requalifies (the operator's choice).
-81. **A qualification candidate (D-080)** is `buddy-adapter --qualify-candidate <artifact>
-    --qualify-sha256 <hex>` in the shipped binary: the typed digest binds the artifact, the
-    committed records are REPLACED by one synthesized record for those bytes, an observer
-    `--executable` is hashed and must stay unchanged, and every start and resume needs a
-    loopback-IP provider (Claude `ANTHROPIC_BASE_URL`; Codex `config.toml` `model_provider`
-    `base_url`). Every receipt carries `qualification_candidate`; cross-mode resume refuses.
-    The rename window between the post-hash re-check and `--version` is F-23's stated
-    path-exec window (no worker starts on a replacement); `--retained` is the mitigation.
-82. **A qualification run binds its own binary; checkers read the records (D-081).** Each
-    runner hashes the binary it was given, reads `--version`, and types the candidate flags
-    onto every adapter it starts (no `BUDDY_QUALIFY_*` env transport). Each checker takes its
-    versions from the committed records and `--candidate harness:version:sha256`, and accepts a
-    candidate run only for exactly those bound bytes with the route visible in the adapter's
-    receipts. A run bound to other bytes is never accepted because the version has a record.
-    `scripts/qualify-release.py` retains the build (staged, verified, renamed, never
-    overwritten), runs the code's suites from the copy, and writes a record only for tiers
-    whose suites and checkers all passed, only with `start`, and only on a clean tree at one
-    HEAD. Do not propose per-checker version lists or hand-written records.
+80. **Native admission is a committed exact-artifact record, embedded in the adapter (D-079).** Reconcile is never granted; a parse-rule change that alters a measured outcome bumps the contract id. Do not propose: a runtime registry, ranges or probing alone, a metadata hash cache, invalidation by adapter hash. (full text: `CODEX_CHARTER=adapter`)
+81. **A qualification candidate is bound by typed sha256 and a loopback provider (D-080).** `buddy-adapter --qualify-candidate <artifact> --qualify-sha256 <hex>`; every receipt carries `qualification_candidate`; cross-mode resume refuses. Do not propose: a candidate without the typed digest, a non-loopback provider. (full text: `CODEX_CHARTER=adapter`)
+82. **A qualification run binds its own binary; checkers read the records (D-081).** Earned tiers only, clean tree at one HEAD. Do not propose: per-checker version lists, hand-written records, `BUDDY_QUALIFY_*` env transport. (full text: `CODEX_CHARTER=adapter`)
 83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a
     start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082).**
     Measured: `herdr agent start` refuses an agent
@@ -1241,6 +1163,14 @@ ledger row entered through the CLI (D-006).
     in-process (`installedChat`, the hook runs the stamped file); unstamped prints for all but
     `off`, as before. Never refused. Do not propose the stamp outranking the variable, reading
     the installed file's build info per SessionStart, or install.sh writing settings.
+
+121. **The GIVENs only adapter code rests on ride every pass as one-line stubs; their full
+    text is appended on `CODEX_CHARTER=adapter` (D-128).** Moved: 72, 76, 78, 80, 81, 82;
+    every GIVEN the store, the gate, `lifecycle` or a buddy verb rests on stays in full. A
+    stub keeps its number, rule, every D-number and its fences (`check-charter.sh` pairs
+    them); the header prints `charter=<bytes>B(core)` or `(core+adapter)`; an unknown or empty
+    value, or `adapter` beside `CODEX_NO_CHARTER=1`, refuses. Do not propose choosing the parts from
+    the prompt text, a separate file with no stubs, or moving a GIVEN by number range.
 
 ## Environment facts (measured, do not re-derive)
 

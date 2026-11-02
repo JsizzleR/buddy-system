@@ -14,7 +14,10 @@ The operator's request determines the role, not the model name:
   external actions. Preserve concurrent edits.
 - A **constrained reviewer** performs a read-only review. Launch local Codex
   review passes through `scripts/codex-review.sh`, in the foreground; that
-  workflow does not build or test. A review verdict is not test evidence.
+  workflow does not build or test. A review verdict is not test evidence. A
+  review of adapter code (`internal/harness`, `cmd/buddy-adapter`, the
+  qualify/check `.py` scripts, `docs/admissions/`) sets `CODEX_CHARTER=adapter`
+  (D-128).
 
 Under the Codex sandbox, a driver or worker runs the hermetic tier escalated,
 asked once for the whole tier: `TestAdapterReportsEscapedToolAtClose` reads

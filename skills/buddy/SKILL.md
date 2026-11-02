@@ -325,7 +325,8 @@ ceiling on review rounds. Run what it owes:
   the FOREGROUND with a long tool timeout, output redirected to a file you
   then read; never background it and never hand-roll the second model's CLI.
   A second-model CLI backgrounded under an agent harness can wedge with no
-  output at all, and an empty output file looks the same as a live run.
+  output at all, and an empty output file looks the same as a live run. If
+  the repo names a flag for reviews of the code your diff touches, pass it.
 - **Stop at the round ceiling.** Fold what the last round raised that you can
   fold narrowly; answer the rest in the commit message and record it open.
   Folding findings makes new defects: on one repo's gate work, every fold

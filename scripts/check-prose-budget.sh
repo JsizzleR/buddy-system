@@ -49,6 +49,10 @@
 #                  section joins; that file's list does not recurse);
 #   codex-pass     AGENTS.md and the charter codex-review.sh prepends (the path
 #                  is read from its CHARTER= line, not assumed).
+# One more enumerated path is in NO class: the adapter charter codex-review.sh
+# appends only under CODEX_CHARTER=adapter (its CHARTER_ADAPTER= line, D-128). It
+# needs its own table line like any member, but no class total counts it: a pass
+# without the flag does not load it, and codex-pass measures that pass.
 # A class total is the sum of its members as ENUMERATED, so a new file spends
 # its class's headroom and gets none of its own. A table line whose file or
 # section is gone FAILS too: coverage cannot be removed by deleting the text.
@@ -73,7 +77,8 @@
 # whose member is under, one description over only past its blank line, one
 # unbudgeted auto-load, one unbudgeted closure read, one unbudgeted import at
 # the second hop, one unbudgeted titled link, one unbudgeted read in a SECOND
-# "Read this first" section, one vanished line and one misplaced directive, and
+# "Read this first" section, one unbudgeted flag-appended charter, one vanished
+# line and one misplaced directive, and
 # nothing else: not the file under its ceiling, not the path-less directive,
 # not the second level of closure. A judge that stopped measuring, summing, enumerating or parsing
 # reports a different set, and the real tree is never judged by it.
@@ -160,7 +165,7 @@ resolve() {
 members() {
 	R=$1; O=$2
 	: > "$O/every-request"; : > "$O/per-session"; : > "$O/read-first"; : > "$O/codex-pass"
-	: > "$O/dangling"; : > "$O/directive"; : > "$O/unparsed"
+	: > "$O/dangling"; : > "$O/directive"; : > "$O/unparsed"; : > "$O/flagged"
 	files "$R" > "$O/files"
 
 	grep -E '(^|/)CLAUDE(\.local)?\.md$|^\.claude/(rules|agents|commands)/.*\.md$' "$O/files" >> "$O/every-request" || true
@@ -224,6 +229,13 @@ members() {
 		c=$(sed -n 's#^CHARTER=.*/\(docs/[A-Za-z0-9_./-]*\.md\)".*$#\1#p' "$R/scripts/codex-review.sh" | head -1)
 		if [ -z "$c" ]; then echo "scripts/codex-review.sh#CHARTER=" >> "$O/unparsed"
 		elif [ -f "$R/$c" ]; then echo "$c" >> "$O/codex-pass"
+		else echo "scripts/codex-review.sh->$c" >> "$O/dangling"
+		fi
+		# Exactly one assignment: with two, the script appends the last and `head -1`
+		# would budget the first (Codex code pass).
+		c=$(sed -n 's#^CHARTER_ADAPTER=.*/\(docs/[A-Za-z0-9_./-]*\.md\)".*$#\1#p' "$R/scripts/codex-review.sh")
+		if [ -z "$c" ] || [ "$(grep -c '^[[:space:]]*CHARTER_ADAPTER=' "$R/scripts/codex-review.sh")" != 1 ]; then echo "scripts/codex-review.sh#CHARTER_ADAPTER=" >> "$O/unparsed"
+		elif [ -f "$R/$c" ]; then echo "$c" >> "$O/flagged"
 		else echo "scripts/codex-review.sh->$c" >> "$O/dangling"
 		fi
 	fi
@@ -292,6 +304,9 @@ judge() {
 			grep -qxF -- "$m" "$W/keys" || { echo "FAIL unbudgeted $m"; echo "  loaded unasked ($c) with no line in $T"; bad=1; }
 		done < "$W/$c"
 	done
+	while IFS= read -r m; do
+		grep -qxF -- "$m" "$W/keys" || { echo "FAIL unbudgeted $m"; echo "  appended by a codex-review.sh flag, with no line in $T"; bad=1; }
+	done < "$W/flagged"
 	while IFS= read -r d; do echo "FAIL dangling $d"; echo "  a startup list names a file that is not in the tree"; bad=1; done < "$W/dangling"
 	while IFS= read -r d; do echo "FAIL unparsed $d"; echo "  the text this check parses is gone or respelled: re-point the check in the same commit"; bad=1; done < "$W/unparsed"
 	while IFS= read -r d; do echo "FAIL directive $d"; echo "  startup reads belong under CLAUDE.md's \"Read this first\" or AGENTS.md's \"Read ... before\" paragraph"; bad=1; done < "$W/directive"
@@ -398,7 +413,8 @@ printf 'imported, and imports\n@i2.md\n' > "$FX/docs/i1.md"
 printf 'imported at the second hop\n' > "$FX/docs/i2.md"
 printf '# sneak\n' > "$FX/docs/sneak.md"
 printf '# charter\n' > "$FX/docs/review-charter.md"
-printf 'CHARTER="$(pwd)/docs/review-charter.md"\n' > "$FX/scripts/codex-review.sh"
+printf '# adapter charter\n' > "$FX/docs/review-charter-adapter.md"
+printf 'CHARTER="$(pwd)/docs/review-charter.md"\nCHARTER_ADAPTER="$(pwd)/docs/review-charter-adapter.md"\n' > "$FX/scripts/codex-review.sh"
 printf -- '---\nname: s\ndescription: |\n  a planted skill\n\n  past the blank line, a continuation long enough to cross its ceiling\n---\n\nBody of the planted skill, longer than its class allows.\n' > "$FX/skills/s/SKILL.md"
 printf 'a new always-loaded rules file nobody budgeted\n' > "$FX/.claude/rules/new.md"
 {
@@ -419,13 +435,13 @@ printf 'a new always-loaded rules file nobody budgeted\n' > "$FX/.claude/rules/n
 	printf 'docs/gone.md\t1000\tfixture\tvanished\n'
 } > "$FX/table.tsv"
 got=$(judge "$FX" "$FX/table.tsv" | sed -n 's/^FAIL //p' | sort | tr '\n' ';' || true)
-want='directive CLAUDE.md:12;over CLAUDE.md;over per-session;over skills/s/SKILL.md:description;unbudgeted .claude/rules/new.md;unbudgeted docs/c.md;unbudgeted docs/e.md;unbudgeted docs/f.md;unbudgeted docs/i2.md;vanished docs/gone.md;'
+want='directive CLAUDE.md:12;over CLAUDE.md;over per-session;over skills/s/SKILL.md:description;unbudgeted .claude/rules/new.md;unbudgeted docs/c.md;unbudgeted docs/e.md;unbudgeted docs/f.md;unbudgeted docs/i2.md;unbudgeted docs/review-charter-adapter.md;vanished docs/gone.md;'
 [ "$got" = "$want" ] || fail "the judge reported '$got' on its planted tree, want '$want' — the gate is broken, not the tree"
 [ "$(formula 3723)" = 4096 ] && [ "$(formula 3724)" = 8192 ] || fail "the formula gave $(formula 3723) and $(formula 3724) for 3,723 and 3,724 bytes, want 4096 and 8192"
 
 if out=$(judge . "$TABLE"); then
 	echo "$out" | sed 's/^OK /  /'
-	echo "check-prose-budget: GREEN (planted tree: 10 failures found, 0 false; $(echo "$out" | grep -c '^OK ') keys under their ceilings)"
+	echo "check-prose-budget: GREEN (planted tree: 11 failures found, 0 false; $(echo "$out" | grep -c '^OK ') keys under their ceilings)"
 else
 	echo "$out" | grep -v '^OK ' >&2
 	echo "check-prose-budget: FAIL — $(echo "$out" | grep -c '^FAIL ') line(s) above; nothing here is a warning" >&2

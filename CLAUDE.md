@@ -143,7 +143,10 @@ operator-authorized only; read the release notes first.
   review.** Never hand-roll a review's `codex exec`; if the budget is tight, cut
   the prompt's scope, not the foregrounding. It pins model / effort / tier,
   verifies the run header, ASCII-folds the prompt, caps concurrency, and
-  prepends the review charter. Operator-authorized Codex drivers and workers use
+  prepends the review charter. **A review of adapter code** (`internal/harness`,
+  `cmd/buddy-adapter`, the qualify/check `.py` scripts, `docs/admissions/`, USAGE's
+  adapter sections) **sets `CODEX_CHARTER=adapter`**: every other pass gets those
+  GIVENs as one-line stubs (D-128). Operator-authorized Codex drivers and workers use
   the roles in `AGENTS.md`; they are not constrained review passes.
 
 Knobs (`docs/USAGE.md` documents each `BUDDY_*`; `codex-review.sh`'s header each
@@ -152,7 +155,8 @@ Knobs (`docs/USAGE.md` documents each `BUDDY_*`; `codex-review.sh`'s header each
 (declared, never inferred; D-055), `BUDDY_LABEL` (D-089), `BUDDY_COST_DAYS`,
 `BUDDY_OSCAR_BIN` (the live test's server); `BUDDY_LEDGER` is a report knob
 ONLY, `buddy` never reads it. `CODEX_EFFORT` (default `xhigh`; `max` is a second
-pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`.
+pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
+`CODEX_CHARTER=core|adapter` (default `core`; D-128).
 
 ## Invariants — never violate, and flag if a change would
 
@@ -424,7 +428,7 @@ Every number stays on some line.
 - **Alerts, presence.** Self-alerts by the `@sent` row; `mentions_me` matches slugs first; alert cursor ≠ read cursor; presence is presentation only, no per-session TOC connections; a DM refuses only a definite ISON no; an unknown room's read is refused, naming its rooms (D-009, D-011, D-014, D-024).
 - **Launching.** buddy launches, wakes and ends nothing, no `exit` verb; a coordinator opens its own lanes with the harness; a `claude --bg` lane anchors at its own process; `buddy-adapter` is the one exception (D-027, D-039, D-056, D-058, D-074).
 - **Fleet.** Landing is a skill recipe over existing verbs, no task table: `wait --ready`, `release --outcome`, a brief in a file; the next round may branch from a run in flight, restacked only when code under it changes; a relay to one coordinator, carrying content and scope only when marked as said in its pane; a subagent is not a lane (D-049, D-062, D-082, D-083, D-103, D-109, D-119).
-- **Review, models.** The tier follows the change class; the receipt names each layer and Codex effort; every lane on the default lane model, Fable for reviews only; every brief names a round ceiling (lite: one pass folded once; full: at most two re-verifies); a subagent names its model, and a hook refuses an unnamed general-purpose Agent call; a coordinator may hand off at a batch boundary (D-104, D-111, D-115, D-117).
+- **Review, models.** The tier follows the change class; the receipt names each layer and Codex effort; every lane on the default lane model, Fable for reviews only; every brief names a round ceiling (lite: one pass folded once; full: at most two re-verifies); a subagent names its model, and a hook refuses an unnamed general-purpose Agent call; a coordinator may hand off at a batch boundary; the charter's adapter-only GIVENs ride as one-line stubs, in full on `CODEX_CHARTER=adapter` (D-104, D-111, D-115, D-117, D-128).
 - **Install.** `install.sh` upgrades every buddy binary the machine runs, waits out a new daemon's launch constraint, skips no later step, and reports, never installs, the Agent-model hook's copy and wiring; `buddy update` runs it from the stamped checkout, never fetches; the chat posture is stamped in buddy and kept while `BUDDY_CHAT` is unset, and `hello` obeys it unless `BUDDY_CHAT` says off or on, so a claims-only install needs no settings line; `buddy uninstall [--chat]` runs that checkout's uninstall.sh, chat first through launchd, buddy last, settings and data only reported; install and uninstall share one lock in the bin dir, a held one stops the other (D-050, D-067, D-110, D-120, D-124, D-125, D-126, D-127).
 - **Tests.** Never with git's local environment; a test binary outliving its `go test` is ended from outside and leaves a sample; the watchdog also ends a `-race` forkExec child stuck before exec (D-053, D-057, D-061).
 - **Codex, adapter.** Codex through the patch gate and native identity, roles explicit; versioned receipts; `buddy-adapter` controls only workers it launches, owns their process group, validates the descriptor before any child; its mail is its own register; its worker's claims renew only from completed native writes (D-068, D-070, D-074, D-076, D-077, D-078).

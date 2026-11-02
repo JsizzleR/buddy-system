@@ -35,6 +35,18 @@
 #     re-litigates rulings nor explores to re-derive facts. Exploration is the dominant
 #     cause of watchdog timeouts. CODEX_NO_CHARTER=1 opts out for a byte-tight pass, but
 #     then you must restate the relevant GIVENs in the prompt yourself.
+#     CODEX_CHARTER=adapter also appends docs/review-charter-adapter.md, the full text of
+#     the GIVENs only adapter code rests on (internal/harness, cmd/buddy-adapter, the
+#     qualify/check .py scripts, docs/admissions, USAGE's adapter sections); every other
+#     pass gets each of them as a one-line stub naming its rule, D-numbers and fences
+#     (D-128). Unset or `core` is the stub-only charter. Any other value REFUSES, set but
+#     empty included (an unset shell variable spliced in for `adapter`), and so
+#     does `adapter` beside CODEX_NO_CHARTER=1: a caller who asked for more must never
+#     silently get less. The run header says which parts went in
+#     (`charter=<bytes>B(core)` / `(core+adapter)`), so a receipt can prove it.
+#     Rejected: guessing the parts from the prompt text (the script sees a prompt file,
+#     not the diff), and a separate file with no stubs (a reviewer not handed it would not
+#     know the fences exist).
 set -eu
 
 MODEL=${CODEX_MODEL:-gpt-6-astra}
@@ -63,6 +75,19 @@ die() { echo "codex-review: $*" >&2; exit 1; }
 [ $# -ge 1 ] || die "usage: codex-review.sh <prompt-file|-> [out-file]"
 SRC=$1
 OUT=${2:-}
+
+# (7) Which charter parts, decided BEFORE anything runs or waits for a slot, so a typo
+# costs nothing and is never a pass on the wrong charter (D-128).
+case ${CODEX_CHARTER-core} in
+  core) PARTS=core ;;
+  adapter) PARTS=core+adapter ;;
+  *) die "CODEX_CHARTER='${CODEX_CHARTER}' is not core or adapter
+  refused: unknown CODEX_CHARTER value" ;;
+esac
+if [ "${CODEX_NO_CHARTER:-0}" = "1" ] && [ "$PARTS" != core ]; then
+  die "CODEX_CHARTER=adapter asks for the adapter GIVENs and CODEX_NO_CHARTER=1 for no charter
+  refused: CODEX_CHARTER=adapter with CODEX_NO_CHARTER=1"
+fi
 
 # (5) Refuse to stack runs. Kill by PID, never `pkill -f` (see 4).
 #
@@ -150,12 +175,19 @@ if [ "$SRC" = "-" ]; then cat > "$TMP/raw"; else [ -f "$SRC" ] || die "no such p
 # (7) The standing charter, prepended so settled decisions arrive as GIVENs instead of
 # being re-litigated, and environment facts arrive stated instead of being re-derived by
 # exploration — which is the dominant timeout mode.
+# Both paths on their own lines: check-prose-budget.sh reads them from here.
 CHARTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter.md"
+CHARTER_ADAPTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-adapter.md"
 if [ "${CODEX_NO_CHARTER:-0}" != "1" ]; then
   [ -f "$CHARTER" ] || die "docs/review-charter.md is missing (CODEX_NO_CHARTER=1 to skip)"
-  { cat "$CHARTER"; printf '\n\n---\n\n'; cat "$TMP/raw"; } > "$TMP/full"
+  cat "$CHARTER" > "$TMP/charter"
+  if [ "$PARTS" = core+adapter ]; then
+    [ -f "$CHARTER_ADAPTER" ] || die "docs/review-charter-adapter.md is missing; CODEX_CHARTER=adapter asked for it"
+    { printf '\n\n'; cat "$CHARTER_ADAPTER"; } >> "$TMP/charter"
+  fi
+  { cat "$TMP/charter"; printf '\n\n---\n\n'; cat "$TMP/raw"; } > "$TMP/full"
   mv "$TMP/full" "$TMP/raw"
-  CHARTER_NOTE="charter=$(wc -c < "$CHARTER" | tr -d ' ')B"
+  CHARTER_NOTE="charter=$(wc -c < "$TMP/charter" | tr -d ' ')B($PARTS)"
 else
   CHARTER_NOTE="charter=off"
 fi

@@ -10153,3 +10153,101 @@ rule 2 called a `-trimpath` build unstamped, but its `-X` still sets the variabl
 AGENT-SETUP pointed at `buddy update --dry-run` to tell a stamped buddy, which refuses a hand
 build before any `chat` line; the core skill's "silent on a claims-only install" left out
 `BUDDY_CHAT=on`. Folded once (D-115).
+
+## D-128 — The review charter's adapter GIVENs ride every Codex pass as one-line stubs; their full text is appended only on `CODEX_CHARTER=adapter` (amends D-116)
+
+2026-11-02. The operator, in orc-15's pane on 2026-11-02 at about 14:40, "yes open it as
+option 1", answering orc-15's account of an adapter-GIVENs split (run48). Option 1: every
+review keeps a one-line stub of each adapter GIVEN; a review of adapter code asks for the full
+text with a flag on `scripts/codex-review.sh`.
+
+**What was wrong** — the charter is prepended to every Codex pass and is about 28-31% of all
+Codex input tokens (charter-trim-2's measurement, f2137b1). GIVENs 69-82 (about 15.9 KB at
+6115889) record the native-harness adapter's contract; since 2026-10-24, 12 of 94 commits
+touched `internal/harness`, `cmd/buddy-adapter` or the qualify/check scripts, so most passes
+carried text that only those reviews read.
+
+**The rule**
+1. **Chosen GIVEN by GIVEN, never by number range.** A GIVEN moves only if no review of code
+   outside `internal/harness`, `cmd/buddy-adapter`, `scripts/qualify-*.py` and the adapter's
+   `scripts/check-*.py` could need its full text to avoid re-proposing a settled thing.
+   Moved: **72** (Claude Mod profile, D-071), **76** (recovery admission, D-075), **78**
+   (process group, operator descriptor, `.proc` ownership, D-077), **80** (admission records,
+   D-079), **81** (qualification candidate, D-080), **82** (qualification runs, D-081): none of
+   their terms (`builtin-only`, `no_mods`, `aborted_*`, `reconcile`, `--operator-fd`, `.proc`,
+   `admission.json`, `--qualify-*`, `BUDDY_QUALIFY_*`) appears in `internal/cli`,
+   `internal/store`, `cmd/buddy`, the shell scripts or the skills. Kept in full:
+   - **69** (D-068): the patch gate and `CODEX_THREAD_ID` identity are `internal/cli`
+     (`patch.go`, `harness_identity.go`).
+   - **70** (D-069): `lifecycle begin`/`hook` and the logical token are
+     `internal/cli/lifecycle.go` and `internal/store/logical.go` (invariant 12).
+   - **71** (D-070): `buddy.adapter.v1`, schema 15's message identity and the legacy drains
+     that skip adapter mail are `internal/cli/adapter.go` and `internal/store/adapter.go`.
+   - **73** (D-072): `buddy diagnose` is `internal/cli/diagnostic.go` and
+     `internal/store/diagnostic.go`; `fleet-report.sh` and `model-report.sh` read the ledger
+     its way.
+   - **74** (D-073): gate law.
+   - **75** (D-074): its fence (the adapter is no precedent for a `buddy` verb) guards every
+     verb review; GIVENs 42 and 58 point at it.
+   - **77** (D-076): the `ADAPTER` line, send counting and the legacy correction refusal are
+     `internal/cli`.
+   - **79** (D-078): `buddy lifecycle renew` and `Store.RenewLogical` rest on it, and its
+     "not through `BeatLogical`" fence is store-level.
+2. **The stub** keeps the GIVEN's number, its rule as a bold line, every D-number its full text
+   names, its fences in a word or two after `Do not propose:`, and ends
+   `(full text: `CODEX_CHARTER=adapter`)`, on one line. The charter's head says a stub binds as
+   written, and that a reviewer handed only the stub says so rather than re-deriving.
+3. **The full text** is `docs/review-charter-adapter.md`, a second file, not a marked section
+   the script strips: the main charter stays exactly what a pass without the flag reads (so the
+   prose budget and `check-charter.sh`'s coverage measure that), and the script only appends.
+4. **`codex-review.sh`**: `CODEX_CHARTER` unset or `core` sends the main charter;
+   `adapter` appends the second file. Any other value refuses, set but empty included (an
+   unset shell variable spliced in where `adapter` was meant), and so does `adapter` beside
+   `CODEX_NO_CHARTER=1`, both before a slot is checked, ending `refused: <reason>` (D-098): a
+   caller who asked for more never silently gets less. The run header says
+   `charter=<bytes>B(core)` or `charter=<bytes>B(core+adapter)`, so a receipt proves which.
+5. **Who passes it**: a review whose diff touches the adapter paths above, `docs/admissions/`,
+   or `docs/USAGE.md`'s structured-adapter sections (which restate the moved GIVENs; Fable's
+   cross-check). Taught in CLAUDE.md's knobs and AGENTS.md; the core skill says to pass a flag
+   the repo names for the code under review.
+6. **The checks.** `check-charter.sh` keeps its coverage check on the main charter alone and
+   pairs the two files: a full text with no stub, a GIVEN in full in both, a stub over one
+   line, a D-number the stub drops, a full text with a fence whose stub names none, a stub
+   with no full text, a number twice in one file, a stub outside the settled section, an
+   adapter-file line at column 0 that is no GIVEN start (`82a.`), a file that parses to no
+   GIVEN: each fails, and its planted pair arms them beside a correct pair. It proves a stub
+   names A fence, not EVERY excluded alternative; which ones a stub keeps is the review's
+   judgement. `check-prose-budget.sh` reads the second path from `codex-review.sh`'s one
+   `CHARTER_ADAPTER=` line (none or two is unparsed) and requires its own row; the
+   `codex-pass` class stays AGENTS.md and the main charter, what a pass without the flag
+   loads.
+
+**Rejected**
+- *The script guesses the parts from the prompt text.* It sees a prompt file, not the diff
+  (the operator's exchange).
+- *A separate file with no stubs.* A reviewer not handed it would not know the fences exist.
+- *Moving 69-82 by range.* Eight of the fourteen fence code outside the adapter (rule 1).
+- *Moving only GIVEN 79's `tool_result_meta` addendum* (Fable's suggestion: those terms appear
+  only in `internal/harness`). One GIVEN would live in two files, which the pairing check
+  exists to refuse, for about 600 bytes; kept whole.
+
+**Bytes** — the main charter, what a pass without the flag loads: 103,733 at 6115889, 99,183
+after (98,184 for the stubs, plus the head's stub note and GIVEN 121); the adapter file is
+8,171, so a pass with the flag loads 107,356 (the header's `charter=107356B(core+adapter)`).
+A pass without it saves 4,550 bytes (about 1.1k tokens), not the 13 KB the range estimate
+gave: eight of the fourteen stay in full, and the stubs, the head's note and GIVEN 121 cost
+about 3 KB of the 7.5 KB moved.
+
+**Review** — lite with the required Fable cross-check (D-104, D-111): Fable (read-only) on the
+set before the code: all six moves held, every kept reason confirmed with file evidence, the
+USAGE/`docs/admissions/` exposure taken into rule 5, the partial move of 79 answered above. A
+scoped self-review widened the fence pattern to "Do not cite". One Codex code pass (xhigh, run
+WITH the flag, `charter=107347B(core+adapter)`): no stub drops a fence a non-adapter review
+needs, none paraphrases wrongly, no flag value silently sends less except an empty one. Five
+findings on the checks, folded once (D-115) except the third: an empty core parse let awk read
+the adapter file as the core one and pass (now `empty`); a stub outside the settled section and
+an `82a.` line escaped (now `outside`, `malformed`); `CODEX_CHARTER=''` was read as core (now
+refused); a second `CHARTER_ADAPTER=` line was budgeted by its first (now unparsed). Answered,
+not folded: the fence check proves presence, not every item (dropping "record rollback
+detection" from stub 78 stays green; rule 6 says so). Each fold's mutant fails the check, and
+the planted pair arms each new kind.
