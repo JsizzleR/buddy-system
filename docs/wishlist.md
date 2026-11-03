@@ -795,3 +795,91 @@ The second refusal contains the resolution: **consent to terminate and absence o
 3. **Make the PID discoverable to the operator directly**, so the coordinator never needs to be in the loop for a kill. See the separate issue on the stale PID column — the register's own `pid` field read DEAD for every live session including the coordinator's, which is what pushed me toward asking sessions instead of reading it.
 
 The one-line version: **a coordinator should be able to report that a session is safe to kill, and should not be able to obtain permission to kill it.**
+
+---
+
+# Addendum 3 — from a later fleet (2026-11-03)
+
+## 22. Processes outlive their sessions, and no sweep looks for them
+
+**Source:** the operator, in an orchestrator's pane on 2026-11-03 at about 07:20Z, after a
+hand sweep of the laptop: *"make that a standing rule/built in as well about the orchestrator
+looking for this stuff"*.
+
+**What happened:** a fleet of about 25 lanes ran for about 10 hours on a reference repo, under
+several successive orchestrators. Afterwards (about 07:15Z) a sweep of the process table on
+the operator's 12-core / 24 GB macOS laptop found **202 stale processes** of the operator's
+user, every one reparented to launchd (ppid 1), holding about **306 MB RSS** between them:
+
+- **182 `gpg-agent` daemons**, each left by a test suite in a temporary `GNUPGHOME`
+  (`/var/folders/.../T/tmp.*/gnupg`), aged 1 hour to 31 days;
+- `tail -F` / `ugrep` watcher pipelines, each with its zsh shell-snapshot wrapper, left by
+  orchestrator sessions that had ended 5 to 23 days earlier, still following old batch-tier
+  logs;
+- an 18-day-old `node` fixture server started from a dead session's scratchpad;
+- a test's fake `codex app-server`, 14 hours old, with a defunct child;
+- a `codex app-server` demo daemon under `/private/tmp`, idle for 7 days.
+
+The harness side was clean: the live Claude sessions matched the open lanes exactly, with no
+stale harness session, and the podman VM (6 CPU / 6 GB) was running and idle. Also seen, not
+stale but costly: a lane's covering check transitively ran a whole-module `go test -race ./...`
+while the orchestrator's hermetic tier ran on the same laptop. That is §1's shape again (a
+per-lane allowance summing to a fleet load nobody priced), with slots existing (D-035) and the
+covering check taking none.
+
+**What is missing:** no buddy verb found any of the 202, and none could have.
+
+- `who` and `status` print a JOBS line (D-065) only for a LIVE session, counting the shells
+  that are direct children of its registered harness process. A job that outlived its session
+  is a child of pid 1, and its session's row is ended: there is no JOBS line to count it in,
+  and the line could not see it if there were.
+- Closing a pane, `claude stop` and `buddy bye` end the session, not its descendants. A
+  detached pipeline, or a daemon a test forked, keeps running.
+- The account D-065 asks for (the handoff note's running jobs, a lane's "no job running" in
+  its DONE words) covers what a session knows it started. A `gpg-agent` that `gpg` forked
+  inside a test is in nobody's list.
+- The fleet skill's sweeps (closing a lane, a batch landing, "before you hand off or exit,
+  sweep your assignments", the handoff's "account for every running job") all read the ledger
+  or the session's own list. None reads the process table for what is left over afterwards.
+
+So leftovers accumulate across successive orchestrators. Each one's sweep is right for its own
+lanes and blind to its predecessors' leftovers, and the 31-day agent predated every session
+then alive.
+
+**Proposed shape** (a problem report, not a design). Buddy launches, wakes and ends nothing
+(D-027, D-056), so reaping is the orchestrator's act, and buddy's part, if any, only reports.
+
+1. **An orchestrator duty in the buddy-fleet skill**, at the points where it already sweeps:
+   after closing a lane, at each batch landing, and before handing off. Census the operator
+   user's processes with ppid 1, and the long-lived job processes whose session has ended;
+   classify each by its owner; reap only the clearly stale ones, by PID. Whether an
+   orchestrator may reap without asking is the operator's standing decision, so the shipped
+   text names none (D-114).
+2. **Classes**, from this incident. Stale: a test's daemon in a temporary home that no running
+   test uses; a watcher over the log of a run that has ended; a fixture or demo server whose
+   session's row is ended. Left alone: anything that a live session, a running tier or run, a
+   VM (the podman machine and its helpers) or a system or launchd service owns. The chat
+   daemon is launchd's and is never killed (D-122).
+3. **The safety rule:** a sweep never kills a process that a live lane or a running run owns.
+   A live lane's own leaked process is reported to that lane (`buddy msg`), which ends it or
+   says why not. A process the census cannot classify goes to the operator with its pid, age
+   and RSS, and is not killed.
+4. **Mechanics**, from gotchas already measured here: put `LC_ALL=C` in front of anything that
+   reads `ps`, since `ps | awk` aborts the whole scan on one process's non-ASCII argv (D-122);
+   never use `pgrep` or `pkill`, which abort on non-ASCII argv and report busy as free (D-122);
+   never match by a pattern the sweep's own argv contains; and kill only a PID the census
+   listed, re-checked (same pid, same start time) just before the signal, because a pid can be
+   reused between census and kill (D-065's anchor check, for the same reason).
+5. **Optionally, a read-only buddy aid**, so the sweep is a check rather than a hand census:
+   a report listing the operator's ppid-1 processes whose environment or cwd ties them to a
+   session the ledger shows as ended (a Bash-tool shell inherits `CLAUDE_CODE_SESSION_ID`,
+   D-085; a scratchpad cwd names its session), with pid, age and RSS, never argv (D-065: a
+   command line may carry a secret, and it is peer text in another session's context). It
+   ends and grants nothing, like JOBS. Nobody has measured here whether another process's
+   environment and cwd are readable (same user, darwin): measure that before building on it.
+   §2's `buddy run` would give the same report a declared source; the census still catches
+   what nobody declared.
+
+The gpg-agents' root cause (a test that makes a temporary `GNUPGHOME` and never stops its
+agent) belongs to the repo whose tests fork them. The sweep catches the class whichever repo
+leaks it.
