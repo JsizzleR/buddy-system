@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
 // D-033: `buddy wait`, `wait check`, `wait clear`, `wait ls`, and the views.
@@ -92,15 +94,18 @@ func TestWaitDeclareCheckLandOnceThenNoWait(t *testing.T) {
 
 	out := w.ok(t, "sess-a", "wait", "--on", "api-work", "--note", "then: rebase")
 	got := lines(out)
-	if len(got) != 2 {
-		t.Fatalf("a first declaration prints two lines:\n%s", out)
+	if len(got) != 3 {
+		t.Fatalf("a first declaration on a claim prints three lines:\n%s", out)
 	}
 	if want := `WAITING on claim "api-work" (held by bravo, seen 0s ago) — deadline in 3h0m; note: then: rebase`; got[0] != want {
 		t.Fatalf("declaration line:\n got %q\nwant %q", got[0], want)
 	}
-	if !strings.HasPrefix(got[1], "keep-alive: cache 1h tier (last written 0s ago). Arm it in THIS session: /loop buddy wait check") ||
-		!strings.Contains(got[1], "(50m on this tier)") || !strings.Contains(got[1], "fixed fallback: /loop 30m buddy wait check") {
-		t.Fatalf("the arming line:\n%s", got[1])
+	if got[1] != askLine {
+		t.Fatalf("the ask line (D-130):\n got %q\nwant %q", got[1], askLine)
+	}
+	if !strings.HasPrefix(got[2], "keep-alive: cache 1h tier (last written 0s ago). Arm it in THIS session: /loop buddy wait check") ||
+		!strings.Contains(got[2], "(50m on this tier)") || !strings.Contains(got[2], "fixed fallback: /loop 30m buddy wait check") {
+		t.Fatalf("the arming line:\n%s", got[2])
 	}
 
 	w.clock = w.clock.Add(10 * time.Minute)
@@ -267,6 +272,75 @@ func TestWaitTimerAdviceDeclaredForAnotherSession(t *testing.T) {
 	}
 }
 
+// askLine is the declaration's second line for a wait on bravo's api-work.
+const askLine = `the holder is not told of this wait: ask it now what it is running, how long it has left, and to release as soon as it is done — buddy msg api-work "<ask>"`
+
+// D-130 (issue #59): a wait on a claim says whom to ask and what, because
+// nothing sends the wait to its holder. A holder that cannot answer is the
+// operator's, as in every STALE view; a --ready rider and a timer get no
+// line. The live holder is the positive control for every absence below.
+func TestWaitDeclareSaysWhomToAsk(t *testing.T) {
+	boundedParallel(t)
+	w := newWaitFx(t)
+
+	// Control: a live holder is named as a pasteable message.
+	if got := lines(w.ok(t, "sess-a", "wait", "--on", "api-work")); len(got) < 2 || got[1] != askLine {
+		t.Fatalf("a live holder:\n got %q\nwant line 2 %q", strings.Join(got, "\n"), askLine)
+	}
+
+	// A timer names no claim, so there is nobody to ask.
+	for _, l := range lines(w.ok(t, "sess-a", "wait", "--until", "1h")) {
+		if strings.Contains(l, "buddy msg") || strings.Contains(l, "ask the operator") {
+			t.Fatalf("a timer has no holder to ask: %q", l)
+		}
+	}
+
+	// A --ready rider has told the integrator in its READY message.
+	for _, l := range lines(w.ok(t, "sess-a", "wait", "--on", "api-work", "--ready", "HEAD")) {
+		if strings.Contains(l, "not told of this wait") || strings.Contains(l, "ask the operator") {
+			t.Fatalf("a --ready rider gets no ask line: %q", l)
+		}
+	}
+
+	// The holder declaring a wait for another session on its own claim is
+	// not told to message itself (Codex code pass).
+	for _, l := range lines(w.ok(t, "sess-b", "wait", "--session", "sess-a", "--on", "api-work")) {
+		if strings.Contains(l, "not told of this wait") {
+			t.Fatalf("the caller holds the claim; nobody to ask: %q", l)
+		}
+	}
+
+	// A holder silent past StaleAfter is the operator's (D-090), and so is
+	// a --ready rider's: no READY message reaches a silent integrator.
+	w.clock = w.clock.Add(store.StaleAfter + time.Minute)
+	want := `STALE: "api-work" (holder not seen 31m); ask the operator`
+	for _, args := range [][]string{{"wait", "--on", "api-work"}, {"wait", "--on", "api-work", "--ready", "HEAD"}} {
+		got := lines(w.ok(t, "sess-a", args...))
+		if len(got) < 2 || got[1] != want {
+			t.Fatalf("%v, a silent holder:\n got %q\nwant line 2 %q", args, strings.Join(got, "\n"), want)
+		}
+	}
+}
+
+// A pasted ask must reach the holder alone. ResolveTarget refuses a session
+// registered under the id `all` by any name, so msgTargetFor's fallback to the
+// holder's id offered `buddy msg all`: a broadcast (Codex code pass). bravo's
+// api-work is the control: it pastes.
+func TestWaitAskNeverPastesABroadcast(t *testing.T) {
+	boundedParallel(t)
+	w := newWaitFx(t)
+	w.helloIn(t, w.repo, "all", "allie")
+	w.ok(t, "all", "claim", "zeta", "--desc", "x", "--scope", "internal/zeta")
+
+	if got := lines(w.ok(t, "sess-a", "wait", "--on", "api-work")); len(got) < 2 || got[1] != askLine {
+		t.Fatalf("control, a slug that resolves to its holder pastes:\n%s", strings.Join(got, "\n"))
+	}
+	got := lines(w.ok(t, "sess-a", "wait", "--on", "zeta"))
+	if len(got) < 2 || strings.Contains(got[1], "buddy msg all") || !strings.Contains(got[1], `buddy msg <the holder of "zeta">`) {
+		t.Fatalf("a broadcast name must not be offered as the holder:\n%s", strings.Join(got, "\n"))
+	}
+}
+
 // The tier decides whether a keep-alive pays: on 5m, and on a turn that
 // wrote both tiers (judged by the shorter, as the roster judges it, D-020),
 // nothing is armed and the check says to stop. The 1h tier is the control.
@@ -284,7 +358,7 @@ func TestWaitArmsNothingOffTheHourTier(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newWaitFx(t)
 			w.turn(t, w.clock, 214_000, 1_200, tc.e5m, tc.e1h)
-			decl := lines(w.ok(t, "sess-a", "wait", "--on", "api-work"))[1]
+			decl := lines(w.ok(t, "sess-a", "wait", "--on", "api-work"))[2] // after the ask line (D-130)
 			check := lines(w.ok(t, "sess-a", "wait", "check"))[0]
 			armed := strings.Contains(decl, "Arm it in THIS session: /loop buddy wait check")
 			paced := strings.Contains(check, "next check in 50m")

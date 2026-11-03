@@ -124,6 +124,13 @@ nobody authorised.
   out on it (D-082). The state says the lane stopped, not why or what it did:
   its words are in `buddy inbox`, and `buddy sent` says whether yours reached
   it.
+- **Anything of yours queued behind a session's claim or slot? Ask the
+  holder in the same turn** (D-130). Nothing tells a lane that your subagent,
+  routine or run waits on its `.buddy/slot/<name>`: `buddy msg <slug>`
+  what it is running, for how long, its ETA, and to release the moment it is
+  done (`buddy wait --on` prints the line). Never report "waiting on <lane>"
+  to the operator without its answer from the last 15 minutes: once, 20
+  minutes of that ended when one message found the lane's test long over.
 - **Ending a lane is the operator's act.** When its work has landed,
   `buddy who <lane>`'s EXIT line reads "no claims held; no wait declared; no
   shell found running under it", and it names no job of its own still running,

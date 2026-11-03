@@ -1213,6 +1213,7 @@ moved, since the file there changes only when that worktree pulls.
 ```sh
 buddy wait --on api-work --until 3h --note "then: rebase, run check.sh"
 # WAITING on claim "api-work" (held by repo/s-4856919d, seen 3m ago) — deadline in 3h0m; note: then: rebase, run check.sh
+# the holder is not told of this wait: ask it now what it is running, how long it has left, and to release as soon as it is done — buddy msg api-work "<ask>"
 # keep-alive: cache 1h tier (last written 2m ago). Arm it in THIS session: /loop buddy wait check — each check is one tool call (a turn of about three cache reads) …
 /loop buddy wait check               # typed in the WAITING session: its own scheduler, self-paced
 # STILL WAITING on claim "api-work" (held by …, seen 3m ago) — 1h12m so far, deadline in 1h48m; next check in 50m (3000s from now)
@@ -1222,6 +1223,19 @@ buddy wait --on api-work --until 3h --note "then: rebase, run check.sh"
 # note: then: rebase, run check.sh
 buddy wait ls                        # every open wait, oldest first     buddy wait clear   # withdraw yours
 ```
+
+**Ask the holder as you wait (D-130).** A wait is a ledger row; nothing sends
+it to the holder, which sees it only where somebody looks (`status`, `who`,
+`wait ls`) or in the waiter list its release prints. So the declaration's
+second line names the message to send, one `buddy msg` per claim, pasted back
+only when it reaches that holder alone (otherwise `<the holder of "slug">`).
+A holder whose processes are all GONE, or that has not been seen for 30
+minutes, gets `STALE: "<slug>" (<holder>); ask the operator` instead, as the
+STALE views say; one that said bye was already refused by `wait --on`. No line
+for a claim you hold yourself (`--session <other>`), nor for a `--ready`
+rider's live integrator: its READY message is that conversation. Under
+`--block` the line is read only at the exit, so send the message first. Words
+only; nothing is sent.
 
 **Blocking instead of a loop (D-095).** `buddy wait --on <slug> --block`
 declares the same wait, then stays running and exits with the verdict,
@@ -1238,6 +1252,7 @@ one fleet wrote 15+ of.
 ```sh
 buddy wait --on api-work --until 3h --block     # run_in_background; exit 0 when api-work lands
 # WAITING on claim "api-work" (…) — deadline in 3h0m
+# the holder is not told of this wait: ask it now … — buddy msg api-work "<ask>"
 # BLOCKING until it lands: the ledger is re-read every 15s (reads only; not a check) — exit 0 LANDED, 3 EXPIRED, 4 cleared or replaced, 5 this session ended
 # LANDED: claim "api-work" released 4s ago — the wait is over after 41m; stop any /loop that runs `buddy wait check` (schedule no further check)
 ```

@@ -115,7 +115,8 @@ its process GONE, or ended. Choose one:
   `until buddy ls | grep …` loop. It only reads, so it is not a check: parking
   past about 50 minutes on a 1-hour tier, still arm the /loop for the cache.
 - **Ask the holder:** `buddy msg <slug> "<request>"`. Peers answer to their
-  claim slugs.
+  claim slugs. A wait does not tell the holder: ask when you declare one
+  (`wait --on` prints whom; a blocked wait shows you that only at its end).
 - **Narrow your scope** to what nobody holds.
 
 A stale claim refuses exactly like a fresh one. If its holder has ended (said

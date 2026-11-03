@@ -10251,3 +10251,61 @@ refused); a second `CHARTER_ADAPTER=` line was budgeted by its first (now unpars
 not folded: the fence check proves presence, not every item (dropping "record rollback
 detection" from stub 78 stays green; rule 6 says so). Each fold's mutant fails the check, and
 the planted pair arms each new kind.
+
+## D-130 — A wait on a claim says whom to ask: `wait --on` prints the `buddy msg` to send its holder, and a coordinator sends it in the same turn (issue #59; amends D-033)
+
+2026-11-03. Issue #59, filed from a fleet episode.
+
+**What was wrong** — an orchestrator queued a job of its own (a maintenance routine run by a
+subagent) behind a `.buddy/slot/<name>` claim a lane held for a long live test, and reported
+"waiting on <lane>" to the operator for about 20 minutes without a message to the lane. When
+the operator asked it to check, one `buddy msg` got the answer: the lane's test had already
+ended (red, on a timeout), and the slot was released at once. A wait is a ledger row: nothing
+sends it to the holder, which sees it only where somebody looks (`status`, `who`, `wait ls`),
+or in the waiter list its own `release` prints. The core skill's "A claim was refused" offered "ask the holder" to a
+refused lane; nothing carried it to a coordinator's own waits, and nothing prompted it.
+
+**The rule**
+1. **`buddy wait --on` prints a second line** when the wait names a claim:
+   `the holder is not told of this wait: ask it now what it is running, how long it has left,
+   and to release as soon as it is done — buddy msg <target> "<ask>"`, one command per
+   claim, the target chosen and pasted back exactly as a refusal's "ask the holder" is
+   (`msgTargetFor`, `refusalNote`'s paste-back rule).
+2. **A holder the operator must handle** (every registered process GONE, or not seen past
+   `StaleAfter`: the D-090 judgement) gets `STALE: "<slug>" (<holder phrase>); ask the
+   operator` instead, observational words, never a prediction that it cannot answer. One that
+   said bye never reaches the line: `wait --on` refuses its claim in the same transaction.
+   A command is pasted only when `buddy msg <it>` resolves now to that holder and not as the
+   broadcast name (a session registered as `all` holding the slug `all` was offered
+   `buddy msg all`).
+3. **No ask** for a timer (nobody to ask), for a claim the caller holds (`wait --session
+   <lane> --on <run>` from the run's holder), or for a `--ready` rider's live integrator
+   (D-049: its READY message is that conversation). A rider's STALE integrator still gets
+   rule 2's line: no READY message reaches it.
+4. **Words only.** Nothing is sent: buddy sends and wakes nothing on its own (D-039, D-041).
+5. **The fleet skill** ("Assigning, waiting, ending"): anything of the coordinator's queued
+   behind a session's claim or slot is asked about in the same turn, and "waiting on <lane>"
+   is never reported to the operator without the holder's answer from the last 15 minutes.
+   The core skill's "Ask the holder" says a wait does not tell the holder.
+
+**Rejected**
+- *`wait --on` sends the holder a templated message itself.* buddy sends nothing on its own;
+  a message is a session's act, and its sender is the one who reads the answer.
+- *A hint in `whose` / `claim --dry-run` that "nobody has asked <holder> for an ETA"* (the
+  issue's other option). It needs the ledger to judge whether a sent message was the ask;
+  `buddy sent` already lists what reached whom. The declaration is the one place every waiter
+  passes through.
+- *Pushing the wait to the holder's next `busy`/`beat`.* An injection into another session's
+  context on a peer's act; D-010 keeps that to operator mail.
+
+**Review** — lite with a Fable cross-check (asked for by the operator): a scoped self-review,
+mutants in a private copy (no call, no STALE arm, no `--ready` guard: each fails
+`TestWaitDeclareSaysWhomToAsk`), Fable (read-only) and one Codex code pass (xhigh), folded
+once (D-115). Folded: the caller told to message itself under `--session` (Codex); a
+broadcast offered as the holder (Codex); "no answer will come" predicted what D-090 only
+observes (Codex); the ended arm documented though unreachable (both); "only in `buddy who`"
+was false, `status` and `wait ls` show waits too (Fable); a `--ready` rider's STALE
+integrator got no line (Fable); `--block` reads the line only at exit, said in the core skill
+and USAGE (Fable). Answered, not folded: a `--session <lane>` caller who is not the holder
+still gets the ask, signed as itself, and the answer comes to it, the session that asked;
+the slug-first target choice is refusalNote's, unchanged.

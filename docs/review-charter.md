@@ -1162,6 +1162,14 @@ ledger row entered through the CLI (D-006).
     value, or `adapter` beside `CODEX_NO_CHARTER=1`, refuses. Do not propose choosing the parts from
     the prompt text, a separate file with no stubs, or moving a GIVEN by number range.
 
+122. **`wait --on` prints whom to ask, never sends it (D-130, amends D-033).** Its second line
+    names one `buddy msg <target> "<ask>"` per claim, pasted only when the target resolves now
+    to that holder and not as the broadcast name; a GONE or silent holder gets `STALE: ...;
+    ask the operator` (D-090); no ask for a timer, a claim the caller holds, or a `--ready`
+    rider's live integrator. The coordinator sends it in the same turn (fleet skill). Do not
+    propose wait sending the message itself, a "nobody asked" hint in `whose`, or pushing the
+    wait into the holder's context.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

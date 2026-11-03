@@ -174,6 +174,9 @@ func cmdWaitDeclare(args []string, env Env) error {
 		where, self = "session "+fence.Line(si.Label, 64)+" (a check speaks only for the session whose harness runs it)", false
 	}
 	fmt.Fprintf(env.Stdout, "WAITING on %s — deadline in %s%s%s\n", targetsPhrase(now, w.Targets), span(w.Deadline.Sub(now)), readyPhrase(w), notePhrase(w))
+	if ask := askHolderLine(st, env, now, w, nativeID); ask != "" {
+		fmt.Fprintln(env.Stdout, ask)
+	}
 	codex := nativeSource == EnvCodexThread || env.getenv(EnvCodexThread) != ""
 	if codex {
 		fmt.Fprintln(env.Stdout, "Codex: run `buddy wait check` in "+where+" to read its wait; automatic scheduling is unsupported and cache timing is unknown")
@@ -826,6 +829,82 @@ func shellQuote(s string) string {
 		}
 	}
 	return s
+}
+
+// askHolderLine is the declaration's second line when the wait names a
+// claim (D-130, issue #59): who to ask, and what.
+//
+// THE FAILURE. An orchestrator queued a job of its own behind a lane's
+// `.buddy/slot/` claim and told the operator "waiting on <lane>" for about
+// twenty minutes without a message to it. One `buddy msg`, sent when the
+// operator asked, answered it: the lane's test had already ended (red, on a
+// timeout), and it released the slot at once. A wait is a row in the ledger;
+// nothing sends it to the holder, which sees it only where somebody looks
+// (`status`, `who`, `wait ls`) or in the waiter list its own release prints
+// (releasedWaitersNote). So both sides were blind, and the one place every
+// waiter passes through is this line.
+//
+// It says what to ask and names the command, per claim, the way
+// refusalNote does (msgTargetFor, pasted back only as printed), and then
+// checks the command it would print really reaches that holder alone: the
+// fallback to the holder's session id is unchecked in msgTargetFor, and a
+// session registered under the id `all` would turn it into a broadcast
+// (Codex code pass). A holder that is GONE or silent gets the operator, as
+// every STALE view says (D-090), in the views' observational words, never a
+// prediction that it cannot answer (Codex code pass). An ENDED holder never
+// reaches here: DeclareWait refuses a claim whose holder said bye, in the
+// same transaction (Fable cross-check); the arm stays for holderPhrase's sake.
+//
+// Not asked: a claim the CALLER holds (`wait --session <lane> --on <run>`
+// from the run's holder would tell it to message itself; Codex code pass),
+// and a live integrator of a --ready rider (D-049): its READY message is
+// that conversation already. A rider's GONE or silent integrator still gets
+// the operator arm, since no READY message reaches it (Fable cross-check).
+// WORDS ONLY: nothing is sent; buddy sends and wakes nothing (D-039, D-041).
+func askHolderLine(st *store.Store, env Env, now time.Time, w store.Wait, caller string) string {
+	ts := openTargets(w.Targets)
+	if len(ts) == 0 {
+		return ""
+	}
+	h := readHolders(env, st)
+	var ask, quiet []string
+	for _, t := range ts {
+		if caller != "" && t.Holder.SessionID == caller {
+			continue
+		}
+		slug := strconv.Quote(fence.Line(t.Slug, 128))
+		if s := h.state(now, t.Holder); s != holderLive {
+			p := staleness{holder: s, seen: t.Holder.LastSeen, ended: t.Holder.Ended}.holderPhrase(now)
+			quiet = append(quiet, slug+" ("+p+")")
+			continue
+		}
+		if w.ReadySHA != "" {
+			continue
+		}
+		cmd := "buddy msg <the holder of " + slug + "> (its name cannot be pasted back as printed)"
+		if to := msgTargetFor(st, t.Slug, t.Holder.SessionID); fence.Line(to, 128) == to && reachesOnly(st, to, t.Holder.SessionID) {
+			cmd = "buddy msg " + shellQuote(to) + ` "<ask>"`
+		}
+		ask = append(ask, cmd)
+	}
+	var parts []string
+	if len(ask) > 0 {
+		parts = append(parts, "the holder is not told of this wait: ask it now what it is running, how long it has left, and to release as soon as it is done — "+strings.Join(ask, "; "))
+	}
+	if len(quiet) > 0 {
+		parts = append(parts, "STALE: "+strings.Join(quiet, ", ")+"; ask the operator")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// reachesOnly reports whether `buddy msg <to>` would queue for exactly the
+// session holder: resolved now, to that id, and not as the broadcast name.
+func reachesOnly(st *store.Store, to, holder string) bool {
+	if to == "" || st == nil {
+		return false
+	}
+	r, err := st.ResolveTarget(to)
+	return err == nil && r.Via != "all" && r.ID == holder
 }
 
 // ---- the views ----
