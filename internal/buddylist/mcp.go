@@ -801,8 +801,17 @@ func RenderRow(m Msg) string {
 	if who == "" {
 		who = m.Kind // system/presence rows have no sender; the kind names them
 	}
-	return fmt.Sprintf("%d %s <%s> %s", m.Seq, time.Unix(m.At, 0).Format("15:04"),
+	return fmt.Sprintf("%d %s <%s> %s", m.Seq, chatClock(m.At),
 		Fence(who, 64), Fence(m.Body, 2048))
+}
+
+// chatClock renders a journal time as UTC, marked (D-132, issue #62). These
+// rows were the last clock a verb printed in the local zone, and unmarked: beside
+// a wake line's 03:40:38Z, a bare 22:40 reads as the same clock, hours out.
+// The input is the journal's integer, so no peer's text reaches this column
+// and it is always exactly six bytes on one line (invariant 9).
+func chatClock(at int64) string {
+	return time.Unix(at, 0).UTC().Format("15:04Z")
 }
 
 // statCols is the digest's column layout, used for the header AND for every
@@ -810,11 +819,11 @@ func RenderRow(m Msg) string {
 // byte-identical to %6d of 42 — because a header cannot be printed through a
 // %d.
 //
-// The time column is left-justified (%-5s) while the numbers are right-
-// justified. That is not an accident of two styles: "15:04" is always exactly
-// five bytes, so the ROWS render identically either way, and left-justifying
+// The time column is left-justified (%-6s) while the numbers are right-
+// justified. That is not an accident of two styles: chatClock is always exactly
+// six bytes, so the ROWS render identically either way, and left-justifying
 // puts the "last" label over the value it names.
-const statCols = "%-28s  %6s  %-5s  %6s  %9s"
+const statCols = "%-28s  %6s  %-6s  %6s  %9s"
 
 // StatHeader names the digest's columns.
 func StatHeader() string {
@@ -835,7 +844,7 @@ func RenderStat(st RoomStat, mark string) string {
 		room = "(system)"
 	}
 	return fmt.Sprintf(statCols, Fence(room, 28), strconv.FormatInt(st.NewestSeq, 10),
-		time.Unix(st.NewestAt, 0).Format("15:04"), strconv.FormatInt(st.Unread, 10),
+		chatClock(st.NewestAt), strconv.FormatInt(st.Unread, 10),
 		strconv.FormatInt(st.Addressed, 10)) + mark
 }
 

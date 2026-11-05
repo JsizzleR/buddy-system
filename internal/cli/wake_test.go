@@ -166,12 +166,12 @@ func TestMsgNamesTheWakeAddressOfAQuietRecipient(t *testing.T) {
 				}
 				return
 			}
-			// The text names the send's id and the local time the wake was
-			// named (D-059), spelled out here rather than read back from
+			// The text names the send's id and the UTC time the wake was
+			// named (D-059, D-132), spelled out here rather than read back from
 			// wakeText, so the test is a second statement of the format.
 			clause := `to wake it now: SendMessage to "uds:` + filepath.Join(f.sockDir, "400.sock") +
-				`" with the text "buddy mail #1 is queued for you (` + f.clock.Local().Format("15:04:05") +
-				`): run buddy inbox" (D-039; a different permission mode holds it for its user); this copy stays queued either way`
+				`" with the text "buddy mail #1 is queued for you (` + f.clock.UTC().Format("15:04:05") +
+				`Z): run buddy inbox" (D-039; a different permission mode holds it for its user); this copy stays queued either way`
 			// Stderr carries the SAME clause, whole (D-052).
 			if wantErr := "buddy: message #1 to " + tc.to + " is queued; " + clause + "\n"; errw != wantErr {
 				t.Fatalf("want exactly one stderr line\n%s(and no body), got:\n%s", wantErr, errw)
@@ -342,7 +342,7 @@ func TestWakeTextIsUniquePerSuggestion(t *testing.T) {
 	}
 	// The clock did not move between the two sends: the id alone tells them
 	// apart, and each names its own.
-	hhmmss := sentAt.Local().Format("15:04:05")
+	hhmmss := sentAt.UTC().Format("15:04:05") + "Z"
 	for i, want := range []string{
 		"buddy mail #1 is queued for you (" + hhmmss + "): run buddy inbox",
 		"buddy mail #2 is queued for you (" + hhmmss + "): run buddy inbox",
@@ -370,7 +370,7 @@ func TestWakeTextIsUniquePerSuggestion(t *testing.T) {
 	if len(again) != 1 {
 		t.Fatalf("sent 1 names one wake (bravo's), got %d:\n%s", len(again), one)
 	}
-	if want := "buddy mail #1 is queued for you (" + f.clock.Local().Format("15:04:05") + "): run buddy inbox"; again[0] != want || again[0] == fromMsg[0] {
+	if want := "buddy mail #1 is queued for you (" + f.clock.UTC().Format("15:04:05") + "Z): run buddy inbox"; again[0] != want || again[0] == fromMsg[0] {
 		t.Fatalf("sent's re-wake must be %q, and differ from msg's %q; got %q", want, fromMsg[0], again[0])
 	}
 	// The list observes bravo ONCE and still names each send's own id on
@@ -379,7 +379,7 @@ func TestWakeTextIsUniquePerSuggestion(t *testing.T) {
 	if strings.Count(list, "\n") != 2 || strings.Contains(one+list, "bundle") {
 		t.Fatalf("want one line per send and no body:\n%s", list)
 	}
-	now := f.clock.Local().Format("15:04:05")
+	now := f.clock.UTC().Format("15:04:05") + "Z"
 	for _, ln := range strings.Split(strings.TrimSuffix(list, "\n"), "\n") {
 		id := strings.Fields(ln)[0] // "#1", "#2"
 		if got := texts("sent list", ln); len(got) != 1 || got[0] != "buddy mail "+id+" is queued for you ("+now+"): run buddy inbox" {
@@ -405,5 +405,22 @@ func TestWakeTextIsUniquePerSuggestion(t *testing.T) {
 	}
 	if got := texts("sent 3", one); len(got) != 1 || got[0] != want3 {
 		t.Fatalf("sent 3 names the correction's own id: got %q, want %q", got, want3)
+	}
+}
+
+// The wake's stamp is UTC and marked, whatever zone the instant is held in
+// (D-132): the instant in issue #62's example, 22:40:38 at UTC-5, a day
+// boundary apart from its UTC reading. Spelled out, so it is a second statement
+// of the format. A build that formats the instant unconverted dies here on any
+// machine; one that converts to the machine's zone dies wherever that is not UTC.
+func TestWakeTextIsMarkedUTC(t *testing.T) {
+	at := time.Date(2026, 11, 3, 22, 40, 38, 0, time.FixedZone("UTC-5", -5*3600))
+	const want = "buddy mail #11027 is queued for you (03:40:38Z): run buddy inbox"
+	if got := wakeText(11027, at); got != want {
+		t.Fatalf("wake text:\n got %q\nwant %q", got, want)
+	}
+	// The property the stamp exists for (D-059): a second later is another text.
+	if wakeText(11027, at) == wakeText(11027, at.Add(time.Second)) {
+		t.Fatal("the same message one second apart must be a different text")
 	}
 }

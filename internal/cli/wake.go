@@ -83,12 +83,17 @@ const defaultSockDir = "/tmp/cc-socks"
 // SendMessage had reported success, and `buddy sent` then suggested the same
 // text again. A lane handed two pieces of work in a row, or re-woken because it
 // did not act, lost the second wake. So the text names the send's id and the
-// local time the wake was NAMED: consecutive sends differ by id, and `sent`
+// time the wake was NAMED: consecutive sends differ by id, and `sent`
 // re-suggesting one message differs by time (two in one second for one
 // message are still identical, accepted). Still no content: an id and a
 // clock reading, never the body (D-039), and it still says "run buddy inbox".
+//
+// UTC, MARKED (D-132, issue #62). It was the local wall clock, seen thousands of
+// times a fortnight by coordinators whose notes, handoffs and timers are in UTC.
+// Only uniqueness depends on the stamp, and any clock gives that; nothing parses
+// it. The Z is what keeps it from reading as a local time.
 func wakeText(id int64, at time.Time) string {
-	return fmt.Sprintf("buddy mail #%d is queued for you (%s): run buddy inbox", id, at.Local().Format("15:04:05"))
+	return fmt.Sprintf("buddy mail #%d is queued for you (%s): run buddy inbox", id, at.UTC().Format("15:04:05Z"))
 }
 
 func (e Env) sockDir() string {

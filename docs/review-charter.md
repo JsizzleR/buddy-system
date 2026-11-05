@@ -545,9 +545,9 @@ ledger row entered through the CLI (D-006).
 
 61. **A wake's text names its message and the second it was named (D-059, #51).** MEASURED:
     Claude Code drops a peer message identical to the previous one from the same sender
-    (SendMessage still reports success), so one fixed wake text lost a second wake. The text is `buddy mail #<id> is queued for you (<HH:MM:SS>): run
-    buddy inbox`: the send's id (a broadcast's own on a `sent` row) and the local time the wake
-    was named. Two suggestions for one message in one displayed second are still identical;
+    (SendMessage still reports success), so one fixed wake text lost a second wake. The text is `buddy mail #<id> is queued for you (<HH:MM:SSZ>): run
+    buddy inbox`: the send's id (a broadcast's own on a `sent` row) and the UTC time the wake
+    was named (D-132; chat rows too). Two suggestions for one message in one displayed second are still identical;
     that residual is accepted. No body, sender or kind. Do not propose a fixed text, carrying
     the body, or buddy detecting or retrying a dropped wake.
 

@@ -10309,3 +10309,13 @@ integrator got no line (Fable); `--block` reads the line only at exit, said in t
 and USAGE (Fable). Answered, not folded: a `--session <lane>` caller who is not the holder
 still gets the ask, signed as itself, and the answer comes to it, the session that asked;
 the slug-first target choice is refusalNote's, unchanged.
+
+## D-132 — Wake lines and chat rows print UTC, marked `Z` (issue #62; amends D-059)
+
+2026-11-04. The wake's local stamp sat among a fleet's UTC notes, which drifted; it is not shown
+to have caused that. Now `(03:40:38Z)`, and `03:40Z` in `RenderRow` and `RenderStat`. D-059's
+reason for local time, the pane's clock beside the message, is the cost; uniqueness is untouched.
+Chat changes on less evidence (14 days of this machine's transcripts: 13 `chat_read`, 4,898 wakes
+sent): a bare `22:40` beside `03:40:38Z` would read as the same clock, and one renderer serves MCP
+and terminal. Not changed: the adapter's JSON (RFC 3339 carries its offset), the daemon's `slog`
+file, ages. A build back on local time dies only where the machine is not on UTC.
