@@ -62,6 +62,15 @@ import (
 // then refuses the other at the gate: the admitted lane's edit on that path is
 // DENIED until someone narrows or moves one of them. Who does that is skill text.
 // A stale parked claim is still not reaped (invariant 11).
+//
+// PARKING A CLAIM YOU KEEP (issue #63): `release <item> --in-run <run>`, no --to.
+// Without it a rider whose run closed, or one its coordinator unparked, could not
+// go into the next run: `--to` yourself is refused and a re-claim clears the mark,
+// so the coordinator had to hold a run's claim open through a red to keep its
+// riders parked. Same parkTarget, same mark, same scan; only the verdict on the
+// scan differs (ParkClaims says why). It also lets a coordinator park its own work,
+// because keeping that out would have taken a predicate of its own, and nothing
+// separates the two: a parked claim yields only to a declarer of that run.
 
 // runOpenSQL is the one spelling of "the run this claim is parked in is open",
 // over a claims row aliased c. Every door's query embeds it, in the same
@@ -162,11 +171,14 @@ func declaredRun(q rowQuerier, slug string) (id string, closed bool, err error) 
 	return claimID, false, nil
 }
 
-// parkTarget resolves `--in-run` inside the transfer's transaction, before any
+// parkTarget resolves `--in-run` inside the caller's transaction, before any
 // row moves, and refuses whatever could not be parked. The recipient must hold
 // the open run already. That also refuses a run parked in itself, with no check
-// of its own: a claim in the moved set is the sender's until it moves, and the
-// sender is never the recipient (`--to` yourself refused before this runs).
+// of its own at the transfer door: a claim in the moved set is the sender's until
+// it moves, and the sender is never the recipient (`--to` yourself refused before
+// this runs). Parking in place, the caller IS the recipient, and what refuses a run
+// parked in itself is the .buddy test below: a run holds .buddy/slot/<its slug>,
+// which holdsRunSlot has just established.
 func (s *Store) parkTarget(tx *sql.Tx, run, toID, toLabel string, moved []Moved) (string, error) {
 	id, owner, taken, err := openSlugOwner(tx, run)
 	if err != nil {
@@ -184,7 +196,7 @@ func (s *Store) parkTarget(tx *sql.Tx, run, toID, toLabel string, moved []Moved)
 	}
 	if owner != toID {
 		holder, _ := s.labelOf(tx, owner)
-		return "", ErrTransferRefused{Why: fmt.Sprintf("--in-run %q: %s does not hold that run, %s does; the recipient must hold the run its rider parks in", run, toLabel, holder)}
+		return "", ErrTransferRefused{Why: fmt.Sprintf("--in-run %q: %s does not hold that run, %s does; a rider parks only with its run's holder", run, toLabel, holder)}
 	}
 	for _, m := range moved {
 		scopes, err := scopesOf(tx, m.ClaimID)
@@ -208,6 +220,69 @@ type ErrNotParked struct{ Slug string }
 
 func (e ErrNotParked) Error() string {
 	return fmt.Sprintf("claim %q is not parked in any run; nothing changed", e.Slug)
+}
+
+// markParked is the one write of a park: the mark, and the producer. The first
+// park records the producer; a re-park keeps it, so a rider re-parked after a red
+// is still its lane's work. Both CASEs read the row as it was: SQLite evaluates an
+// UPDATE's right-hand sides before it assigns any of them.
+func markParked(tx *sql.Tx, claimID, runID, producerSession, producerIncarnation string) error {
+	_, err := tx.Exec(`UPDATE claims SET in_run=?,
+		producer_session=CASE WHEN producer_session='' THEN ? ELSE producer_session END,
+		producer_incarnation=CASE WHEN producer_session='' THEN ? ELSE producer_incarnation END
+		WHERE claim_id=?`, runID, producerSession, producerIncarnation, claimID)
+	return err
+}
+
+// ParkClaims parks the caller's own open claims in an open run it holds, all or
+// nothing, with no transfer (issue #63). The owner does not change, so every wait
+// on them stands; a wait or READY on the OLD run does not follow.
+//
+// A STANDING OVERLAP IS REPORTED, NEVER REFUSED, where the transfer door rolls
+// back. That door's scan stops a NEW owner taking a path; here nobody gets a path
+// they did not hold, and the ledger revokes nothing either way. As UnparkClaim's
+// does, the scan says what stands. A refusal would hold a coordinator on a red
+// until every admitted lane had narrowed, which is the cost this door exists to end.
+//
+// IT MAY TIGHTEN AS WELL AS LOOSEN. A claim moved from open run R1 to R2 stops
+// yielding to a declarer of R1, and parkedYields keys on the run claim's id, so no
+// declaration of R1 (or of a run re-formed under R1's slug) is ever admitted by R2.
+// Each such claim comes back as standing. The verdict on a session can still differ
+// from the pair's: another covering claim of that session declaring R2 clears the
+// gate for it, so the caller reports pairs and never a session's verdict (Codex
+// design pass: the sequence is TestParkInPlaceReportsPairsNotVerdicts).
+func (s *Store) ParkClaims(sessionID, incarnation string, slugs []string, run string) (standing []Conflict, err error) {
+	if len(slugs) == 0 {
+		return nil, errors.New("a park names at least one claim")
+	}
+	err = s.tx(func(tx *sql.Tx) error {
+		claims, err := s.callersOpenClaims(tx, sessionID, incarnation, slugs)
+		if err != nil {
+			return err
+		}
+		label, err := s.labelOf(tx, sessionID)
+		if err != nil {
+			return err
+		}
+		runID, err := s.parkTarget(tx, run, sessionID, label, claims)
+		if err != nil {
+			return err
+		}
+		for _, m := range claims {
+			if err := markParked(tx, m.ClaimID, runID, sessionID, incarnation); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE claims SET renewed=? WHERE claim_id=?`, s.now().Unix(), m.ClaimID); err != nil {
+				return err
+			}
+		}
+		standing, err = s.conflictsOfClaims(tx, sessionID, claims)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return standing, nil
 }
 
 // UnparkClaim withdraws one rider from its run in place: the claim stays open,

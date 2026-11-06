@@ -400,7 +400,7 @@ const (
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
 	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--based-on <run>] [--job <pid>] [--dry-run] [--session <id>]\n       (the slug comes first; --job declares the claim's job, read by who; exit 4: refused by a holder, nothing taken, and a dry run that forecasts it; 1: any other error)"
-	usageRelease    = "usage: buddy release <slug>... [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target> [--in-run <run>]] [--unpark] [--session <id>]\n       (several slugs release, or with --to hand on, as ONE transaction: all or nothing; --scope, --outcome and --unpark take one slug)"
+	usageRelease    = "usage: buddy release <slug>... [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--in-run <run>] [--unpark] [--session <id>]\n       (several slugs release, hand on or park as ONE transaction: all or nothing; --scope, --outcome and --unpark take one slug)"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
@@ -3388,7 +3388,7 @@ func cmdRelease(args []string, env Env) error {
 	outcome := fs.String("outcome", "", "what became of the job the claim guarded: pass, fail or aborted (D-049)")
 	note := fs.String("note", "", "with --outcome: one line for the waiters (the tested commit, who was in, who is next)")
 	to := fs.String("to", "", "hand the whole claim to this live session instead, keeping it open with its waits (D-063)")
-	inRun := fs.String("in-run", "", "with --to: park it in this run, which the recipient must hold; it then yields to a claim with --based-on that run (D-133)")
+	inRun := fs.String("in-run", "", "park it in this run, which the --to recipient must hold, or you with no --to, keeping the claim; it then yields to a claim with --based-on that run (D-133)")
 	unpark := fs.Bool("unpark", false, "withdraw this claim from its run, keeping it open: it refuses like any claim again (D-133)")
 	if help, err := parseFlags(fs, args, usageRelease, env); help || err != nil {
 		return err
@@ -3411,8 +3411,9 @@ func cmdRelease(args []string, env Env) error {
 	if inRunGiven && strings.TrimSpace(*inRun) == "" {
 		return usageRefusal("--in-run needs a run; nothing was released", usageRelease)
 	}
-	if *inRun != "" && *to == "" {
-		return usageRefusal("--in-run parks a claim as it is handed on, so it needs --to; nothing was released", usageRelease)
+	// A park takes none of these: past this line it would drop them silently.
+	if *inRun != "" && (*outcome != "" || *note != "" || len(scopes) > 0) {
+		return usageRefusal("--in-run parks the whole claim, still open: it takes no --outcome, --note or --scope; nothing changed", usageRelease)
 	}
 	// `--to ""` must not fall through to a plain release: the caller asked to
 	// hand the claim on, and a release would land every waiter on it.
@@ -3455,6 +3456,9 @@ func cmdRelease(args []string, env Env) error {
 	}
 	if *to != "" {
 		return releaseTo(st, env, si, slugs, *to, *inRun)
+	}
+	if *inRun != "" {
+		return releasePark(st, env, si, slugs, *inRun)
 	}
 	if len(slugs) > 1 {
 		ids, err := st.ReleaseClaims(si.SessionID, si.Incarnation, slugs)
@@ -3646,6 +3650,33 @@ func releaseUnpark(st *store.Store, env Env, si store.SessionInfo, slug string) 
 		strconv.Quote(fence.Line(slug, 128)), fence.Field(run, 128))
 	for _, c := range standing {
 		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, and each now refuses the other at the gate\n",
+			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
+	}
+	return nil
+}
+
+// releasePark parks the caller's own claims in a run it holds, keeping them (issue
+// #63). Each overlap that stands is a PAIR, and the line says only that: a session
+// with another covering claim declaring this run still passes the gate, so "each
+// refuses the other", --unpark's words, would be false here (Codex design pass).
+func releasePark(st *store.Store, env Env, si store.SessionInfo, slugs []string, run string) error {
+	standing, err := st.ParkClaims(si.SessionID, si.Incarnation, slugs, run)
+	if err != nil {
+		return fencedErr(fmt.Errorf("%w; nothing was parked", err))
+	}
+	named := dedupe(slugs)
+	quoted := make([]string, 0, len(named))
+	for _, slug := range named {
+		quoted = append(quoted, strconv.Quote(fence.Line(slug, 128)))
+	}
+	line := fmt.Sprintf("parked %s in run %s — it stays open and yours, and yields to a claim declaring that run", quoted[0], fence.Field(run, 128))
+	if len(named) > 1 {
+		line = fmt.Sprintf("parked %d claims in run %s in one transaction: %s — each stays open and yours, and yields to a claim declaring that run",
+			len(named), fence.Field(run, 128), strings.Join(quoted, ", "))
+	}
+	fmt.Fprintln(env.Stdout, line)
+	for _, c := range standing {
+		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, and your claim does not yield to that one\n",
 			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
 	}
 	return nil

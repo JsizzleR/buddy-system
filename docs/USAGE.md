@@ -683,6 +683,7 @@ buddy claim next --desc "…" --scope src/a.go
 buddy claim next --desc "…" --based-on run-7 --scope src/a.go     # admitted
 buddy release item --outcome pass --note <sha>         # the coordinator, at landing
 buddy release item --unpark                            # or: withdraw one rider, the claim stays open
+buddy release item other --in-run run-8                # or: park claims you keep, in a run you hold
 ```
 
 The rules:
@@ -701,6 +702,12 @@ The rules:
 - A re-claim takes what it is given, as with `--shared`: without `--based-on` it
   drops the declaration, and a parked rider's re-claim withdraws it from the run
   (its dry run does not say so).
+- `--in-run` with no `--to` parks claims you keep in a run you hold, all or nothing:
+  a rider whose run closed, one you unparked, your own work. It refuses what a
+  parking `--to` refuses. No path changes hands, so an overlap does not refuse it:
+  `overlap stands` names each overlap the rule does not exempt, and a declaration of
+  the old run is not admitted by the new one. The first park records the producer,
+  a re-park keeps it. A wait or READY on the old run does not follow.
 - A plain `release --to` keeps a rider parked only if the recipient holds its run
   once the whole set has moved: name the run and its riders in one call.
 - When the run closes, on any outcome, or a rider is unparked, the yield ends at

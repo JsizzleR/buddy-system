@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -964,6 +963,380 @@ func TestProducerSurvivesAndOutcomeLands(t *testing.T) {
 	}
 }
 
+// Issue #63: a holder parks its own claim in a run it holds, with no transfer.
+
+func (f *parkFx) parkHere(by SessionInfo, run string, slugs ...string) []Conflict {
+	f.t.Helper()
+	standing, err := f.st.ParkClaims(by.SessionID, by.Incarnation, slugs, run)
+	if err != nil {
+		f.t.Fatalf("park %v in %s in place: %v", slugs, run, err)
+	}
+	return standing
+}
+
+func (f *parkFx) closeRunOf(by SessionInfo, slug string) {
+	f.t.Helper()
+	if _, err := f.st.ReleaseOutcome(by.SessionID, by.Incarnation, slug, "fail", "red"); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func standingSlugs(standing []Conflict) []string {
+	var out []string
+	for _, c := range standing {
+		out = append(out, c.Slug)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// The issue's case: a run closes on a red, and its coordinator puts the rider in
+// the next run it forms. At every door the claim then yields to that run's declarer
+// and to no one else.
+func TestParkInPlaceAfterTheRunClosed(t *testing.T) {
+	f := newParkFx(t)
+	before := claimBySlug(t, f.st, "rider")
+	f.closeRunOf(f.coord, parkRun)
+	f.run(f.coord, "run-2")
+	f.refusedNaming(f.c, "next", "run-2", "alpha", parkPath) // the control: closed run, it refuses
+
+	f.clk.advance(time.Hour)
+	if standing := f.parkHere(f.coord, "run-2", "rider"); len(standing) != 0 {
+		t.Fatalf("nothing overlaps it yet: %+v", standing)
+	}
+	got := claimBySlug(t, f.st, "rider")
+	if got.ClaimID != before.ClaimID || got.InRunSlug != "run-2" || !got.InRunOpen || got.State != "open" || got.Owner.SessionID != f.coord.SessionID {
+		t.Fatalf("after the park: %+v", got)
+	}
+	if !got.Renewed.Equal(f.clk.now()) {
+		t.Fatalf("a park is the holder's explicit act, so it renews: renewed %v, now %v", got.Renewed, f.clk.now())
+	}
+
+	f.refusedNaming(f.d, "plain", "", "alpha", parkPath) // no declaration
+	f.gateHeldBy(parkPath, f.c, "rider")                 // the gate's control: no claim of its own yet
+	f.granted(f.c, "next", "run-2", parkPath)            // the claim door
+	f.gateFree(parkPath, f.c)                            // the gate
+	f.gateHeld(parkPath, f.d)                            // and it still refuses a third session
+
+	// The transfer door, by the pair rule: the run and its rider move together
+	// over the admitted lane, as D-063's handoff does for a rider parked by --to.
+	if err := f.hand(f.coord, f.d, "run-2", "rider"); err != nil {
+		t.Fatalf("a handoff of the run and its re-parked rider: %v", err)
+	}
+	if got := claimBySlug(t, f.st, "rider"); got.InRunSlug != "run-2" {
+		t.Fatalf("the handoff lost the mark: %+v", got)
+	}
+}
+
+// A rider ejected on a red and put back. The same open run restores its yield: the
+// coordinator is saying the work is in that run again.
+func TestParkInPlaceAfterAnUnpark(t *testing.T) {
+	f := newParkFx(t)
+	f.granted(f.c, "next", parkRun, parkPath)
+	if _, _, err := f.st.UnparkClaim(f.coord.SessionID, f.coord.Incarnation, "rider"); err != nil {
+		t.Fatal(err)
+	}
+	f.gateHeld(parkPath, f.c) // the control: ejected, it refuses the lane again
+	if standing := f.parkHere(f.coord, parkRun, "rider"); len(standing) != 0 {
+		t.Fatalf("back in the run its declarer names, nothing stands: %+v", standing)
+	}
+	f.gateFree(parkPath, f.c)
+}
+
+// Several slugs are one transaction, a repeat counts once, and parking a claim
+// already in that run changes nothing that matters.
+func TestParkInPlaceSeveral(t *testing.T) {
+	f := newParkFx(t)
+	if err := f.claim(f.coord, "own", "", "own/x.go"); err != nil {
+		t.Fatal(err)
+	}
+	f.parkHere(f.coord, parkRun, "rider", "own", "rider")
+	for _, slug := range []string{"rider", "own"} {
+		if got := claimBySlug(t, f.st, slug); got.InRunSlug != parkRun || !got.InRunOpen {
+			t.Fatalf("%s: %+v", slug, got)
+		}
+	}
+	f.granted(f.c, "next", parkRun, parkPath, "own/x.go")
+}
+
+// Everything parkTarget refuses at the transfer door it refuses here, and nothing
+// changes: every claim keeps its mark. The last call is the control: the same
+// claims and a run the caller holds, granted.
+func TestParkInPlaceRefusedAndNothingChanges(t *testing.T) {
+	f := newParkFx(t)
+	f.run(f.d, "run-d")
+	f.run(f.coord, "run-2")
+	for _, c := range []struct {
+		by     SessionInfo
+		slug   string
+		scopes []string
+	}{
+		{f.coord, "plain", []string{"notes/x"}},
+		{f.coord, "mine", []string{"own/x.go"}},
+		{f.coord, "slotted", []string{"own/y.go", SlotPrefix + "/thing"}},
+		{f.c, "theirs", []string{"theirs/x.go"}},
+		{f.coord, "gone", []string{"gone/x.go"}},
+	} {
+		if err := f.claim(c.by, c.slug, "", c.scopes...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.st.ReleaseOutcome(f.coord.SessionID, f.coord.Incarnation, "gone", "pass", "n"); err != nil {
+		t.Fatal(err)
+	}
+	f.run(f.coord, "run-gone")
+	f.closeRunOf(f.coord, "run-gone")
+	for _, tc := range []struct {
+		name  string
+		by    SessionInfo
+		slugs []string
+		run   string
+		want  string
+	}{
+		{"a run someone else holds", f.coord, []string{"mine"}, "run-d", "does not hold that run"},
+		{"no such run", f.coord, []string{"mine"}, "no-such", "no open claim of that name"},
+		{"a closed run", f.coord, []string{"mine"}, "run-gone", "no open claim of that name"},
+		{"an open claim that is no run", f.coord, []string{"mine"}, "plain", "not a run"},
+		{"a run parked in itself", f.coord, []string{"run-2"}, "run-2", "never parked"},
+		{"a run parked in another", f.coord, []string{"run-2"}, parkRun, "never parked"},
+		{"a claim carrying a slot", f.coord, []string{"slotted"}, "run-2", "never parked"},
+		{"another session's claim", f.d, []string{"theirs"}, "run-d", "held by charlie"},
+		{"your own closed claim", f.coord, []string{"gone"}, "run-2", "already released"},
+		{"one bad slug of several", f.coord, []string{"rider", "mine", "slotted"}, "run-2", "never parked"},
+		{"one unknown slug of several", f.coord, []string{"rider", "no-such-claim"}, "run-2", "no claim \"no-such-claim\""},
+	} {
+		_, err := f.st.ParkClaims(tc.by.SessionID, tc.by.Incarnation, tc.slugs, tc.run)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: %v, want %q", tc.name, err, tc.want)
+		}
+		if got := claimBySlug(t, f.st, "rider"); got.InRunSlug != parkRun {
+			t.Fatalf("%s moved the rider's mark: %+v", tc.name, got)
+		}
+		for _, slug := range []string{"mine", "slotted", "theirs", "run-2"} {
+			if got := claimBySlug(t, f.st, slug); got.InRun != "" {
+				t.Fatalf("%s marked %s: %+v", tc.name, slug, got)
+			}
+		}
+		var closedMark string
+		if err := f.st.db.QueryRow(`SELECT in_run FROM claims WHERE slug='gone'`).Scan(&closedMark); err != nil || closedMark != "" {
+			t.Fatalf("%s marked a closed claim: %q %v", tc.name, closedMark, err)
+		}
+	}
+	// Liveness: a dead incarnation's leftover call parks nothing.
+	if _, err := f.st.ParkClaims(f.coord.SessionID, "not-the-incarnation", []string{"mine"}, "run-2"); err == nil || !strings.Contains(err.Error(), "not live") {
+		t.Fatalf("a stale incarnation: %v", err)
+	}
+	// A transfer to yourself parks nothing either, and its words name this door.
+	if _, _, err := f.st.TransferClaimsInRun(f.coord.SessionID, f.coord.Incarnation, []string{"mine"}, mustResolve(t, f.st, f.coord.Label), "run-2"); err == nil || !strings.Contains(err.Error(), "no --to") {
+		t.Fatalf("--to yourself --in-run: %v", err)
+	}
+	if got := claimBySlug(t, f.st, "mine"); got.InRun != "" {
+		t.Fatalf("a refused call marked it: %+v", got)
+	}
+	// Only --in-run earns that hint: a plain --to yourself has no park to redirect.
+	if err := f.hand(f.coord, f.coord, "mine"); err == nil || strings.Contains(err.Error(), "no --to") {
+		t.Fatalf("a plain --to yourself: %v", err)
+	}
+	f.parkHere(f.coord, "run-2", "rider", "mine") // the control
+	if got := claimBySlug(t, f.st, "mine"); got.InRunSlug != "run-2" {
+		t.Fatalf("the control: %+v", got)
+	}
+}
+
+// A claim on exactly .buddy is coordination too, which the row on a slot does not
+// reach: it needs a fixture where nobody else holds anything under .buddy.
+func TestParkInPlaceRefusesTheBuddyDirItself(t *testing.T) {
+	f := newParkFx(t)
+	if err := f.claim(f.coord, "dotted", "", ".buddy"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.ParkClaims(f.coord.SessionID, f.coord.Incarnation, []string{"dotted"}, parkRun); err == nil || !strings.Contains(err.Error(), "never parked") {
+		t.Fatalf("a claim on .buddy: %v", err)
+	}
+	if got := claimBySlug(t, f.st, "dotted"); got.InRun != "" {
+		t.Fatalf("marked: %+v", got)
+	}
+	f.parkHere(f.coord, parkRun, "rider") // the control
+}
+
+// An ended session under its OWN incarnation, which the slug lookup alone would
+// pass while the claim row is open: only the liveness check stops this park.
+func TestParkInPlaceRefusesAnEndedSession(t *testing.T) {
+	f := newParkFx(t)
+	if err := f.claim(f.coord, "mine", "", "own/x.go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.Bye(f.coord.SessionID, f.coord.Incarnation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.ParkClaims(f.coord.SessionID, f.coord.Incarnation, []string{"mine"}, parkRun); err == nil || !strings.Contains(err.Error(), "not live") {
+		t.Fatalf("an ended session: %v", err)
+	}
+	if got := claimBySlug(t, f.st, "mine"); got.InRun != "" {
+		t.Fatalf("marked: %+v", got)
+	}
+}
+
+// The design's question: re-parking must not admit a declaration of the old run.
+// The mark is keyed on the run claim's id, so neither the next run nor a run
+// re-formed under the old slug admits it, and the coordinator is told it stands.
+func TestParkInPlaceDoesNotAdmitAnOldDeclaration(t *testing.T) {
+	f := newParkFx(t)
+	f.granted(f.c, "next", parkRun, parkPath)
+	f.gateFree(parkPath, f.c) // the control: admitted while its run holds the rider
+
+	// Moved from the open run to another: the yield ends, reported.
+	f.run(f.coord, "run-2")
+	standing := f.parkHere(f.coord, "run-2", "rider")
+	if got := standingSlugs(standing); !slices.Equal(got, []string{"next"}) || standing[0].Claimant != "charlie" {
+		t.Fatalf("standing: %+v", standing)
+	}
+	f.gateHeldBy(parkPath, f.c, "rider")
+
+	// The run closes and comes back under its own slug: a new claim, a new id.
+	f.closeRunOf(f.coord, parkRun)
+	f.run(f.coord, parkRun)
+	standing = f.parkHere(f.coord, parkRun, "rider")
+	if got := standingSlugs(standing); !slices.Equal(got, []string{"next"}) {
+		t.Fatalf("standing, under a re-formed slug: %+v", standing)
+	}
+	f.gateHeldBy(parkPath, f.c, "rider")
+
+	// Admitted again only by saying so: the re-formed run's declaration is a new one.
+	if err := f.claim(f.c, "next", "", parkPath); err == nil {
+		t.Fatal("a re-claim with no declaration must be refused")
+	}
+	if err := f.claim(f.c, "next", parkRun, parkPath); err != nil {
+		t.Fatalf("a re-claim declaring the run the rider is parked in: %v", err)
+	}
+	f.gateFree(parkPath, f.c)
+}
+
+// A standing overlap is a pair of claims, not a session's verdict: charlie's old
+// claim gets no yield, and its new one does, so the gate passes it (Codex design
+// pass, this sequence). The report names the old claim and not the new.
+func TestParkInPlaceReportsPairsNotVerdicts(t *testing.T) {
+	f := newParkFx(t)
+	f.run(f.coord, "run-2")
+	f.granted(f.c, "old", parkRun, parkPath)
+	f.parkHere(f.coord, "run-2", "rider")
+	f.gateHeldBy(parkPath, f.c, "rider") // the control: the old claim alone
+	f.granted(f.c, "new", "run-2", parkPath)
+	f.gateFree(parkPath, f.c)
+	if got := standingSlugs(f.parkHere(f.coord, "run-2", "rider")); !slices.Equal(got, []string{"old"}) {
+		t.Fatalf("standing: %v", got)
+	}
+}
+
+// The first park sets the producer, a re-park keeps it, and this door writes them
+// as the transfer door does. f.lane is bravo, f.c the fixer, f.coord alpha.
+func TestParkInPlaceProducer(t *testing.T) {
+	read := func(t *testing.T, f *parkFx, slug string) (session, inc string) {
+		t.Helper()
+		if err := f.st.db.QueryRow(`SELECT producer_session, producer_incarnation FROM claims WHERE slug=?`, slug).Scan(&session, &inc); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Run("a re-park keeps the lane", func(t *testing.T) {
+		f := newParkFx(t)
+		f.closeRunOf(f.coord, parkRun)
+		f.run(f.coord, "run-2")
+		f.parkHere(f.coord, "run-2", "rider")
+		if s, i := read(t, f, "rider"); s != f.lane.SessionID || i != f.lane.Incarnation {
+			t.Fatalf("%q %q", s, i)
+		}
+	})
+	t.Run("an unpark and a re-park keep the lane", func(t *testing.T) {
+		f := newParkFx(t)
+		if _, _, err := f.st.UnparkClaim(f.coord.SessionID, f.coord.Incarnation, "rider"); err != nil {
+			t.Fatal(err)
+		}
+		f.parkHere(f.coord, parkRun, "rider")
+		if s, _ := read(t, f, "rider"); s != f.lane.SessionID {
+			t.Fatalf("%q", s)
+		}
+	})
+	t.Run("a fixer handed it plain becomes the producer, and a re-park keeps that", func(t *testing.T) {
+		f := newParkFx(t)
+		if _, _, err := f.st.UnparkClaim(f.coord.SessionID, f.coord.Incarnation, "rider"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.hand(f.coord, f.c, "rider"); err != nil {
+			t.Fatal(err)
+		}
+		if s, _ := read(t, f, "rider"); s != "" {
+			t.Fatalf("a plain --to clears it: %q", s)
+		}
+		f.park(f.c, f.coord, parkRun, "rider")
+		f.parkHere(f.coord, parkRun, "rider")
+		if s, i := read(t, f, "rider"); s != f.c.SessionID || i != f.c.Incarnation {
+			t.Fatalf("%q %q", s, i)
+		}
+	})
+	t.Run("the caller's own work and a plain hand-on: the holder at the first park", func(t *testing.T) {
+		f := newParkFx(t)
+		if err := f.claim(f.coord, "own", "", "own/x.go"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.claim(f.lane, "handed", "", "handed/x.go"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.hand(f.lane, f.coord, "handed"); err != nil {
+			t.Fatal(err)
+		}
+		f.parkHere(f.coord, parkRun, "own", "handed")
+		for _, slug := range []string{"own", "handed"} {
+			if s, i := read(t, f, slug); s != f.coord.SessionID || i != f.coord.Incarnation {
+				t.Fatalf("%s: %q %q", slug, s, i)
+			}
+		}
+	})
+}
+
+// RECORDED OPEN, a crafted form (D-133's amendment): two holders who each park a
+// claim declaring the other's run yield to each other, so two exclusive claims both
+// pass the gate. Each step is the rule's, and no recipe cross-declares. The transfer
+// door reached this with a third session; this door takes two. Pinned so a fix, which
+// would have to change the rule itself, has to say so. The controls are the two
+// refusals before the marks cross.
+func TestCrossDeclaredParksYieldToEachOther(t *testing.T) {
+	f := newParkFx(t)
+	f.run(f.d, "run-9")
+	if err := f.claim(f.coord, "own", "", "own/x.go"); err != nil {
+		t.Fatal(err)
+	}
+	f.refusedNaming(f.d, "held", parkRun, "alpha", "own/x.go") // the control: not parked yet
+	f.parkHere(f.coord, parkRun, "own")
+	f.granted(f.d, "held", parkRun, "own/x.go")
+	f.gateHeldBy("own/x.go", f.coord, "held") // the control: the declarer refuses alpha
+	f.parkHere(f.d, "run-9", "held")
+	if err := f.claim(f.coord, "own", "run-9", "own/x.go"); err != nil {
+		t.Fatal(err)
+	}
+	if standing := f.parkHere(f.coord, parkRun, "own"); len(standing) != 0 {
+		t.Fatalf("standing: %+v", standing)
+	}
+	f.gateFree("own/x.go", f.coord)
+	f.gateFree("own/x.go", f.d)
+}
+
+// A coordinator's own work comes free with this door, and it is held by the rule
+// that holds a rider: it yields only to a declarer, and the declarer's active claim
+// still refuses the coordinator.
+func TestParkInPlaceOwnWork(t *testing.T) {
+	f := newParkFx(t)
+	if err := f.claim(f.coord, "own", "", "own/x.go"); err != nil {
+		t.Fatal(err)
+	}
+	f.refusedNaming(f.c, "next", parkRun, "alpha", "own/x.go") // the control
+	f.parkHere(f.coord, parkRun, "own")
+	f.refusedNaming(f.d, "plain", "", "alpha", "own/x.go")
+	f.granted(f.c, "next", parkRun, "own/x.go")
+	f.gateFree("own/x.go", f.c)
+	f.gateHeldBy("own/x.go", f.coord, "next")
+}
+
 // A ledger at the schema before this one: its claims gain the columns, and every
 // row refuses as it did.
 func TestMigrationToSchema18(t *testing.T) {
@@ -976,7 +1349,7 @@ func TestMigrationToSchema18(t *testing.T) {
 	for _, q := range []string{
 		`ALTER TABLE claims DROP COLUMN in_run`, `ALTER TABLE claims DROP COLUMN based_on`,
 		`ALTER TABLE claims DROP COLUMN producer_session`, `ALTER TABLE claims DROP COLUMN producer_incarnation`,
-		fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion-1),
+		`PRAGMA user_version = 17`, // the literal: schemaVersion-1 skips this arm after a later bump
 	} {
 		if _, err := st.db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)

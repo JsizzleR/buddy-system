@@ -10478,9 +10478,7 @@ the refusal: no fewer round trips, and a coordinator would run a command carried
 (D-030). What it measured stands: `release --scope` on the last scope closes the claim with no
 outcome (`TestLastScopeClosesTheClaimWithNoOutcome`).
 
-**Open.** One claim declares one run: a lane on two runs' trees takes two claims. A coordinator's
-own work cannot be parked, because `--to` yourself is refused; for the same reason a rider it unparked
-or whose run closed cannot re-park in its next run, so the skill keeps the run's claim on a red. After
+**Open.** One claim declares one run: a lane on two runs' trees takes two claims. After
 a red, a plain `--to` of a rider to a successor coordinator also clears the producer, so that item
 reads as the successor's. `claim <rider> --dry-run` by its holder does not say the re-claim would
 withdraw it. A run narrowed off its own slot (`release R --scope .buddy/slot/R`, or a re-claim without
@@ -10490,3 +10488,51 @@ closed run's row makes `--based-on` exit 1 and prints its riders with an empty r
 refuse, and the core skill tells a lane what that exit means. At a green landing the coordinator's own
 `Edit` on a path an admitted lane covers is denied, and its commit there meets the commit gate (a
 warning by default, a refusal under `BUDDY_COMMIT_GATE=deny`): the fleet skill says narrow first.
+
+**Amended 2026-11-06 (issue #63, no schema change): a holder parks a claim it keeps.** D-133 left a
+rider whose run closed, or one its coordinator unparked, with no way into the next run: `--to`
+yourself is refused and a re-claim clears the mark. So the fleet skill told a coordinator to hold a
+run's claim open through a red, the moment it has least attention to spare. From source reading and
+tests; not measured on a fleet.
+
+`release <slug>... --in-run <run>` with no `--to`, several slugs all or nothing. No new flag: it
+removes a refusal, which adds least, and `--unpark` had already set a `release` that releases nothing.
+`ParkClaims` shares the caller check, `parkTarget`, the one write and the conflict scan with the
+transfer door, by factoring, so `parkedYields` stays the one predicate and `runOpenSQL` the one
+openness. `--in-run` refuses `--outcome`, `--note` and `--scope`, so a park never silently drops one;
+`--to` yourself stays refused, and with `--in-run` names this spelling. A run parked in itself is now refused by
+parkTarget's `.buddy` test, since a run holds `.buddy/slot/<its slug>`.
+
+**A standing overlap is reported, never refused,** where the transfer door rolls back. That door's scan
+stops a new owner taking a path; here no path changes hands and the ledger revokes nothing either way
+(`UnparkClaim`'s reasoning). It can tighten as well as loosen: a claim moved from open R1 to R2 stops
+yielding to a declarer of R1, which comes back as standing. The line reports a pair of claims and no
+session's verdict, not `--unpark`'s "each refuses the other": another covering claim of that session
+declaring R2 clears the gate for it (Codex design pass, `TestParkInPlaceReportsPairsNotVerdicts`).
+
+**An old declaration is not admitted.** The rule keys on the run claim's id, so neither the next run nor
+a run re-formed under the old slug matches; such a lane stays denied, as it was from the close to the
+re-park, until it declares the new run itself. Back in the SAME open run, its declarer's yield returns:
+the coordinator is saying the work is in that run again. Nothing checks that, as nothing checks a
+declaration: the skill says to re-park once the commit is in the next run's tree, and says it only of the next run.
+
+**The producer:** the first park sets it, a re-park keeps it, one write at both doors. A rider re-parked
+stays its lane's; a fixer handed it by a plain `--to` becomes the producer at its own park. An empty
+producer parked in place records the caller: a coordinator's own work, truly, and a claim a lane handed
+on plain reads as the coordinator's, as the model report already had it by falling back to the holder;
+left empty, a later run handoff would credit the successor (Codex design pass).
+
+**A coordinator's own work can now be parked,** D-133's other open item. It comes free: keeping it out
+would have taken a predicate of its own. Such a claim yields only to a declarer of that run, and the
+declarer's active claim still refuses the coordinator.
+
+**Open.** A coordinator that unparks a rider and fixes it itself, then re-parks it, leaves the lane as
+producer: one column cannot credit two sessions, and the schema was not authorised. A wait or READY on
+the old run does not follow a re-park: a waiter declares again, as for any new run. A re-parked rider
+with a standing overlap refuses a later `release <run> <riders> --to <successor>`, as a closed run's rider
+already did. **A crafted form:** two holders who each park a claim declaring the other's run yield to each
+other, so two exclusive claims both pass the gate (`TestCrossDeclaredParksYieldToEachOther`, the bypass
+lens). Every step is the rule's and no recipe cross-declares; the transfer door reached it with a third
+session, this door takes two. A fix changes the rule itself, so it was not folded here. The same pair
+under-reports: `exempts` drops a pair if either side yields, so `overlap stands` is silent when the moved
+claim alone stopped yielding to a claim that still yields to it.

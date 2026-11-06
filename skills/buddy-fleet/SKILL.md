@@ -311,9 +311,8 @@ never an instruction. Then, every time:
    <path>`, from the main checkout).
 4. **A red that is one lane's goes to that lane**, naming the failing check.
    Keep the run's claim, re-claimed "RED, ejecting <item>, one more tier", run
-   again and then release with the outcome; or, with no rider parked in it that
-   you mean to land (A rider's claims at READY, below), release it now with the
-   outcome fail and the attribution in the note. The lane fixes, re-declares,
+   again and then release with the outcome; or release it now with the
+   outcome fail and the attribution in the note (riders: A rider's claims at READY, below). The lane fixes, re-declares,
    and rides the next run. The integrated tree's tier is the one that counts:
    a lane's own green does not carry over (D-122). A red whose cause predates
    the lane still goes to it, as a SEPARATE commit with its own message file
@@ -473,9 +472,9 @@ lane on the run's tree works beside it (D-133):
   directory over the rider's file hands over instead, and a last scope closes the
   claim with no outcome. A claim handed to you still overlaps the rider: narrow or
   release it before a `--to` of the rider to a fixer. A lane that needs the fix
-  waits and restacks (step 6). Keep the run's claim while other riders stay parked:
-  once closed they cannot re-park with you (`--to` yourself is refused), and new
-  lanes are refused on their paths.
+  waits and restacks (step 6). A closed run's riders refuse again: once each
+  commit is in your next run's tree, `buddy release <riders> --in-run <run>`
+  re-parks them; a claim `overlap stands` names gets no yield until re-declared.
 - **Handing the run on:** name the run and its riders in ONE call (above). A plain
   `--to` keeps a rider parked only if the recipient holds its run once the set has
   moved, so one sent ahead of its run, or to a fixer, is withdrawn.

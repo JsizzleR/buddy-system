@@ -1220,8 +1220,8 @@ type ClaimInfo struct {
 	Job JobDecl
 	// D-133 (parked.go). InRun is the run claim's id this claim is parked in, and
 	// InRunSlug and InRunOpen what a reader needs of it; BasedOn likewise for the
-	// run its holder declared. Producer is the label of the session that handed
-	// it over parked: the holder is only minding it.
+	// run its holder declared. Producer is the label of the session that first
+	// parked it, handing it over or in place: a later holder is only minding it.
 	InRun       string
 	InRunSlug   string
 	InRunOpen   bool

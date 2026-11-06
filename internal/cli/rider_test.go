@@ -244,11 +244,136 @@ func TestClaimNotesOnAGrant(t *testing.T) {
 }
 
 // Malformed uses end in `refused: <reason>` (D-098), before the ledger moves.
+// Issue #63, through the verb: a run closes on a red and its coordinator parks the
+// rider in the next one, keeping it.
+func TestParkInPlaceThroughTheVerb(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	r.ok(t, "sess-a", "release", "run1", "--outcome", "fail", "--note", "red")
+	r.ok(t, "sess-a", "claim", "run2", "--desc", "FORMING", "--scope", ".buddy/slot/run2", "--scope", ".buddy/slot/main")
+	r.refused("sess-b", "alpha", "claim", "next", "--desc", "n", "--based-on", "run2", "--scope", "src/a.go") // the control
+
+	out := r.ok(t, "sess-a", "release", "item", "--in-run", "run2")
+	if !strings.Contains(out, `parked "item" in run run2 — it stays open and yours`) || strings.Contains(out, "overlap stands") {
+		t.Fatalf("the line:\n%s", out)
+	}
+	ls := r.ok(t, "sess-a", "ls")
+	if !strings.Contains(ls, "PARKED in run run2") || !strings.Contains(ls, "produced by charlie") {
+		t.Fatalf("ls must show the new run and the same producer:\n%s", ls)
+	}
+	r.ok(t, "sess-b", "claim", "next", "--desc", "n", "--based-on", "run2", "--scope", "src/a.go")
+	if reason, denied := r.edit("sess-b", "src/a.go"); denied {
+		t.Fatalf("the declarer's edit: %s", reason)
+	}
+	if _, denied := r.edit("sess-b", "src/b.go"); !denied {
+		t.Fatal("the gate's control: no claim of its own on src/b.go")
+	}
+	if got := r.outcomeOf("item"); got != "" {
+		t.Fatalf("a park reports no outcome, got %q", got)
+	}
+	if got := claimState(t, r.repo, "item"); got != "open" {
+		t.Fatalf("a park releases nothing: %s", got)
+	}
+}
+
+// Several slugs, one line; what stands is a pair of claims, in words that do not
+// claim a session's verdict, because a second claim may yet clear that session's
+// gate (TestParkInPlaceReportsPairsNotVerdicts holds the ledger's side).
+func TestParkInPlaceSaysWhatStands(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	// A directory over the rider's files, so the line's two scopes differ.
+	r.ok(t, "sess-b", "claim", "next", "--desc", "n", "--based-on", "run1", "--scope", "src")
+	r.ok(t, "sess-a", "claim", "own", "--desc", "o", "--scope", "own/x.go")
+	r.ok(t, "sess-a", "claim", "run2", "--desc", "FORMING", "--scope", ".buddy/slot/run2")
+	out := r.ok(t, "sess-a", "release", "item", "own", "--in-run", "run2")
+	for _, want := range []string{`parked 2 claims in run run2 in one transaction: "item", "own" — each stays open and yours`,
+		`overlap stands: src/a.go (yours) and "src" held by bravo, claim "next"`, "does not yield"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("must say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "refuses the other") {
+		t.Fatalf("a verdict on a session, which a second claim could make false:\n%s", out)
+	}
+	if _, denied := r.edit("sess-b", "src/a.go"); !denied {
+		t.Fatal("the old declaration must not be admitted by the new run")
+	}
+}
+
+// What a holder reads when the door refuses it, and exit 1 with nothing changed.
+func TestParkInPlaceRefusals(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	r.ok(t, "sess-c", "claim", "other", "--desc", "x", "--scope", "other/x.go")
+	if _, errw, code := r.as(t, "sess-c", "release", "other", "--in-run", "run1"); code != 1 ||
+		!strings.Contains(errw, "does not hold that run") || !strings.Contains(errw, "nothing was parked") {
+		t.Fatalf("a run someone else holds: exit %d: %s", code, errw)
+	}
+	if _, errw, code := r.as(t, "sess-a", "release", "item", "--to", "alpha", "--in-run", "run1"); code != 1 || !strings.Contains(errw, "no --to") {
+		t.Fatalf("--to yourself: exit %d: %s", code, errw)
+	}
+	if _, errw, code := r.as(t, "sess-a", "release", "run1", "--in-run", "run1"); code != 1 || !strings.Contains(errw, "never parked") {
+		t.Fatalf("a run in itself: exit %d: %s", code, errw)
+	}
+	for _, slug := range []string{"run1", "other", "item"} {
+		if got := claimState(t, r.repo, slug); got != "open" {
+			t.Fatalf("a refused park changed %s: %s", slug, got)
+		}
+	}
+	if ls := r.ok(t, "sess-a", "ls"); strings.Count(ls, "PARKED") != 1 {
+		t.Fatalf("only the fixture's rider is parked:\n%s", ls)
+	}
+	// The control: the same caller, a run it holds, a claim with no slot.
+	r.ok(t, "sess-a", "claim", "own", "--desc", "o", "--scope", "own/x.go")
+	if out := r.ok(t, "sess-a", "release", "own", "--in-run", "run1"); !strings.Contains(out, `parked "own" in run run1`) {
+		t.Fatalf("the control:\n%s", out)
+	}
+}
+
+// Invariant 9 on this door's own lines: several slugs, an overlap, and a refusal,
+// each with a run's or a claim's slug that would fabricate a row or a column.
+func TestParkInPlaceWordsAreFenced(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	const run = "bad\nFAKE row"
+	r.ok(t, "sess-a", "claim", run, "--desc", "x", "--scope", ".buddy/slot/"+run)
+	r.ok(t, "sess-a", "claim", "own", "--desc", "o", "--scope", "own/x.go")
+	r.ok(t, "sess-b", "claim", "evil\nFAKE row", "--desc", "e", "--based-on", "run1", "--scope", "src/a.go")
+	r.ok(t, "sess-c", "claim", "theirs", "--desc", "t", "--scope", "theirs/x.go")
+	parked := r.ok(t, "sess-a", "release", "item", "own", "--in-run", run)
+	// A holder's label reaches the refusal through %s, so it is the fence that keeps
+	// this one line (strconv.Quote covers the slugs, and hides a missing fence on them).
+	if _, errw, code := r.run(t, r.repo, hookJSON("sess-d", r.repo, "", ""), "hello", "--label", "lab\nFAKE row"); code != 0 {
+		t.Fatalf("hello d: %s", errw)
+	}
+	r.ok(t, "sess-d", "claim", "run-d", "--desc", "x", "--scope", ".buddy/slot/run-d")
+	_, refused, code := r.as(t, "sess-c", "release", "theirs", "--in-run", "run-d")
+	if code != 1 || !strings.Contains(refused, "does not hold that run") || !strings.Contains(refused, "FAKE row") {
+		t.Fatalf("the control: a run someone else holds, its holder named: exit %d: %s", code, refused)
+	}
+	if !strings.Contains(parked, "parked 2 claims") || !strings.Contains(parked, "overlap stands") || !strings.Contains(parked, `"evil⏎FAKE row"`) {
+		t.Fatalf("the control: the words are not there, the slug fenced:\n%s", parked)
+	}
+	for name, view := range map[string]string{"parked": parked, "refused": refused} {
+		for _, line := range strings.Split(view, "\n") {
+			if strings.HasPrefix(line, "FAKE") {
+				t.Fatalf("%s: a slug fabricated a row:\n%s", name, view)
+			}
+		}
+	}
+	if parkWordSplit.MatchString(parked) {
+		t.Fatalf("a run's slug is not one column:\n%s", parked)
+	}
+}
+
 func TestParkingFlagsRefusedAsUsage(t *testing.T) {
 	boundedParallel(t)
 	r := newRiderFx(t)
 	for _, args := range [][]string{
-		{"release", "item", "--in-run", "run1"},
+		{"release", "item", "--in-run", ""},
+		{"release", "item", "--in-run", " "},
+		{"release", "item", "--in-run", "run1", "--unpark"},
 		{"release", "item", "--to", "bravo", "--in-run", ""},
 		{"release", "item", "--unpark", "--to", "bravo"},
 		{"release", "item", "--unpark", "--outcome", "pass"},
@@ -262,11 +387,31 @@ func TestParkingFlagsRefusedAsUsage(t *testing.T) {
 			t.Fatalf("%v: exit %d, last line must be refused: <reason> (D-098): %s", args, code, errw)
 		}
 	}
+	// These three would otherwise reach releasePark and drop the flag, so the reason
+	// is pinned, not only the shape; --note's own refusal would tell the reader to
+	// add an --outcome, which is refused next.
+	r.ok(t, "sess-a", "claim", "run2", "--desc", "FORMING", "--scope", ".buddy/slot/run2") // a run they could park in
+	for _, args := range [][]string{
+		{"release", "item", "--in-run", "run2", "--outcome", "pass"},
+		{"release", "item", "--in-run", "run2", "--note", "n"},
+		{"release", "item", "--in-run", "run2", "--scope", "src/a.go"},
+	} {
+		if _, errw, code := r.as(t, "sess-a", args...); code != 1 || !strings.Contains(errw, "--in-run parks the whole claim") {
+			t.Fatalf("%v: exit %d: %s", args, code, errw)
+		}
+	}
 	if got := claimState(t, r.repo, "item"); got != "open" {
 		t.Fatalf("a usage refusal changed the claim: %s", got)
 	}
-	if out := r.ok(t, "sess-a", "ls"); strings.Contains(out, "free/x.go") {
+	if got := r.outcomeOf("item"); got != "" {
+		t.Fatalf("a usage refusal reported an outcome: %q", got)
+	}
+	out := r.ok(t, "sess-a", "ls")
+	if strings.Contains(out, "free/x.go") {
 		t.Fatalf("a usage refusal took a claim:\n%s", out)
+	}
+	if !strings.Contains(out, "PARKED in run run1") || strings.Contains(out, "PARKED in run run2") {
+		t.Fatalf("a usage refusal moved the mark:\n%s", out)
 	}
 }
 
@@ -322,9 +467,12 @@ func TestParkWordsAreFenced(t *testing.T) {
 			}
 		}
 	}
+	r.ok(t, "sess-a", "claim", "here", "--desc", "x", "--scope", "here/x.go")
+	parkedHere := r.ok(t, "sess-a", "release", "here", "--in-run", run)
 	based := r.ok(t, "sess-b", "claim", "declared", "--desc", "x", "--based-on", run, "--scope", "free/x.go")
 	check("open", map[string]string{
-		"ls": r.ok(t, "sess-a", "ls"), "who": r.ok(t, "sess-a", "who", "alpha"), "whose": r.ok(t, "sess-a", "whose", "item2/x.go"),
+		"park in place": parkedHere,
+		"ls":            r.ok(t, "sess-a", "ls"), "who": r.ok(t, "sess-a", "who", "alpha"), "whose": r.ok(t, "sess-a", "whose", "item2/x.go"),
 		"refusal": refusal, "gate": reason, "grant": based, "who declarer": r.ok(t, "sess-a", "who", "bravo"),
 	})
 	// The same slug through the closed-run and the withdraw words.

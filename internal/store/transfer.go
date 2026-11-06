@@ -89,7 +89,8 @@ import (
 // holder, and every parked item would otherwise read as the coordinator's work.
 // A plain transfer that does not keep the mark clears them, because the next
 // holder is the one working on it. Move the sender's other claims, its messages,
-// or its waits: the claims named, by slug, and nothing else.
+// or its waits: the claims named, by slug, and nothing else. Parking a claim you
+// keep is not a transfer, and it refuses no overlap: ParkClaims, parked.go.
 
 // ErrTransferRefused is a transfer refused before anything was written. The
 // message names a remedy; it carries peer labels, and the caller fences it.
@@ -137,37 +138,17 @@ func (s *Store) TransferClaimsInRun(sessionID, incarnation string, slugs []strin
 		return nil, "", ErrTransferRefused{Why: fmt.Sprintf("a claim is held by one session; %q is every session", AllTarget)}
 	}
 	if to.ID == sessionID {
+		if inRun != "" {
+			return nil, "", ErrTransferRefused{Why: fmt.Sprintf("claim %q is already yours: --in-run with no --to parks it where it is", slugs[0])}
+		}
 		return nil, "", ErrTransferRefused{Why: fmt.Sprintf("claim %q is already yours", slugs[0])}
 	}
 	err = s.tx(func(tx *sql.Tx) error {
 		now := s.now()
 		moved = nil
 
-		var live int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id=? AND incarnation=? AND ended IS NULL`,
-			sessionID, incarnation).Scan(&live); err != nil {
+		if moved, err = s.callersOpenClaims(tx, sessionID, incarnation, slugs); err != nil {
 			return err
-		}
-		if live == 0 {
-			return ErrTransferRefused{Why: fmt.Sprintf("session %s (incarnation %s) is not live, so it hands nothing on; a claim it left open is freed by `buddy sweep`", sessionID, incarnation)}
-		}
-
-		seen := map[string]bool{}
-		for _, slug := range slugs {
-			if seen[slug] {
-				continue
-			}
-			seen[slug] = true
-			var id string
-			err := tx.QueryRow(`SELECT claim_id FROM claims WHERE slug=? AND session_id=? AND incarnation=? AND state='open'`,
-				slug, sessionID, incarnation).Scan(&id)
-			if errors.Is(err, sql.ErrNoRows) {
-				return s.whyNotReleased(tx, sessionID, slug)
-			}
-			if err != nil {
-				return err
-			}
-			moved = append(moved, Moved{Slug: slug, ClaimID: id})
 		}
 
 		var inc string
@@ -216,13 +197,7 @@ func (s *Store) TransferClaimsInRun(sessionID, incarnation string, slugs []strin
 		// After every move, so "holds the run" sees a run moving in this set.
 		for _, m := range moved {
 			if runID != "" {
-				// The first park records the producer; a re-park keeps it. Both
-				// CASEs read the row as it was: SQLite evaluates an UPDATE's
-				// right-hand sides before it assigns any of them.
-				if _, err := tx.Exec(`UPDATE claims SET in_run=?,
-					producer_session=CASE WHEN producer_session='' THEN ? ELSE producer_session END,
-					producer_incarnation=CASE WHEN producer_session='' THEN ? ELSE producer_incarnation END
-					WHERE claim_id=?`, runID, sessionID, incarnation, m.ClaimID); err != nil {
+				if err := markParked(tx, m.ClaimID, runID, sessionID, incarnation); err != nil {
 					return err
 				}
 				continue
@@ -237,23 +212,9 @@ func (s *Store) TransferClaimsInRun(sessionID, incarnation string, slugs []strin
 			}
 		}
 
-		var conflicts []Conflict
-		for _, m := range moved {
-			var shared bool
-			var marks claimMarks
-			if err := tx.QueryRow(`SELECT c.shared, c.in_run, `+runOpenSQL+`, c.based_on FROM claims c WHERE c.claim_id=?`, m.ClaimID).
-				Scan(&shared, &marks.inRun, &marks.runOpen, &marks.basedOn); err != nil {
-				return err
-			}
-			scopes, err := scopesOf(tx, m.ClaimID)
-			if err != nil {
-				return err
-			}
-			c, err := s.scopeConflicts(tx, to.ID, scopes, shared, marks)
-			if err != nil {
-				return err
-			}
-			conflicts = append(conflicts, c...)
+		conflicts, err := s.conflictsOfClaims(tx, to.ID, moved)
+		if err != nil {
+			return err
 		}
 		if len(conflicts) > 0 {
 			return refusedFrom(conflicts)
@@ -264,6 +225,63 @@ func (s *Store) TransferClaimsInRun(sessionID, incarnation string, slugs []strin
 		return nil, "", err
 	}
 	return moved, toLabel, nil
+}
+
+// callersOpenClaims is the door both a transfer and a park in place go through:
+// the caller must be live under the incarnation it names, and hold every slug
+// open under it (a repeated slug counts once).
+func (s *Store) callersOpenClaims(tx *sql.Tx, sessionID, incarnation string, slugs []string) ([]Moved, error) {
+	var live int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id=? AND incarnation=? AND ended IS NULL`,
+		sessionID, incarnation).Scan(&live); err != nil {
+		return nil, err
+	}
+	if live == 0 {
+		return nil, ErrTransferRefused{Why: fmt.Sprintf("session %s (incarnation %s) is not live, so it hands nothing on and parks nothing; a claim it left open is freed by `buddy sweep`", sessionID, incarnation)}
+	}
+	var out []Moved
+	seen := map[string]bool{}
+	for _, slug := range slugs {
+		if seen[slug] {
+			continue
+		}
+		seen[slug] = true
+		var id string
+		err := tx.QueryRow(`SELECT claim_id FROM claims WHERE slug=? AND session_id=? AND incarnation=? AND state='open'`,
+			slug, sessionID, incarnation).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, s.whyNotReleased(tx, sessionID, slug)
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Moved{Slug: slug, ClaimID: id})
+	}
+	return out, nil
+}
+
+// conflictsOfClaims scans each claim as it now stands against every session but
+// its owner, by the pair rule (claimMarks reads the row, and runOpenSQL says open).
+func (s *Store) conflictsOfClaims(tx *sql.Tx, ownerID string, claims []Moved) ([]Conflict, error) {
+	var conflicts []Conflict
+	for _, m := range claims {
+		var shared bool
+		var marks claimMarks
+		if err := tx.QueryRow(`SELECT c.shared, c.in_run, `+runOpenSQL+`, c.based_on FROM claims c WHERE c.claim_id=?`, m.ClaimID).
+			Scan(&shared, &marks.inRun, &marks.runOpen, &marks.basedOn); err != nil {
+			return nil, err
+		}
+		scopes, err := scopesOf(tx, m.ClaimID)
+		if err != nil {
+			return nil, err
+		}
+		c, err := s.scopeConflicts(tx, ownerID, scopes, shared, marks)
+		if err != nil {
+			return nil, err
+		}
+		conflicts = append(conflicts, c...)
+	}
+	return conflicts, nil
 }
 
 // scopesOf reads one claim's scopes inside the caller's transaction.

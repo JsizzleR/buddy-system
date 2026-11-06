@@ -1178,7 +1178,7 @@ ledger row entered through the CLI (D-006).
     wait into the holder's context.
 
 123. **A claim parked in an open run yields to a claim declaring that run, and to nothing else
-    (D-133).** `release <item> --to <holder of R> --in-run R`; `claim --based-on R`. One predicate,
+    (D-133).** `release <item> --to <holder of R> --in-run R`, or R's holder's own `release <item> --in-run R`, which reports a standing overlap rather than refusing (no path changes hands); `claim --based-on R`. One predicate,
     `parkedYields`, at `allConflicts`, `scopeConflicts` from a transfer and `OwnerOf`, keyed on the
     run claim's id, with no term for staleness. Only the parked side ever yields; at the transfer
     door either side may be the one moving, so a mid-run handoff still works; `claim` never reverses.
