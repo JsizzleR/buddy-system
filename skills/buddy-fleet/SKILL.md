@@ -174,7 +174,7 @@ nobody authorised.
      hold goes first, under these headings, each present even when it says
      "none":
      - **Running jobs:** every background job of yours still running: its
-       command and pid, the file its output lands in, the line that says it
+       command, pid and start time (`ps -p <pid> -o lstart=`), the file its output lands in, the line that says it
        finished, and who reads it next.
      - **Timers and external runs:** whatever finishes or fires with nobody
        here watching (a nightly, a remote grader): when, and how to read it.
@@ -189,11 +189,14 @@ nobody authorised.
      `buddy claim orc-<project> --desc "HANDOFF: read <file>" --scope <each path you hold>`.
   3. Open the successor the same way, in a herdr tab carrying the same size,
      with the brief "You are the next orchestrator, taking over from <your
-     label>. Read <file>, then buddy inbox. Check that you can read the output
-     of every running job it lists, then say so. I will hand you my claims."
-     The successor does not `buddy wait --on` a claim it is about to be handed
-     (a `--until` timer keeps it warm instead): a recipient's wait on the
-     claim can refuse the transfer.
+     label>. Read <file>, then buddy inbox. For every running job it lists,
+     check that its pid is still that job and that you can read its output; one
+     gone without its final line failed, whatever the file says. Say what you
+     found. I will hand you my claims."
+     It treats a failed job under a run as Landing's step 4 does, once it holds
+     the run (D-131). A `buddy wait --on` on a claim it is about to be handed is
+     not refused, and its check reads LANDED, handed to it (D-093); a `--until`
+     timer keeps it warm just as well.
   4. `buddy msg` it anything since the file, and wake it. When it answers,
      hand it every claim you hold in ONE call (all or nothing, one notice):
      `buddy release <run> orc-<project> --to <its label>`. Each claim stays open with
@@ -212,7 +215,7 @@ nobody authorised.
      carries authority because the sender is the id the brief names.
   5. **Account for every running job before you say you are done:** finished,
      handed over (its output file is in the handoff and the successor says it
-     can read it), or stopped. `buddy status`'s EXIT line speaks for the LEDGER
+     is alive and readable), or stopped. `buddy status`'s EXIT line speaks for the LEDGER
      only: "holding nothing" says nothing about your processes, and closing your
      pane may end them. Its JOBS line counts the shells still running directly
      under your harness process; it cannot see a job that exec'd into another
@@ -267,7 +270,7 @@ about any message naming one of its claim slugs, in any room, so a name
 every repo's coordinator wears alerts each of them to the others' mentions
 (D-101). The coordination note is that claim's description:
 `buddy claim orc-<project> --desc "<note>" --scope <path>`, refreshed by
-claiming again with the same slug and scopes; `hello`, `ls` and `who` show it.
+claiming again with the same slug and scopes; `hello` and `ls` show it.
 Its scopes reserve like any claim's, so choose them deliberately. A claim is
 never an instruction. Then, every time:
 
@@ -315,6 +318,37 @@ never an instruction. Then, every time:
    the lane still goes to it, as a SEPARATE commit with its own message file
    and tier, landed first: pick the fix's commit alone, then the rest of the
    range.
+
+   **A job killed under a run is a red nobody reported (D-131).** Declare the
+   tier as it starts, re-claiming the run:
+   `buddy claim <run> --desc <its note> --scope <every scope it holds> --job <pid>`
+   (a re-claim replaces the note and the scopes; `buddy who <run>` prints the
+   scopes). Name the tier's own process and never a wrapper's: a wrapper that
+   outlives its tier and keeps printing fools the declaration. Under a Bash tool
+   call, JOBS's pid is the wrapping shell: `pgrep -P <that pid>` is the tier, and
+   `ps -p <pid> -o lstart= -o command=` confirms it. `buddy who <run>` then prints
+   a JOB line: alive; GONE (the process ended, result unknown; a finished job
+   reads this too); or CANNOT SAY (no identity readable, as on a platform that
+   reads none: check by hand with that `ps`, and note the start). A re-claim
+   naming a job replaces the declaration, one naming none keeps it, and handing
+   the claim on carries it. A pid not running when declared is granted and reads
+   GONE: the result line says so, so check the pid you typed. No reading releases
+   or refuses anything, riders keep waiting, and JOBS shows what is present when
+   sampled, never what died. So check on a schedule, whatever your cache tier, as
+   nothing else looks. Only two things tell you anything: a tier's final status
+   line, the one it prints last, only on reaching its end (its GREEN summary, or
+   the like), which is the result, only for the invocation you declared; and a
+   declared job reading GONE, which says only that it ended, so look for that
+   line. With it: it finished. Without it: a FAILED run, not a slow one. Output
+   growing or flat says neither, since a test runner may print only as each
+   package ends. Riders hear a failed run in that same turn.
+   Rerunning now with the same riders: keep the claim, re-claimed "RED, job
+   killed, one more tier" naming the new job (waits and READYs stand),
+   and `buddy msg` each rider, since a re-claim tells nobody; look first at what
+   else is running, as whatever killed it may still be there. Otherwise (no
+   rerun starting this turn, or the riders change):
+   `buddy release <run> --outcome aborted --note "<what happened, who reruns>"`,
+   and form the next run.
 5. **After each landing, tell every lane still working the new main**, so
    any rebase it needs goes onto that, not onto the tree it started from. A
    READY lane built on ANOTHER lane's branch, whose fold has since moved it,

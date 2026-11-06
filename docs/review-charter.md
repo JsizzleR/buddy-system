@@ -613,7 +613,14 @@ ledger row entered through the CLI (D-006).
     must not lend its shells). Pids and ages only, never argv. "Cannot say" (no live registered
     process, a platform whose table is not read, the anchor not the registered one) is never
     "none". It refuses, ends and grants nothing. Do not propose ending, signalling or
-    reparenting a session's processes from buddy (D-027, D-056).
+    reparenting a session's processes from buddy (D-027, D-056). It shows what is present, never
+    what died. `claim --job <pid>` (schema 17) records a pid, its kernel start time and the boot id;
+    `who` prints JOB alive, GONE or CANNOT SAY (D-131). GONE is an observation, the process ended,
+    result unknown: a finished tier reads it too, so only its final status line gives the result, for
+    the invocation declared. Output growth proves neither completion nor progress. No reading
+    releases or refuses anything; a dead job reaches riders only through the coordinator: its
+    outcome, or a re-claim and a message.
+    Do not propose making a reading release a claim, refuse a call, or read a job's output.
 
 68. **`claim` refuses a `--scope` that holds a comma; every listing of a claim's scopes goes through
     `scopeList` (D-066, issue #56).** Measured: comma lists were granted as one literal path

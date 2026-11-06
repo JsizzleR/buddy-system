@@ -92,7 +92,16 @@ CREATE TABLE IF NOT EXISTS claims (
 	-- release means the reservation ended and nothing more; this is the
 	-- holder's own word about the job the claim guarded, never buddy's check.
 	outcome      TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('','pass','fail','aborted')),
-	outcome_note TEXT NOT NULL DEFAULT ''
+	outcome_note TEXT NOT NULL DEFAULT '',
+	-- D-131: the process the holder DECLARED this claim's job to be, as the
+	-- CLI read it at declaration: its pid, its kernel start time (microseconds)
+	-- and this boot's id. All zero when none is declared; a pid with no start
+	-- time is a declaration on a platform that reads none, and job_born -1 one
+	-- the kernel said was not running. Read back only as an
+	-- observation on who: nothing here reserves, refuses or releases.
+	job_pid  INTEGER NOT NULL DEFAULT 0,
+	job_born INTEGER NOT NULL DEFAULT 0,
+	job_boot TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS claims_open_slug ON claims(slug) WHERE state='open';
 CREATE TABLE IF NOT EXISTS claim_scopes (
@@ -362,6 +371,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
+// 17 adds claims.job_pid, job_born and job_boot (D-131), ALTER arms.
 // 16 adds session_context.handoff_step (D-096), an ALTER arm.
 // 15 adds captured adapter message identities and receiving endpoint reports.
 // 14 adds claims.outcome, claims.outcome_note and session_waits.ready_sha
@@ -382,7 +392,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 16
+const schemaVersion = 17
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -580,6 +590,18 @@ func migrate(db *sql.DB) error {
 	// D-096. No session has been told anything yet, which is what -1 says.
 	if ver < 16 {
 		if err := addColumnIfMissing(tx, "session_context", "handoff_step", "INTEGER NOT NULL DEFAULT -1"); err != nil {
+			return err
+		}
+	}
+	// D-131. No claim has declared a job, which is what the zero defaults say.
+	if ver < 17 {
+		if err := addColumnIfMissing(tx, "claims", "job_pid", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+		if err := addColumnIfMissing(tx, "claims", "job_born", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+		if err := addColumnIfMissing(tx, "claims", "job_boot", "TEXT NOT NULL DEFAULT ''"); err != nil {
 			return err
 		}
 	}
@@ -1173,6 +1195,20 @@ type ClaimInfo struct {
 	// listing prints it, because a reader deciding whether to contest a path
 	// needs to know the holder invited company.
 	Shared bool
+	// Job is the process the holder declared this claim's job to be (D-131);
+	// its PID is 0 when none is declared.
+	Job JobDecl
+}
+
+// JobDecl is a job declared against a claim (D-131): a pid, bound to the
+// process's kernel start time and to this boot, because a pid alone is a
+// recycled number. Born and Boot are zero on a platform that reads neither.
+// It rides the claim row, so `release --to` carries it untouched, and a
+// re-claim that names no job keeps it.
+type JobDecl struct {
+	PID  int
+	Born int64 // start time, microseconds since the epoch, compared for equality only; -1: not running when declared
+	Boot string
 }
 
 // Stale reports whether an open claim has gone unrenewed past StaleAfter.
@@ -1235,6 +1271,14 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 // A refresh takes the mode it is given, so re-claiming a shared slug without
 // --shared makes it exclusive again, and is refused if a peer shares it.
 func (s *Store) ClaimMode(sessionID, incarnation, slug, desc string, scopes []string, shared bool) error {
+	return s.ClaimWithJob(sessionID, incarnation, slug, desc, scopes, shared, nil)
+}
+
+// ClaimWithJob is ClaimMode that also declares the claim's job when job is not
+// nil (D-131), in the same transaction, so a refused claim declares nothing.
+// A nil job on a refresh leaves the declaration standing: a re-claim that only
+// rewords a description must not make a job vanish from who.
+func (s *Store) ClaimWithJob(sessionID, incarnation, slug, desc string, scopes []string, shared bool, job *JobDecl) error {
 	norm, err := claimScopes(scopes, shared)
 	if err != nil {
 		return err
@@ -1295,7 +1339,10 @@ func (s *Store) ClaimMode(sessionID, incarnation, slug, desc string, scopes []st
 			if _, err := tx.Exec(`DELETE FROM claim_scopes WHERE claim_id=?`, ownID); err != nil {
 				return err
 			}
-			return insertScopes(tx, ownID, norm)
+			if err := insertScopes(tx, ownID, norm); err != nil {
+				return err
+			}
+			return declareJob(tx, ownID, job)
 		}
 
 		id := newToken()
@@ -1303,8 +1350,20 @@ func (s *Store) ClaimMode(sessionID, incarnation, slug, desc string, scopes []st
 			VALUES (?,?,?,?,?,?,?,'open',?)`, id, sessionID, incarnation, slug, desc, now, now, shared); err != nil {
 			return err
 		}
-		return insertScopes(tx, id, norm)
+		if err := insertScopes(tx, id, norm); err != nil {
+			return err
+		}
+		return declareJob(tx, id, job)
 	})
+}
+
+// declareJob writes a declaration onto a claim row; nil writes nothing.
+func declareJob(tx *sql.Tx, claimID string, job *JobDecl) error {
+	if job == nil {
+		return nil
+	}
+	_, err := tx.Exec(`UPDATE claims SET job_pid=?, job_born=?, job_boot=? WHERE claim_id=?`, job.PID, job.Born, job.Boot, claimID)
+	return err
 }
 
 // rowQuerier is what openSlugOwner needs from either a *sql.Tx (Claim, inside
@@ -1512,7 +1571,7 @@ func (s *Store) Claims(includeClosed bool) ([]ClaimInfo, error) {
 // within a claim, as the per-claim query sorted them — listings and the
 // commit gate's output are compared by eye and by tests.
 func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
-	rows, err := s.db.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed, c.shared,
+	rows, err := s.db.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed, c.shared, c.job_pid, c.job_born, c.job_boot,
 			ses.session_id, ses.incarnation, ses.label, ses.worktree, ses.pid, ses.started, ses.last_seen, COALESCE(ses.ended,0)
 		FROM claims c JOIN sessions ses ON ses.session_id=c.session_id `+where+` ORDER BY c.created`, args...)
 	if err != nil {
@@ -1522,7 +1581,7 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 	var out []ClaimInfo
 	for rows.Next() {
 		var c ClaimInfo
-		if err := rows.Scan(&c.ClaimID, &c.Incarnation, &c.Slug, &c.Desc, &c.State, unixScan{&c.Created}, unixScan{&c.Renewed}, &c.Shared,
+		if err := rows.Scan(&c.ClaimID, &c.Incarnation, &c.Slug, &c.Desc, &c.State, unixScan{&c.Created}, unixScan{&c.Renewed}, &c.Shared, &c.Job.PID, &c.Job.Born, &c.Job.Boot,
 			&c.Owner.SessionID, &c.Owner.Incarnation, &c.Owner.Label, &c.Owner.Worktree, &c.Owner.PID,
 			unixScan{&c.Owner.Started}, unixScan{&c.Owner.LastSeen}, unixScan{&c.Owner.Ended}); err != nil {
 			return nil, err

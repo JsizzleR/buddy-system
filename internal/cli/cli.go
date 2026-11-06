@@ -52,6 +52,12 @@ type Env struct {
 	// ProcTable is the process table and the caller's own pid, for the JOBS
 	// line (jobs.go); nil means the real one, which a test must never read.
 	ProcTable func() (table []procEntry, self int, ok bool)
+	// JobProc and BootID read a declared job's process and this boot's id
+	// (job.go, D-131); nil means the real ones, which is what a test wants when
+	// the pid it declares is a child of its own. Seams for the platform arms a
+	// test's host does not have, a reused pid and another boot.
+	JobProc func(pid int) jobProcess
+	BootID  func() (string, bool)
 	// SockDir is where the harness's per-process message sockets live (wake.go);
 	// "" means the real one. A seam for the reason Anchor is one.
 	SockDir string
@@ -392,7 +398,7 @@ const (
 	usageBusy       = "usage: buddy busy   (UserPromptSubmit hook, optional; hook JSON on stdin)"
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
-	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--dry-run] [--session <id>]\n       (the slug comes first; exit 4: refused by a holder, nothing taken, and a dry run that forecasts it; 1: any other error)"
+	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--job <pid>] [--dry-run] [--session <id>]\n       (the slug comes first; --job declares the claim's job, read by who; exit 4: refused by a holder, nothing taken, and a dry run that forecasts it; 1: any other error)"
 	usageRelease    = "usage: buddy release <slug>... [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--session <id>]\n       (several slugs release, or with --to hand on, as ONE transaction: all or nothing; --scope and --outcome take one slug)"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
@@ -3000,6 +3006,12 @@ func cmdClaim(args []string, env Env) error {
 	fs.Var(&scopes, "scope", "ONE repo-relative path or dir prefix; repeat the flag for more (a comma list is refused, D-066)")
 	dry := fs.Bool("dry-run", false, "report the conflict set and what would be taken; write nothing")
 	shared := fs.Bool("shared", false, "other --shared claims may overlap this one (D-042)")
+	var jobPID int
+	fs.Func("job", "the pid of the claim's job, the tier's own process and not a wrapper's (D-131)", func(v string) error {
+		n, err := parseJobPID(v)
+		jobPID = n
+		return err
+	})
 	if help, err := parseFlags(fs, args[1:], usageClaim, env); help || err != nil {
 		return err
 	}
@@ -3011,6 +3023,10 @@ func cmdClaim(args []string, env Env) error {
 	// predicts would be worse than none.
 	if err := commaScopes(scopes); err != nil {
 		return err
+	}
+	var job *store.JobDecl
+	if jobPID != 0 {
+		job = declaredJob(env, jobPID)
 	}
 	st, _, err := mustLedger(env.Cwd, env)
 	if err != nil {
@@ -3054,13 +3070,16 @@ func cmdClaim(args []string, env Env) error {
 		if len(free) > 0 {
 			fmt.Fprintf(env.Stdout, "would claim: %s\n", scopeList(free))
 		}
+		if job != nil {
+			fmt.Fprintln(env.Stdout, "would declare: "+declaredLine(env, *job))
+		}
 		if len(conflicts) > 0 {
 			return exitErr{ExitRefused, fmt.Errorf("dry run: %d conflict(s); nothing was taken", len(conflicts))}
 		}
 		fmt.Fprintln(env.Stdout, "dry run: no conflicts; nothing was taken")
 		return nil
 	}
-	if err := st.ClaimMode(si.SessionID, si.Incarnation, slug, *desc, scopes, *shared); err != nil {
+	if err := st.ClaimWithJob(si.SessionID, si.Incarnation, slug, *desc, scopes, *shared, job); err != nil {
 		// A refusal is whole (D-001), and it carries the whole set: print every
 		// collision, one fenced line each, before the one-line error.
 		//
@@ -3094,6 +3113,9 @@ func cmdClaim(args []string, env Env) error {
 	fmt.Fprintf(env.Stdout, "claimed %s for %s — %sscopes: %s\n",
 		strconv.Quote(fence.Line(slug, 128)), fence.Line(si.Label, 64), sharedWord(*shared),
 		scopeList(scopes))
+	if job != nil {
+		fmt.Fprintln(env.Stdout, declaredLine(env, *job))
+	}
 	return nil
 }
 

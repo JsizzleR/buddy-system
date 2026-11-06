@@ -61,7 +61,8 @@ against a shared counter ("may I spend a slot?") cannot.*
 
 > **Status (2026-09-20, D-025):** the roster now prints `pid N` — the `claude` process the
 > session's hooks were spawned by — and `pane herdr:…` from the environment; `buddy who
-> <any name>` returns the rest. What a session is RUNNING (`buddy run`) is not tracked.
+> <any name>` returns the rest. What a session is RUNNING (`buddy run`) is not tracked,
+> beyond a job declared on a claim (D-131, below).
 
 **What happened:** a session found two `check-residuals` processes it did not start,
 traced their parents to a `claude` pid, and **could not map that pid to a buddy
@@ -76,6 +77,9 @@ slug; nothing records what it is running.
 **Wanted:** `buddy run start "<label>" --pid N` / `buddy run ls` / auto-clear on exit,
 with the roster showing `running: check-all.sh (pid 16087, 12m)`. The sessions
 converged on announcing slug+pid in chat by hand; that is the feature asking to exist.
+
+Part built (#60, D-131, schema 17): `claim --job <pid>` declares a job against a claim, and `who` reads
+it alive, GONE or CANNOT SAY. Report only. `buddy run`, a job with no claim and a roster column stay wanted.
 
 ## 2b. A session has at least three names, and none derives from the others
 

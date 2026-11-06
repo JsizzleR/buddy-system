@@ -967,6 +967,26 @@ says "cannot say" (never "none") without a live registered process or on a
 platform whose process table it does not read (only macOS is). A Codex
 session always gets "cannot say": its hooks bind no harness process (D-068),
 so its account of its own jobs is in its words, never on this line.
+It samples what is present: a job that died leaves nothing here, so "no shell
+found" never says a job finished, let alone passed. The `JOB` line is the other
+half (D-131), printed only for a claim that declares a job with `claim --job
+<pid>`: `alive`, `GONE` or `CANNOT SAY`, naming the pid and the claim. buddy
+records the pid with the process's kernel start time and this boot's id, so a
+pid reused by another process, or a reboot, reads `GONE`. `GONE` says the process
+ended and nothing about how: a tier that finished GREEN prints the same line as
+one that was killed, and the tier's final status line, which buddy does not read,
+is the result, for the invocation declared. Output growth proves neither
+completion nor progress. No reading releases a claim or refuses a call, and `who`
+exits 0 as ever. `who <slug>` reads that claim's job; named any other way, it
+reads every claim the session holds. `CANNOT SAY` means no identity was readable:
+a platform with none prints it for every declaration (only macOS reads one, and it
+is measured only there), and macOS prints it when the kernel gives no answer. Name
+the tier's own process, never a wrapper's: a wrapper that outlives its tier reads
+alive over a dead one. `--job` on a re-claim replaces the declaration, a re-claim
+without it keeps it, `release --to` carries it. A pid not running at declaration
+is granted, the claim's result line says it already reads GONE, and it reads GONE
+until a re-claim names another job, saying buddy never saw it run, as a mistyped
+pid reads this too; only a malformed pid refuses.
 Named by a claim slug, `who <slug>` reports the holder, and its `WAITED ON` line
 lists only the waits on THAT claim and names it (`WAITED ON    on claim "run32" by
 3 session(s), ...`); named any other way, it lists the waits on every claim the
@@ -1495,9 +1515,13 @@ What each piece is, and is not:
 - **A red run** is reported as `--outcome fail` with the attribution in the
   note, or kept open with a refreshed `--desc` ("RED, ejecting bravo, one more
   tier") and released when it is decided. Never release a run with no outcome.
+  A job gone without its final status line is such a run (D-131): a declared
+  one reads GONE on `who`, and riders hear only what the integrator reports,
+  `--outcome aborted` unless it reruns.
 - **A rider after LANDED.** PASS naming it: its work is on main — release its
   own claims and do NOT run the tier. FAIL naming it: fix, commit, and
-  re-declare `--ready HEAD` for the next run. Committed more after `--ready`?
+  re-declare `--ready HEAD` for the next run. ABORTED: that run landed nothing;
+  the note says who reruns. Committed more after `--ready`?
   Re-declare; a RUNNING tree is pinned, so the new commit rides the next run.
   `buddy wait clear` leaves.
 - **Nobody is integrating yet** (`wait --on herm` refused: no such claim):
@@ -1510,53 +1534,26 @@ What each piece is, and is not:
 The long run above, with the roles fixed for a whole shift (D-062). One
 session holds a claim named `orc-<project>` for as long as it coordinates; it
 forms a run claim per batch, exactly as the integrator above does, and forms
-the next as soon as it releases one, since a lane's `wait --on <run>` is
-refused while no such claim exists. Every other session's item lands through
-that run. The claim carries the project's name (`<project>` is the main
-checkout's directory name, so `orc-buddy-system`), never a bare
-`orchestrator`: `mentions_me` matches claim slugs in every room (D-009), so a
-name every repo's coordinator wears alerted each to the others' mentions
-(D-101). The skill's "Landing through an
-orchestrator" is the session-facing recipe, both sides. What the operator
-sees, and where each fact lives:
+the next as soon as it releases one. Every other session's item lands through
+that run. `<project>` is the main checkout's directory name (D-101). The
+skill's "Landing through an orchestrator" is the session-facing recipe, both
+sides. What the operator sees, and where each fact lives:
 
-- **`buddy who orc-<project>`** is the coordinator's record. Its description is
-  the published note (D-030): how a lane reports, the current run's slug, or
-  the file that says. The run it is holding shows as a second claim, on
-  `.buddy/slot/<run>` and `.buddy/slot/main`.
+- **`buddy ls`** shows the coordinator's note, its claim's description (D-030):
+  how a lane reports, the current run's slug, or the file that says. `who`
+  prints no description. The run shows as a second claim.
 - **`buddy who <run>`** is the batch: every lane that declared `--ready`, at
   which commit, and every lane that said it is not ready yet, in its own
-  words. A lane waits on the RUN, never on `orc-<project>`, which outlives
-  every run and is released only at a handoff.
-- **A lane's report is two things**: the `--ready` declaration in the ledger,
-  and a `buddy msg orc-<project> "<item> READY: …"` carrying what the ledger
-  does not hold (the review receipt, the files, the checks it ran).
-- **A landing is two things too**: `release <run> --outcome pass`, which every
-  rider's next `wait check` reads as LANDED, and a message that ends the
-  lane's work in words. The outcome says the run passed; only the
-  orchestrator's words say a lane is done, because the outcome cannot know
-  which lanes hold follow-ups the run did not carry.
-- **Repo-specific rules stay in the repo**: which tier is "the shared tier",
-  which review a lane owes, which checks are its own, how worktrees are
-  named. They live in the orchestrator's description or the file it names,
-  never in buddy.
-
+  words.
 - **A handoff moves the claims, not their ids**: the outgoing orchestrator
-  runs `buddy release <run> orc-<project> --to <successor>` (D-063, D-093): one
-  transaction, all or nothing, one notice. Each claim stays open with its
-  scopes and every wait on it, so riders stay READY on `who <run>` and land on
-  the successor's outcome; the successor is sent one message saying what it
-  was handed, and if it was already waiting on one of them, that wait LANDS
-  ("handed to you"). `buddy who <slug>` prints every scope of a claim, uncut,
-  for the re-claim that refreshes its description (D-094). A refused handover
-  prints every conflict it counts: claims of yours that overlap each other
-  move only together. Release-then-claim would mint new claims and land every
+  runs `buddy release <run> orc-<project> --to <successor>` (D-063, D-093), all
+  or nothing. Riders stay READY on `who <run>` and land on the successor's
+  outcome. A refused handover prints every conflict: claims of yours that
+  overlap each other move only together. Release-then-claim would land every
   rider with no outcome.
 - **Several ledgers at once**: `sh scripts/fleet-report.sh <list-file>` (one project path per line) prints each ledger's verdict (available, no live session, or unavailable and why), its counts, and its STALE claims, undelivered messages and pauses by id, read from a private copy and capped under 9,000 bytes; counts and ids only, never a label, slug, note or body.
 
-Buddy keeps no task table. The claim is the responsibility, `wait --ready` is
-the report, `release --outcome` is the close, and `who` is the view. A
-`buddy task` verb was proposed ([ORCHESTRATION-PLAN.md](ORCHESTRATION-PLAN.md))
+Buddy keeps no task table. A `buddy task` verb was proposed ([ORCHESTRATION-PLAN.md](ORCHESTRATION-PLAN.md))
 and is not built.
 
 ## The identifier register — `buddy ids`

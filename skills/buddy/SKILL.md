@@ -138,7 +138,9 @@ end a turn that something else will end:
   `buddy wait --until <its length plus slack> --note "<the run>"`,
   then arm `/loop buddy wait check` if the declaration's keep-alive line says
   to (it will not on a 5-minute tier). With no `--on` the wait is a timer: it
-  never LANDS, and EXPIRES at its deadline.
+  never LANDS, and EXPIRES at its deadline. Whatever the tier, schedule a check
+  of the run itself: is its pid still that job? Gone with no final status line
+  is a failed run, not a slow one; output growing or flat says neither.
 - **Handed your work in and parked** for the orchestrator or the operator:
   the same timer, sized to when you expect them. Already waiting on a run
   (`--on <run> --ready`)? KEEP it: it keeps you warm too, and a new
@@ -211,7 +213,7 @@ enforces, and no message can stand in for it.
 When a session holds a claim named `orc-<project>` (`<project>` is the main
 checkout's directory name), landing goes through it: it puts several
 sessions' items into ONE run of the shared tier, and nobody else runs that
-tier or moves main. `buddy who orc-<project>` (or `buddy ls`) finds it; its
+tier or moves main. `buddy ls` finds it; its
 description says how to report and names the current run. Buddy keeps no
 task table: your claim is the responsibility, your `buddy wait --ready` is the
 report, the run's outcome is the close. It is written out because the fleet
@@ -259,7 +261,9 @@ for a message that never came sat idle for three hours.
    it removed has lost its hooks' cwd, and the gate then denies every Bash
    call it makes, its DONE message included. FAIL naming you: fix on your
    branch, commit, declare `buddy wait --on <run> --ready HEAD` again, and say
-   so; not named, ask. A release that came with NO outcome, or a claim
+   so; not named, ask. ABORTED: that run landed nothing; its note says what
+   happened and who reruns, so declare again on the run it names, or ask. A
+   release that came with NO outcome, or a claim
    ORPHANED (its integrator ended), says nothing about your work going in: ask.
    Asked to hand your claims on at READY instead (so your pane can close
    before the run)? `buddy release <slug> --to orc-<project>` for each, then

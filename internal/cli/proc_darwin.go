@@ -106,3 +106,40 @@ func readProcTable() ([]procEntry, bool) {
 	}
 	return out, true
 }
+
+// sZomb is <sys/proc.h>'s SZOMB, the p_stat of a process that has exited and
+// that its parent has not reaped. x/sys has no name for it.
+const sZomb = 5
+
+// readJobProcess is what a declared job's reading needs (job.go): the pid's
+// state and start time, from the same sysctl as procInfo. It is apart from
+// procInfo because a zombie still answers kern.proc.pid, with its start time,
+// so procInfo calls it alive: right for bye's fence, wrong for a job that a
+// parent has not reaped yet. Measured: a killed child not yet waited for
+// answers here with this p_stat.
+func readJobProcess(pid int) jobProcess {
+	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		if procGone(err) {
+			return jobProcess{State: procAbsent}
+		}
+		return jobProcess{State: procUnknown}
+	}
+	state := procRunning
+	if kp.Proc.P_stat == sZomb {
+		state = procZombie
+	}
+	return jobProcess{State: state, Born: kp.Proc.P_starttime.Sec*1_000_000 + int64(kp.Proc.P_starttime.Usec)}
+}
+
+// readBootID is this boot's id: kern.bootsessionuuid, a string the kernel mints
+// each boot. Not kern.boottime, which XNU moves when the clock is stepped
+// (source reading), and an id that shifted within a boot would call a live job
+// GONE.
+func readBootID() (string, bool) {
+	id, err := unix.Sysctl("kern.bootsessionuuid")
+	if err != nil || id == "" {
+		return "", false
+	}
+	return id, true
+}

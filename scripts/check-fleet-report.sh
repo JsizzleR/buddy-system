@@ -376,7 +376,7 @@ $(cat "$WORK/out1")"
 why=$(gate "$WORK/out1") || fail "the gate refused the report: $why"
 
 o=$WORK/out1
-want "$o" "== available (schema 16): $A" "the fixture is available"
+want "$o" "== available (schema 17): $A" "the fixture is available"
 want "$o" "  sessions: 1 live, 1 quiet (not ended, not seen 30m+), 1 ended today" "sessions: SA live, SB quiet, SC ended"
 want "$o" "  claims: 5 open, 2 STALE (GONE not read), 1 unrenewed with the holder seen" \
 	"claims: SB's and SC's STALE (SC's only in the WAL), SA's slug unrenewed, SA's slot and fresh claim silent"
@@ -386,13 +386,13 @@ $(cat "$o")"
 want "$o" "  paused: 3" "paused"
 over="(this report's BUDDY_HANDOFF_AT; the last observed prompt)"
 # Scoped to A's block: P's carries the same count line.
-grep -A6 -xF -- "== available (schema 16): $A" "$o" | grep -qxF "  handoff: 1 not ended at or past 300k $over" ||
+grep -A6 -xF -- "== available (schema 17): $A" "$o" | grep -qxF "  handoff: 1 not ended at or past 300k $over" ||
 	fail "handoff in A: SA at exactly 300k counts; SB under, SC ended:
 $(cat "$o")"
 want "$o" "  over handoff s-aaaaaaaa  prompt 300k" "the session at the handoff size, by its short id"
 grep -qE '^  over handoff s-(bbbbbbbb|cccccccc|ffffffff|abcdef01)  ' "$o" && fail "an under, ended, superseded or non-integer sample was counted:
 $(grep '^  over handoff' "$o")"
-grep -A6 -xF -- "== no live session (schema 16): -b" "$o" | grep -qxF "  handoff: 0 not ended at or past 300k $over" ||
+grep -A6 -xF -- "== no live session (schema 17): -b" "$o" | grep -qxF "  handoff: 0 not ended at or past 300k $over" ||
 	fail "-b's ended session is not past the handoff size:
 $(cat "$o")"
 for id in $(db "$A" "SELECT claim_id FROM claims WHERE slug IN ('b-work', 'c-work') ORDER BY slug;"); do
@@ -406,14 +406,14 @@ done
 grep -q '^  paused #[0-9]*  all  ' "$o" || fail "the pause on all"
 grep -q "^  paused #[0-9]*  s-aaaaaaaa  " "$o" || fail "the pause on SA, by its short id"
 grep -q '^  paused #[0-9]*  (a name, not shown)  ' "$o" || fail "the legacy pause, its target not shown"
-want "$o" "== no live session (schema 16): -b" "the ledger nobody is live in, listed relative as -b"
-grep -A5 -xF -- "== no live session (schema 16): -b" "$o" | grep -qxF '  claims: 1 open, 1 STALE (GONE not read), 0 unrenewed with the holder seen' ||
+want "$o" "== no live session (schema 17): -b" "the ledger nobody is live in, listed relative as -b"
+grep -A5 -xF -- "== no live session (schema 17): -b" "$o" | grep -qxF '  claims: 1 open, 1 STALE (GONE not read), 0 unrenewed with the holder seen' ||
 	fail "-b's claim left behind:
 $(cat "$o")"
-grep -A5 -xF -- "== no live session (schema 16): -b" "$o" | grep -q '^  inbox: 1 undelivered' || fail "-b's queued mail"
+grep -A5 -xF -- "== no live session (schema 17): -b" "$o" | grep -q '^  inbox: 1 undelivered' || fail "-b's queued mail"
 want "$o" "== unavailable, no ledger (not a repository; the gate's verdict there is OFF): $N" "a non-repository"
 # The planted ids: never printed, said as "(id not hex)"; the swept UUID by its short id.
-pb=$(grep -A16 -xF -- "== no live session (schema 16): $P" "$o" | sed 1d | sed '/^==/,$d')
+pb=$(grep -A16 -xF -- "== no live session (schema 17): $P" "$o" | sed 1d | sed '/^==/,$d')
 for l in "  sessions: 0 live, 3 quiet (not ended, not seen 30m+), 0 ended today" \
 	"  claims: 3 open, 3 STALE (GONE not read), 0 unrenewed with the holder seen" "  paused: 2" \
 	"  handoff: 1 not ended at or past 300k $over" "  over handoff s-(id not hex)  prompt 400k"; do
@@ -431,7 +431,7 @@ $pb"
 printf '%s\n' "$pb" | grep -q '^  paused #[0-9]*  s-eeeeeeee  ' || fail "a pause on a UUID whose row is gone prints its short id:
 $pb"
 want "$o" "== unavailable, no ledger (never buddy init-ed; the gate's verdict there is OFF): $I" "a repository never init-ed"
-want "$o" "== unavailable, schema 99, which this report was not written against (it reads 16): $U" "an unknown schema, with its number"
+want "$o" "== unavailable, schema 99, which this report was not written against (it reads 17): $U" "an unknown schema, with its number"
 want "$o" "== unavailable, ledger UNREADABLE (not a SQLite database; the gate DENIES there): $G" "a ledger that is not SQLite"
 want "$o" "== unavailable, ledger UNREADABLE (not a SQLite database; the gate DENIES there): $C" "a SQLite header over a corrupt body"
 want "$o" "== unavailable, ledger not read (an empty file; the gate's verdict there is not this report's to say): $E" "an empty ledger file"
@@ -501,7 +501,7 @@ $(printf '%s\n' "$sh_out" | grep "$A" | cut -c1-200)"
 # authority, so the copy's URI folds the slashes. The ledger still reads.
 mkdir -p "$WORK/tmpd"
 dbl=$(TMPDIR="/$WORK/tmpd" BUDDY_FLEET_CLAUDE="$WORK/no-such-claude" sh scripts/fleet-report.sh "$L/projects" 2>&1)
-printf '%s\n' "$dbl" | grep -qxF -- "== available (schema 16): $A" || fail "a //-prefixed TMPDIR broke the private copy's URI:
+printf '%s\n' "$dbl" | grep -qxF -- "== available (schema 17): $A" || fail "a //-prefixed TMPDIR broke the private copy's URI:
 $(printf '%s\n' "$dbl" | grep "$A" | cut -c1-160)"
 
 # A TMPDIR mktemp cannot use, holding a newline: its error quotes the path,
@@ -543,11 +543,11 @@ grep -q '^\.\.\. [1-9][0-9]* more line(s) not shown (the 9,000-byte cap)' "$WORK
 $(tail -3 "$WORK/out2")"
 [ "$(grep -c '^\.\.\. ' "$WORK/out2")" = 1 ] || fail "more than one 'N more' line"
 tail -1 "$WORK/out2" | grep -q '^\.\.\. ' || fail "the 'N more' line is not last"
-for v in "== no live session (schema 16): -b" "== unavailable, no such path: $WORK/no-such"; do
+for v in "== no live session (schema 17): -b" "== unavailable, no such path: $WORK/no-such"; do
 	want "$WORK/out2" "$v" "a ledger listed after the overflowing one keeps its verdict under the cap"
 done
 # Every readable ledger keeps its WHOLE count block under the cap, in order.
-for h in "== available (schema 16): $A" "== no live session (schema 16): -b" "== no live session (schema 16): $P"; do
+for h in "== available (schema 17): $A" "== no live session (schema 17): -b" "== no live session (schema 17): $P"; do
 	blk=$(grep -A6 -xF -- "$h" "$WORK/out2" | sed 1d)
 	got=$(printf '%s\n' "$blk" | sed 's/:.*//' | tr -d ' ' | tr '\n' ,)
 	[ "$got" = "sessions,claims,waits,inbox,paused,handoff," ] || fail "under the cap, '$h' lost part of its count block (got $got):

@@ -347,17 +347,17 @@ if report "$ROOT/scripts/model-report.sh" "$WORK/foreign.tsv" >/dev/null; then f
 
 # A ledger at a schema the query was not written for is refused by name.
 sqlite3 "$LEDGER" ".backup '$WORK/old.db'"
-sqlite3 "$WORK/old.db" 'PRAGMA user_version=15;'
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=16;'
 old=$( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" sh "$ROOT/scripts/model-report.sh" 2>&1 ) &&
-	fail "a schema-15 ledger was read:
+	fail "a schema-16 ledger was read:
 $old"
-printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 15; this report reads schema 16 only$' ||
+printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 16; this report reads schema 17 only$' ||
 	fail "the schema refusal did not name the version:
 $old"
-sqlite3 "$WORK/old.db" 'PRAGMA user_version=16;'
-( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ) >"$WORK/v16.txt" 2>&1 ||
-	fail "the control failed: the same copy at schema 16 was refused"
-want "$WORK/v16.txt" '^items: 19 ' "the control failed: the copy at schema 16 did not report"
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=17;'
+( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ) >"$WORK/v17.txt" 2>&1 ||
+	fail "the control failed: the same copy at schema 17 was refused"
+want "$WORK/v17.txt" '^items: 19 ' "the control failed: the copy at schema 17 did not report"
 
 # Refusals, each with its reason.
 for f in 0 x -1 07; do

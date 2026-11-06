@@ -19,3 +19,9 @@ func procGone(err error) bool { return false }
 // readProcTable: not measured on this platform, so the JOBS line says it
 // cannot say rather than "none".
 func readProcTable() ([]procEntry, bool) { return nil, false }
+
+// readJobProcess and readBootID: this platform reads no process identity, so a
+// declared job reads CANNOT SAY here, never alive and never GONE (D-131).
+func readJobProcess(pid int) jobProcess { return jobProcess{State: procUnknown} }
+
+func readBootID() (string, bool) { return "", false }

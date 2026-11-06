@@ -10310,6 +10310,72 @@ and USAGE (Fable). Answered, not folded: a `--session <lane>` caller who is not 
 still gets the ask, signed as itself, and the answer comes to it, the session that asked;
 the slug-first target choice is refusalNote's, unchanged.
 
+## D-131 — A job declared against a claim reads alive, GONE or CANNOT SAY on `who`; a dead job is a failed run the coordinator reports (issue #60)
+
+2026-11-06. **What was wrong** — an integrator's hermetic tier was killed about 3h12m in; its output
+stopped at `Terminated: 15` with no final status line, and about 3 hours of tier were void. Nothing
+in buddy said so: JOBS (D-065) shows what is present when sampled, and `who <run>` read as before,
+riders still waiting. A later coordinator found it from the output file and the process table. The
+cause was not established; the harness reaping jobs under memory pressure is only a lead.
+
+**The rule** — `buddy claim <run> ... --job <pid>` (schema 17: `claims.job_pid`, `job_born`,
+`job_boot`) records the pid with the process's kernel start time and this boot's id, read by buddy
+at declaration, never typed. `who <slug>` prints a `JOB` line for that claim, and `who` by another
+name or `status` one per declaring claim held: `alive`; `GONE`, for no such process, a zombie,
+another start time under the pid, another boot, or a pid not running when declared; `CANNOT SAY` on
+a platform reading no identity (`proc_other.go`, Linux included), with none recorded, or when the
+kernel gives no answer. No reading releases a claim or refuses a call (invariant 10's spirit). The
+declaration rides the claim row, so `release --to` carries it, a re-claim naming no job keeps it, one
+naming a job replaces it, and a slug claimed anew has none. It names the tier's own process, `pgrep
+-P <shell>` under a Bash tool call (measured once, on a backgrounded `sh fake-tier.sh`: JOBS named the
+wrapping zsh, whose child was that sh, whose child was its sleep).
+
+**GONE is not a verdict.** A tier that printed GREEN and exited reads byte for byte what a killed one
+reads, and the line says so, so a finished job never reads as a failure. Buddy does not read the
+output. The final status line establishes success, only for the invocation declared; output growth
+proves neither completion nor progress. Read from `scripts/check.sh`: `set -eu`, no trap, and the
+GREEN summary its last statement, so a killed tier and a red one both end without it. GONE without
+that line is a FAILED run, and riders hear it from the coordinator: `release --outcome aborted`, or
+the claim kept, re-claimed in step 4's form with a message to each rider, because a re-claim tells
+nobody and a release would drop their READY (D-063). A successor checks each listed job. The core
+skill gains a rider's ABORTED arm.
+
+**Beyond the agreed design, each named at READY** — a zombie reads GONE: it still answers
+`kern.proc.pid` with its start time (the zombie's reading measured by test; that `procAlive` would
+call it alive, source reading). The boot id is `kern.bootsessionuuid`, not `kern.boottime`, which XNU
+moves when the clock is stepped (source reading). A pid the kernel says is not running is granted,
+the result line saying it already reads GONE, recorded with a sentinel start time so a later process
+under the pid never reads as the job, and worded apart ("buddy never saw it run"), since a mistyped
+pid reads this too; a first shape refused the claim, and that was a reading refusing something, at
+the worst moment: a tier dead before its declaration would have blocked the coordinator's re-claim
+(orchestrator's ruling).
+
+**Cut** — a note or a clearing flag on the declaration (the description says what the job is; GONE
+stays true of the old pid until a rerun replaces it); a JOB word on `ls`, the digest, or `wait check`,
+since riders hear an outcome from the coordinator and the design keeps it on `who`; reading any
+output. **Known hole, accepted** — a declaration naming a wrapper that outlives its tier and keeps
+printing reads alive over a dead tier (D-005). A death after a check waits for the next one, and a
+GONE coordinator with a live row stays the operator's (D-090). **Open, from the panel** — a label
+equal to the run's slug answers `who` first, so a lane that handed its slug on prints no JOB line
+under that name (the resolver's order, unchanged); a declaration re-made on a recycled pid reads alive
+over the wrong process; an orphaned claim's job is out of `who`'s reach with the claim; `procGone`
+counts EIO as absent, so if a sandbox hid another pid as a short read, a live tier would read GONE
+(unmeasured: only EPERM from the process table is on record, and EPERM reads CANNOT SAY). **Open, from
+the cross-check** — a wall clock stepped back prints a negative age (`started -5s ago`), and on a Darwin
+whose boot-id read failed just now CANNOT SAY's reason still says "this platform": a wrong number and a
+wrong reason, the word itself right. A boot id unreadable when a RUNNING pid is declared records no
+identity, so that declaration reads CANNOT SAY until a re-claim names the job again, even once the read
+recovers or the process dies: the safe direction, and the result line says so. (A pid not running at
+declaration is unaffected: it records the sentinel and reads GONE.)
+
+**Review** — full, the Codex design pass being the consensus rounds of 2026-11-05. Panel at opus
+(bypass, concurrency, the refusal and its control, the docs' claims), folded. Codex code pass at xhigh:
+no production defect in the liveness reading or the migration; the summary guard accepted `echo ...;
+false ;;` inside an arm, and the fleet skill still said a recipient's wait can refuse a hand-on, stale
+since D-093; both fixed. Fable cross-check: no blocking finding, the three above left open. Codex re-verify at xhigh, round 1:
+both fixes closed; this paragraph's first wording of those three overclaimed, corrected. Round 2: no
+finding.
+
 ## D-132 — Wake lines and chat rows print UTC, marked `Z` (issue #62; amends D-059)
 
 2026-11-04. The wake's local stamp sat among a fleet's UTC notes, which drifted; it is not shown

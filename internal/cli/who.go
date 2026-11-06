@@ -365,6 +365,12 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	if line != "" {
 		fmt.Fprintln(env.Stdout, line)
 	}
+	// JOB — each job declared on a claim in focus (job.go, D-131): the other
+	// half of JOBS, which sees what is present and never what died. A line only
+	// where a job was declared, so every other report reads as it did.
+	for _, ln := range declaredJobLines(env, focus, maxRows) {
+		fmt.Fprintln(env.Stdout, ln)
+	}
 
 	// EXIT — what ending the session would leave behind, on ONE line: the
 	// claims it holds, its wait, and its shells (D-092). The close test is
