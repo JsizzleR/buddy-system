@@ -621,7 +621,7 @@ func printClaimRows(env Env, prefix string, claimed []store.ClaimTouch, now time
 		stale := h.judge(now, c).rowNote(now)
 		fmt.Fprintf(env.Stdout, "%s %-24s %-24s held %s%s\n",
 			prefix, fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), age(now, c.Created), stale)
-		fmt.Fprintf(env.Stdout, "             %sscopes: %s\n", sharedWord(c.Shared), scopeList(c.Scopes))
+		fmt.Fprintf(env.Stdout, "             %s%sscopes: %s\n", sharedWord(c.Shared), parkWords(c), scopeList(c.Scopes))
 	}
 	if extra > 0 {
 		fmt.Fprintf(env.Stdout, "             ...and %d more claim(s) not shown\n", extra)

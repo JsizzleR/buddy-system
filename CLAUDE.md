@@ -236,7 +236,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
 - **Claims:** a scope list is repeated `--scope`, never a comma (D-066); a claim
   refused by a holder exits 4 (D-088); a stale claim refuses like a fresh one
   (D-022); never claim over a conflicting holder (`--shared` claims may overlap
-  each other, and you still need your own covering claim; D-042). The
+  each other, and you still need your own covering claim, D-042; a claim parked in
+  a run yields to one declaring it, D-133). The
   coordination claim is `orc-<project>`, `<project>` the main checkout's
   directory name (D-101).
 - **Landing and lanes (D-049, D-062).** The integrator holds
@@ -380,7 +381,7 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
 stays an offline coordination CLI. Adapters consume versioned JSON and immutable
 captured lifecycle receipts; no human-output parsing, current-token recapture,
 task database or dashboard. Schema 15 added incarnation-bound inbox metadata and
-receiving Claude endpoint observations; the ledger is at 17. Older installed binaries refuse a
+receiving Claude endpoint observations; the ledger is at 18. Older installed binaries refuse a
 migrated ledger (D-037): never run a new binary on a production ledger or install
 it as part of a fixture exercise. Exact checks and qualification gaps:
 `docs/CODEX-ORCHESTRATOR-PLAN.md`.
@@ -407,8 +408,8 @@ Every number stays on some line.
 
 - **Ledger.** Transactional SQLite, not `O_EXCL` lock files; two binaries, so claims never ride the chat stack; an older binary refuses a newer ledger and the gate denies; never migrate down (D-001, D-004, D-037).
 - **Scopes.** Exact paths and directory prefixes; glob scopes were cut, do not propose them; `claim` refuses a comma in `--scope`; backslashes fold to `/` before the absolute check, so `\etc` is refused (D-002, D-066, D-100).
-- **Claims.** Granted or refused whole, naming the whole conflict set (`--dry-run` forecasts it); a stale claim refuses like a fresh one, STALE keyed on the holder too; `--shared` overlaps other shared claims only; a holder's refusal exits 4 (D-019, D-022, D-042, D-088, D-090).
-- **Handing on, slots.** `release <slug> --to <target>` hands a claim on with its waits; several slugs release all-or-nothing; a slot is a claim on `.buddy/slot/<name>`, capacity 1, no new scope kind (D-035, D-063, D-093).
+- **Claims.** Granted or refused whole, naming the whole conflict set (`--dry-run` forecasts it); a stale claim refuses like a fresh one, STALE keyed on the holder too; `--shared` overlaps other shared claims only, and the one other permitted overlap is a claim parked in an open run with a claim declaring that run (unchecked; one predicate at `claim`, `release --to` and the gate); a holder's refusal exits 4 (D-019, D-022, D-042, D-088, D-090, D-133).
+- **Handing on, slots.** `release <slug> --to <target>` hands a claim on with its waits, recording a previous holder only as `--in-run`'s producer; several slugs release all-or-nothing; a slot is a claim on `.buddy/slot/<name>`, capacity 1, no new scope kind, and never parks or yields (D-035, D-063, D-093, D-133).
 - **Coordination state** is a claim, not a message: no key/value store, no compel path; the coordination claim is `orc-<project>` (D-030, D-101).
 - **Gate jurisdiction.** Unreadable denies, none is silent (invariant 3); a repository git refuses, with no ledger, is feature-off; a vanished cwd is judged from its deepest existing ancestor; an unwritable ledger names cause and fix, still denying; a dead installed `buddy` refuses every gated call (D-005, D-044, D-084, D-102, D-107).
 - **Gate recognition.** It checks every spelling a write can land on, jurisdiction before identity; the "cannot rule out" arm is Codex-only, a literal `apply_patch` refuses under every harness; A-01's open shell forms are closed; gh stack's rewriting subcommands need `.buddy/slot/gh-stack` (D-073, D-087, D-106, D-108).
@@ -427,7 +428,7 @@ Every number stays on some line.
 - **Chat.** Never the lock, its text never control, no digest auto-injected; context cost is first-class, so defaults are narrow; IRC daily, TOC/AIM behind `Conn`, CP1252 TOC-only; the journal is one connection's view (D-006, D-007, D-008, D-010).
 - **Alerts, presence.** Self-alerts by the `@sent` row; `mentions_me` matches slugs first; alert cursor ≠ read cursor; presence is presentation only, no per-session TOC connections; a DM refuses only a definite ISON no; an unknown room's read is refused, naming its rooms (D-009, D-011, D-014, D-024).
 - **Launching.** buddy launches, wakes and ends nothing, no `exit` verb; a coordinator opens its own lanes with the harness; a `claude --bg` lane anchors at its own process; `buddy-adapter` is the one exception (D-027, D-039, D-056, D-058, D-074).
-- **Fleet.** Landing is a skill recipe over existing verbs, no task table: `wait --ready`, `release --outcome`, a brief in a file; the next round may branch from a run in flight, restacked only when code under it changes; a relay to one coordinator, carrying content and scope only when marked as said in its pane; a subagent is not a lane; a job gone without its final line is a failed run, only that line gives the result, and a declared job's GONE says to look for it (D-049, D-062, D-082, D-083, D-103, D-109, D-119, D-131).
+- **Fleet.** Landing is a skill recipe over existing verbs, no task table: `wait --ready`, `release --outcome`, a brief in a file; the next round may branch from a run in flight, restacked only when code under it changes; a pane closing at READY parks its item in the run, for its outcome and owner, and a red's overlaps are the coordinator's to sort out; a relay to one coordinator, carrying content and scope only when marked as said in its pane; a subagent is not a lane; a job gone without its final line is a failed run, only that line gives the result, and a declared job's GONE says to look for it (D-049, D-062, D-082, D-083, D-103, D-109, D-119, D-131, D-133).
 - **Review, models.** The tier follows the change class; the receipt names each layer and Codex effort; every lane on the default lane model, Fable for reviews only; every brief names a round ceiling (lite: one pass folded once; full: at most two re-verifies); a subagent names its model, and a hook refuses an unnamed general-purpose Agent call; a coordinator may hand off at a batch boundary; the charter's adapter-only GIVENs ride as one-line stubs, in full on `CODEX_CHARTER=adapter` (D-104, D-111, D-115, D-117, D-128).
 - **Install.** `install.sh` upgrades every buddy binary the machine runs, waits out a new daemon's launch constraint, skips no later step, and reports, never installs, the Agent-model hook's copy and wiring; `buddy update` runs it from the stamped checkout, never fetches; the chat posture is stamped in buddy and kept while `BUDDY_CHAT` is unset, and `hello` obeys it unless `BUDDY_CHAT` says off or on, so a claims-only install needs no settings line; `buddy uninstall [--chat]` runs that checkout's uninstall.sh, chat first through launchd, buddy last, settings and data only reported; install and uninstall share one lock in the bin dir, a held one stops the other (D-050, D-067, D-110, D-120, D-124, D-125, D-126, D-127).
 - **Tests.** Never with git's local environment; a test binary outliving its `go test` is ended from outside and leaves a sample; the watchdog also ends a `-race` forkExec child stuck before exec (D-053, D-057, D-061).

@@ -79,9 +79,9 @@ yourself: that changes the operator's machine and settings.
    in a variable? zsh does not split an unquoted `$S`: use an array,
    `S=(--scope a --scope b)`.
 3. Every lane appends to one file (a playbook, a log)? Use `--shared`. Shared
-   claims overlap each other and nothing else.
+   claims overlap each other and nothing else, a claim PARKED in a run aside (below).
 4. When you finish, run `buddy release <slug>`. Use `buddy release <slug> --scope <path>` to
-   hand back part of a claim early.
+   hand back part of a claim early; the last scope closes the claim.
 5. `buddy ls` lists the open claims (`buddy ls --all` adds the closed ones).
 
 The gate denies an edit to a path inside another session's EXCLUSIVE claim.
@@ -118,6 +118,15 @@ its process GONE, or ended. Choose one:
   claim slugs. A wait does not tell the holder: ask when you declare one
   (`wait --on` prints whom; a blocked wait shows you that only at its end).
 - **Narrow your scope** to what nobody holds.
+- **The refusal says the holder is PARKED in a run, and your tree is built on that
+  run's tree** (your brief says so)? `buddy claim <slug> --based-on <run> --scope
+  ...`: only a rider parked in that run yields to it. Nothing checks this: on an
+  older tree you would be admitted, and your hunks would integrate without the
+  rider's work. A re-claim says `--based-on` again, and your edits need a claim
+  of yours covering each path. If that run closes with the rider still held (a red,
+  usually), the rider refuses you again and your edits on its paths are denied: tell
+  your orchestrator, who sorts it out. `--based-on` exiting 1 with "no claim of that
+  name" can be a run long closed and swept: claim without the flag.
 
 A stale claim refuses exactly like a fresh one. If its holder has ended (said
 bye), your own `buddy claim` or a plain `buddy sweep` frees it
@@ -266,10 +275,13 @@ for a message that never came sat idle for three hours.
    release that came with NO outcome, or a claim
    ORPHANED (its integrator ended), says nothing about your work going in: ask.
    Asked to hand your claims on at READY instead (so your pane can close
-   before the run)? `buddy release <slug> --to orc-<project>` for each, then
+   before the run)? `buddy release <item> --to orc-<project> --in-run <run>` parks
+   your item in the run, where a lane on its tree can claim beside it; hand on
+   any other claim the way your orchestrator says; then
    `buddy wait clear`, then DONE, naming your commit exactly: clearing the
    wait takes your READY row out of `buddy who <run>`. Never say DONE while a
-   wait of yours still stands.
+   wait of yours still stands. Never release your item's own claim at READY
+   instead: a red would find no owner, and an outcome no claim to land on.
 5. No item yet? `buddy msg orc-<project> "NEW SESSION <your label>: ready for work"`.
 6. **Told, as a turn opens, that you are past your handoff size?** Finish the
    round in hand, commit, and write a state note for whoever takes the rest

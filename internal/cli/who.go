@@ -202,8 +202,8 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 		// The holder's words, not the renewal's (D-090).
 		stale := hs.judge(now, c).rowNote(now)
 		scopes := scopeList(c.Scopes) // whole items, one token each, with a count of what was cut
-		fmt.Fprintf(env.Stdout, "  %-24s held %-4s %sscopes: %s%s\n",
-			fence.Field(c.Slug, 128), age(now, c.Created), sharedWord(c.Shared), scopes, stale)
+		fmt.Fprintf(env.Stdout, "  %-24s held %-4s %s%sscopes: %s%s\n",
+			fence.Field(c.Slug, 128), age(now, c.Created), sharedWord(c.Shared), parkWords(c), scopes, stale)
 	}
 
 	// DIRTY PATHS — observations (invariant 10): a tool call by this session

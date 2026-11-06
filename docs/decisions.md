@@ -2431,6 +2431,8 @@ is exactly one newline-terminated line, and the address cases assert the line en
 
 ## D-042 — A SHARED claim may overlap other shared claims, and nothing else
 
+**Amended by D-133:** a claim parked in an open run may also be overlapped by a claim declaring that run.
+
 2026-09-24 · issue #33, wishlist §7
 
 **What was wrong** — The repo under coordination requires mechanism rules to land in one playbook
@@ -4191,6 +4193,8 @@ against the usage table (`wait --on --ready --until`, `who`, `msg`, `sent`,
 adds no name.
 
 ## D-063 — A holder hands an open claim to another live session, and its waits go with it
+
+**Amended by D-133:** `--in-run` records the producing session and incarnation; a plain `--to` may clear a parked rider's mark.
 
 2026-09-29 · operator request (an orchestrator handoff, measured; no issue)
 
@@ -10385,3 +10389,104 @@ Chat changes on less evidence (14 days of this machine's transcripts: 13 `chat_r
 sent): a bare `22:40` beside `03:40:38Z` would read as the same clock, and one renderer serves MCP
 and terminal. Not changed: the adapter's JSON (RFC 3339 carries its offset), the daemon's `slog`
 file, ages. A build back on local time dies only where the machine is not on UTC.
+
+## D-133 — A claim parked in an open run yields to a claim declaring that run (issue #61; schema 18; amends D-042 and D-063)
+
+2026-11-06. The issue reports about six hand releases in one run; not re-measured here. The
+shape is the consensus of Fable, Codex (two xhigh design rounds) and the coordinator, from source
+reading; the four rulings below it are the coordinator's, on questions the building raised.
+
+**The problem.** A lane hands its claims to the coordinator at READY so its pane can close. The
+coordinator then holds every READY lane's paths, and a new lane on the run's tree is refused on
+work already in that tree. The claim does two jobs, the path and the item's outcome, and they
+pull apart. Never have a lane release the item's own claim at READY: a red finds no holder, no
+`who <run>` row and no claim for the outcome; `--note` needs an `--outcome`, and pass would report
+a run not yet run.
+
+**The rule.** `release <item> --to <coordinator> --in-run <run>` parks it, atomically, after
+inclusion is pinned. `claim <slug> --based-on <run>` declares a tree built on that run's. A claim
+parked in R yields to a claim declaring R, while R is open: `parkedYields`, one function, called
+at all three doors: `allConflicts`, transfer's `scopeConflicts` and `OwnerOf`. Keyed on the run
+claim's id, so a run re-formed under its slug matches nothing, and one handed to a successor keeps
+its riders. A run is an open claim holding `.buddy/slot/<its slug>`; a run whose holder said bye
+reads as closed, so the dry run agrees with the claim that orphans it first. Schema 18 adds
+`claims.in_run`, `based_on`, `producer_session` and `producer_incarnation`; `who`, `ls` and `whose`
+print it.
+
+**Directional.** Only the parked side ever yields. Active peers, slots and slug collisions still
+refuse a declarer; two declarers collide; a coordinator's re-claim of its rider over an admitted
+lane is refused. A slot never parks or yields. A whole claim with one path exempt and one not is
+refused whole (D-001 stands). A stale parked claim is not reaped and still refuses everyone else
+(invariant 11, D-022 stand).
+
+**Amends D-042:** `--shared` is no longer the only permitted overlap across sessions. **Amends
+D-063,** which cut "a recorded previous holder": `--in-run` records the producing session and
+incarnation, because the model report keys attribution on the holder and every parked item would
+read as the coordinator's. The first park sets them and a re-park keeps them.
+
+**Four rulings, building it (the coordinator's, inside the design; asked, answered, not assumed).**
+1. The declaration lives on the caller's own claim, since the gate has no flag to read: `OwnerOf`
+   yields only to a caller holding an open claim that COVERS the path and declares that run.
+2. The predicate is on the PAIR, and at the transfer door holds whichever side moves. Read strictly
+   ("only a rider yields"), `release <run> <riders> --to <successor>` meets the admitted lane's
+   active claim and is refused for as long as any overlap stands, which is this feature's normal
+   state. The claim door never reverses: a request is never parked, because a re-claim clears the
+   mark.
+3. Ejection is `release <item> --unpark`: the claim stays open, the mark clears, nothing new is
+   reserved. Nothing else could do it: a re-claim is refused once a lane is admitted, and `--to`
+   yourself is refused. A plain `--to` keeps the mark only if the recipient holds the run after the
+   set has moved, so D-063's handoff is unchanged, and it clears the mark and the producer for a
+   fixer, whose work it then is. Holding a closed run counts: its rider keeps the mark and reads
+   closed, because only `runOpenSQL` says open. A re-claim that succeeds clears the mark and keeps the producer.
+4. `--in-run` refuses a recipient not holding that open run, a claim carrying a `.buddy` scope and
+   a run parked in itself, and nothing moves. `--based-on` refuses a slug that never existed and an
+   open non-run, exit 1. A closed run counts as no declaration: the claim reports every blocker,
+   exit 4, or is granted with a note, because a brief can outlive its run.
+
+**Consequences, accepted.**
+- **After a red, the admitted lane's own edits on the overlapped path are DENIED at the gate,**
+  because the rider refuses it again, and the coordinator's repair is refused by the lane's claim.
+  A SHARED rider denies an exclusive declarer the same way: `OwnerOf` now counts the caller's own
+  claim past a shared hold only in shared mode, the state D-042's reading called unreachable and
+  this decision made reachable (the panel found it one-sided; a test reproduced it). The ledger
+  revokes nothing, on any outcome or an ejection. The coordinator acts, before anyone repairs:
+  `buddy ls` for each `BASED ON` claim on the rider's paths, tell that lane, have it narrow or hand
+  over, then assign the repair. The fleet skill says so. The design's "pause" is not in that
+  sequence: the brake denies the lane's own `buddy release` too (`gate` refuses Bash under it).
+- **A run closed before its riders** denies the admitted lanes on a green as well, until each rider
+  is released, so the skill says riders first.
+- **The gate deny states the condition and not the flag;** `claim`'s refusal names it. A deny reaches
+  a model just refused, on every call, and a flag spelled there invites the copying below (the
+  bypass lens's judgement).
+- On PASS the coordinator releases each item with its own outcome, one call each: 238 in the
+  fleet the issue cites.
+
+**The recorded residual: the declaration is unchecked, and integration does not catch a stale
+lane.** A lane at HEAD=M, predating run R, that copies the flag is admitted. `git cherry-pick -n`
+merges its disjoint hunks without complaint (measured 2026-11-06 on one file in a temp repo: exit 0,
+both hunks), and a semantic regression can survive the tier (D-119). The declaration names the run,
+not a commit, so a lane honestly branched from a READY lane's tip, or before another rider parked, is
+admitted over a rider whose work its tree lacks: following the fleet skill can produce this, and
+restacking is the guard there. An ancestry check was rejected: squashing makes a legitimate READY-tip base fail it, and
+ancestry cannot establish preserved code. This is the cooperative case of D-005, and the base a
+coordinator names in a brief is the only guard.
+
+**Rejected:** the no-schema give-back this entry first recorded (`release --scope`, the last scope
+by a re-claim onto a `.rider/<slug>` placeholder): removing a scope frees it for every claimant on
+any tree, and the coordinator never hears, because no refusal happens (Codex). A release line in
+the refusal: no fewer round trips, and a coordinator would run a command carried in peer text
+(D-030). What it measured stands: `release --scope` on the last scope closes the claim with no
+outcome (`TestLastScopeClosesTheClaimWithNoOutcome`).
+
+**Open.** One claim declares one run: a lane on two runs' trees takes two claims. A coordinator's
+own work cannot be parked, because `--to` yourself is refused; for the same reason a rider it unparked
+or whose run closed cannot re-park in its next run, so the skill keeps the run's claim on a red. After
+a red, a plain `--to` of a rider to a successor coordinator also clears the producer, so that item
+reads as the successor's. `claim <rider> --dry-run` by its holder does not say the re-claim would
+withdraw it. A run narrowed off its own slot (`release R --scope .buddy/slot/R`, or a re-claim without
+it) reads open for riders already parked while `--based-on R` refuses it as no run: the coordinator's
+own act, no recipe does it, and SQL cannot fold the slug to test it in `runOpenSQL`. A sweep deleting a
+closed run's row makes `--based-on` exit 1 and prints its riders with an empty run slug; they still
+refuse, and the core skill tells a lane what that exit means. At a green landing the coordinator's own
+`Edit` on a path an admitted lane covers is denied, and its commit there meets the commit gate (a
+warning by default, a refusal under `BUDDY_COMMIT_GATE=deny`): the fleet skill says narrow first.

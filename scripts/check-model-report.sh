@@ -347,17 +347,43 @@ if report "$ROOT/scripts/model-report.sh" "$WORK/foreign.tsv" >/dev/null; then f
 
 # A ledger at a schema the query was not written for is refused by name.
 sqlite3 "$LEDGER" ".backup '$WORK/old.db'"
-sqlite3 "$WORK/old.db" 'PRAGMA user_version=16;'
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=17;'
 old=$( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" sh "$ROOT/scripts/model-report.sh" 2>&1 ) &&
-	fail "a schema-16 ledger was read:
+	fail "a schema-17 ledger was read:
 $old"
-printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 16; this report reads schema 17 only$' ||
+printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 17; this report reads schema 18 only$' ||
 	fail "the schema refusal did not name the version:
 $old"
-sqlite3 "$WORK/old.db" 'PRAGMA user_version=17;'
-( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ) >"$WORK/v17.txt" 2>&1 ||
-	fail "the control failed: the same copy at schema 17 was refused"
-want "$WORK/v17.txt" '^items: 19 ' "the control failed: the copy at schema 17 did not report"
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=18;'
+( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ) >"$WORK/v18.txt" 2>&1 ||
+	fail "the control failed: the same copy at schema 18 was refused"
+want "$WORK/v18.txt" '^items: 19 ' "the control failed: the copy at schema 18 did not report"
+
+# D-133: a parked rider is its producer's work. Bravo (claude-fable-5-1) makes the
+# item and parks it with carol, who holds the run and has no model recorded; then
+# a plain item carol holds herself is the control that the report still reads the
+# holder of any claim nobody parked. In a copy, so the counts above stand.
+sqlite3 "$LEDGER" ".backup '$WORK/parked.db'"
+PREPO="$WORK/parked-repo"
+mkrepo "$PREPO"
+git -C "$PREPO" commit -q --allow-empty -m init
+cp "$WORK/parked.db" "$PREPO/.git/buddy.db"
+PB_() { s=$1; shift; ( cd "$PREPO" && CLAUDE_CODE_SESSION_ID=$s "$WORK/bin/buddy" "$@" ) >/dev/null; }
+PB_ "$SC" claim prun --desc x --scope .buddy/slot/prun
+PB_ "$SB" claim parked-item --desc "model=claude-fable-5-1 class=code x" --scope parked/x
+PB_ "$SB" release parked-item --to "$SC" --in-run prun
+PB_ "$SC" release parked-item --outcome pass
+PB_ "$SC" claim plain-item --desc "model=claude-fable-5-1 class=code x" --scope plain/x
+PB_ "$SC" release plain-item --outcome pass
+pid() { sqlite3 "$PREPO/.git/buddy.db" "SELECT claim_id FROM claims WHERE slug='$1'"; }
+( cd "$PREPO" && CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" --export "$WORK/parked.tsv" ) >"$WORK/parked.txt" 2>&1 </dev/null ||
+	fail "the report refused a ledger holding a parked claim: $(cat "$WORK/parked.txt")"
+grep -q "^$(pid parked-item)	s-bbbbbbbb	claude-fable-5-1	code	" "$WORK/parked.tsv" ||
+	fail "a parked rider was not attributed to its producer:
+$(grep "^$(pid parked-item)" "$WORK/parked.tsv")"
+grep -q "^$(pid plain-item)	s-cccccccc	" "$WORK/parked.tsv" ||
+	fail "the control failed: a plain claim was not attributed to its holder:
+$(grep "^$(pid plain-item)" "$WORK/parked.tsv")"
 
 # Refusals, each with its reason.
 for f in 0 x -1 07; do

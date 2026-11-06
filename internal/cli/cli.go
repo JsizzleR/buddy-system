@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -398,8 +399,8 @@ const (
 	usageBusy       = "usage: buddy busy   (UserPromptSubmit hook, optional; hook JSON on stdin)"
 	usageGate       = "usage: buddy gate   (PreToolUse hook; hook JSON on stdin)"
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
-	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--job <pid>] [--dry-run] [--session <id>]\n       (the slug comes first; --job declares the claim's job, read by who; exit 4: refused by a holder, nothing taken, and a dry run that forecasts it; 1: any other error)"
-	usageRelease    = "usage: buddy release <slug>... [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--session <id>]\n       (several slugs release, or with --to hand on, as ONE transaction: all or nothing; --scope and --outcome take one slug)"
+	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--based-on <run>] [--job <pid>] [--dry-run] [--session <id>]\n       (the slug comes first; --job declares the claim's job, read by who; exit 4: refused by a holder, nothing taken, and a dry run that forecasts it; 1: any other error)"
+	usageRelease    = "usage: buddy release <slug>... [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target> [--in-run <run>]] [--unpark] [--session <id>]\n       (several slugs release, or with --to hand on, as ONE transaction: all or nothing; --scope, --outcome and --unpark take one slug)"
 	usageLs         = "usage: buddy ls [--all]"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
@@ -2970,9 +2971,18 @@ func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 		}
 		// permissionDecisionReason is shown to the model on every deny, so it
 		// is a context-injection sink like the digest above.
-		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s. Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
+		parked := ""
+		if c.InRun != "" && c.InRunOpen {
+			// D-133: the condition, never the flag. This goes to a model just refused,
+			// on every deny of the path, and a flag spelled here is the copying the
+			// residual describes (Fable's ruling). `claim`'s refusal names it, one
+			// deliberate verb further on.
+			parked = fmt.Sprintf(" It is a rider parked in run %s: only if your brief names that run as your base, claim the path as your brief says; nothing checks that.",
+				fence.Field(c.InRunSlug, 128))
+		}
+		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s.%s Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
 			fence.Line(loc, 512), scopeList(c.Scopes),
-			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix)
+			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, parked)
 	}
 	return ""
 }
@@ -3012,11 +3022,18 @@ func cmdClaim(args []string, env Env) error {
 		jobPID = n
 		return err
 	})
+	basedOn := fs.String("based-on", "", "this tree is built on that run's: a rider parked in it yields; nothing checks the declaration (D-133)")
 	if help, err := parseFlags(fs, args[1:], usageClaim, env); help || err != nil {
 		return err
 	}
 	if err := noStray("claim", fs, usageClaim); err != nil {
 		return err
+	}
+	// `--based-on ""` must not read as declaring nothing: the caller meant a run.
+	basedOnGiven := false
+	fs.Visit(func(f *flag.Flag) { basedOnGiven = basedOnGiven || f.Name == "based-on" })
+	if basedOnGiven && strings.TrimSpace(*basedOn) == "" {
+		return usageRefusal("--based-on needs a run; nothing was taken", usageClaim)
 	}
 	// Before the ledger and before the dry-run branch, so the forecast refuses
 	// with the claim's own words: a forecast that disagreed with the claim it
@@ -3037,6 +3054,7 @@ func cmdClaim(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	req := store.ClaimRequest{Slug: slug, Desc: *desc, Scopes: scopes, Shared: *shared, BasedOn: *basedOn, Job: job}
 	if *dry {
 		// The forecast (wishlist §5b): the same conflict computation the
 		// refusal uses, without the write. A coordinator that issued an
@@ -3044,13 +3062,15 @@ func cmdClaim(args []string, env Env) error {
 		// round trip instead of one per collision. Non-zero exit when anything
 		// is refused, so a scripted caller cannot read "some of it was free" as
 		// "go ahead".
-		free, conflicts, displaced, err := st.ClaimConflictsMode(si.SessionID, si.Incarnation, slug, scopes, *shared)
+		free, conflicts, displaced, runClosed, err := st.ClaimForecast(si.SessionID, si.Incarnation, req)
 		if err != nil {
 			return fencedErr(err)
 		}
 		printConflicts(env, st, conflicts)
 		fmt.Fprint(env.Stdout, sharedNote(conflicts))
 		fmt.Fprint(env.Stdout, slotNote(conflicts))
+		fmt.Fprint(env.Stdout, parkedNote(conflicts))
+		fmt.Fprint(env.Stdout, closedRunNote(*basedOn, runClosed))
 		fmt.Fprint(env.Stdout, waitSuggestion(conflicts))
 		// What a real claim would DISPLACE: open claims of holders that have
 		// said bye, which Claim orphans on its way in (D-026). Said apart
@@ -3079,7 +3099,8 @@ func cmdClaim(args []string, env Env) error {
 		fmt.Fprintln(env.Stdout, "dry run: no conflicts; nothing was taken")
 		return nil
 	}
-	if err := st.ClaimWithJob(si.SessionID, si.Incarnation, slug, *desc, scopes, *shared, job); err != nil {
+	grant, err := st.ClaimDeclared(si.SessionID, si.Incarnation, req)
+	if err != nil {
 		// A refusal is whole (D-001), and it carries the whole set: print every
 		// collision, one fenced line each, before the one-line error.
 		//
@@ -3097,11 +3118,13 @@ func cmdClaim(args []string, env Env) error {
 			set := make([]store.Conflict, 0, len(all))
 			for _, r := range all {
 				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug,
-					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared})
+					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared, ParkedIn: r.ParkedIn, ParkedOpen: r.ParkedOpen})
 			}
 			printConflicts(env, st, set)
 			fmt.Fprint(env.Stdout, sharedNote(set))
 			fmt.Fprint(env.Stdout, slotNote(set))
+			fmt.Fprint(env.Stdout, parkedNote(set))
+			fmt.Fprint(env.Stdout, closedRunNote(*basedOn, grant.RunClosed))
 			// The command that would declare a wait on every claim in the
 			// way (D-033). Suggested, never registered: a refusal is a fact
 			// about a claim, not about what this session means to do next.
@@ -3110,13 +3133,78 @@ func cmdClaim(args []string, env Env) error {
 		}
 		return fencedErr(err)
 	}
-	fmt.Fprintf(env.Stdout, "claimed %s for %s — %sscopes: %s\n",
-		strconv.Quote(fence.Line(slug, 128)), fence.Line(si.Label, 64), sharedWord(*shared),
+	based := ""
+	if *basedOn != "" && !grant.RunClosed {
+		based = "BASED ON run " + fence.Field(*basedOn, 128) + " "
+	}
+	fmt.Fprintf(env.Stdout, "claimed %s for %s — %s%sscopes: %s\n",
+		strconv.Quote(fence.Line(slug, 128)), fence.Line(si.Label, 64), sharedWord(*shared), based,
 		scopeList(scopes))
 	if job != nil {
 		fmt.Fprintln(env.Stdout, declaredLine(env, *job))
 	}
+	fmt.Fprint(env.Stdout, closedRunNote(*basedOn, grant.RunClosed))
+	if grant.Unparked != "" {
+		fmt.Fprintf(env.Stdout, "note: this claim was parked in run %s; this re-claim withdrew it from the run, and it refuses like any claim\n", fence.Field(grant.Unparked, 128))
+	}
 	return nil
+}
+
+// closedRunNote says a declaration did nothing: the run it names has closed, so
+// no rider of it yields, and this claim records no run (D-133).
+func closedRunNote(run string, closed bool) string {
+	if !closed {
+		return ""
+	}
+	return fmt.Sprintf("note: run %s is closed, so --based-on declared nothing, and no rider of it yields\n", fence.Field(run, 128))
+}
+
+// parkedNote is what a refusal adds when a holder is a parked rider (D-133). The
+// flag is printed with its condition, because the condition is all that guards
+// it: nothing checks a declaration, and a tree without the rider's work would
+// integrate without complaint. A rider of a CLOSED run gets a different line, and
+// no flag, because nothing clears that conflict any more but its holder.
+func parkedNote(conflicts []store.Conflict) string {
+	open, closed := map[string]bool{}, map[string]bool{}
+	for _, c := range conflicts {
+		switch {
+		case c.Scope == "" || c.ParkedIn == "":
+		case c.ParkedOpen:
+			open[c.ParkedIn] = true
+		default:
+			closed[c.ParkedIn] = true
+		}
+	}
+	var b strings.Builder
+	for _, run := range slices.Sorted(maps.Keys(open)) {
+		fmt.Fprintf(&b, "PARKED: a holder above is a rider parked in run %s, its work in that run. Only if your tree is built on that run's tree: --based-on %s; nothing checks that, and a tree without the work integrates without complaint\n",
+			fence.Field(run, 128), fence.Field(run, 128))
+	}
+	for _, run := range slices.Sorted(maps.Keys(closed)) {
+		fmt.Fprintf(&b, "PARKED: a holder above was parked in run %s, which has closed; it refuses like any claim, so ask its holder\n", fence.Field(run, 128))
+	}
+	return b.String()
+}
+
+// parkWords is the fixed text every claim listing puts before a parked or
+// declaring claim's scopes (D-133), beside sharedWord. Buddy's own words; the
+// run's slug and the producer's label are peer text, each one fenced token.
+func parkWords(c store.ClaimInfo) string {
+	var b strings.Builder
+	if c.InRun != "" {
+		if c.InRunOpen {
+			fmt.Fprintf(&b, "PARKED in run %s ", fence.Field(c.InRunSlug, 128))
+		} else {
+			fmt.Fprintf(&b, "PARKED in CLOSED run %s (refuses like any claim) ", fence.Field(c.InRunSlug, 128))
+		}
+	}
+	if c.Producer != "" {
+		fmt.Fprintf(&b, "produced by %s ", fence.Field(c.Producer, 64))
+	}
+	if c.BasedOn != "" {
+		fmt.Fprintf(&b, "BASED ON run %s ", fence.Field(c.BasedOnSlug, 128))
+	}
+	return b.String()
 }
 
 // commaScopes refuses a --scope that holds a comma, naming the repeated-flag
@@ -3300,17 +3388,31 @@ func cmdRelease(args []string, env Env) error {
 	outcome := fs.String("outcome", "", "what became of the job the claim guarded: pass, fail or aborted (D-049)")
 	note := fs.String("note", "", "with --outcome: one line for the waiters (the tested commit, who was in, who is next)")
 	to := fs.String("to", "", "hand the whole claim to this live session instead, keeping it open with its waits (D-063)")
+	inRun := fs.String("in-run", "", "with --to: park it in this run, which the recipient must hold; it then yields to a claim with --based-on that run (D-133)")
+	unpark := fs.Bool("unpark", false, "withdraw this claim from its run, keeping it open: it refuses like any claim again (D-133)")
 	if help, err := parseFlags(fs, args, usageRelease, env); help || err != nil {
 		return err
 	}
 	if err := noStray("release", fs, usageRelease); err != nil {
 		return err
 	}
-	if len(slugs) > 1 && (len(scopes) > 0 || *outcome != "" || *note != "") {
+	if len(slugs) > 1 && (len(scopes) > 0 || *outcome != "" || *note != "" || *unpark) {
 		// An outcome reports on ONE job and --scope names scopes of ONE
 		// claim; spread over a set, either would say something about claims
 		// it does not describe.
-		return usageRefusal(fmt.Sprintf("--scope, --outcome and --note take one slug, and %d were named; nothing was released", len(slugs)), usageRelease)
+		return usageRefusal(fmt.Sprintf("--scope, --outcome, --note and --unpark take one slug, and %d were named; nothing was released", len(slugs)), usageRelease)
+	}
+	if *unpark && (*to != "" || *inRun != "" || *outcome != "" || *note != "" || len(scopes) > 0) {
+		return usageRefusal("--unpark only withdraws the claim from its run, so it takes no other flag; nothing changed", usageRelease)
+	}
+	// As `--to ""` below: a parking asked for must not pass as a plain handoff.
+	inRunGiven := false
+	fs.Visit(func(f *flag.Flag) { inRunGiven = inRunGiven || f.Name == "in-run" })
+	if inRunGiven && strings.TrimSpace(*inRun) == "" {
+		return usageRefusal("--in-run needs a run; nothing was released", usageRelease)
+	}
+	if *inRun != "" && *to == "" {
+		return usageRefusal("--in-run parks a claim as it is handed on, so it needs --to; nothing was released", usageRelease)
 	}
 	// `--to ""` must not fall through to a plain release: the caller asked to
 	// hand the claim on, and a release would land every waiter on it.
@@ -3348,8 +3450,11 @@ func cmdRelease(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	if *unpark {
+		return releaseUnpark(st, env, si, slug)
+	}
 	if *to != "" {
-		return releaseTo(st, env, si, slugs, *to)
+		return releaseTo(st, env, si, slugs, *to, *inRun)
 	}
 	if len(slugs) > 1 {
 		ids, err := st.ReleaseClaims(si.SessionID, si.Incarnation, slugs)
@@ -3419,12 +3524,12 @@ func cmdRelease(args []string, env Env) error {
 // target can change hands between the two. It is information only: the
 // ledger row is the authority (invariant 4), and nothing asks the recipient's
 // consent (cut; D-063).
-func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, raw string) error {
+func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, raw, inRun string) error {
 	tgt, err := resolveTargetQuiet(st, raw)
 	if err != nil {
 		return err
 	}
-	moved, label, err := st.TransferClaims(si.SessionID, si.Incarnation, slugs, tgt)
+	moved, label, err := st.TransferClaimsInRun(si.SessionID, si.Incarnation, slugs, tgt, inRun)
 	if err != nil {
 		// The WHOLE set, one fenced line each, before the one-line error. The
 		// error's "and N more conflict(s), listed above" was printed over a
@@ -3437,7 +3542,7 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 			set := make([]store.Conflict, 0, len(all))
 			for _, r := range all {
 				set = append(set, store.Conflict{Scope: r.Scope, Their: r.Their, Slug: r.Slug,
-					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared})
+					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared, ParkedIn: r.ParkedIn, ParkedOpen: r.ParkedOpen})
 			}
 			printConflicts(env, st, set)
 			fmt.Fprintln(env.Stdout, "(each REFUSED line is a scope of a claim being handed on that overlaps a claim staying where it is; claims named together move together, so name every claim of yours that overlaps)")
@@ -3452,6 +3557,9 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 	line := fmt.Sprintf("handed %s to %s — it stays open, with its scopes", names, fence.Line(label, 64))
 	if len(moved) > 1 {
 		line = fmt.Sprintf("handed %d claims to %s in one transaction: %s — each stays open, with its scopes", len(moved), fence.Line(label, 64), names)
+	}
+	if inRun != "" {
+		line += ", parked in run " + fence.Field(inRun, 128)
 	}
 	var resolved []string
 	for _, m := range moved {
@@ -3497,7 +3605,11 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 	}
 	// `who <slug>` because every other view cuts a scope list at 512 bytes,
 	// and the advice below is to re-claim with ALL of them (D-094).
-	body := "handed you " + what + "; `buddy who <slug>` prints every scope, to re-claim with the SAME scopes when you refresh a description."
+	body := "handed you " + what + "; `buddy who <slug>` prints every scope, to re-claim with the SAME scopes when you refresh a description (not a rider parked in a run: a re-claim withdraws it)."
+	if inRun != "" {
+		// A re-claim clears the mark, so the advice above needs its exception.
+		body = "handed you " + what + ", parked in your run " + strconv.Quote(inRun) + ": release each with its own outcome when the run ends; `buddy release <slug> --unpark` withdraws one, and a re-claim also withdraws it."
+	}
 	if len(resolved) > 0 {
 		body += " Your wait on it is resolved: your next `buddy wait check` says LANDED, handed to you."
 	}
@@ -3518,6 +3630,23 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 	fmt.Fprintln(env.Stdout, line)
 	if wake != "" {
 		writeWakeCopy(env, "buddy: message #%d to %s is queued; %s\n", id, fence.Line(label, 64), wake)
+	}
+	return nil
+}
+
+// releaseUnpark withdraws one rider from its run in place (D-133). It names the
+// overlaps that stand, because the ledger revokes none of them and each side now
+// refuses the other at the gate: this is the moment the caller has to know.
+func releaseUnpark(st *store.Store, env Env, si store.SessionInfo, slug string) error {
+	run, standing, err := st.UnparkClaim(si.SessionID, si.Incarnation, slug)
+	if err != nil {
+		return fencedErr(err)
+	}
+	fmt.Fprintf(env.Stdout, "withdrew %s from run %s — it stays open, and refuses like any claim\n",
+		strconv.Quote(fence.Line(slug, 128)), fence.Field(run, 128))
+	for _, c := range standing {
+		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, and each now refuses the other at the gate\n",
+			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
 	}
 	return nil
 }
@@ -3591,9 +3720,9 @@ func cmdLs(args []string, env Env) error {
 		// digest fenced these for exactly this reason; ls did not, so a label
 		// with a newline fabricated a claim row in every other session's
 		// listing (invariant 9).
-		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s%s — %s\n",
+		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s%s%s — %s\n",
 			fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), state, age(now, c.Renewed),
-			sharedWord(c.Shared), scopeList(c.Scopes), fence.Line(c.Desc, 512))
+			sharedWord(c.Shared), parkWords(c), scopeList(c.Scopes), fence.Line(c.Desc, 512))
 	}
 	return nil
 }

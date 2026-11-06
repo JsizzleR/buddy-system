@@ -70,13 +70,26 @@ import (
 // — that clearing one target of a multi-target wait lands it early — does not
 // arise: the other targets stay pending until they close.
 //
+// PARKING A RIDER (D-133, parked.go). `--in-run <run>` moves the claim and marks
+// it in one transaction, and the recipient must already hold that open run. A
+// plain transfer keeps a mark only if the recipient holds the run after the whole
+// set has moved (a closed run included: its rider just reads closed), so `release <run> <riders> --to <successor>` is D-063's handoff,
+// unchanged, while handing a rider to a fixer withdraws it from the run. The
+// conflict scan runs after those marks are settled, against the new owner, by the
+// pair rule; a mark cleared here is a claim that no longer yields, and a fixer
+// handed a path an admitted lane holds is refused, nothing moved.
+//
 // WHAT IT DOES NOT DO. Ask the recipient: consent was considered and cut —
 // the holder already decides how long the scopes stay reserved, and the
 // skill sequences the move after the successor answers. Record the previous
-// holder: no schema for it; the CLI's notice to the recipient names the
-// sender, and that notice can fail after the move commits, so history is
-// simply not kept. Move the sender's other claims, its messages, or its
-// waits: the claims named, by slug, and nothing else.
+// holder in general: the CLI's notice to the recipient names the sender, and
+// that notice can fail after the move commits, so history is simply not kept.
+// The ONE exception is D-133's amendment: `--in-run` records the producing
+// session and incarnation, because the model report's attribution key is the
+// holder, and every parked item would otherwise read as the coordinator's work.
+// A plain transfer that does not keep the mark clears them, because the next
+// holder is the one working on it. Move the sender's other claims, its messages,
+// or its waits: the claims named, by slug, and nothing else.
 
 // ErrTransferRefused is a transfer refused before anything was written. The
 // message names a remedy; it carries peer labels, and the caller fences it.
@@ -108,6 +121,12 @@ func (s *Store) TransferClaim(sessionID, incarnation, slug string, to Target) (c
 // immediate transaction, all or nothing, in the order named (a repeated slug
 // counts once). See the header for what it refuses and why the set is one.
 func (s *Store) TransferClaims(sessionID, incarnation string, slugs []string, to Target) (moved []Moved, toLabel string, err error) {
+	return s.TransferClaimsInRun(sessionID, incarnation, slugs, to, "")
+}
+
+// TransferClaimsInRun is TransferClaims that also parks every named claim in the
+// recipient's open run when inRun is not "" (D-133).
+func (s *Store) TransferClaimsInRun(sessionID, incarnation string, slugs []string, to Target, inRun string) (moved []Moved, toLabel string, err error) {
 	if len(slugs) == 0 {
 		return nil, "", errors.New("a transfer names at least one claim")
 	}
@@ -167,6 +186,13 @@ func (s *Store) TransferClaims(sessionID, incarnation string, slugs []string, to
 			return ErrTransferRefused{Why: fmt.Sprintf("%s re-registered after it was resolved (it is a new incarnation, not the one you named); check `buddy who %s` and hand it on again", toLabel, to.ID)}
 		}
 
+		var runID string
+		if inRun != "" {
+			if runID, err = s.parkTarget(tx, inRun, to.ID, toLabel, moved); err != nil {
+				return err
+			}
+		}
+
 		// Every claim moves BEFORE any is scanned, so a sibling moving in the
 		// same set is the new owner's and never a conflict.
 		for i, m := range moved {
@@ -187,17 +213,43 @@ func (s *Store) TransferClaims(sessionID, incarnation string, slugs []string, to
 			}
 		}
 
+		// After every move, so "holds the run" sees a run moving in this set.
+		for _, m := range moved {
+			if runID != "" {
+				// The first park records the producer; a re-park keeps it. Both
+				// CASEs read the row as it was: SQLite evaluates an UPDATE's
+				// right-hand sides before it assigns any of them.
+				if _, err := tx.Exec(`UPDATE claims SET in_run=?,
+					producer_session=CASE WHEN producer_session='' THEN ? ELSE producer_session END,
+					producer_incarnation=CASE WHEN producer_session='' THEN ? ELSE producer_incarnation END
+					WHERE claim_id=?`, runID, sessionID, incarnation, m.ClaimID); err != nil {
+					return err
+				}
+				continue
+			}
+			// Whose run it is, never whether it is open: runOpenSQL is the one
+			// spelling of that, and the scan below reads it. A term here too made that
+			// read unfalsifiable at this door (a surviving mutant, 2026-11-06).
+			if _, err := tx.Exec(`UPDATE claims SET in_run='', producer_session='', producer_incarnation=''
+				WHERE claim_id=? AND NOT (in_run<>'' AND EXISTS (SELECT 1 FROM claims r
+					WHERE r.claim_id=claims.in_run AND r.session_id=?))`, m.ClaimID, to.ID); err != nil {
+				return err
+			}
+		}
+
 		var conflicts []Conflict
 		for _, m := range moved {
 			var shared bool
-			if err := tx.QueryRow(`SELECT shared FROM claims WHERE claim_id=?`, m.ClaimID).Scan(&shared); err != nil {
+			var marks claimMarks
+			if err := tx.QueryRow(`SELECT c.shared, c.in_run, `+runOpenSQL+`, c.based_on FROM claims c WHERE c.claim_id=?`, m.ClaimID).
+				Scan(&shared, &marks.inRun, &marks.runOpen, &marks.basedOn); err != nil {
 				return err
 			}
 			scopes, err := scopesOf(tx, m.ClaimID)
 			if err != nil {
 				return err
 			}
-			c, err := s.scopeConflicts(tx, to.ID, scopes, shared)
+			c, err := s.scopeConflicts(tx, to.ID, scopes, shared, marks)
 			if err != nil {
 				return err
 			}

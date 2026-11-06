@@ -59,6 +59,12 @@ type Conflict struct {
 	// exclusive request, so the refusal can say that --shared would clear
 	// this one scope conflict (and never that it would clear a slug one).
 	Shared bool
+	// ParkedIn is the run's slug when the holding claim is parked in one, and
+	// ParkedOpen whether that run is still open (D-133): the refusal says which
+	// lane could claim over it. The set is rebuilt from ErrRefused on the refusal
+	// path, so both ride that type too, for the reason Renewed does.
+	ParkedIn   string
+	ParkedOpen bool
 }
 
 // querier is what the conflict scan needs from either a *sql.Tx (inside
@@ -77,7 +83,12 @@ type querier interface {
 // shared. Shared against exclusive refuses in both directions, which is what
 // keeps "an exclusive claim is the only claim on its paths" true across
 // sessions, and what OwnerOf's reading of a shared hold relies on.
-func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, shared bool) ([]Conflict, error) {
+//
+// ONE PAIR RULE (D-133, amending D-042): an overlap is also no conflict when
+// the pair is a claim parked in an open run and a claim declaring that run
+// (parked.go). req is what the requesting side carries; only that one predicate
+// reads it.
+func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, shared bool, req claimMarks) ([]Conflict, error) {
 	// NO STALENESS TERM, and that is the rule (issue #18): a stale claim
 	// REFUSES exactly like a fresh one — staleness marks, it never reaps
 	// (invariant 11), and acquisition never silently takes over a scope
@@ -101,7 +112,8 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, share
 	// vanish from the scan while the gate keeps enforcing it (Codex design
 	// pass, D-026). Nothing deletes a sessions row today; the join is what
 	// makes that a fact this code does not depend on.
-	rows, err := q.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id, c.renewed, c.shared FROM claim_scopes cs
+	rows, err := q.Query(`SELECT cs.folded, cs.scope, c.slug, c.session_id, c.renewed, c.shared,
+			c.in_run, `+runOpenSQL+`, c.based_on, `+runSlugSQL("in_run")+` FROM claim_scopes cs
 		JOIN claims c ON c.claim_id=cs.claim_id LEFT JOIN sessions ses ON ses.session_id=c.session_id
 		WHERE c.state='open' AND c.session_id<>? AND ses.ended IS NULL`, sessionID)
 	if err != nil {
@@ -111,11 +123,14 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, share
 		folded, scope, slug, session string
 		renewed                      time.Time
 		shared                       bool
+		marks                        claimMarks
+		runSlug                      string
 	}
 	var theirs []held
 	for rows.Next() {
 		var h held
-		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session, unixScan{&h.renewed}, &h.shared); err != nil {
+		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session, unixScan{&h.renewed}, &h.shared,
+			&h.marks.inRun, &h.marks.runOpen, &h.marks.basedOn, &h.runSlug); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -128,10 +143,10 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, share
 	for _, n := range norm {
 		nf := fold(n)
 		for _, h := range theirs {
-			if scopesOverlap(nf, h.folded) && !(shared && h.shared) {
+			if scopesOverlap(nf, h.folded) && !(shared && h.shared) && !req.exempts(nf, h.folded, h.marks) {
 				label, _ := s.labelOf(q, h.session)
 				out = append(out, Conflict{Scope: n, Their: h.scope, Slug: h.slug, Claimant: label, Session: h.session,
-					Renewed: h.renewed, Shared: h.shared})
+					Renewed: h.renewed, Shared: h.shared, ParkedIn: h.runSlug, ParkedOpen: h.marks.runOpen})
 			}
 		}
 	}
@@ -147,7 +162,10 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, share
 // two conflicts and refused with one (Codex code pass, 2026-09-20).
 //
 // Your own open slug is not a conflict: Claim treats that as a refresh.
-func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string, shared bool) ([]Conflict, error) {
+//
+// basedOn is the run claim's id the caller declares, or "". A slug collision
+// never yields to it: the ledger holds one open row per slug.
+func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string, shared bool, basedOn string) ([]Conflict, error) {
 	var out []Conflict
 	if claimID, owner, taken, err := openSlugOwner(q, slug); err != nil {
 		return nil, err
@@ -162,7 +180,7 @@ func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string, s
 		_ = q.QueryRow(`SELECT renewed FROM claims WHERE claim_id=?`, claimID).Scan(unixScan{&renewed})
 		out = append(out, Conflict{Slug: slug, Claimant: label, Session: owner, Renewed: renewed})
 	}
-	sc, err := s.scopeConflicts(q, sessionID, norm, shared)
+	sc, err := s.scopeConflicts(q, sessionID, norm, shared, claimMarks{basedOn: basedOn})
 	if err != nil {
 		return nil, err
 	}
@@ -231,10 +249,11 @@ func (s *Store) endedOverlaps(q querier, sessionID, slug string, norm []string) 
 // existing callers see what they saw and a caller that prints the set can.
 func refusedFrom(conflicts []Conflict) ErrRefused {
 	first := ErrRefused{Slug: conflicts[0].Slug, Scope: conflicts[0].Scope, Their: conflicts[0].Their,
-		Claimant: conflicts[0].Claimant, Renewed: conflicts[0].Renewed, Shared: conflicts[0].Shared}
+		Claimant: conflicts[0].Claimant, Renewed: conflicts[0].Renewed, Shared: conflicts[0].Shared,
+		ParkedIn: conflicts[0].ParkedIn, ParkedOpen: conflicts[0].ParkedOpen}
 	for _, c := range conflicts[1:] {
 		first.More = append(first.More, ErrRefused{Slug: c.Slug, Scope: c.Scope, Their: c.Their,
-			Claimant: c.Claimant, Renewed: c.Renewed, Shared: c.Shared})
+			Claimant: c.Claimant, Renewed: c.Renewed, Shared: c.Shared, ParkedIn: c.ParkedIn, ParkedOpen: c.ParkedOpen})
 	}
 	return first
 }
@@ -271,9 +290,18 @@ func (s *Store) ClaimConflicts(sessionID, incarnation, slug string, scopes []str
 // ClaimConflictsMode is ClaimConflicts for a request of the named mode
 // (D-042): the forecast of ClaimMode, by the same computation.
 func (s *Store) ClaimConflictsMode(sessionID, incarnation, slug string, scopes []string, shared bool) (free []string, conflicts, displaced []Conflict, err error) {
-	norm, err := claimScopes(scopes, shared)
+	free, conflicts, displaced, _, err = s.ClaimForecast(sessionID, incarnation, ClaimRequest{Slug: slug, Scopes: scopes, Shared: shared})
+	return free, conflicts, displaced, err
+}
+
+// ClaimForecast is the dry run of ClaimDeclared, by the same computation,
+// including the declaration (D-133). runClosed says the run it names is closed,
+// so nothing was declared.
+func (s *Store) ClaimForecast(sessionID, incarnation string, r ClaimRequest) (free []string, conflicts, displaced []Conflict, runClosed bool, err error) {
+	slug := r.Slug
+	norm, err := claimScopes(r.Scopes, r.Shared)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, false, err
 	}
 	err = s.readSnapshot(func(q querier) error {
 		var live int
@@ -284,7 +312,11 @@ func (s *Store) ClaimConflictsMode(sessionID, incarnation, slug string, scopes [
 		if live == 0 {
 			return fmt.Errorf("session %s (incarnation %s) is not live; run buddy hello first", sessionID, incarnation)
 		}
-		conflicts, err = s.allConflicts(q, sessionID, slug, norm, shared)
+		var declared string
+		if declared, runClosed, err = declaredRun(q, r.BasedOn); err != nil {
+			return err
+		}
+		conflicts, err = s.allConflicts(q, sessionID, slug, norm, r.Shared, declared)
 		if err != nil {
 			return err
 		}
@@ -295,7 +327,7 @@ func (s *Store) ClaimConflictsMode(sessionID, incarnation, slug string, scopes [
 		return err
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, false, err
 	}
 	busy := map[string]bool{}
 	for _, c := range conflicts {
@@ -308,7 +340,7 @@ func (s *Store) ClaimConflictsMode(sessionID, incarnation, slug string, scopes [
 			free = append(free, n)
 		}
 	}
-	return free, conflicts, displaced, nil
+	return free, conflicts, displaced, runClosed, nil
 }
 
 // connQuerier adapts a *sql.Conn to the querier the scans take.

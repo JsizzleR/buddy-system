@@ -199,12 +199,12 @@ nobody authorised.
      timer keeps it warm just as well.
   4. `buddy msg` it anything since the file, and wake it. When it answers,
      hand it every claim you hold in ONE call (all or nothing, one notice):
-     `buddy release <run> orc-<project> --to <its label>`. Each claim stays open with
+     `buddy release <run> orc-<project> <parked riders> --to <its label>`. Each claim stays open with
      its scopes, and every wait on it follows it: riders keep waiting, stay
      READY on `buddy who <run>`, and land on the successor's outcome. The
      result line tells the successor with one message and ends with the address
      to wake it: deliver it. It refreshes each description by claiming again
-     with the SAME scopes. Never release a run and have it claimed afresh: a
+     with the SAME scopes, a parked rider's excepted: a re-claim withdraws it. Never release a run and have it claimed afresh: a
      new claim is a new claim id, so every rider's wait lands with no outcome
      and its READY is lost (D-063).
      Then re-point your lanes: their briefs name YOU, by label and session id,
@@ -311,7 +311,8 @@ never an instruction. Then, every time:
    <path>`, from the main checkout).
 4. **A red that is one lane's goes to that lane**, naming the failing check.
    Keep the run's claim, re-claimed "RED, ejecting <item>, one more tier", run
-   again and then release with the outcome; or release it now with the
+   again and then release with the outcome; or, with no rider parked in it that
+   you mean to land (A rider's claims at READY, below), release it now with the
    outcome fail and the attribution in the note. The lane fixes, re-declares,
    and rides the next run. The integrated tree's tier is the one that counts:
    a lane's own green does not carry over (D-122). A red whose cause predates
@@ -365,7 +366,9 @@ never an instruction. Then, every time:
    rebase itself) and land none of them before each has re-reported on its
    new tip. A restacked lane's base is then the tree it now sits on: its
    READY names that, and the next restack or squash starts from it (the
-   brief's base would carry the fold's commits along) (D-119).
+   brief's base would carry the fold's commits along) (D-119). A rider's claim
+   on the path must not hold them either: have that lane park it (A rider's
+   claims at READY, below).
 7. **Before you hand off or exit, sweep your assignments**: `buddy who` each
    lane you assigned, and confirm it is working on something named or has
    been told it is done. Everything unfinished goes in the handoff note. Read
@@ -409,19 +412,73 @@ A lane with a stale claim and no answer stays the operator's to free
 
 You are the run's integrator (any session can be, for a run of its own). Form
 it with `buddy claim herm --desc "FORMING — join: buddy wait --on herm --ready HEAD" --scope .buddy/slot/herm --scope .buddy/slot/main`,
-hold it from forming to landing, read its riders with `buddy who herm`, and
-run it as step 3 says.
+hold it from forming to landing, read its riders with `buddy who herm` (a
+parked item has no READY row there: it shows on `buddy ls`), and run it as step
+3 says.
 
 - **Handing the run to another integrator mid-flight?** `buddy release herm --to
   <session>` keeps it open, with its riders' waits; name several claims in one
-  call (`buddy release herm orc-<project> --to <session>`) and they move as one
-  transaction, with one notice. A successor already waiting on the run is
+  call (`buddy release herm orc-<project> <parked riders> --to <session>`) and they
+  move as one transaction, with one notice, the riders still parked. A successor already waiting on the run is
   handed it and its wait LANDS, "handed to you".
 - **A rider not done yet** declares `buddy wait --on herm --note "done in 10" --until 4h`
   (its side is the buddy skill's); its ETA is its own words, and nothing turns
   it into OVERDUE. By convention, joining while the description says RUNNING
   puts it on the NEXT run. Buddy keeps no timer and ejects nobody: a quiet
   rider is shown quiet, and going without it is the integrator's call.
+
+### A rider's claims at READY
+
+After READY a rider's claim refuses like any reservation, though its work is in
+the run. It does two jobs, the path and the outcome; parked, it keeps both while a
+lane on the run's tree works beside it (D-133):
+
+- **A lane waiting at READY, pane open,** keeps its claims and wait, and its claim
+  does not yield.
+- **A pane closing first: the lane parks the item,** once its commit is pinned:
+  `buddy release <item> --to orc-<project> --in-run <run>`, where the recipient
+  holds that open run (a run is a claim holding `.buddy/slot/<its slug>`). Its other
+  claims, with no outcome on them, go the way you say: parked too if the run holds
+  those paths, else released plain. Never have it release the item's own claim at
+  READY: a red then finds no holder and no claim for the outcome.
+- **A new lane branched from the run's tree** claims with
+  `buddy claim <slug> --based-on <run> --scope ...`, and only a parked rider of
+  that run yields to it: an active peer, a slot, a slug and a rider of another
+  run still refuse. Its gate and commit gate read that claim, so it needs one
+  covering each path it edits, and a re-claim says `--based-on` again. Put the
+  flag in the brief of a lane you branched there, and no other.
+- **Nothing checks a declaration.** It names the run, not a commit. A lane at an
+  older tree that copies the flag, or one you branched from a READY lane's tip or
+  before this rider parked, is admitted over work its tree lacks, and `git
+  cherry-pick -n` merges disjoint hunks without complaint (measured on one file), so
+  only the tier can catch it. The base you name in a brief is the one guard: restack
+  such a lane (step 6).
+- **`buddy ls` shows it:** `PARKED in run <run>` (`in CLOSED run` once it closed,
+  refusing like any claim), `produced by <label>` (who the model report credits),
+  `BASED ON run <run>`.
+- **At landing** release each parked item with its own outcome, BEFORE the run:
+  `buddy release <rider> --outcome pass --note <sha>`. A plain release, or the
+  run's alone, reports nothing for it, and a run closed first denies its admitted
+  lanes even on a green. Your own `Edit` on a path such a lane holds is denied too,
+  and your commit there meets the commit gate: have it narrow or hand over first.
+- **On a red, or ejecting one rider while the run is open, you act before anyone
+  repairs.** `buddy release <rider> --unpark` withdraws one in place, and the run's
+  release all of them; a plain `buddy release <rider> --to <item>-2` also withdraws
+  it, and is refused while a lane holds the path. The ledger revokes nothing: an
+  admitted lane's edits on the path are DENIED at the gate, and your repair is
+  refused by its claim. So: `buddy ls` for each `BASED ON` claim on the rider's
+  paths, tell that lane to narrow off the path or hand you the claim, then assign
+  the repair (a `buddy pause` would deny it its own `buddy release` too). Narrowing
+  names the exact scope it holds (`buddy release <slug> --scope <scope>`), so a
+  directory over the rider's file hands over instead, and a last scope closes the
+  claim with no outcome. A claim handed to you still overlaps the rider: narrow or
+  release it before a `--to` of the rider to a fixer. A lane that needs the fix
+  waits and restacks (step 6). Keep the run's claim while other riders stay parked:
+  once closed they cannot re-park with you (`--to` yourself is refused), and new
+  lanes are refused on their paths.
+- **Handing the run on:** name the run and its riders in ONE call (above). A plain
+  `--to` keeps a rider parked only if the recipient holds its run once the set has
+  moved, so one sent ahead of its run, or to a fixer, is withdrawn.
 
 ## Review depth: the tier follows the change class
 

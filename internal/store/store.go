@@ -101,7 +101,15 @@ CREATE TABLE IF NOT EXISTS claims (
 	-- observation on who: nothing here reserves, refuses or releases.
 	job_pid  INTEGER NOT NULL DEFAULT 0,
 	job_born INTEGER NOT NULL DEFAULT 0,
-	job_boot TEXT NOT NULL DEFAULT ''
+	job_boot TEXT NOT NULL DEFAULT '',
+	-- D-133, each '' on a claim not concerned (parked.go). in_run: the run claim's id this
+	-- claim is parked in. based_on: the run claim's id its holder declared its tree is built
+	-- on; nothing checks that declaration. producer_*: who made the item a coordinator now
+	-- holds, for the model report.
+	in_run               TEXT NOT NULL DEFAULT '',
+	based_on             TEXT NOT NULL DEFAULT '',
+	producer_session     TEXT NOT NULL DEFAULT '',
+	producer_incarnation TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS claims_open_slug ON claims(slug) WHERE state='open';
 CREATE TABLE IF NOT EXISTS claim_scopes (
@@ -372,6 +380,8 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
 // 17 adds claims.job_pid, job_born and job_boot (D-131), ALTER arms.
+// 18 adds claims.in_run, based_on, producer_session and producer_incarnation
+// (D-133), ALTER arms.
 // 16 adds session_context.handoff_step (D-096), an ALTER arm.
 // 15 adds captured adapter message identities and receiving endpoint reports.
 // 14 adds claims.outcome, claims.outcome_note and session_waits.ready_sha
@@ -392,7 +402,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 17
+const schemaVersion = 18
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -603,6 +613,16 @@ func migrate(db *sql.DB) error {
 		}
 		if err := addColumnIfMissing(tx, "claims", "job_boot", "TEXT NOT NULL DEFAULT ''"); err != nil {
 			return err
+		}
+	}
+	// D-133. Nothing was parked or declared before this, and no claim had a
+	// recorded producer, which is what '' says on all four: every existing row
+	// refuses exactly as it did.
+	if ver < 18 {
+		for _, col := range []string{"in_run", "based_on", "producer_session", "producer_incarnation"} {
+			if err := addColumnIfMissing(tx, "claims", col, "TEXT NOT NULL DEFAULT ''"); err != nil {
+				return err
+			}
 		}
 	}
 	if !hadRecipientTable {
@@ -1198,6 +1218,16 @@ type ClaimInfo struct {
 	// Job is the process the holder declared this claim's job to be (D-131);
 	// its PID is 0 when none is declared.
 	Job JobDecl
+	// D-133 (parked.go). InRun is the run claim's id this claim is parked in, and
+	// InRunSlug and InRunOpen what a reader needs of it; BasedOn likewise for the
+	// run its holder declared. Producer is the label of the session that handed
+	// it over parked: the holder is only minding it.
+	InRun       string
+	InRunSlug   string
+	InRunOpen   bool
+	BasedOn     string
+	BasedOnSlug string
+	Producer    string
 }
 
 // JobDecl is a job declared against a claim (D-131): a pid, bound to the
@@ -1232,6 +1262,9 @@ type ErrRefused struct {
 	// Shared is the HOLDER's mode (D-042): a scope held shared refused this
 	// request only because the request was exclusive, and the refusal says so.
 	Shared bool
+	// ParkedIn and ParkedOpen: see Conflict (D-133).
+	ParkedIn   string
+	ParkedOpen bool
 	// More is the REST of the conflict set. The named fields carry the first
 	// conflict, as they always have; a four-path claim with two collisions
 	// used to report one and cost a second round trip to learn the other
@@ -1267,11 +1300,13 @@ func (s *Store) Claim(sessionID, incarnation, slug, desc string, scopes []string
 }
 
 // ClaimMode is Claim with the mode named (D-042). A SHARED claim may overlap
-// other shared claims and nothing else; an exclusive one overlaps nothing.
+// other shared claims and nothing else; an exclusive one overlaps nothing. The
+// one exception is a pair D-133 names: a rider parked in a run and its declarer.
 // A refresh takes the mode it is given, so re-claiming a shared slug without
 // --shared makes it exclusive again, and is refused if a peer shares it.
 func (s *Store) ClaimMode(sessionID, incarnation, slug, desc string, scopes []string, shared bool) error {
-	return s.ClaimWithJob(sessionID, incarnation, slug, desc, scopes, shared, nil)
+	_, err := s.ClaimDeclared(sessionID, incarnation, ClaimRequest{Slug: slug, Desc: desc, Scopes: scopes, Shared: shared})
+	return err
 }
 
 // ClaimWithJob is ClaimMode that also declares the claim's job when job is not
@@ -1279,12 +1314,44 @@ func (s *Store) ClaimMode(sessionID, incarnation, slug, desc string, scopes []st
 // A nil job on a refresh leaves the declaration standing: a re-claim that only
 // rewords a description must not make a job vanish from who.
 func (s *Store) ClaimWithJob(sessionID, incarnation, slug, desc string, scopes []string, shared bool, job *JobDecl) error {
-	norm, err := claimScopes(scopes, shared)
+	_, err := s.ClaimDeclared(sessionID, incarnation, ClaimRequest{Slug: slug, Desc: desc, Scopes: scopes, Shared: shared, Job: job})
+	return err
+}
+
+// ClaimRequest is one `buddy claim`. BasedOn is the SLUG of the run the caller
+// declares its tree is built on, or "" (D-133, parked.go).
+type ClaimRequest struct {
+	Slug, Desc string
+	Scopes     []string
+	Shared     bool
+	BasedOn    string
+	Job        *JobDecl // the claim's job, or nil (D-131)
+}
+
+// ClaimGrant is what a claim learned on its way: RunClosed, the run it named is
+// closed, so it declared nothing (also set on a refusal, which the caller says
+// beside the blockers); Unparked, the slug of the run a refreshed claim was
+// parked in, which the refresh has withdrawn it from.
+type ClaimGrant struct {
+	RunClosed bool
+	Unparked  string
+}
+
+// ClaimDeclared is ClaimMode with a run declared (D-133). A REFRESH TAKES WHAT IT
+// IS GIVEN, as it already does for the mode: re-claiming without --based-on drops
+// the declaration, and is refused if a parked rider overlaps; a re-claim of a
+// parked rider clears its mark, because the holder has just re-asserted the
+// reservation, and it is refused if a lane has been admitted over the path. The
+// producer stays: a re-claim says nothing about who did the work.
+func (s *Store) ClaimDeclared(sessionID, incarnation string, r ClaimRequest) (grant ClaimGrant, err error) {
+	slug, desc, shared := r.Slug, r.Desc, r.Shared
+	norm, err := claimScopes(r.Scopes, shared)
 	if err != nil {
-		return err
+		return ClaimGrant{}, err
 	}
-	return s.tx(func(tx *sql.Tx) error {
+	err = s.tx(func(tx *sql.Tx) error {
 		now := s.now().Unix()
+		grant = ClaimGrant{}
 
 		var live int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM sessions WHERE session_id=? AND incarnation=? AND ended IS NULL`,
@@ -1318,7 +1385,14 @@ func (s *Store) ClaimWithJob(sessionID, incarnation, slug, desc string, scopes [
 		// scope AS CLAIMED, because that is what `buddy ls` prints and what the
 		// peer typed — an operator told they overlap "src/api" went looking for
 		// a claim on "Src/API" and found no such line.
-		conflicts, err := s.allConflicts(tx, sessionID, slug, norm, shared)
+		//
+		// After cleanupEnded, so a run whose holder said bye is closed by now.
+		declared, runClosed, err := declaredRun(tx, r.BasedOn)
+		if err != nil {
+			return err
+		}
+		grant.RunClosed = runClosed
+		conflicts, err := s.allConflicts(tx, sessionID, slug, norm, shared, declared)
 		if err != nil {
 			return err
 		}
@@ -1332,8 +1406,11 @@ func (s *Store) ClaimWithJob(sessionID, incarnation, slug, desc string, scopes [
 		}
 
 		if ownID != "" { // refresh own claim
-			if _, err := tx.Exec(`UPDATE claims SET descr=?, renewed=?, incarnation=?, shared=? WHERE claim_id=?`,
-				desc, now, incarnation, shared, ownID); err != nil {
+			if err := tx.QueryRow(`SELECT `+runSlugSQL("in_run")+` FROM claims c WHERE c.claim_id=?`, ownID).Scan(&grant.Unparked); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE claims SET descr=?, renewed=?, incarnation=?, shared=?, based_on=?, in_run='' WHERE claim_id=?`,
+				desc, now, incarnation, shared, declared, ownID); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`DELETE FROM claim_scopes WHERE claim_id=?`, ownID); err != nil {
@@ -1342,19 +1419,20 @@ func (s *Store) ClaimWithJob(sessionID, incarnation, slug, desc string, scopes [
 			if err := insertScopes(tx, ownID, norm); err != nil {
 				return err
 			}
-			return declareJob(tx, ownID, job)
+			return declareJob(tx, ownID, r.Job)
 		}
 
 		id := newToken()
-		if _, err := tx.Exec(`INSERT INTO claims (claim_id, session_id, incarnation, slug, descr, created, renewed, state, shared)
-			VALUES (?,?,?,?,?,?,?,'open',?)`, id, sessionID, incarnation, slug, desc, now, now, shared); err != nil {
+		if _, err := tx.Exec(`INSERT INTO claims (claim_id, session_id, incarnation, slug, descr, created, renewed, state, shared, based_on)
+			VALUES (?,?,?,?,?,?,?,'open',?,?)`, id, sessionID, incarnation, slug, desc, now, now, shared, declared); err != nil {
 			return err
 		}
 		if err := insertScopes(tx, id, norm); err != nil {
 			return err
 		}
-		return declareJob(tx, id, job)
+		return declareJob(tx, id, r.Job)
 	})
+	return grant, err
 }
 
 // declareJob writes a declaration onto a claim row; nil writes nothing.
@@ -1572,7 +1650,9 @@ func (s *Store) Claims(includeClosed bool) ([]ClaimInfo, error) {
 // commit gate's output are compared by eye and by tests.
 func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 	rows, err := s.db.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed, c.shared, c.job_pid, c.job_born, c.job_boot,
-			ses.session_id, ses.incarnation, ses.label, ses.worktree, ses.pid, ses.started, ses.last_seen, COALESCE(ses.ended,0)
+			ses.session_id, ses.incarnation, ses.label, ses.worktree, ses.pid, ses.started, ses.last_seen, COALESCE(ses.ended,0),
+			c.in_run, `+runSlugSQL("in_run")+`, `+runOpenSQL+`, c.based_on, `+runSlugSQL("based_on")+`,
+			COALESCE((SELECT p.label FROM sessions p WHERE p.session_id=c.producer_session),'')
 		FROM claims c JOIN sessions ses ON ses.session_id=c.session_id `+where+` ORDER BY c.created`, args...)
 	if err != nil {
 		return nil, err
@@ -1583,7 +1663,8 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 		var c ClaimInfo
 		if err := rows.Scan(&c.ClaimID, &c.Incarnation, &c.Slug, &c.Desc, &c.State, unixScan{&c.Created}, unixScan{&c.Renewed}, &c.Shared, &c.Job.PID, &c.Job.Born, &c.Job.Boot,
 			&c.Owner.SessionID, &c.Owner.Incarnation, &c.Owner.Label, &c.Owner.Worktree, &c.Owner.PID,
-			unixScan{&c.Owner.Started}, unixScan{&c.Owner.LastSeen}, unixScan{&c.Owner.Ended}); err != nil {
+			unixScan{&c.Owner.Started}, unixScan{&c.Owner.LastSeen}, unixScan{&c.Owner.Ended},
+			&c.InRun, &c.InRunSlug, &c.InRunOpen, &c.BasedOn, &c.BasedOnSlug, &c.Producer); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -1629,43 +1710,72 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 // path under only SHARED claims of others is held unless the caller holds a
 // claim of its own covering the path: a shared claim is an invitation to
 // claim alongside, not an open door, so the ledger still records everyone
-// editing. The caller's own claim counts in either mode because an exclusive
-// one cannot overlap a peer's shared one across sessions (the conflict scan
-// refuses it both ways); requiring "shared" here would be a guard no reachable
-// state arms. It must COVER the path: a claim on rules/section does not
-// admit an edit to rules itself.
+// editing. The caller's own claim must be SHARED to count: D-133 made an exclusive
+// one beside a peer's shared one reachable (a shared rider's lane, once the run
+// closes), and counting it let that lane edit while the rider's holder was denied,
+// a one-sided refusal the panel found and a test reproduced. It must COVER the
+// path: a claim on rules/section does not admit an edit to rules itself.
+//
+// A PARKED RIDER (D-133, parked.go) yields only to a caller whose OWN open claim
+// covers the path and declares the rider's run: the gate has no flag to read, so
+// the declaration has to have been made at `claim`. A caller with no such claim
+// is denied exactly as before, and a claim on rules/section declares nothing
+// about rules. One statement, so a mark and its run's openness are one reading.
 func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error) {
 	rel := fold(relPath)
-	rows, err := s.db.Query(`SELECT cs.folded, cs.claim_id, c.session_id, c.shared FROM claim_scopes cs
+	rows, err := s.db.Query(`SELECT cs.folded, cs.claim_id, c.session_id, c.shared, c.in_run, ` + runOpenSQL + `, c.based_on FROM claim_scopes cs
 		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open'`)
 	if err != nil {
 		return ClaimInfo{}, false, err
 	}
 	defer rows.Close()
-	exclusive, shared, mine := "", "", false
+	type covering struct {
+		folded, id string
+		shared     bool
+		marks      claimMarks
+	}
+	// Two passes over what covers the path: the caller's declarations are not
+	// known until every row has been read, and a rider may come before them.
+	var foreign []covering
+	var declared []string
+	mineShared := false
 	for rows.Next() {
-		var folded, id, owner string
-		var sh bool
-		if err := rows.Scan(&folded, &id, &owner, &sh); err != nil {
+		var c covering
+		var owner string
+		if err := rows.Scan(&c.folded, &c.id, &owner, &c.shared, &c.marks.inRun, &c.marks.runOpen, &c.marks.basedOn); err != nil {
 			return ClaimInfo{}, false, err
 		}
-		if !scopeCovers(folded, rel) {
+		if !scopeCovers(c.folded, rel) {
 			continue
 		}
-		switch {
-		case owner == excludeSession && excludeSession != "":
-			mine = true
-		case !sh && exclusive == "":
-			exclusive = id
-		case sh && shared == "":
-			shared = id
+		if owner == excludeSession && excludeSession != "" {
+			mineShared = mineShared || c.shared
+			if c.marks.basedOn != "" {
+				declared = append(declared, c.marks.basedOn)
+			}
+			continue
 		}
+		foreign = append(foreign, c)
 	}
 	if err := rows.Err(); err != nil {
 		return ClaimInfo{}, false, err
 	}
+	exclusive, shared := "", ""
+	for _, c := range foreign {
+		if slices.ContainsFunc(declared, func(d string) bool {
+			return claimMarks{basedOn: d}.exempts(rel, c.folded, c.marks)
+		}) {
+			continue
+		}
+		switch {
+		case !c.shared && exclusive == "":
+			exclusive = c.id
+		case c.shared && shared == "":
+			shared = c.id
+		}
+	}
 	claimID := exclusive
-	if claimID == "" && !mine {
+	if claimID == "" && !mineShared {
 		claimID = shared
 	}
 	if claimID == "" {

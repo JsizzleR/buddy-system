@@ -107,7 +107,7 @@
 #
 # KNOBS
 #   BUDDY_LEDGER         the ledger (default: <git common dir>/buddy.db of
-#                        the cwd; cost-report.sh's knob), at schema 17
+#                        the cwd; cost-report.sh's knob), at schema 18
 #   BUDDY_MODEL_FLOOR    items a cell needs before its rates mean anything
 #                        (default 10, the operator's number, 5.2(b))
 #   CLAUDE_PROJECTS_DIR  where transcripts live (default ~/.claude/projects)
@@ -194,8 +194,8 @@ q() { (cd "$work" && sqlite3 -batch -noheader -separator '	' 'file:l.db?mode=ro&
 # "no such column"), and a newer one may mean something else by them.
 schema=$(echo 'PRAGMA user_version;' | q)
 case "$schema" in
-	17) ;;
-	*) echo "model-report: the ledger is at schema $schema; this report reads schema 17 only" >&2; exit 2 ;;
+	18) ;;
+	*) echo "model-report: the ledger is at schema $schema; this report reads schema 18 only" >&2; exit 2 ;;
 esac
 
 # One row per item claim, every field already in its rendered form, plus
@@ -203,7 +203,11 @@ esac
 # as HEX (column 14) for the transcript lookup, neither ever printed.
 cat >"$work/items.sql" <<'SQL'
 WITH c AS (
-  SELECT rowid AS ord, claim_id, session_id, incarnation, slug, created, renewed, state, outcome,
+  SELECT rowid AS ord, claim_id,
+    -- D-133: a parked rider is its producer's work, though a coordinator holds it.
+    CASE WHEN producer_session <> '' THEN producer_session ELSE session_id END AS session_id,
+    CASE WHEN producer_session <> '' THEN producer_incarnation ELSE incarnation END AS incarnation,
+    slug, created, renewed, state, outcome,
     ' ' || replace(replace(replace(descr, char(9), ' '), char(10), ' '), char(13), ' ') || ' ' AS d
   FROM claims
   WHERE slug NOT GLOB 'orc-*' AND slug <> 'orchestrator'

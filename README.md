@@ -31,7 +31,7 @@ session's own choice; what buddy refuses comes from the ledger.
 - **Claims that refuse.** `buddy claim <slug> --scope <path>` reserves files or
   directory prefixes, whole or not at all. A `PreToolUse` hook denies any other
   session's `Edit`, `Write` or patch inside an exclusive claim and names the
-  holder (shared claims overlap each other and nothing else); a refused claim
+  holder (shared claims overlap each other, and a claim parked in a run yields to one declaring it); a refused claim
   names the whole conflict set and how to wait for it.
 - **Messages between sessions.** `buddy msg <label|slug|id> "…"` queues a note
   delivered on the recipient's next tool call, with an id so a later message

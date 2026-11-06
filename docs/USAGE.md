@@ -672,6 +672,49 @@ edit, so re-read before you write. This only works if the file is claimed
 `--shared` from the start. One lane holding it exclusively still blocks
 every other lane, which is how two rules in the [field notes](wishlist.md) (§7) lost their home.
 
+**Parked riders (D-133).** A lane's pane can close at READY without its paths
+blocking the next lane built on the run's tree:
+
+```sh
+buddy release item --to orc-proj --in-run run-7        # the recipient must hold the open run run-7
+buddy claim next --desc "…" --scope src/a.go
+# REFUSED: src/a.go  (overlaps "src/a.go" held by orc, claim "item")
+# PARKED: a holder above is a rider parked in run run-7, its work in that run. Only if your tree is built on that run's tree: --based-on run-7; …
+buddy claim next --desc "…" --based-on run-7 --scope src/a.go     # admitted
+buddy release item --outcome pass --note <sha>         # the coordinator, at landing
+buddy release item --unpark                            # or: withdraw one rider, the claim stays open
+```
+
+The rules:
+- A claim parked in an open run yields to a claim declaring that run, and to
+  nothing else. `claim`, its dry run, `release --to` and the gate all ask the same
+  question; the gate and commit gate read the caller's own open claim covering the
+  path, so an edit needs that claim first.
+- Only the parked side yields. A peer's active claim, a slot, a slug and a rider
+  of another run still refuse a declarer, and a claim with one exempt path and one
+  held path is refused whole.
+- A run is an open claim holding `.buddy/slot/<its slug>`. `--in-run` refuses a
+  recipient not holding it, and a claim carrying a `.buddy` scope. `--based-on`
+  naming a closed run declares nothing and says so; naming a slug no row has, or an
+  open claim that is no run, refuses, exit 1. A sweep deleting a closed run's row
+  makes it the first kind, and its riders print an empty run slug.
+- A re-claim takes what it is given, as with `--shared`: without `--based-on` it
+  drops the declaration, and a parked rider's re-claim withdraws it from the run
+  (its dry run does not say so).
+- A plain `release --to` keeps a rider parked only if the recipient holds its run
+  once the whole set has moved: name the run and its riders in one call.
+- When the run closes, on any outcome, or a rider is unparked, the yield ends at
+  every door and nothing is revoked. Overlaps stand, and each side refuses the
+  other at the gate, so an admitted lane's edits on that path are denied until its
+  coordinator sorts it out.
+- `ls`, `who` and `whose` print `PARKED in run <run>` (`PARKED in CLOSED run <run>` once it
+  closed: it refuses like any claim), `produced by <label>` and
+  `BASED ON run <run>`. The model report attributes a parked item to its producer.
+
+**Nothing checks a declaration.** A lane on an older tree that copies the flag is
+admitted, and `git cherry-pick -n` merges its disjoint hunks without complaint, so
+integration does not catch it. It is the cooperative case of the seatbelt (D-005).
+
 **Publishing coordination state.** A coordinator that has facts every session
 needs — the landing queue, a hold, who is sequencing — puts them where a
 session reads at wake-up rather than in a message it may never drain: a claim
@@ -1546,8 +1589,8 @@ sides. What the operator sees, and where each fact lives:
   which commit, and every lane that said it is not ready yet, in its own
   words.
 - **A handoff moves the claims, not their ids**: the outgoing orchestrator
-  runs `buddy release <run> orc-<project> --to <successor>` (D-063, D-093), all
-  or nothing. Riders stay READY on `who <run>` and land on the successor's
+  runs `buddy release <run> orc-<project> <parked riders> --to <successor>` (D-063,
+  D-093), all or nothing. Riders stay READY on `who <run>` and land on the successor's
   outcome. A refused handover prints every conflict: claims of yours that
   overlap each other move only together. Release-then-claim would land every
   rider with no outcome.

@@ -385,7 +385,7 @@ ledger row entered through the CLI (D-006).
     `buddy sent` names the same wake on each still-queued recipient that the same
     `wakeClause` says needs one. No "after N minutes" threshold: `msg` prints it at age zero.
 
-45. **A SHARED claim may overlap other shared claims, and nothing else (D-042).** One mode term
+45. **A SHARED claim may overlap other shared claims, and nothing else but GIVEN 123's pair (D-042).** One mode term
     in the one conflict scan: an overlap conflicts unless both sides are shared. The gate returns
     an exclusive blocker first, and admits an edit under only shared holds when the caller has
     its own claim covering the path (claim-first). A refresh takes the mode it is given.
@@ -600,7 +600,7 @@ ledger row entered through the CLI (D-006).
     re-claimed run landed every rider with no outcome and dropped their READY (measured). The transfer moves owner and incarnation in one transaction and
     keeps everything else; it refuses a sender not live under its incarnation, an ended or
     re-registered recipient, a recipient waiting on the claim, and any overlap the recipient could
-    not have claimed. A consent step and a recorded previous holder were cut. Do not
+    not have claimed. A consent step and a recorded previous holder were cut (`--in-run`'s producer aside, D-133). Do not
     propose release-then-claim or `--outcome aborted` as the handoff of a run that carries on.
 
 67. **`status` and `who` print a JOBS line: the shells still running directly under the
@@ -1176,6 +1176,20 @@ ledger row entered through the CLI (D-006).
     rider's live integrator. The coordinator sends it in the same turn (fleet skill). Do not
     propose wait sending the message itself, a "nobody asked" hint in `whose`, or pushing the
     wait into the holder's context.
+
+123. **A claim parked in an open run yields to a claim declaring that run, and to nothing else
+    (D-133).** `release <item> --to <holder of R> --in-run R`; `claim --based-on R`. One predicate,
+    `parkedYields`, at `allConflicts`, `scopeConflicts` from a transfer and `OwnerOf`, keyed on the
+    run claim's id, with no term for staleness. Only the parked side ever yields; at the transfer
+    door either side may be the one moving, so a mid-run handoff still works; `claim` never reverses.
+    A slot never parks or yields. **Accepted residual, not a defect: the declaration is unchecked**,
+    a lane at an older HEAD that copies the flag is admitted, and integration does not catch a stale
+    lane: `git cherry-pick -n` merges disjoint hunks silently. It names the run, not a commit, so an
+    honest lane branched before a rider parked is admitted over it too. Squashing makes a legitimate
+    READY-tip base fail an ancestry test, and ancestry cannot establish preserved code (D-005's
+    cooperative case). The ledger revokes nothing: after a red, overlaps stand and each side refuses
+    the other at the gate, a shared rider included; who acts is skill text. Do not propose an ancestry check or a release line in the
+    refusal without new evidence.
 
 ## Environment facts (measured, do not re-derive)
 
