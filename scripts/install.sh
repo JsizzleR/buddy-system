@@ -490,6 +490,50 @@ else
 	else
 		say "gate: not checked ($py could not run scripts/gate-hook.py); README \"Hook wiring\" has the fail-closed entry (D-107)"
 	fi
+	# 6a'. What `who`'s browser clause needs (D-134): beat on a matcher that
+	# selects a browser tool. The grep above reads `buddy beat` as wired on any
+	# matcher, and one that excludes them records nothing and says nothing, so
+	# decoded here and said only then. matcher_names is gate-hook.py's, one reading
+	# of a matcher for every report. An exact name counts by its prefix; a regex is
+	# searched unanchored, as the harness does, against one name per server, so a
+	# regex for other names on them can read as excluding; one Python cannot read is
+	# not judged. PREFIXES is browser.go's list, held to it by a test.
+	# Advisory: settings unchanged.
+	if command -v "$py" >/dev/null 2>&1; then
+		beat=$("$py" -I - "$SETTINGS" "$ROOT/scripts/gate-hook.py" 2>/dev/null <<'PY' || true
+import importlib.util, json, re, sys
+sys.dont_write_bytecode = True
+spec = importlib.util.spec_from_file_location("gate_hook", sys.argv[2])
+gh = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gh)
+hooks = json.load(open(sys.argv[1])).get("hooks") or {}
+PREFIXES = ["mcp__claude-in-chrome__", "mcp__playwright__", "mcp__plugin_playwright_playwright__",
+            "mcp__Claude_Browser__", "mcp__remote-devices__Claude_Browser__"]
+PROBES = [p + "browser_click" for p in PREFIXES]
+excluded = []
+for e in hooks.get("PostToolUse") or []:
+    cmds = [h.get("command", "") for h in e.get("hooks") or [] if isinstance(h, dict)]
+    if not any(re.search(r'buddy\\?"? beat', c) for c in cmds):
+        continue
+    m = e.get("matcher")
+    names = gh.matcher_names(m)
+    if names == "*":
+        sys.exit(0)
+    if names is None:
+        try:
+            if any(re.search(m, p) for p in PROBES):
+                sys.exit(0)
+        except (re.error, TypeError):
+            sys.exit(0)
+    elif any(n.startswith(p) for n in names for p in PREFIXES):
+        sys.exit(0)
+    excluded.append(json.dumps(m))
+if excluded:
+    print('hooks: PostToolUse runs buddy beat on matcher %s, which selects no browser tool it was tried on, so `who` reports no browser tool call; README "Hook wiring" uses "*" (D-134)' % ", ".join(excluded))
+PY
+		)
+		[ -z "$beat" ] || say "$beat"
+	fi
 fi
 
 # 6b. Claims-only names what it found of the chat half and left alone (its

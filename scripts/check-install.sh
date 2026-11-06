@@ -140,6 +140,27 @@ out=$(inst 2>&1) || fail "QA-3: install failed:
 $out"
 echo "$out" | grep -qF 'hooks: all eight wired' || fail "QA-3: every hook is wired:
 $out"
+# D-134: a beat on no matcher sees an MCP tool, and says nothing (the control); on
+# a narrow one the same run names it, and the grep's "all wired" does not hide it.
+echo "$out" | grep -qF 'reports no browser tool call' && fail "QA-3: a beat on no matcher was called narrow:
+$out"
+cp "$WORK/settings.json" "$WORK/settings.keep"
+sed 's/"PostToolUse": \[{"hooks"/"PostToolUse": [{"matcher": "Edit|Write", "hooks"/' "$WORK/settings.keep" > "$WORK/settings.json"
+out=$(inst 2>&1) || fail "QA-3: install on a narrow matcher failed:
+$out"
+echo "$out" | grep -qF 'matcher "Edit|Write", which selects no browser tool' || fail "QA-3: a narrow beat matcher was not named:
+$out"
+# Matchers that do select one: unanchored, one server only, an exact name, and a
+# regex Python cannot read, which is not judged.
+for m in '^mcp__' 'mcp__claude-in-chrome__.*' 'mcp__playwright__browser_navigate' '(?<x>mcp)__'; do
+	sed "s/\"PostToolUse\": \\[{\"hooks\"/\"PostToolUse\": [{\"matcher\": \"$m\", \"hooks\"/" "$WORK/settings.keep" > "$WORK/settings.json"
+	grep -qF "$m" "$WORK/settings.json" || fail "QA-3: the fixture did not take matcher $m"
+	out=$(inst 2>&1) || fail "QA-3: install on matcher $m failed:
+$out"
+	echo "$out" | grep -qF 'reports no browser tool call' && fail "QA-3: matcher $m selects a browser tool and was called narrow:
+$out"
+done
+mv "$WORK/settings.keep" "$WORK/settings.json"
 
 # QA-3b (D-064): a handoff size in the settings env block is named, and a
 # settings file whose busy hook is missing says nobody will be told (its

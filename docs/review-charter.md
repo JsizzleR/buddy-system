@@ -827,7 +827,11 @@ ledger row entered through the CLI (D-006).
 93. **`who` answers the close test on one EXIT line (D-092).** Claims held; wait declared (with
     its verdict); jobs (none / N shells / "cannot say", never collapsed). Still grants nothing
     (D-027). `who <slug>` lists only that claim's waiters and names it; a bare `who` is `status`;
-    a slash-shaped miss suggests `whose`; `whose` of a `.buddy/slot` path consults no git.
+    a slash-shaped miss suggests `whose`; `whose` of a `.buddy/slot` path consults no git. Its
+    `browser tools used <age> ago` clause (D-134, schema 19) is one completed call on a named MCP
+    server, seen by `beat`, fenced by incarnation: it refuses, releases and expires nothing, and its
+    absence is never "no browser". `.buddy/slot/browser` stays with its holder at a handoff, by the
+    skills' word; `release --to` does not check it. Do not propose a refusal on either.
 
 94. **`release` takes several slugs as ONE transaction, all or nothing; a recipient waiting on
     a claim it is handed lands (D-093, narrowing D-063).** `--to` moves every named claim before

@@ -402,6 +402,11 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	if jobsClause != "" {
 		clauses = append(clauses, jobsClause)
 	}
+	// D-134: what the three clauses above cannot see. A report, so the tail below
+	// still speaks for claims alone.
+	if c := browserClause(st, si, now); c != "" {
+		clauses = append(clauses, c)
+	}
 	tail := " — ending now would leave no claim"
 	if len(held) > 0 {
 		slugs := make([]string, 0, len(held))

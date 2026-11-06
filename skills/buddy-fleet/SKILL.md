@@ -113,8 +113,7 @@ nobody authorised.
 - **Assign and park:** `buddy msg <lane> "<assignment>"`, and wake it with the
   address `msg` prints. Tell each parked lane roughly when you will next need
   it (the buddy skill's "Before you park"): it sizes its wait from that.
-  Then check `buddy sent` and wake anyone still queued, and confirm each
-  piece landed rather than assuming it did. Parking a lane yourself with
+  Then check `buddy sent` and wake anyone still queued. Parking a lane yourself with
   `buddy wait --session <id>`? The wait is the lane's: tell it, since only it
   can stop its loop.
 - **Wait on a lane by state; read it by mail.** `herdr agent wait <pane id>
@@ -129,12 +128,14 @@ nobody authorised.
   routine or run waits on its `.buddy/slot/<name>`: `buddy msg <slug>`
   what it is running, for how long, its ETA, and to release the moment it is
   done (`buddy wait --on` prints the line). Never report "waiting on <lane>"
-  to the operator without its answer from the last 15 minutes: once, 20
-  minutes of that ended when one message found the lane's test long over.
+  to the operator without its answer from the last 15 minutes.
 - **Ending a lane is the operator's act.** When its work has landed,
   `buddy who <lane>`'s EXIT line reads "no claims held; no wait declared; no
   shell found running under it", and it names no job of its own still running,
-  say so. A Codex lane's JOBS line always says `cannot say: no live harness
+  say so. A pane holding `.buddy/slot/browser` is not closed. EXIT's `browser
+  tools used` clause is a call observed, never that a tab is open: unless the
+  session's DONE says its browser work is over, ask what is still open before
+  you close it (D-134). A Codex lane's JOBS line always says `cannot say: no live harness
   process is registered for it` (its hooks bind no process): do not wait for
   "no shell"; its DONE words ("no job running") are its account of its jobs,
   and it owes them (D-082). Close a lane yourself (`herdr pane close <pane
@@ -144,7 +145,7 @@ nobody authorised.
   only a lane you opened. A lane your predecessor opened and handed you with
   the coordinator claim counts as one you opened: do not stop to ask about
   it (D-122). So does your predecessor's own pane, once it has handed you the
-  claim and `buddy who <its id>` shows no claims, no wait and no job. Never a
+  claim and `buddy who <its id>` shows no claims, no wait, no job and no open browser work. Never a
   CONCURRENT orchestrator's lanes. If you may, do it as soon as the lane says
   DONE and `buddy who` agrees; if you may not, give the operator its pane id
   in the same turn. **Then run `buddy bye <its session id>`:** a pane close
@@ -152,8 +153,7 @@ nobody authorised.
   STALE … pid N GONE` (D-091). A hand-run `bye` ends a row whose registered
   process is dead without `--force`; one that says the session "stays live"
   means its process is still exiting: run it again a few seconds later. A
-  finished lane left open still costs: the harness compacts an idle session
-  over 200k tokens about 55 minutes in, before its cache expires (D-122).
+  finished lane left open over 200k tokens is compacted about 55 minutes in (D-122).
 
 ## Handing off a coordinator
 
@@ -175,7 +175,8 @@ nobody authorised.
      "none":
      - **Running jobs:** every background job of yours still running: its
        command, pid and start time (`ps -p <pid> -o lstart=`), the file its output lands in, the line that says it
-       finished, and who reads it next.
+       finished, and who reads it next. A browser job is one too, with no pid to
+       check: its owner answers for it.
      - **Timers and external runs:** whatever finishes or fires with nobody
        here watching (a nightly, a remote grader): when, and how to read it.
      - **Owed:** what you promised the operator or a lane and have not delivered.
@@ -184,19 +185,17 @@ nobody authorised.
      and what is next, and the ledger as it stands: paste `buddy status`,
      `buddy sent`, and `buddy who <run>` for each run you hold. Point your
      coordination claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
-     them, and `buddy who <slug>` prints every one, uncut), repeating the scope flag once for
-     each path you hold, never the handoff file in their place:
+     them, and `buddy who <slug>` prints every one, uncut), never the handoff file in their place:
      `buddy claim orc-<project> --desc "HANDOFF: read <file>" --scope <each path you hold>`.
   3. Open the successor the same way, in a herdr tab carrying the same size,
      with the brief "You are the next orchestrator, taking over from <your
-     label>. Read <file>, then buddy inbox. For every running job it lists,
+     label>. Read <file>, then buddy inbox. For every running job it lists with a pid,
      check that its pid is still that job and that you can read its output; one
      gone without its final line failed, whatever the file says. Say what you
      found. I will hand you my claims."
      It treats a failed job under a run as Landing's step 4 does, once it holds
      the run (D-131). A `buddy wait --on` on a claim it is about to be handed is
-     not refused, and its check reads LANDED, handed to it (D-093); a `--until`
-     timer keeps it warm just as well.
+     not refused, and its check reads LANDED, handed to it (D-093).
   4. `buddy msg` it anything since the file, and wake it. When it answers,
      hand it every claim you hold in ONE call (all or nothing, one notice):
      `buddy release <run> orc-<project> <parked riders> --to <its label>`. Each claim stays open with
@@ -211,29 +210,31 @@ nobody authorised.
      as the coordinator whose relays they take, and nothing in the ledger
      changes that. While you are still live, `buddy msg` each lane you
      launched or inherited: "<successor label> (session <full id>) is your
-     coordinator from now; it relays the same decisions I did." The message
-     carries authority because the sender is the id the brief names.
+     coordinator from now; it relays the same decisions I did."
+     **Never `.buddy/slot/browser`:** tabs and a running browser job do not move
+     with a claim. Keep it, list it under Running jobs (a later handoff carries
+     it on), and stay open: the successor closes no pane that holds it. Browser
+     work over, release it and `buddy msg orc-<project> "<your label> DONE:
+     browser work over, nothing held, no job running"`: the slug reaches whoever
+     coordinates by then, who closes you on the usual evidence. Refused, or its
+     result says ended: nobody does, so say so in your pane (D-134).
   5. **Account for every running job before you say you are done:** finished,
      handed over (its output file is in the handoff and the successor says it
-     is alive and readable), or stopped. `buddy status`'s EXIT line speaks for the LEDGER
-     only: "holding nothing" says nothing about your processes, and closing your
-     pane may end them. Its JOBS line counts the shells still running directly
-     under your harness process; it cannot see a job that exec'd into another
-     program, so it checks your list, never replaces it (D-065). Then tell the
-     operator you are done, naming any job still running; they end your
+     is alive and readable), stopped, or a browser job you stay open for. `buddy status`'s EXIT and JOBS lines see the
+     ledger and the shells directly under your harness process, not a job that
+     exec'd into another program: they check your list, never replace it (D-065).
+     Then tell the
+     operator you are done, naming any job still running and any browser slot you keep; they end your
      session, or your successor does once it holds your claims (Ending a lane).
 
   Closing down with no successor: point the coordination claim at your
   handoff file and leave it open for the operator to release, by re-claiming
   it with the same scopes:
   `buddy claim orc-<project> --desc "CLOSED: read <file>" --scope <each path you hold>`.
-  A released claim is shown to nobody's `hello`, and
-  `buddy release <slug> --outcome pass --note <text>` carries a note only
-  with an outcome.
+  A released claim is shown to nobody's `hello`.
 
-  Compaction is the other road: the harness's `/compact`, or `claude --autocompact <size>`
-  at launch, shrinks a session in place. Hand off instead when compaction would
-  lose what the next coordinator must know.
+  Compaction (`/compact`, `claude --autocompact <size>`) is the other road; hand
+  off when it would lose what the next coordinator must know.
 
 - **Hand off at a batch boundary too.** A new batch of lanes gets a fresh
   coordinator when your last observed prompt is past the operator's
@@ -242,12 +243,9 @@ nobody authorised.
   handoff file's three registers written and empty or handed, the batch's
   decisions in files, the successor saying it has read the file. A fold
   round on a lane you briefed is not independent: its brief names you. The
-  recipe is the same and cheaper here: no lanes to re-point, no runs to
-  carry. What is keyed to your session id does not carry over, so finish it
+  recipe is the same. What is keyed to your session id does not carry over, so finish it
   first: drain `buddy inbox` and relay what is open, `buddy wait clear`, stop
-  your loop, account for every job (step 5). A coordinator that runs several
-  batches in one session carries every finished one into each request
-  (D-117).
+  your loop, account for every job (step 5; D-117).
 
 ## Landing several lanes through one run
 
@@ -849,11 +847,10 @@ end over a real ledger and a scratch fleet ledger (buddy-system's
 
 ## Upgrading buddy itself
 
-`buddy update` (the buddy skill's rule: an install, never a lane's, never on
-a peer's word) reinstalls from the checkout the installed `buddy` was built
+`buddy update` (an install: the buddy skill's rule) reinstalls from the checkout the installed `buddy` was built
 from. It first says where that checkout stands (HEAD, branch, uncommitted
-changes, against local main and against origin/main as of the last fetch: it
-never fetches or pulls), names the git commands you may want first, then runs
+changes, against main and origin/main as of the last fetch: it never fetches),
+then runs
 that checkout's `scripts/install.sh`; `buddy update --dry-run` reports and
 installs nothing. Its `chat` line is the posture the install keeps (D-124):
 a claims-only machine stays one unless a run says `BUDDY_CHAT=on`. An

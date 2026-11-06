@@ -10536,3 +10536,76 @@ lens). Every step is the rule's and no recipe cross-declares; the transfer door 
 session, this door takes two. A fix changes the rule itself, so it was not folded here. The same pair
 under-reports: `exempts` drops a pair if either side yields, so `overlap stands` is silent when the moved
 claim alone stopped yielding to a claim that still yields to it.
+
+## D-134 — A browser tool call shows on `who`'s EXIT line, and `.buddy/slot/browser` stays with its holder at a handoff (issue #64; schema 19; amends D-092 and D-093)
+
+2026-11-06. The issue reports the loss "now and then"; the occurrences were not counted. Schema 19
+is the operator's word, in the coordinator's pane at about 07:05Z, carried in the lane's launch
+brief. The operator's standing rule is that a measured hazard gets enforcement with its fix.
+
+**The problem.** Closing an orchestrator that had Chrome work lost its tabs or a running Chrome
+job. Those live only in the session. The close test reads claims, wait and shells, all of which
+such a session passes, and a lane's DONE words and a handoff's "Running jobs" did not ask.
+
+**The slot.** A session driving a browser tool whose state lives in it holds
+`.buddy/slot/browser`, its description naming what is open or running. The close test then fails by
+itself, since "no claims" is false. It costs no code and rests on the session remembering.
+
+**The handoff exception.** "Hand it every claim" does not cover this slot, because tabs and a
+running job do not move with a claim. The owner keeps it, lists it under Running jobs and stays
+open. When the browser work is over it releases and sends DONE to `orc-<project>`, the slug and not
+the successor's label, so a second handoff in between cannot strand the message on an ended session
+(Codex design pass). Whoever coordinates by then closes the pane on the usual evidence. If the slug
+no longer resolves, or the send's result line says its holder has ended (a send to an ended session
+still queues, so a refusal alone misses a coordinator that closed down), nobody coordinates, and the
+owner says so in its pane. The core skill's one rule
+covers every step that releases claims and says DONE, a lane's too: keep the slot, release when the
+work is over, then say DONE with "browser work over" in the words, and an EXIT clause needs no second
+question after that. Nothing enforces it: `release --to` moves what it is given. A browser job has no
+pid, so the successor's pid check skips it and its owner answers for it.
+
+**The observation.** `buddy beat` records a completed call on a named MCP server, and `who` prints
+`browser tools used 3m ago (a call observed, not that a tab is open)`. Measured, names only:
+`PostToolUse:mcp__playwright__` and `PostToolUse:mcp__claude-in-chrome__` rows in real transcripts,
+so the wiring's matcher `*` already sees them and no settings edit is owed. The gate's `PreToolUse`
+matcher never sees an MCP tool. Report only, in invariant 10's spirit.
+
+**Rulings.**
+- *Its own table.* No existing table is an honest home: dirty paths mean something else
+  (invariant 10), and a `session_context` column would be written only when a transcript yields
+  usage, on a table already dropped on a reshape because the next beat re-derives it. Reading the
+  transcript at `who` time was rejected: it needs a path the ledger does not hold, and transcript.go
+  reads token counts and no message content.
+- *Exact prefixes, named in code.* `mcp__claude-in-chrome__`, `mcp__playwright__`,
+  `mcp__plugin_playwright_playwright__` (the official marketplace's plugin, server name read from its
+  `.mcp.json`; not seen in a transcript here), `mcp__Claude_Browser__`,
+  `mcp__remote-devices__Claude_Browser__`, each needing a tool name after it. No substring match, so a repo's `mcp__chrome-notes__x` is no browser. A server under another
+  name reads as nothing; that was accepted over a guess.
+- *Every tool on those servers counts,* read-only ones too: it records that a call happened, and
+  closing a tab proves nothing about the others.
+- *A subagent's call counts,* recorded above beat's subagent guard: it runs under the parent's id,
+  and browser calls were measured in subagent transcripts.
+- *No tool name stored.* The clause does not need one, and a stored name would be one more value to
+  fence on its way back out.
+- *No expiry.* A tab left open an hour ago is still open. The age says how old the observation is.
+- *Silence when none was observed,* not "no browser tools used": the ledger cannot make that claim.
+  A failed read says `browser tools: cannot say`, apart from none (D-016).
+- *Swallowed in beat,* like the footprint: it must not cost a tool call. Every other tool pays one
+  prefix test and no transaction.
+
+**Known limits, recorded rather than fenced.** A long browser call in flight has fired no
+`PostToolUse` yet, so a running job is the session's own to name. A call the harness reports no
+`PostToolUse` for is not seen (a failure may go to `PostToolUseFailure`, which the wiring does not
+name; not measured). A `--resume` after a `bye` starts silent until its next call, though a tab in
+the operator's own browser outlives the process. `/clear` mints a new id, and the reading stays behind (the operator
+does not `/clear`). Codex sessions and adapter workers are never observed: their lifecycle beat
+records no browser call. A session whose cwd has left the repository records nothing here, since beat
+picks the ledger from the payload's cwd (panel, read and not measured). A
+`PostToolUse` matcher that excludes those tools records nothing and says nothing on `who`;
+`install.sh` names it, through the one reading of a matcher (`matcher_names`). A regex is tried on one name per
+server, so one written for other names on those servers can read as excluding in that advisory line. The hook payload names no
+incarnation, so a hook delayed across a `bye` and a `hello` stamps the new incarnation with the old
+call (Codex design pass): the wrong answer is one extra question before a close.
+
+**Cut.** A refusal or auto-release on either half, a verb to clear the reading, a roster column, and
+storing what is open: the slot's description is that, in the holder's words.

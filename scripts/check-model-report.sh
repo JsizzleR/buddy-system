@@ -347,17 +347,17 @@ if report "$ROOT/scripts/model-report.sh" "$WORK/foreign.tsv" >/dev/null; then f
 
 # A ledger at a schema the query was not written for is refused by name.
 sqlite3 "$LEDGER" ".backup '$WORK/old.db'"
-sqlite3 "$WORK/old.db" 'PRAGMA user_version=17;'
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=18;'
 old=$( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" sh "$ROOT/scripts/model-report.sh" 2>&1 ) &&
-	fail "a schema-17 ledger was read:
+	fail "a schema-18 ledger was read:
 $old"
-printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 17; this report reads schema 18 only$' ||
+printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 18; this report reads schema 19 only$' ||
 	fail "the schema refusal did not name the version:
 $old"
-sqlite3 "$WORK/old.db" 'PRAGMA user_version=18;'
-( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ) >"$WORK/v18.txt" 2>&1 ||
-	fail "the control failed: the same copy at schema 18 was refused"
-want "$WORK/v18.txt" '^items: 19 ' "the control failed: the copy at schema 18 did not report"
+sqlite3 "$WORK/old.db" 'PRAGMA user_version=19;'
+( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ) >"$WORK/v19.txt" 2>&1 ||
+	fail "the control failed: the same copy at schema 19 was refused"
+want "$WORK/v19.txt" '^items: 19 ' "the control failed: the copy at schema 19 did not report"
 
 # D-133: a parked rider is its producer's work. Bravo (claude-fable-5-1) makes the
 # item and parks it with carol, who holds the run and has no model recorded; then

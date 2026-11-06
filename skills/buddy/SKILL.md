@@ -58,8 +58,7 @@ surface: `docs/USAGE.md` ("Structured adapters").
 ## Mapping the code
 
 If you have an LSP tool, reach for it before grep: go to definition, find
-references and document symbols each answer in one call what grep then
-`sed -n` takes several round trips to. Find references also sizes a claim: the
+references and document symbols each answer in one call. Find references also sizes a claim: the
 files a change touches are the scopes to claim. No LSP tool, and the repo is
 mostly a language with a language server? Tell the operator, once: `buddy init`
 run in this repo prints what is missing and the command that fixes it (where
@@ -158,9 +157,8 @@ end a turn that something else will end:
   the operator): `buddy wait clear`, and stop the loop.
 - **Not for a park with no known end** (overnight, "until the operator is
   back"): a check is a turn of about three requests, each reading your whole
-  prompt from cache. Measured on one fleet's week, keeping warm the parks that
-  ended within four hours saved about three quarters of their re-write cost;
-  past four hours it cost as much as it saved.
+  prompt from cache. Measured on one fleet's week, past four hours it cost as
+  much as it saved.
 - **Pace from the check:** schedule the next one when it says (`next check in
   50m`). A shorter delay keeps nothing warmer.
 
@@ -175,7 +173,7 @@ end a turn that something else will end:
 - `buddy who <target>` is everything the ledger holds about one session. A
   target is a session id, a label, an `s-<8hex>` short form, or an open claim slug.
   Its EXIT line is the close test on one line: claims held, wait declared, shells
-  running (or "cannot say"). Named by a claim slug, WAITED ON lists only that
+  running (or "cannot say"), and any browser tool call it observed. Named by a claim slug, WAITED ON lists only that
   claim's waiters. A bare `buddy who` reports you.
 - `buddy whose <path>` shows who CLAIMED it, and which sessions' tool calls
   named it while it has uncommitted changes. The second list is an
@@ -225,9 +223,7 @@ sessions' items into ONE run of the shared tier, and nobody else runs that
 tier or moves main. `buddy ls` finds it; its
 description says how to report and names the current run. Buddy keeps no
 task table: your claim is the responsibility, your `buddy wait --ready` is the
-report, the run's outcome is the close. It is written out because the fleet
-that ran it in prose lost its time in what was NOT said: a lane told to wait
-for a message that never came sat idle for three hours.
+report, the run's outcome is the close.
 
 **As a lane:**
 
@@ -372,6 +368,13 @@ ceiling on review rounds. Run what it owes:
 - **A resource only one session may use at a time** (a port, the live test leg,
   main during a land): claim `.buddy/slot/<name>`. It refuses, waits, and
   releases like any claim.
+- **A browser tool whose tabs or running job live in your session:** hold
+  `.buddy/slot/browser`, its description naming what is open or running: they end
+  with your pane. It never moves with a handoff. Every step that hands on or
+  releases your claims and says DONE keeps this one: stay open, release it when
+  that work is over, and only then say DONE, with "browser work over" in the
+  words. A running browser job is a job. `who` reports a browser call it observed,
+  slot or no slot.
 - **Numbering things every session mints** (decision records, issue-like ids):
   the operator seeds the space with `buddy ids seed <space> <n>`. You take a
   block with `buddy ids take <space> <count> --note "<what for>"`. Ids are never

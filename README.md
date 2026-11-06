@@ -233,7 +233,7 @@ either. Sessions started after this pick it up:
 | --- | --- | --- | --- |
 | `SessionStart` | `buddy hello` | registers the session; prints who holds what and any queued mail | yes |
 | `PreToolUse` | `buddy gate` | denies an edit inside another session's claim, or while paused | yes — this is the safety |
-| `PostToolUse` | `buddy beat` | heartbeat; delivers the inbox | yes |
+| `PostToolUse` | `buddy beat` | heartbeat; delivers the inbox; on matcher `*`, it also sees the browser tool calls `who` reports | yes |
 | `SessionEnd` | `buddy bye` | ends the session once no registered harness process for it is alive, so its claims can be freed | yes |
 | `Stop` | `buddy idle` | marks the session idle at its prompt, for the roster | optional |
 | `UserPromptSubmit` | `buddy busy` | clears idle, and carries queued mail into the prompt | optional |

@@ -1046,8 +1046,9 @@ session holds (D-092). A name with a slash that resolves to nothing suggests
 The `EXIT` line answers the close test in one line (D-092): the claims held, the
 wait declared (with `LANDED` or `EXPIRED` once it is over), and the jobs clause
 (`no shell found running under it`, `N shell(s) running under it`, or `its
-shells: cannot say` — never "none" when it cannot see). Then the consequence for
-the claims.
+shells: cannot say` — never "none" when it cannot see), and, once one was
+observed, `browser tools used 3m ago (a call observed, not that a tab is open)`
+(D-134). Then the consequence for the claims.
 It is a **description of what the ledger would be left holding**.
 It is not permission and it is not proof that killing the session is safe:
 a coordinator can report that a session is safe to release and cannot obtain
@@ -1489,6 +1490,34 @@ What to know before relying on it:
 - Cooperative, like every claim. A session that runs the suite without
   claiming is not stopped. The claim makes the holder visible and the
   collision refusable, and that is all it does.
+
+### The browser slot, and what `who` observes (D-134)
+
+A session driving a browser tool whose tabs or running job live in that session
+holds `.buddy/slot/browser`, its description naming what is open or running, and
+releases it when the browser work is over. Closing the pane loses them, and they
+pass every other part of the close test. The slot does not move: a handoff or a
+lane replacement hands on every other claim, and its holder stays open until it
+releases. Nothing enforces that exception: `release --to` moves whatever slug
+it is given.
+
+Whether or not a session took the slot, `buddy beat` records its completed calls
+on these MCP servers, matched by exact tool-name prefix: `mcp__claude-in-chrome__`,
+`mcp__playwright__`, `mcp__plugin_playwright_playwright__`, `mcp__Claude_Browser__` and
+`mcp__remote-devices__Claude_Browser__`. A repo's own server does not match, and
+neither does a browser server under another name. `who` and `status` print the
+age of the newest call on the EXIT line, with no expiry, for the incarnation that
+made it. It refuses nothing and releases nothing.
+
+No clause means none was observed, never that none was made. The reading needs
+`buddy beat` wired on `PostToolUse` with matcher `*` (README's hook wiring); a
+matcher that excludes those tools records nothing, says nothing on `who`, and
+is named by `install.sh`. It also misses a call still
+in flight, what an earlier incarnation left open (a `--resume` after a `bye`), a call the harness reports no `PostToolUse` for, anything before a
+`/clear` (a new session id), and every Codex session or adapter worker: their
+lifecycle beat records no browser call. A call made with its cwd outside the
+ledger's repository lands nowhere: beat picks the ledger from the payload's cwd. A hook delayed across a `bye` and a `hello` is credited to the new
+incarnation, because the payload names none.
 
 ## One long run closes out several sessions
 

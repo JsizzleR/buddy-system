@@ -2160,6 +2160,12 @@ func cmdBeat(args []string, env Env) error {
 			_ = st.RecordContext(h.SessionID, me.Incarnation, sampleOfUsage(u, env))
 		}
 	}
+	// D-134: a browser tool call, swallowed like the footprint above, and a
+	// transaction only for a browser tool. A subagent's counts: its browser lives
+	// in this session's process, so it is above the guard below.
+	if known && me.Live() && isBrowserTool(h.ToolName) {
+		_ = st.RecordBrowserUse(h.SessionID, me.Incarnation)
+	}
 
 	// Addressing (advisory): record which paths this session is holding
 	// uncommitted, and warn ONCE if a peer holds the same file in the same

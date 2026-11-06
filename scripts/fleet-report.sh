@@ -170,7 +170,7 @@ unset _v
 
 # The schema versions whose tables and columns the queries below were checked
 # against (store.schemaVersion). Add one only after reading its migration.
-known=18
+known=19
 stale=1800 # store.StaleAfter
 keep=86400 # store.BroadcastKeep
 

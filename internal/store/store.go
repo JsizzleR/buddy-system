@@ -302,6 +302,16 @@ CREATE TABLE IF NOT EXISTS authority_warned (
 	warned      INTEGER NOT NULL,
 	PRIMARY KEY (session_id, incarnation, folded, mtime_ns)
 );
+-- D-134: when this incarnation last completed a browser tool call, whole Unix
+-- seconds, one row per session (browser.go). A table and not a session_context
+-- column: that row is written only when a transcript yields usage, and has been
+-- dropped on a reshape because the next beat re-derives it, which this reading
+-- would not be. An observation: nothing here reserves, refuses or releases.
+CREATE TABLE IF NOT EXISTS session_browser (
+	session_id  TEXT PRIMARY KEY,
+	incarnation TEXT NOT NULL,
+	used        INTEGER NOT NULL
+);
 -- THE IDENTIFIER REGISTER (D-029, issue #16): per space a CEILING, the
 -- highest id known used or reserved, and the blocks handed out above it.
 -- The register never parses prose to know what is taken, never reissues,
@@ -382,6 +392,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // 17 adds claims.job_pid, job_born and job_boot (D-131), ALTER arms.
 // 18 adds claims.in_run, based_on, producer_session and producer_incarnation
 // (D-133), ALTER arms.
+// 19 adds session_browser (D-134).
 // 16 adds session_context.handoff_step (D-096), an ALTER arm.
 // 15 adds captured adapter message identities and receiving endpoint reports.
 // 14 adds claims.outcome, claims.outcome_note and session_waits.ready_sha
@@ -402,7 +413,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 18
+const schemaVersion = 19
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
