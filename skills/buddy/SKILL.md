@@ -78,7 +78,7 @@ yourself: that changes the operator's machine and settings.
    in a variable? zsh does not split an unquoted `$S`: use an array,
    `S=(--scope a --scope b)`.
 3. Every lane appends to one file (a playbook, a log)? Use `--shared`. Shared
-   claims overlap each other and nothing else, a claim PARKED in a run aside (below).
+   claims overlap each other and nothing else, a shared claim PARKED in a run aside (below).
 4. When you finish, run `buddy release <slug>`. Use `buddy release <slug> --scope <path>` to
    hand back part of a claim early; the last scope closes the claim.
 5. `buddy ls` lists the open claims (`buddy ls --all` adds the closed ones).
@@ -119,7 +119,7 @@ its process GONE, or ended. Choose one:
 - **Narrow your scope** to what nobody holds.
 - **The refusal says the holder is PARKED in a run, and your tree is built on that
   run's tree** (your brief says so)? `buddy claim <slug> --based-on <run> --scope
-  ...`: only a rider parked in that run yields to it. Nothing checks this: on an
+  ...`: only a rider parked in that run yields to it, and never to `--shared`. Nothing checks this: on an
   older tree you would be admitted, and your hunks would integrate without the
   rider's work. A re-claim says `--based-on` again, and your edits need a claim
   of yours covering each path. If that run closes with the rider still held (a red,

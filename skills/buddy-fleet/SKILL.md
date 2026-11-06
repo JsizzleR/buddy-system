@@ -438,7 +438,7 @@ lane on the run's tree works beside it (D-133):
   claims, with no outcome on them, go the way you say: parked too if the run holds
   those paths, else released plain. Never have it release the item's own claim at
   READY: a red then finds no holder and no claim for the outcome.
-- **A new lane branched from the run's tree** claims with
+- **A new lane branched from the run's tree** claims, not shared, with
   `buddy claim <slug> --based-on <run> --scope ...`, and only a parked rider of
   that run yields to it: an active peer, a slot, a slug and a rider of another
   run still refuse. Its gate and commit gate read that claim, so it needs one

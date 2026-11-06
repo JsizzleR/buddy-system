@@ -322,6 +322,13 @@ func (f *parkFx) markClaim(slug, inRun, basedOn string) {
 	}
 }
 
+func (f *parkFx) markShared(slug string, shared bool) {
+	f.t.Helper()
+	if _, err := f.st.db.Exec(`UPDATE claims SET shared=? WHERE slug=? AND state='open'`, shared, slug); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
 // coverPath moves a claim made on a path of its own onto the shared one, since no
 // door grants the second claim before the marks exist.
 func (f *parkFx) coverPath(slug, path string) {
@@ -354,9 +361,9 @@ func (f *parkFx) scanConflicts(owner SessionInfo, claimID string) int {
 	return n
 }
 
-// Every pair of marks over two open runs and a closed one: the gate and the transfer
-// scan read one ledger state, the same answer, and two sessions never both pass. A
-// pair standing when this binary arrives is one row of this table: no migration, and
+// Every pair of marks and modes over two open runs and a closed one: the gate and the transfer
+// scan read one ledger state, the same answer, and two sessions both pass only on
+// two shared claims. A pair standing when this binary arrives is one row of this table: no migration, and
 // each side reads as it does here.
 func TestEveryPairOfMarks(t *testing.T) {
 	f := newParkFx(t)
@@ -377,45 +384,57 @@ func TestEveryPairOfMarks(t *testing.T) {
 	f.coverPath("y", crossPath)
 
 	parkedOpen := func(in string) bool { return in == a || in == b }
-	yields := func(in, otherIn, otherBased string) bool {
-		return parkedOpen(in) && !parkedOpen(otherIn) && in == otherBased
+	yields := func(in, otherIn, otherBased string, otherShared bool) bool {
+		return parkedOpen(in) && !parkedOpen(otherIn) && !otherShared && in == otherBased
 	}
-	var none, one int
-	for _, xIn := range marks {
-		for _, xBased := range marks {
-			for _, yIn := range marks {
-				for _, yBased := range marks {
-					f.markClaim("x", xIn, xBased)
-					f.markClaim("y", yIn, yBased)
-					name := fmt.Sprintf("x(in %q, based %q) y(in %q, based %q)", xIn, xBased, yIn, yBased)
-					_, xHeld := f.gate(crossPath, f.coord)
-					_, yHeld := f.gate(crossPath, f.d)
-					if !xHeld && !yHeld {
-						t.Fatalf("%s: both pass the gate", name)
-					}
-					xWins, yWins := yields(yIn, xIn, xBased), yields(xIn, yIn, yBased)
-					if xWins != !xHeld || yWins != !yHeld {
-						t.Fatalf("%s: gate x held %v, y held %v; the rule says x wins %v, y wins %v", name, xHeld, yHeld, xWins, yWins)
-					}
-					exempt := xWins || yWins
-					if exempt {
-						one++
-					} else {
-						none++
-					}
-					// The transfer scan, from either side, agrees with the gate.
-					if got := f.scanConflicts(f.coord, xID) == 0; got != exempt {
-						t.Fatalf("%s: the scan from x says exempt %v, the gate %v", name, got, exempt)
-					}
-					if got := f.scanConflicts(f.d, yID) == 0; got != exempt {
-						t.Fatalf("%s: the scan from y says exempt %v, the gate %v", name, got, exempt)
+	var none, one, shared int
+	modes := []bool{false, true}
+	for _, xShared := range modes {
+		for _, yShared := range modes {
+			f.markShared("x", xShared)
+			f.markShared("y", yShared)
+			both := xShared && yShared
+			for _, xIn := range marks {
+				for _, xBased := range marks {
+					for _, yIn := range marks {
+						for _, yBased := range marks {
+							f.markClaim("x", xIn, xBased)
+							f.markClaim("y", yIn, yBased)
+							name := fmt.Sprintf("x(shared %v, in %q, based %q) y(shared %v, in %q, based %q)", xShared, xIn, xBased, yShared, yIn, yBased)
+							_, xHeld := f.gate(crossPath, f.coord)
+							_, yHeld := f.gate(crossPath, f.d)
+							if !xHeld && !yHeld && !both {
+								t.Fatalf("%s: both pass a path an exclusive claim covers", name)
+							}
+							// Two shared claims overlap by D-042, whatever their marks say.
+							xWins, yWins := both || yields(yIn, xIn, xBased, xShared), both || yields(xIn, yIn, yBased, yShared)
+							if xWins != !xHeld || yWins != !yHeld {
+								t.Fatalf("%s: gate x held %v, y held %v; the rule says x wins %v, y wins %v", name, xHeld, yHeld, xWins, yWins)
+							}
+							exempt := xWins || yWins
+							switch {
+							case both:
+								shared++
+							case exempt:
+								one++
+							default:
+								none++
+							}
+							// The transfer scan, from either side, agrees with the gate.
+							if got := f.scanConflicts(f.coord, xID) == 0; got != exempt {
+								t.Fatalf("%s: the scan from x says exempt %v, the gate %v", name, got, exempt)
+							}
+							if got := f.scanConflicts(f.d, yID) == 0; got != exempt {
+								t.Fatalf("%s: the scan from y says exempt %v, the gate %v", name, got, exempt)
+							}
+						}
 					}
 				}
 			}
 		}
 	}
-	if none == 0 || one == 0 {
-		t.Fatalf("the table never reached both verdicts: %d neither, %d one", none, one)
+	if none == 0 || one == 0 || shared == 0 {
+		t.Fatalf("the table never reached every verdict: %d neither, %d one, %d both shared", none, one, shared)
 	}
 }
 
@@ -465,61 +484,6 @@ func TestFourRunCycleDoesNotPassBoth(t *testing.T) {
 	f.gateHeld(crossPath, f.coord)
 }
 
-// RECORDED OPEN (D-133's #65 amendment, from the Codex design pass), not closed by the
-// rule, and pinned so a fix has to say so: each session parks an exclusive claim and
-// holds an active SHARED claim declaring the other's run. Each exclusive claim yields to
-// a shared declarer, the two shared claims overlap by D-042, and both sessions pass. The
-// writes rest on shared claims, which invite each other. No recipe parks beside a shared
-// declarer, and the park of "y" is reported as an overlap that stands. It predates #65.
-func TestSharedDeclarersOverCrossedRidersIsOpen(t *testing.T) {
-	f := newParkFx(t)
-	f.run(f.d, crossRun)
-	shared := func(by SessionInfo, slug, based string) {
-		t.Helper()
-		if _, err := f.st.ClaimDeclared(by.SessionID, by.Incarnation, ClaimRequest{Slug: slug, Desc: "d", Scopes: []string{crossPath}, BasedOn: based, Shared: true}); err != nil {
-			t.Fatalf("shared %s: %v", slug, err)
-		}
-	}
-	if err := f.claim(f.coord, "x", "", crossPath); err != nil {
-		t.Fatal(err)
-	}
-	f.parkHere(f.coord, parkRun, "x")
-	shared(f.d, "s-y", parkRun)
-	if err := f.claim(f.d, "y", parkRun, crossPath); err != nil {
-		t.Fatal(err)
-	}
-	if got := standingSlugs(f.parkHere(f.d, crossRun, "y")); !slices.Contains(got, "x") {
-		t.Fatalf("the park must report the overlap: %v", got)
-	}
-	f.gateHeld(crossPath, f.coord) // the control: no declaration of alpha's yet
-	f.gateFree(crossPath, f.d)
-	shared(f.coord, "s-x", crossRun)
-	f.gateFree(crossPath, f.coord)
-	f.gateFree(crossPath, f.d)
-}
-
-// The same reach with one run and no crossing (the bypass lens): the holder's shared
-// claim beside its own parked exclusive claim, and a peer's shared declarer of that run.
-func TestSharedDeclarerBesideARiderIsOpen(t *testing.T) {
-	f := newParkFx(t)
-	if err := f.claim(f.coord, "own", "", crossPath); err != nil {
-		t.Fatal(err)
-	}
-	f.parkHere(f.coord, parkRun, "own")
-	share := func(by SessionInfo, slug, based string) {
-		t.Helper()
-		if _, err := f.st.ClaimDeclared(by.SessionID, by.Incarnation, ClaimRequest{Slug: slug, Desc: "d", Scopes: []string{crossPath}, BasedOn: based, Shared: true}); err != nil {
-			t.Fatalf("shared %s: %v", slug, err)
-		}
-	}
-	share(f.d, "y", parkRun)
-	f.gateFree(crossPath, f.d)
-	f.gateHeld(crossPath, f.coord) // the control: alpha has no shared claim yet
-	share(f.coord, "s", "")
-	f.gateFree(crossPath, f.coord)
-	f.gateFree(crossPath, f.d)
-}
-
 func TestDeclarationReadsOneRole(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -531,6 +495,8 @@ func TestDeclarationReadsOneRole(t *testing.T) {
 		{"parked in the run it declares", claimMarks{inRun: "r", runOpen: true, basedOn: "r"}, ""},
 		{"its run closed", claimMarks{inRun: "p", runOpen: false, basedOn: "r"}, "r"},
 		{"no declaration", claimMarks{}, ""},
+		{"shared", claimMarks{basedOn: "r", shared: true}, ""},
+		{"shared, its run closed", claimMarks{inRun: "p", runOpen: false, basedOn: "r", shared: true}, ""},
 	} {
 		if got := tc.m.declaration(); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)

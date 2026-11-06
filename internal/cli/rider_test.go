@@ -627,3 +627,119 @@ func TestRefusedHandOnSaysNothingOfRiders(t *testing.T) {
 		t.Fatalf("over a closed run's rider: exit %d:\n%s\n%s", code, out, errw)
 	}
 }
+
+// Issue #66: a holder keeps a shared claim beside its own parked one. An exclusive declarer
+// is refused by the shared claim and a shared one by the rider, and the words must not send
+// either back to the other as if it were a remedy.
+func TestSharedRemedyDoesNotLoop(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	const path = "src/c.go"
+	const note = "--shared would also drop this claim's declaration, so any exclusive rider"
+	r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--scope", path)
+	r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
+	r.ok(t, "sess-a", "claim", "s", "--desc", "x", "--shared", "--scope", path)
+	for _, flags := range [][]string{{"--dry-run"}, {}} {
+		args := append([]string{"claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path}, flags...)
+		if out := r.refused("sess-b", "alpha", args...); !strings.Contains(out, note) || !strings.Contains(out, "claiming --shared would clear") {
+			t.Fatalf("%v:\n%s", args, out)
+		}
+	}
+	// The control: declaring nothing, the note has nothing to say.
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--scope", path); strings.Contains(out, note) {
+		t.Fatalf("no declaration:\n%s", out)
+	}
+	// The other control: declaring, but with no shared holder for --shared to clear.
+	r.ok(t, "sess-a", "claim", "ex", "--desc", "x", "--scope", "src/d.go")
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", "src/d.go"); strings.Contains(out, note) {
+		t.Fatalf("no shared holder:\n%s", out)
+	}
+	// What the note says of the retry, tried: with the mode dropped from the rule it passes.
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--shared", "--based-on", "run1", "--scope", path); !strings.Contains(out, `claim "own"`) {
+		t.Fatalf("the shared retry must meet the rider:\n%s", out)
+	}
+	// A closed run: nothing yields and nothing was declared, so nothing would be dropped.
+	r.ok(t, "sess-a", "release", "run1", "--outcome", "fail", "--note", "red")
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path); strings.Contains(out, note) || !strings.Contains(out, "declared nothing") {
+		t.Fatalf("a closed run:\n%s", out)
+	}
+}
+
+// Issue #66, through the verbs. A shared claim declares nothing: the refusal names the
+// remedy, the forecast agrees, the grant and the listing say what the flag did, and a pair
+// standing when this binary arrives reads the same at the edit gate and the commit gate.
+func TestSharedDeclaresNothingThroughTheVerbs(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	const path = "src/a.go"
+	const word = "(declares nothing while shared)"
+	lane := []string{"--desc", "x", "--based-on", "run1", "--scope", path}
+	for _, args := range [][]string{
+		append([]string{"claim", "lane", "--shared", "--dry-run"}, lane...),
+		append([]string{"claim", "lane", "--shared"}, lane...),
+	} {
+		out := r.refused("sess-b", "alpha", args...)
+		for _, want := range []string{"--based-on run1 without --shared", "a shared claim declares nothing"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("%v must say %q:\n%s", args, want, out)
+			}
+		}
+	}
+	if reason, denied := r.edit("sess-b", path); !denied {
+		t.Fatalf("the lane holds nothing yet: %s", reason)
+	}
+	// The positive control: the same request, exclusive, with no note and no word.
+	out := r.ok(t, "sess-b", append([]string{"claim", "lane"}, lane...)...)
+	if !strings.Contains(out, "BASED ON run run1") || strings.Contains(out, "declares nothing") {
+		t.Fatalf("exclusive, declared:\n%s", out)
+	}
+	if reason, denied := r.edit("sess-b", path); denied {
+		t.Fatalf("the exclusive declarer over the rider: %s", reason)
+	}
+	if view := r.ok(t, "sess-a", "ls"); strings.Contains(view, word) {
+		t.Fatalf("ls, exclusive declarer:\n%s", view)
+	}
+
+	// Granted on a free path, or beside a shared rider: D-042's, and the note says so.
+	const free = "docs/x.md"
+	if out := r.ok(t, "sess-b", "claim", "fp", "--dry-run", "--shared", "--desc", "x", "--based-on", "run1", "--scope", free); !strings.Contains(out, "a shared claim declares nothing") {
+		t.Fatalf("the forecast of a grant:\n%s", out)
+	}
+	if out := r.ok(t, "sess-b", "claim", "fp", "--shared", "--desc", "x", "--based-on", "run1", "--scope", free); !strings.Contains(out, "a shared claim declares nothing") {
+		t.Fatalf("the grant:\n%s", out)
+	}
+	if view := r.ok(t, "sess-a", "ls"); !strings.Contains(view, "BASED ON run run1 "+word) {
+		t.Fatalf("ls, a shared claim:\n%s", view)
+	}
+
+	// A pair standing: "fp" as an earlier binary left it, over the rider's other path.
+	const second = "src/b.go"
+	db, err := sql.Open("sqlite", filepath.Join(r.repo, ".git", "buddy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE claim_scopes SET scope=?, folded=? WHERE claim_id=(SELECT claim_id FROM claims WHERE slug='fp' AND state='open')`, second, second); err != nil {
+		t.Fatal(err)
+	}
+	reason, denied := r.edit("sess-b", second)
+	if !denied || !strings.Contains(reason, `"item"`) || !strings.Contains(reason, "claim the path exclusively") {
+		t.Fatalf("the standing declarer at the gate: %v %s", denied, reason)
+	}
+	r.stage(t, r.wtB, second)
+	var warned string
+	r.asSession("sess-b", func() { _, warned, _ = r.run(t, r.wtB, "", "commit-gate") })
+	if !strings.Contains(warned, `claim "item"`) {
+		t.Fatalf("the commit gate must agree with the gate:\n%s", warned)
+	}
+	// Handing the run on with its rider is refused while it stands, naming the pair.
+	out, _, code := r.as(t, "sess-a", "release", "run1", "item", "--to", "charlie")
+	if code == 0 || !strings.Contains(out, `claim "fp"`) {
+		t.Fatalf("the handoff over a standing pair, exit %d:\n%s", code, out)
+	}
+	// Handing the declarer on says what the rider yields to: --based-on is no remedy here.
+	out, _, code = r.as(t, "sess-b", "release", "fp", "--to", "charlie")
+	if code == 0 || !strings.Contains(out, "yields only to an exclusive claim declaring its run") {
+		t.Fatalf("the declarer's handoff, exit %d:\n%s", code, out)
+	}
+}

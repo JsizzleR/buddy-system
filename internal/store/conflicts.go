@@ -86,9 +86,9 @@ type querier interface {
 //
 // ONE PAIR RULE (D-133, amending D-042): an overlap is also no conflict when
 // the pair is a claim parked in an open run and a claim declaring that run
-// (parked.go). req is what the requesting side carries; only that one predicate
-// reads it.
-func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, shared bool, req claimMarks) ([]Conflict, error) {
+// (parked.go). req is what the requesting side carries. The mode rides in the marks,
+// on both sides, so a door cannot read a mode the declaration did not read (#66).
+func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, req claimMarks) ([]Conflict, error) {
 	// NO STALENESS TERM, and that is the rule (issue #18): a stale claim
 	// REFUSES exactly like a fresh one — staleness marks, it never reaps
 	// (invariant 11), and acquisition never silently takes over a scope
@@ -122,14 +122,13 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, share
 	type held struct {
 		folded, scope, slug, session string
 		renewed                      time.Time
-		shared                       bool
 		marks                        claimMarks
 		runSlug                      string
 	}
 	var theirs []held
 	for rows.Next() {
 		var h held
-		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session, unixScan{&h.renewed}, &h.shared,
+		if err := rows.Scan(&h.folded, &h.scope, &h.slug, &h.session, unixScan{&h.renewed}, &h.marks.shared,
 			&h.marks.inRun, &h.marks.runOpen, &h.marks.basedOn, &h.runSlug); err != nil {
 			rows.Close()
 			return nil, err
@@ -143,10 +142,10 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, share
 	for _, n := range norm {
 		nf := fold(n)
 		for _, h := range theirs {
-			if scopesOverlap(nf, h.folded) && !(shared && h.shared) && !req.exempts(nf, h.folded, h.marks) {
+			if scopesOverlap(nf, h.folded) && !(req.shared && h.marks.shared) && !req.exempts(nf, h.folded, h.marks) {
 				label, _ := s.labelOf(q, h.session)
 				out = append(out, Conflict{Scope: n, Their: h.scope, Slug: h.slug, Claimant: label, Session: h.session,
-					Renewed: h.renewed, Shared: h.shared, ParkedIn: h.runSlug, ParkedOpen: h.marks.runOpen})
+					Renewed: h.renewed, Shared: h.marks.shared, ParkedIn: h.runSlug, ParkedOpen: h.marks.runOpen})
 			}
 		}
 	}
@@ -180,7 +179,7 @@ func (s *Store) allConflicts(q querier, sessionID, slug string, norm []string, s
 		_ = q.QueryRow(`SELECT renewed FROM claims WHERE claim_id=?`, claimID).Scan(unixScan{&renewed})
 		out = append(out, Conflict{Slug: slug, Claimant: label, Session: owner, Renewed: renewed})
 	}
-	sc, err := s.scopeConflicts(q, sessionID, norm, shared, claimMarks{basedOn: basedOn})
+	sc, err := s.scopeConflicts(q, sessionID, norm, claimMarks{basedOn: basedOn, shared: shared})
 	if err != nil {
 		return nil, err
 	}

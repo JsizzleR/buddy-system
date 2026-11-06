@@ -2983,7 +2983,7 @@ func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 			// on every deny of the path, and a flag spelled here is the copying the
 			// residual describes (Fable's ruling). `claim`'s refusal names it, one
 			// deliberate verb further on.
-			parked = fmt.Sprintf(" It is a rider parked in run %s: only if your brief names that run as your base, claim the path as your brief says; nothing checks that.",
+			parked = fmt.Sprintf(" It is a rider parked in run %s: only if your brief names that run as your base, claim the path exclusively, as your brief says; nothing checks that.",
 				fence.Field(c.InRunSlug, 128))
 		}
 		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s.%s Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
@@ -3028,7 +3028,7 @@ func cmdClaim(args []string, env Env) error {
 		jobPID = n
 		return err
 	})
-	basedOn := fs.String("based-on", "", "this tree is built on that run's: a rider parked in it yields; nothing checks the declaration (D-133)")
+	basedOn := fs.String("based-on", "", "this tree is built on that run's: a rider parked in it yields, never to a --shared claim; nothing checks the declaration (D-133)")
 	if help, err := parseFlags(fs, args[1:], usageClaim, env); help || err != nil {
 		return err
 	}
@@ -3073,10 +3073,10 @@ func cmdClaim(args []string, env Env) error {
 			return fencedErr(err)
 		}
 		printConflicts(env, st, conflicts)
-		fmt.Fprint(env.Stdout, sharedNote(conflicts))
+		fmt.Fprint(env.Stdout, sharedNote(conflicts), droppedDeclarationNote(conflicts, *basedOn, runClosed))
 		fmt.Fprint(env.Stdout, slotNote(conflicts))
 		fmt.Fprint(env.Stdout, parkedNote(conflicts))
-		fmt.Fprint(env.Stdout, closedRunNote(*basedOn, runClosed))
+		fmt.Fprint(env.Stdout, declarationNote(*basedOn, *shared, runClosed))
 		fmt.Fprint(env.Stdout, waitSuggestion(conflicts))
 		// What a real claim would DISPLACE: open claims of holders that have
 		// said bye, which Claim orphans on its way in (D-026). Said apart
@@ -3127,10 +3127,10 @@ func cmdClaim(args []string, env Env) error {
 					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared, ParkedIn: r.ParkedIn, ParkedOpen: r.ParkedOpen})
 			}
 			printConflicts(env, st, set)
-			fmt.Fprint(env.Stdout, sharedNote(set))
+			fmt.Fprint(env.Stdout, sharedNote(set), droppedDeclarationNote(set, *basedOn, grant.RunClosed))
 			fmt.Fprint(env.Stdout, slotNote(set))
 			fmt.Fprint(env.Stdout, parkedNote(set))
-			fmt.Fprint(env.Stdout, closedRunNote(*basedOn, grant.RunClosed))
+			fmt.Fprint(env.Stdout, declarationNote(*basedOn, *shared, grant.RunClosed))
 			// The command that would declare a wait on every claim in the
 			// way (D-033). Suggested, never registered: a refusal is a fact
 			// about a claim, not about what this session means to do next.
@@ -3149,20 +3149,38 @@ func cmdClaim(args []string, env Env) error {
 	if job != nil {
 		fmt.Fprintln(env.Stdout, declaredLine(env, *job))
 	}
-	fmt.Fprint(env.Stdout, closedRunNote(*basedOn, grant.RunClosed))
+	fmt.Fprint(env.Stdout, declarationNote(*basedOn, *shared, grant.RunClosed))
 	if grant.Unparked != "" {
 		fmt.Fprintf(env.Stdout, "note: this claim was parked in run %s; this re-claim withdrew it from the run, and it refuses like any claim\n", fence.Field(grant.Unparked, 128))
 	}
 	return nil
 }
 
-// closedRunNote says a declaration did nothing: the run it names has closed, so
-// no rider of it yields, and this claim records no run (D-133).
-func closedRunNote(run string, closed bool) string {
-	if !closed {
+// droppedDeclarationNote qualifies sharedNote for a request that declares. Its
+// "--shared would clear them" is true of the conflicts printed, and a rider that yielded
+// to this request is not among them: a shared claim declares nothing, so an exclusive
+// rider would come back, and a shared one D-042 admits anyway (issue #66, Codex). Two remedies, each the other's refusal, when a holder
+// keeps a shared claim beside its own parked one (the panel found it).
+func droppedDeclarationNote(conflicts []store.Conflict, run string, closed bool) string {
+	if run == "" || closed || !slices.ContainsFunc(conflicts, func(c store.Conflict) bool { return c.Shared }) {
 		return ""
 	}
-	return fmt.Sprintf("note: run %s is closed, so --based-on declared nothing, and no rider of it yields\n", fence.Field(run, 128))
+	return fmt.Sprintf("note: --shared would also drop this claim's declaration, so any exclusive rider of run %s yielding to it now would refuse it\n", fence.Field(run, 128))
+}
+
+// declarationNote says a --based-on did nothing. The run it names has closed, so no
+// rider of it yields, and this claim records no run (D-133). Or the claim is shared,
+// which declares nothing (issue #66): the row keeps the run for `ls`, and a claim
+// granted beside a shared rider was granted by D-042 alone. Said on the forecast, the
+// refusal and the grant, which are one computation and print the same.
+func declarationNote(run string, shared, closed bool) string {
+	switch {
+	case closed:
+		return fmt.Sprintf("note: run %s is closed, so --based-on declared nothing, and no rider of it yields\n", fence.Field(run, 128))
+	case run != "" && shared:
+		return fmt.Sprintf("note: a shared claim declares nothing, so no exclusive rider of run %s yields to it\n", fence.Field(run, 128))
+	}
+	return ""
 }
 
 // parkedNote is what a refusal adds when a holder is a parked rider (D-133). The
@@ -3183,7 +3201,7 @@ func parkedNote(conflicts []store.Conflict) string {
 	}
 	var b strings.Builder
 	for _, run := range slices.Sorted(maps.Keys(open)) {
-		fmt.Fprintf(&b, "PARKED: a holder above is a rider parked in run %s, its work in that run. Only if your tree is built on that run's tree: --based-on %s; nothing checks that, and a tree without the work integrates without complaint\n",
+		fmt.Fprintf(&b, "PARKED: a holder above is a rider parked in run %s, its work in that run. Only if your tree is built on that run's tree: --based-on %s without --shared; nothing checks that, and a tree without the work integrates without complaint\n",
 			fence.Field(run, 128), fence.Field(run, 128))
 	}
 	for _, run := range slices.Sorted(maps.Keys(closed)) {
@@ -3219,8 +3237,11 @@ func parkWords(c store.ClaimInfo) string {
 		fmt.Fprintf(&b, "BASED ON run %s ", fence.Field(c.BasedOnSlug, 128))
 		// The row keeps the declaration; the rule reads none while it is parked (#65),
 		// and a listing that printed it bare would read as an admission it is not.
-		if c.InRun != "" && c.InRunOpen {
+		switch {
+		case c.InRun != "" && c.InRunOpen:
 			b.WriteString("(declares nothing while parked) ")
+		case c.Shared:
+			b.WriteString("(declares nothing while shared) ")
 		}
 	}
 	return b.String()
@@ -3407,7 +3428,7 @@ func cmdRelease(args []string, env Env) error {
 	outcome := fs.String("outcome", "", "what became of the job the claim guarded: pass, fail or aborted (D-049)")
 	note := fs.String("note", "", "with --outcome: one line for the waiters (the tested commit, who was in, who is next)")
 	to := fs.String("to", "", "hand the whole claim to this live session instead, keeping it open with its waits (D-063)")
-	inRun := fs.String("in-run", "", "park it in this run, which the --to recipient must hold, or you with no --to, keeping the claim; it then yields to a claim with --based-on that run (D-133)")
+	inRun := fs.String("in-run", "", "park it in this run, which the --to recipient must hold, or you with no --to, keeping the claim; it then yields to an exclusive claim with --based-on that run (D-133)")
 	unpark := fs.Bool("unpark", false, "withdraw this claim from its run, keeping it open: it refuses like any claim again (D-133)")
 	if help, err := parseFlags(fs, args, usageRelease, env); help || err != nil {
 		return err
@@ -3575,7 +3596,7 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 			// a parked claim stands beside it (Codex and the panel found two earlier
 			// remedies false on inputs this line prints for).
 			if parkedRiderIn(set) {
-				fmt.Fprintln(env.Stdout, "(a rider above yields only to a claim declaring its run and not parked in an open run; a claim parked in an open run is handed on beside a rider only to that rider's holder)")
+				fmt.Fprintln(env.Stdout, "(a rider above yields only to an exclusive claim declaring its run and not parked in an open run; a claim parked in an open run is handed on beside a rider only to that rider's holder)")
 			}
 		}
 		return fencedErr(fmt.Errorf("%w; nothing was handed on", err))

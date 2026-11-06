@@ -265,17 +265,16 @@ func (s *Store) callersOpenClaims(tx *sql.Tx, sessionID, incarnation string, slu
 func (s *Store) conflictsOfClaims(tx *sql.Tx, ownerID string, claims []Moved) ([]Conflict, error) {
 	var conflicts []Conflict
 	for _, m := range claims {
-		var shared bool
 		var marks claimMarks
 		if err := tx.QueryRow(`SELECT c.shared, c.in_run, `+runOpenSQL+`, c.based_on FROM claims c WHERE c.claim_id=?`, m.ClaimID).
-			Scan(&shared, &marks.inRun, &marks.runOpen, &marks.basedOn); err != nil {
+			Scan(&marks.shared, &marks.inRun, &marks.runOpen, &marks.basedOn); err != nil {
 			return nil, err
 		}
 		scopes, err := scopesOf(tx, m.ClaimID)
 		if err != nil {
 			return nil, err
 		}
-		c, err := s.scopeConflicts(tx, ownerID, scopes, shared, marks)
+		c, err := s.scopeConflicts(tx, ownerID, scopes, marks)
 		if err != nil {
 			return nil, err
 		}

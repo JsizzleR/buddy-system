@@ -47,8 +47,7 @@ import (
 // exclusive, one path. Each yielded to the other, so both sessions passed the gate.
 // With one role per claim, at most one session passes a path two exclusive claims
 // hold, at any one ledger state, for any number of claims and runs: X passing needs an X claim that is not
-// parked and declares, and that claim never yields, so it refuses Y. (Covering claims
-// that are all exclusive: a shared claim's declaration is the open form in D-133.)
+// parked and declares, and that claim never yields, so it refuses Y.
 //
 // WHY NOT THE TWO NARROWER SHAPES. "A mutual yield is no yield" leaves x(in R1, based
 // R2) beside y(in R2) admitted, the narrower change, but the gate ORs over a caller's
@@ -65,6 +64,34 @@ import (
 // reach: the admitted lane's park is refused until the rider follows the run, and the
 // refusal says a claim parked in an open run is handed on beside a rider only to that
 // rider's holder. Parking in place is not so refused: it reports the overlap (#63).
+//
+// A SHARED CLAIM DECLARES NOTHING (issue #66), the same shape as #65 and the other half
+// of its sentence. The forms this closes: an exclusive claim parked in R, its holder's
+// shared claim, a peer's shared claim declaring R; and the crossed form, each session with
+// an exclusive rider and a shared declarer of the other's run. The rider yielded, the two
+// shared claims overlap by D-042, and both sessions passed a path an exclusive claim held.
+// Now, on a path ANY exclusive claim covers, at most one session passes, for any number
+// of sessions, claims and runs, at any ledger state: passing a foreign exclusive claim
+// takes a declaration, so an exclusive claim not parked in an open run, and that claim
+// never yields, so it refuses everyone else; and passing with no foreign exclusive claim
+// means the exclusive claim is yours, which every other session has to pass. A path only
+// shared claims cover is D-042's invitation, untouched (TestAtMostOneSessionPasses).
+//
+// WHAT IT COSTS. Two lanes on a run's tree, both --shared --based-on, over one exclusive
+// rider: the first now claims exclusive and the second waits. No skill taught that form.
+// A lane appending to a playbook claims --shared from the start, so the rider on that file
+// is shared too, and D-042 admits the next lane with no declaration. An exclusive rider
+// never admitted a shared claim with no declaration, and that is unchanged.
+//
+// WHY NOT THE TWO OTHER SHAPES. A parked shared claim yielding to nobody touches neither
+// form: the claim yielding in both is exclusive. Keeping the yield unless the rider's holder
+// also holds a shared claim reads three claims: `claim` does not scan the caller's own, the
+// holder's shared claim can come after the declarer, and the crossed form takes a second clause.
+//
+// `--shared --based-on` IS GRANTED WITH A NOTE, not refused. A refusal is one door diverging,
+// reaches no row already standing, and would refuse a harmless pair: a shared claim beside a
+// shared rider. The row keeps based_on, so `ls` still finds that lane for a coordinator, and
+// a claim's mode changes only by a re-claim, which rewrites based_on too, so it never wakes.
 //
 // KEYED ON THE RUN CLAIM'S ID, never its slug. A run re-formed under the same
 // slug is a new claim, and riders of the old one do not yield to it; a run handed
@@ -128,14 +155,16 @@ type claimMarks struct {
 	inRun   string // the run claim's id it is parked in, or ""
 	runOpen bool   // that run is open
 	basedOn string // the run claim's id it declares, or ""
+	shared  bool   // the claim's mode (D-042); the mode term and declaration() both read it here
 }
 
 // declaration is the run this claim declares as the rule reads it: none while it
-// is parked in an open run (issue #65, the header's ONE ROLE AT A TIME). Every door
-// reads a declaration through here. A closed run's rider declares again, and that
+// is parked in an open run (issue #65, the header's ONE ROLE AT A TIME), and none
+// from a shared claim (issue #66, the header's A SHARED CLAIM DECLARES NOTHING). Every
+// door reads a declaration through here. A closed run's rider declares again, and that
 // same runOpen is what stops it yielding, so a claim never has both roles.
 func (m claimMarks) declaration() string {
-	if m.inRun != "" && m.runOpen {
+	if m.shared || (m.inRun != "" && m.runOpen) {
 		return ""
 	}
 	return m.basedOn
@@ -361,7 +390,7 @@ func (s *Store) UnparkClaim(sessionID, incarnation, slug string) (runSlug string
 		// The declaration survives the unpark, so what stands is read with it: a rider
 		// of the declared run is not named (Codex code pass). The CLI reports a pair and
 		// no session's verdict, for the reason releasePark gives (Codex design pass, #65).
-		standing, err = s.scopeConflicts(tx, sessionID, scopes, shared, claimMarks{basedOn: basedOn})
+		standing, err = s.scopeConflicts(tx, sessionID, scopes, claimMarks{basedOn: basedOn, shared: shared})
 		return err
 	})
 	if err != nil {

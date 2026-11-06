@@ -1733,7 +1733,8 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 // is denied exactly as before, and a claim on rules/section declares nothing
 // about rules. One statement, so a mark and its run's openness are one reading.
 // The caller's own claim is read through declaration(), so one parked in an open run
-// admits nobody (issue #65). Only that run id reaches exempts below, with no inRun: this
+// admits nobody (issue #65), and a shared one admits nobody (issue #66): the caller's
+// shared claim clears a shared hold (mineShared) and never an exclusive one. Only that run id reaches exempts below, with no inRun: this
 // door asks only whether the foreign claim yields to the caller, never the reverse.
 func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error) {
 	rel := fold(relPath)
@@ -1745,7 +1746,6 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 	defer rows.Close()
 	type covering struct {
 		folded, id string
-		shared     bool
 		marks      claimMarks
 	}
 	// Two passes over what covers the path: the caller's declarations are not
@@ -1756,14 +1756,14 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 	for rows.Next() {
 		var c covering
 		var owner string
-		if err := rows.Scan(&c.folded, &c.id, &owner, &c.shared, &c.marks.inRun, &c.marks.runOpen, &c.marks.basedOn); err != nil {
+		if err := rows.Scan(&c.folded, &c.id, &owner, &c.marks.shared, &c.marks.inRun, &c.marks.runOpen, &c.marks.basedOn); err != nil {
 			return ClaimInfo{}, false, err
 		}
 		if !scopeCovers(c.folded, rel) {
 			continue
 		}
 		if owner == excludeSession && excludeSession != "" {
-			mineShared = mineShared || c.shared
+			mineShared = mineShared || c.marks.shared
 			if d := c.marks.declaration(); d != "" {
 				declared = append(declared, d)
 			}
@@ -1782,9 +1782,9 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 			continue
 		}
 		switch {
-		case !c.shared && exclusive == "":
+		case !c.marks.shared && exclusive == "":
 			exclusive = c.id
-		case c.shared && shared == "":
+		case c.marks.shared && shared == "":
 			shared = c.id
 		}
 	}

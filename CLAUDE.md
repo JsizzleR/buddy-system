@@ -237,7 +237,7 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
   refused by a holder exits 4 (D-088); a stale claim refuses like a fresh one
   (D-022); never claim over a conflicting holder (`--shared` claims may overlap
   each other, and you still need your own covering claim, D-042; a claim parked in
-  a run yields to one declaring it, D-133). The
+  a run yields to an exclusive one declaring it, D-133). The
   coordination claim is `orc-<project>`, `<project>` the main checkout's
   directory name (D-101).
 - **Landing and lanes (D-049, D-062).** The integrator holds
@@ -408,7 +408,7 @@ Every number stays on some line.
 
 - **Ledger.** Transactional SQLite, not `O_EXCL` lock files; two binaries, so claims never ride the chat stack; an older binary refuses a newer ledger and the gate denies; never migrate down (D-001, D-004, D-037).
 - **Scopes.** Exact paths and directory prefixes; glob scopes were cut, do not propose them; `claim` refuses a comma in `--scope`; backslashes fold to `/` before the absolute check, so `\etc` is refused (D-002, D-066, D-100).
-- **Claims.** Granted or refused whole, naming the whole conflict set (`--dry-run` forecasts it); a stale claim refuses like a fresh one, STALE keyed on the holder too; `--shared` overlaps other shared claims only, and the one other permitted overlap is a claim parked in an open run with a claim declaring that run, and a claim so parked declares nothing (declarations unchecked; one predicate at `claim`, `release --to` and the gate); a holder's refusal exits 4 (D-019, D-022, D-042, D-088, D-090, D-133).
+- **Claims.** Granted or refused whole, naming the whole conflict set (`--dry-run` forecasts it); a stale claim refuses like a fresh one, STALE keyed on the holder too; `--shared` overlaps other shared claims only, and the one other permitted overlap is a claim parked in an open run with an exclusive claim declaring that run, and a claim so parked, or a shared one, declares nothing (declarations unchecked; one predicate at `claim`, `release --to` and the gate); a holder's refusal exits 4 (D-019, D-022, D-042, D-088, D-090, D-133).
 - **Handing on, slots.** `release <slug> --to <target>` hands a claim on with its waits, recording a previous holder only as `--in-run`'s producer; several slugs release all-or-nothing; a slot is a claim on `.buddy/slot/<name>`, capacity 1, no new scope kind, and never parks or yields; `.buddy/slot/browser` stays with its holder at a handoff, which stays open until it releases (D-035, D-063, D-093, D-133, D-134).
 - **Coordination state** is a claim, not a message: no key/value store, no compel path; the coordination claim is `orc-<project>` (D-030, D-101).
 - **Gate jurisdiction.** Unreadable denies, none is silent (invariant 3); a repository git refuses, with no ledger, is feature-off; a vanished cwd is judged from its deepest existing ancestor; an unwritable ledger names cause and fix, still denying; a dead installed `buddy` refuses every gated call (D-005, D-044, D-084, D-102, D-107).

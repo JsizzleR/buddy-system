@@ -679,7 +679,7 @@ blocking the next lane built on the run's tree:
 buddy release item --to orc-proj --in-run run-7        # the recipient must hold the open run run-7
 buddy claim next --desc "…" --scope src/a.go
 # REFUSED: src/a.go  (overlaps "src/a.go" held by orc, claim "item")
-# PARKED: a holder above is a rider parked in run run-7, its work in that run. Only if your tree is built on that run's tree: --based-on run-7; …
+# PARKED: a holder above is a rider parked in run run-7, its work in that run. Only if your tree is built on that run's tree: --based-on run-7 without --shared; …
 buddy claim next --desc "…" --based-on run-7 --scope src/a.go     # admitted
 buddy release item --outcome pass --note <sha>         # the coordinator, at landing
 buddy release item --unpark                            # or: withdraw one rider, the claim stays open
@@ -687,8 +687,8 @@ buddy release item other --in-run run-8                # or: park claims you kee
 ```
 
 The rules:
-- A claim parked in an open run yields to a claim declaring that run, and to
-  nothing else. `claim`, its dry run, `release --to` and the gate all ask the same
+- A claim parked in an open run yields to an exclusive claim declaring that run,
+  and to nothing else. `claim`, its dry run, `release --to` and the gate all ask the same
   question; the gate and commit gate read the caller's own open claim covering the
   path, so an edit needs that claim first.
 - Only the parked side yields. A peer's active claim, a slot, a slug and a rider
@@ -700,6 +700,13 @@ The rules:
   until one side is unparked, re-claimed with its `--based-on` or handed on plain, or a
   run closes. A claim handed on parked goes beside a rider only to that rider's holder;
   parked in place, it reports the overlap instead.
+- A shared claim declares nothing either: `--shared --based-on` over an exclusive
+  rider is refused. Where D-042 admits it, it is granted with a note, and `ls` says
+  `(declares nothing while shared)`. On a path any exclusive claim covers, at most
+  one session passes the gate. Such a pair already standing (an older binary's grant,
+  or a shared rider unparked) is revoked by nothing: the rider refuses it at `claim`,
+  the gate and a transfer to a third session, until its holder narrows, releases, or
+  re-claims `--based-on` without `--shared`, which a peer's shared claim still refuses.
 - A run is an open claim holding `.buddy/slot/<its slug>`. `--in-run` refuses a
   recipient not holding it, and a claim carrying a `.buddy` scope. `--based-on`
   naming a closed run declares nothing and says so; naming a slug no row has, or an

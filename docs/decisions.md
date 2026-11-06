@@ -2431,7 +2431,7 @@ is exactly one newline-terminated line, and the address cases assert the line en
 
 ## D-042 — A SHARED claim may overlap other shared claims, and nothing else
 
-**Amended by D-133:** a claim parked in an open run may also be overlapped by a claim declaring that run.
+**Amended by D-133:** a claim parked in an open run may also be overlapped by an exclusive claim declaring that run.
 
 2026-09-24 · issue #33, wishlist §7
 
@@ -10511,26 +10511,21 @@ session's verdict, not `--unpark`'s "each refuses the other": another covering c
 declaring R2 clears the gate for it (Codex design pass, `TestParkInPlaceReportsPairsNotVerdicts`).
 
 **An old declaration is not admitted.** The rule keys on the run claim's id, so neither the next run nor
-a run re-formed under the old slug matches; such a lane stays denied, as it was from the close to the
-re-park, until it declares the new run itself. Back in the SAME open run, its declarer's yield returns:
+a run re-formed under the old slug matches; such a lane stays denied until it declares the new run itself. Back in the SAME open run, its declarer's yield returns:
 the coordinator is saying the work is in that run again. Nothing checks that, as nothing checks a
-declaration: the skill says to re-park once the commit is in the next run's tree, and says it only of the next run.
+declaration: the skill says to re-park once the commit is in the next run's tree.
 
-**The producer:** the first park sets it, a re-park keeps it, one write at both doors. A rider re-parked
-stays its lane's; a fixer handed it by a plain `--to` becomes the producer at its own park. An empty
-producer parked in place records the caller: a coordinator's own work, truly, and a claim a lane handed
-on plain reads as the coordinator's, as the model report already had it by falling back to the holder;
-left empty, a later run handoff would credit the successor (Codex design pass).
+**The producer:** the first park sets it, a re-park keeps it, one write at both doors; a fixer handed it plain becomes the
+producer at its own park. An empty producer parked in place records the caller; left empty, a later run handoff would
+credit the successor (Codex design pass).
 
-**A coordinator's own work can now be parked,** D-133's other open item. It comes free: keeping it out
-would have taken a predicate of its own. Such a claim yields only to a declarer of that run, and the
-declarer's active claim still refuses the coordinator.
+**A coordinator's own work can now be parked:** keeping it out would have taken a predicate of its own.
 
 **Open.** A coordinator that unparks a rider and fixes it itself, then re-parks it, leaves the lane as
 producer: one column cannot credit two sessions, and the schema was not authorised. A wait or READY on
 the old run does not follow a re-park: a waiter declares again, as for any new run. A re-parked rider
 with a standing overlap refuses a later `release <run> <riders> --to <successor>`, as a closed run's rider
-already did. **A crafted form,** two holders whose parks cross, and its under-report in `overlap stands`: closed, #65 below.
+already did.
 
 **Amended 2026-11-06 (issue #65, no schema change): a claim parked in an open run declares nothing.** Two holders each
 parked a claim declaring the other's run, and both passed the gate. The operator, in orc-16's pane at about 17:24Z, chose
@@ -10538,25 +10533,19 @@ a fix over documenting it. Source reading and tests; no fleet was measured in th
 
 **The rule.** One role at a time: parked in an open run a claim can yield and its `based_on` sleeps; otherwise it can be
 yielded to and yields to nothing. `claimMarks.declaration()` is the one spelling, read by `exempts` on both sides and by
-`OwnerOf` on the caller's covering claims. `parkedYields` stays the one predicate and no door gained a check. On a path
-each session's exclusive claims alone cover, at any one ledger state, at most one session passes: X passing needs an X
-claim unparked and declaring, which never yields, so it refuses Y (`TestEveryPairOfMarks`, all 256 pairs of marks).
+`OwnerOf` on the caller's covering claims. `parkedYields` stays the one predicate and no door gained a check.
 
 **Rejected.** A mutual yield counting as no yield: the gate ORs over a caller's claims, so two sessions pass through four
-runs, every pair one-way, nothing reported (`TestFourRunCycleDoesNotPassBoth`). A refusal at `claim --based-on`, the
-issue's suggestion: one door diverging, missing declare-then-park and a standing pair. Ordering run ids: arbitrary priority.
+runs (`TestFourRunCycleDoesNotPassBoth`). A refusal at `claim --based-on`: one door diverging, missing declare-then-park. Ordering run ids: arbitrary priority.
 
-**"The declaration is not checked" stands, neither overturned nor narrowed:** nothing tests one against a tree, and the
-residual above is untouched. What changed is what a declaration on a parked claim means.
+**"The declaration is not checked" stands:** what changed is what one on a parked claim means.
 
-**The doors (`TestCrossDeclared`).** `--based-on` then park, or the reverse: `claim` is granted as ever (a request is never
-parked), and the park in place reports `overlap stands`. `release --to --in-run`, the third session the issue records, and
+**The doors (`TestCrossDeclared`).** `--based-on` then park, or the reverse: `claim` is granted, and the park in place reports `overlap stands`. `release --to --in-run`, a third session, and
 a run handed on with its side of the pair: refused, nothing moved. A run handed on alone: no change, the rule keys on ids.
 One winner after a plain `--to` of a side, `--unpark` of either, a re-claim repeating `--based-on`, or either run closing.
 
-**A pair already standing** needs no migration. It lists as before with `(declares nothing while parked)`, neither claim
-yields at any door, and neither holder passes without another covering declarer, until one of those exits. Nothing is
-revoked (invariant 11). The old binary keeps the old reading until `install.sh`.
+**A pair already standing** needs no migration: `(declares nothing while parked)`, neither claim yields at any door, and
+neither holder passes without another covering declarer, until one of those exits. Nothing is revoked (invariant 11).
 
 **The cost.** Wider than the mutual pair: x(in R1, based R2) beside y(in R2) under another holder passed and now does not,
 and a claim handed on parked goes beside a rider only to that rider's holder. A coordinator holding run and riders never meets it, and
@@ -10564,12 +10553,21 @@ by recipe one integrator holds `.buddy/slot/main`. The one reach (Codex): a run 
 "The run's claim" allows before naming riders in one call, then an admitted lane parking with the successor: refused, and
 it stays admitted, unparked (`TestRunHandedOnAloneRefusesAnAdmittedLanesPark`).
 
-**Words.** `--unpark` says "neither claim yields to the other": "each now refuses" was false beside another covering
-declarer. A refused `--to` over an open run's rider says what that rider yields to. No skill changed: no verb, flag or recipe did.
+**Words.** `--unpark` says "neither claim yields to the other"; a refused `--to` over an open run's rider says what it yields to.
 
-**Open, not folded (D-115).** A session's active SHARED claim beside a parked exclusive one: each session passes with
-crossed declarers (`TestSharedDeclarersOverCrossedRidersIsOpen`, Codex), and with one run and no crossing
-(`TestSharedDeclarerBesideARiderIsOpen`, the bypass lens). It predates #65; closing it changes what a shared claim admits, D-042's rule.
+**Amended 2026-11-06 (issue #66, no schema change): a shared claim declares nothing.** Narrows D-133: a claim parked in R yields to an EXCLUSIVE claim declaring R.
+D-042's mode term is untouched; for a shared request, shared and exclusive refuse both ways again. The operator, in orc-16's pane at about 19:39Z, asked for a lane and chose no option. Source reading and tests only.
+
+**The forms.** An exclusive rider, its holder's shared claim and a peer's shared declarer; or crossed, each session an exclusive rider and a shared declarer of the other's run. **The rule.** One more term in
+`declaration()`, and the mode moved into `claimMarks`, so no door reads one without the other. On a path ANY exclusive claim covers, at most one session passes, at any ledger state: passing a foreign exclusive claim takes
+an exclusive declarer not parked in an open run, which never yields, so it holds everyone else (`TestAtMostOneSessionPasses`, `TestEveryPairOfMarks`). An all-shared path is D-042's own.
+
+**Rejected.** A parked shared claim yielding to nobody: touches neither form. The yield kept unless the rider's holder holds a shared claim: three claims, not a pair, and `claim` never scans the caller's own. Refusing `--shared --based-on`:
+one door diverging, no reach to a standing row. Where D-042 admits it, it is granted with a note, and `ls` says `(declares nothing while shared)`.
+
+**The cost.** Two lanes, both `--shared --based-on R`, over one exclusive rider: the first claims exclusive, the second waits. Nothing taught it; a playbook's rider is shared by the skill's recipe, and D-042 admits the next lane undeclared.
+Undeclared shared claims do not change. **A pair standing** needs no migration; nothing is revoked. The declarer is denied naming the rider, the rider's holder passes only on its own shared claim, crossed neither passes, and a transfer of either side, or of the run with that rider, to a third session is refused. The old binary keeps the old reading until `install.sh`.
+The cure: an exclusive re-claim with `--based-on`, once no peer's shared claim holds the path; narrowing or a release. Unparking a rider that declares nothing cures nothing (Codex design pass).
 
 ## D-134 — A browser tool call shows on `who`'s EXIT line, and `.buddy/slot/browser` stays with its holder at a handoff (issue #64; schema 19; amends D-092 and D-093)
 
