@@ -1342,10 +1342,12 @@ type ClaimRequest struct {
 // ClaimGrant is what a claim learned on its way: RunClosed, the run it named is
 // closed, so it declared nothing (also set on a refusal, which the caller says
 // beside the blockers); Unparked, the slug of the run a refreshed claim was
-// parked in, which the refresh has withdrawn it from.
+// parked in, which the refresh has withdrawn it from; Stuck, on a refusal only, the
+// state its words depend on (issue #67), read in the refusing transaction.
 type ClaimGrant struct {
 	RunClosed bool
 	Unparked  string
+	Stuck     []TwoRemedies
 }
 
 // ClaimDeclared is ClaimMode with a run declared (D-133). A REFRESH TAKES WHAT IT
@@ -1408,6 +1410,7 @@ func (s *Store) ClaimDeclared(sessionID, incarnation string, r ClaimRequest) (gr
 			return err
 		}
 		if len(conflicts) > 0 {
+			grant.Stuck = s.twoRemedies(tx, sessionID, norm)
 			return refusedFrom(conflicts)
 		}
 		// Own open slug: a refresh, below.

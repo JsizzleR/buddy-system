@@ -2969,11 +2969,17 @@ func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 		}
 		// A SHARED hold refuses only a session that has not joined it (D-042),
 		// so its deny names the one move that clears it, and the residual the
-		// word "shared" does not remove.
+		// word "shared" does not remove. Unless a rider refuses that move (issue #67):
+		// the session passing it holds an exclusive claim the rider yielded to, and a
+		// shared re-claim would drop that declaration. Then only a release clears it.
 		if c.Shared {
-			return fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. A shared claim admits edits from any session holding its own claim covering the path: buddy claim <your-slug> --shared --scope <path>. Two holders that read the same version and both write can still lose one edit.",
+			advice := "A shared claim admits edits from any session holding its own claim covering the path: buddy claim <your-slug> --shared --scope <path>. Two holders that read the same version and both write can still lose one edit."
+			if stuck := st.TwoRemediesAt(h.SessionID, rel); len(stuck) > 0 {
+				advice = twoRemediesClause(stuck[0]) + "."
+			}
+			return fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. %s",
 				fence.Line(loc, 512), scopeList(c.Scopes),
-				fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix)
+				fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, advice)
 		}
 		// permissionDecisionReason is shown to the model on every deny, so it
 		// is a context-injection sink like the digest above.
@@ -2985,6 +2991,11 @@ func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 			// deliberate verb further on.
 			parked = fmt.Sprintf(" It is a rider parked in run %s: only if your brief names that run as your base, claim the path exclusively, as your brief says; nothing checks that.",
 				fence.Field(c.InRunSlug, 128))
+			// Issue #67: that advice would be refused. Once the release happens this
+			// branch says the above again, so only the next step is said here.
+			if stuck := st.TwoRemediesAt(h.SessionID, rel); len(stuck) > 0 {
+				parked = " " + twoRemediesClause(stuck[0]) + "."
+			}
 		}
 		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s.%s Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
 			fence.Line(loc, 512), scopeList(c.Scopes),
@@ -3068,15 +3079,12 @@ func cmdClaim(args []string, env Env) error {
 		// round trip instead of one per collision. Non-zero exit when anything
 		// is refused, so a scripted caller cannot read "some of it was free" as
 		// "go ahead".
-		free, conflicts, displaced, runClosed, err := st.ClaimForecast(si.SessionID, si.Incarnation, req)
+		free, conflicts, displaced, runClosed, stuck, err := st.ClaimForecastWords(si.SessionID, si.Incarnation, req)
 		if err != nil {
 			return fencedErr(err)
 		}
 		printConflicts(env, st, conflicts)
-		fmt.Fprint(env.Stdout, sharedNote(conflicts), droppedDeclarationNote(conflicts, *basedOn, runClosed))
-		fmt.Fprint(env.Stdout, slotNote(conflicts))
-		fmt.Fprint(env.Stdout, parkedNote(conflicts))
-		fmt.Fprint(env.Stdout, declarationNote(*basedOn, *shared, runClosed))
+		fmt.Fprint(env.Stdout, claimNotes(conflicts, stuck, *basedOn, *shared, runClosed))
 		fmt.Fprint(env.Stdout, waitSuggestion(conflicts))
 		// What a real claim would DISPLACE: open claims of holders that have
 		// said bye, which Claim orphans on its way in (D-026). Said apart
@@ -3127,10 +3135,7 @@ func cmdClaim(args []string, env Env) error {
 					Claimant: r.Claimant, Renewed: r.Renewed, Shared: r.Shared, ParkedIn: r.ParkedIn, ParkedOpen: r.ParkedOpen})
 			}
 			printConflicts(env, st, set)
-			fmt.Fprint(env.Stdout, sharedNote(set), droppedDeclarationNote(set, *basedOn, grant.RunClosed))
-			fmt.Fprint(env.Stdout, slotNote(set))
-			fmt.Fprint(env.Stdout, parkedNote(set))
-			fmt.Fprint(env.Stdout, declarationNote(*basedOn, *shared, grant.RunClosed))
+			fmt.Fprint(env.Stdout, claimNotes(set, grant.Stuck, *basedOn, *shared, grant.RunClosed))
 			// The command that would declare a wait on every claim in the
 			// way (D-033). Suggested, never registered: a refusal is a fact
 			// about a claim, not about what this session means to do next.
@@ -3156,16 +3161,39 @@ func cmdClaim(args []string, env Env) error {
 	return nil
 }
 
-// droppedDeclarationNote qualifies sharedNote for a request that declares. Its
-// "--shared would clear them" is true of the conflicts printed, and a rider that yielded
-// to this request is not among them: a shared claim declares nothing, so an exclusive
-// rider would come back, and a shared one D-042 admits anyway (issue #66, Codex). Two remedies, each the other's refusal, when a holder
-// keeps a shared claim beside its own parked one (the panel found it).
-func droppedDeclarationNote(conflicts []store.Conflict, run string, closed bool) string {
-	if run == "" || closed || !slices.ContainsFunc(conflicts, func(c store.Conflict) bool { return c.Shared }) {
-		return ""
+// claimNotes is everything a forecast, a refusal and a grant say below the conflict set,
+// one function so they print the same. In the state issue #67 names, "--shared would
+// clear them" and "--based-on without --shared" are each the other's refusal, so neither
+// is printed for that run, and one line says what each meets. That line replaces #66's
+// note, which could only say "any exclusive rider": the state is now read, not supposed.
+func claimNotes(conflicts []store.Conflict, stuck []store.TwoRemedies, run string, shared, closed bool) string {
+	var b strings.Builder
+	if len(stuck) == 0 {
+		b.WriteString(sharedNote(conflicts))
 	}
-	return fmt.Sprintf("note: --shared would also drop this claim's declaration, so any exclusive rider of run %s yielding to it now would refuse it\n", fence.Field(run, 128))
+	said := map[string]bool{}
+	for _, t := range stuck {
+		said[t.Rider.ParkedIn] = true
+		fmt.Fprintf(&b, "STUCK: %s. Then, only if your tree is built on that run's tree: --based-on %s without --shared; nothing checks that, and a tree without the work integrates without complaint\n",
+			twoRemediesClause(t), fence.Field(t.Rider.ParkedIn, 128))
+	}
+	b.WriteString(slotNote(conflicts))
+	b.WriteString(parkedNote(slices.DeleteFunc(slices.Clone(conflicts), func(c store.Conflict) bool {
+		return c.ParkedOpen && said[c.ParkedIn]
+	})))
+	b.WriteString(declarationNote(run, shared, closed))
+	return b.String()
+}
+
+// twoRemediesClause says what each retry meets and whom to ask (issue #67). The flag for
+// the declaration is left to the caller: the gate states the condition and never the flag
+// (D-133). "While both stand": a release of either ends the trap, and the shared claim is
+// the one named because the rider is an item's outcome, and is not its holder's to give up.
+func twoRemediesClause(t store.TwoRemedies) string {
+	return fmt.Sprintf("a shared claim here is refused by rider %s (%s, parked in run %s) and an exclusive one by SHARED claim %s (%s), while both stand: ask %s to release %s",
+		strconv.Quote(fence.Line(t.Rider.Slug, 128)), fence.Line(t.Rider.Claimant, 64), fence.Field(t.Rider.ParkedIn, 128),
+		strconv.Quote(fence.Line(t.Shared.Slug, 128)), fence.Line(t.Shared.Claimant, 64),
+		fence.Line(t.Shared.Claimant, 64), strconv.Quote(fence.Line(t.Shared.Slug, 128)))
 }
 
 // declarationNote says a --based-on did nothing. The run it names has closed, so no

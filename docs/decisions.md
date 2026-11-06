@@ -10535,10 +10535,7 @@ a fix over documenting it. Source reading and tests; no fleet was measured in th
 yielded to and yields to nothing. `claimMarks.declaration()` is the one spelling, read by `exempts` on both sides and by
 `OwnerOf` on the caller's covering claims. `parkedYields` stays the one predicate and no door gained a check.
 
-**Rejected.** A mutual yield counting as no yield: the gate ORs over a caller's claims, so two sessions pass through four
-runs (`TestFourRunCycleDoesNotPassBoth`). A refusal at `claim --based-on`: one door diverging, missing declare-then-park. Ordering run ids: arbitrary priority.
-
-**"The declaration is not checked" stands:** what changed is what one on a parked claim means.
+**Rejected** (the rest in parked.go). Ordering run ids: arbitrary priority.
 
 **The doors (`TestCrossDeclared`).** `--based-on` then park, or the reverse: `claim` is granted, and the park in place reports `overlap stands`. `release --to --in-run`, a third session, and
 a run handed on with its side of the pair: refused, nothing moved. A run handed on alone: no change, the rule keys on ids.
@@ -10553,8 +10550,6 @@ by recipe one integrator holds `.buddy/slot/main`. The one reach (Codex): a run 
 "The run's claim" allows before naming riders in one call, then an admitted lane parking with the successor: refused, and
 it stays admitted, unparked (`TestRunHandedOnAloneRefusesAnAdmittedLanesPark`).
 
-**Words.** `--unpark` says "neither claim yields to the other"; a refused `--to` over an open run's rider says what it yields to.
-
 **Amended 2026-11-06 (issue #66, no schema change): a shared claim declares nothing.** Narrows D-133: a claim parked in R yields to an EXCLUSIVE claim declaring R.
 D-042's mode term is untouched; for a shared request, shared and exclusive refuse both ways again. The operator, in orc-16's pane at about 19:39Z, asked for a lane and chose no option. Source reading and tests only.
 
@@ -10562,12 +10557,14 @@ D-042's mode term is untouched; for a shared request, shared and exclusive refus
 `declaration()`, and the mode moved into `claimMarks`, so no door reads one without the other. On a path ANY exclusive claim covers, at most one session passes, at any ledger state: passing a foreign exclusive claim takes
 an exclusive declarer not parked in an open run, which never yields, so it holds everyone else (`TestAtMostOneSessionPasses`, `TestEveryPairOfMarks`). An all-shared path is D-042's own.
 
-**Rejected.** A parked shared claim yielding to nobody: touches neither form. The yield kept unless the rider's holder holds a shared claim: three claims, not a pair, and `claim` never scans the caller's own. Refusing `--shared --based-on`:
+**Rejected** (the rest in parked.go). Refusing `--shared --based-on`:
 one door diverging, no reach to a standing row. Where D-042 admits it, it is granted with a note, and `ls` says `(declares nothing while shared)`.
 
 **The cost.** Two lanes, both `--shared --based-on R`, over one exclusive rider: the first claims exclusive, the second waits. Nothing taught it; a playbook's rider is shared by the skill's recipe, and D-042 admits the next lane undeclared.
-Undeclared shared claims do not change. **A pair standing** needs no migration; nothing is revoked. The declarer is denied naming the rider, the rider's holder passes only on its own shared claim, crossed neither passes, and a transfer of either side, or of the run with that rider, to a third session is refused. The old binary keeps the old reading until `install.sh`.
+**A pair standing** needs no migration; nothing is revoked. The declarer is denied naming the rider, the rider's holder passes only on its own shared claim, crossed neither passes, and a transfer of either side, or of the run with that rider, to a third session is refused.
 The cure: an exclusive re-claim with `--based-on`, once no peer's shared claim holds the path; narrowing or a release. Unparking a rider that declares nothing cures nothing (Codex design pass).
+
+**Amended 2026-11-06 (issue #67, no schema change): words; no verdict moved.** An exclusive rider of an open run beside an active shared claim refuses a peer both ways. The operator, in orc-16's pane at about 21:15Z: fix it. Measured: a peer's `--shared` is refused at `claim`, not granted as #66 recorded (`TestHolderSharedVerdicts`, which passes on the commit before). `claim`, its dry run and the gate name both and whom to ask to release the shared claim; #66's note is gone. A rule: rejected (parked.go). Narrows nothing. Open: its holder is not told; the gate names one pair.
 
 ## D-134 — A browser tool call shows on `who`'s EXIT line, and `.buddy/slot/browser` stays with its holder at a handoff (issue #64; schema 19; amends D-092 and D-093)
 

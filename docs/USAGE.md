@@ -707,6 +707,10 @@ The rules:
   or a shared rider unparked) is revoked by nothing: the rider refuses it at `claim`,
   the gate and a transfer to a third session, until its holder narrows, releases, or
   re-claims `--based-on` without `--shared`, which a peer's shared claim still refuses.
+- An exclusive rider of an open run beside an active shared claim refuses a peer both
+  ways: `--shared` meets the rider, `--based-on` the shared claim. Neither retry succeeds,
+  and `claim`, its dry run and the gate say so, naming both claims and whom to ask to
+  release the shared one (`STUCK:` on `claim`).
 - A run is an open claim holding `.buddy/slot/<its slug>`. `--in-run` refuses a
   recipient not holding it, and a claim carrying a `.buddy` scope. `--based-on`
   naming a closed run declares nothing and says so; naming a slug no row has, or an

@@ -93,6 +93,22 @@ import (
 // shared rider. The row keeps based_on, so `ls` still finds that lane for a coordinator, and
 // a claim's mode changes only by a re-claim, which rewrites based_on too, so it never wakes.
 //
+// TWO REMEDIES, EACH THE OTHER'S REFUSAL (issue #67): an exclusive rider of an open run and
+// an active shared claim on what a peer asks for. --shared meets the rider, the rider's
+// declarer meets the shared claim, and each door's old advice sent the peer to the other. It
+// fails safe, so the fix is words at the two doors that gave that advice, and no verdict
+// moved (TestHolderSharedVerdicts). twoRemedies asks the two questions by the scan that
+// would answer them, so the words cannot disagree with the retry they describe. It is
+// asked over the whole request, as a claim is refused whole: a rider on one scope and a
+// shared claim on another are the same trap.
+//
+// WHY NOT A RULE. Letting the declarer through has the active shared claim yield because of
+// a THIRD claim its holder holds, the shape #66 rejected, and takes a path from a holder
+// that never parked it: D-042's mode term, at every door, for a pair no recipe holds. Letting
+// a shared peer through is #66's own form. Refusing the state at a door misses a row already
+// standing, and it forms at `claim`, at a transfer and at an unpark. A standing row reads the
+// same, since the words are computed at read time.
+//
 // KEYED ON THE RUN CLAIM'S ID, never its slug. A run re-formed under the same
 // slug is a new claim, and riders of the old one do not yield to it; a run handed
 // to a successor keeps its id, and they still do.
@@ -175,6 +191,58 @@ func (m claimMarks) declaration() string {
 func (req claimMarks) exempts(reqScope, heldScope string, held claimMarks) bool {
 	return parkedYields(held.inRun, held.runOpen, heldScope, req.declaration()) ||
 		parkedYields(req.inRun, req.runOpen, reqScope, held.declaration())
+}
+
+// TwoRemedies is the state issue #67 names, for one session's request: Rider, an exclusive
+// claim parked in an open run, refuses a shared claim, and Shared, a claim held shared,
+// refuses the exclusive claim declaring that run. Either may have other company: this is
+// what each retry meets, and never a promise that clearing one is enough.
+type TwoRemedies struct {
+	Rider, Shared Conflict
+}
+
+// twoRemedies asks of the request's scopes what `--shared` would meet and, for each rider
+// of an open run among that, what declaring its run would meet. A run narrowed off its own
+// slot reads open and refuses `--based-on` (D-133's Open), so it has no remedy to describe.
+// Words only: an error here is no state to report, and costs no caller its verdict.
+func (s *Store) twoRemedies(q querier, sessionID string, norm []string) []TwoRemedies {
+	riders, err := s.scopeConflicts(q, sessionID, norm, claimMarks{shared: true})
+	if err != nil {
+		return nil
+	}
+	var out []TwoRemedies
+	seen := map[string]bool{}
+	for _, r := range riders {
+		if r.Shared || r.ParkedIn == "" || !r.ParkedOpen {
+			continue
+		}
+		run, closed, err := declaredRun(q, r.ParkedIn)
+		if err != nil || closed {
+			continue
+		}
+		blockers, err := s.scopeConflicts(q, sessionID, norm, claimMarks{basedOn: run})
+		if err != nil {
+			return out
+		}
+		for _, b := range blockers {
+			if key := r.ParkedIn + "\x00" + b.Slug; b.Shared && !seen[key] {
+				seen[key] = true
+				out = append(out, TwoRemedies{Rider: r, Shared: b})
+			}
+		}
+	}
+	return out
+}
+
+// TwoRemediesAt is twoRemedies for the gate's deny, which has a path and no request. It
+// runs only on a deny, so the hot path pays nothing, and that deny stands whatever it says.
+func (s *Store) TwoRemediesAt(sessionID, relPath string) []TwoRemedies {
+	var out []TwoRemedies
+	_ = s.readSnapshot(func(q querier) error {
+		out = s.twoRemedies(q, sessionID, []string{relPath})
+		return nil
+	})
+	return out
 }
 
 // ErrNotARun refuses a declaration naming something no run could be. A closed

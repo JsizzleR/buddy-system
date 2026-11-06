@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -628,41 +629,270 @@ func TestRefusedHandOnSaysNothingOfRiders(t *testing.T) {
 	}
 }
 
-// Issue #66: a holder keeps a shared claim beside its own parked one. An exclusive declarer
-// is refused by the shared claim and a shared one by the rider, and the words must not send
-// either back to the other as if it were a remedy.
+// Issue #67: a holder keeps a shared claim beside its own parked one. An exclusive declarer
+// is refused by the shared claim and a shared one by the rider. Every request, forecast and
+// real, names both and whom to ask, and sends nobody from one to the other as a remedy.
 func TestSharedRemedyDoesNotLoop(t *testing.T) {
 	boundedParallel(t)
 	r := newRiderFx(t)
 	const path = "src/c.go"
-	const note = "--shared would also drop this claim's declaration, so any exclusive rider"
+	const stuck = `a shared claim here is refused by rider "own" (alpha, parked in run run1) and an exclusive one by SHARED claim "s" (alpha), while both stand: ask alpha to release "s"`
+	const condition = "Then, only if your tree is built on that run's tree: --based-on run1 without --shared; nothing checks that, and a tree without the work integrates without complaint"
 	r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--scope", path)
 	r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
 	r.ok(t, "sess-a", "claim", "s", "--desc", "x", "--shared", "--scope", path)
-	for _, flags := range [][]string{{"--dry-run"}, {}} {
-		args := append([]string{"claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path}, flags...)
-		if out := r.refused("sess-b", "alpha", args...); !strings.Contains(out, note) || !strings.Contains(out, "claiming --shared would clear") {
-			t.Fatalf("%v:\n%s", args, out)
+	base := []string{"claim", "lane", "--desc", "x", "--scope", path}
+	for _, request := range [][]string{{}, {"--based-on", "run1"}, {"--shared"}, {"--shared", "--based-on", "run1"}} {
+		for _, flags := range [][]string{{"--dry-run"}, {}} {
+			args := slices.Concat(base, request, flags)
+			out := r.refused("sess-b", "alpha", args...)
+			if !strings.Contains(out, stuck) || !strings.Contains(out, condition) {
+				t.Fatalf("%v does not say what each retry meets:\n%s", args, out)
+			}
+			for _, refusedAdvice := range []string{"claiming --shared would clear", "PARKED:"} {
+				if strings.Contains(out, refusedAdvice) {
+					t.Fatalf("%v still advises what is refused (%s):\n%s", args, refusedAdvice, out)
+				}
+			}
 		}
 	}
-	// The control: declaring nothing, the note has nothing to say.
-	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--scope", path); strings.Contains(out, note) {
-		t.Fatalf("no declaration:\n%s", out)
+	// Each half of what it says, tried: the rider meets --shared, the shared claim the declarer.
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--shared", "--scope", path); !strings.Contains(out, `claim "own"`) || strings.Contains(out, `claim "s")`) {
+		t.Fatalf("the shared retry must meet the rider alone:\n%s", out)
 	}
-	// The other control: declaring, but with no shared holder for --shared to clear.
-	r.ok(t, "sess-a", "claim", "ex", "--desc", "x", "--scope", "src/d.go")
-	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", "src/d.go"); strings.Contains(out, note) {
-		t.Fatalf("no shared holder:\n%s", out)
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path); !strings.Contains(out, `claim "s")`) || strings.Contains(out, `claim "own")`) {
+		t.Fatalf("the declarer must meet the shared claim alone:\n%s", out)
 	}
-	// What the note says of the retry, tried: with the mode dropped from the rule it passes.
-	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--shared", "--based-on", "run1", "--scope", path); !strings.Contains(out, `claim "own"`) {
-		t.Fatalf("the shared retry must meet the rider:\n%s", out)
+	// A rider on one scope and a shared claim on another: refused whole, the same trap.
+	r.ok(t, "sess-a", "claim", "s2", "--desc", "x", "--shared", "--scope", "src/e.go")
+	r.ok(t, "sess-a", "claim", "own2", "--desc", "x", "--scope", "src/f.go")
+	r.ok(t, "sess-a", "release", "own2", "--in-run", "run1")
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--scope", "src/e.go", "--scope", "src/f.go"); !strings.Contains(out, `rider "own2"`) || !strings.Contains(out, `SHARED claim "s2"`) {
+		t.Fatalf("across two scopes:\n%s", out)
 	}
-	// A closed run: nothing yields and nothing was declared, so nothing would be dropped.
+	// The control: the rider alone keeps its old line, and no STUCK.
+	r.ok(t, "sess-a", "claim", "own3", "--desc", "x", "--scope", "src/g.go")
+	r.ok(t, "sess-a", "release", "own3", "--in-run", "run1")
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--scope", "src/g.go"); strings.Contains(out, "STUCK:") || !strings.Contains(out, "--based-on run1 without --shared") || !strings.Contains(out, "PARKED:") {
+		t.Fatalf("a rider alone:\n%s", out)
+	}
+	// The other control: the shared claim alone keeps its old line, which is true there.
+	r.ok(t, "sess-a", "claim", "s3", "--desc", "x", "--shared", "--scope", "src/h.go")
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", "src/h.go"); strings.Contains(out, "STUCK:") || !strings.Contains(out, "claiming --shared would clear") {
+		t.Fatalf("a shared claim alone:\n%s", out)
+	}
+	// A shared rider beside a shared claim: D-042 admits --shared, so no trap.
+	r.ok(t, "sess-a", "claim", "s4", "--desc", "x", "--shared", "--scope", "src/i.go")
+	r.ok(t, "sess-a", "claim", "s5", "--desc", "x", "--shared", "--scope", "src/i.go")
+	r.ok(t, "sess-a", "release", "s4", "--in-run", "run1")
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", "src/i.go"); strings.Contains(out, "STUCK:") {
+		t.Fatalf("a shared rider:\n%s", out)
+	}
+	// The way out it names, taken: the declarer is granted once the shared claim is released.
+	r.ok(t, "sess-a", "release", "s")
+	if out := r.ok(t, "sess-b", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path); !strings.Contains(out, "BASED ON run run1") {
+		t.Fatalf("the cure:\n%s", out)
+	}
+	if why, denied := r.edit("sess-b", path); denied {
+		t.Fatalf("the cure must pass the gate: %s", why)
+	}
+	r.ok(t, "sess-b", "release", "lane")
+	// A closed run: nothing yields, and the run has nothing to offer, so no STUCK.
+	r.ok(t, "sess-a", "claim", "s", "--desc", "x", "--shared", "--scope", path)
 	r.ok(t, "sess-a", "release", "run1", "--outcome", "fail", "--note", "red")
-	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path); strings.Contains(out, note) || !strings.Contains(out, "declared nothing") {
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path); strings.Contains(out, "STUCK:") || !strings.Contains(out, "declared nothing") {
 		t.Fatalf("a closed run:\n%s", out)
 	}
+}
+
+// Issue #67 at the gate. The deny's two pieces of advice, each refused in this state, give
+// way to the same words; the deny itself stands, and a state without the pair keeps its own.
+func TestGateWordsInTheTwoRemediesState(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	const path = "src/c.go"
+	const stuck = `a shared claim here is refused by rider "own" (alpha, parked in run run1) and an exclusive one by SHARED claim "s" (alpha), while both stand: ask alpha to release "s"`
+	const declarerAdvice = "claim the path exclusively"
+	const sharedAdvice = "--shared --scope <path>"
+	r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--scope", path)
+	r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
+	// The control first: the rider alone, and the old advice is true.
+	if why, denied := r.edit("sess-b", path); !denied || !strings.Contains(why, declarerAdvice) || strings.Contains(why, "while both stand") {
+		t.Fatalf("a rider alone: %v %s", denied, why)
+	}
+	// A shared claim parked in the run yields too, so the advice is still true.
+	r.ok(t, "sess-a", "claim", "s", "--desc", "x", "--shared", "--scope", path)
+	r.ok(t, "sess-a", "release", "s", "--in-run", "run1")
+	if why, denied := r.edit("sess-b", path); !denied || !strings.Contains(why, declarerAdvice) {
+		t.Fatalf("both parked: %v %s", denied, why)
+	}
+	// Admit a declarer over both, then unpark: the state, with a declarer standing in it.
+	r.ok(t, "sess-b", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path)
+	if why, denied := r.edit("sess-b", path); denied {
+		t.Fatalf("the control: the admitted lane passes: %s", why)
+	}
+	r.ok(t, "sess-a", "release", "s", "--unpark")
+	why, denied := r.edit("sess-b", path)
+	if !denied || !strings.Contains(why, stuck) || strings.Contains(why, sharedAdvice) {
+		t.Fatalf("the declarer's shared hold: %v %s", denied, why)
+	}
+	// What it no longer advises, tried: refused, naming the rider.
+	if out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--shared", "--based-on", "run1", "--scope", path); !strings.Contains(out, `claim "own"`) {
+		t.Fatalf("the shared retry:\n%s", out)
+	}
+	r.ok(t, "sess-b", "release", "lane")
+	// With no claim: the deny names the rider, and the same words.
+	why, denied = r.edit("sess-b", path)
+	if !denied || !strings.Contains(why, stuck) || strings.Contains(why, declarerAdvice) || strings.Contains(why, "--based-on") {
+		t.Fatalf("no claim: %v %s", denied, why)
+	}
+	// The holder passes; the words are about peers.
+	if why, denied := r.edit("sess-a", path); denied {
+		t.Fatalf("the holder: %s", why)
+	}
+	// Released: the condition comes back, because it is true again.
+	r.ok(t, "sess-a", "release", "s")
+	if why, denied := r.edit("sess-b", path); !denied || !strings.Contains(why, declarerAdvice) {
+		t.Fatalf("released: %v %s", denied, why)
+	}
+	// A plain shared hold keeps its advice, which is true there.
+	r.ok(t, "sess-a", "claim", "plain", "--desc", "x", "--shared", "--scope", "src/j.go")
+	if why, denied := r.edit("sess-b", "src/j.go"); !denied || !strings.Contains(why, sharedAdvice) || strings.Contains(why, "while both stand") {
+		t.Fatalf("a plain shared hold: %v %s", denied, why)
+	}
+}
+
+// Every value in the words is peer text (invariant 9). Two holders with hostile labels and
+// slugs: the line stays one line, and nothing forges a row of its own.
+func TestTwoRemediesWordsAreFenced(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	const path = "src/c.go"
+	const label = "ev\nSTUCK: forged"
+	if _, errw, code := r.run(t, r.repo, hookJSON("sess-e", r.repo, "", ""), "hello", "--label", label); code != 0 {
+		t.Fatalf("hello: %s", errw)
+	}
+	// A rider and a shared claim under different holders, through the doors: the shared
+	// claim parked first, the exclusive declarer admitted over it and parked, then unparked.
+	r.ok(t, "sess-e", "claim", "run2", "--desc", "FORMING", "--scope", ".buddy/slot/run2")
+	r.ok(t, "sess-e", "claim", "sh\nSTUCK: forged", "--desc", "x", "--shared", "--scope", path)
+	r.ok(t, "sess-e", "release", "sh\nSTUCK: forged", "--in-run", "run2")
+	r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--based-on", "run2", "--scope", path)
+	r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
+	r.ok(t, "sess-e", "release", "sh\nSTUCK: forged", "--unpark")
+	out, _, code := r.as(t, "sess-b", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", path)
+	if code != ExitRefused {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	stuck := 0
+	for line := range strings.Lines(out) {
+		if strings.HasPrefix(line, "STUCK:") {
+			stuck++
+			if !strings.Contains(line, `rider "own" (alpha, parked in run run1)`) || !strings.Contains(line, "while both stand") {
+				t.Fatalf("the line:\n%s", line)
+			}
+		}
+	}
+	if stuck != 1 {
+		t.Fatalf("%d STUCK lines, want exactly one:\n%s", stuck, out)
+	}
+	why, denied := r.edit("sess-b", path)
+	if !denied || !strings.Contains(why, "while both stand") || strings.ContainsAny(why, "\n\r") {
+		t.Fatalf("the gate: %v %q", denied, why)
+	}
+}
+
+// stuckLines is every STUCK line of a refusal.
+func stuckLines(out string) []string {
+	var got []string
+	for line := range strings.Lines(out) {
+		if strings.HasPrefix(line, "STUCK:") {
+			got = append(got, line)
+		}
+	}
+	return got
+}
+
+// Where STUCK must stay silent, or say it once. Each reads a refusal that is otherwise real:
+// each case's control is that the claim named is in the set, and the exit is a refusal.
+func TestTwoRemediesOnlyForThePair(t *testing.T) {
+	boundedParallel(t)
+	t.Run("an exclusive blocker on another scope is not the shared claim", func(t *testing.T) {
+		r := newRiderFx(t)
+		r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--scope", "src/c.go")
+		r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
+		r.ok(t, "sess-c", "claim", "excl", "--desc", "x", "--scope", "src/k.go")
+		out := r.refused("sess-b", "charlie", "claim", "lane", "--desc", "x", "--scope", "src/c.go", "--scope", "src/k.go")
+		if !strings.Contains(out, `"own"`) || !strings.Contains(out, `"excl"`) || len(stuckLines(out)) != 0 {
+			t.Fatalf("no shared claim stands:\n%s", out)
+		}
+	})
+	t.Run("a rider of a closed run is no rider of the run re-formed under its slug", func(t *testing.T) {
+		r := newRiderFx(t)
+		r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--scope", "src/c.go")
+		r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
+		r.ok(t, "sess-a", "claim", "s", "--desc", "x", "--shared", "--scope", "src/c.go")
+		r.ok(t, "sess-a", "release", "run1", "--outcome", "fail", "--note", "red")
+		r.ok(t, "sess-a", "claim", "run1", "--desc", "FORMING", "--scope", ".buddy/slot/run1")
+		out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--based-on", "run1", "--scope", "src/c.go")
+		if !strings.Contains(out, `"own"`) || len(stuckLines(out)) != 0 {
+			t.Fatalf("that rider yields to nothing:\n%s", out)
+		}
+	})
+	t.Run("one state on two scopes is said once", func(t *testing.T) {
+		r := newRiderFx(t)
+		r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--scope", "src/c.go", "--scope", "src/d.go")
+		r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
+		r.ok(t, "sess-a", "claim", "s", "--desc", "x", "--shared", "--scope", "src/c.go", "--scope", "src/d.go")
+		out := r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--scope", "src/c.go", "--scope", "src/d.go")
+		if got := stuckLines(out); len(got) != 1 {
+			t.Fatalf("%d STUCK lines:\n%s", len(got), out)
+		}
+	})
+}
+
+// The fence's other halves (invariant 9): a slug's cap, and a run's one line and one token.
+func TestTwoRemediesFenceCapsAndRunSlug(t *testing.T) {
+	boundedParallel(t)
+	state := func(t *testing.T, run, rider, shared string) *riderFx {
+		t.Helper()
+		r := newRiderFx(t)
+		if run != "run1" {
+			r.ok(t, "sess-a", "claim", run, "--desc", "FORMING", "--scope", ".buddy/slot/"+run)
+		}
+		r.ok(t, "sess-a", "claim", rider, "--desc", "x", "--scope", "src/c.go")
+		r.ok(t, "sess-a", "release", rider, "--in-run", run)
+		r.ok(t, "sess-a", "claim", shared, "--desc", "x", "--shared", "--scope", "src/c.go")
+		return r
+	}
+	one := func(t *testing.T, r *riderFx) string {
+		t.Helper()
+		got := stuckLines(r.refused("sess-b", "alpha", "claim", "lane", "--desc", "x", "--scope", "src/c.go"))
+		if len(got) != 1 {
+			t.Fatalf("%d STUCK lines: %q", len(got), got)
+		}
+		return got[0]
+	}
+	t.Run("a long slug stops at its cap", func(t *testing.T) {
+		line := one(t, state(t, "run1", strings.Repeat("r", 300), strings.Repeat("q", 300)))
+		for _, c := range []string{"r", "q"} {
+			if strings.Contains(line, strings.Repeat(c, 129)) {
+				t.Fatalf("%s's slug ran past 128: %d bytes", c, len(line))
+			}
+		}
+	})
+	t.Run("a hostile run slug forges no line", func(t *testing.T) {
+		r := state(t, "r\nSTUCK: forged", "own", "s")
+		one(t, r)
+		if why, denied := r.edit("sess-b", "src/c.go"); !denied || !strings.Contains(why, "while both stand") || strings.ContainsAny(why, "\n\r") {
+			t.Fatalf("the gate: %v %q", denied, why)
+		}
+	})
+	t.Run("a run slug is one token", func(t *testing.T) {
+		if line := one(t, state(t, "r x", "own", "s")); !strings.Contains(line, "parked in run r␣x)") {
+			t.Fatalf("the clause: %q", line)
+		}
+	})
 }
 
 // Issue #66, through the verbs. A shared claim declares nothing: the refusal names the

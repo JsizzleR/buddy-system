@@ -1191,6 +1191,8 @@ ledger row entered through the CLI (D-006).
     ledger state, at most one session passes a path ANY exclusive claim covers. `--shared --based-on`
     is granted with a note where D-042 admits it. A pair standing needs no migration: the rider refuses
     it at `claim`, the gate and a transfer to a third session, and an all-shared path is D-042's own.
+    An exclusive rider beside an active shared claim refuses a peer both ways, and fails safe: the
+    words say whom to ask (`twoRemedies`, issue #67). A rule letting a peer through reads three claims.
     A slot never parks or yields. **Accepted residual, not a defect: the declaration is unchecked**,
     a lane at an older HEAD that copies the flag is admitted, and integration does not catch a stale
     lane: `git cherry-pick -n` merges disjoint hunks silently. It names the run, not a commit, so an

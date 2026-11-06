@@ -297,10 +297,17 @@ func (s *Store) ClaimConflictsMode(sessionID, incarnation, slug string, scopes [
 // including the declaration (D-133). runClosed says the run it names is closed,
 // so nothing was declared.
 func (s *Store) ClaimForecast(sessionID, incarnation string, r ClaimRequest) (free []string, conflicts, displaced []Conflict, runClosed bool, err error) {
+	free, conflicts, displaced, runClosed, _, err = s.ClaimForecastWords(sessionID, incarnation, r)
+	return free, conflicts, displaced, runClosed, err
+}
+
+// ClaimForecastWords is ClaimForecast with the state the refusal's words depend on (issue
+// #67), from the one snapshot, so a forecast cannot name a conflict its note contradicts.
+func (s *Store) ClaimForecastWords(sessionID, incarnation string, r ClaimRequest) (free []string, conflicts, displaced []Conflict, runClosed bool, stuck []TwoRemedies, err error) {
 	slug := r.Slug
 	norm, err := claimScopes(r.Scopes, r.Shared)
 	if err != nil {
-		return nil, nil, nil, false, err
+		return nil, nil, nil, false, nil, err
 	}
 	err = s.readSnapshot(func(q querier) error {
 		var live int
@@ -319,6 +326,9 @@ func (s *Store) ClaimForecast(sessionID, incarnation string, r ClaimRequest) (fr
 		if err != nil {
 			return err
 		}
+		if len(conflicts) > 0 {
+			stuck = s.twoRemedies(q, sessionID, norm)
+		}
 		if s.betweenReads != nil {
 			s.betweenReads()
 		}
@@ -326,7 +336,7 @@ func (s *Store) ClaimForecast(sessionID, incarnation string, r ClaimRequest) (fr
 		return err
 	})
 	if err != nil {
-		return nil, nil, nil, false, err
+		return nil, nil, nil, false, nil, err
 	}
 	busy := map[string]bool{}
 	for _, c := range conflicts {
@@ -339,7 +349,7 @@ func (s *Store) ClaimForecast(sessionID, incarnation string, r ClaimRequest) (fr
 			free = append(free, n)
 		}
 	}
-	return free, conflicts, displaced, runClosed, nil
+	return free, conflicts, displaced, runClosed, stuck, nil
 }
 
 // connQuerier adapts a *sql.Conn to the querier the scans take.
