@@ -694,6 +694,12 @@ The rules:
 - Only the parked side yields. A peer's active claim, a slot, a slug and a rider
   of another run still refuse a declarer, and a claim with one exempt path and one
   held path is refused whole.
+- A claim parked in an open run declares nothing: its `--based-on` sleeps, and `ls`
+  says `(declares nothing while parked)`, until it is unparked or that run closes.
+  So two parked claims declaring each other's runs refuse each other at every door,
+  until one side is unparked, re-claimed with its `--based-on` or handed on plain, or a
+  run closes. A claim handed on parked goes beside a rider only to that rider's holder;
+  parked in place, it reports the overlap instead.
 - A run is an open claim holding `.buddy/slot/<its slug>`. `--in-run` refuses a
   recipient not holding it, and a claim carrying a `.buddy` scope. `--based-on`
   naming a closed run declares nothing and says so; naming a slug no row has, or an

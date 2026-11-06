@@ -1732,6 +1732,9 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 // the declaration has to have been made at `claim`. A caller with no such claim
 // is denied exactly as before, and a claim on rules/section declares nothing
 // about rules. One statement, so a mark and its run's openness are one reading.
+// The caller's own claim is read through declaration(), so one parked in an open run
+// admits nobody (issue #65). Only that run id reaches exempts below, with no inRun: this
+// door asks only whether the foreign claim yields to the caller, never the reverse.
 func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error) {
 	rel := fold(relPath)
 	rows, err := s.db.Query(`SELECT cs.folded, cs.claim_id, c.session_id, c.shared, c.in_run, ` + runOpenSQL + `, c.based_on FROM claim_scopes cs
@@ -1761,8 +1764,8 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 		}
 		if owner == excludeSession && excludeSession != "" {
 			mineShared = mineShared || c.shared
-			if c.marks.basedOn != "" {
-				declared = append(declared, c.marks.basedOn)
+			if d := c.marks.declaration(); d != "" {
+				declared = append(declared, d)
 			}
 			continue
 		}

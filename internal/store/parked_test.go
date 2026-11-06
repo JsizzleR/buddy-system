@@ -815,9 +815,10 @@ func TestUnparkKeepsTheProducer(t *testing.T) {
 // that a real overlap IS named: the ejected arm of TestExemptionEndsAtEveryDoor.
 func TestUnparkNamesOnlyOverlapsThatStand(t *testing.T) {
 	f := newParkFx(t)
-	f.granted(f.c, "next", parkRun, parkPath)
+	f.granted(f.d, "next", parkRun, parkPath)
 	f.run(f.d, "run-2")
-	f.park(f.c, f.d, "run-2", "next") // parked in run-2, still declaring run-1
+	f.parkHere(f.d, "run-2", "next") // parked in run-2, its declaration of run-1 asleep (#65)
+	f.gateHeldBy(parkPath, f.d, "rider")
 	_, standing, err := f.st.UnparkClaim(f.d.SessionID, f.d.Incarnation, "next")
 	if err != nil {
 		t.Fatal(err)
@@ -853,8 +854,8 @@ func TestJobAndDeclarationOnOneClaim(t *testing.T) {
 	if got := claimBySlug(t, f.st, "next"); got.Job.PID != 42 {
 		t.Fatalf("a refresh naming no job must keep it: %+v", got)
 	}
-	f.run(f.d, "run-2")
-	f.park(f.c, f.d, "run-2", "next")
+	f.run(f.coord, "run-2") // under the rider's holder, as a run of the next round is (#65)
+	f.park(f.c, f.coord, "run-2", "next")
 	if got := claimBySlug(t, f.st, "next"); got.Job.PID != 42 || got.InRunSlug != "run-2" {
 		t.Fatalf("a park must carry the job: %+v", got)
 	}
@@ -1292,33 +1293,6 @@ func TestParkInPlaceProducer(t *testing.T) {
 			}
 		}
 	})
-}
-
-// RECORDED OPEN, a crafted form (D-133's amendment): two holders who each park a
-// claim declaring the other's run yield to each other, so two exclusive claims both
-// pass the gate. Each step is the rule's, and no recipe cross-declares. The transfer
-// door reached this with a third session; this door takes two. Pinned so a fix, which
-// would have to change the rule itself, has to say so. The controls are the two
-// refusals before the marks cross.
-func TestCrossDeclaredParksYieldToEachOther(t *testing.T) {
-	f := newParkFx(t)
-	f.run(f.d, "run-9")
-	if err := f.claim(f.coord, "own", "", "own/x.go"); err != nil {
-		t.Fatal(err)
-	}
-	f.refusedNaming(f.d, "held", parkRun, "alpha", "own/x.go") // the control: not parked yet
-	f.parkHere(f.coord, parkRun, "own")
-	f.granted(f.d, "held", parkRun, "own/x.go")
-	f.gateHeldBy("own/x.go", f.coord, "held") // the control: the declarer refuses alpha
-	f.parkHere(f.d, "run-9", "held")
-	if err := f.claim(f.coord, "own", "run-9", "own/x.go"); err != nil {
-		t.Fatal(err)
-	}
-	if standing := f.parkHere(f.coord, parkRun, "own"); len(standing) != 0 {
-		t.Fatalf("standing: %+v", standing)
-	}
-	f.gateFree("own/x.go", f.coord)
-	f.gateFree("own/x.go", f.d)
 }
 
 // A coordinator's own work comes free with this door, and it is held by the rule

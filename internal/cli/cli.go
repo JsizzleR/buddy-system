@@ -3192,6 +3192,14 @@ func parkedNote(conflicts []store.Conflict) string {
 	return b.String()
 }
 
+// parkedRiderIn says a conflict's holder is parked in an open run. A slug conflict
+// has no scope and is not one, as parkedNote reads it.
+func parkedRiderIn(conflicts []store.Conflict) bool {
+	return slices.ContainsFunc(conflicts, func(c store.Conflict) bool {
+		return c.Scope != "" && c.ParkedIn != "" && c.ParkedOpen
+	})
+}
+
 // parkWords is the fixed text every claim listing puts before a parked or
 // declaring claim's scopes (D-133), beside sharedWord. Buddy's own words; the
 // run's slug and the producer's label are peer text, each one fenced token.
@@ -3209,6 +3217,11 @@ func parkWords(c store.ClaimInfo) string {
 	}
 	if c.BasedOn != "" {
 		fmt.Fprintf(&b, "BASED ON run %s ", fence.Field(c.BasedOnSlug, 128))
+		// The row keeps the declaration; the rule reads none while it is parked (#65),
+		// and a listing that printed it bare would read as an admission it is not.
+		if c.InRun != "" && c.InRunOpen {
+			b.WriteString("(declares nothing while parked) ")
+		}
 	}
 	return b.String()
 }
@@ -3556,6 +3569,14 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 			}
 			printConflicts(env, st, set)
 			fmt.Fprintln(env.Stdout, "(each REFUSED line is a scope of a claim being handed on that overlaps a claim staying where it is; claims named together move together, so name every claim of yours that overlaps)")
+			// A claim handed on can declare a rider's run and still meet its refusal,
+			// parked or kept parked by this very move, and nothing else says why (#65).
+			// True whichever claim is moving: a rider's condition, and the one way
+			// a parked claim stands beside it (Codex and the panel found two earlier
+			// remedies false on inputs this line prints for).
+			if parkedRiderIn(set) {
+				fmt.Fprintln(env.Stdout, "(a rider above yields only to a claim declaring its run and not parked in an open run; a claim parked in an open run is handed on beside a rider only to that rider's holder)")
+			}
 		}
 		return fencedErr(fmt.Errorf("%w; nothing was handed on", err))
 	}
@@ -3645,8 +3666,10 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 }
 
 // releaseUnpark withdraws one rider from its run in place (D-133). It names the
-// overlaps that stand, because the ledger revokes none of them and each side now
-// refuses the other at the gate: this is the moment the caller has to know.
+// overlaps that stand, because the ledger revokes none of them: this is the moment the
+// caller has to know. Each is a PAIR, and it says only that, for the reason
+// releasePark gives: another covering claim of the caller's that declares a run can
+// still pass the gate, so "each refuses the other" was false there (Codex, #65).
 func releaseUnpark(st *store.Store, env Env, si store.SessionInfo, slug string) error {
 	run, standing, err := st.UnparkClaim(si.SessionID, si.Incarnation, slug)
 	if err != nil {
@@ -3655,7 +3678,7 @@ func releaseUnpark(st *store.Store, env Env, si store.SessionInfo, slug string) 
 	fmt.Fprintf(env.Stdout, "withdrew %s from run %s — it stays open, and refuses like any claim\n",
 		strconv.Quote(fence.Line(slug, 128)), fence.Field(run, 128))
 	for _, c := range standing {
-		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, and each now refuses the other at the gate\n",
+		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, and neither claim yields to the other\n",
 			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
 	}
 	return nil
@@ -3664,7 +3687,7 @@ func releaseUnpark(st *store.Store, env Env, si store.SessionInfo, slug string) 
 // releasePark parks the caller's own claims in a run it holds, keeping them (issue
 // #63). Each overlap that stands is a PAIR, and the line says only that: a session
 // with another covering claim declaring this run still passes the gate, so "each
-// refuses the other", --unpark's words, would be false here (Codex design pass).
+// refuses the other" would be false here (Codex design pass).
 func releasePark(st *store.Store, env Env, si store.SessionInfo, slugs []string, run string) error {
 	standing, err := st.ParkClaims(si.SessionID, si.Incarnation, slugs, run)
 	if err != nil {
@@ -3682,7 +3705,7 @@ func releasePark(st *store.Store, env Env, si store.SessionInfo, slugs []string,
 	}
 	fmt.Fprintln(env.Stdout, line)
 	for _, c := range standing {
-		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, and your claim does not yield to that one\n",
+		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, your claim does not yield to that one, and while parked it declares nothing\n",
 			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
 	}
 	return nil

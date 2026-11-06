@@ -1186,6 +1186,10 @@ ledger row entered through the CLI (D-006).
     `parkedYields`, at `allConflicts`, `scopeConflicts` from a transfer and `OwnerOf`, keyed on the
     run claim's id, with no term for staleness. Only the parked side ever yields; at the transfer
     door either side may be the one moving, so a mid-run handoff still works; `claim` never reverses.
+    **A claim parked in an open run declares nothing (`claimMarks.declaration`, issue #65),** so a
+    claim has one role at a time and, at any one ledger state, two sessions never both pass a path
+    their exclusive claims alone cover; a pair standing from before refuses both ways. Open: an active
+    SHARED declarer beside a parked claim (`TestSharedDeclarersOverCrossedRidersIsOpen`).
     A slot never parks or yields. **Accepted residual, not a defect: the declaration is unchecked**,
     a lane at an older HEAD that copies the flag is admitted, and integration does not catch a stale
     lane: `git cherry-pick -n` merges disjoint hunks silently. It names the run, not a commit, so an

@@ -166,7 +166,7 @@ func TestUnparkThroughTheVerb(t *testing.T) {
 	r := newRiderFx(t)
 	r.ok(t, "sess-b", "claim", "next", "--desc", "n", "--based-on", "run1", "--scope", "src/a.go")
 	out := r.ok(t, "sess-a", "release", "item", "--unpark")
-	for _, want := range []string{"withdrew", "run1", "overlap stands", "bravo"} {
+	for _, want := range []string{"withdrew", "run1", "overlap stands", "bravo", "neither claim yields to the other"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("unpark must say %q:\n%s", want, out)
 		}
@@ -502,5 +502,128 @@ func TestLastScopeClosesTheClaimWithNoOutcome(t *testing.T) {
 	}
 	if got := r.outcomeOf("one-file"); got != "" {
 		t.Fatalf("the last scope recorded outcome %q, want none", got)
+	}
+}
+
+// Issue #65, through the verbs and all the words: two holders each parking a claim
+// that declares the other's run. The store's table reads every pair of marks; this is
+// what a holder and a reader are told. The controls are the one winner at each step.
+func TestCrossDeclaredThroughTheVerbs(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	const path = "src/c.go"
+	const asleep = "(declares nothing while parked)"
+	const riderLine = "a claim parked in an open run is handed on beside a rider only to that rider's holder"
+	r.ok(t, "sess-b", "claim", "run2", "--desc", "x", "--scope", ".buddy/slot/run2")
+	r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--scope", path)
+	r.ok(t, "sess-a", "release", "own", "--in-run", "run1")
+	r.ok(t, "sess-b", "claim", "held", "--desc", "x", "--based-on", "run1", "--scope", path)
+	if reason, denied := r.edit("sess-b", path); denied {
+		t.Fatalf("the legitimate overlap: an active declarer over a rider: %s", reason)
+	}
+	if reason, denied := r.edit("sess-a", path); !denied {
+		t.Fatalf("the rider's holder must be denied: %s", reason)
+	}
+	// The control for the listing's words: an active declarer's row does not carry them.
+	if view := r.ok(t, "sess-a", "ls"); !strings.Contains(view, "BASED ON run run1") || strings.Contains(view, asleep) {
+		t.Fatalf("ls, active declarer:\n%s", view)
+	}
+	out := r.ok(t, "sess-b", "release", "held", "--in-run", "run2")
+	for _, want := range []string{"overlap stands", `held by alpha, claim "own"`, "while parked it declares nothing"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the park must say %q:\n%s", want, out)
+		}
+	}
+	r.ok(t, "sess-a", "claim", "own", "--desc", "x", "--based-on", "run2", "--scope", path)
+	if reason, denied := r.edit("sess-a", path); denied {
+		t.Fatalf("declaring run2, active: %s", reason)
+	}
+	if out := r.ok(t, "sess-a", "release", "own", "--in-run", "run1"); !strings.Contains(out, `held by bravo, claim "held"`) {
+		t.Fatalf("the second park must report the pair:\n%s", out)
+	}
+
+	for _, sid := range []string{"sess-a", "sess-b"} {
+		if reason, denied := r.edit(sid, path); !denied {
+			t.Fatalf("the pair: %s must be denied: %s", sid, reason)
+		}
+	}
+	r.stage(t, r.wtB, path)
+	var warned string
+	r.asSession("sess-b", func() { _, warned, _ = r.run(t, r.wtB, "", "commit-gate") })
+	if !strings.Contains(warned, `claim "own"`) {
+		t.Fatalf("the commit gate must agree with the gate, naming the other side:\n%s", warned)
+	}
+	r.stage(t, r.cwdOf("sess-a"), path)
+	r.asSession("sess-a", func() { _, warned, _ = r.run(t, r.cwdOf("sess-a"), "", "commit-gate") })
+	if !strings.Contains(warned, `claim "held"`) {
+		t.Fatalf("the commit gate, the other session:\n%s", warned)
+	}
+
+	// What the pair reads as, where a reader looks for it.
+	for name, view := range map[string]string{"ls": r.ok(t, "sess-a", "ls"), "whose": r.ok(t, "sess-a", "whose", path)} {
+		if !strings.Contains(view, "BASED ON run run2 "+asleep) || !strings.Contains(view, "BASED ON run run1 "+asleep) {
+			t.Fatalf("%s:\n%s", name, view)
+		}
+	}
+
+	// A lane on run2's tree cannot be parked into run1 over run2's rider: refused, and
+	// the line saying why --based-on is no remedy here.
+	r.ok(t, "sess-b", "claim", "rider2", "--desc", "x", "--scope", "src/d.go")
+	r.ok(t, "sess-b", "release", "rider2", "--in-run", "run2")
+	r.ok(t, "sess-c", "claim", "third", "--desc", "x", "--based-on", "run2", "--scope", "src/d.go")
+	refused, errw, code := r.as(t, "sess-c", "release", "third", "--to", "alpha", "--in-run", "run1")
+	if code != 1 || !strings.Contains(errw, "nothing was handed on") || !strings.Contains(refused, "by bravo") ||
+		!strings.Contains(refused, riderLine) {
+		t.Fatalf("the refused park must say why: exit %d:\n%s\n%s", code, refused, errw)
+	}
+	// The same for a claim a plain --to keeps parked: the run with its side of the pair.
+	refused, errw, code = r.as(t, "sess-a", "release", "run1", "own", "--to", "charlie")
+	if code != 1 || !strings.Contains(errw, "nothing was handed on") || !strings.Contains(refused, riderLine) {
+		t.Fatalf("the run with its side: exit %d:\n%s\n%s", code, refused, errw)
+	}
+	// The control: the same call with no rider in the way parks, and says nothing of it.
+	r.ok(t, "sess-c", "claim", "plain", "--desc", "x", "--scope", "src/e.go")
+	if out, _, code := r.as(t, "sess-c", "release", "plain", "--to", "alpha", "--in-run", "run1"); code != 0 || strings.Contains(out, riderLine) {
+		t.Fatalf("a park with no overlap: exit %d:\n%s", code, out)
+	}
+
+	// Unparked, one side wins: the pair resolves with the verb that exists.
+	if out := r.ok(t, "sess-a", "release", "own", "--unpark"); strings.Contains(out, "overlap stands") {
+		t.Fatalf("own now declares run2 and held yields, so nothing stands:\n%s", out)
+	}
+	if reason, denied := r.edit("sess-a", path); denied {
+		t.Fatalf("unparked and declaring: %s", reason)
+	}
+	if reason, denied := r.edit("sess-b", path); !denied {
+		t.Fatalf("the other side must stay denied: %s", reason)
+	}
+	r.asSession("sess-a", func() { _, warned, _ = r.run(t, r.cwdOf("sess-a"), "", "commit-gate") })
+	if strings.Contains(warned, `claim "held"`) {
+		t.Fatalf("the winner's commit gate must agree with its gate:\n%s", warned)
+	}
+
+	// The listing's words follow the run: closed, the rider declares again.
+	r.ok(t, "sess-b", "release", "run2", "--outcome", "fail", "--note", "red")
+	if view := r.ok(t, "sess-a", "ls"); !strings.Contains(view, "PARKED in CLOSED run run2") || strings.Contains(view, asleep) {
+		t.Fatalf("ls, the run closed:\n%s", view)
+	}
+}
+
+// The rider line prints only for a rider of an open run. The two controls are the
+// refused hand-ons with nothing of that kind in the set: a fixer handed a path an
+// admitted lane holds, and a claim handed on over a closed run's rider.
+func TestRefusedHandOnSaysNothingOfRiders(t *testing.T) {
+	boundedParallel(t)
+	r := newRiderFx(t)
+	const line = "a rider above yields only"
+	r.ok(t, "sess-b", "claim", "next", "--desc", "n", "--based-on", "run1", "--scope", "src/a.go")
+	out, errw, code := r.as(t, "sess-a", "release", "item", "--to", "charlie")
+	if code != 1 || !strings.Contains(out, "by bravo") || strings.Contains(out, line) {
+		t.Fatalf("over an admitted lane: exit %d:\n%s\n%s", code, out, errw)
+	}
+	r.ok(t, "sess-a", "release", "run1", "--outcome", "fail", "--note", "red")
+	out, errw, code = r.as(t, "sess-b", "release", "next", "--to", "charlie")
+	if code != 1 || !strings.Contains(out, "by alpha") || strings.Contains(out, line) {
+		t.Fatalf("over a closed run's rider: exit %d:\n%s\n%s", code, out, errw)
 	}
 }

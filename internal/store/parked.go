@@ -41,6 +41,31 @@ import (
 // handoff in this feature's normal state. The claim door never sees that form:
 // a request is never parked, because a re-claim clears the mark.
 //
+// ONE ROLE AT A TIME (issue #65). A claim parked in an open run declares nothing,
+// and its based_on sleeps: unparked, or once that run closes, it counts again. The
+// form this closes: x parked in R1 declaring R2 beside y parked in R2 declaring R1,
+// exclusive, one path. Each yielded to the other, so both sessions passed the gate.
+// With one role per claim, at most one session passes a path two exclusive claims
+// hold, at any one ledger state, for any number of claims and runs: X passing needs an X claim that is not
+// parked and declares, and that claim never yields, so it refuses Y. (Covering claims
+// that are all exclusive: a shared claim's declaration is the open form in D-133.)
+//
+// WHY NOT THE TWO NARROWER SHAPES. "A mutual yield is no yield" leaves x(in R1, based
+// R2) beside y(in R2) admitted, the narrower change, but the gate ORs over a caller's
+// claims, so two sessions with two claims each pass through four runs, with every pair
+// one-way and nothing reported: x1(in a, based b), x2(in c, based d), y1(in b, based
+// c), y2(in d, based a). A refusal at `claim --based-on` is one door diverging: it
+// misses declare-then-park and leaves a standing pair passing. This is on the pair, so
+// a pair formed before it needs no migration: each side now refuses the other.
+//
+// WHAT IT COSTS. It is wider than the mutual pair: x(in R1, based R2) beside y(in R2)
+// under another holder, x passed and now does not. No recipe holds one: a lane's
+// claim and the rider it was admitted over park under one holder, and a session's own
+// claims are not scanned. A run handed on alone, its rider left behind, is the one
+// reach: the admitted lane's park is refused until the rider follows the run, and the
+// refusal says a claim parked in an open run is handed on beside a rider only to that
+// rider's holder. Parking in place is not so refused: it reports the overlap (#63).
+//
 // KEYED ON THE RUN CLAIM'S ID, never its slug. A run re-formed under the same
 // slug is a new claim, and riders of the old one do not yield to it; a run handed
 // to a successor keeps its id, and they still do.
@@ -51,8 +76,10 @@ import (
 // write (D-026's reasoning, same shape). An inner join, so a run whose session
 // row is missing reads as closed: this exemption fails toward refusing.
 //
-// THE DECLARATION IS NOT CHECKED, and the residual is recorded in D-133 and the
-// charter's GIVEN rather than here as a promise: a lane at an older HEAD that
+// THE DECLARATION IS NOT CHECKED against any tree, by any door: #65 changes what a
+// parked claim's declaration MEANS and checks nothing.
+// The residual is recorded in D-133 and the charter's GIVEN rather than here as a
+// promise: a lane at an older HEAD that
 // copies the flag is admitted, and a disjoint patch integrates without complaint.
 // Squashing makes a legitimate READY-tip base fail an ancestry test, and ancestry
 // cannot establish preserved code anyway. This is D-005's cooperative case.
@@ -61,6 +88,8 @@ import (
 // outcome, or a rider is unparked, overlaps already granted stand, and each side
 // then refuses the other at the gate: the admitted lane's edit on that path is
 // DENIED until someone narrows or moves one of them. Who does that is skill text.
+// The exception is a pair, never a session's verdict: a rider whose run closed declares
+// again (#65), and may now win over a rider of the run it names.
 // A stale parked claim is still not reaped (invariant 11).
 //
 // PARKING A CLAIM YOU KEEP (issue #63): `release <item> --in-run <run>`, no --to.
@@ -101,11 +130,22 @@ type claimMarks struct {
 	basedOn string // the run claim's id it declares, or ""
 }
 
+// declaration is the run this claim declares as the rule reads it: none while it
+// is parked in an open run (issue #65, the header's ONE ROLE AT A TIME). Every door
+// reads a declaration through here. A closed run's rider declares again, and that
+// same runOpen is what stops it yielding, so a claim never has both roles.
+func (m claimMarks) declaration() string {
+	if m.inRun != "" && m.runOpen {
+		return ""
+	}
+	return m.basedOn
+}
+
 // exempts reports whether the pair is the rule's, whichever side is parked. A
 // `claim` request has no inRun, so at that door only the held side can yield.
 func (req claimMarks) exempts(reqScope, heldScope string, held claimMarks) bool {
-	return parkedYields(held.inRun, held.runOpen, heldScope, req.basedOn) ||
-		parkedYields(req.inRun, req.runOpen, reqScope, held.basedOn)
+	return parkedYields(held.inRun, held.runOpen, heldScope, req.declaration()) ||
+		parkedYields(req.inRun, req.runOpen, reqScope, held.declaration())
 }
 
 // ErrNotARun refuses a declaration naming something no run could be. A closed
@@ -247,7 +287,9 @@ func markParked(tx *sql.Tx, claimID, runID, producerSession, producerIncarnation
 // IT MAY TIGHTEN AS WELL AS LOOSEN. A claim moved from open run R1 to R2 stops
 // yielding to a declarer of R1, and parkedYields keys on the run claim's id, so no
 // declaration of R1 (or of a run re-formed under R1's slug) is ever admitted by R2.
-// Each such claim comes back as standing. The verdict on a session can still differ
+// A claim parked with a declaration of its own stops being declared (issue #65), so
+// a rider that yielded to it no longer does. Each such claim comes back as standing.
+// The verdict on a session can still differ
 // from the pair's: another covering claim of that session declaring R2 clears the
 // gate for it, so the caller reports pairs and never a session's verdict (Codex
 // design pass: the sequence is TestParkInPlaceReportsPairsNotVerdicts).
@@ -316,9 +358,9 @@ func (s *Store) UnparkClaim(sessionID, incarnation, slug string) (runSlug string
 		if err != nil {
 			return err
 		}
-		// The declaration survives the unpark, so what stands is read with it: the
-		// CLI tells the coordinator each side now refuses the other, and a rider of
-		// the declared run does not (Codex code pass).
+		// The declaration survives the unpark, so what stands is read with it: a rider
+		// of the declared run is not named (Codex code pass). The CLI reports a pair and
+		// no session's verdict, for the reason releasePark gives (Codex design pass, #65).
 		standing, err = s.scopeConflicts(tx, sessionID, scopes, shared, claimMarks{basedOn: basedOn})
 		return err
 	})
