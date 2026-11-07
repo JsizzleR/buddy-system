@@ -160,6 +160,36 @@ $out"
 	echo "$out" | grep -qF 'reports no browser tool call' && fail "QA-3: matcher $m selects a browser tool and was called narrow:
 $out"
 done
+# #71: the optional beats on PreToolUse and PostToolUseFailure. Absent, one line
+# names both (the file above lacks them); on mcp__.* they are not named; on the
+# gate's matcher they still are; with only the first wired, neither (it sees a
+# failed call start); with only the second, the first.
+cp "$WORK/settings.keep" "$WORK/settings.json"
+out=$(inst 2>&1) || fail "#71: install failed:
+$out"
+echo "$out" | grep -qF 'no buddy beat on PreToolUse or PostToolUseFailure for browser tools, so `who` misses a browser call in flight or that failed' || fail "#71: the missing beats were not named:
+$out"
+for c in 'mcp__.*,mcp__.*,' 'Edit|Write,Edit|Write,PreToolUse or PostToolUseFailure' 'mcp__.*,,' 'Bash,mcp__.*,PreToolUse for'; do
+	python3 -I -c 'import json, sys
+p, pre, fail = sys.argv[1], sys.argv[2], sys.argv[3]
+s = json.load(open(p))
+line = {"command": "[ -x \"$HOME/bin/buddy\" ] \u0026\u0026 \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"}
+s["hooks"]["PreToolUse"].append({"matcher": pre, "hooks": [line]})
+if fail:
+    s["hooks"]["PostToolUseFailure"] = [{"matcher": fail, "hooks": [line]}]
+json.dump(s, open(p, "w"))' "$WORK/settings.json" "$(echo "$c" | cut -d, -f1)" "$(echo "$c" | cut -d, -f2)"
+	want=$(echo "$c" | cut -d, -f3)
+	out=$(inst 2>&1) || fail "#71: install on $c failed:
+$out"
+	if [ -z "$want" ]; then
+		echo "$out" | grep -qF 'no buddy beat on' && fail "#71: beats on mcp__.* were named missing:
+$out"
+	else
+		echo "$out" | grep -qF "no buddy beat on $want" || fail "#71: case $c did not name $want:
+$out"
+	fi
+	cp "$WORK/settings.keep" "$WORK/settings.json"
+done
 mv "$WORK/settings.keep" "$WORK/settings.json"
 
 # QA-3b (D-064): a handoff size in the settings env block is named, and a

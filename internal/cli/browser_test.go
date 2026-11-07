@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +24,9 @@ func TestIsBrowserToolIsNarrow(t *testing.T) {
 		{"mcp__plugin_playwright_playwright__browser_navigate", true},
 		{"mcp__Claude_Browser__navigate", true},
 		{"mcp__remote-devices__Claude_Browser__navigate", true},
+		{"mcp__chrome-devtools__navigate_page", true},
+		{"mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot", true},
+		{"mcp__browser-use__browser_navigate", true},
 
 		// A repo's own MCP tools and the servers on this machine that are not
 		// browsers.
@@ -36,6 +42,11 @@ func TestIsBrowserToolIsNarrow(t *testing.T) {
 		{"xmcp__playwright__browser_click", false},
 		{"MCP__PLAYWRIGHT__browser_click", false},
 		{"mcp__claude_browser__navigate", false},
+		{"mcp__chrome-devtools-notes__navigate_page", false},
+		{"mcp__chrome-devtools__", false},
+		{"mcp__plugin_chrome-devtools-mcp_docs__search", false},
+		{"mcp__browser-use", false},
+		{"mcp__browser-user__browser_click", false},
 
 		// Native tools, and the one with a browser-shaped word in its name.
 		{"Bash", false},
@@ -289,5 +300,221 @@ func dropBrowserTable(t *testing.T, f *fixture) {
 	defer db.Close()
 	if _, err := db.Exec(`DROP TABLE session_browser`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// eventJSON is a hook payload for one event, as Claude Code sends PreToolUse and
+// PostToolUseFailure: the PostToolUse fields plus hook_event_name.
+func eventJSON(t *testing.T, event, session, cwd, tool string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"session_id": session, "cwd": cwd, "hook_event_name": event,
+		"tool_name": tool, "tool_input": map[string]any{}, "error": "boom",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// A PreToolUse hook can refuse its call, on exit 2 or a decision on stdout (#71).
+// So a beat for either event that is not a completed call exits 0 and prints
+// nothing on every input. The control in each case: the browser call is recorded
+// where the ledger can take it, and the inbox waits for the completed call.
+func TestABeatBeforeOrAfterAFailedCallRecordsAndSaysNothing(t *testing.T) {
+	for _, event := range []string{"PreToolUse", "PostToolUseFailure"} {
+		t.Run(event, func(t *testing.T) {
+			f := browserFixture(t)
+			if _, errw, code := f.run(t, f.repo, "", "msg", "orch", "kept-for-later"); code != 0 {
+				t.Fatalf("msg: %s", errw)
+			}
+			silent := func(what, stdin string) {
+				t.Helper()
+				out, errw, code := f.run(t, f.repo, stdin, "beat")
+				if code != 0 || out != "" || errw != "" {
+					t.Fatalf("%s: exit %d, stdout %q, stderr %q; want 0 and nothing", what, code, out, errw)
+				}
+			}
+
+			// Not a browser's: nothing recorded, nothing said.
+			silent("a native tool", eventJSON(t, event, "sess-o", f.repo, "Bash"))
+			silent("another server", eventJSON(t, event, "sess-o", f.repo, "mcp__buddylist__chat_read"))
+			if got := exitOf(t, f, "orch"); strings.Contains(got, "browser") {
+				t.Fatalf("a non-browser call was recorded: %q", got)
+			}
+
+			// A browser call: recorded, silently, and the inbox not drained.
+			silent("a browser call", eventJSON(t, event, "sess-o", f.repo, "mcp__chrome-devtools__navigate_page"))
+			if got := exitOf(t, f, "orch"); !strings.Contains(got, "browser tools used 0s ago") {
+				t.Fatalf("control: the browser call was not recorded: %q", got)
+			}
+			out, errw, code := f.run(t, f.repo, hookJSON("sess-o", f.repo, "Bash", ""), "beat")
+			if code != 0 || !strings.Contains(out, "kept-for-later") {
+				t.Fatalf("the completed call's beat delivers what the others left: %d %q %s", code, out, errw)
+			}
+
+			// An unregistered session: nothing (an ended one: store/browser_test.go).
+			silent("an unknown session", eventJSON(t, event, "sess-x", f.repo, "mcp__browser-use__browser_click"))
+
+			// A table that cannot be written: swallowed.
+			dropBrowserTable(t, f)
+			silent("a failed write", eventJSON(t, event, "sess-o", f.repo, "mcp__playwright__browser_click"))
+		})
+	}
+}
+
+func TestABeatOffSuccessIsSilentWithNoOrABrokenLedger(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	for _, event := range []string{"PreToolUse", "PostToolUseFailure"} {
+		// No ledger: the repository was never initialised.
+		in := eventJSON(t, event, "sess-o", f.repo, "mcp__playwright__browser_click")
+		if out, errw, code := f.run(t, f.repo, in, "beat"); code != 0 || out != "" || errw != "" {
+			t.Fatalf("%s, no ledger: %d %q %q", event, code, out, errw)
+		}
+		// Not a repository.
+		dir := t.TempDir()
+		if out, errw, code := f.run(t, dir, eventJSON(t, event, "sess-o", dir, "mcp__playwright__browser_click"), "beat"); code != 0 || out != "" || errw != "" {
+			t.Fatalf("%s, no repository: %d %q %q", event, code, out, errw)
+		}
+	}
+	// An unreadable ledger: written over with junk.
+	common, err := exec.Command("git", "-C", f.repo, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(strings.TrimSpace(string(common)), "buddy.db"), []byte("not a database"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"PreToolUse", "PostToolUseFailure"} {
+		in := eventJSON(t, event, "sess-o", f.repo, "mcp__playwright__browser_click")
+		if out, errw, code := f.run(t, f.repo, in, "beat"); code != 0 || out != "" || errw != "" {
+			t.Fatalf("%s, unreadable ledger: %d %q %q", event, code, out, errw)
+		}
+	}
+	// Control: the completed call's beat does see that ledger as unreadable.
+	if _, _, code := f.run(t, f.repo, hookJSON("sess-o", f.repo, "mcp__playwright__browser_click", ""), "beat"); code == 0 {
+		t.Fatal("control: a PostToolUse beat on a junk ledger exited 0, so the arms above proved nothing")
+	}
+}
+
+// A payload beat cannot read never names its event, so beat cannot tell it was a
+// PreToolUse: it fails as any beat does, non-zero, never 2, and with nothing on
+// stdout; the hook line's `exit 0` (USAGE, below) then holds the call harmless.
+func TestAMalformedPayloadPrintsNothingAndNeverExitsTwo(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	for _, in := range []string{`{"hook_event_name":"PreToolUse","session_id":`, `{"hook_event_name":"PreToolUse"}`, `[]`} {
+		out, _, code := f.run(t, f.repo, in, "beat")
+		if out != "" || code == 2 {
+			t.Fatalf("%s: exit %d, stdout %q", in, code, out)
+		}
+	}
+}
+
+// A busy ledger holds the write for busy_timeout, then the beat gives up, saying
+// nothing and exiting 0; the next call records as usual.
+func TestABeatOffSuccessOnABusyLedgerGivesUpSilently(t *testing.T) {
+	f := browserFixture(t)
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(f.repo, ".git", "buddy.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	in := eventJSON(t, "PreToolUse", "sess-o", f.repo, "mcp__claude-in-chrome__navigate")
+	start := time.Now()
+	out, errw, code := f.run(t, f.repo, in, "beat")
+	took := time.Since(start)
+	if code != 0 || out != "" || errw != "" {
+		t.Fatalf("busy: %d %q %q", code, out, errw)
+	}
+	if took < 4*time.Second {
+		t.Fatalf("control: the lock was not held (%v), so busy was not tested", took)
+	}
+	if _, err := conn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if got := exitOf(t, f, "orch"); strings.Contains(got, "browser") {
+		t.Fatalf("a write under the lock landed: %q", got)
+	}
+	if _, errw, code := f.run(t, f.repo, in, "beat"); code != 0 {
+		t.Fatalf("after: %s", errw)
+	}
+	if got := exitOf(t, f, "orch"); !strings.Contains(got, "browser tools used") {
+		t.Fatalf("control: the free ledger records: %q", got)
+	}
+}
+
+// USAGE's optional entries are the two lines the operator adds by hand. Each
+// runs beat on mcp__.* and exits 0 whatever buddy does: run against a buddy that
+// exits 2, the line still exits 0. Stdout passes through the line untouched, so
+// that no beat prints a decision rests on beat's silence, tested above.
+func TestUsagesOptionalBeatLinesNeverBlock(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "USAGE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	at := strings.Index(text, "### The browser slot, and what `who` observes")
+	if at < 0 {
+		t.Fatal("no browser slot heading")
+	}
+	sec := text[at+1:]
+	for _, next := range []string{"\n## ", "\n### "} {
+		if i := strings.Index(sec, next); i >= 0 {
+			sec = sec[:i]
+		}
+	}
+	blocks := regexp.MustCompile("(?s)```json\n(.*?)\n```").FindAllStringSubmatch(sec, 1)
+	if len(blocks) < 1 {
+		t.Fatal("USAGE has no json block under the browser slot")
+	}
+	var opt map[string][]struct {
+		Matcher string `json:"matcher"`
+		Hooks   []struct {
+			Command string `json:"command"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(blocks[0][1]), &opt); err != nil {
+		t.Fatalf("the optional block: %v", err)
+	}
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ran := filepath.Join(home, "ran")
+	fake := "#!/bin/sh\ncat >/dev/null\necho \"$1\" >> '" + ran + "'\necho oops >&2\nexit 2\n"
+	if err := os.WriteFile(filepath.Join(bin, "buddy"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"PreToolUse", "PostToolUseFailure"} {
+		es := opt[event]
+		if len(es) != 1 || es[0].Matcher != "mcp__.*" || len(es[0].Hooks) != 1 {
+			t.Fatalf("%s: want one entry on mcp__.*, got %+v", event, es)
+		}
+		cmd := exec.Command("sh", "-c", es[0].Hooks[0].Command)
+		cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
+		cmd.Stdin = strings.NewReader("{}")
+		var out strings.Builder
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%s: the line did not exit 0 over a buddy that exits 2: %v", event, err)
+		}
+		if out.String() != "" {
+			t.Fatalf("%s: stdout %q", event, out.String())
+		}
+	}
+	// Control: the fake ran, once per line, as `beat`.
+	if got, err := os.ReadFile(ran); err != nil || string(got) != "beat\nbeat\n" {
+		t.Fatalf("control: the lines did not run buddy beat: %q %v", got, err)
 	}
 }

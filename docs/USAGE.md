@@ -85,27 +85,25 @@ and absent mid-restart at SessionStart (launchd supervises the daemon), and a
 (the knob cannot prove "no chat here"); on prints the hint conditioned on the
 tools being "in your tool list", because presence was never guaranteed. The install recipe
 is the README's [claims-only subsection](../README.md#claims-only-no-chat-stack).
-The settings reading is `hello`'s alone: `install.sh` keeps its own posture in the
-`buddy` it builds and never reads settings for it (D-124; `buddy update`
-below), since an operator who muted the hint would otherwise lose the chat
-daemon's rebuild. `hello` reads its own stamp, not the installed file's: the
-hook runs that file, so the two are one (a hand-run copy elsewhere answers
-for itself).
+Only `hello` reads settings: `install.sh` keeps its own posture in the `buddy`
+it builds (D-124; `buddy update` below), since an operator who muted the hint
+would otherwise lose the chat daemon's rebuild. `hello` reads its own stamp,
+which is the installed file's, as the hook runs that file (a hand-run copy
+answers for itself).
 
 `SessionEnd` (`bye`) is fenced by the **process**, not by the payload: the hook
 JSON names a session id and no incarnation, and `claude --resume` keeps the id,
-so a `bye` that fired late from a dead incarnation used to end the live one —
-its heartbeats went silent and the next peer's `hello` orphaned its claims
-mid-edit. Now `hello` and every `beat` register the `claude` process the hook
-was spawned by, and `bye` ends the session only when no registered process is
-still alive. A hand-run `buddy bye <id>` is refused by a live registration and
+so a late `bye` from a dead incarnation would end the live one and orphan its
+claims mid-edit. `hello` and a completed call's `beat` register the `claude`
+process the hook was spawned by, and `bye` ends the session only when no
+registered process is still alive. A hand-run `buddy bye <id>` is refused by a live registration and
 names the process; `--force` is the operator's act.
 
 `Stop` marks the session idle at its prompt so the roster can tell "waiting for
 a human" from "hard at work"; without it nothing ever prints `idle`, and
-nothing else changes. `busy` retracts that mark when a new turn starts — which
-matters only for a turn that runs **no tool at all**, because every other
-turn's first heartbeat retracts it anyway. `busy` also drains the inbox into
+nothing else changes. `busy` retracts that mark when a new turn starts, which
+matters only for a turn that runs **no tool at all** (any other turn's first
+heartbeat retracts it). `busy` also drains the inbox into
 the prompt that opens the turn (D-040), so mail queued to a session waiting at
 its prompt arrives with whatever is typed into it next, and not only on the
 turn's first tool call. Wire `Stop` and skip `busy` if you want one line
@@ -432,10 +430,8 @@ an existing Mach-O invalidates its ad-hoc code signature and the kernel
 SIGKILLs the result — measured, exit 137 on the very next run.
 `go build -o ~/bin/buddy ./cmd/buddy` replaces the file, and is what
 `install.sh` does, building beside the target and renaming it in only after it
-runs (D-107); `cp new ~/bin/buddylist` is not safe. It matters because the chat
-and lifecycle hook lines end in `exit 0`: a killed binary is indistinguishable
-there from a binary that had nothing to say, and README's gate line refuses
-every gated call while `buddy` is killed.
+runs (D-107); `cp new ~/bin/buddylist` is not safe. A killed binary
+is silent on the `exit 0` hook lines and refuses every gated call (above, D-107).
 
 ### `buddy update` — reinstall from the checkout you installed from (D-110)
 
@@ -465,8 +461,7 @@ running: sh /Users/me/src/buddy-system/scripts/install.sh (from /Users/me/src/bu
   `FETCH_HEAD` only when that file records origin's main (a later fetch of
   anything else rewrites it), else by when the ref last changed here, and the
   report says it may have moved since. (`install.sh`'s own `go build` may
-  still download a toolchain or a module it has not cached, as it always
-  could.)
+  still download a toolchain or a module it has not cached.)
 - **It tells, and installs anyway,** when the tree has uncommitted changes
   (they are built in, as `install.sh` says) or is on a branch other than main
   (that branch is what gets built), naming the command that changes it.
@@ -564,9 +559,8 @@ buddy release api-refactor api-refactor-shared   # several: ONE transaction, all
 buddy who api-refactor            # every scope of the claim, one per line, uncut (D-094)
 ```
 
-One `--scope` per path. A comma list is refused, and nothing is written: it
-used to be granted as one literal path, `a,b`, which covers neither `a` nor `b`
-(D-066). The refusal prints the repeated-flag form when that can be pasted back
+One `--scope` per path. A comma list is refused, and nothing is written: `a,b`
+would be one literal path covering neither `a` nor `b` (D-066). The refusal prints the repeated-flag form when that can be pasted back
 as typed:
 
 ```
@@ -864,13 +858,10 @@ undelivered broadcast expires after 24 hours. `hello` takes its label from
 `--label`, or else from `$BUDDY_LABEL` (D-089), so a launcher that sets
 `BUDDY_LABEL=<lane>` on the lane's tab makes `buddy msg <lane>` reach it. `hello`
 warns, once, when your `--label` (or `$BUDDY_LABEL`) is already worn by another live session: every `pause` or `msg` to
-that label is refused as ambiguous, and you would otherwise learn it when a
-peer's send bounced.
+that label is refused as ambiguous.
 
 **What a send reports.** `msg` reports what the ledger holds about its
-recipient, never a prediction: the line used to read `queued for X — delivered
-after their next tool call` for every target, and 25 messages to four sessions
-that had gone away all reported that (#24, D-032). Now one observation
+recipient, never a prediction (#24, D-032). One observation
 leads it, most-alarming-first — `it ENDED 2h ago; nothing reads this unless that session
 id helloes again` (naming the open claims a plain `buddy claim` displaces),
 `its registered harness process (pid N) is GONE`, `bravo last reported idle 2h
@@ -923,10 +914,9 @@ A recipient in a different permission mode holds the wake for its user. The
 queued copy is there either way.
 
 **Mail at the end of a turn, and from a subagent (D-099).** A message that
-lands between a session's last tool call and its Stop used to sit at its
-prompt: `msg` saw it seen seconds ago and named no wake, and the Stop marked it
-idle. The Stop hook (`buddy idle`) now checks for queued mail in the same
-transaction as its idle mark. If there is any, it prints a Stop
+lands between a session's last tool call and its Stop is caught there: the
+Stop hook (`buddy idle`) checks for queued mail in the same transaction as its
+idle mark. If there is any, it prints a Stop
 `{"decision":"block","reason":…}` whose reason is the fenced inbox block, and
 the turn goes on one step with it; the session is not marked idle. A turn a
 Stop hook already continued (`stop_hook_active`) is never held again, and
@@ -1022,8 +1012,7 @@ buddy who <id|label|s-id|slug>    # the same report for any name a session answe
 ```
 
 A session has four names — its id, its label, the `s-<8hex>` short form, and
-whatever claim slug peers address it by — and before `who`, nothing took one
-and returned the rest. `who` resolves any of them exactly as `msg` and `pause` do
+whatever claim slug peers address it by. `who` resolves any of them exactly as `msg` and `pause` do
 (an open slug resolves; a released one does not) and prints the whole record.
 The `JOBS` line (D-065) is the one line not read from the ledger: the shells
 still running as direct children of the session's registered harness process,
@@ -1518,19 +1507,33 @@ lane replacement hands on every other claim, and its holder stays open until it
 releases. Nothing enforces that exception: `release --to` moves whatever slug
 it is given.
 
-Whether or not a session took the slot, `buddy beat` records its completed calls
-on these MCP servers, matched by exact tool-name prefix: `mcp__claude-in-chrome__`,
-`mcp__playwright__`, `mcp__plugin_playwright_playwright__`, `mcp__Claude_Browser__` and
-`mcp__remote-devices__Claude_Browser__`. A repo's own server does not match, and
-neither does a browser server under another name. `who` and `status` print the
-age of the newest call on the EXIT line, with no expiry, for the incarnation that
-made it. It refuses nothing and releases nothing.
+Whether or not a session took the slot, `buddy beat` records its calls on these
+MCP servers, matched by exact tool-name prefix: `mcp__claude-in-chrome__`,
+`mcp__playwright__`, `mcp__plugin_playwright_playwright__`, `mcp__Claude_Browser__`,
+`mcp__remote-devices__Claude_Browser__`, `mcp__chrome-devtools__`,
+`mcp__plugin_chrome-devtools-mcp_chrome-devtools__` and `mcp__browser-use__`. A
+repo's own server does not match, nor does a browser server under another name.
+`who` and `status` print the age of the newest call on the EXIT line, with no
+expiry, for the incarnation that made it. It refuses and releases nothing.
 
-No clause means none was observed, never that none was made. The reading needs
-`buddy beat` wired on `PostToolUse` with matcher `*` (README's hook wiring); a
-matcher that excludes those tools records nothing, says nothing on `who`, and
-is named by `install.sh`. It also misses a call still
-in flight, what an earlier incarnation left open (a `--resume` after a `bye`), a call the harness reports no `PostToolUse` for, anything before a
+No clause means none was observed, never that none was made. `buddy beat` on
+`PostToolUse` with matcher `*` (README's hook wiring) sees a completed call; a
+matcher that excludes those tools records nothing and is named by `install.sh`.
+Two optional entries, added by hand, see the rest (#71): `PreToolUse` sees a call
+before it runs, so one in flight shows, and `PostToolUseFailure` a call that
+failed. There beat records a browser call and nothing else, prints nothing, and
+the line ends `exit 0`, so it cannot block a call; a busy ledger can hold it 5 s
+a wait. `install.sh` says when they are missing:
+
+```json
+{"PreToolUse": [{"matcher": "mcp__.*", "hooks": [{"type": "command",
+   "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"}]}],
+ "PostToolUseFailure": [{"matcher": "mcp__.*", "hooks": [{"type": "command",
+   "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"}]}]}
+```
+
+The age does not say whether that call is still running. The reading misses what
+an earlier incarnation left open (a `--resume` after a `bye`), anything before a
 `/clear` (a new session id), and every Codex session or adapter worker: their
 lifecycle beat records no browser call. A call made with its cwd outside the
 ledger's repository lands nowhere: beat picks the ledger from the payload's cwd. A hook delayed across a `bye` and a `hello` is credited to the new
@@ -1687,11 +1690,10 @@ Installing it in your repo is in the [README](../README.md#4-the-commit-gate-opt
 In the buddy-system checkout itself, `sh scripts/setup-clone.sh` sets
 `core.hooksPath` to `.githooks` and inits the ledger.
 
-The tool-call gate only ever sees the path a tool *declares*. A file written by
-a code generator, a shell redirect, or a formatter run across the tree reaches
-the index without it ever being asked. That is visible at the commit boundary,
-so there is a check there too. Once it is installed, `git commit` reports any staged path sitting inside another
-session's open claim — grouped by claim, naming the slug, the owner, and
+The tool-call gate sees only the path a tool *declares*; a file written by a
+code generator, a shell redirect, or a formatter run across the tree reaches
+the index unasked. The commit boundary sees it, so once installed `git commit`
+reports any staged path sitting inside another session's open claim — grouped by claim, naming the slug, the owner, and
 whether that owner is live, silent, or gone:
 
 ```

@@ -497,7 +497,9 @@ else
 	# of a matcher for every report. An exact name counts by its prefix; a regex is
 	# searched unanchored, as the harness does, against one name per server, so a
 	# regex for other names on them can read as excluding; one Python cannot read is
-	# not judged. PREFIXES is browser.go's list, held to it by a test.
+	# not judged. PREFIXES is browser.go's list, held to it by a test. The same
+	# reading says when no beat on PreToolUse or PostToolUseFailure selects one:
+	# optional entries (#71), so said in one line until wired, never as a fault.
 	# Advisory: settings unchanged.
 	if command -v "$py" >/dev/null 2>&1; then
 		beat=$("$py" -I - "$SETTINGS" "$ROOT/scripts/gate-hook.py" 2>/dev/null <<'PY' || true
@@ -508,31 +510,41 @@ gh = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gh)
 hooks = json.load(open(sys.argv[1])).get("hooks") or {}
 PREFIXES = ["mcp__claude-in-chrome__", "mcp__playwright__", "mcp__plugin_playwright_playwright__",
-            "mcp__Claude_Browser__", "mcp__remote-devices__Claude_Browser__"]
+            "mcp__Claude_Browser__", "mcp__remote-devices__Claude_Browser__", "mcp__chrome-devtools__",
+            "mcp__plugin_chrome-devtools-mcp_chrome-devtools__", "mcp__browser-use__"]
 PROBES = [p + "browser_click" for p in PREFIXES]
-excluded = []
-for e in hooks.get("PostToolUse") or []:
-    cmds = [h.get("command", "") for h in e.get("hooks") or [] if isinstance(h, dict)]
-    if not any(re.search(r'buddy\\?"? beat', c) for c in cmds):
-        continue
-    m = e.get("matcher")
+def selects(m):
     names = gh.matcher_names(m)
     if names == "*":
-        sys.exit(0)
+        return True
     if names is None:
         try:
-            if any(re.search(m, p) for p in PROBES):
-                sys.exit(0)
+            return any(re.search(m, p) for p in PROBES)
         except (re.error, TypeError):
-            sys.exit(0)
-    elif any(n.startswith(p) for n in names for p in PREFIXES):
-        sys.exit(0)
-    excluded.append(json.dumps(m))
-if excluded:
+            return True
+    return any(n.startswith(p) for n in names for p in PREFIXES)
+def beats(ev):
+    for e in hooks.get(ev) or []:
+        cmds = [h.get("command", "") for h in e.get("hooks") or [] if isinstance(h, dict)]
+        if any(re.search(r'buddy\\?"? beat', c) for c in cmds):
+            yield e.get("matcher")
+# any() stops at the first matcher that selects, as the old loop did: a later
+# regex is never tried (Codex code pass, #71: backtracking could stall it).
+post = list(beats("PostToolUse"))
+if post and not any(selects(m) for m in post):
+    excluded = [json.dumps(m) for m in post]
     print('hooks: PostToolUse runs buddy beat on matcher %s, which selects no browser tool it was tried on, so `who` reports no browser tool call; README "Hook wiring" uses "*" (D-134)' % ", ".join(excluded))
+# #71: the two optional entries, said only when none selects a browser tool. A
+# PreToolUse beat already sees a call that fails, so PostToolUseFailure alone is
+# not named (Codex code pass).
+gone = [ev for ev in ("PreToolUse", "PostToolUseFailure") if not any(selects(m) for m in beats(ev))]
+if gone == ["PostToolUseFailure"]:
+    gone = []
+if gone:
+    print('hooks: no buddy beat on %s for browser tools, so `who` misses a browser call %s; docs/USAGE.md "The browser slot" has the optional lines (#71)' % (" or ".join(gone), " or ".join({"PreToolUse": "in flight", "PostToolUseFailure": "that failed"}[ev] for ev in gone)))
 PY
 		)
-		[ -z "$beat" ] || say "$beat"
+		[ -z "$beat" ] || printf '%s\n' "$beat" | while IFS= read -r l; do say "$l"; done
 	fi
 fi
 

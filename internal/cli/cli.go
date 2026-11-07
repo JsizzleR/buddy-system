@@ -2079,6 +2079,11 @@ func cmdBeat(args []string, env Env) error {
 	if h.Harness == "codex" {
 		return unsupportedCodexLifecycle("beat")
 	}
+	// PreToolUse and PostToolUseFailure record a browser call and nothing else,
+	// silently: a PreToolUse hook can refuse its call (#71, browser.go).
+	if beatOffSuccess(h, env) {
+		return nil
+	}
 	st, rc, err := openRepo(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return nil

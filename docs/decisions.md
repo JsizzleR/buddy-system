@@ -10596,7 +10596,7 @@ pid, so the successor's pid check skips it and its owner answers for it.
 **The observation.** `buddy beat` records a completed call on a named MCP server, and `who` prints
 `browser tools used 3m ago (a call observed, not that a tab is open)`. Measured, names only:
 `PostToolUse:mcp__playwright__` and `PostToolUse:mcp__claude-in-chrome__` rows in real transcripts,
-so the wiring's matcher `*` already sees them and no settings edit is owed. The gate's `PreToolUse`
+so the wiring's matcher `*` already sees them. The gate's `PreToolUse`
 matcher never sees an MCP tool. Report only, in invariant 10's spirit.
 
 **Rulings.**
@@ -10615,24 +10615,25 @@ matcher never sees an MCP tool. Report only, in invariant 10's spirit.
 - *A subagent's call counts,* recorded above beat's subagent guard: it runs under the parent's id,
   and browser calls were measured in subagent transcripts.
 - *No tool name stored.* The clause does not need one, and a stored name would be one more value to
-  fence on its way back out.
+  fence.
 - *No expiry.* A tab left open an hour ago is still open. The age says how old the observation is.
 - *Silence when none was observed,* not "no browser tools used": the ledger cannot make that claim.
   A failed read says `browser tools: cannot say`, apart from none (D-016).
 - *Swallowed in beat,* like the footprint: it must not cost a tool call. Every other tool pays one
   prefix test and no transaction.
 
-**Known limits, recorded rather than fenced.** A long browser call in flight has fired no
-`PostToolUse` yet, so a running job is the session's own to name. A call the harness reports no
-`PostToolUse` for is not seen (a failure may go to `PostToolUseFailure`, which the wiring does not
-name; not measured). A `--resume` after a `bye` starts silent until its next call, though a tab in
+**Known limits, recorded rather than fenced.** *Amended 2026-11-07 (#71):* `PostToolUse` fires on
+success only (its row on 0 of 6,838 failed calls in local transcripts, 4,128 of ~198,000
+others). Hand-added beats on `PreToolUse` (in flight) and `PostToolUseFailure`, matcher `mcp__.*`,
+only record, silently; the age cannot tell in flight from done. Added `chrome-devtools`, its plugin,
+`browser-use`. A `--resume` after a `bye` starts silent until its next call, though a tab in
 the operator's own browser outlives the process. `/clear` mints a new id, and the reading stays behind (the operator
 does not `/clear`). Codex sessions and adapter workers are never observed: their lifecycle beat
 records no browser call. A session whose cwd has left the repository records nothing here, since beat
-picks the ledger from the payload's cwd (panel, read and not measured). A
+picks the ledger from the payload's cwd (panel, unmeasured). A
 `PostToolUse` matcher that excludes those tools records nothing and says nothing on `who`;
-`install.sh` names it, through the one reading of a matcher (`matcher_names`). A regex is tried on one name per
-server, so one written for other names on those servers can read as excluding in that advisory line. The hook payload names no
+`install.sh` names it, through `matcher_names`. A regex is tried on one name per
+server, so one for other names there can read as excluding in that advisory line. The hook payload names no
 incarnation, so a hook delayed across a `bye` and a `hello` stamps the new incarnation with the old
 call (Codex design pass): the wrong answer is one extra question before a close.
 
