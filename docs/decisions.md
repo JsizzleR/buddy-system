@@ -227,8 +227,7 @@ prints in that order.
 
 The same failure class showed up once more, in the session digest: it told every session to
 read a room name the daemon does not serve, and an empty read is indistinguishable from a
-quiet room. Measured 2026-09-07 — a session reported "the room is empty, all peer traffic
-goes through the message hook instead" while the real room held thousands of messages. The
+quiet room. Measured 2026-09-07 (the `lobby` incident, D-024). The
 digest now derives the room from the session label, fenced like every other interpolated
 value, and states outright that an empty read means a wrong room name.
 
@@ -2392,11 +2391,8 @@ follows.
   measured. The wake's text says "run buddy inbox", so that path already works either way.
 
 **Found in the same trace, not fixed here** — the wake did not happen at 04:05, although D-039's
-conditions all held: `s-ea41a261` was idle, pid 68315 was its one live registered process, and
-`/tmp/cc-socks/68315.sock` existed. The orchestrator ran `buddy msg … 2>&1 | head -1`, and the
-wake address is `msg`'s second line. It then trusted the harness peer listing, which showed the
-session as `busy` because of its background poll, over buddy's `idle 3m`. It sent a SendMessage
-to a guessed peer name, and that message never reached `s-ea41a261`. Fixed in D-041.
+conditions all held (`head -1` cut the address, which was `msg`'s second line). Fixed in D-041,
+which records the trace.
 
 **Test shape** — `busy_test.go`: delivered with the prompt under the right event name and marked
 delivered (and the next beat does not repeat it); an empty inbox prints nothing, with a positive
@@ -3608,8 +3604,7 @@ lanes and one `--bg` lane on Haiku:
 - A `--bg` lane inherits the launching shell's `HERDR_PANE_ID`. Its roster row named the
   ORCHESTRATOR's pane, and its pid was the shared `claude daemon`, which outlived
   `claude stop`. Closing "its" pane would have closed the orchestrator. The recipe launches it
-  under `env -u HERDR_PANE_ID -u HERDR_TAB_ID`. That hello records the daemon's pid for a
-  background lane is a buddy defect, tracked in its own issue.
+  under `env -u HERDR_PANE_ID -u HERDR_TAB_ID`.
   *Superseded by D-058 (#50):* a lane gets the claude daemon's environment, not the launcher's,
   so the `env -u` held only when that launch started the daemon. The recipe dropped it; the row
   now names the lane's own pid and no pane.
@@ -4194,7 +4189,7 @@ adds no name.
 
 ## D-063 — A holder hands an open claim to another live session, and its waits go with it
 
-**Amended by D-133:** `--in-run` records the producing session and incarnation; a plain `--to` may clear a parked rider's mark.
+**Amended by D-133:** `--in-run` records the producing session and incarnation; a plain `--to` may clear a parked rider's mark. **By D-134 (#72):** a claim reaching `.buddy/slot/browser` refuses.
 
 2026-09-29 · operator request (an orchestrator handoff, measured; no issue)
 
@@ -4636,10 +4631,8 @@ separate operator-descriptor path. `reconcile` is since WITHDRAWN (D-075,
 D-077): the request is still accepted, and answered as unsupported for a wake
 with a recorded native turn, or as `unknown` from the transport journal for one
 without — never with a native history read.
-*Superseded by D-075:* "Claude resume is unsupported" above no longer holds.
-Claude resume is admitted, experimentally, when every journalled turn reached a
-terminal result for its exact input and the worker went idle; see D-075 for the
-exact conditions. The sentence stands here as history.
+*Superseded by D-075:* "Claude resume is unsupported" above no longer holds; see
+D-075 for the exact conditions. The sentence stands here as history.
 
 **Compatibility** — Codex checks the installed version and effective native
 hook metadata for the exact trusted synchronous gate command/hash. Claude
@@ -4720,9 +4713,7 @@ its refusal cases remain qualified only on retained 2.1.290; new regressions
 prevent ordinary 2.1.291 admission from widening those separate gates. See the
 Step 4 2.1.291 receipt for exact evidence and remaining boundaries.
 *Superseded in part by D-075 (marker added 2026-10-07, audit A-11):* the
-"only on retained 2.1.290" limit on manual compaction no longer holds. A later
-2.1.291 compaction receipt measured its boundary and local-command result, and
-`claudeManualCompactionQualified` admits both 2.1.290 and 2.1.291; D-075
+"only on retained 2.1.290" limit on manual compaction no longer holds; D-075
 records the widening. The sentence stands here as history.
 *Superseded in part by D-079 (marker added 2026-10-13):* admitted pairs are no
 longer "the code's table". `claudeModProfileForVersion` and
@@ -10590,7 +10581,7 @@ still queues, so a refusal alone misses a coordinator that closed down), nobody 
 owner says so in its pane. The core skill's one rule
 covers every step that releases claims and says DONE, a lane's too: keep the slot, release when the
 work is over, then say DONE with "browser work over" in the words, and an EXIT clause needs no second
-question after that. Nothing enforces it: `release --to` moves what it is given. A browser job has no
+question after that. Since #72 `release --to` enforces it (below). A browser job has no
 pid, so the successor's pid check skips it and its owner answers for it.
 
 **The observation.** `buddy beat` records a completed call on a named MCP server, and `who` prints
@@ -10637,5 +10628,14 @@ server, so one for other names there can read as excluding in that advisory line
 incarnation, so a hook delayed across a `bye` and a `hello` stamps the new incarnation with the old
 call (Codex design pass): the wrong answer is one extra question before a close.
 
-**Cut.** A refusal or auto-release on either half, a verb to clear the reading, a roster column, and
+**Amended 2026-11-07 (#72; narrows D-063).** `release --to` refuses, writing nothing, a set naming a
+claim with a scope overlapping the slot (`.buddy` too), at every door: one slug, several, a run
+handoff, `--in-run`; a test pins the store's one holder write (a row-value SET, a quoted column, a
+subquery's WHERE first, concatenated SQL: open). Refused, not warned: a warning
+still moves it, and `| tail -1` drops it (D-098). No override flag: the one safe move found (a slot
+reserved with nothing open, to its waiter) is a plain release. A claim holding it among other scopes
+stays whole; the words name each scope reaching the slot, to claim alone and release from the old
+claim (prose: a quoted slug is not shell-safe).
+
+**Cut.** An auto-release on either half, a refusal on the observation, a verb to clear the reading, a roster column, and
 storing what is open: the slot's description is that, in the holder's words.

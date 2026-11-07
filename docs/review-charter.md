@@ -830,8 +830,8 @@ ledger row entered through the CLI (D-006).
     a slash-shaped miss suggests `whose`; `whose` of a `.buddy/slot` path consults no git. Its
     `browser tools used <age> ago` clause (D-134, schema 19) is one completed call on a named MCP
     server, seen by `beat`, fenced by incarnation: it refuses, releases and expires nothing, and its
-    absence is never "no browser". `.buddy/slot/browser` stays with its holder at a handoff, by the
-    skills' word; `release --to` does not check it. Do not propose a refusal on either.
+    absence is never "no browser". `release --to` refuses, at every door, a claim whose scope
+    overlaps `.buddy/slot/browser` (#72); do not propose a refusal on the clause.
 
 94. **`release` takes several slugs as ONE transaction, all or nothing; a recipient waiting on
     a claim it is handed lands (D-093, narrowing D-063).** `--to` moves every named claim before

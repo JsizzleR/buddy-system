@@ -370,7 +370,7 @@ ceiling on review rounds. Run what it owes:
   releases like any claim.
 - **A browser tool whose tabs or running job live in your session:** hold
   `.buddy/slot/browser`, its description naming what is open or running: they end
-  with your pane. It never moves with a handoff. Every step that hands on or
+  with your pane. `release --to` refuses it. Every step that hands on or
   releases your claims and says DONE keeps this one: stay open, release it when
   that work is over, and only then say DONE, with "browser work over" in the
   words. A running browser job is a job. `who` reports a browser call it observed,

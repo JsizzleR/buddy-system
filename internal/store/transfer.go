@@ -4,7 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // Handing an open claim to another live session (D-063): `release <slug> --to
@@ -43,6 +48,8 @@ import (
 //     sessions holding one path. The ordinary conflict scan runs against the
 //     NEW owner, after the move, inside the transaction, and a conflict rolls
 //     the move back.
+// And, from issue #72 rather than a design pass, a claim reaching
+// .buddy/slot/browser (browserSlotStays).
 //
 // SEVERAL CLAIMS MOVE AS ONE (D-093). One fleet of 144 sessions made about 93
 // `release --to` calls, 41 of them inside for-loops, one slug per call; one
@@ -148,6 +155,9 @@ func (s *Store) TransferClaimsInRun(sessionID, incarnation string, slugs []strin
 		moved = nil
 
 		if moved, err = s.callersOpenClaims(tx, sessionID, incarnation, slugs); err != nil {
+			return err
+		}
+		if err := browserSlotStays(tx, moved); err != nil {
 			return err
 		}
 
@@ -258,6 +268,82 @@ func (s *Store) callersOpenClaims(tx *sql.Tx, sessionID, incarnation string, slu
 		out = append(out, Moved{Slug: slug, ClaimID: id})
 	}
 	return out, nil
+}
+
+// BrowserSlot is the slot a session holds while browser tabs or a running
+// browser job live in it (D-134).
+const BrowserSlot = SlotPrefix + "/browser"
+
+// browserSlotStays refuses a transfer naming any claim with a scope that
+// overlaps the browser slot (#72, amending D-134): the tabs and jobs it marks
+// end with the holder's pane, and a slot handed on let that pane pass the close
+// test with them open, the loss #64 was filed for. The only door that changes a
+// claim's holder is the UPDATE in TransferClaimsInRun, so this one check covers
+// a single slug, a set, a run handoff and `--in-run` (it runs before parkTarget,
+// whose `.buddy` refusal would otherwise name a different remedy). OVERLAP, as
+// claimScopes reads a slot (D-042): a claim on `.buddy` reaches it too. Refused,
+// never warned (a warning moves it anyway, and `| tail -1` drops it, D-098) and
+// no override flag: the one safe move found (a slot reserved with nothing open,
+// to a waiter) is served as well by a plain release.
+//
+// The remedy says EVERY reaching scope, not "the ones named": past three the list
+// is cut (Codex re-verify). The words name each reaching scope of the first such claim, so following them
+// once frees it (Codex code pass: naming the first scope of {.buddy,
+// .buddy/slot/browser} left the second to refuse again), and the remedy claims
+// those scopes as held, never the whole slot, which a peer's claim beneath it
+// would refuse. Values are quoted, then capped (96 bytes each, 3 scopes; Fable: capping
+// first let a run of `"` double), and named once, so the fence's
+// 1,024-byte line keeps the remedy and the CLI's "nothing was handed on" (panel:
+// a 400-byte scope truncated both). Prose, not a command: a quoted slug is not a
+// shell-safe one.
+func browserSlotStays(tx *sql.Tx, claims []Moved) error {
+	var first *Moved
+	var reach []string
+	others, kept := 0, 0
+	for i := range claims {
+		scopes, err := scopesOf(tx, claims[i].ClaimID)
+		if err != nil {
+			return err
+		}
+		var hit []string
+		n := 0
+		for _, sc := range scopes {
+			if scopesOverlap(fold(sc), BrowserSlot) {
+				hit = append(hit, sc)
+			} else {
+				n++
+			}
+		}
+		switch {
+		case len(hit) == 0:
+		case first == nil:
+			first, reach, kept = &claims[i], hit, n
+		default:
+			others++
+		}
+	}
+	if first == nil {
+		return nil
+	}
+	sort.Strings(reach)
+	quoted := make([]string, 0, 4)
+	for i, sc := range reach {
+		if i == 3 {
+			quoted = append(quoted, fmt.Sprintf("and %d more", len(reach)-3))
+			break
+		}
+		quoted = append(quoted, fence.Line(strconv.Quote(sc), 96))
+	}
+	list := strings.Join(quoted, ", ")
+	why := fmt.Sprintf("claim %s reaches %s by %s, and the browser slot stays with its holder: its tabs and browser jobs end with your pane, not with a claim. Keep it, release it plainly once the browser work is over, and hand on the rest without it",
+		fence.Line(strconv.Quote(first.Slug), 96), BrowserSlot, list)
+	if kept > 0 {
+		why += " (to move this claim's other scopes, claim every scope of it reaching the slot alone under another slug, then release them from this one)"
+	}
+	if others > 0 {
+		why += fmt.Sprintf("; %d other claim(s) named reach it too", others)
+	}
+	return ErrTransferRefused{Why: why}
 }
 
 // conflictsOfClaims scans each claim as it now stands against every session but

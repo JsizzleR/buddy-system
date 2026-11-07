@@ -1504,8 +1504,7 @@ holds `.buddy/slot/browser`, its description naming what is open or running, and
 releases it when the browser work is over. Closing the pane loses them, and they
 pass every other part of the close test. The slot does not move: a handoff or a
 lane replacement hands on every other claim, and its holder stays open until it
-releases. Nothing enforces that exception: `release --to` moves whatever slug
-it is given.
+releases. `release --to` refuses every claim whose scope overlaps the slot.
 
 Whether or not a session took the slot, `buddy beat` records its calls on these
 MCP servers, matched by exact tool-name prefix: `mcp__claude-in-chrome__`,
