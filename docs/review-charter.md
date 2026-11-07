@@ -1182,17 +1182,17 @@ ledger row entered through the CLI (D-006).
     wait into the holder's context.
 
 123. **A claim parked in an open run yields to an exclusive claim declaring that run, and to nothing else
-    (D-133).** `release <item> --to <holder of R> --in-run R`, or R's holder's own `release <item> --in-run R`, which reports a standing overlap rather than refusing (no path changes hands); `claim --based-on R`. One predicate,
+    (D-133).** `release <item> --to <holder of R> --in-run R`, or R's holder's own `release <item> --in-run R`, which reports, not refuses, a standing overlap; `claim --based-on R`. A run must hold its own slot, in `runOpenSQL` too (#70). One predicate,
     `parkedYields`, at `allConflicts`, `scopeConflicts` from a transfer and `OwnerOf`, keyed on the
     run claim's id, with no term for staleness. Only the parked side ever yields; at the transfer
-    door either side may be the one moving, so a mid-run handoff still works; `claim` never reverses.
+    door either side may move, so a mid-run handoff still works; `claim` never reverses.
     **A claim parked in an open run declares nothing, and neither does a shared claim
-    (`claimMarks.declaration`, issues #65, #66),** so a claim has one role at a time and, at any one
+    (`claimMarks.declaration`, #65, #66),** so a claim has one role at a time and, at any
     ledger state, at most one session passes a path ANY exclusive claim covers. `--shared --based-on`
     is granted with a note where D-042 admits it. A pair standing needs no migration: the rider refuses
-    it at `claim`, the gate and a transfer to a third session, and an all-shared path is D-042's own.
+    it at every door, and an all-shared path is D-042's own.
     An exclusive rider beside an active shared claim refuses a peer both ways, and fails safe: the
-    words say whom to ask (`twoRemedies`, issue #67). A rule letting a peer through reads three claims.
+    words name whom to ask (the gate up to three), also to its maker (#67-#69). A rule letting a peer through reads three claims.
     A slot never parks or yields. **Accepted residual, not a defect: the declaration is unchecked**,
     a lane at an older HEAD that copies the flag is admitted, and integration does not catch a stale
     lane: `git cherry-pick -n` merges disjoint hunks silently. It names the run, not a commit, so an

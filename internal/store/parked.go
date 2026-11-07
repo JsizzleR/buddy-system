@@ -2,9 +2,13 @@ package store
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+
+	"modernc.org/sqlite"
 )
 
 // A parked rider claim (D-133, issue #61): `release <item> --to <coordinator>
@@ -113,7 +117,8 @@ import (
 // slug is a new claim, and riders of the old one do not yield to it; a run handed
 // to a successor keeps its id, and they still do.
 //
-// OPEN MEANS THE ROW IS OPEN AND ITS HOLDER HAS NOT SAID BYE. The second term is
+// OPEN MEANS THE ROW IS OPEN, ITS HOLDER HAS NOT SAID BYE, AND IT HOLDS ITS OWN SLOT
+// (the third term is issue #70's, at runOpenSQL). The second term is
 // what keeps a dry run the same computation as its claim: a real claim orphans an
 // ended holder's run in its own transaction before it scans, and a dry run cannot
 // write (D-026's reasoning, same shape). An inner join, so a run whose session
@@ -148,8 +153,41 @@ import (
 // over a claims row aliased c. Every door's query embeds it, in the same
 // statement as the rows it judges, so a door cannot read a mark from one ledger
 // state and the run's openness from another.
+//
+// ITS THIRD TERM IS WHAT A RUN IS (issue #70): the run claim still holds
+// .buddy/slot/<its slug>. Without it a run narrowed off its slot (`release R --scope
+// .buddy/slot/R`, or a re-claim without it) read OPEN here, so its riders kept
+// yielding, while declaredRun and parkTarget, which test the slot, called it no run:
+// `--based-on R` exited 1 and the words advised it. Its riders read CLOSED, at every
+// door, as D-133 defined a run: they yield to nobody and their declarations wake (#65),
+// so verdicts move as when a run closes, both ways (a woken declaration can win over
+// another run's rider; the panel). `--based-on R` still exits 1. A re-claim restoring the slot keeps the claim id, so it reads open
+// again, as a re-park into the same open run does (#63). Refusing the narrowing was
+// rejected: it reaches no row already standing. buddy_fold is fold, registered below,
+// because SQLite's lower() folds ASCII only and the test must be holdsRunSlot's.
 const runOpenSQL = `EXISTS (SELECT 1 FROM claims r JOIN sessions rs ON rs.session_id=r.session_id
-	WHERE r.claim_id=c.in_run AND r.state='open' AND rs.ended IS NULL)`
+	WHERE r.claim_id=c.in_run AND r.state='open' AND rs.ended IS NULL
+	AND EXISTS (SELECT 1 FROM claim_scopes rslot WHERE rslot.claim_id=r.claim_id
+		AND rslot.folded=buddy_fold('` + SlotPrefix + `/' || r.slug)))`
+
+// The driver installs a registered function on every connection opened after it,
+// so this runs at package init, before any Open. Pure and deterministic; nothing
+// persisted (no schema, index or trigger) names it, so an older binary reading the
+// same ledger never needs it.
+func init() {
+	if err := sqlite.RegisterDeterministicScalarFunction("buddy_fold", 1,
+		func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+			switch v := args[0].(type) {
+			case string:
+				return fold(v), nil
+			case []byte:
+				return fold(string(v)), nil
+			}
+			return nil, nil
+		}); err != nil {
+		panic(err)
+	}
+}
 
 // runSlugSQL names the claim id in a column of c, closed or not, for a reader.
 func runSlugSQL(column string) string {
@@ -201,36 +239,126 @@ type TwoRemedies struct {
 	Rider, Shared Conflict
 }
 
-// twoRemedies asks of the request's scopes what `--shared` would meet and, for each rider
-// of an open run among that, what declaring its run would meet. A run narrowed off its own
-// slot reads open and refuses `--based-on` (D-133's Open), so it has no remedy to describe.
-// Words only: an error here is no state to report, and costs no caller its verdict.
-func (s *Store) twoRemedies(q querier, sessionID string, norm []string) []TwoRemedies {
+// stuckPairs is the (rider, shared claim) pairs of that state over the request's scopes
+// that keep admits, the first of each key, in order. Filtered before deduplicated, since a
+// key that drops the rider can drop the very pair a filter wants (Codex design pass, #68),
+// and both done as the pairs are made, over the scopes once each: kept whole, a hundred
+// riders beside a hundred shared claims on one path, named a hundred times, was a hundred
+// million entries (Codex code pass). It asks what `--shared` would meet and, for each rider of an open run among
+// that, what declaring its run would meet. A run narrowed off its own slot reads closed
+// (#70), so its riders are not riders here, and declaredRun calls it no run anyway.
+func (s *Store) stuckPairs(q querier, sessionID string, norm []string, keep func(TwoRemedies) bool, key func(TwoRemedies) string) ([]TwoRemedies, error) {
+	once := map[string]bool{}
+	norm = slices.DeleteFunc(slices.Clone(norm), func(n string) bool {
+		f := fold(n)
+		dup := once[f]
+		once[f] = true
+		return dup
+	})
+	seen := map[string]bool{}
 	riders, err := s.scopeConflicts(q, sessionID, norm, claimMarks{shared: true})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []TwoRemedies
-	seen := map[string]bool{}
+	blockersOf := map[string][]Conflict{}
 	for _, r := range riders {
 		if r.Shared || r.ParkedIn == "" || !r.ParkedOpen {
 			continue
 		}
-		run, closed, err := declaredRun(q, r.ParkedIn)
-		if err != nil || closed {
-			continue
-		}
-		blockers, err := s.scopeConflicts(q, sessionID, norm, claimMarks{basedOn: run})
-		if err != nil {
-			return out
+		blockers, asked := blockersOf[r.ParkedIn]
+		if !asked {
+			run, closed, err := declaredRun(q, r.ParkedIn)
+			if err == nil && !closed {
+				if blockers, err = s.scopeConflicts(q, sessionID, norm, claimMarks{basedOn: run}); err != nil {
+					return out, err
+				}
+			}
+			blockersOf[r.ParkedIn] = blockers
 		}
 		for _, b := range blockers {
-			if key := r.ParkedIn + "\x00" + b.Slug; b.Shared && !seen[key] {
-				seen[key] = true
-				out = append(out, TwoRemedies{Rider: r, Shared: b})
+			t := TwoRemedies{Rider: r, Shared: b}
+			if b.Shared && (keep == nil || keep(t)) && !seen[key(t)] {
+				seen[key(t)] = true
+				out = append(out, t)
 			}
 		}
 	}
+	return out, nil
+}
+
+// twoRemedies is the state for one session's request, one entry per remedy a peer can
+// ask for: a run to declare and a shared claim whose holder to ask. Words only: an error
+// here is no state to report, and costs no caller its verdict.
+func (s *Store) twoRemedies(q querier, sessionID string, norm []string) []TwoRemedies {
+	pairs, _ := s.stuckPairs(q, sessionID, norm, nil, func(t TwoRemedies) string { return t.Rider.ParkedIn + "\x00" + t.Shared.Slug })
+	return pairs
+}
+
+// StuckBeside is issue #68: when one of the named open claims of sessionID stands in a pair
+// of that state, every pair standing on their scopes, for the door that just wrote them (a
+// claim, a park, a hand-on, an unpark). A session's own claims are never conflicts, so the
+// holder forming the pair was told nothing. It reads as a peer holding nothing would
+// (sessionID ""), over the named claims and every open claim parked IN one of them, under
+// any holder (a run regaining its slot, or handed on). A pair counts only if its two scopes
+// overlap: a rider on one path and a shared claim on another trap no single path. ALL the
+// pairs on those scopes, not only the named claims' (the panel): with s1 and s2 both shared
+// beside one rider, a door naming only s2 had "release s2" read as the way out while s1 kept
+// the trap. A fresh snapshot after the commit: the words say what stands then, which may
+// include a pair this write did not form, and decide nothing.
+func (s *Store) StuckBeside(sessionID string, slugs []string) []TwoRemedies {
+	var out []TwoRemedies
+	_ = s.readSnapshot(func(q querier) error {
+		in := map[string]bool{}
+		var ids []string
+		for _, slug := range slugs {
+			var id string
+			if q.QueryRow(`SELECT claim_id FROM claims WHERE slug=? AND session_id=? AND state='open'`,
+				slug, sessionID).Scan(&id) == nil {
+				ids = append(ids, id)
+				in[sessionID+"\x00"+slug] = true
+			}
+		}
+		named := len(ids)
+		for i := 0; i < named; i++ {
+			rows, err := q.Query(`SELECT claim_id, session_id, slug FROM claims WHERE in_run=? AND state='open'`, ids[i])
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var id, sess, slug string
+				if rows.Scan(&id, &sess, &slug) == nil {
+					ids = append(ids, id)
+					in[sess+"\x00"+slug] = true
+				}
+			}
+			rows.Close()
+		}
+		var scopes []string
+		for _, id := range ids {
+			rows, err := q.Query(`SELECT scope FROM claim_scopes WHERE claim_id=?`, id)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var sc string
+				if rows.Scan(&sc) == nil {
+					scopes = append(scopes, sc)
+				}
+			}
+			rows.Close()
+		}
+		pairs, _ := s.stuckPairs(q, "", scopes, func(t TwoRemedies) bool {
+			return scopesOverlap(fold(t.Rider.Their), fold(t.Shared.Their))
+		}, func(t TwoRemedies) string { return t.Rider.Slug + "\x00" + t.Shared.Slug })
+		if !slices.ContainsFunc(pairs, func(t TwoRemedies) bool {
+			return in[t.Rider.Session+"\x00"+t.Rider.Slug] || in[t.Shared.Session+"\x00"+t.Shared.Slug]
+		}) {
+			return nil
+		}
+		out = pairs
+		return nil
+	})
 	return out
 }
 

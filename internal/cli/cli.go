@@ -2980,7 +2980,7 @@ func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 		if c.Shared {
 			advice := "A shared claim admits edits from any session holding its own claim covering the path: buddy claim <your-slug> --shared --scope <path>. Two holders that read the same version and both write can still lose one edit."
 			if stuck := st.TwoRemediesAt(h.SessionID, rel); len(stuck) > 0 {
-				advice = twoRemediesClause(stuck[0]) + "."
+				advice = gateStuckWords(stuck, where)
 			}
 			return fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. %s",
 				fence.Line(loc, 512), scopeList(c.Scopes),
@@ -2999,7 +2999,7 @@ func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 			// Issue #67: that advice would be refused. Once the release happens this
 			// branch says the above again, so only the next step is said here.
 			if stuck := st.TwoRemediesAt(h.SessionID, rel); len(stuck) > 0 {
-				parked = " " + twoRemediesClause(stuck[0]) + "."
+				parked = " " + gateStuckWords(stuck, where)
 			}
 		}
 		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s.%s Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
@@ -3163,6 +3163,8 @@ func cmdClaim(args []string, env Env) error {
 	if grant.Unparked != "" {
 		fmt.Fprintf(env.Stdout, "note: this claim was parked in run %s; this re-claim withdrew it from the run, and it refuses like any claim\n", fence.Field(grant.Unparked, 128))
 	}
+	stuckFormed(env, st, si.SessionID, si.SessionID, []string{slug})
+	offSlotNote(env, st, si.SessionID, slug)
 	return nil
 }
 
@@ -3188,6 +3190,83 @@ func claimNotes(conflicts []store.Conflict, stuck []store.TwoRemedies, run strin
 	})))
 	b.WriteString(declarationNote(run, shared, closed))
 	return b.String()
+}
+
+// offSlotNote is issue #70's word at the narrowing: a run's own claim, open and holding
+// riders, that no longer holds .buddy/slot/<its slug> is no open run, so its riders no
+// longer yield to a claim declaring it. It says no session's verdict: a shared peer beside a
+// shared rider still passes by D-042 (Codex code pass). A coordinator's own act, and the one moment to say
+// what it did. A view's read; an error says nothing.
+func offSlotNote(env Env, st *store.Store, sessionID, slug string) {
+	all, err := st.Claims(false)
+	if err != nil {
+		return
+	}
+	runID := ""
+	for _, c := range all {
+		if c.Slug == slug && c.Owner.SessionID == sessionID {
+			runID = c.ClaimID
+		}
+	}
+	riders := 0
+	for _, c := range all {
+		if runID != "" && c.InRun == runID {
+			if c.InRunOpen {
+				return
+			}
+			riders++
+		}
+	}
+	if riders > 0 {
+		fmt.Fprintf(env.Stdout, "note: %s no longer holds %s/<its slug>, so it is no open run: its %d rider(s) no longer yield to a claim declaring it; a re-claim with that scope opens it again\n",
+			strconv.Quote(fence.Line(slug, 128)), store.SlotPrefix, riders)
+	}
+}
+
+// gateStuckMax is how many pairs a gate deny names (issue #69). A clause is about 1.3 KB at
+// the conventional caps with values that quote and escape, so three and the deny around them
+// keep the reason under 9,000 characters (TestGateStuckWordsFitTheHook). The JSON around it
+// escapes `<`, `>`, `&` six-fold: values made of those already took the deny's prefix alone
+// past 10,000 before this change, and that stays open.
+const gateStuckMax = 3
+
+// gateStuckWords is the gate's words for every pair standing on the path (issue #69): it
+// named one, and a peer that asked that holder was refused again by the next. Past
+// gateStuckMax, the count and the dry run, whose STUCK lines name each; run in the target
+// repo when the deny is a foreign one's, since a dry run reads its cwd's ledger (the panel).
+func gateStuckWords(stuck []store.TwoRemedies, where string) string {
+	n := min(len(stuck), gateStuckMax)
+	clauses := make([]string, 0, n)
+	for _, t := range stuck[:n] {
+		clauses = append(clauses, twoRemediesClause(t))
+	}
+	words := strings.Join(clauses, "; and ") + "."
+	if more := len(stuck) - n; more > 0 {
+		in := ""
+		if where != "" {
+			in = ", run in " + fence.Line(where, 512)
+		}
+		words += fmt.Sprintf(" %d more such pair(s) stand here; `buddy claim <your-slug> --dry-run --scope <path>`%s, names every one.", more, in)
+	}
+	return words
+}
+
+// stuckFormed is issue #68: the door that leaves the named claims of sessionID in #67's
+// state says so, since a session's own claims are never conflicts and the holder that
+// could end it heard nothing until a peer asked. It names the shared claim to release, as
+// #67's words do: the rider is an item's outcome. Read after the write, words only.
+func stuckFormed(env Env, st *store.Store, sessionID, caller string, slugs []string) {
+	for _, t := range st.StuckBeside(sessionID, slugs) {
+		shared := strconv.Quote(fence.Line(t.Shared.Slug, 128))
+		end := fmt.Sprintf("ask %s to release %s", fence.Line(t.Shared.Claimant, 64), shared)
+		if t.Shared.Session == caller {
+			end = "release " + shared
+		}
+		fmt.Fprintf(env.Stdout, "STUCK: rider %s (%s, parked in run %s) on %s and SHARED claim %s (%s) on %s both stand: a peer's shared claim there is refused by the rider, and its exclusive one by the shared claim, while any STUCK pair stands; %s\n",
+			strconv.Quote(fence.Line(t.Rider.Slug, 128)), fence.Line(t.Rider.Claimant, 64), fence.Field(t.Rider.ParkedIn, 128),
+			strconv.Quote(fence.Line(t.Rider.Their, 512)), shared, fence.Line(t.Shared.Claimant, 64),
+			strconv.Quote(fence.Line(t.Shared.Their, 512)), end)
+	}
 }
 
 // twoRemediesClause says what each retry meets and whom to ask (issue #67). The flag for
@@ -3238,7 +3317,7 @@ func parkedNote(conflicts []store.Conflict) string {
 			fence.Field(run, 128), fence.Field(run, 128))
 	}
 	for _, run := range slices.Sorted(maps.Keys(closed)) {
-		fmt.Fprintf(&b, "PARKED: a holder above was parked in run %s, which has closed; it refuses like any claim, so ask its holder\n", fence.Field(run, 128))
+		fmt.Fprintf(&b, "PARKED: a holder above was parked in run %s, which has closed or no longer holds its slot; it refuses like any claim, so ask its holder\n", fence.Field(run, 128))
 	}
 	return b.String()
 }
@@ -3574,6 +3653,7 @@ func cmdRelease(args []string, env Env) error {
 		}
 		fmt.Fprintf(env.Stdout, "released %s from %s — still held: %s\n",
 			scopeList(scopes), strconv.Quote(fence.Line(slug, 128)), scopeList(remaining))
+		offSlotNote(env, st, si.SessionID, slug)
 		return nil
 	}
 	claimID, err := st.ReleaseOutcome(si.SessionID, si.Incarnation, slug, *outcome, *note)
@@ -3635,9 +3715,13 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 		return fencedErr(fmt.Errorf("%w; nothing was handed on", err))
 	}
 	quoted := make([]string, 0, len(moved))
+	movedSlugs := make([]string, 0, len(moved))
 	for _, m := range moved {
 		quoted = append(quoted, strconv.Quote(fence.Line(m.Slug, 128)))
+		movedSlugs = append(movedSlugs, m.Slug)
 	}
+	// After the receipt, on every return: the move has committed (#68).
+	defer stuckFormed(env, st, tgt.ID, si.SessionID, movedSlugs)
 	names := strings.Join(quoted, ", ")
 	line := fmt.Sprintf("handed %s to %s — it stays open, with its scopes", names, fence.Line(label, 64))
 	if len(moved) > 1 {
@@ -3731,6 +3815,7 @@ func releaseUnpark(st *store.Store, env Env, si store.SessionInfo, slug string) 
 	}
 	fmt.Fprintf(env.Stdout, "withdrew %s from run %s — it stays open, and refuses like any claim\n",
 		strconv.Quote(fence.Line(slug, 128)), fence.Field(run, 128))
+	defer stuckFormed(env, st, si.SessionID, si.SessionID, []string{slug})
 	for _, c := range standing {
 		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, and neither claim yields to the other\n",
 			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
@@ -3762,6 +3847,7 @@ func releasePark(st *store.Store, env Env, si store.SessionInfo, slugs []string,
 		fmt.Fprintf(env.Stdout, "overlap stands: %s (yours) and %s held by %s, claim %s; nothing was revoked, your claim does not yield to that one, and while parked it declares nothing\n",
 			fence.Line(c.Scope, 512), strconv.Quote(fence.Line(c.Their, 512)), fence.Line(c.Claimant, 64), strconv.Quote(fence.Line(c.Slug, 128)))
 	}
+	stuckFormed(env, st, si.SessionID, si.SessionID, named)
 	return nil
 }
 

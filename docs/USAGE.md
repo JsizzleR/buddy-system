@@ -702,11 +702,10 @@ The rules:
   the gate and a transfer to a third session, until its holder narrows, releases, or
   re-claims `--based-on` without `--shared`, which a peer's shared claim still refuses.
 - An exclusive rider of an open run beside an active shared claim refuses a peer both
-  ways: `--shared` meets the rider, `--based-on` the shared claim. Neither retry succeeds,
-  and `claim`, its dry run and the gate say so, naming both claims and whom to ask to
-  release the shared one (`STUCK:` on `claim`).
-- A run is an open claim holding `.buddy/slot/<its slug>`. `--in-run` refuses a
-  recipient not holding it, and a claim carrying a `.buddy` scope. `--based-on`
+  ways: `--shared` meets the rider, `--based-on` the shared claim. `claim`, its dry run,
+  the gate (three, then a count) and a door leaving your claims so name whom to ask.
+- A run is an open claim holding `.buddy/slot/<its slug>`; off it, its riders read
+  closed. `--in-run` refuses a recipient not holding it, and a claim carrying a `.buddy` scope. `--based-on`
   naming a closed run declares nothing and says so; naming a slug no row has, or an
   open claim that is no run, refuses, exit 1. A sweep deleting a closed run's row
   makes it the first kind, and its riders print an empty run slug.

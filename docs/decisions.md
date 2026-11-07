@@ -10472,9 +10472,7 @@ outcome (`TestLastScopeClosesTheClaimWithNoOutcome`).
 **Open.** One claim declares one run: a lane on two runs' trees takes two claims. After
 a red, a plain `--to` of a rider to a successor coordinator also clears the producer, so that item
 reads as the successor's. `claim <rider> --dry-run` by its holder does not say the re-claim would
-withdraw it. A run narrowed off its own slot (`release R --scope .buddy/slot/R`, or a re-claim without
-it) reads open for riders already parked while `--based-on R` refuses it as no run: the coordinator's
-own act, no recipe does it, and SQL cannot fold the slug to test it in `runOpenSQL`. A sweep deleting a
+withdraw it. A sweep deleting a
 closed run's row makes `--based-on` exit 1 and prints its riders with an empty run slug; they still
 refuse, and the core skill tells a lane what that exit means. At a green landing the coordinator's own
 `Edit` on a path an admitted lane covers is denied, and its commit there meets the commit gate (a
@@ -10555,7 +10553,9 @@ one door diverging, no reach to a standing row. Where D-042 admits it, it is gra
 **A pair standing** needs no migration; nothing is revoked. The declarer is denied naming the rider, the rider's holder passes only on its own shared claim, crossed neither passes, and a transfer of either side, or of the run with that rider, to a third session is refused.
 The cure: an exclusive re-claim with `--based-on`, once no peer's shared claim holds the path; narrowing or a release. Unparking a rider that declares nothing cures nothing (Codex design pass).
 
-**Amended 2026-11-06 (issue #67, no schema change): words; no verdict moved.** An exclusive rider of an open run beside an active shared claim refuses a peer both ways. The operator, in orc-16's pane at about 21:15Z: fix it. Measured: a peer's `--shared` is refused at `claim`, not granted as #66 recorded (`TestHolderSharedVerdicts`, which passes on the commit before). `claim`, its dry run and the gate name both and whom to ask to release the shared claim; #66's note is gone. A rule: rejected (parked.go). Narrows nothing. Open: its holder is not told; the gate names one pair.
+**Amended 2026-11-06 (issue #67, no schema change): words; no verdict moved.** An exclusive rider of an open run beside an active shared claim refuses a peer both ways. The operator, in orc-16's pane at about 21:15Z: fix it. Measured: a peer's `--shared` is refused at `claim`, not granted as #66 recorded (`TestHolderSharedVerdicts`, which passes on the commit before). `claim`, its dry run and the gate name both and whom to ask to release the shared claim; #66's note is gone. A rule: rejected (parked.go). Narrows nothing.
+
+**Amended 2026-11-07 (#68-#70, no schema change): a run without its own slot is no open run:** its riders read closed at every door (`runOpenSQL`, `buddy_fold`); a re-claim with it reopens. Verdicts move as at a close; no rule narrows. The narrowing says so; the gate names three pairs and a count; a door forming one names all.
 
 ## D-134 — A browser tool call shows on `who`'s EXIT line, and `.buddy/slot/browser` stays with its holder at a handoff (issue #64; schema 19; amends D-092 and D-093)
 
