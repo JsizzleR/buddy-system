@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,6 +77,38 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+// observeParkedOnLock reports whether some goroutine is parked in the
+// sync.Mutex.Lock that Controller.Observe calls itself (c.mu), read from the
+// runtime's goroutine dump: the "[sync.Mutex.Lock" wait reason is set only
+// once a waiter has queued on the mutex, and the Observe frame directly under
+// sync.(*Mutex).Lock rules out a lock taken deeper in the call. A dump in
+// another shape matches nothing, so the caller's waitFor times out loudly
+// rather than going on early.
+func observeParkedOnLock() bool {
+	buf := make([]byte, 1<<16)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		lines := strings.Split(g, "\n")
+		if !strings.Contains(lines[0], "[sync.Mutex.Lock") {
+			continue
+		}
+		for i, ln := range lines {
+			if strings.HasPrefix(ln, "sync.(*Mutex).Lock(") && i+2 < len(lines) &&
+				strings.HasPrefix(lines[i+2], "github.com/JsizzleR/buddy-system/internal/harness.(*Controller).Observe(") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func journalRows(t *testing.T, path string) []Receipt {
@@ -275,14 +309,21 @@ func TestControllerRenewalJournalsFencedPathsAndReplays(t *testing.T) {
 // before the THIRD. Not the second: Go's mutex lets the running loop take the
 // lock once more before the waiter, which has then waited over 1 ms, puts the
 // mutex in starvation mode and is handed it next. So the bound is two holds,
-// whatever the reader refills, where it used to be every batch.
+// whatever the reader refills, where it used to be every batch, once the
+// waiter has RUN between the holds: Go does not schedule that, and a real
+// ledger call, giving up the processor, only makes it likely (#73).
 func TestControllerRenewalReleasesTheLockBetweenBatches(t *testing.T) {
 	c, b, l, _, path := renewalController(t, nil)
 	first := make(chan struct{})
 	release := make(chan struct{})
+	// Unblocks the first batch on every return, a Fatalf's included: the
+	// cleanup's Close waits for the lock that batch holds (Codex, #73).
+	var unblock sync.Once
+	defer unblock.Do(func() { close(release) })
 	var calls sync.Mutex
 	n := 0
 	order := make(chan string, 16)
+	var approved atomic.Bool
 	l.renewing = func(context.Context) error {
 		calls.Lock()
 		n++
@@ -292,6 +333,23 @@ func TestControllerRenewalReleasesTheLockBetweenBatches(t *testing.T) {
 		if call == 1 {
 			close(first)
 			<-release
+		}
+		if call == 2 {
+			// #73: the first batch's Unlock only makes the waiting approval
+			// runnable. Unless it then RUNS, sees it has waited past 1 ms and
+			// puts the mutex in starvation mode, a loop whose ledger call
+			// never blocks takes the lock again for the third batch too
+			// (-cpu 1, 24 runs at once, the park wait below alone: 100 of
+			// 600). A real ledger call gives up the processor; this fake one
+			// waits until the approval has had its turn: parked on the lock
+			// again (starvation now set: it was runnable, not parked, until
+			// it ran) or through it.
+			for deadline := time.Now().Add(5 * time.Second); !observeParkedOnLock() && !approved.Load(); time.Sleep(time.Millisecond) {
+				if time.Now().After(deadline) {
+					t.Error("the approval never ran after the first batch released the lock")
+					break
+				}
+			}
 		}
 		return nil
 	}
@@ -308,11 +366,22 @@ func TestControllerRenewalReleasesTheLockBetweenBatches(t *testing.T) {
 	go func() {
 		approval := &Approval{ID: json.RawMessage(`"perm-1"`), NativeSessionID: l.identity.SessionID, TurnID: "turn-1", Kind: "can_use_tool"}
 		_, _ = c.Observe(context.Background(), Event{Kind: "approval", NativeSessionID: l.identity.SessionID, TurnID: "turn-1", Approval: approval})
+		approved.Store(true)
 		order <- "approval"
 		close(done)
 	}()
-	time.Sleep(50 * time.Millisecond) // the approval is now waiting on the lock
-	close(release)
+	// #73: a 50 ms sleep stood here, on the guess that the approval was by
+	// then queued on the lock. On a loaded runner it need not be, the loop
+	// takes all three batches first, and the test reports this regression
+	// when none happened. Wait instead until the approval is SEEN parked in
+	// the lock Observe takes, then until it has waited past Go's 1 ms
+	// starvation threshold: a sleep after the park only lengthens a wait that
+	// has already begun, so no scheduler can make it too short. A waiter woken
+	// before that threshold can lose the lock to the loop more than once,
+	// which is the scheduler, not the controller.
+	waitFor(t, "the approval to park on the controller lock", observeParkedOnLock)
+	time.Sleep(2 * time.Millisecond)
+	unblock.Do(func() { close(release) })
 	<-done
 	waitFor(t, "the third batch", func() bool { return len(l.renewed()) == 3 })
 	// The journal is the order of lock holds: each receipt is persisted
