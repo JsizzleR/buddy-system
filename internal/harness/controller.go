@@ -894,11 +894,17 @@ func (c *Controller) renewLoop() {
 // bounded ledger call) of due observed paths, journals its receipt (or one for
 // newly lost coverage), and returns when the earliest deferred path falls due
 // (zero when none). More due paths re-signal the loop, which runs again after
-// the lock is released, so an approval or control call waiting on the lock
-// waits for at most two holds' ledger bounds: Go's mutex lets this loop take
-// it once more, then hands it to a waiter that has waited over 1 ms (Codex
-// review of the code pass, finding 3: two batches, or a reader refilling the
-// mailbox, held it for every call).
+// the lock is released (Codex review of the code pass, finding 3: two
+// batches, or a reader refilling the mailbox, held it for every call). One
+// batch per hold is what this code guarantees. What an approval or control
+// call waiting on the lock waits for is Go's mutex and scheduler: an Unlock
+// only makes the waiter runnable, and this loop may take the lock again
+// first. Once the waiter has RUN after such an Unlock, having waited over
+// 1 ms, it puts the mutex in starvation mode and the next Unlock hands the
+// lock to it, so it waits for at most two holds' ledger bounds. Until it runs,
+// nothing here stops a third: on one P with a ledger call that never blocks,
+// measured (#73), the loop took the next batch too. A real ledger call gives
+// up the processor, which lets the waiter run but does not guarantee it.
 // Callers hold c.mu. It refuses to act for a controller that is closed,
 // broken or unbound; observations then stay unapplied, never misattributed.
 func (c *Controller) applyRenewalsLocked(ctx context.Context) time.Time {
