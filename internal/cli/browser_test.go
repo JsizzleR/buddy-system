@@ -60,10 +60,11 @@ func TestIsBrowserToolIsNarrow(t *testing.T) {
 	}
 }
 
-// install.sh's matcher report carries its own copy of the list, in Python: a
-// server added here and not there would be called excluded by every install.
+// install.sh's matcher report (and --wire-hooks, D-135) reads its own copy of
+// the list, in Python, from scripts/gate-hook.py: a server added here and not
+// there would be called excluded by every install.
 func TestInstallKnowsEveryBrowserPrefix(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "scripts", "install.sh"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "scripts", "gate-hook.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestInstallKnowsEveryBrowserPrefix(t *testing.T) {
 	}
 	for _, p := range browserToolPrefixes {
 		if !strings.Contains(string(b), `"`+p+`"`) {
-			t.Errorf("scripts/install.sh does not name %s", p)
+			t.Errorf("scripts/gate-hook.py does not name %s", p)
 		}
 	}
 }

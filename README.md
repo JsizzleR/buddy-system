@@ -194,7 +194,10 @@ re-running it is safe.
 
 Add these to `~/.claude/settings.json` (every repo; the ones never `buddy
 init`-ed stay off while `buddy` runs) or to one repo's `.claude/settings.local.json`. The
-install script's report reads only the user-level file. Every line is guarded,
+install script's report reads only the user-level file; `sh scripts/install.sh --wire-hooks`
+(or `buddy update --wire-hooks`) appends to it the lines its report names missing, each in an
+entry of its own, spelled as below (the browser pair as USAGE spells it), and changes nothing
+else (D-135); beside a `BUDDY_BIN_DIR` other than `~/bin`, which the lines run, it refuses. Every line is guarded,
 so a missing binary turns the feature off rather than failing a tool call. The
 gate is the one line that refuses: a `buddy` that is installed but crashes, is
 killed or cannot run refuses the call (exit 2) rather than letting it through.

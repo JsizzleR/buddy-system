@@ -95,8 +95,8 @@ worktree of a checkout shares one, and git never sees it); the chat journal is
 
 ```sh
 sh scripts/check.sh [all|hermetic|live]   # default all
-sh scripts/install.sh                     # INSTALL/UPGRADE this machine; re-run after every pull (below)
-buddy update [--dry-run]                  # install.sh in the checkout buddy was built from, after a local report (D-110)
+sh scripts/install.sh [--wire-hooks]      # INSTALL/UPGRADE this machine; re-run after every pull (below)
+buddy update [--dry-run] [--wire-hooks]   # install.sh in the checkout buddy was built from, after a local report (D-110)
 sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (below); also installs the skills
 sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy{,-fleet,-lead}/SKILL.md after a pull
 sh scripts/env-check.sh [--list]          # read-only machine check for parallel sessions (D-121); PASS/WARN/FAIL/CANNOT-ASSESS, exit 1 on FAIL only
@@ -127,8 +127,9 @@ operator-authorized only; read the release notes first.
   `~/bin` (hooks, MCP), the launchd daemon's program (the plist names the
   checkout's `bin/`, not `~/bin`), and `bin/` copies; verifies each by running
   it; installs the skills; `kickstart -k`s the daemon; runs setup-clone; reports
-  hook wiring without editing settings. A schema bump makes a forgotten copy a
-  DENY (D-037). `check-install.sh` gates it hermetically.
+  hook wiring, and edits settings only under `--wire-hooks`, which appends the
+  buddy lines the report names missing and nothing else (D-135). A schema bump
+  makes a forgotten copy a DENY (D-037). `check-install.sh` gates it hermetically.
 - **`setup-clone.sh` is not automatic and cannot be.** Git refuses to let a
   repository set its own `core.hooksPath` (it names programs git will execute),
   so an **uninstalled hook is the default state of every fresh clone**. The
@@ -430,7 +431,7 @@ Every number stays on some line.
 - **Launching.** buddy launches, wakes and ends nothing, no `exit` verb; a coordinator opens its own lanes with the harness; a `claude --bg` lane anchors at its own process; `buddy-adapter` is the one exception (D-027, D-039, D-056, D-058, D-074).
 - **Fleet.** Landing is a skill recipe over existing verbs, no task table: `wait --ready`, `release --outcome`, a brief in a file; the next round may branch from a run in flight, restacked only when code under it changes; a pane closing at READY parks its item in the run, for its outcome and owner, and a red's overlaps are the coordinator's to sort out; a relay to one coordinator, carrying content and scope only when marked as said in its pane; a subagent is not a lane; a job gone without its final line is a failed run, only that line gives the result, and a declared job's GONE says to look for it (D-049, D-062, D-082, D-083, D-103, D-109, D-119, D-131, D-133).
 - **Review, models.** The tier follows the change class; the receipt names each layer and Codex effort; every lane on the default lane model, Fable for reviews only; every brief names a round ceiling (lite: one pass folded once; full: at most two re-verifies); a subagent names its model, and a hook refuses an unnamed general-purpose Agent call; a coordinator may hand off at a batch boundary; the charter's adapter-only GIVENs ride as one-line stubs, in full on `CODEX_CHARTER=adapter` (D-104, D-111, D-115, D-117, D-128).
-- **Install.** `install.sh` upgrades every buddy binary the machine runs, waits out a new daemon's launch constraint, skips no later step, and reports, never installs, the Agent-model hook's copy and wiring; `buddy update` runs it from the stamped checkout, never fetches; the chat posture is stamped in buddy and kept while `BUDDY_CHAT` is unset, and `hello` obeys it unless `BUDDY_CHAT` says off or on, so a claims-only install needs no settings line; `buddy uninstall [--chat]` runs that checkout's uninstall.sh, chat first through launchd, buddy last, settings and data only reported; install and uninstall share one lock in the bin dir, a held one stops the other (D-050, D-067, D-110, D-120, D-124, D-125, D-126, D-127).
+- **Install.** `install.sh` upgrades every buddy binary the machine runs, waits out a new daemon's launch constraint, skips no later step, and reports, never installs, the Agent-model hook's copy and wiring; `--wire-hooks` appends only the missing buddy lines, never relayed, no harness refused; `buddy update` runs it from the stamped checkout, never fetches; the chat posture is stamped in buddy and kept while `BUDDY_CHAT` is unset, and `hello` obeys it unless `BUDDY_CHAT` says off or on, so a claims-only install needs no settings line; `buddy uninstall [--chat]` runs that checkout's uninstall.sh, chat first through launchd, buddy last, settings and data only reported; install and uninstall share one lock in the bin dir, a held one stops the other (D-050, D-067, D-110, D-120, D-124, D-125, D-126, D-127, D-135).
 - **Tests.** Never with git's local environment; a test binary outliving its `go test` is ended from outside and leaves a sample; the watchdog also ends a `-race` forkExec child stuck before exec (D-053, D-057, D-061).
 - **Codex, adapter.** Codex through the patch gate and native identity, roles explicit; versioned receipts; `buddy-adapter` controls only workers it launches, owns their process group, validates the descriptor before any child; its mail is its own register; its worker's claims renew only from completed native writes (D-068, D-070, D-074, D-076, D-077, D-078).
 - **Admission, qualification.** A committed exact-artifact record compiled into the adapter; recovery exact-version and terminal-evidence-bound; `diagnose` promotes nothing to readiness; a candidate bound by typed sha256, loopback only; one runner writes earned tiers only (D-071, D-072, D-075, D-079, D-080, D-081).

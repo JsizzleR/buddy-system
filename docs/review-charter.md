@@ -452,9 +452,21 @@ ledger row entered through the CLI (D-006).
 53. **`scripts/install.sh` is the one install and upgrade path (D-050).** It rebuilds every buddy
     binary the machine runs, found by where it is run from (`~/bin`, the launchd daemon's plist
     program, the checkout's `bin/`), runs each once, installs the skill, `kickstart -k`s the
-    daemon, runs setup-clone, and REPORTS hook wiring without editing settings. Every sub-step's
-    status is the install's. Do not propose editing `~/.claude/settings.json` from it, or `cp`
-    for the binaries. It also REPORTS, and never installs or fails on, the Agent-model hook
+    daemon, runs setup-clone, and REPORTS hook wiring. Every sub-step's status is the install's.
+    It edits settings only under the operator's opt-in `--wire-hooks` (D-135; `buddy update
+    --wire-hooks` forwards it to an install.sh carrying the line `# buddy-install-accepts:
+    --wire-hooks`): before step 1 a preflight refuses a file it would refuse to write; at step 6
+    `scripts/wire-hooks.py` APPENDS, as new entries, exactly the tokens the report's grep named
+    missing in a snapshot the file must still match, plus the #71 browser beats
+    `gate-hook.py`'s `browser_gone` names, each spelled by `gate-hook.py`'s table (README's and
+    USAGE's blocks held to it); a text splice verified to decode to the old document plus those
+    entries, a 0600 backup, a same-directory temp renamed over it; refused, nothing written: a
+    symlink, a hard link, another user's or a read-only file, over 1 MiB, not UTF-8 JSON, a
+    duplicate key, a non-object `hooks`, a non-list event or a non-hook entry, `disableAllHooks`,
+    and (before step 1) a `$BUDDY_BIN_DIR` that is not `~/bin`, which the lines run. No harness environment is refused (the operator's choice:
+    the write set is fixed, and `env -u` defeats a check); settings are never relayed. Do not
+    propose it rewrite, reorder, "fix" or remove an entry, touch another key or file, or wire the
+    Agent-model hook; nor `cp` for the binaries. It also REPORTS, and never installs or fails on, the Agent-model hook
     (D-120): whether `$BUDDY_BIN_DIR/agent-model-gate.py` is byte-identical to
     `scripts/hooks/agent-model-gate.py` (naming the `cp` when not), and whether settings wire
     a PreToolUse command naming it under a matcher selecting `Agent`, decoded with
@@ -988,7 +1000,8 @@ ledger row entered through the CLI (D-006).
     `onFailure` (Claude Code 2.1.295+; documented, not measured). The reach is the
     operator's choice: a dead installed buddy refuses every gated call everywhere, ledger
     or none, so GIVEN 2 holds "while `buddy` runs". `install.sh` reports README's, LEGACY
-    or custom and never edits settings, and builds beside the target, renaming in only
+    or custom, edits settings only under GIVEN 53's `--wire-hooks` (adding README's entry
+    where the report names the gate missing, never replacing one), and builds beside the target, renaming in only
     after a `gate` probe passes. Codex's wiring is wrapped the same way without the `[ -x ]`
     guard. A binary that exits 0 having decided nothing (a zero-byte one included) is a
     named residual. Do not propose a stdout-capturing deny JSON at exit 0, a shell-level
@@ -1163,7 +1176,8 @@ ledger row entered through the CLI (D-006).
     whatever the stamp says; any other value, unset included, leaves it to the stamp read
     in-process (`installedChat`, the hook runs the stamped file); unstamped prints for all but
     `off`, as before. Never refused. Do not propose the stamp outranking the variable, reading
-    the installed file's build info per SessionStart, or install.sh writing settings.
+    the installed file's build info per SessionStart, or install.sh writing settings (beyond
+    GIVEN 53's `--wire-hooks`, which adds hook lines only).
 
 121. **The GIVENs only adapter code rests on ride every pass as one-line stubs; their full
     text is appended on `CODEX_CHARTER=adapter` (D-128).** Moved: 72, 76, 78, 80, 81, 82;

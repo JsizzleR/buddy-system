@@ -658,3 +658,64 @@ func TestUpdateNotesAnUnstampedBuddyWithoutBuddylist(t *testing.T) {
 		t.Fatalf("control: a buddylist beside it draws no note:\n%s", out)
 	}
 }
+
+// D-135: --wire-hooks reaches install.sh as its argv, and only an install.sh
+// that declares the flag (the marker line) is run with it: an older one
+// ignored its argv, so the flag would install in full and wire nothing. The
+// unflagged run passes no argument at all, its count printed (an empty one
+// prints as [] too; Codex code pass): the control that the flag adds it.
+func TestUpdateForwardsWireHooksOnlyToAnInstallThatTakesIt(t *testing.T) {
+	boundedParallel(t)
+	f := newUpdFix(t)
+	inst := filepath.Join(f.c, "scripts", "install.sh")
+	stub := func(marker string) {
+		t.Helper()
+		s := "#!/bin/sh\n" + marker + "\n{ printf '%s:' \"$#\"; printf '[%s]' \"$@\"; } > '" + f.rec + ".args'\npwd -P > '" + f.rec + "'\n"
+		if err := os.WriteFile(inst, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		os.Remove(f.rec)
+		os.Remove(f.rec + ".args")
+	}
+	args := func() string {
+		t.Helper()
+		b, err := os.ReadFile(f.rec + ".args")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	// An install.sh that only mentions the flag (a comment, an older draft) is
+	// not one that takes it.
+	for _, m := range []string{"", "# TODO: support --wire-hooks", "#  " + wireMarker[2:], wireMarker + " (soon)"} {
+		stub(m)
+		rc, _, errs := runUpd(t, updateSource{checkout: f.c}, "--wire-hooks")
+		if rc != 1 || f.ran(t) || !strings.Contains(errs, "does not declare the flag") {
+			t.Fatalf("marker %q: rc=%d ran=%v stderr=%q, want refused before running", m, rc, f.ran(t), errs)
+		}
+		rc, out, _ := runUpd(t, updateSource{checkout: f.c}, "--wire-hooks", "--dry-run")
+		if rc != 1 || f.ran(t) || !strings.Contains(out, "would REFUSE") {
+			t.Fatalf("marker %q dry run: rc=%d out=%q", m, rc, out)
+		}
+	}
+	stub(wireMarker)
+	rc, out, _ := runUpd(t, updateSource{checkout: f.c}, "--wire-hooks", "--dry-run")
+	if rc != 0 || f.ran(t) || !strings.Contains(out, "would run: sh "+inst+" --wire-hooks") {
+		t.Fatalf("dry run: rc=%d ran=%v out=%q", rc, f.ran(t), out)
+	}
+	rc, out, _ = runUpd(t, updateSource{checkout: f.c}, "--wire-hooks")
+	if rc != 0 || !f.ran(t) || args() != "1:[--wire-hooks]" || !strings.Contains(out, "running: sh "+inst+" --wire-hooks") {
+		t.Fatalf("wire: rc=%d out=%q", rc, out)
+	}
+	stub(wireMarker)
+	if rc, _, _ := runUpd(t, updateSource{checkout: f.c}); rc != 0 || !f.ran(t) || args() != "0:[]" {
+		t.Fatalf("control: the unflagged update passes no argument: rc=%d args=%q", rc, args())
+	}
+}
+
+// The real install.sh carries the marker, as a line of its own.
+func TestInstallScriptDeclaresWireHooks(t *testing.T) {
+	if !takesWire(filepath.Join("..", "..", "scripts", "install.sh")) {
+		t.Fatalf("scripts/install.sh lacks the line %q that buddy update --wire-hooks looks for", wireMarker)
+	}
+}

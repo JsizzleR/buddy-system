@@ -72,8 +72,15 @@ import (
 	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
-const usageUpdate = "usage: buddy update [--dry-run]   (reinstall from the checkout this buddy was installed from: report\n" +
-	"       where it stands, from local git only, then run its scripts/install.sh; --dry-run reports and installs nothing)"
+const usageUpdate = "usage: buddy update [--dry-run] [--wire-hooks]   (reinstall from the checkout this buddy was installed from:\n" +
+	"       report where it stands, from local git only, then run its scripts/install.sh; --dry-run reports and installs\n" +
+	"       nothing; --wire-hooks passes install.sh's flag: append the buddy hook lines its report names missing, D-135)"
+
+// wireMarker is the line an install.sh that takes --wire-hooks carries (D-135).
+// An older one ignored its argv, so forwarding the flag to it would install in
+// full, wire nothing and exit 0; a deliberate declaration, not any mention of
+// the flag, is the test (Codex design pass: a comment naming it would pass).
+const wireMarker = "# buddy-install-accepts: --wire-hooks"
 
 // installedFrom is the checkout install.sh built this binary in, stamped with
 // -ldflags -X. Empty for any other build. A plain var with no initializer:
@@ -198,6 +205,7 @@ func runUpdate(args []string, env Env, src updateSource) int {
 	}
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	dry := fs.Bool("dry-run", false, "")
+	wire := fs.Bool("wire-hooks", false, "")
 	if help, err := parseFlags(fs, args, usageUpdate, env); help {
 		return 0
 	} else if err != nil {
@@ -222,6 +230,15 @@ func runUpdate(args []string, env Env, src updateSource) int {
 		}
 	}
 	installCmd := "sh " + shellQuote(filepath.Join(c, "scripts", "install.sh"))
+	var installArgs []string
+	if *wire {
+		installCmd += " --wire-hooks"
+		installArgs = []string{"--wire-hooks"}
+		if r.refusal == "" && !takesWire(filepath.Join(c, "scripts", "install.sh")) {
+			r.refusal = "--wire-hooks: " + shellQuote(filepath.Join(c, "scripts", "install.sh")) +
+				" does not declare the flag (no line " + wireMarker + "), so it would ignore it; update that checkout first"
+		}
+	}
 	if r.refusal != "" {
 		if *dry {
 			fmt.Fprintln(w, "dry run: nothing installed; buddy update would REFUSE:")
@@ -233,7 +250,7 @@ func runUpdate(args []string, env Env, src updateSource) int {
 		return 0
 	}
 	fmt.Fprintf(w, "running: %s (from %s)\n", installCmd, shellQuote(c))
-	cmd := exec.Command(src.sh, filepath.Join(c, "scripts", "install.sh"))
+	cmd := exec.Command(src.sh, append([]string{filepath.Join(c, "scripts", "install.sh")}, installArgs...)...)
 	cmd.Dir = c
 	// No stdin: install.sh reads none, and a hook payload a misconfigured
 	// hook line would pipe in has no business reaching it (Codex).
@@ -256,6 +273,20 @@ func runUpdate(args []string, env Env, src updateSource) int {
 		return refuse(fmt.Errorf("could not run %s: %v", installCmd, err))
 	}
 	return 0
+}
+
+// takesWire reports whether install.sh carries wireMarker as a whole line.
+func takesWire(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.TrimRight(l, "\r") == wireMarker {
+			return true
+		}
+	}
+	return false
 }
 
 // checkoutOf believes the stamp only as far as it checks out. Every refusal

@@ -2,9 +2,13 @@
 # install.sh — install or UPGRADE everything buddy puts on this machine, from
 # this checkout, and say what it did. Safe to re-run after every pull.
 #
-#   sh scripts/install.sh
-#   buddy update          (once installed, from anywhere: runs this script in
-#                          the checkout the installed buddy was built from)
+#   sh scripts/install.sh [--wire-hooks]
+#   buddy update [--wire-hooks]   (once installed, from anywhere: runs this
+#                          script in the checkout the installed buddy was built from)
+# buddy-install-accepts: --wire-hooks
+#   (that line is buddy update's test that this script takes the flag: an
+#   older install.sh ignored its argv, so the flag would have done nothing
+#   and said nothing; D-135)
 #
 # WHY ONE SCRIPT. An upgrade touched four places by hand, and the one that was
 # forgotten was the one nobody could see. Measured 2026-09-26, right after a
@@ -39,8 +43,12 @@
 #   6. REPORTS which Claude Code hooks are wired in ~/.claude/settings.json,
 #      and whether the gate's is README's fail-closed entry or the old line
 #      that let a crashed buddy's tool call through (D-107).
-#      It never edits that file: which hooks a user runs is theirs to choose,
-#      and a script that rewrote it would be a script that could remove one.
+#      Without --wire-hooks it never edits that file: which hooks a user runs
+#      is theirs to choose, and a script that rewrote it would be a script
+#      that could remove one. With it (the operator's opt-in, D-135), step 6
+#      first APPENDS the entries this report names missing, each hook as README
+#      or USAGE spells it, in an entry of its own, and nothing else (scripts/wire-hooks.py says how
+#      and what it refuses); the report then reads the file as written.
 #      It also REPORTS whether the Agent-model hook's copy in the bin dir is
 #      this checkout's script, and whether settings wire it (D-120); it
 #      installs neither.
@@ -112,7 +120,8 @@
 #   BUDDY_FLEET_SKILL_DIR  likewise                       (default buddy-fleet beside it)
 #   BUDDY_DAEMON=off    skip step 4 (and the daemon's program in step 1)
 #   BUDDY_SETUP_CLONE=off  skip step 5
-#   BUDDY_SETTINGS      the settings file step 6 reads   (default ~/.claude/settings.json)
+#   BUDDY_SETTINGS      the settings file step 6 reads, and the one --wire-hooks
+#                       WRITES, taken from this run's environment (default ~/.claude/settings.json)
 #   BUDDY_REPO_BIN=off  skip the checkout's own bin/ copies in step 1
 #   BUDDY_PLIST         the daemon agent's plist          (default ~/Library/LaunchAgents/<agent>.plist)
 #   BUDDY_LAUNCHCTL     the launchctl step 4 runs         (default launchctl; the done-check's is a fake)
@@ -123,7 +132,8 @@
 #                       remnants report reads             (default ~/.claude.json)
 #   BUDDY_MCP_JSON      the checkout's MCP registrations file it reads
 #                                                         (default <checkout>/.mcp.json)
-#   BUDDY_PYTHON        the python step 6a decodes settings with (default python3)
+#   BUDDY_PYTHON        the python step 6a decodes settings with, and --wire-hooks
+#                       writes them with (default python3)
 set -eu
 CDPATH= cd -- "$(dirname -- "$0")/.."
 ROOT=$(pwd)
@@ -155,6 +165,16 @@ chat=$(printf '%s' "${BUDDY_CHAT:-}" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_
 deferred=""
 say() { echo "install: $*"; }
 die() { echo "install: FAILED — $*" >&2; exit 1; }
+# The one argument (D-135). Anything else is refused before anything runs: an
+# install that ignored a mistyped flag would run in full and wire nothing.
+wire=""
+for a in "$@"; do
+	case $a in
+	--wire-hooks) wire=1 ;;
+	*) die "unknown argument '$(printf '%s' "$a" | LC_ALL=C tr -c '[:print:]' '?' | head -c 64)' (usage: sh scripts/install.sh [--wire-hooks])" ;;
+	esac
+done
+py=${BUDDY_PYTHON:-python3}
 # shq: one word a shell reads back as the same path, for a remedy line meant
 # to be pasted (bare when every byte is safe, else single-quoted).
 shq() {
@@ -182,7 +202,8 @@ esac
 lock_dir=$BIN_DIR
 case $lock_dir in /*) ;; *) lock_dir=$ROOT/$lock_dir ;; esac
 mkdir -p "$lock_dir" || die "could not create $lock_dir"
-trap 'ilock_release' EXIT
+snap_tmp=""
+trap '[ -z "$snap_tmp" ] || rm -f "$snap_tmp"; ilock_release' EXIT
 ilock_signals
 ilock_take install.sh "$lock_dir/.buddy-install.lock"
 
@@ -244,6 +265,23 @@ else
 	if [ -f "$BIN_DIR/buddy" ] && [ ! -e "$BIN_DIR/buddylist" ]; then
 		say "chat: NOTE — $BIN_DIR/buddy records no chat posture (built before D-124, by hand, or under -trimpath) and has no buddylist beside it; if this install was claims-only, interrupt now and re-run with BUDDY_CHAT=off"
 	fi
+fi
+
+# --wire-hooks' preflight, BEFORE step 1 (D-135): a wiring that is going to be
+# refused (no python, a symlinked or unparseable settings file, ...) stops here,
+# with nothing built, rather than after a full install.
+if [ -n "$wire" ]; then
+	command -v "$py" >/dev/null 2>&1 || die "--wire-hooks needs $py to decode $SETTINGS; nothing installed"
+	# The lines it writes run "$HOME/bin/buddy": beside binaries elsewhere they
+	# run nothing, the gate included, while the report says wired (Fable).
+	# The x keeps a name's trailing newline from $( ) (a "bin<LF>" passed as
+	# ~/bin), and CDPATH= keeps cd from printing (Codex re-verify).
+	real_dir() { (CDPATH= cd -- "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"; printf x; }
+	[ "$(real_dir "$BIN_DIR")" = "$(real_dir "$HOME/bin")" ] ||
+		die "--wire-hooks writes lines that run \$HOME/bin/buddy, and BUDDY_BIN_DIR is $BIN_DIR: they would run nothing; wire by hand; nothing installed"
+	pre=$("$py" -I -B "$ROOT/scripts/wire-hooks.py" check "$SETTINGS" 2>&1) ||
+		die "${pre:-$ROOT/scripts/wire-hooks.py check failed}; nothing installed"
+	say "hooks: --wire-hooks: step 6 adds the entries the report names missing to $SETTINGS, and nothing else"
 fi
 
 # build <cmd> <target>: go build -o a NEW file beside the target, run it once
@@ -460,17 +498,57 @@ if [ -z "$chat_off" ]; then
 	wanted="$wanted buddylist alert buddylist presence"
 	count=eight
 fi
-if [ ! -f "$SETTINGS" ]; then
-	say "hooks: no $SETTINGS — none are wired; README \"Hook wiring\" has the lines"
-else
+# hooks_missing <file>: the report's test, a token anywhere in the file's
+# bytes. --wire-hooks runs it on a snapshot and the writer refuses unless the
+# file still holds those bytes, so the report and the write read one version.
+hooks_missing() {
 	missing=""
+	hm_file=$1
 	set -- $wanted
 	while [ $# -ge 2 ]; do
 		bin=$1 verb=$2; shift 2
-		if ! grep -q "$bin\\\\\"* $verb" "$SETTINGS" && ! grep -q "/$bin $verb" "$SETTINGS"; then
+		if ! grep -q "$bin\\\\\"* $verb" "$hm_file" && ! grep -q "/$bin $verb" "$hm_file"; then
 			missing="$missing $bin $verb"
 		fi
 	done
+}
+# 6 (--wire-hooks, D-135). The writer appends what the report names, and is all
+# or nothing (one rename): a refusal leaves the file as it was, the gate's
+# entry included, and fails the install at the end like the daemon's.
+if [ -n "$wire" ]; then
+	snap="-"
+	if [ -e "$SETTINGS" ] || [ -L "$SETTINGS" ]; then
+		# mktemp makes it 0600: the copy may hold the env block's secrets.
+		snap=$(mktemp "${TMPDIR:-/tmp}/buddy-wire.XXXXXX") || snap=""
+		snap_tmp=$snap
+		if [ -n "$snap" ] && ! cat "$SETTINGS" > "$snap" 2>/dev/null; then
+			rm -f "$snap"
+			snap=""
+		fi
+		[ -z "$snap" ] || hooks_missing "$snap"
+	else
+		missing=" $wanted"
+	fi
+	if [ -z "$snap" ]; then
+		wired_out="hooks: --wire-hooks REFUSED, nothing written: could not read $SETTINGS"
+		wired_rc=1
+	else
+		set -- $missing
+		n=$#
+		while [ "$n" -gt 0 ]; do
+			b=$1 v=$2; shift 2; n=$((n - 2))
+			set -- "$@" "$b $v"
+		done
+		wired_out=$("$py" -I -B "$ROOT/scripts/wire-hooks.py" wire "$SETTINGS" "$snap" "$@" 2>&1) && wired_rc=0 || wired_rc=$?
+		[ "$snap" = - ] || rm -f "$snap"
+	fi
+	[ -z "$wired_out" ] || printf '%s\n' "$wired_out" | while IFS= read -r l; do say "$l"; done
+	[ "$wired_rc" = 0 ] || deferred="${deferred:+$deferred; }--wire-hooks did not complete (above)"
+fi
+if [ ! -f "$SETTINGS" ]; then
+	say "hooks: no $SETTINGS — none are wired; README \"Hook wiring\" has the lines"
+else
+	hooks_missing "$SETTINGS"
 	if [ -z "$missing" ]; then
 		say "hooks: all $count wired in $SETTINGS"
 	else
@@ -493,57 +571,12 @@ else
 	# 6a'. What `who`'s browser clause needs (D-134): beat on a matcher that
 	# selects a browser tool. The grep above reads `buddy beat` as wired on any
 	# matcher, and one that excludes them records nothing and says nothing, so
-	# decoded here and said only then. matcher_names is gate-hook.py's, one reading
-	# of a matcher for every report. An exact name counts by its prefix; a regex is
-	# searched unanchored, as the harness does, against one name per server, so a
-	# regex for other names on them can read as excluding; one Python cannot read is
-	# not judged. PREFIXES is browser.go's list, held to it by a test. The same
-	# reading says when no beat on PreToolUse or PostToolUseFailure selects one:
-	# optional entries (#71), so said in one line until wired, never as a fault.
-	# Advisory: settings unchanged.
+	# decoded and said only then; and when no beat on PreToolUse or
+	# PostToolUseFailure selects one, the optional #71 entries, in one line
+	# until wired, never as a fault. The reading is gate-hook.py's
+	# (browser_report), the one --wire-hooks acts on (D-135). Advisory.
 	if command -v "$py" >/dev/null 2>&1; then
-		beat=$("$py" -I - "$SETTINGS" "$ROOT/scripts/gate-hook.py" 2>/dev/null <<'PY' || true
-import importlib.util, json, re, sys
-sys.dont_write_bytecode = True
-spec = importlib.util.spec_from_file_location("gate_hook", sys.argv[2])
-gh = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(gh)
-hooks = json.load(open(sys.argv[1])).get("hooks") or {}
-PREFIXES = ["mcp__claude-in-chrome__", "mcp__playwright__", "mcp__plugin_playwright_playwright__",
-            "mcp__Claude_Browser__", "mcp__remote-devices__Claude_Browser__", "mcp__chrome-devtools__",
-            "mcp__plugin_chrome-devtools-mcp_chrome-devtools__", "mcp__browser-use__"]
-PROBES = [p + "browser_click" for p in PREFIXES]
-def selects(m):
-    names = gh.matcher_names(m)
-    if names == "*":
-        return True
-    if names is None:
-        try:
-            return any(re.search(m, p) for p in PROBES)
-        except (re.error, TypeError):
-            return True
-    return any(n.startswith(p) for n in names for p in PREFIXES)
-def beats(ev):
-    for e in hooks.get(ev) or []:
-        cmds = [h.get("command", "") for h in e.get("hooks") or [] if isinstance(h, dict)]
-        if any(re.search(r'buddy\\?"? beat', c) for c in cmds):
-            yield e.get("matcher")
-# any() stops at the first matcher that selects, as the old loop did: a later
-# regex is never tried (Codex code pass, #71: backtracking could stall it).
-post = list(beats("PostToolUse"))
-if post and not any(selects(m) for m in post):
-    excluded = [json.dumps(m) for m in post]
-    print('hooks: PostToolUse runs buddy beat on matcher %s, which selects no browser tool it was tried on, so `who` reports no browser tool call; README "Hook wiring" uses "*" (D-134)' % ", ".join(excluded))
-# #71: the two optional entries, said only when none selects a browser tool. A
-# PreToolUse beat already sees a call that fails, so PostToolUseFailure alone is
-# not named (Codex code pass).
-gone = [ev for ev in ("PreToolUse", "PostToolUseFailure") if not any(selects(m) for m in beats(ev))]
-if gone == ["PostToolUseFailure"]:
-    gone = []
-if gone:
-    print('hooks: no buddy beat on %s for browser tools, so `who` misses a browser call %s; docs/USAGE.md "The browser slot" has the optional lines (#71)' % (" or ".join(gone), " or ".join({"PreToolUse": "in flight", "PostToolUseFailure": "that failed"}[ev] for ev in gone)))
-PY
-		)
+		beat=$("$py" -I -B "$ROOT/scripts/gate-hook.py" browser-report "$SETTINGS" 2>/dev/null || true)
 		[ -z "$beat" ] || printf '%s\n' "$beat" | while IFS= read -r l; do say "$l"; done
 	fi
 fi
@@ -778,7 +811,7 @@ fi
 # UserPromptSubmit hook's environment). In the handoffs measured for D-055 the
 # OPERATOR noticed the size in 3 of 4, and the next one measured (2026-09-29)
 # was the same, so whether it is set is worth one line. Reported only: the
-# size is the operator's to choose and this script never edits settings. A
+# size is the operator's to choose and this script never edits that block. A
 # grep, not a JSON parse: it matches the key as a JSON key and nothing else,
 # and a false "set" would only say so.
 handoff=""

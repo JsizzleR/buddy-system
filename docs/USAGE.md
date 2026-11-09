@@ -465,7 +465,11 @@ running: sh /Users/me/src/buddy-system/scripts/install.sh (from /Users/me/src/bu
 - **It tells, and installs anyway,** when the tree has uncommitted changes
   (they are built in, as `install.sh` says) or is on a branch other than main
   (that branch is what gets built), naming the command that changes it.
-- **It refuses one case:** the installed build's commit is in the checkout but
+- **`--wire-hooks`** passes install.sh's flag (D-135: append the buddy hook lines its report
+  names missing to `BUDDY_SETTINGS`, default `~/.claude/settings.json`, and nothing else). It
+  refuses, running nothing, a checkout whose `scripts/install.sh` lacks the line
+  `# buddy-install-accepts: --wire-hooks`: an older one ignores its argument.
+- **It refuses one case** besides: the installed build's commit is in the checkout but
   not in HEAD's history. Installing would put an older or diverged `buddy` in
   place, and an older `buddy` refuses a newer ledger (D-037), so the gate would
   deny every gated call. Move the checkout forward, or run `install.sh` by hand
@@ -1517,7 +1521,7 @@ expiry, for the incarnation that made it. It refuses and releases nothing.
 No clause means none was observed, never that none was made. `buddy beat` on
 `PostToolUse` with matcher `*` (README's hook wiring) sees a completed call; a
 matcher that excludes those tools records nothing and is named by `install.sh`.
-Two optional entries, added by hand, see the rest (#71): `PreToolUse` sees a call
+Two optional entries, added by hand or, when `install.sh` names them missing, by `install.sh --wire-hooks` (D-135), see the rest (#71): `PreToolUse` sees a call
 before it runs, so one in flight shows, and `PostToolUseFailure` a call that
 failed. There beat records a browser call and nothing else, prints nothing, and
 the line ends `exit 0`, so it cannot block a call; a busy ledger can hold it 5 s

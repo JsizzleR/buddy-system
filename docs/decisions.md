@@ -3113,20 +3113,14 @@ the next:
 3. `install-skill.sh`.
 4. `launchctl kickstart -k` of the daemon, waiting up to ten seconds for `state = running`.
 5. `setup-clone.sh` for this checkout.
-6. A report of which of the eight hook lines `~/.claude/settings.json` wires. It never edits
-   that file.
+6. A report of which of the eight hook lines `~/.claude/settings.json` wires (*amended by D-135*: edits under `--wire-hooks`). Unflagged, it never
+   edits that file.
 
 Every sub-step's exit status is the install's. The first draft piped the sub-scripts through
 `sed`, and `sh` has no pipefail.
 
-**Test shape** — `check-install.sh` (hermetic) redirects every destination into a temp dir and
-switches off the daemon, setup-clone and the repo's `bin/`:
-- A fresh install builds, runs and installs the skill, and reports EXACTLY the two hooks the
-  fixture leaves unwired.
-- A re-run is idempotent.
-- An all-wired fixture reports all eight (the control).
-- A directory where a binary goes fails loud, and never prints `done`.
-- A failing skill step fails the install.
+**Test shape** — `check-install.sh` (hermetic; its header and QA-1..5 list the cases, each
+beside its control).
 
 The two `buddylist` probe exits were each found by the check failing, not by reading: the missing
 `help` verb, and the exit status that `| head` had hidden. `install.sh` was mutated four ways:
@@ -3601,13 +3595,7 @@ lanes and one `--bg` lane on Haiku:
   "your orchestrator is <label>: take your assignments from it through buddy msg". It complied.
   So the brief names the orchestrator by its LABEL, which is the sender a lane sees on every
   `msg`, and says the launch carries the launcher's authority, so only what the operator gave.
-- A `--bg` lane inherits the launching shell's `HERDR_PANE_ID`. Its roster row named the
-  ORCHESTRATOR's pane, and its pid was the shared `claude daemon`, which outlived
-  `claude stop`. Closing "its" pane would have closed the orchestrator. The recipe launches it
-  under `env -u HERDR_PANE_ID -u HERDR_TAB_ID`.
-  *Superseded by D-058 (#50):* a lane gets the claude daemon's environment, not the launcher's,
-  so the `env -u` held only when that launch started the daemon. The recipe dropped it; the row
-  now names the lane's own pid and no pane.
+- A `--bg` lane's row named the orchestrator's pane (an inherited `HERDR_PANE_ID`); D-058 fixed it.
 - `buddy status` prints no prompt size; `buddy sessions` does, so the recipe points there.
 - A re-claim of `orchestrator` REPLACES its scopes, so the handoff re-claims with the same ones.
   Between the release and the successor's claim, `msg orchestrator` is refused (released slugs do
@@ -4496,12 +4484,7 @@ spawned it without one, and an unconditional `-k` can kill a daemon that has jus
 **Test shape** — `check-install.sh` QA-6 drives step 4 with a fake launchctl that reports `spawn
 scheduled` and `OS_REASON_CODESIGNING` until a given poll. Neither real launchd nor the real plist
 can be reached: HOME is a throwaway, so the default plist path does not exist, and a guard
-launchctl first on PATH records being reached. QA-6a: running at once gives the one-line report,
-and on macOS the fixture's own daemon program was rebuilt. QA-6b: running after 11 polls, past
-the old window (Codex: a 3 s case passed with the old default), succeeds and says `after 11s` and
-the reason. QA-6c: never running within 2 s fails LAST, after setup-clone's arm and the hook
-report, with no `done`. A non-numeric or over-long wait is refused. QA-6d: a failed kickstart is
-deferred the same way. Eleven mutants in a private copy were each killed: the wait ignored, the
+launchctl first on PATH records being reached. QA-6a..6d in `check-install.sh` are the cases. Eleven mutants in a private copy were each killed: the wait ignored, the
 default set back to 10, no deferral on either arm, no final failure, the reason unread, either
 knob ignored, no validation, no bound, and a silent slow return. The real daemon kept its pid
 throughout.
@@ -8577,28 +8560,8 @@ stands against the checkout and main.
   not cached, as it always could). A `--check` alias (one flag, the repo's
   `--dry-run` word). Refusing a dirty tree or another branch (above).
 
-**Tests** — `internal/cli/update_test.go`, every one against a FIXTURE
-checkout whose `scripts/install.sh` is a stub that records its physical cwd
-outside the checkout and exits with a status the test sets; nothing reads the
-real `~/bin` (BUDDY_BIN_DIR points at a path that does not exist, and the
-installed build is a seam). `TestUpdateRefusesARecordItCannotFollow`: no
-stamp, relative, a control character, gone, no go.mod, another module, no
-install.sh, each with and without `--dry-run`, nothing reported or run; the
-intact fixture as control runs the stub. `TestUpdateReportsWhereTheCheckoutStands`:
-even everywhere with FETCH_HEAD 3h old; behind origin/main with no FETCH_HEAD;
-another branch, ahead of main, dirty, no origin; installed older; installed
-commit unknown here; installed NEWER (refused, dry run too, stub not run);
-each state with lines that must and must not appear, dry and real.
-`TestUpdateRunsNoFilterTheCheckoutConfigures` (the dry run first, then a
-plain `git status` as the control that runs the filter: the other order lets
-the control's index refresh make the negative vacuous),
-`TestUpdateNoteResolvesTheCheckoutCopy` (an aliased checkout, an outside copy
-as control), the report table's FETCH_HEAD-of-another-branch, no-reflog,
-no-local-main and shallow rows, and a symlinked install.sh refused.
-`TestUpdatePassesInstallStatusThrough` (0, then 7; the stub reads no stdin), `TestUpdateDryRunRunsNothing`
-(with the flagless control), `TestUpdateReadsTheInstalledFileNotItself`,
-`TestUpdateAnswersHelpAndRefusesWhatItDoesNotKnow` (`--check`, a positional,
-the unstamped test binary refusing), `TestBuddyModuleIsTheRepoModule`. Every
+**Tests** — `internal/cli/update_test.go`: one `TestUpdate*` per guard, a fixture checkout whose
+install.sh is a recording stub, each beside its control (the tests are the list). Every
 guard mutated in a private copy and watched to fail (25 mutants: each refusal,
 the dry-run return, the status, the downgrade, the pull and switch lines,
 dirtiness, the fetch age, the cwd, the target file, the note, `modified`, and
@@ -9295,7 +9258,7 @@ and `gate:` lines, and fails nothing:
   the lines; nothing in Go changed.
 
 **Why it still installs nothing** — The hook is the operator's opt-in (D-117: "the operator
-copies it and wires it by hand"), and `install.sh` edits no settings (D-050) for the same reason
+copies it and wires it by hand"), and `install.sh` edits no settings (D-050; *amended by D-135*, which adds buddy's lines only) for the same reason
 it never edits the buddy hook lines: a script that rewrote them could remove one. Copying the
 script without the wiring would put a file in `~/bin` no session runs; copying it under wiring
 the operator chose would be an install deciding what an opted-in hook runs. Report, and the
@@ -9317,16 +9280,8 @@ or write a file.
 or `settings.local.json` wiring the hook is not read); a managed policy's hooks; a `python3` on
 PATH that is not a python (the shape is read, the interpreter is not run).
 
-**Test shape** — `check-install.sh` QA-14, under a throwaway HOME whose `bin` is the bin dir and
-the fake `go` (no compile): neither installed nor wired is one line; the control, a current copy
-under the operator's own entry; one trailing newline DIFFERS, and the printed remedy, run, makes
-it current; matchers `Bash`, `NotAgent` and `Task` not wired; `^Agent$` custom; `disableAllHooks`;
-installed and not wired; unparseable settings; no python; wired with the copy missing (the
-blocking line); a symlink to the script (current), to nothing, and to other bytes (left unwritten); a second entry's path named
-and compared (missing, then differing); the code pass's four: `-c pass`, a single-quoted
-`$HOME`, a trailing `; exit 0` and a double-quoted `~/` each not verified, a path through
-`link/..` reported as the file it resolves to, and a custom entry named beside a wired one.
-Every run exits 0 to `done`, leaves the settings file
+**Test shape** — `check-install.sh` QA-14 (its comment lists every arm, each beside the
+current-copy control). Every run exits 0 to `done`, leaves the settings file
 byte-identical and the bin dir holding only the binaries, and writes no `__pycache__` (the
 snapshot is taken before QA-1: taken at QA-14, the earlier legs' runs had already written one and
 a run without `-B` passed, measured). QA-13's real `buddy update` run shows the lines. Mutants,
@@ -9927,9 +9882,7 @@ gets a `bye`, so its row is stale on a reinstall, which is harmless. An interrup
 (plist moved, buddy kept, stamp on) followed by `buddy update` rebuilds buddylist with no
 daemon: finish the uninstall, or restore the plist with the line it printed.
 
-**Open** — an install STARTED after uninstall's checks could republish buddy: install.sh renamed
-`buddy.new-<pid>` over `$BUDDY_BIN_DIR/buddy` after uninstall unlinked it, and no lock was shared
-with install.sh. Closed by D-126 (one lock, held by both for their whole run). An exported
+**Open** — install racing uninstall: closed by D-126. An exported
 `BUDDY_CHAT` that is not `off` overrides the stamp on a later install or update, and brings chat
 back, so `--chat` stops before anything while one is exported.
 
@@ -10134,11 +10087,7 @@ build test; renaming the variable the seam reads fails the build test alone (the
 cannot see it, which is why it exists); the stamp before the variable fails the stamp-off `on`
 rows and the build test's control.
 
-**Left to install-lock** (reported to orc-15) — `scripts/install.sh`'s `chat: NOTE — this
-install is claims-only, but … does not declare BUDDY_CHAT=off, so every session's hello still
-prints the chat hint` and its assertion in `scripts/check-install.sh`, and `scripts/uninstall.sh
---chat`'s advice to add the settings line, say what is no longer true; the case still worth a
-note is a settings `BUDDY_CHAT=on` on a claims-only install.
+**Left to install-lock** (reported to orc-15) — done in D-126.
 
 **Review** — lite (D-104). A scoped self-review took one: the build test passes
 `-trimpath=false` as install.sh does, or a `GOFLAGS=-trimpath` shell would drop `-ldflags`
@@ -10639,3 +10588,29 @@ claim (prose: a quoted slug is not shell-safe).
 
 **Cut.** An auto-release on either half, a refusal on the observation, a verb to clear the reading, a roster column, and
 storing what is open: the slot's description is that, in the holder's words.
+
+## D-135 — `install.sh --wire-hooks` appends the buddy hook lines its report names missing, and nothing else (issue #74; amends D-050, D-120)
+
+2026-11-09 · the operator, in orc-17's pane: at about 14:55Z ("2": an opt-in flag, with a record), at 15:04Z (no harness refusal); lane wire-hooks
+
+**What was wrong** — install.sh never edited settings (D-050, D-120), so every line its report named missing, #71's included, was JSON pasted by hand.
+
+**The rule** — `sh scripts/install.sh --wire-hooks`; `buddy update --wire-hooks` forwards it only to an install.sh carrying the line `# buddy-install-accepts: --wire-hooks` (an older one ignored argv: it would install, wire nothing, exit 0). Unflagged, nothing changes; any other argument is refused first.
+- Which: the tokens step 6's grep names missing, in a snapshot the file must still match, and the #71 beats `browser_gone` names; never the Agent-model hook (D-120: wired without its copy, python3 exits 2, blocking every Agent call). One spelling, `gate-hook.py`'s table: `check-readme` holds README's block and USAGE's to it, `check-install.sh` the `wanted` list.
+- How (`scripts/wire-hooks.py`): each line a new entry after its event's last; a text splice, verified to decode to the old document plus exactly those entries (`json.dumps` would respell CRLF, `\u0061`, `1e0`); a 0600 backup, fsynced; a same-directory temp, the original's mode, renamed over it. One rename, so a refusal leaves the file as it was, and no failure leaves the gate's entry less wired (one after the rename, a directory fsync, says WROTE). A token present anywhere (a legacy gate, a permissions rule) is never added or fixed; a gate token outside any PreToolUse hook is said and fails the wiring.
+- Refused, nothing written: a symlink, a hard link, another user's or a read-only file, a non-hook entry, a bin dir not `~/bin`, over 1 MiB before or after, not UTF-8 JSON, a duplicate key, NaN, a non-object top or `hooks`, a non-list event, `disableAllHooks`, a changed snapshot. A preflight before step 1 stops a doomed wiring with nothing installed; a refusal at step 6 fails the install at the end.
+
+**No harness refusal** — the write set is buddy's own lines, so a run nobody asked for adds only what the report names; `env -u` defeats an environment check; a lane not running install is the lane rule, never relayed. A terminal, `!`, or a session on the operator's word.
+
+**Not covered** — a write inside the read-to-rename window is lost (no lock to take; the backup predates it); a project's buddy line spelled another way runs beside the added one; `CLAUDE_CONFIG_DIR` (the file is `BUDDY_SETTINGS`'s); written is not loaded (workspace trust).
+
+**Review** — full: panel (damage, fail-closed, docs @opus; who can trigger @fable); Codex@xhigh design; Codex@xhigh code, six folded (signals held through the write, a temp left after the link says WROTE, a quoted event name, the browser lines read apart, a test per verify condition, the argument count); Fable cross-check, folded (the bin dir is `~/bin`, INT, refusal lists); two re-verifies @xhigh, the second's two bin-dir comparison defects (a trailing newline, `CDPATH`) folded at the ceiling. Open: a gate spelled bare gets README's beside it (deny wins); a SIGKILL mid-write leaves the temp and backup.
+
+**Test shape** — `check-install.sh` QA-16 (each refusal beside its control; the splice keeps every old byte; unflagged writes nothing); update_test's marker test. Mutants: 26 of 29 killed, in a private copy: 16 of 17, 7 of 8 on the code folds, 3 of 3 since. Surviving: step 6 grepping `$SETTINGS`, not the snapshot (no fixture writes between); `_write_new`'s close outside its finally (the mask covers it).
+
+### Where it lives
+- index: CLAUDE.md "Install" line, Commands, the install.sh rule
+- GIVEN: 53 (amended), 120's last clause
+- code: `scripts/wire-hooks.py`, `gate-hook.py`, `install.sh`, `update.go`
+- skill: core, "Upgrading buddy"; USAGE "The browser slot"; README "Hook wiring"
+- amends: D-050 step 6, D-120's "Why it still installs nothing": settings edited under this flag only

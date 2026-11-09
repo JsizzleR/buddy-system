@@ -40,7 +40,9 @@ unset CLAUDE_CODE_SESSION_ID BUDDY_SESSION BUDDY_HARNESS BUDDY_LABEL || true
 
 # 1. One spelling: README's PreToolUse is gate-hook.py's entry, whole (matcher,
 # type, command, timeout, onFailure). check-install.sh holds its fixture to it.
-python3 -I scripts/gate-hook.py check-readme README.md || fail "README's gate entry is not scripts/gate-hook.py's"
+# And README's whole hook block and USAGE's browser block are its README_HOOKS
+# and BROWSER_HOOKS, the entries install.sh --wire-hooks appends (D-135).
+python3 -I scripts/gate-hook.py check-readme README.md docs/USAGE.md || fail "README's or USAGE's hook block is not scripts/gate-hook.py's"
 CMD=$(python3 -I scripts/gate-hook.py command) || fail "gate-hook.py command"
 OLD=$(python3 -I scripts/gate-hook.py legacy) || fail "gate-hook.py legacy"
 

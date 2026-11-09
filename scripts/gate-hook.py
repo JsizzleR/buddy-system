@@ -5,8 +5,10 @@ and the install report's reading of a settings file against it (D-107).
     python3 -I scripts/gate-hook.py entry                 # README's PreToolUse entry, one JSON line
     python3 -I scripts/gate-hook.py command               # its command string, one line
     python3 -I scripts/gate-hook.py legacy                # the old fail-open command, one line
-    python3 -I scripts/gate-hook.py check-readme <README.md>
+    python3 -I scripts/gate-hook.py check-readme <README.md> [<USAGE.md>]
     python3 -I scripts/gate-hook.py report <settings.json>
+    python3 -I scripts/gate-hook.py browser-report <settings.json>
+    python3 -I scripts/gate-hook.py tokens                # install.sh's `wanted`, one line
 
 WHY THE LINE CHANGED. The documented gate was
 `[ -x "$HOME/bin/buddy" ] && "$HOME/bin/buddy" gate; exit 0`. `buddy gate` says
@@ -76,6 +78,57 @@ ENTRY = {
     "matcher": MATCHER,
     "hooks": [{"type": "command", "command": COMMAND, "timeout": TIMEOUT, "onFailure": "block"}],
 }
+
+# EVERY buddy hook line, spelled once (D-135). README's "Hook wiring" block and
+# USAGE's browser-slot block are held equal to these (check-readme, run by
+# check-gate-line.sh), install.sh's report names its tokens (`wanted`, held to
+# TOKENS by check-install.sh), and `install.sh --wire-hooks` appends exactly
+# these entries, so the line a doc shows, the line the report names and the line
+# the writer adds cannot drift apart.
+def _guarded(binary, verb):
+    return '[ -x "$HOME/bin/%s" ] && "$HOME/bin/%s" %s 2>/dev/null; exit 0' % (binary, binary, verb)
+
+
+def _cmd(binary, verb):
+    return {"type": "command", "command": _guarded(binary, verb)}
+
+
+README_HOOKS = {
+    "SessionStart": [{"hooks": [_cmd("buddy", "hello")]}],
+    "PreToolUse": [ENTRY],
+    "PostToolUse": [{"matcher": "*", "hooks": [_cmd("buddy", "beat"), _cmd("buddylist", "alert")]}],
+    "Stop": [{"hooks": [_cmd("buddy", "idle")]}],
+    "UserPromptSubmit": [{"hooks": [_cmd("buddy", "busy")]}],
+    "SessionEnd": [{"hooks": [_cmd("buddy", "bye"), _cmd("buddylist", "presence --gone")]}],
+}
+# The two optional #71 entries (D-134), USAGE "The browser slot".
+BROWSER_MATCHER = "mcp__.*"
+BROWSER_HOOKS = {ev: [{"matcher": BROWSER_MATCHER, "hooks": [_cmd("buddy", "beat")]}]
+                 for ev in ("PreToolUse", "PostToolUseFailure")}
+# The report's tokens, in install.sh's order (`wanted`), each with its event; a
+# browser token names the event its beat goes on.
+TOKENS = [("buddy hello", "SessionStart"), ("buddy gate", "PreToolUse"), ("buddy beat", "PostToolUse"),
+          ("buddy idle", "Stop"), ("buddy bye", "SessionEnd"), ("buddy busy", "UserPromptSubmit"),
+          ("buddylist alert", "PostToolUse"), ("buddylist presence", "SessionEnd"),
+          ("browser PreToolUse", "PreToolUse"), ("browser PostToolUseFailure", "PostToolUseFailure")]
+
+
+def line_for(token):
+    """(event, entry) the writer appends for a report token: README's own hook
+    object in a NEW entry of its own, under README's matcher (none where README
+    has none). One entry per hook: appending never edits an existing one."""
+    ev = dict(TOKENS)[token]
+    if token.startswith("browser "):
+        return ev, BROWSER_HOOKS[ev][0]
+    binary, verb = token.split(" ")
+    for e in README_HOOKS[ev]:
+        for h in e["hooks"]:
+            if ('"$HOME/bin/%s" %s' % (binary, verb)) in h["command"]:
+                out = {"matcher": e["matcher"]} if "matcher" in e else {}
+                out["hooks"] = [h]
+                return ev, out
+    raise KeyError(token)
+
 
 # A PreToolUse command that runs `buddy gate`, however the binary is spelled:
 # `"$HOME/bin/buddy" gate`, `/abs/bin/buddy gate`, `BUDDY_HARNESS=codex buddy gate`.
@@ -195,6 +248,91 @@ def report(path):
     return "gate: README's fail-closed gate entry in %s (onFailure block, timeout set); native loading not verified here" % path
 
 
+# What `who`'s browser clause needs (D-134): beat on a matcher that selects a
+# browser tool. Moved here from install.sh's 6a' heredoc (D-135) so the report
+# and `--wire-hooks` read one function. An exact name counts by its prefix; a
+# regex is searched unanchored, as the harness does, against one name per
+# server, so a regex for other names on them can read as excluding; one Python
+# cannot read is not judged. PREFIXES is browser.go's list, held to it by a test.
+PREFIXES = ["mcp__claude-in-chrome__", "mcp__playwright__", "mcp__plugin_playwright_playwright__",
+            "mcp__Claude_Browser__", "mcp__remote-devices__Claude_Browser__", "mcp__chrome-devtools__",
+            "mcp__plugin_chrome-devtools-mcp_chrome-devtools__", "mcp__browser-use__"]
+PROBES = [p + "browser_click" for p in PREFIXES]
+
+
+def selects_browser(m):
+    names = matcher_names(m)
+    if names == "*":
+        return True
+    if names is None:
+        try:
+            return any(re.search(m, p) for p in PROBES)
+        except (re.error, TypeError):
+            return True
+    return any(n.startswith(p) for n in names for p in PREFIXES)
+
+
+def beat_matchers(hooks, ev):
+    # An entry that is not an object, or a command that is not a string, is
+    # skipped: one such entry made the whole reading print nothing (panel).
+    for e in hooks.get(ev) or []:
+        if not isinstance(e, dict):
+            continue
+        cmds = [h["command"] for h in e.get("hooks") or [] if isinstance(h, dict) and isinstance(h.get("command"), str)]
+        if any(re.search(r'buddy\\?"? beat', c) for c in cmds):
+            yield e.get("matcher")
+
+
+def browser_gone(settings):
+    """The events of the two optional #71 entries the report names missing: those
+    where no buddy beat selects a browser tool. A PreToolUse beat already sees a
+    call that fails, so PostToolUseFailure alone is not named (Codex code pass)."""
+    hooks = settings.get("hooks") or {}
+    # any() stops at the first matcher that selects, as the old loop did: a later
+    # regex is never tried (Codex code pass, #71: backtracking could stall it).
+    gone = [ev for ev in ("PreToolUse", "PostToolUseFailure") if not any(selects_browser(m) for m in beat_matchers(hooks, ev))]
+    return [] if gone == ["PostToolUseFailure"] else gone
+
+
+UNREADABLE = (ValueError, RecursionError, AttributeError, TypeError)
+
+
+def browser_report(settings):
+    # Each line read on its own: the heredoc this replaced printed the first
+    # before a shape the second cannot read ("PreToolUse": 1) ended it, and
+    # one catch around both lost it (Codex code pass).
+    out = []
+    try:
+        post = list(beat_matchers(settings.get("hooks") or {}, "PostToolUse"))
+        if post and not any(selects_browser(m) for m in post):
+            out.append('hooks: PostToolUse runs buddy beat on matcher %s, which selects no browser tool it was tried on, so '
+                       '`who` reports no browser tool call; README "Hook wiring" uses "*" (D-134)' % ", ".join(json.dumps(m) for m in post))
+    except UNREADABLE:
+        pass
+    try:
+        gone = browser_gone(settings)
+    except UNREADABLE:
+        gone = []
+    if gone:
+        out.append('hooks: no buddy beat on %s for browser tools, so `who` misses a browser call %s; docs/USAGE.md "The browser '
+                   'slot" has the optional lines (#71)' % (" or ".join(gone), " or ".join(
+                       {"PreToolUse": "in flight", "PostToolUseFailure": "that failed"}[ev] for ev in gone)))
+    return out
+
+
+def block_after(path, heading):
+    """The first ```json block after a heading line, decoded."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    at = text.find(heading)
+    if at < 0:
+        raise ValueError("no %r heading" % heading)
+    m = re.compile(r"```json\n(.*?)\n```", re.S).search(text, at)
+    if not m:
+        raise ValueError("no ```json block after %r" % heading)
+    return json.loads(m.group(1))
+
+
 def readme_entries(path):
     """hooks.PreToolUse of the JSON block under README's "Hook wiring" heading."""
     with open(path, encoding="utf-8") as f:
@@ -217,15 +355,37 @@ def main(argv):
         print(LEGACY)
     elif len(argv) == 2 and argv[0] == "report":
         print(report(argv[1]))
-    elif len(argv) == 2 and argv[0] == "check-readme":
+    elif len(argv) == 2 and argv[0] == "browser-report":
+        # Advisory, as the heredoc was: a file it cannot read prints nothing.
+        try:
+            with open(argv[1], encoding="utf-8") as f:
+                lines = browser_report(json.load(f))
+        except (OSError,) + UNREADABLE:
+            lines = []
+        for l in lines:
+            print(l)
+    elif argv == ["tokens"]:
+        print(" ".join(t for t, _ in TOKENS if not t.startswith("browser ")))
+    elif argv[:1] == ["check-readme"] and len(argv) in (2, 3):
         try:
             got = readme_entries(argv[1])
+            whole = block_after(argv[1], "### 3. Hook wiring")["hooks"]
+            browser = block_after(argv[2], "### The browser slot") if len(argv) == 3 else BROWSER_HOOKS
         except (OSError, ValueError, KeyError, TypeError) as e:
-            print("gate-hook: README's hook block cannot be read: %s" % e, file=sys.stderr)
+            print("gate-hook: a hook block cannot be read: %s" % e, file=sys.stderr)
             return 1
         if got != [ENTRY]:
             print("gate-hook: README's PreToolUse is not exactly the gate entry here:\n  README: %s\n  want:   %s"
                   % (json.dumps(got), json.dumps([ENTRY])), file=sys.stderr)
+            return 1
+        # D-135: the whole block, and USAGE's browser block, are what --wire-hooks appends.
+        if whole != README_HOOKS:
+            print("gate-hook: README's hook block is not README_HOOKS here:\n  README: %s\n  want:   %s"
+                  % (json.dumps(whole), json.dumps(README_HOOKS)), file=sys.stderr)
+            return 1
+        if browser != BROWSER_HOOKS:
+            print("gate-hook: USAGE's browser block is not BROWSER_HOOKS here:\n  USAGE: %s\n  want:  %s"
+                  % (json.dumps(browser), json.dumps(BROWSER_HOOKS)), file=sys.stderr)
             return 1
     else:
         print((__doc__ or "").split("\n\n")[1], file=sys.stderr)

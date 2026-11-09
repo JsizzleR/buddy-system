@@ -834,6 +834,363 @@ out=$(inst9 "$WORK/settings.orig" BUDDY_CHAT= BUDDY_BIN_DIR="$WORK/bin15f" PATH=
 $out"
 echo "$out" | grep -qF "records no chat posture (built before" && fail "QA-15f: with buddylist now beside it (the control), no note:
 $out"
+# QA-16 (D-135): --wire-hooks. (a) The writer alone, on synthetic files: every
+# refusal leaves the file byte-identical with nothing beside it, each beside
+# its positive control (the same directory, a good file, wired); the splice
+# keeps every byte it did not insert (CRLF, an escape, a number spelling) and
+# appends after the existing entries, never into them; idempotent. (b)-(e)
+# install.sh: unflagged changes nothing (no backup, no temp), flagged adds
+# exactly what the report named and the report then says all wired, a legacy
+# gate is reported and not "fixed", claims-only adds the six, a stray argument
+# a preflight refusal and a bin dir not $HOME/bin install nothing. The fake go keeps each run from
+# compiling. First: `wanted` is gate-hook.py's TOKENS, one source.
+want16=$(python3 -I scripts/gate-hook.py tokens)
+got16="$(sed -n 's/^wanted="\(.*\)"$/\1/p' scripts/install.sh) $(sed -n 's/^	wanted="\$wanted \(.*\)"$/\1/p' scripts/install.sh)"
+[ "$got16" = "$want16" ] || fail "QA-16: install.sh's wanted ($got16) is not gate-hook.py's TOKENS ($want16)"
+W16="$WORK/w16"
+mkdir -p "$W16"
+python3 -I -B - "$W16" "$ROOT/scripts/wire-hooks.py" <<'PY' || fail "QA-16a: the writer (above)"
+import json, os, subprocess, sys
+w, tool = sys.argv[1], sys.argv[2]
+bad = []
+def run(path, *toks, snap=None):
+    """The writer as install.sh runs it: the snapshot is the file's bytes now."""
+    if snap is None:
+        snap = "-"
+        if os.path.lexists(path):
+            snap = os.path.join(w, "snapshot")
+            with open(path, "rb") as f, open(snap, "wb") as g:
+                g.write(f.read())
+    return subprocess.run([sys.executable, "-I", "-B", tool, "wire", path, snap] + list(toks), capture_output=True, text=True)
+def refused(name, content, why, toks=("buddy hello",), mode=None, setup=None):
+    d = os.path.join(w, name)
+    os.mkdir(d)
+    p = os.path.join(d, "settings.json")
+    if setup:
+        setup(d, p)
+    else:
+        with open(p, "wb") as f:
+            f.write(content)
+    before = sorted(os.listdir(d))
+    data = open(p, "rb").read()
+    if mode is not None:
+        os.chmod(d, mode)
+    r = run(p, *toks)
+    if mode is not None:
+        os.chmod(d, 0o755)
+    # One line: a name from the file (an event with a newline) is quoted.
+    if r.returncode != 1 or "REFUSED, nothing written" not in r.stdout or why not in r.stdout or r.stdout.count("\n") != 1:
+        bad.append("%s: rc=%d out=%r, want refused on one line naming %r" % (name, r.returncode, r.stdout, why))
+    if open(p, "rb").read() != data or sorted(os.listdir(d)) != before:
+        bad.append("%s: refused, but the directory changed: %r -> %r" % (name, before, sorted(os.listdir(d))))
+    # The positive control: the same directory and tokens, a plain file, wired.
+    q = os.path.join(d, "ok.json")
+    with open(q, "w") as f:
+        f.write("{}")
+    r = run(q, "buddy hello")
+    if r.returncode != 0 or "added buddy hello" not in r.stdout:
+        bad.append("%s control: rc=%d out=%r" % (name, r.returncode, r.stdout))
+def symlink(d, p):
+    with open(os.path.join(d, "real.json"), "w") as f:
+        f.write("{}")
+    os.symlink("real.json", p)
+def hardlink(d, p):
+    with open(p, "w") as f:
+        f.write("{}")
+    os.link(p, os.path.join(d, "other.json"))
+refused("dup", b'{"hooks": {}, "hooks": {}}', "duplicate key")
+refused("nan", b'{"x": NaN}', "non-JSON constant")
+refused("notjson", b'{"hooks": ', "not JSON")
+refused("latin1", b'{"x": "\xe9"}', "not UTF-8")
+refused("array", b'[]', "top level is not an object")
+refused("hooksnull", b'{"hooks": null}', '"hooks" is not an object')
+refused("eventobj", b'{"hooks": {"SessionStart": {}}}', "is not a list")
+refused("eventnl", b'{"hooks": {"Stop\\ninstall: done\\n": {}}}', '"Stop\\ninstall: done\\n" is not a list')
+refused("disabled", b'{"disableAllHooks": true}', "disableAllHooks")
+refused("big", b'{}' + b' ' * (1 << 20), "bytes, over")
+refused("bigafter", b'{}' + b' ' * ((1 << 20) - 100), "it would be")
+refused("symlink", None, "a symlink", setup=symlink)
+refused("hardlink", None, "hard links", setup=hardlink)
+refused("badtoken", b'{}', "is not one the report names", toks=("buddy rm",))
+refused("shape", b'{"hooks": {"PreToolUse": ["x"]}}', "not a hook object")
+refused("cmdint", b'{"hooks": {"PreToolUse": [{"hooks": [{"command": 5}]}]}}', "not a hook object")
+refused("deep", b'{"x": ' + b'[' * 500 + b']' * 500 + b'}', "a shape it cannot read")
+if os.geteuid() != 0:
+    refused("readonly", b'{}', "Permission denied", mode=0o555)
+    # A file made read-only on purpose: a rename would replace it regardless (panel).
+    refused("ro-file", b'{}', "not writable by its owner", setup=lambda d, p: (open(p, "w").write("{}"), os.chmod(p, 0o444)))
+# The preflight (check) refuses what step 6 would: the post-splice size and a
+# shape, so the install stops before step 1; a plain file is its control.
+for name, body, why in (("pre-big", b'{}' + b' ' * ((1 << 20) - 100), "it would be"),
+                        ("pre-shape", b'{"hooks": {"PreToolUse": ["x"]}}', "not a hook object"),
+                        ("pre-ok", b'{}', None)):
+    q = os.path.join(w, name + ".json")
+    open(q, "wb").write(body)
+    r = subprocess.run([sys.executable, "-I", "-B", tool, "check", q], capture_output=True, text=True)
+    if (why is None and r.returncode != 0) or (why is not None and (r.returncode != 1 or why not in r.stdout)):
+        bad.append("check %s: rc=%d out=%r" % (name, r.returncode, r.stdout))
+# The gate's token outside any PreToolUse hook: counted present, so not added,
+# said, and the wiring fails; the other lines are still written.
+d = os.path.join(w, "gateless")
+os.mkdir(d)
+p = os.path.join(d, "settings.json")
+open(p, "w").write('{"permissions": {"allow": ["Bash(/u/bin/buddy gate)"]}}')
+r = run(p, "buddy hello")
+if r.returncode != 1 or "did NOT add the gate" not in r.stdout or "added buddy hello" not in r.stdout:
+    bad.append("gate token in a permissions rule: rc=%d out=%r" % (r.returncode, r.stdout))
+r = run(p)
+if r.returncode != 1 or "did NOT add the gate" not in r.stdout:
+    bad.append("gate token in a permissions rule, nothing else to add: rc=%d out=%r" % (r.returncode, r.stdout))
+# The browser reading skips an entry it cannot read instead of printing nothing.
+q = os.path.join(w, "odd-beat.json")
+open(q, "w").write('{"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"command": "\\"$HOME/bin/buddy\\" beat"}]}], "PreToolUse": [1]}}')
+r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
+if 'runs buddy beat on matcher "Edit"' not in r.stdout:
+    bad.append("browser-report beside an unreadable entry: %r" % r.stdout)
+# ...and keeps its first line when a later event cannot be read at all, as the
+# heredoc it replaced printed it before failing (Codex code pass).
+open(q, "w").write('{"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"command": "buddy beat"}]}], "PreToolUse": 1}}')
+r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
+if r.stdout.count('runs buddy beat on matcher "Edit"') != 1 or r.stdout.count("\n") != 1:
+    bad.append("browser-report beside an unreadable event: %r" % r.stdout)
+# The report's snapshot must be the file's bytes now, absent included.
+d = os.path.join(w, "moved")
+os.mkdir(d)
+p = os.path.join(d, "settings.json")
+open(p, "w").write("{}")
+open(os.path.join(w, "older"), "w").write('{"a": 1}')
+r = run(p, "buddy hello", snap=os.path.join(w, "older"))
+if r.returncode != 1 or "changed after the report read it" not in r.stdout or open(p).read() != "{}":
+    bad.append("snapshot differs: rc=%d out=%r" % (r.returncode, r.stdout))
+r = run(p, "buddy hello", snap="-")
+if r.returncode != 1 or "created after the report read it" not in r.stdout or open(p).read() != "{}":
+    bad.append("snapshot absent, file present: rc=%d out=%r" % (r.returncode, r.stdout))
+# Absent file: created 0600 in an existing directory; refused in a missing one.
+p = os.path.join(w, "new.json")
+r = run(p, "buddy hello")
+if r.returncode != 0 or os.stat(p).st_mode & 0o777 != 0o600 or json.load(open(p))["hooks"]["SessionStart"][0]["hooks"][0]["command"] != \
+        '[ -x "$HOME/bin/buddy" ] && "$HOME/bin/buddy" hello 2>/dev/null; exit 0':
+    bad.append("absent file: rc=%d out=%r" % (r.returncode, r.stdout))
+r = run(os.path.join(w, "nodir", "s.json"), "buddy hello")
+if r.returncode != 1 or "does not exist" not in r.stdout:
+    bad.append("absent directory: rc=%d out=%r" % (r.returncode, r.stdout))
+# The splice: every old byte kept, in order; the new entry after the old one;
+# the mode kept; a 0600 backup holding the old bytes, named in the output.
+d = os.path.join(w, "splice")
+os.mkdir(d)
+p = os.path.join(d, "settings.json")
+old = (b'{\r\n  "env": {"A": "\\u0061", "n": 1e0},\r\n  "hooks": {\r\n'
+       b'    "Stop": [ {"hooks": [{"type": "command", "command": "mine"}]} ],\r\n    "PostToolUse": []\r\n  }\r\n}\r\n')
+open(p, "wb").write(old)
+os.chmod(p, 0o640)
+r = run(p, "buddy idle", "buddy beat", "buddy hello")
+new = open(p, "rb").read()
+it = iter(new)
+if r.returncode != 0 or not all(b in it for b in old):
+    bad.append("splice lost an old byte: rc=%d out=%r\n%r" % (r.returncode, r.stdout, new))
+doc = json.loads(new)
+if doc["hooks"]["Stop"][0]["hooks"][0]["command"] != "mine" or len(doc["hooks"]["Stop"]) != 2 \
+        or doc["env"] != {"A": "a", "n": 1.0} or os.stat(p).st_mode & 0o777 != 0o640 \
+        or len(doc["hooks"]["PostToolUse"]) != 1 or "SessionStart" not in doc["hooks"]:
+    bad.append("splice result: %r" % doc)
+backups = [n for n in os.listdir(d) if ".buddy-backup-" in n]
+if len(backups) != 1 or open(os.path.join(d, backups[0]), "rb").read() != old or \
+        os.stat(os.path.join(d, backups[0])).st_mode & 0o777 != 0o600 or backups[0] not in r.stdout:
+    bad.append("backup: %r %r" % (backups, r.stdout))
+if sorted(os.listdir(d)) != sorted(["settings.json"] + backups):
+    bad.append("left beside it: %r" % os.listdir(d))
+# Idempotent: no token (the report names none once wired) and the browser pair
+# present: nothing added, nothing written, no second backup.
+r = run(p)
+if r.returncode != 0 or "nothing to add" not in r.stdout or open(p, "rb").read() != new or len(os.listdir(d)) != 2:
+    bad.append("second run: rc=%d out=%r" % (r.returncode, r.stdout))
+# The splice's verification refuses a wrong splice (mutation check: nothing
+# else reaches it), one test per condition: an inserted byte changed (only the
+# decode differs) and an old byte changed (only the un-splice differs), each
+# refused with the file and its directory as they were; the control is above.
+import contextlib, importlib.util, io, signal
+spec = importlib.util.spec_from_file_location("wire_hooks", tool)
+wh = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(wh)
+real = wh.splice
+def wire_in(name, body="{\"env\": {}}", toks=("buddy hello",)):
+    d = os.path.join(w, name)
+    os.mkdir(d)
+    p = os.path.join(d, "settings.json")
+    snap = os.path.join(w, "snap-" + name)
+    if body is not None:
+        open(p, "w").write(body)
+        open(snap, "w").write(body)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            rc = wh.main(["wire", p, snap if body is not None else "-"] + list(toks))
+        except SystemExit as e:
+            rc = e.code
+    return d, p, rc, out.getvalue()
+for name, bend in (("bad-inserted", lambda n: n.replace("hello", "hellp", 1)),
+                   ("bad-old", lambda n: n.replace('"env": ', '"env":  ', 1))):
+    wh.splice = lambda text, adds, bend=bend: (lambda n, ins: (bend(n), ins))(*real(text, adds))
+    d, p, rc, out = wire_in(name)
+    if rc != 1 or "did not verify" not in out or open(p).read() != '{"env": {}}' or os.listdir(d) != ["settings.json"]:
+        bad.append("an injected bad splice (%s): rc=%r out=%r left %r" % (name, rc, out, os.listdir(d)))
+wh.splice = real
+# A TERM between the temp made and its name kept (once stranding the temp and
+# removing the backup, Codex code pass) is held: the file is written, the
+# backup kept, no temp left, and the run ends after, with TERM's status.
+# INT likewise, ending with its status, not a traceback (Fable).
+real_new = wh._write_new
+for sig in (signal.SIGTERM, signal.SIGINT):
+    def sig_new(*a, sig=sig):
+        t = real_new(*a)
+        os.kill(os.getpid(), sig)
+        return t
+    wh._write_new = sig_new
+    try:
+        d, p, rc, out = wire_in("sig%d" % sig)
+    except KeyboardInterrupt:
+        rc = "KeyboardInterrupt"
+    wh._write_new = real_new
+    left = sorted(os.listdir(d))
+    if rc != 128 + sig or "SessionStart" not in open(p).read() or len(left) != 2 or not any(".buddy-backup-" in n for n in left):
+        bad.append("signal %d mid-write: rc=%r left %r" % (sig, rc, left))
+    signal.signal(sig, signal.SIG_DFL if sig != signal.SIGINT else signal.default_int_handler)
+# A new file published, then its temp's unlink failing, is said as WROTE and
+# fails, never "nothing written" (Codex code pass); the control is "absent
+# file" above.
+real_unlink = os.unlink
+def no_unlink(q, *a, **k):
+    if ".buddy-wire-" in os.path.basename(q):
+        raise PermissionError(13, "Permission denied", q)
+    return real_unlink(q, *a, **k)
+os.unlink = no_unlink
+try:
+    d, p, rc, out = wire_in("leftover", body=None)
+finally:
+    os.unlink = real_unlink
+if rc != 1 or "REFUSED" in out or "could not be removed" not in out or "SessionStart" not in open(p).read():
+    bad.append("temp unlink failing after the link: rc=%r out=%r" % (rc, out))
+for b in bad:
+    print("QA-16a: " + b)
+sys.exit(1 if bad else 0)
+PY
+# (b) install.sh. inst16 <settings> [args...]: the fake go, stubs that pass
+# every probe, and $E16's words in the environment (env, not a prefix on the
+# function call: unspecified in POSIX sh).
+stubs "$WORK/stubs16" 'exit 0' "$OKLIST"
+E16="" B16="$W16/bin"
+inst16() {
+	s16=$1; shift
+	env HOME="${B16%/bin}" $E16 BUDDY_BIN_DIR="$B16" BUDDY_SKILL_DIR="$WORK/skill16" BUDDY_SETTINGS="$s16" \
+		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$WORK/mcp.json" \
+		PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs16" sh scripts/install.sh "$@"
+}
+mkdir -p "$W16/b"
+cp "$WORK/settings.orig" "$W16/b/settings.json"
+# Unflagged: nothing written, nothing beside the file (the opt-in is the flag).
+out=$(inst16 "$W16/b/settings.json" 2>&1) || fail "QA-16b: the unflagged install failed:
+$out"
+cmp -s "$W16/b/settings.json" "$WORK/settings.orig" || fail "QA-16b: the unflagged install changed the settings file"
+[ "$(ls -A "$W16/b")" = settings.json ] || fail "QA-16b: the unflagged install left a file beside settings: $(ls -A "$W16/b")"
+named=$(echo "$out" | sed -n 's/^install: hooks: NOT wired in [^:]*:\(.*\) (README.*/\1/p')
+[ "$named" = " buddy busy buddylist presence" ] || fail "QA-16b: the fixture's report named '$named'"
+if echo "$out" | grep -q 'hooks: --wire-hooks'; then fail "QA-16b: the unflagged install mentioned --wire-hooks:
+$out"; fi
+# Flagged: exactly what the report named, plus the browser pair, then all wired.
+out=$(inst16 "$W16/b/settings.json" --wire-hooks 2>&1) || fail "QA-16b: the flagged install failed:
+$out"
+added=$(echo "$out" | sed -n 's/^install: hooks: --wire-hooks added \(.*\) on \([A-Za-z]*\).*/\1@\2/p' | tr '\n' ' ')
+[ "$added" = "buddy busy@UserPromptSubmit buddylist presence@SessionEnd buddy beat (browser tools, #71)@PreToolUse buddy beat (browser tools, #71)@PostToolUseFailure " ] ||
+	fail "QA-16b: added '$added':
+$out"
+echo "$out" | grep -qx "install: hooks: all eight wired in $W16/b/settings.json" || fail "QA-16b: the report after wiring:
+$out"
+python3 -I - "$WORK/settings.orig" "$W16/b/settings.json" <<'PY' || fail "QA-16b: an existing entry changed (above)"
+import json, sys
+a, b = (json.load(open(p)) for p in sys.argv[1:])
+bad = [ev for ev, es in a["hooks"].items() if b["hooks"][ev][:len(es)] != es]
+if bad or set(b) != set(a):
+    print("QA-16b: existing entries or top-level keys changed: %r" % bad)
+    sys.exit(1)
+PY
+cp "$W16/b/settings.json" "$W16/b.after"
+out=$(inst16 "$W16/b/settings.json" --wire-hooks 2>&1) || fail "QA-16b: the second flagged install failed:
+$out"
+{ echo "$out" | grep -q 'nothing to add'; } && cmp -s "$W16/b/settings.json" "$W16/b.after" || fail "QA-16b: not idempotent:
+$out"
+# A legacy gate is present-but-different: reported, never replaced or doubled.
+cp "$WORK/s9legacy.json" "$W16/legacy.json"
+out=$(inst16 "$W16/legacy.json" --wire-hooks 2>&1) || fail "QA-16c: the legacy install failed:
+$out"
+if echo "$out" | grep -q 'added buddy gate'; then fail "QA-16c: the legacy gate was doubled:
+$out"; fi
+echo "$out" | grep -q '^install: gate: LEGACY fail-open command' || fail "QA-16c: the legacy gate is no longer reported:
+$out"
+python3 -I -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["hooks"]["PreToolUse"][0] == json.load(open(sys.argv[2]))["hooks"]["PreToolUse"][0] else 1)' \
+	"$W16/legacy.json" "$WORK/s9legacy.orig" || fail "QA-16c: the legacy entry was rewritten"
+# A stray argument is refused before anything runs, naming it.
+echo '{}' > "$W16/off.json"
+if out=$(inst16 "$W16/off.json" --wire-hooks --chat=off 2>&1); then fail "QA-16d: a stray argument ran:
+$out"; fi
+echo "$out" | grep -q "unknown argument '--chat=off'" || fail "QA-16d: the stray argument was not named:
+$out"
+cmp -s "$W16/off.json" - <<'EOF' || fail "QA-16d: a refused argument wrote the settings"
+{}
+EOF
+# Claims-only: the six buddy lines and the browser pair, never a buddylist line.
+E16="BUDDY_CHAT=off"
+out=$(inst16 "$W16/off.json" --wire-hooks 2>&1) || fail "QA-16d: the claims-only install failed:
+$out"
+E16=""
+if echo "$out" | grep -q 'added buddylist'; then fail "QA-16d: claims-only added a buddylist line:
+$out"; fi
+[ "$(echo "$out" | grep -c '^install: hooks: --wire-hooks added ')" = 8 ] || fail "QA-16d: claims-only did not add the six and the pair:
+$out"
+# A preflight refusal installs nothing: a fresh bin dir stays empty. Unparseable
+# settings, then no python; the unflagged install over the same file is the
+# control that something would have been built.
+printf '{"hooks": ' > "$W16/broken.json"
+cp "$W16/broken.json" "$W16/broken.orig"
+B16="$W16/e/bin"
+mkdir -p "$W16/e"
+if out=$(inst16 "$W16/broken.json" --wire-hooks 2>&1); then fail "QA-16e: wiring an unparseable file passed:
+$out"; fi
+echo "$out" | grep -q 'REFUSED, nothing written.*not JSON.*nothing installed' || fail "QA-16e: the refusal:
+$out"
+E16="BUDDY_PYTHON=/nonexistent/python3"
+if out=$(inst16 "$W16/off.json" --wire-hooks 2>&1); then fail "QA-16e: no python passed:
+$out"; fi
+E16=""
+echo "$out" | grep -q 'needs /nonexistent/python3' || fail "QA-16e: no python was not named:
+$out"
+[ ! -e "$B16/buddy" ] && cmp -s "$W16/broken.json" "$W16/broken.orig" || fail "QA-16e: a refused preflight built or wrote"
+out=$(inst16 "$W16/broken.json" 2>&1) || fail "QA-16e: control, the unflagged install over the same file failed:
+$out"
+[ -e "$B16/buddy" ] || fail "QA-16e: control built nothing"
+# QA-16f: a bin dir that is not $HOME/bin refuses the flag before step 1, as
+# the lines it writes run $HOME/bin/buddy (Fable); every flagged run above,
+# HOME its bin dir's parent, is the control.
+B16="$W16/f/bin"
+mkdir -p "$W16/f"
+cp "$W16/b/settings.json" "$W16/f.json" 2>/dev/null || printf '{}' > "$W16/f.json"
+cp "$W16/f.json" "$W16/f.orig"
+E16="HOME=$W16/elsewhere"
+if out=$(inst16 "$W16/f.json" --wire-hooks 2>&1); then fail "QA-16f: wiring beside another bin dir passed:
+$out"; fi
+E16=""
+echo "$out" | grep -q 'BUDDY_BIN_DIR is .*would run nothing.*nothing installed' && [ ! -e "$B16/buddy" ] && cmp -s "$W16/f.json" "$W16/f.orig" ||
+	fail "QA-16f: the refusal, or it built or wrote:
+$out"
+# ...and a "bin<LF>" beside an existing ~/bin, which $( ) once read as ~/bin.
+mkdir -p "$W16/g/bin"
+B16="$W16/g/bin
+"
+E16="HOME=$W16/g"
+if out=$(inst16 "$W16/f.json" --wire-hooks 2>&1); then fail "QA-16f: wiring beside bin<LF> passed:
+$out"; fi
+E16=""
+echo "$out" | grep -q 'would run nothing' && cmp -s "$W16/f.json" "$W16/f.orig" || fail "QA-16f: bin<LF>, the refusal or it wrote:
+$out"
 pyc_after=$([ -e scripts/__pycache__ ] && echo yes || echo no)
 [ "$pyc_before" = yes ] || [ "$pyc_after" = no ] || fail "QA-14: the report wrote scripts/__pycache__ into the checkout"
 
@@ -851,4 +1208,7 @@ echo "  QA-10 a new buddy whose gate dies fails the install, naming the probe, a
 echo "  from a relative BUDDY_BIN_DIR and with a \" in TMPDIR, new builds renamed in; QA-12 a killed buddylist names itself,"
 echo "  not the gate, and the old one stays; QA-14 the Agent-model hook's copy current/DIFFERS/missing/symlinked and its"
 echo "  wiring decoded: wired, matchers that miss Agent, regex, disableAllHooks, a second path compared, a missing copy"
-echo "  that blocks, settings absent/unparseable, no python; nothing installed, settings untouched, no __pycache__)"
+echo "  that blocks, settings absent/unparseable, no python; nothing installed, settings untouched, no __pycache__;"
+echo "  QA-16 --wire-hooks: the writer's refusals each with its control, the splice keeps every old byte, a 0600 backup,"
+echo "  idempotent; unflagged writes nothing, flagged adds exactly what the report named, a legacy gate untouched, claims-only"
+echo "  adds six and the browser pair, a stray argument, a preflight refusal and a bin dir not \$HOME/bin install nothing)"
