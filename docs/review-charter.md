@@ -1102,13 +1102,15 @@ ledger row entered through the CLI (D-006).
     bytes, per-file ceilings without class totals, or a GIVEN per decision.
 
 114. **The roster says `OVER handoff 300k` beside a live row's prompt at or past the READER's
-    declared handoff size; fleet-report counts them (D-113).** The size is `BUDDY_HANDOFF_AT`
+    declared handoff size; fleet-report counts them (D-113, D-142).** The size is `BUDDY_HANDOFF_AT`
     of the process reading, parsed as busy parses it; unset or unparseable says nothing (the
     report says "no size declared"). Live rows only; `>=` as busy compares; the turn age still
     prints beside it. A word only (invariant 10): no sort, colour, filter, refusal or `who`
     line. fleet-report prints `s-<8hex>` and the prompt, never a label or model string. A
     lane's own declared size is not stored (schema), so it is judged against the reader's:
-    recorded open. Do not propose a sort or refusal on size.
+    recorded open. Do not propose a sort or refusal on size. Measured (D-142): every lane past
+    300k in a week was finishing its item, which the operator accepts; do not propose an
+    every-turn or mid-turn notice without an overrun measured to be new work.
 
 115. **The skill splits by reader; the operator's conventions are not shipped (D-114).** The
     core `skills/buddy/SKILL.md` (every session: claims, refusals, waits, messages, landing as

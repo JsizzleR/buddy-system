@@ -11118,3 +11118,49 @@ read, no paren balance, any word taken as a count, a nested ` + ` or colon
 read, the 0x01 blanking cut, a countless `recorded` row allowed, the
 receipts header refused late, the last value kept instead of the sum).
 Review: lite (self + codex@xhigh code: 6 raised, 6 fixed, 6 reproduced).
+
+## D-142 — The lanes that ran past the handoff size were finishing their item; the overrun is accepted and nothing changes (issue #82; confirms D-064, D-096, D-113)
+
+2026-11-10. Issue #82, from the whole-project review of 2026-11-09 (finding
+8); measured first, as the issue asked, then put to the operator.
+
+**The question** — the review counted 66 lane requests at or past 300k in 6
+of 20 lanes, max 344k, with `BUDDY_HANDOFF_AT=300k` declared fleet-wide, and
+recommended repeating the notice every turn and sorting OVER rows first.
+
+**Measured** — 2026-11-02..11-09, this repo's main-thread transcripts (usage
+fields, record types, tool names, Bash commands bucketed by prefix; no text),
+a private copy of the ledger (metadata, no bodies), and branch logs. A
+request's prompt is input + cache-write + cache-read tokens, one per
+`requestId`; a lane is a session in a `-wt-` directory. The notice's time is
+the first prompt after the crossing, confirmed by buddy's own line on the
+`UserPromptSubmit` record (a boolean) and by `handoff_step`.
+- The set holds: 66 requests, 6 sessions, max 343,937 (a second count from
+  the usage fields alone agrees). "20 lanes" was 19 sessions in 13
+  directories. One lane in the old worktree layout adds 4 (max 301,952).
+- All 70 were in lanes FINISHING their one item: no new claim slug, item or
+  Agent call after the crossing; every later brief was a successor's for the
+  same item. Two lanes crossed 27 s and 3 s after their READY (one then
+  parked 18 min in a wait), one while releasing after it landed.
+- Told, the three with work left wrote a state note, reported and handed to
+  a successor 1.8-2.2 min after the notice, in two prompts each.
+- The notice is late by construction: `busy` speaks when a prompt opens a
+  turn. 28 of the 66 (42%) ran before one could fire (one lane: 11.6 min, 9
+  requests, first told at 333k, step 1); two lanes crossed in their last turn
+  and were never told.
+- No orchestrator ran `buddy sessions` or `fleet-report.sh` in any lane's
+  over-size window, so an OVER-first sort would have changed nothing
+  measured. No launch overrode the size; `busy` was wired.
+
+**The decision** — the operator, in orc-18's pane at 17:03Z on 2026-11-10:
+"its ok they went over since we gave that allowance to the orc, i think it
+was smart to go to 344k vs a new one, if we only needed 44k more of context
+to finish". D-064's "finishes its item" covers what was measured; D-096's
+once-per-step notice and D-113's word (never a sort) stand unchanged.
+
+**Considered and cut** — the every-turn notice (D-055's, refuted by D-096;
+the lanes told already acted on it); the roster sort (no orchestrator read a
+roster in any window); a mid-turn notice from `beat`, once per step through
+`HandoffTell` (it would have told one lane at 300k instead of 333k, at most
+28 requests in the week): not built, the overrun being accepted. Take it up
+if a later overrun is measured to be NEW work past the size.
