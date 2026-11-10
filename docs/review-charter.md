@@ -9,10 +9,12 @@ timing out with nothing to show.
 If a review's conclusion depends on overturning something in this file, say so explicitly
 and give the evidence. Do not quietly assume the opposite.
 
-A GIVEN ending `(full text: `CODEX_CHARTER=adapter`)` is a one-line stub: its rule,
-D-numbers and fences bind as written; its full text, which only adapter code rests on, is
-`docs/review-charter-adapter.md`, appended under that flag (D-128). If your finding needs a
-stubbed GIVEN's detail and you were handed only the stub, say so; do not re-derive it.
+A GIVEN ending `(full text: `CODEX_CHARTER=adapter`)` or `(full text:
+`CODEX_CHARTER=process`)` is a one-line stub: its rule, D-numbers and fences bind as
+written; its full text, which only adapter code or only process text rests on, is
+`docs/review-charter-adapter.md` or `docs/review-charter-process.md`, appended under that
+value (D-128, D-147). If your finding needs a stubbed GIVEN's detail and you were handed
+only the stub, say so; do not re-derive it.
 
 ## What this project is
 
@@ -931,14 +933,7 @@ ledger row entered through the CLI (D-006).
     Do not propose allowing a
     vanished cwd wholesale (it drops the home ledger's brake) or denying it wholesale.
 
-104. **The orchestrator uses agent tools itself; a subagent is not a lane (D-103).** While it
-    runs a fleet, the orchestrator puts side work (a lane's diff, reports, measurements,
-    housekeeping, a second opinion; Fable only for a review, D-111, GIVEN 112) on subagents
-    and `codex-review.sh`, because its own context
-    is the scarce resource before its handoff size.
-    A subagent holds no claim, lands nothing, relays nothing, and runs under the parent's id
-    and claims (D-099); its findings are evidence once a test reproduces them. Do not propose
-    a ledger row or verb for subagents, or counting their tokens against the handoff size.
+104. **The orchestrator uses agent tools itself; a subagent is not a lane (D-103).** A subagent holds no claim, lands nothing, relays nothing, and runs under the parent's id and claims (D-099); Fable only for a review (D-111). Do not propose: a ledger row or verb for subagents, counting their tokens against the handoff size. (full text: `CODEX_CHARTER=process`)
 
 105. **The review tier follows the change class; a receipt names what ran (D-104).** Full (what
     the gate refuses or allows, the ledger schema, `internal/fence`, an invariant): a read-only
@@ -1046,14 +1041,7 @@ ledger row entered through the CLI (D-006).
     Codex-only uncertainty for gh; and do not say this closes "rewritten without the commit
     gate", which is git's.
 
-110. **A relayed operator decision may carry the item's content and scope (D-109, amends
-    D-083).** A brief may say its coordinator also relays the operator's decisions on what the
-    change says, adds or drops; each such message marks it said in the coordinator's pane, with
-    the time, and is then the operator's, as if typed in the lane's pane. Unmarked, it is the
-    coordinator's advice. The sender is still the key and the brief still the authority; the
-    floor (install, push, settings, permission, trust, schema, a more permissive mode, work
-    beyond the launcher's scope) is unchanged, and no other sender relays. Prose only: no verb,
-    flag or row.
+110. **A relayed operator decision may carry the item's content and scope (D-109, amends D-083).** Each such message marks it said in the coordinator's pane, with the time; unmarked, it is advice; the never-relayed floor is unchanged. Do not propose: a verb, flag or row for it. (full text: `CODEX_CHARTER=process`)
 
 111. **`buddy update` runs install.sh in the checkout install.sh stamped into buddy, after a
     local report (D-110).** The operator chose install only: it never fetches or pulls, and
@@ -1070,15 +1058,7 @@ ledger row entered through the CLI (D-006).
     Not a hook verb, opens no ledger, never delegable (D-083). Do not propose a pull, a
     `--check` alias, or refusing a dirty or off-main tree.
 
-112. **Every lane runs on the default lane model, full tier included; Fable is for reviews only
-    (D-111, amends D-104).** The operator's rule; D-104's "a full-tier item runs on the
-    strongest model available" was read as Fable. Every lane, panel and fold round runs on the
-    operator's default lane model unless the operator names another for the item (or sets a
-    run's cap the skill's pick rule works within); the tier changes the review only. Fable runs
-    only inside a review: the full tier's cross-check, panel lenses on a security-sensitive
-    commit, a judgement-call ruling; the pick rule never lands on it, and a non-review subagent
-    is not on it. Do not propose "strongest model" wording, a lane on Fable the operator did
-    not name, or a verb or check reading a lane's model.
+112. **Every lane runs on the default lane model, full tier included; Fable is for reviews only (D-111, amends D-104).** Do not propose: "strongest model" wording, a lane on Fable the operator did not name, a verb or check reading a lane's model. (full text: `CODEX_CHARTER=process`)
 
 113. **`CLAUDE.md` holds the rules a session obeys and a topical decision index; each
     decision's record is in `docs/decisions.md` (D-112, D-118, D-122).** The operator, 2026-10-28:
@@ -1139,11 +1119,7 @@ ledger row entered through the CLI (D-006).
     directory, floor three. Do not propose a `buddy doctor` verb, a check that applies a fix,
     or the operator's personal machine layout as a shipped check.
 
-116. **A brief names a review-round ceiling (D-115).** Default: lite, one second-model code
-    pass folded once; full, design + code + at most two re-verify rounds; the operator raises
-    it per item. At the ceiling the lane folds narrowly, answers the rest in the commit, and
-    records it open (D-106's folds regressed). Do not propose
-    re-verifying "until it accepts" without a named ceiling.
+116. **A brief names a review-round ceiling (D-115).** Lite: one code pass folded once; full: at most two re-verify rounds; at the ceiling, fold narrowly and record the rest open (D-106's folds regressed). Do not propose: re-verifying "until it accepts" without a named ceiling. (full text: `CODEX_CHARTER=process`)
 
 117. **A subagent names its model or a hook refuses it; a batch boundary is a handoff point
     (D-117).** `scripts/hooks/agent-model-gate.py` (PreToolUse, `Agent`, wired by the
@@ -1194,8 +1170,11 @@ ledger row entered through the CLI (D-006).
     every GIVEN the store, the gate, `lifecycle` or a buddy verb rests on stays in full. A
     stub keeps its number, rule, every D-number and its fences (`check-charter.sh` pairs
     them); the header prints `charter=<bytes>B(core)` or `(core+adapter)`; an unknown or empty
-    value, or `adapter` beside `CODEX_NO_CHARTER=1`, refuses. Do not propose choosing the parts from
-    the prompt text, a separate file with no stubs, or moving a GIVEN by number range.
+    value, or any but `core` beside `CODEX_NO_CHARTER=1`, refuses. D-147 adds `process` (104,
+    110, 112, 116: process text only; no code change can violate them) and `all`; every GIVEN
+    a script, hook or verb reads stays in full, and each GIVEN is in exactly one part. Do not
+    propose choosing the parts from the prompt text, a separate file with no stubs, or moving
+    a GIVEN by number range.
 
 122. **`wait --on` prints whom to ask, never sends it (D-130, amends D-033).** Its second line
     names one `buddy msg <target> "<ask>"` per claim, pasted only when the target resolves now

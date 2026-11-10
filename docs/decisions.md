@@ -11439,6 +11439,109 @@ before its footer would otherwise hand over a `tokens used` line its prompt
 carried. The record follows git's own resolution of the cwd, an inherited
 `GIT_DIR` included, as every git command there would. Concurrent appends rely on `O_APPEND` and a row under `PIPE_BUF`.
 
+## D-147 — The charter's process GIVENs ride every Codex pass as one-line stubs; their full text is appended on `CODEX_CHARTER=process` or `all` (Codex report A4; amends D-128)
+
+2026-11-10. Codex integration report A4 (relayed by orc-19 in this lane's brief,
+lite tier): the charter was at 105,513 of its 110,592-byte ceiling (95.4%) and
+growing about 7 KB a week, and for a small `internal/cli` or `internal/store` diff
+about 21.8 KB of it was GIVENs a code reviewer cannot violate (process and review
+tier 84 104 105 110 112 113 115 116 117 124; install 53 111 119; test
+infrastructure 55 59 63 64; chat, unnumbered). Its recommendation: extend D-128's
+stub pattern to a `process` part. The brief: move only GIVENs the report lists by
+number, each checked against what a code diff could violate, keeping any in doubt
+in core.
+
+**The rule**
+1. **A GIVEN moves to the process part only if no change to code (a Go file, a
+   script, a hook) could violate it**, i.e. only process text rests on it: the
+   skills, `CLAUDE.md`, `AGENTS.md`, a brief, the review docs. Its code-level
+   fences ride in its stub, which binds as written (D-128 rule 2). Moved: **104**
+   (D-103: the orchestrator's side work; its code fences, no subagent row or verb
+   and no subagent tokens against the handoff size, are in the stub), **110**
+   (D-109: relayed content and scope; "no verb, flag or row" in the stub), **112**
+   (D-111: the lane model; "no verb or check reading a lane's model" in the stub),
+   **116** (D-115: the round ceiling).
+2. **Kept in full**, each because code rests on it:
+   - **84** (D-083): target resolution (`buddy who`'s label rule, `s-<8hex>` only
+     for a default label) is `internal/cli`, and its fences (no sender id on
+     drained lines, no `[operator]` row, no authority verb or flag) guard the inbox.
+   - **105** (D-104) and **124** (D-141): the receipt shape and count groups are
+     parsed by `receipt-check.sh` and `model-report.sh`.
+   - **113** (D-112, D-116, D-118, D-122): `check-prose-budget.sh` and
+     `check-index.sh` enforce it.
+   - **115** (D-114, D-121): `install-skill.sh` and `env-check.sh`'s contract.
+   - **117** (D-117): `scripts/hooks/agent-model-gate.py`.
+   - **53, 111, 119** (install, `buddy update`, uninstall): `install.sh`,
+     `wire-hooks.py`, `uninstall.sh`, `install-lock.sh`, `internal/cli/update.go`
+     and `uninstall.go`; 53's terms also appear in `gate-hook.py` (`browser_gone`,
+     the wire-hooks spelling) and `internal/cli/cli.go` (`BUDDY_CHAT`).
+   - **55, 59, 63, 64** (test infrastructure): `internal/testguard`, every
+     git-running package's TestMain (`ScrubGitEnv`, 59), `go.mod` (64).
+   - Chat: the report names no numbers, so none moved.
+   Code-area parts for install (53 111 119) or `internal/testguard` (55 63), as
+   adapter is one for adapter code, would save about 5 KB more; that is a new
+   part per area and is left open, not taken here.
+3. **The selector**: `CODEX_CHARTER=core|adapter|process|all`, `core` the
+   default; `process` appends `docs/review-charter-process.md`, `all` appends the
+   adapter file then the process file, both before the reviewer line. One word per
+   part set, not a parsed list: four values are all there are. Any other value, an
+   empty one, or any value but `core` beside `CODEX_NO_CHARTER=1` refuses before a
+   slot is checked. The run header and status line say `charter=<bytes>B(core)`,
+   `(core+adapter)`, `(core+process)` or `(core+adapter+process)`; the pass
+   record's charter column (D-146) carries the same word.
+4. **Who passes it**: a review of process text passes `process`; of adapter code
+   and process text both, `all`. Taught in CLAUDE.md's "Commands" and knobs, and
+   AGENTS.md's reviewer bullet.
+5. **The checks.** `check-charter.sh` pairs each part file with the charter by
+   D-128's check under that part's own mark (`(full text:
+   `CODEX_CHARTER=process`)`), its planted pair re-run under the process mark
+   with the same eleven failures, and adds a cross-part check, armed by its own
+   planted set beside two correct stubs: `twoparts N` (a GIVEN in full in two part
+   files) and `unknownpart N` (a stub naming a value with no part file, by exact
+membership, so `adapter process` is one). A stub
+   pointing at the wrong part is already `orphan` in one pairing and `both` in the
+   other. So every GIVEN is in exactly one part and every stub names its full
+   text. `check-prose-budget.sh` reads `CHARTER_PROCESS=` as it reads
+   `CHARTER_ADAPTER=` (exactly one line, else unparsed); the new file has its own
+   row, in no class total. `check-codex-review.sh` runs all four values against a
+   stub codex and proves each prompt begins with exactly the folded charter, its
+   parts once each in order, then the reviewer line; and it refuses the
+   empty value, `adapter+process`, and `process`/`all` beside
+   `CODEX_NO_CHARTER=1`; before this, no hermetic test ran `adapter` at all.
+
+**Rejected**
+- *Moving the install and test-infrastructure GIVENs into `process`.* A code
+  change to `install.sh` or `internal/testguard` violates them; under that name a
+  review of that code would be told it needs no flag.
+- *A `+`-joined list of parts* (`adapter+process`): a parser and an order rule for
+  two parts; `all` says the same in one word.
+
+**Bytes** (`wc -c`, this tree): the main charter, what a pass without the flag
+loads, 106,495 before and 105,564 after (931 saved, about 230 tokens a request:
+2,535 of full text moved out, 1,280 of stubs and 324 of head note and GIVEN 121
+amendment back). The process file is 3,201 (the four GIVENs and its head; 110's
+"Prose only: no verb, flag or row" respelled "do not propose" so the fence check
+sees it); a `process` pass loads 108,767
+(`charter=108767B(core+process)`), an `all` pass 116,940. The report's ~7 KB
+estimate assumed the install and test-infrastructure GIVENs moved (rule 2); the
+ceiling (110,592) is unchanged.
+
+**Review** — lite (D-104, D-115): a scoped self-review; the mutation check (twelve
+mutants, in a private copy) left one survivor, stub 110 losing its fence, because
+its full text said "Prose only: no verb, flag or row", which the fence check does
+not read as a fence; respelled. One Codex code pass (xhigh), asked of each moved
+GIVEN whether a code change can violate it: none named, no stub misstated, no
+selector sends less, twice or unasked. Two findings on the checks, folded once: a
+space-joined marker (`adapter process`) passed the known-part test as a substring
+(now exact membership, planted); the selector tests proved presence and heading
+order, so a part sent twice or cut short passed (now an exact prefix compare). A
+second mutation round over the folds (eight mutants) left two survivors, both
+fixed: the respelled fence had wrapped across a line, and the fence check reads one
+line at a time (now on one line; that a fence wrapped in ANY full text, adapter
+included, goes unseen is recorded open); and the pairing loop named its parts in
+a second list, so a loop that skipped the process part stayed green (now read from
+`PARTS`, the count checked).
+
 ## D-156 — An admission record is produced before a planned adapter run, not per release (Codex report B3; amends D-079's cadence only)
 
 2026-11-10. The operator, in orc-19's pane at 19:06Z, answering whether a lane

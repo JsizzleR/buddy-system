@@ -74,11 +74,16 @@
 #     the GIVENs only adapter code rests on (internal/harness, cmd/buddy-adapter, the
 #     qualify/check .py scripts, docs/admissions, USAGE's adapter sections); every other
 #     pass gets each of them as a one-line stub naming its rule, D-numbers and fences
-#     (D-128). Unset or `core` is the stub-only charter. Any other value REFUSES, set but
-#     empty included (an unset shell variable spliced in for `adapter`), and so
-#     does `adapter` beside CODEX_NO_CHARTER=1: a caller who asked for more must never
-#     silently get less. The run header says which parts went in
-#     (`charter=<bytes>B(core)` / `(core+adapter)`), so a receipt can prove it.
+#     (D-128). CODEX_CHARTER=process appends docs/review-charter-process.md the same way:
+#     the GIVENs only process text rests on (the skills, CLAUDE.md, AGENTS.md, a brief,
+#     the review docs), which no code change can violate; their code-level fences ride in
+#     the stubs (D-147, Codex report A4). `all` appends both, adapter first. Unset or
+#     `core` is the stub-only charter. Any other value REFUSES, set but empty included
+#     (an unset shell variable spliced in for `adapter`), and so does any value but
+#     `core` beside CODEX_NO_CHARTER=1: a caller who asked for more must never silently
+#     get less. The run header says which parts went in (`charter=<bytes>B(core)`,
+#     `(core+adapter)`, `(core+process)`, `(core+adapter+process)`), so a receipt can
+#     prove it.
 #     Rejected: guessing the parts from the prompt text (the script sees a prompt file,
 #     not the diff), and a separate file with no stubs (a reviewer not handed it would not
 #     know the fences exist).
@@ -167,8 +172,8 @@ knob CODEX_WAIT "$WAIT" 0 3600
 # pass whose wrapper was killed before codex returned. Columns, tab-separated,
 # no header (cost-report.sh reads them by position):
 #   time (the pass's start, UTC) rc (codex's; - when not run) exit elapsed_s model
-#   effort header (ok|MISMATCH|-) charter (core|core+adapter|off|-) charter_bytes
-#   prompt_bytes tokens commands (codex `exec` blocks) charter_reads (commands
+#   effort header (ok|MISMATCH|-) charter (core|core+adapter|core+process|
+#   core+adapter+process|off|-) charter_bytes prompt_bytes tokens commands (codex `exec` blocks) charter_reads (commands
 #   naming CLAUDE.md, DESIGN.md or review-charter.md: A1's measure) session (codex's
 #   session id)
 # NEVER review text: every field is a number, a fixed word, or a value held to
@@ -185,16 +190,19 @@ record() { # <rc> <exit> <elapsed> <header> <charter> <charter_bytes> <prompt_by
 }
 
 # (7) Which charter parts, decided BEFORE anything runs or waits for a slot, so a typo
-# costs nothing and is never a pass on the wrong charter (D-128).
+# costs nothing and is never a pass on the wrong charter (D-128, D-147). One word per
+# part set, not a list to parse: four values are all there are.
 case ${CODEX_CHARTER-core} in
   core) PARTS=core ;;
   adapter) PARTS=core+adapter ;;
-  *) die "CODEX_CHARTER='${CODEX_CHARTER}' is not core or adapter
+  process) PARTS=core+process ;;
+  all) PARTS=core+adapter+process ;;
+  *) die "CODEX_CHARTER='${CODEX_CHARTER}' is not core, adapter, process or all
   refused: unknown CODEX_CHARTER value" ;;
 esac
 if [ "${CODEX_NO_CHARTER:-0}" = "1" ] && [ "$PARTS" != core ]; then
-  die "CODEX_CHARTER=adapter asks for the adapter GIVENs and CODEX_NO_CHARTER=1 for no charter
-  refused: CODEX_CHARTER=adapter with CODEX_NO_CHARTER=1"
+  die "CODEX_CHARTER=${CODEX_CHARTER} asks for charter GIVENs and CODEX_NO_CHARTER=1 for no charter
+  refused: CODEX_CHARTER=${CODEX_CHARTER} with CODEX_NO_CHARTER=1"
 fi
 
 # (5) Refuse to stack runs. Kill by PID, never `pkill -f` (see 4).
@@ -289,14 +297,19 @@ if [ "$SRC" = "-" ]; then cat > "$TMP/raw"; else [ -f "$SRC" ] || die "no such p
 # Both paths on their own lines: check-prose-budget.sh reads them from here.
 CHARTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter.md"
 CHARTER_ADAPTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-adapter.md"
+CHARTER_PROCESS="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-process.md"
 REVIEWER_LINE='You are a constrained review pass, and the charter above is already in this prompt: do not open CLAUDE.md, docs/DESIGN.md or docs/review-charter.md unless the review below asks for one of them (AGENTS.md says to read them before CHANGING the repository; a review changes nothing). Read only what the review below asks for.'
 if [ "${CODEX_NO_CHARTER:-0}" != "1" ]; then
   [ -f "$CHARTER" ] || die "docs/review-charter.md is missing (CODEX_NO_CHARTER=1 to skip)"
   cat "$CHARTER" > "$TMP/charter"
-  if [ "$PARTS" = core+adapter ]; then
-    [ -f "$CHARTER_ADAPTER" ] || die "docs/review-charter-adapter.md is missing; CODEX_CHARTER=adapter asked for it"
-    { printf '\n\n'; cat "$CHARTER_ADAPTER"; } >> "$TMP/charter"
-  fi
+  case $PARTS in *+adapter*)
+    [ -f "$CHARTER_ADAPTER" ] || die "docs/review-charter-adapter.md is missing; CODEX_CHARTER=${CODEX_CHARTER} asked for it"
+    { printf '\n\n'; cat "$CHARTER_ADAPTER"; } >> "$TMP/charter" ;;
+  esac
+  case $PARTS in *+process)
+    [ -f "$CHARTER_PROCESS" ] || die "docs/review-charter-process.md is missing; CODEX_CHARTER=${CODEX_CHARTER} asked for it"
+    { printf '\n\n'; cat "$CHARTER_PROCESS"; } >> "$TMP/charter" ;;
+  esac
   # One fixed line after the charter (Codex report A1): of 97 surviving out-files, 84
   # passes opened CLAUDE.md, 84 docs/DESIGN.md and 80 the charter itself, because
   # AGENTS.md (which codex loads on every run) says to read them before changing the

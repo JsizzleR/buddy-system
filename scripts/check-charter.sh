@@ -54,6 +54,19 @@
 # Its planted fixture yields each kind exactly once beside a correct pair that
 # yields nothing, so a pairing that stopped parsing cannot pass as "all paired".
 #
+# THE PROCESS PART (D-147, Codex report A4). docs/review-charter-process.md holds the
+# GIVENs only process text rests on, appended under CODEX_CHARTER=process (or `all`),
+# its stubs marked `(full text: `CODEX_CHARTER=process`)`. Each part file is paired
+# with the charter by the same check under its own mark (PARTS below), and one more
+# check runs across them, so every GIVEN is in exactly one part:
+#   twoparts N     GIVEN N in full in two part files (the `all` value would send it
+#                  twice, and a stub can name only one);
+#   unknownpart N  a stub naming a `CODEX_CHARTER=` value with no part file, by exact
+#                  membership (`adapter process` is one): the pointer leads to a flag
+#                  the script refuses.
+# A stub naming one part whose full text is in another is already two failures of the
+# pairing: `orphan` in its own part, `both` in the other.
+#
 # DELIBERATELY NOT CHECKED: the reverse direction, a charter citing a D-number
 # with no heading behind it. It is a typo, not a safety gap — the charter still
 # states the GIVEN — and the clause would need a second fixture to arm it. Add
@@ -65,13 +78,20 @@ CDPATH= cd -- "$(repo_root "$0")"
 DECISIONS=docs/decisions.md
 CHARTER=docs/review-charter.md
 ADAPTER=docs/review-charter-adapter.md
-MARK='(full text: `CODEX_CHARTER=adapter`)'
+PROCESS=docs/review-charter-process.md
+# PARTS: one `<value> <file>` per stubbed part; the value is codex-review.sh's
+# CODEX_CHARTER word that appends the file.
+PARTS="adapter $ADAPTER
+process $PROCESS"
+mark() { printf '(full text: `CODEX_CHARTER=%s`)' "$1"; }
+MARK=$(mark adapter)
 
 fail() { echo "check-charter: FAIL — $*" >&2; exit 1; }
 
 [ -f "$DECISIONS" ] || fail "no $DECISIONS"
 [ -f "$CHARTER" ] || fail "no $CHARTER"
 [ -f "$ADAPTER" ] || fail "no $ADAPTER"
+[ -f "$PROCESS" ] || fail "no $PROCESS"
 
 # uncovered <decisions-file> <charter-file> — one D-number per line, for every
 # heading in the decision record the charter never names. grep -F because a
@@ -83,13 +103,14 @@ uncovered() {
 	done
 }
 
-# givens <file> <whole> — one record per GIVEN: number, lines, stub (0/1), fence
+# givens <file> <whole> [<mark>] — one record per GIVEN: number, lines, stub (0/1), fence
 # (0/1), then its D-numbers, tab-separated. A GIVEN starts at `N. **` and runs to the
 # next one or a `## ` heading, blank lines inside it included (a second paragraph's
 # D-number still counts); its line count is its non-blank lines. <whole>=0 reads only
 # the charter's "## Settled decisions" section (the lists elsewhere are not GIVENs).
+# <mark> is the stub marker of the part being paired (default the adapter's).
 givens() {
-	awk -v whole="$2" -v mark="$MARK" '
+	awk -v whole="$2" -v mark="${3-$MARK}" '
 		function flush() {
 			if (num == "") return
 			printf "%s\t%d\t%d\t%d\t%s\n", num, nl, stub, fence, ds
@@ -117,10 +138,11 @@ givens() {
 		END { flush() }' "$1"
 }
 
-# pairing <charter> <adapter> — one `<kind> <N> [D-NNN]` line per failure above.
+# pairing <charter> <part-file> [<mark>] — one `<kind> <N> [D-NNN]` line per failure
+# above, the part's stubs being the charter GIVENs that carry <mark>.
 pairing() {
-	givens "$1" 0 > "$tmpd/core"
-	givens "$2" 1 > "$tmpd/adapter"
+	givens "$1" 0 "${3-$MARK}" > "$tmpd/core"
+	givens "$2" 1 "${3-$MARK}" > "$tmpd/adapter"
 	for f in core adapter; do
 		grep -q '^[0-9]' "$tmpd/$f" || echo "empty $f"
 	done
@@ -145,6 +167,27 @@ pairing() {
 				if (cs[k] && !(k in an)) print "orphan " k
 			}
 		}' | sort
+}
+
+# crosscheck <charter> <part-file>... — `twoparts N` for a GIVEN in full in two part
+# files, `unknownpart N` for a charter stub naming a value no part has (the known
+# values are PARTS's). Its own planted fixture arms both below.
+crosscheck() {
+	_c=$1; shift
+	for _f in "$@"; do givens "$_f" 1 | cut -f1 | grep '^[0-9]' | sort -u; done | sort | uniq -d | sed 's/^/twoparts /'
+	# Exact membership, not a substring of the joined list: `adapter process` is in
+	# " adapter process " and is a value codex-review.sh refuses (Codex code pass).
+	awk -v known="$(printf '%s\n' "$PARTS" | cut -d' ' -f1 | tr '\n' ' ')" '
+		BEGIN { n = split(known, k, " "); for (i = 1; i <= n; i++) ok[k[i]] = 1 }
+		/^## / { on = (index($0, "## Settled decisions") == 1); next }
+		on && /^[0-9]+\. \*\*/ {
+			line = $0
+			while (match(line, /\(full text: `CODEX_CHARTER=[^`]*`\)/)) {
+				v = substr(line, RSTART + 27, RLENGTH - 29) # after "(full text: `CODEX_CHARTER=", before "`)"
+				if (!(v in ok)) { n = $0; sub(/\..*/, "", n); print "unknownpart " n }
+				line = substr(line, RSTART + RLENGTH)
+			}
+		}' "$_c"
 }
 
 # Clause 2 first: the positive control. Two headings — one the charter really
@@ -222,16 +265,58 @@ want='both 2;dmissing 3 D-913;dup 8;fence 4;malformed 19;multiline 5;nostub 7;no
 sed 's/^## Settled decisions/## Decisions/' "$tmpd/fx-core" > "$tmpd/fx-renamed"
 got=$(pairing "$tmpd/fx-renamed" "$tmpd/fx-adapter" | grep -c '^empty core$' || true)
 [ "$got" = 1 ] || fail "a charter with no settled section was not reported empty — the gate is broken, not the docs"
+# The same planted pair under the PROCESS mark: the pairing is the same check per part,
+# so the fixture respelled with the other value must report the same eleven failures.
+P=$(mark process)
+for f in fx-core fx-adapter; do awk -v a="$MARK" -v b="$P" '{ while ((i = index($0, a)) > 0) $0 = substr($0, 1, i - 1) b substr($0, i + length(a)); print }' "$tmpd/$f" > "$tmpd/p$f"; done
+got=$(pairing "$tmpd/pfx-core" "$tmpd/pfx-adapter" "$P" | tr '\n' ';')
+[ "$got" = "$want" ] || fail "the pairing reported '$got' on its planted pair under the process mark, want '$want' — the gate is broken, not the docs"
 
-bad=$(pairing "$CHARTER" "$ADAPTER")
+# The cross-part check's planted set: 1 and 2 are correct stubs of each part (its
+# positive control), 3 names a part that does not exist, 4 is in full in both parts,
+# 5 names two parts joined by a space (each a real part, the value no part).
+cat > "$tmpd/x-core" <<MD
+## Settled decisions (GIVENs)
+
+1. **An adapter stub (D-901).** Do not propose: x. $(mark adapter)
+
+2. **A process stub (D-902).** Do not propose: x. $(mark process)
+
+3. **A stub to no part (D-903).** Do not propose: x. $(mark bogus)
+
+4. **A stub (D-904).** Do not propose: x. $(mark process)
+
+5. **A stub to two parts (D-905).** Do not propose: x. $(mark 'adapter process')
+MD
+printf '1. **An adapter stub (D-901).** Do not propose: x.\n\n4. **A stub (D-904).** Do not propose: x.\n' > "$tmpd/x-adapter"
+printf '2. **A process stub (D-902).** Do not propose: x.\n\n4. **A stub (D-904).** Do not propose: x.\n' > "$tmpd/x-process"
+got=$(crosscheck "$tmpd/x-core" "$tmpd/x-adapter" "$tmpd/x-process" | sort | tr '\n' ';')
+[ "$got" = 'twoparts 4;unknownpart 3;unknownpart 5;' ] || fail "the cross-part check reported '$got' on its planted set, want 'twoparts 4;unknownpart 3;unknownpart 5;' — the gate is broken, not the docs"
+
+# The parts come from PARTS, not a second list here, and the count is checked after:
+# a loop that skipped a part would report nothing for it and stay green (mutation).
+moved= np=0
+for _v in $(printf '%s\n' "$PARTS" | cut -d' ' -f1); do
+	np=$((np + 1))
+	_f=$(printf '%s\n' "$PARTS" | awk -v v="$_v" '$1 == v { print $2 }')
+	bad=$(pairing "$CHARTER" "$_f" "$(mark "$_v")")
+	if [ -n "$bad" ]; then
+		echo "check-charter: $CHARTER and $_f disagree (D-128, D-147):" >&2
+		echo "$bad" | sed 's/^/  /' >&2
+		echo "  Each GIVEN in $_f keeps a one-line stub in $CHARTER under its number:" >&2
+		echo "  its rule, every D-number, its fences, and $(mark "$_v")." >&2
+		exit 1
+	fi
+	moved="$moved${moved:+; }$_v $(cut -f1 "$tmpd/adapter" | tr '\n' ' ' | sed 's/ $//')"
+done
+[ "$np" = 2 ] && [ "$np" = "$(printf '%s\n' "$PARTS" | grep -c .)" ] || fail "paired $np charter part(s), want the 2 PARTS names (adapter, process) — the gate is broken, not the docs"
+bad=$(crosscheck "$CHARTER" "$ADAPTER" "$PROCESS")
 if [ -n "$bad" ]; then
-	echo "check-charter: $CHARTER and $ADAPTER disagree (D-128):" >&2
+	echo "check-charter: the charter's parts overlap or point nowhere (D-147):" >&2
 	echo "$bad" | sed 's/^/  /' >&2
-	echo "  Each GIVEN in $ADAPTER keeps a one-line stub in $CHARTER under its number:" >&2
-	echo "  its rule, every D-number, its fences, and $MARK." >&2
+	echo "  Each GIVEN is in full in exactly one file, and a stub names a part that exists." >&2
 	exit 1
 fi
-moved=$(cut -f1 "$tmpd/adapter" | tr '\n' ' ' | sed 's/ $//')
 
 # THE FOLD (Codex report A5). codex-review.sh folds every prompt to ASCII through
 # scripts/ascii-fold.py, and a character its table does not name becomes `?`. The
@@ -256,7 +341,7 @@ printf 'a space renders as ␣, an empty result as ∅ — is that right?\n' > "
 printf 'a star ★ has no row?\n' > "$tmpd/fold-unmapped"
 [ -z "$(foldlies "$tmpd/fold-mapped")" ] || fail "the fold turned a mapped character into \`?\`: $(foldlies "$tmpd/fold-mapped") — a row of $FOLD is missing (\`␣\` and \`∅\` are fence.Field's)"
 [ -n "$(foldlies "$tmpd/fold-unmapped")" ] || fail "a planted unmapped character was not flagged — the gate is broken, not the docs"
-bad=$(foldlies "$CHARTER"; foldlies "$ADAPTER")
+bad=$(foldlies "$CHARTER"; foldlies "$ADAPTER"; foldlies "$PROCESS")
 if [ -n "$bad" ]; then
 	echo "check-charter: the ASCII fold codex-review.sh applies turns charter text into \`?\`:" >&2
 	echo "$bad" | sed 's/^/  /' >&2
@@ -272,4 +357,4 @@ if [ -n "$missing" ]; then
 	echo "  in the voice of the ones already there, or the ruling gets re-proposed." >&2
 	exit 1
 fi
-echo "check-charter: GREEN (planted decision flagged, planted pair's 11 failures found, empty charter caught, fold control flagged and charter folds clean; $(sed -n 's/^## \(D-[0-9][0-9]*\).*$/\1/p' "$DECISIONS" | wc -l | tr -d ' ') decisions all charted; adapter GIVENs $moved stubbed)"
+echo "check-charter: GREEN (planted decision flagged, planted pair's 11 failures found under each part's mark, cross-part pair found, empty charter caught, fold control flagged and charter folds clean; $(sed -n 's/^## \(D-[0-9][0-9]*\).*$/\1/p' "$DECISIONS" | wc -l | tr -d ' ') decisions all charted; GIVENs stubbed: $moved)"

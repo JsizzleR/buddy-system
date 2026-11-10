@@ -213,7 +213,7 @@ has "$O.transcript" SENTINEL-7f3a && fail "busy: the stale transcript survived a
 
 # --- refusals before the run: exit 1, NO VERDICT, nothing launched ---
 nrows=$(rows)
-for kv in CODEX_BUDGET=abc CODEX_BUDGET=0 CODEX_BUDGET=9m CODEX_BUDGET=4294967296 CODEX_BUDGET=0600 CODEX_SLOTS=x CODEX_SLOTS=0 CODEX_SLOTS=9223372036854775808 CODEX_WAIT=1m CODEX_WAIT=3601 CODEX_CHARTER=bogus; do
+for kv in CODEX_BUDGET=abc CODEX_BUDGET=0 CODEX_BUDGET=9m CODEX_BUDGET=4294967296 CODEX_BUDGET=0600 CODEX_SLOTS=x CODEX_SLOTS=0 CODEX_SLOTS=9223372036854775808 CODEX_WAIT=1m CODEX_WAIT=3601 CODEX_CHARTER=bogus CODEX_CHARTER= CODEX_CHARTER=adapter+process CODEX_CHARTER=process CODEX_CHARTER=all; do
   n=refuse-$(echo "$kv" | tr '=' '-')
   O=$T/out/$n.txt; stale "$O"
   run "$n" 1 "$O" "$kv"
@@ -228,6 +228,32 @@ run knobs-ok 0 "$T/out/knobs.txt" CODEX_BUDGET=86400 CODEX_SLOTS=1000 CODEX_WAIT
 [ "$launched" -eq 1 ] || fail "knobs-ok: stub launched $launched times, want 1"
 # No charter, no reviewer line: a pass without the charter may need to open it.
 has "$T/log.prompt" "You are a constrained review pass" && fail "knobs-ok: the reviewer line rode a CODEX_NO_CHARTER=1 pass"
+
+# --- the charter's parts (D-128, D-147): each value sends exactly its files, in order,
+# and says so in the status line and the record. In the loop above, `process` and `all`
+# refused beside run()'s CODEX_NO_CHARTER=1; here they run, the positive control. ---
+for v in core:core adapter:core+adapter process:core+process all:core+adapter+process; do
+  val=${v%%:*} parts=${v#*:}
+  O=$T/out/parts-$val.txt; stale "$O"
+  run "parts-$val" 0 "$O" CODEX_NO_CHARTER=0 CODEX_CHARTER=$val
+  has "$O" "B($parts) " || fail "parts-$val: status line lacks B($parts): $(tail -1 "$O")"
+  [ "$(lastrow 8)" = "$parts" ] || fail "parts-$val: record says charter '$(lastrow 8)', want $parts"
+  a=0; p=0
+  has "$T/log.prompt" "# Review charter: adapter GIVENs (full text)" && a=1
+  has "$T/log.prompt" "# Review charter: process GIVENs (full text)" && p=1
+  case $parts in *adapter*) [ $a = 1 ] || fail "parts-$val: the adapter file did not reach codex" ;; *) [ $a = 0 ] || fail "parts-$val: the adapter file reached codex unasked" ;; esac
+  case $parts in *process) [ $p = 1 ] || fail "parts-$val: the process file did not reach codex" ;; *) [ $p = 0 ] || fail "parts-$val: the process file reached codex unasked" ;; esac
+  # EXACTLY its files, whole, once each, in order, then the reviewer line: the prompt
+  # must begin with the folded concatenation. Presence and heading order alone would
+  # pass a part sent twice or cut short (Codex code pass).
+  { cat "$ROOT/docs/review-charter.md"
+    case $parts in *adapter*) printf '\n\n'; cat "$ROOT/docs/review-charter-adapter.md" ;; esac
+    case $parts in *process) printf '\n\n'; cat "$ROOT/docs/review-charter-process.md" ;; esac
+    printf '\n\nYou are a constrained review pass, and the charter above'
+  } | python3 -I -B "$ROOT/scripts/ascii-fold.py" > "$T/want.prompt"
+  head -c "$(wc -c < "$T/want.prompt")" "$T/log.prompt" | cmp -s - "$T/want.prompt" ||
+    fail "parts-$val: the prompt does not begin with exactly the charter, its parts in order, then the reviewer line"
+done
 
 # A missing prompt, after the out-file is armed.
 O=$T/out/noprompt.txt; stale "$O"
@@ -306,4 +332,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 11 knob refusals + control, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"
+echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"
