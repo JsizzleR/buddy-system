@@ -260,16 +260,15 @@ else
   CHARTER_NOTE="charter=off"
 fi
 
-# (4) ASCII-fold.
-LC_ALL=C tr -d '\000' < "$TMP/raw" | python3 -c '
-import sys
-s = sys.stdin.buffer.read().decode("utf-8", "replace")
-for a, b in (("—","--"),("–","-"),("’","\x27"),("“","\""),("”","\""),
-             ("→","->"),("≥",">="),("§","sec"),("…","..."),("×","x"),
-             ("⏎","<CR>")):
-    s = s.replace(a, b)
-sys.stdout.write(s.encode("ascii", "replace").decode("ascii"))
-' > "$TMP/prompt"
+# (4) ASCII-fold, through scripts/ascii-fold.py: its table is the one check-charter.sh
+# folds the charter with, so a GIVEN that would reach the reviewer with a `?` in place
+# of a character (`fence.Field`'s `␣` did, Codex report A5) fails that check first.
+# -I: the cwd is the repository under review, and a planted module there must not run.
+FOLD="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/ascii-fold.py"
+[ -f "$FOLD" ] || die "scripts/ascii-fold.py is missing; the prompt cannot be folded
+  refused: no fold table"
+LC_ALL=C tr -d '\000' < "$TMP/raw" | python3 -I -B "$FOLD" > "$TMP/prompt" || die "scripts/ascii-fold.py failed; nothing was run
+  refused: the fold failed"
 
 echo "codex-review: model=$MODEL effort=$EFFORT tier=$TIER budget=${BUDGET}s $CHARTER_NOTE prompt=$(wc -c < "$TMP/prompt") bytes" >&2
 

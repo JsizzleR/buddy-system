@@ -49,6 +49,7 @@ for a; do
   case $prev$a in -cmodel_reasoning_effort=*) effort=${a#model_reasoning_effort=} ;; esac
   prev=$a prompt=$a
 done
+printf '%s' "$prompt" > "$STUB_LOG.prompt"
 rc=0 sleep=0 write=1 nomodel=0
 case ${STUB_MODE:-ok} in
   ok) ;;
@@ -160,6 +161,15 @@ O=$T/out/nomodel.txt
 PROMPT=$T/quote; run nomodel 3 "$O" STUB_MODE=nomodel; PROMPT=
 case $(first "$O") in "codex-review: HEADER MISMATCH"*) ;; *) fail "nomodel: a body line stood in for the header's missing model" ;; esac
 
+# --- the fold: the prompt codex receives is ASCII, fence.Field's characters spelled ---
+printf 'fence.Field renders a space as \342\220\243 and an empty result as \342\210\205 \342\200\224 ok\n' > "$T/utf8"
+O=$T/out/fold.txt
+PROMPT=$T/utf8; run fold 0 "$O"; PROMPT=
+# Read the prompt the stub was handed, not the transcript: the transcript's header
+# carries the working directory, which may itself be non-ASCII.
+has "$T/log.prompt" "renders a space as <SP> and an empty result as <EMPTY> -- ok" || fail "fold: the prompt did not reach codex folded (<SP>, <EMPTY>, --)"
+LC_ALL=C grep -q "$(printf '[\200-\377]')" "$T/log.prompt" && fail "fold: a non-ASCII byte reached codex"
+
 # --- busy: its own exit code, NOT RUN, nothing launched ---
 O=$T/out/busy.txt; stale "$O"
 PATH="$T/bin:$PATH" STUB_LOG=/dev/null codex exec busy &
@@ -237,4 +247,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok, no-out, 3 header mismatches + quoted header + no model line, busy 75, 11 knob refusals + control, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure)"
+echo "check-codex-review: GREEN (ok, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 11 knob refusals + control, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure)"

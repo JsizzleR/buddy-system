@@ -233,6 +233,37 @@ if [ -n "$bad" ]; then
 fi
 moved=$(cut -f1 "$tmpd/adapter" | tr '\n' ' ' | sed 's/ $//')
 
+# THE FOLD (Codex report A5). codex-review.sh folds every prompt to ASCII through
+# scripts/ascii-fold.py, and a character its table does not name becomes `?`. The
+# charter's two GIVENs on `fence.Field` said it renders a space as `␣` and an empty
+# result as `∅`; neither was in the table, so every reviewer read that it renders a
+# space as `?`. So: fold each charter file through the SAME file the review uses, and
+# fail if the folded text has a `?` its source lacks. Two clauses: a planted line of
+# mapped characters (`␣`, `∅`, `—`) and a real `?` must NOT be flagged (that line is
+# also what fails when a row goes missing), and a planted unmapped character MUST be.
+FOLD=scripts/ascii-fold.py
+[ -f "$FOLD" ] || fail "no $FOLD (codex-review.sh folds every prompt through it)"
+qcount() { LC_ALL=C tr -cd '?' | wc -c | tr -d ' '; }
+foldlies() { # <file> — one line naming the file when folding it adds a `?`
+	# The fold's own status first: a pipeline into qcount would report qcount's, and a
+	# fold that died before its last `?` would count clean.
+	python3 -I -B "$FOLD" < "$1" > "$tmpd/folded" || { printf '%s: the fold itself failed\n' "$1"; return 0; }
+	_src=$(qcount < "$1")
+	_got=$(qcount < "$tmpd/folded")
+	[ "$_src" = "$_got" ] || printf '%s: %s `?` in the source, %s after the fold\n' "$1" "$_src" "$_got"
+}
+printf 'a space renders as ␣, an empty result as ∅ — is that right?\n' > "$tmpd/fold-mapped"
+printf 'a star ★ has no row?\n' > "$tmpd/fold-unmapped"
+[ -z "$(foldlies "$tmpd/fold-mapped")" ] || fail "the fold turned a mapped character into \`?\`: $(foldlies "$tmpd/fold-mapped") — a row of $FOLD is missing (\`␣\` and \`∅\` are fence.Field's)"
+[ -n "$(foldlies "$tmpd/fold-unmapped")" ] || fail "a planted unmapped character was not flagged — the gate is broken, not the docs"
+bad=$(foldlies "$CHARTER"; foldlies "$ADAPTER")
+if [ -n "$bad" ]; then
+	echo "check-charter: the ASCII fold codex-review.sh applies turns charter text into \`?\`:" >&2
+	echo "$bad" | sed 's/^/  /' >&2
+	echo "  Add a row for each new non-ASCII character to $FOLD, or write it in ASCII." >&2
+	exit 1
+fi
+
 missing=$(uncovered "$DECISIONS" "$CHARTER")
 if [ -n "$missing" ]; then
 	echo "check-charter: decisions with no GIVEN in $CHARTER:" >&2
@@ -241,4 +272,4 @@ if [ -n "$missing" ]; then
 	echo "  in the voice of the ones already there, or the ruling gets re-proposed." >&2
 	exit 1
 fi
-echo "check-charter: GREEN (planted decision flagged, planted pair's 11 failures found, empty charter caught; $(sed -n 's/^## \(D-[0-9][0-9]*\).*$/\1/p' "$DECISIONS" | wc -l | tr -d ' ') decisions all charted; adapter GIVENs $moved stubbed)"
+echo "check-charter: GREEN (planted decision flagged, planted pair's 11 failures found, empty charter caught, fold control flagged and charter folds clean; $(sed -n 's/^## \(D-[0-9][0-9]*\).*$/\1/p' "$DECISIONS" | wc -l | tr -d ' ') decisions all charted; adapter GIVENs $moved stubbed)"
