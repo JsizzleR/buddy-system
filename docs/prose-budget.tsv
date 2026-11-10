@@ -17,7 +17,7 @@ per-session	94208	2026-11-10 operator (relayed by orc-17)	class total: every ski
 skills/buddy/SKILL.md	28672	2026-10-28 operator (D-116)	core: what every session that loads the skill needs; 23,819 at landing (after D-114)
 skills/buddy-fleet/SKILL.md	61440	2026-11-10 operator (relayed by orc-17)	coordinators only; 49,649 at landing (after D-122: review defers to the core, gh stack narrative to D-108/D-122); 57,318 at the raise for the #75-#84 batch, raised by 4 KB inside the per-session total
 skills/buddy-lead/SKILL.md	8192	2026-10-29 buddy-lead (D-121)	a first-time user's helper: asks, routes to the other two skills and the docs, points at scripts/env-check.sh; 6,461 at landing
-read-first	1196032	2026-11-06 operator (D-116)	class total: what CLAUDE.md's Read this first and AGENTS.md's read paragraph name; 985,707 at landing, today's list; raised at 1,085,400 of 1,085,440, to the formula's value; step 3 decides what stays
+read-first	1212416	2026-11-10 operator (relayed by orc-19)	class total: what CLAUDE.md's Read this first and AGENTS.md's read paragraph name; 985,707 at landing, today's list; raised at 1,085,400 of 1,085,440, to the formula's value; step 3 decides what stays; raised 16 KB at 1,198,170 for the Codex-findings batch (run-i88: four lanes adding records, each under alone), formula 1,318,912
 README.md	28672	2026-10-28 operator (D-116)	named in Read this first; 22,566 at landing
 docs/README.md	4096	2026-10-28 operator (D-116)	named in Read this first; 3,385 at landing
 docs/DESIGN.md	16384	2026-10-28 operator (D-116)	named in Read this first and by AGENTS.md; 11,650 at landing
