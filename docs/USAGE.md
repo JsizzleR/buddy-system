@@ -67,9 +67,19 @@ tool path from the vanished cwd is refused wherever a ledger governs it, since
 it can no longer be placed, and a deny names the vanished cwd and says to close
 the pane. Only "no such file or directory" takes this path: a cwd behind an
 unsearchable directory keeps the verdict it had, and so does every cwd while
-any of `GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`, `GIT_CEILING_DIRECTORIES`
-or `GIT_DISCOVERY_ACROSS_FILESYSTEM` is set in the hook's environment (a
-ledger above denies). `buddy init` never does it.
+`GIT_DISCOVERY_ACROSS_FILESYSTEM` is set in the hook's environment (a ledger
+above denies). `buddy init` never does it.
+
+The hook verbs (`hello`, `bye`, `beat`, `idle`, `busy`, `gate`, `lifecycle`)
+discover repositories from the filesystem, not from an inherited git
+environment: they unset git's local variables (`git rev-parse
+--local-env-vars`: `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`,
+`GIT_INDEX_FILE`, ...) and `GIT_CEILING_DIRECTORIES` at their entry, so a
+session whose shell exports `GIT_DIR` for a dotfiles repository is still
+governed by the repository it works in (D-137); a `buddy-adapter` worker's
+hook, whose identity check runs a typed verb, is refused there instead. `commit-gate` keeps git's
+environment, which is how a pre-commit hook says what is being committed, and
+so does every verb you type.
 
 `SessionStart` (`hello`) ends its digest with a chat hint unless chat is
 declared off: `BUDDY_CHAT` `off` or `on` (trimmed, then folded by the repo's

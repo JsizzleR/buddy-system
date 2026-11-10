@@ -10734,6 +10734,125 @@ killed; the two survivors (quick_check ignored; an always-true SameFile under
 QA-17) die since the folds; `ver > 0` for `ver != 0` in the locked check is
 now equivalent, the unlocked check refusing first.
 
+## D-137 — The hook verbs discover from the filesystem: git's local environment and the ceiling are unset at their entry (issue #76; amends D-102)
+
+2026-11-10 · issue #76, finding 2 of the 2026-11-09 whole-project review
+
+**What was wrong** — With `GIT_DIR` in a session's environment, the gate read a
+repository that has a ledger as one with none, and allowed a write inside a
+peer's claim, printing nothing. Reproduced at main 7b17cc2 through `buddy gate`:
+sess-a holds `dir1`, sess-b's `Write <repo>/dir1/x.go` from cwd `<repo>/dir1` is
+denied with no git environment and ALLOWED, 0 bytes, under:
+- `GIT_DIR=.git`: git says "not a git repository" from the subdirectory, and
+  `discoverRepo` returns `errNoLedger` on that message before
+  `ledgerProvablyAbsent`'s own `GIT_DIR` guard runs;
+- `GIT_DIR=<repo>/.git`: git reports the cwd as the worktree root, `dir1/x.go`
+  places as `x.go`, and the claim misses;
+- a dotfiles shell, `GIT_DIR=<other>/.git GIT_WORK_TREE=<other>`, and
+  `GIT_COMMON_DIR=<other>/.git`: every repository on the machine reads as
+  ledgerless;
+- `GIT_CEILING_DIRECTORIES=<repo>`: git stops below the root.
+The same held for a shell-routed `cd <repo> && apply_patch` from a plain cwd
+(its directories are discovered under the same environment) and for a PAUSED
+session's path-less Bash from `<repo>/dir1` (the brake was never read).
+`GIT_WORK_TREE=<other>` alone already denied, for the wrong reason ("could not
+be placed"). Invariant 3's two verdicts had collapsed into one silent allow.
+
+**The rule** — `Run` unsets, for exactly the hook verbs (`hello`, `bye`, `beat`,
+`idle`, `busy`, `gate`, `lifecycle`, all of its subcommands), git's local
+variables (`git rev-parse --local-env-vars`, the fifteen of git 2.54) and
+`GIT_CEILING_DIRECTORIES`, which is not local but stops discovery below a root.
+It restores them when the verb returns, which changes nothing in a hook process
+and leaves an in-process caller (the suite drives `Run`) as it was. A hook is a
+fresh process per call, so this covers every discovery site at once: `revParse`,
+the `os.Getenv` reads in `ledgerProvablyAbsent` and `vanishedCwdAncestor`, the
+per-directory discovery of a shell route and of a patch target, gh stack's, and
+every child the hook spawns. `buddy-adapter hook` runs `buddy gate` as a
+child, which scrubs itself; its own identity check first runs `buddy adapter
+inspect` and `endpoint`, typed verbs that keep the environment, so under a
+dotfiles `GIT_DIR` an adapter worker's call is refused there (fails closed;
+recorded open). The list is fixed in `hookgitenv.go`, not asked of git per
+call (one more git spawn against a 100 ms budget); a test fails when this
+machine's git lists a name the copy lacks.
+
+**What it does not do** —
+- `commit-gate` keeps git's environment: in a pre-commit hook it is how git
+  says what is being committed, and a partial commit's temporary
+  `GIT_INDEX_FILE` must survive (the charter's git facts). That is why the scrub
+  is at the hook verbs' entry and not in `revParse`, which both share.
+- The verbs a session or the operator types (`claim`, `status`, `wait check`,
+  ...) still inherit it. Recorded open: they refuse nothing a peer relies on,
+  `GIT_DIR=.git buddy claim` from a subdirectory fails loudly (no repository),
+  and an operator who sets `GIT_DIR` for a verb meant it.
+- Kept, on purpose: `GIT_CONFIG_GLOBAL`/`_SYSTEM`/`_NOSYSTEM` (`safe.directory`
+  lives in global config; stripping it turns a trusted repository into a
+  refused one, which D-044 then denies wherever a ledger exists, so this is not
+  `cleanGitEnv`), `GIT_DISCOVERY_ACROSS_FILESYSTEM` (it only widens discovery),
+  and `GIT_EXEC_PATH` and the like (invariant 6). Clearing
+  `GIT_CONFIG_COUNT`/`GIT_CONFIG_PARAMETERS` also drops a command-scope
+  `safe.directory` exception (Codex design pass); such a hook takes D-044's
+  ledger-file test, which denies only where a ledger exists.
+
+**Amends D-102** — `vanishedCwdAncestor`'s stand-down under a discovery knob is
+now reachable on the hook path only through `GIT_DISCOVERY_ACROSS_FILESYSTEM`:
+the other four are scrubbed before it runs, so a ceiling at the ancestor no
+longer stands the fallback down, and the fallback answers as with no knob.
+`TestTheFallbackStandsDownUnderGitDiscoveryEnv` now holds both. The code and its
+five names stay: `resolveRepo` is also reached, unscrubbed, through `openRepo`
+by `commit-gate` and every typed verb.
+
+**Considered and cut** — threading an environment through
+`openRepo`/`resolveRepo`/`discoverRepo`/`revParse` (signature churn, and it
+misses the `os.Getenv` reads and the children); denying whenever one is set and
+a ledger exists at the nearest `.git` (bricks every dotfiles shell in every
+governed repository, and a dotfiles `GIT_DIR` names a DIFFERENT repository, so
+the filesystem's answer is the one to read anyway).
+
+**Recorded open (Codex design pass)** — both outside the inherited-discovery
+class this closes, and neither widened here:
+- A crafted value that makes git print "not a git repository" for another
+  reason: `GIT_DISCOVERY_ACROSS_FILESYSTEM='not a git repository'` (kept, see
+  above) makes git reject the boolean and echo the value, and `discoverRepo`'s
+  message fast path reads it as `errNoLedger`. The session's own environment
+  has to carry the crafted text (invariant 6, D-005).
+- A BARE repository holding a ledger, under `safe.bareRepository=explicit` in
+  global config: git refuses it, no `.git` entry is above it, and
+  `hasGitAncestor` reads it as no repository. Present before this change; a
+  bare repository has no worktree to place a write in, so only a path-less
+  call's brake is at stake.
+
+**Recorded open (Fable cross-check)** — a repository DEFINED by the
+environment rather than found on disk: a bare dotfiles repository
+(`GIT_DIR=~/.dotfiles GIT_WORK_TREE=~`) that someone `buddy init`ed, or a
+session launched outside its repository with `GIT_DIR=<repo>/.git
+GIT_WORK_TREE=<repo>`. The typed verbs keep the environment and read that
+ledger; the hooks, scrubbed, discover from the cwd and read none there. For
+the dotfiles worktree, a claim made under it does not refuse a peer's write;
+for both, a pause does not stop a path-less Bash call (a write naming a path
+in the launched-outside session's repository still finds that ledger: Codex
+re-verify). The case #76 closes is the commoner one (the
+environment names a different repository than the one written in); reading
+both answers would make every dotfiles shell's discovery pay twice, and is
+not this fold.
+
+**Tests** — `hookgitenv_test.go`, each watched to FAIL on main 7b17cc2 first:
+the Write into a peer's `dir1` claim under each of the six spellings above, with
+the no-environment deny as the positive control; the shell-routed patch from a
+plain cwd under a dotfiles environment; a paused session's path-less Bash under
+a relative `GIT_DIR`; the copy covering this machine's `git rev-parse
+--local-env-vars`; and the scope: a typed `claim` under a relative `GIT_DIR`
+still inherits it and finds no repository (the control that the verb set is
+bounded), while `hello` under it registers in the repository's ledger, and
+`GIT_DIR` and `GIT_INDEX_FILE` are restored for the in-process caller.
+`check-commit-gate.sh`'s partial commit (a real pre-commit hook in its own
+process) is the commit gate's control. Mutated in a private copy, each
+watched to fail: the scrub call removed, the ceiling and `GIT_COMMON_DIR` each
+dropped from the list, the restore removed, and the scrub applied to every verb.
+On the final code, dropping `beat`, `idle`, `busy` or `lifecycle` from the
+hook verbs survived; `idle`, `busy` and `beat` are now each driven under a
+relative `GIT_DIR` (the roster state and the dirty-path row land in the
+repository's ledger) and the set is pinned, and all four die.
+
 ## D-139 — A target resolves among live sessions first, and ended rows only when nothing live matches (issue #80; amends D-013)
 
 2026-11-10 · issue #80 (a whole-project review, finding 6); lane target-live

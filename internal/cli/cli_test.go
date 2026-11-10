@@ -536,6 +536,14 @@ func TestMain(m *testing.M) {
 	// reach it, or `git -C <tmp>` writes into whatever repository an
 	// inherited GIT_DIR names (#49, testguard/gitenv.go).
 	testguard.ScrubGitEnv()
+	// And everything else the hook verbs scrub (GIT_CEILING_DIRECTORIES is
+	// not one of git's local names): a hook verb run through Run unsets and
+	// then restores each one that is SET, and parallel tests doing that to
+	// one process environment would hand each other a ceiling mid-discovery
+	// (#76, the controls panel lens). With none set, the scrub is a no-op.
+	for _, k := range hookGitEnv {
+		os.Unsetenv(k)
+	}
 	// Guard: the suite shells out to git; make its absence loud, not flaky.
 	if _, err := exec.LookPath("git"); err != nil {
 		fmt.Fprintln(os.Stderr, "cli tests require git on PATH")

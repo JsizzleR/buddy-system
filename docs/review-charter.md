@@ -409,7 +409,8 @@ ledger row entered through the CLI (D-006).
     refusal (not "not a git repository") with a `.git` above the path, the nearest `.git`
     (through `gitdir:` and `commondir` for a linked worktree) is checked for `buddy.db` without
     git. Only a positive "does not exist" allows. A present ledger, an unreadable path, an
-    unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny. A cwd that does not exist at all (exact ENOENT) is not a refusal: since D-102 it is
+    unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny (outside a hook: the hook verbs
+    unset git's local environment and the ceiling at entry, D-137). A cwd that does not exist at all (exact ENOENT) is not a refusal: since D-102 it is
     discovered from its deepest existing ancestor first, and this check applies there.
 
 48. **A message says what kind of claim it carries, as the SENDER's declaration (D-045).**
@@ -917,7 +918,7 @@ ledger row entered through the CLI (D-006).
 103. **A vanished hook cwd is discovered from its deepest existing ancestor (D-102).** The
     verdict is what an empty directory at that path gets. Only an absolute cwd whose `Lstat` is
     exactly ENOENT, with no `GIT_DIR`/`GIT_COMMON_DIR`/`GIT_WORK_TREE`/`GIT_CEILING_DIRECTORIES`/
-    `GIT_DISCOVERY_ACROSS_FILESYSTEM` set. The ancestor is found as the kernel resolves the path
+    `GIT_DISCOVERY_ACROSS_FILESYSTEM` set (in a hook only the last can be: D-137 unsets the rest). The ancestor is found as the kernel resolves the path
     (links spliced in, `..` applied physically, never `filepath.Clean` first; a dangling link
     followed, not climbed past; an empty link target gives up); both ends re-read after.
     `shellPatchDirs` places any base whose `Stat` is ENOENT the same way. A relative tool path from it is unplaceable and refused

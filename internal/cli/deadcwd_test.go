@@ -209,20 +209,31 @@ func TestAVanishedCwdThroughADanglingLinkFollowsTheLink(t *testing.T) {
 }
 
 // git's own discovery knobs make "discover from the ancestor" differ from
-// "discover from an empty directory here" (a relative GIT_DIR, a ceiling at the
-// ancestor), so with any of them set the fallback stands down and today's
-// verdict holds. Not parallel: t.Setenv, and revParse inherits the process
-// environment.
+// "discover from an empty directory here", so with any of them set the
+// fallback stands down and today's verdict holds. The hook verbs now remove
+// git's local environment and the ceiling at their entry (#76, D-137), so on
+// the hook path only GIT_DISCOVERY_ACROSS_FILESYSTEM, which the scrub keeps
+// because it only widens discovery, still reaches the stand-down; a ceiling at
+// the ancestor is scrubbed, and the fallback answers as with no knob at all.
+// Not parallel: t.Setenv, and revParse inherits the process environment.
 func TestTheFallbackStandsDownUnderGitDiscoveryEnv(t *testing.T) {
 	f := newFixture(t)
 	lane := deadLane(t, f)
 	if reason, denied := gateFrom(t, f, bashHookJSON("sess-l", lane, "ls")); denied {
 		t.Fatalf("control: with no git env the fallback finds the checkout: %q", reason)
 	}
-	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(lane))
-	if reason, denied := gateFrom(t, f, bashHookJSON("sess-l", lane, "ls")); !denied || !strings.Contains(reason, "repo discovery failed") {
-		t.Fatalf("under a discovery knob the fallback must stand down: denied=%v %q", denied, reason)
-	}
+	t.Run("a kept knob stands it down", func(t *testing.T) {
+		t.Setenv("GIT_DISCOVERY_ACROSS_FILESYSTEM", "1")
+		if reason, denied := gateFrom(t, f, bashHookJSON("sess-l", lane, "ls")); !denied || !strings.Contains(reason, "repo discovery failed") {
+			t.Fatalf("under a discovery knob the fallback must stand down: denied=%v %q", denied, reason)
+		}
+	})
+	t.Run("a scrubbed ceiling does not", func(t *testing.T) {
+		t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(lane))
+		if reason, denied := gateFrom(t, f, bashHookJSON("sess-l", lane, "ls")); denied {
+			t.Fatalf("the hook scrubs the ceiling, so the fallback answers as with no knob: %q", reason)
+		}
+	})
 }
 
 // The fallback is for hooks. `buddy init` CREATES a ledger where discovery

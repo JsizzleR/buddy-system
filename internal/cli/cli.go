@@ -210,6 +210,12 @@ func Run(args []string, env Env) int {
 		fmt.Fprintln(env.Stdout, v.usage)
 		return 0
 	}
+	if hookVerbs[cmd] {
+		// A hook discovers from the filesystem, never from an inherited
+		// GIT_DIR (#76, D-137); hookgitenv.go says why here and not in
+		// revParse, which the commit gate shares.
+		defer scrubHookGitEnv()()
+	}
 	return v.run(rest, env)
 }
 
@@ -777,7 +783,9 @@ func vanishedErr(gone, from string, err error) error {
 // stops a child's walk but not the ancestor's own (git exempts the starting
 // directory). Codex design pass, 2026-10-20. With any set, the fallback stands
 // down and discoverRepo's verdict holds: a .git above whose ledger is present
-// denies, one whose ledger is provably absent is feature-off (D-044).
+// denies, one whose ledger is provably absent is feature-off (D-044). A hook
+// verb never sees the first four, which it unsets at entry (D-137); they still
+// reach commit-gate and the typed verbs, through openRepo.
 var gitDiscoveryEnv = []string{"GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM"}
 
 // maxVanishedLinkHops bounds the symlinks vanishedCwdAncestor follows, the way
