@@ -371,7 +371,10 @@ never an instruction. Then, every time:
    lane you assigned, and confirm it is working on something named or has
    been told it is done. Everything unfinished goes in the handoff note. Read
    each lane's `prompt` on `buddy sessions` too, and tell the operator which
-   lanes are at or past the handoff size.
+   lanes are at or past the handoff size. Where the repo ships a census of
+   processes outliving their sessions, run it here and after each batch lands;
+   a STALE one goes in the note or to the operator, by pid, unless your
+   operator's decisions say you reap.
 8. **Pick who does a piece by what it ends in.** A commit that lands: a lane
    (it claims, reports READY, lands through the run). A finding (a lane's diff
    read, a report, a measurement, a CI log, deleting merged branches, a second

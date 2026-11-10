@@ -1893,6 +1893,16 @@ ids; see "Landing through an orchestrator") and `sh scripts/subagent-report.sh
 ran on, subagent transcripts per session, orchestrators' first-launch prompt and
 landing reads, buddy-verb Bash bytes; its header says what each number feeds).
 
+`sh scripts/leftover-report.sh [--all] [<repo> ...]` (darwin) lists this user's processes
+that launchd adopted when their parent died (not those launchd started), each
+tied to a session by the `CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID` in its
+environment, a scratchpad cwd, or a cwd in a session's worktree, against the
+ledgers named (default the cwd's): pid, age, RSS, tree, the kernel's executable
+name, never argv; 50 rows unless `--all`. OWNED (an open session: tell it), STALE (every session tied
+has ended), UNKNOWN (the operator's). It ends nothing; darwin withholds a
+platform binary's environment (`/bin/sh`), so such a process ties by cwd or not
+at all. Its header has the measurements.
+
 ## Structured adapters (experimental)
 
 Step 2 adds `buddy.adapter.v1` ledger receipts and a separate `buddy-adapter`

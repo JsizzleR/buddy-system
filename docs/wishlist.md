@@ -806,6 +806,11 @@ The one-line version: **a coordinator should be able to report that a session is
 
 ## 22. Processes outlive their sessions, and no sweep looks for them
 
+**Status (2026-11-10, #84):** item 5 is built, read-only: `scripts/leftover-report.sh`,
+whose header has the measurement asked for below (environment and cwd on darwin), and
+item 1 is one sentence in the fleet skill's handoff sweep. Reaping is still nobody's
+by default.
+
 **Source:** the operator, in an orchestrator's pane on 2026-11-03 at about 07:20Z, after a
 hand sweep of the laptop: *"make that a standing rule/built in as well about the orchestrator
 looking for this stuff"*.

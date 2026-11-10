@@ -106,8 +106,8 @@ sh scripts/codex-review.sh <prompt-file> <out-file>
 ```
 
 Reports (`scripts/{cost,startup,wake,fleet,model,subagent}-report.sh`) print
-counts, ids and byte lengths only; `docs/USAGE.md` § Measuring context cost says
-what each reads and its knobs. Python:
+counts, ids and byte lengths only (`leftover-report.sh`: pids, ages, RSS);
+`docs/USAGE.md` § Measuring context cost says what each reads and its knobs. Python:
 `python3 -I scripts/check-<name>.py <receipt> --self-test` is an evidence
 checker that launches nothing; `scripts/qualify-<name>.py` and
 `qualify-release.py --harness H --executable P` (retain, run every tier's suites
