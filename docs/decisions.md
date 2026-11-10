@@ -11227,10 +11227,19 @@ subject is still never read); the layer list only straight after the tier
 word; a bare `codex@<effort>` layer is the code pass (D-104's first lites,
 which read as `other`).
 
-- **Not done.** The two respellings #87's item 3 names (a case variant and a
-  trailing-newline sibling) are `scripts/cost-report.sh`'s foreign-sibling
-  exclusions, from the Codex pass on #77 (`1a11bc8`), not the receipt
-  parser's: left open there. A receipt check at commit or push time (a
+- **Done in a second commit** (orc-18's assignment, 2026-11-10): the two
+  respellings #87's item 3 names are `scripts/cost-report.sh`'s
+  foreign-sibling exclusions, from the Codex pass on #77 (`1a11bc8`), not
+  the receipt parser's. A case variant (`<repo>-FOREIGN/sub` on macOS's
+  case-insensitive volume IS the existing foreign `<repo>-foreign`, and was
+  counted): the exclusion compares ASCII-folded, over-excluding on a
+  case-sensitive volume as D-002 accepts for scopes; a non-ASCII case
+  variant stays open (jq has no NFC or Unicode fold). A trailing newline
+  (`$(pwd -P)` stripped it, so an existing `<repo>-nl<newline>` also left
+  out a removed lane `<repo>-nl`): the resolved spelling keeps the name's
+  own newlines. `check-cost-report.sh` plants both, each watched to fail
+  first, with m16 still counted as the control; three mutants die.
+- **Not done.** A receipt check at commit or push time (a
   gate: full tier, not asked). Judging a skip's reason. The `--end-of-options`
   behind the leading-dash refusal is untested while the refusal stands.
 

@@ -179,6 +179,12 @@ roots_json=$(jq -Rsc 'split("\u0000") | map(select(startswith("worktree ")) | lt
 # pass), and from this checkout as spelled. A removed sibling
 # is taken on its name alone: a removed `<repo>-x` that was some other
 # repository is counted as ours, as startup-report.sh counts it.
+# The exclusion compares ASCII-folded (D-143): macOS's default volume is
+# case-insensitive, so `<repo>-FOREIGN/sub` IS an existing foreign
+# `<repo>-foreign` and was counted (Codex code pass on #77). On a
+# case-sensitive volume this over-excludes a removed lane differing only in
+# case, the residual D-002 accepts for scopes; a non-ASCII case variant
+# (no NFC or Unicode fold in jq) stays open.
 common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
 rcommon=$( (CDPATH= cd -- "$common" 2>/dev/null && pwd -P) || :)
 {
@@ -202,7 +208,11 @@ for s in "$@"; do
 		[ -z "$c" ] || c=$( (CDPATH= cd -- "$c" 2>/dev/null && pwd -P) || :)
 		[ -n "$rcommon" ] && [ "$c" = "$rcommon" ] && continue
 		printf '%s\0' "$d"
-		r=$(CDPATH= cd -- "$d" && pwd -P) && printf '%s\0' "$r" || :
+		# The `x` keeps a name's own trailing newline: command substitution
+		# strips every one, and `repo-nl<newline>` then left out the removed
+		# lane `repo-nl` too (Codex code pass on #77, D-143). Only pwd's own
+		# newline is cut, by the `?`.
+		r=$(CDPATH= cd -- "$d" && pwd -P && printf x) && printf '%s\0' "${r%?x}" || :
 	done
 done >"$work/excl"
 excl_json=$(jq -Rsc 'split("\u0000") | map(select(length > 0)) | unique' <"$work/excl")
@@ -295,7 +305,7 @@ if [ -d "$claude_projects" ]; then
 			def at($r): . == $r or startswith($r + "/");
 			def sibling: . as $c | ($c | test("/\\.\\.(/|$)") | not)
 				and any($sibs[]; . as $s | $c | startswith($s))
-				and (any($excl[]; . as $x | $c | at($x)) | not);
+				and (($c | ascii_downcase) as $lc | any($excl[]; ascii_downcase as $x | $lc | at($x)) | not);
 			def ours: . as $c | any($roots[]; . as $r | $c | at($r)) or sibling;
 			def inwin: type == "string" and .[0:19] >= ($cutoff | .[0:19]);
 			def known: IN("chat_send", "chat_read", "chat_status", "chat_ack", "chat_who", "dm", "set_status");

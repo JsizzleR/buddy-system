@@ -345,6 +345,22 @@ out=$( cd "$WORK/alias/repo" && HOME="$WORK/home" CLAUDE_PROJECTS_DIR="$P" BUDDY
 $out"
 has sessions=7 requests=16 "cache_read=$((cr + 11000 + 14000 + 16000))"
 
+# --- two respellings of an existing foreign sibling (#77's Codex pass) -----------
+# A CASE VARIANT names the same directory on macOS's default volume:
+# m22 under `repo-OLD` is the existing foreign `repo-old` (phase one) and
+# never counts; on a case-sensitive volume the fold over-excludes a removed
+# `repo-OLD`, the residual D-002 accepts for scopes. A TRAILING NEWLINE:
+# `repo-nl<newline>` exists and is no repository, so it is left out, and
+# command substitution's stripped newline must not leave out the removed
+# lane `repo-nl` with it (m23 counts). The control is m16, still counted.
+mkdir -p "$WORK/repo-nl
+"
+a m22 18000 0 1 bbbbbbbb-0000-4000-8000-00000000000b "$WORK/repo-OLD/sub" "$NOW" false "$M" '[]' > "$P/-other/case.jsonl"
+a m23 19000 0 1 cccccccc-0000-4000-8000-00000000000c "$WORK/repo-nl/sub" "$NOW" false "$M" '[]' > "$P/-other/nl.jsonl"
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with the respellings planted:
+$out"
+has sessions=7 requests=16 "cache_read=$((cr + 11000 + 14000 + 19000))"
+
 # --- a malformed line: the FLOOR note, never its text ------------------------------
 printf '{"type":"user","message":"%s\n' "$CANARY" > "$P/-repo/zz-torn.jsonl"
 out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero on a torn transcript"
