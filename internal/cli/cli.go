@@ -4211,7 +4211,8 @@ func resolveTarget(st *store.Store, raw string, env Env) (store.Target, error) {
 }
 
 // resolveTargetQuiet is the resolution without the ENDED warning, for a caller
-// that is not about to write anything.
+// that is not about to write anything, or whose own echo says what an ENDED
+// target means (pause and resume, #86).
 //
 // Codex finding (P3, issue #14): `msg --dry-run` against an ended target
 // printed "this is queued against its id" and then "nothing was queued" —
@@ -4244,14 +4245,17 @@ func cmdPause(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	tgt, err := resolveTarget(st, target, env)
+	// Quiet: an ENDED target's pause is not "queued", and the echo, printed
+	// only once the write committed, says when it bites (resume.go, #86).
+	tgt, err := resolveTargetQuiet(st, target)
 	if err != nil {
 		return err
 	}
-	if err := st.Pause(tgt, *note); err != nil {
-		return err
+	done, err := st.Pause(tgt, *note)
+	if err != nil {
+		return fencedErr(err)
 	}
-	fmt.Fprintf(env.Stdout, "paused %s — takes effect on their next mutating tool call\n", fence.Line(tgt.String(), 128))
+	pauseEcho(env.Stdout, done)
 	return nil
 }
 
@@ -4264,15 +4268,15 @@ func cmdResume(args []string, env Env) error {
 		return err
 	}
 	defer st.Close()
-	tgt, err := resolveTarget(st, args[0], env)
+	tgt, err := resolveTargetQuiet(st, args[0])
 	if err != nil {
 		return err
 	}
-	n, err := st.Resume(tgt)
+	r, err := st.Resume(tgt)
 	if err != nil {
-		return err
+		return fencedErr(err)
 	}
-	fmt.Fprintf(env.Stdout, "cleared %d pause(s) for %s\n", n, fence.Line(tgt.String(), 128))
+	resumeEcho(env.Stdout, r)
 	return nil
 }
 

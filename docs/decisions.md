@@ -447,7 +447,7 @@ place where the project's own measurement pointed straight at the gap and nothin
 it — D-009 established that peers address each other by claim slug (identity scored 0
 matches over 2313 live messages), and no target query consulted the claims table.
 
-*Amended by D-139: past the exact id, live sessions are tried before ended rows, and ambiguity is decided within that tier.*
+*Amended by D-139: past the exact id, live sessions are tried before ended rows, and ambiguity is decided within that tier. Amended by D-145: `Resume`'s label arm lifts only a name no other session wears.*
 
 **What shipped** — `store.ResolveTarget` maps an argument onto exactly one session or
 refuses, in a fixed most-specific-first order: `all` → full session id → label → `s-<8hex>`
@@ -11022,7 +11022,7 @@ differently spelled cwd).
 
 **Kept** — D-013's ended target: a send to a just-ended lane is still queued (the store test) and warned (`msgbody_test.go`'s ENDED case). No schema change; `cli.go` untouched.
 
-**Open** (`store.go`, `cli.go`, `stale.go` were other lanes' in this batch) —
+**Open** (`store.go`, `cli.go`, `stale.go` were other lanes' in this batch; all four closed by D-145) —
 - `Resume` clears legacy rows (pre-D-013, raw `target`) by the typed string and the resolved label; with an ended twin wearing that label, `resume <label>` now lifts such a row for it too, as `resume <id>` already did. Its comment's premise ("refuses a label held by more than one session") now reads "live session".
 - A pause and its resume can resolve one word to different sessions: `pause fix-74` reaches the live slug holder; once that slug is released, `resume fix-74` reaches the ended lane by its label and says `cleared 0`. Fail-safe (the brake stays on); the echo names no id.
 - A resolution and its write are two transactions: a revival between them can make `x` mean another session than the one braked.
@@ -11288,3 +11288,30 @@ who <its full session id>`. Only `agent_pane_busy` is retried (D-082).
 
 **Considered and cut** — a buddy launch helper or a wrapper script: buddy
 launches nothing (D-027, D-056), and the fix is two sentences of recipe.
+
+## D-145 — `resume`'s label arm lifts no name another session wears; `resume` names whom it reached and what still stands, and both brake verbs re-resolve inside their write (issue #86; closes D-139's open items)
+
+2026-11-10 · issue #86; lane resume-target
+
+**What was wrong** — D-139 recorded four open items. Reproduced, `internal/store/resume_target_test.go` and `internal/cli/resume_echo_test.go`:
+1. `Resume` cleared rows on the resolved LABEL unconditionally, for pre-D-013 rows (the typed word), on the premise that resolution refuses a label two sessions wear: since D-139, two LIVE sessions only. A row on a name brakes every session wearing it (`PausedFor`'s label arm), so `resume <id>` of one of two wearers of `alpha`, live or ended, lifted a row still braking the other. The Codex design pass found the same arm latent in two worse forms, needing no legacy row: a session labelled `all` made `resume <its id>` lift the fleet-wide pause, and one labelled with another session's id lifted that session's own pause.
+2. `pause fix-74` reached the live slug holder; once the slug was released, `resume fix-74` reached the ended lane by its label and printed `cleared 0 pause(s) for fix-74`, naming nobody.
+3. Resolution and its write were two transactions.
+4. `msgTargetFor`'s comment ("a slug is the LAST thing a target resolves to") held only within a tier.
+
+**What shipped** — (1) `Resume` clears the resolved id, the word verbatim (typing a row's own text names the brake it set), and the resolved label only when no other session row, ended included, has that string as its id or label, and it is neither empty nor `all`. `resume all` clears `all` rows and a pre-D-013 row on the empty string, as it did: no other word reaches that row. (2) `resume` returns a `ResumeResult`, read in its write transaction: the target as resolved, rows cleared, each pause still braking that session (`all`; a row on a name others wear, with how many), and, when it cleared nothing, the other standing pauses (at most 8, the rest counted). `pause` and `resume` echo `= session <id>`, `which has ENDED` (`internal/cli/resume.go`), every peer value through `fence.Line` (a label in the standing list through `fence.Field`, so it cannot forge an entry), and a name is offered as the word to type only when it prints exactly as stored (a tab, `"` or `\` does not); neither prints the resolver's "queued" warning, since neither queues anything. (3) `Pause` and `Resume` re-resolve the word in their own write transaction (`reresolve`; `Begin` is BEGIN IMMEDIATE under this DSN), over the same pure `resolveFrom` the read snapshot uses, and refuse with `ErrTargetMoved`, writing nothing, when it errs or names another session id; the same id under a new incarnation still acts. (4) The comment says the resolution check, not an order, keeps it right.
+
+**Decided, the safer option each time** — `resume <word>` does not prefer a paused session: a row stores the id it resolved to, not the word, so the link would be a guess, and a guess lifts a brake; the operator names one from the list. A moved word refuses rather than following the new answer (Codex design pass: following it lifts or misses a brake on a session nobody saw named). `resume` still exits 0 when it clears nothing: it is idempotent, and the brake is on either way.
+
+**Residuals** — The word as typed lifts a legacy row on it for every wearer, and the echo credits only the resolved session: an ended twin's label (Fable cross-check), or a label an ended lane wore beside a live slug of that name, which that row never braked (doors lens). A legacy row whose only wearer relabelled is lifted by no word until a session wears that name or an open slug has it, when `resume <name>` reaches it (doors lens, pre-existing). A legacy row on a label two LIVE sessions wear is lifted by neither id, and `resume <label>` refuses as ambiguous: it waits for one wearer to end or relabel. A name that is one session's label and another's id leaves the same way, since resolving it refuses the collision (D-013). `msg` stays two transactions: a message to a session that just stopped being the answer is the ordinary stale answer, visible in `buddy sent`. Measured 2026-11-10, read-only (`sqlite3` `immutable=1`): no pause row of any kind on any of this machine's six ledgers, so no stranded row exists today.
+
+**Review** — full: Codex@xhigh design (4 raised, 4 fixed: the `all` label and the id-label forms above, the empty-name row under `resume all`, the "queued" warning); panel@opus, four lenses (no wrong brake state; folded: `pause` echoes the target read in its write, `ErrTargetMoved` quotes its label, no peer name spliced into a command, a raw row named as the word that lifts it, USAGE's "never lifts" and the CLAUDE.md clause corrected, tests for an ENDED pause and the kept line; recorded: the residuals above); Codex@xhigh code (2 raised, 2 fixed: a fenced name offered as the word to type, the in-transaction target unasserted); Fable cross-check (4 raised, 3 fixed: `"` and `\` under `%q`, a label forging a list entry, an unhedged raw-row line; 1 recorded); Codex@xhigh re-verify, round 1 (2 raised, 2 fixed: the fenced row's `resume all` advice, two guards untested) and round 2 of 2 (1 raised, 1 fixed: that advice unhedged). Not driven by a test: `ErrTargetMoved` through the CLI's `fencedErr` (the race cannot be staged from the CLI; the store tests drive it).
+
+**Test shape** — `internal/store/resume_target_test.go`: the twin label kept (live and ended) and lifted by its own text, the label lifted when it is the session's alone (by id and short form), the `all` label and the id label kept, the moved word for `pause` and `resume` (a new live wearer, two, the slug released) with unmoved, ended-between and reincarnated controls, `Others` bounded and empty after a clear, `resume all`'s two names. `internal/cli/resume_echo_test.go`: #86's exact fix-74 sequence, the fleet-pause line, an ENDED pause, the shared-name line, fenced and forging names. Mutants, in private copies: 18 of 18 killed (the label arm unguarded, each of its guards, `others` by label only, `reresolve` skipped or its id check dropped, `Pause` unrefreshed or returning its argument, `Others` after a clear, `resume all` without the empty name, each echo guard, the quiet resolver, `typable` always true, `Field` back to `Line`); two first survived (`Others` after a clear, the fleet line) and were killed once the tests asserted them.
+
+### Where it lives
+- index: CLAUDE.md "Messages" line
+- GIVEN: 16 (amended)
+- code: `internal/store/store.go` (`Pause`, `Resume`, `ResumeResult`), `internal/store/target.go` (`resolveFrom`, `targetRows`, `reresolve`), `internal/cli/resume.go`, `internal/cli/stale.go` (`msgTargetFor`'s comment)
+- docs: USAGE "Targets."
+- amends: D-013's `Resume` label arm (narrowed); D-139's Open paragraph (closed)

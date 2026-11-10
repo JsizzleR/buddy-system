@@ -156,7 +156,7 @@ func TestPauseBySlugReachesTheOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Pause(tgt, "hold the router"); err != nil {
+	if _, err := st.Pause(tgt, "hold the router"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,11 +192,11 @@ func TestResumeClearsLegacyRawTargetRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := st.Resume(tgt)
+	r, err := st.Resume(tgt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
+	if n := r.Cleared; n != 1 {
 		t.Fatalf("Resume cleared %d legacy rows, want 1", n)
 	}
 	if _, paused, _ := st.PausedFor(a.SessionID, a.Label); paused {
@@ -304,7 +304,9 @@ func TestResolveTargetRefusesWhenTheCanonicalIDIsAnotherSessionsLabel(t *testing
 
 // C-4. Resume must clear a legacy raw row no matter WHICH alias is used to
 // resume, or a pause taken before this change is liftable only by retyping the
-// exact string it was taken with.
+// exact string it was taken with. Since #86 that holds while the label is the
+// session's alone; a label another session wears or is named by keeps its row
+// (resume_target_test.go).
 func TestResumeClearsALegacyRowThroughAnyAlias(t *testing.T) {
 	st, _ := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/tmp/repo")
@@ -317,11 +319,11 @@ func TestResumeClearsALegacyRowThroughAnyAlias(t *testing.T) {
 	}
 
 	// Resume by the SLUG, not by the label the row carries.
-	n, err := st.Resume(mustResolve(t, st, "router-work"))
+	r, err := st.Resume(mustResolve(t, st, "router-work"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
+	if n := r.Cleared; n != 1 {
 		t.Fatalf("resume by slug cleared %d legacy rows, want 1", n)
 	}
 	if _, paused, _ := st.PausedFor(a.SessionID, a.Label); paused {
@@ -345,7 +347,7 @@ func TestUnresolvedTargetIsRefusedAtTheWriteBoundary(t *testing.T) {
 		{"zero value", Target{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := st.Pause(tc.tgt, "hold"); err == nil {
+			if _, err := st.Pause(tc.tgt, "hold"); err == nil {
 				t.Error("Pause accepted an unresolved Target")
 			}
 			if err := st.Msg(tc.tgt, "ana", "hi"); err == nil {
@@ -357,7 +359,7 @@ func TestUnresolvedTargetIsRefusedAtTheWriteBoundary(t *testing.T) {
 		})
 	}
 	// POSITIVE CONTROL: a properly resolved Target still writes.
-	if err := st.Pause(mustResolve(t, st, "alpha"), "real"); err != nil {
+	if _, err := st.Pause(mustResolve(t, st, "alpha"), "real"); err != nil {
 		t.Fatalf("control: a resolved Target must be accepted, got %v", err)
 	}
 }

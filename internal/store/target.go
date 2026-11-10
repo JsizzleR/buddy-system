@@ -151,13 +151,9 @@ func (t Target) String() string {
 // Undelivered) match exactly — a second folding rule here would resolve targets
 // those queries cannot match, which is the bug this file removes.
 func (s *Store) ResolveTarget(target string) (Target, error) {
-	if target == AllTarget {
-		return Target{ok: true, Raw: target, ID: AllTarget, Via: "all", Live: true}, nil
+	if target == AllTarget || strings.TrimSpace(target) == "" {
+		return resolveFrom(target, nil, "", false)
 	}
-	if strings.TrimSpace(target) == "" {
-		return Target{}, fmt.Errorf("%w: empty target; name a session, a label, a claim slug, or %q", ErrNoSuchTarget, AllTarget)
-	}
-
 	// MATCHING HAPPENS IN GO, NOT IN SQL. The first version matched the short
 	// form with LIKE, and both of that operator's defaults are wrong here:
 	// its metacharacters are not escaped, so a claim slug of the form
@@ -170,6 +166,20 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 	all, owner, taken, err := s.targetSnapshot(target)
 	if err != nil {
 		return Target{}, err
+	}
+	return resolveFrom(target, all, owner, taken)
+}
+
+// resolveFrom is ResolveTarget over rows already read: every session row and
+// the open slug's owner. It reads nothing, so the same rule runs over a read
+// snapshot (ResolveTarget) and inside a write transaction (reresolve), and the
+// two cannot drift apart (#86).
+func resolveFrom(target string, all []SessionInfo, owner string, taken bool) (Target, error) {
+	if target == AllTarget {
+		return Target{ok: true, Raw: target, ID: AllTarget, Via: "all", Live: true}, nil
+	}
+	if strings.TrimSpace(target) == "" {
+		return Target{}, fmt.Errorf("%w: empty target; name a session, a label, a claim slug, or %q", ErrNoSuchTarget, AllTarget)
 	}
 
 	// labelOwner answers "is this string some OTHER session's label?", which is
@@ -329,27 +339,73 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 // then revives as `x` and C hands `x` to B, and the slug read sees B. Before
 // the revival the answer was C, after it A, and never B.
 //
-// WHAT IT DOES NOT CLOSE. The write that follows (Pause, Msg) is a separate
-// transaction. A session ending after resolution is the ordinary stale answer
-// (Target.Live; TransferClaim re-reads the incarnation under its write). One
-// window is new with live-first (concurrency lens): ended A wears `x`, live C
-// holds slug `x`; `pause x` resolves C, A revives as `x` before the write,
-// and the row brakes C while `x` now means A. It needs a label/slug collision
-// and a revival inside milliseconds; the brake can be re-issued, so resolving
-// inside Pause's write was not worth it.
+// THE WRITE THAT FOLLOWS. Msg's is a separate transaction: a message to a
+// session that stopped being the answer a moment ago is the ordinary stale
+// answer, visible in `buddy sent`. Pause and Resume, the operator's brake,
+// re-resolve inside their own write (reresolve, #86).
 func (s *Store) targetSnapshot(slug string) (all []SessionInfo, owner string, taken bool, err error) {
 	err = s.readSnapshot(func(q querier) error {
-		var err error
-		if all, err = sessionsFrom(q, ""); err != nil {
-			return err
-		}
-		_, owner, taken, err = openSlugOwner(q, slug)
+		all, owner, taken, err = targetRows(q, slug)
 		return err
 	})
 	if err != nil {
 		return nil, "", false, err
 	}
 	return all, owner, taken, nil
+}
+
+// targetRows is what resolution reads: every session row and the open slug's
+// owner, over whatever transaction the caller holds.
+func targetRows(q querier, slug string) (all []SessionInfo, owner string, taken bool, err error) {
+	if all, err = sessionsFrom(q, ""); err != nil {
+		return nil, "", false, err
+	}
+	_, owner, taken, err = openSlugOwner(q, slug)
+	return all, owner, taken, err
+}
+
+// ErrTargetMoved is a brake verb's refusal when the word it was given no
+// longer names the session it named when the command resolved it.
+var ErrTargetMoved = errors.New("target moved")
+
+// reresolve resolves t's word again INSIDE the brake's write transaction and
+// refuses when the answer is no longer t's session (#86, D-139's third open
+// item).
+//
+// THE WINDOW IT CLOSES. Resolution was one read snapshot and the write another
+// transaction, so a revival between them made the word mean someone else:
+// ended A wears label `x`, live C holds slug `x`; `pause x` resolves C, A
+// revives as `x` before the write, and the row brakes C while `x` now means
+// A, and the echo names C as if `x` still did. Inside the write transaction
+// (database/sql's Begin is BEGIN IMMEDIATE under this DSN) no writer can move
+// a row between this read and the write, so what the verb did and what the
+// word meant are one instant.
+//
+// WHY REFUSE, NOT FOLLOW THE NEW ANSWER (Codex design pass). Following it
+// lets `resume x` lift a brake on a session the operator never saw named, and
+// lets `pause x` leave the one they meant running while saying "paused". A
+// refusal writes nothing, says so, and is re-run in a second; the race needs
+// a revival or a slug moving inside milliseconds. The same session id under a
+// new incarnation is still the same answer: a brake is on the session, not on
+// one incarnation of it.
+func reresolve(q querier, t Target) (Target, error) {
+	if t.Via == "all" {
+		return t, nil
+	}
+	all, owner, taken, err := targetRows(q, t.Raw)
+	if err != nil {
+		return Target{}, err
+	}
+	now, err := resolveFrom(t.Raw, all, owner, taken)
+	if err != nil {
+		return Target{}, fmt.Errorf("%w: %q named session %s when this command resolved it, and no longer resolves (%v); nothing was written, run it again",
+			ErrTargetMoved, t.Raw, t.ID, err)
+	}
+	if now.ID != t.ID {
+		return Target{}, fmt.Errorf("%w: %q named session %s when this command resolved it, and names %s (%q) now; nothing was written, run it again",
+			ErrTargetMoved, t.Raw, t.ID, now.ID, now.Label)
+	}
+	return now, nil
 }
 
 // sessionsWhere is the shared row reader for session lookups that can return

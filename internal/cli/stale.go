@@ -297,10 +297,14 @@ func renewalOnlyNote(now, renewed time.Time) string {
 
 // msgTargetFor is the name the refusal tells the reader to message: the slug,
 // when the slug resolves to the holder, else the holder's session id. A slug
-// is the LAST thing a target resolves to (D-013: all, id, label, short form,
-// then slug), so a claim slugged `all` printed `buddy msg all` — a broadcast —
-// and one slugged like another session's label addressed that session (Codex
-// code pass). The id is the second choice because it is long, and exact.
+// does not always reach its holder: `all` and a full session id come before
+// it, and within a tier a label or short form does (D-013), so a claim slugged
+// `all` printed `buddy msg all` (a broadcast), and one slugged like another
+// live session's label addressed that session (Codex code pass). Since D-139
+// the order is no longer one list: a live holder's slug wins over an ended
+// session's label, and an ended holder's slug loses to a live label. The
+// resolution check below, not any order, is what keeps the answer right. The
+// id is the second choice because it is long, and exact.
 func msgTargetFor(st *store.Store, slug, holder string) string {
 	if st != nil {
 		if t, err := st.ResolveTarget(slug); err == nil && t.ID == holder {

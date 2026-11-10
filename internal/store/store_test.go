@@ -425,7 +425,7 @@ func TestPauseTargetsAndResume(t *testing.T) {
 	st, _ := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
 	for _, target := range []string{a.SessionID, "alpha", "all"} {
-		if err := st.Pause(mustResolve(t, st, target), "hold on"); err != nil {
+		if _, err := st.Pause(mustResolve(t, st, target), "hold on"); err != nil {
 			t.Fatal(err)
 		}
 		if _, paused, _ := st.PausedFor(a.SessionID, a.Label); !paused {

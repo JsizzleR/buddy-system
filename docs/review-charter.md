@@ -101,7 +101,9 @@ ledger row entered through the CLI (D-006).
     most-specific-first, exact and never folded; past the exact id, live sessions
     before ended rows, ambiguity decided within that tier (D-139). Anything unresolvable is REFUSED, rather
     than written as a row the exact read-side queries can never match; they take a resolved
-    `store.Target`, so the compiler is the guard.
+    `store.Target`, so the compiler is the guard. `pause`/`resume` re-resolve inside their
+    write and refuse a word that moved; `resume`'s label arm skips a name another session
+    holds as id or label, and the word as typed lifts a row on it (D-145).
 17. **A DM asks whether the recipient is there, and there is no offline delivery (D-014).**
     It refuses a definite "not online" naming them, and sends on every other outcome,
     because refusing somebody reachable would lose a message. ISON is serialized to ONE

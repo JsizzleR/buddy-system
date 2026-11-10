@@ -909,7 +909,16 @@ short form, then an open slug a live session holds), and ended rows only when
 nothing live matches (D-139), so a slug handed to a successor reaches it past
 the ended lane that wore it as a label, and a label reused after a lane ended
 reaches the live wearer. Two live wearers of a label refuse, and the ended rows
-are not tried. Anything else exits non-zero and writes nothing, rather than
+are not tried. `pause` and `resume` resolve the word again inside their write
+and refuse, writing nothing, if it now names another session, none, or several; both echo
+the session reached (`= session <id>`, and `which has ENDED` when it has; `all`
+echoes as `all`). `resume`
+also names each pause still braking that session (a fleet-wide one, or a row on
+a name another session also wears, which it leaves on) and, when it cleared
+nothing, the pauses standing on others, so a word that moved since its pause (a
+slug released, a label an ended lane wore) says whom to name. It lifts rows on
+the resolved id, on the word as typed, and on the resolved label only when no
+other session has that name as its id or label (D-145). Anything else exits non-zero and writes nothing, rather than
 queueing a row that would match nothing and reporting success. `buddy msg all` goes to the sessions
 live at send time; a session created later never inherits it, and an
 undelivered broadcast expires after 24 hours. `hello` takes its label from

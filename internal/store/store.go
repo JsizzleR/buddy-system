@@ -2014,36 +2014,183 @@ func orphanedFrom(tx *sql.Tx, wasOpen map[string]bool) ([]SweepOrphan, error) {
 
 // Pause records a pause control against a RESOLVED target. It stores the
 // canonical session id, which is why PausedFor below needs no change: its
-// (session_id, label, "all") match already covers the id arm.
-func (s *Store) Pause(t Target, note string) error {
+// (session_id, label, "all") match already covers the id arm. The word is
+// resolved again inside the write, and a word that moved refuses
+// (reresolve, #86): nothing is written, and the brake is not on. It returns
+// the target as resolved inside the write, for the echo: the earlier read's
+// liveness or label can be a moment stale (concurrency lens).
+func (s *Store) Pause(t Target, note string) (Target, error) {
 	if err := t.check(); err != nil {
-		return err
+		return Target{}, err
 	}
-	_, err := s.db.Exec(`INSERT INTO controls (kind, target, note, created) VALUES ('pause',?,?,?)`,
-		t.ID, note, s.now().Unix())
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Target{}, err
+	}
+	defer tx.Rollback()
+	now, err := reresolve(tx, t)
+	if err != nil {
+		return Target{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO controls (kind, target, note, created) VALUES ('pause',?,?,?)`,
+		now.ID, note, s.now().Unix()); err != nil {
+		return Target{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Target{}, err
+	}
+	return now, nil
 }
 
-// Resume clears pause controls for the target.
+// ResumeResult is what a resume did and what it left, read inside its write
+// transaction so the report and the clear are one instant (#86).
+type ResumeResult struct {
+	// Target is the word as resolved inside the write: the session whose
+	// pauses were cleared, or AllTarget.
+	Target  Target
+	Cleared int
+	// Kept is every uncleared pause that still brakes Target after the clear
+	// (PausedFor's own predicate): a fleet-wide one, or a pre-D-013 row on a
+	// name this resume would not lift (below). Empty for AllTarget.
+	Kept []StandingPause
+	// Others, only when nothing was cleared, is every other uncleared pause,
+	// at most ResumeOthersMax of them, OthersMore counting the rest: the
+	// operator who meant one of those sees it named, by its id.
+	Others     []StandingPause
+	OthersMore int
+}
+
+// ResumeOthersMax bounds ResumeResult.Others.
+const ResumeOthersMax = 8
+
+// StandingPause is one name uncleared pause rows stand on.
+type StandingPause struct {
+	Target string // as stored: a session id, AllTarget, or a pre-D-013 raw string
+	Label  string // the session's label, when Target is a session id
+	Rows   int    // uncleared rows on this name
+	// Wearers counts the sessions (ended ones included) other than the
+	// resumed one whose id or label is Target: the others a row on that
+	// name brakes too.
+	Wearers int
+}
+
+// Resume clears pause controls for the target, re-resolving its word inside
+// the write (reresolve) and reporting what it cleared and what still stands.
 //
-// It matches the resolved id, the operator's raw argument, AND the resolved
-// label, because rows written before targets were resolved carry whatever was
-// typed — commonly a label — and the operator resuming need not use the same
-// alias they paused with. PausedFor still honours those rows (its label arm),
-// so a resume that missed them would strand a live pause that the gate keeps
-// enforcing and no verb can lift. Clearing by label is safe here only because
-// ResolveTarget refuses a label held by more than one session.
-func (s *Store) Resume(t Target) (int, error) {
+// WHAT IT LIFTS, and why each, given that PausedFor matches a row's target
+// against a session's id, its label and "all", so a row on a NAME brakes
+// every session wearing it, ended ones on their revival:
+//
+//   - the resolved session id: every row written since D-013;
+//   - the operator's word, verbatim: rows written before D-013 carry whatever
+//     was typed, and typing that exact string again names the brake it set;
+//   - the resolved LABEL, for those same rows, only when no other session row
+//     (ended included) has that string as its id or label, and it is neither
+//     empty nor `all`: then a row on it brakes nobody else.
+//
+// THE LAST ARM WAS WIDER, AND LIFTED BRAKES NOBODY NAMED (#86, Codex design
+// pass). It cleared the resolved label unconditionally, on the premise that
+// ResolveTarget refuses a label several sessions wear; since D-139 that holds
+// only among live sessions. `resume <id>` of one of two live sessions wearing
+// `alpha` lifted a legacy `alpha` row that still braked the other; a session
+// labelled `all` made `resume <its id>` lift the fleet-wide pause; and one
+// labelled with another session's id lifted THAT session's own pause. A row
+// the narrower arm leaves stays on, and comes back in Kept with its Wearers.
+//
+// `resume all` clears the `all` rows, and a pre-D-013 row on the empty string
+// (which brakes only callers this ledger has no session for), as it always
+// did: no other word reaches that row, and leaving it would strand a pause
+// the gate enforces and no verb lifts. Measured 2026-11-10, read-only: no
+// pause row of any kind on any of this machine's six ledgers.
+func (s *Store) Resume(t Target) (ResumeResult, error) {
 	if err := t.check(); err != nil {
-		return 0, err
+		return ResumeResult{}, err
 	}
-	res, err := s.db.Exec(`UPDATE controls SET cleared=? WHERE kind='pause' AND target IN (?, ?, ?) AND cleared IS NULL`,
-		s.now().Unix(), t.ID, t.Raw, t.Label)
+	tx, err := s.db.Begin()
 	if err != nil {
-		return 0, err
+		return ResumeResult{}, err
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	defer tx.Rollback()
+	now, err := reresolve(tx, t)
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	all, err := sessionsFrom(tx, "")
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	// others counts the sessions other than the resumed one that a row on
+	// name v brakes, by id or by label.
+	others := func(v string) int {
+		n := 0
+		for _, si := range all {
+			if si.SessionID != now.ID && (si.SessionID == v || si.Label == v) {
+				n++
+			}
+		}
+		return n
+	}
+	var names []string
+	if now.Via == "all" {
+		names = []string{AllTarget, ""}
+	} else {
+		names = []string{now.ID}
+		if now.Raw != now.ID {
+			names = append(names, now.Raw)
+		}
+		if l := now.Label; l != "" && l != AllTarget && l != now.Raw && l != now.ID && others(l) == 0 {
+			names = append(names, l)
+		}
+	}
+	res := ResumeResult{Target: now}
+	for _, v := range names {
+		r, err := tx.Exec(`UPDATE controls SET cleared=? WHERE kind='pause' AND target=? AND cleared IS NULL`,
+			s.now().Unix(), v)
+		if err != nil {
+			return ResumeResult{}, err
+		}
+		n, _ := r.RowsAffected()
+		res.Cleared += int(n)
+	}
+
+	labels := make(map[string]string, len(all))
+	for _, si := range all {
+		labels[si.SessionID] = si.Label
+	}
+	rows, err := tx.Query(`SELECT target, COUNT(*) FROM controls WHERE kind='pause' AND cleared IS NULL
+		GROUP BY target ORDER BY MIN(id)`)
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sp StandingPause
+		if err := rows.Scan(&sp.Target, &sp.Rows); err != nil {
+			return ResumeResult{}, err
+		}
+		sp.Label = labels[sp.Target]
+		sp.Wearers = others(sp.Target)
+		if now.Via != "all" && (sp.Target == now.ID || sp.Target == now.Label || sp.Target == AllTarget) {
+			res.Kept = append(res.Kept, sp)
+			continue
+		}
+		if res.Cleared > 0 {
+			continue
+		}
+		if len(res.Others) < ResumeOthersMax {
+			res.Others = append(res.Others, sp)
+		} else {
+			res.OthersMore++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return ResumeResult{}, err
+	}
+	rows.Close()
+	if err := tx.Commit(); err != nil {
+		return ResumeResult{}, err
+	}
+	return res, nil
 }
 
 // PausedFor returns the newest uncleared pause note matching the session

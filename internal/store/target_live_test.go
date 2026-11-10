@@ -60,7 +60,7 @@ func TestResolveTargetPrefersALiveSlugHolderToAnEndedLabel(t *testing.T) {
 
 	// And the brake lands where the work is: the successor is paused, and
 	// the row does not name the dead lane.
-	if err := st.Pause(got, "stop"); err != nil {
+	if _, err := st.Pause(got, "stop"); err != nil {
 		t.Fatal(err)
 	}
 	if _, paused, err := st.PausedFor(next.SessionID, next.Label); err != nil || !paused {
