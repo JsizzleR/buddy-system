@@ -156,6 +156,11 @@ cb=$(wc -c < "$ROOT/docs/review-charter.md" | tr -d ' ')
 tail -1 "$REC" | awk -F '\t' '$1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/ && $4 ~ /^[0-9]+$/ && $10 ~ /^[0-9]+$/ { ok = 1 } END { exit !ok }' ||
   fail "ok: the record row's time, elapsed or prompt bytes are malformed: $(tail -1 "$REC")"
 grep -q -e REPLY -e "Review this" -e "Review charter" "$REC" && fail "ok: review or prompt text reached the pass record"
+# A7: the caller's half of the foreground rule is printed beside the budget line, and
+# the tier is said to be requested, not pinned ("stop doing" 4).
+grep -q '^codex-review: model=.* tier=default(requested) budget=' "$T/stderr.ok" || fail "ok: the budget line does not say the tier is requested"
+awk '/^codex-review: model=.* budget=/ { b = NR } /^codex-review: the caller runs this in the FOREGROUND with a 600000 ms tool timeout/ { r = NR } END { exit !(b && r == b + 1) }' "$T/stderr.ok" ||
+  fail "ok: the foreground requirement is not on the line after the budget line"
 
 # --- no out-file: stdout is the transcript, then the status line ---
 : > "$T/log"

@@ -136,18 +136,22 @@ operator-authorized only; read the release notes first.
   so an **uninstalled hook is the default state of every fresh clone**. The
   script sets the hooks path and inits the ledger; it is idempotent and refuses
   to steal a hooks path somebody else configured.
-- **Never background `codex exec` under an agent harness, whatever the role.** It
-  wedges: elapsed climbs, CPU stays ~0, nothing is emitted, so a wedged run and
-  a live one look the same in the output file. Measured; a driver or worker role
-  changes nothing. (The adapter's `app-server --stdio` transport is a different
+- **Never background `codex exec` under an agent harness, whatever the role.**
+  Backgrounded passes have wedged: elapsed climbs, CPU stays ~0, and the
+  out-file is written only at exit, so a wedged run and a live one look the same
+  there. Measured; a driver or worker role changes nothing; the last probe
+  (D-157, Codex 0.166.0) saw one 11 s pass complete, its stdout filling within
+  1 s, a minutes-long one unmeasured, so the rule stands. Call `codex-review.sh` with a
+  600000 ms tool timeout: a call past the Bash tool's 120 s default is
+  backgrounded. (The adapter's `app-server --stdio` transport is a different
   program, not measured to wedge.)
 - **`codex-review.sh` is the ONLY way to launch a local constrained Codex
   review.** Never hand-roll a review's `codex exec`; if the budget is tight, cut
-  the prompt's scope, not the foregrounding. It pins model / effort / tier,
-  verifies the run header, ASCII-folds the prompt, caps concurrency, and
-  prepends the review charter. **A review of adapter code** (`internal/harness`,
-  `cmd/buddy-adapter`, the qualify/check `.py` scripts, `docs/admissions/`, USAGE's
-  adapter sections) **sets `CODEX_CHARTER=adapter`**: every other pass gets those
+  the prompt's scope, not the foregrounding. It pins model and effort, requests
+  a tier (no header records one), verifies the run header, ASCII-folds the
+  prompt, caps concurrency, and prepends the review charter. **A review of
+  adapter code** (`internal/harness`, `cmd/buddy-adapter`, the qualify/check
+  `.py` scripts, `docs/admissions/`, USAGE's adapter sections) **sets `CODEX_CHARTER=adapter`**: every other pass gets those
   GIVENs as one-line stubs (D-128). Operator-authorized Codex drivers and workers use
   the roles in `AGENTS.md`; they are not constrained review passes.
 

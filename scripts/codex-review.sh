@@ -40,17 +40,31 @@
 #     and a wedged one look IDENTICAL from the output file, because codex renders stdout
 #     only at the end — which is why a wedge keeps getting mistaken for "still thinking".
 #     If you need a longer budget, cut the prompt's SCOPE (see 6). Never background it.
+#     The CALLER's half, printed beside the budget line because no shipped text named it
+#     (Codex report A7): under Claude Code, call this with a 600000 ms Bash tool timeout,
+#     since a Bash call that outlives the tool's 120 s default is moved to the background,
+#     and the pass then runs backgrounded. Last measured in D-157: on Codex
+#     0.166.0 one 11 s backgrounded pass completed, and a minutes-long one was not
+#     measured, so the rule stands. On that version codex's stdout is not empty while it
+#     runs (header and echoed prompt within 1 s); only the reply comes at the end. This
+#     script still writes the out-file (reply and status) and <out-file>.transcript
+#     (codex's captured stdout and stderr) only after codex exits.
 #  2. `< /dev/null`. Without it codex can hang reading stdin.
-#  3. MODEL, EFFORT AND TIER PINNED, and the run header VERIFIED rather than eyeballed.
+#  3. MODEL AND EFFORT PINNED, and the run header VERIFIED rather than eyeballed.
 #     A silent downgrade turns a cross-model review into a same-family one — that is not
-#     a weaker gate, it is no gate at all, and it fails silently.
+#     a weaker gate, it is no gate at all, and it fails silently. The service TIER is
+#     REQUESTED, not pinned: it is passed, but no run header and no rollout records it (0
+#     of 7,497 `turn_context` lines, Codex report "stop doing" 4), so nothing can verify
+#     it. The status line says `tier=<tier>(requested)`.
 #  4. ASCII-FOLDED prompt. macOS pgrep/pkill abort with "illegal byte sequence" on a
 #     UTF-8 pattern, so a prompt containing an em dash cannot be killed by `pkill -f` —
 #     you believe you cleaned up and you did not.
 #  5. NO CONCURRENT RUNS above a cap. Stacking codex processes is how one wedged run
 #     becomes four, and how "codex is too slow" gets recorded as an environment fact.
-#  6. A WATCHDOG, and a DIAGNOSIS when it fires — including whether the run was wedged
-#     (CPU ~0) or genuinely working, so the next person does not re-derive it.
+#  6. A WATCHDOG, and what to do when it fires: cut the prompt's scope (it prints that,
+#     and the status line's elapsed). It does NOT say whether the killed run was wedged
+#     or working. The busy refusal (5) prints one `ps` snapshot of each live run (PID,
+#     elapsed, CPU time, %CPU) for inspection; one snapshot is not a diagnosis.
 #  7. A STANDING CHARTER: docs/review-charter.md carries this repo's settled decisions
 #     and environment facts, prepended to every prompt so the reviewer neither
 #     re-litigates rulings nor explores to re-derive facts. Exploration is the dominant
@@ -81,7 +95,8 @@ EFFORT=${CODEX_EFFORT:-xhigh}
 # TIER is passed EXPLICITLY rather than inherited from ~/.codex/config.toml, because an
 # inherited setting is invisible here — the run header echoes model and effort but NOT
 # the tier, so a config edit elsewhere would silently change what the gate runs on with
-# nothing to notice it by.
+# nothing to notice it by. Passing it is a REQUEST, not a verified pin: for the same
+# reason (no header or rollout records it) nothing can confirm codex honoured it (3).
 #
 # DEFAULT, not fast, on this project (operator's call, 2026-09-07): the fast tier buys
 # latency, and latency is the one thing a review here does not need — the run is
@@ -305,7 +320,9 @@ FOLD="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/ascii-fold.py"
 LC_ALL=C tr -d '\000' < "$TMP/raw" | python3 -I -B "$FOLD" > "$TMP/prompt" || die "scripts/ascii-fold.py failed; nothing was run
   refused: the fold failed"
 
-echo "codex-review: model=$MODEL effort=$EFFORT tier=$TIER budget=${BUDGET}s $CHARTER_NOTE prompt=$(wc -c < "$TMP/prompt") bytes" >&2
+echo "codex-review: model=$MODEL effort=$EFFORT tier=$TIER(requested) budget=${BUDGET}s $CHARTER_NOTE prompt=$(wc -c < "$TMP/prompt") bytes" >&2
+# The caller's half of (1), beside the budget it has to cover (Codex report A7).
+echo "codex-review: the caller runs this in the FOREGROUND with a 600000 ms tool timeout: Claude Code's Bash tool backgrounds a call past its 120 s default, and a backgrounded pass can wedge (D-157)" >&2
 
 # (1)(2)(6) Foreground, stdin closed, watchdog.
 #
