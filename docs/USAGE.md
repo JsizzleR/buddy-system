@@ -857,15 +857,20 @@ because a message shown cut is the same silent failure as one never sent.
 
 **Targets.** `pause`, `resume` and `msg` all take the same target: `all`, a
 session id, a label, an `s-<8hex>` short form, or an **open claim slug** — slugs
-included because that is how peers address each other. Matching is exact.
-Anything else exits non-zero and writes nothing, rather than queueing a row that
-would match nothing and reporting success. `buddy msg all` goes to the sessions
+included because that is how peers address each other. Matching is exact. A
+full session id wins first, ended or not; then live sessions are matched (label,
+short form, then an open slug a live session holds), and ended rows only when
+nothing live matches (D-139), so a slug handed to a successor reaches it past
+the ended lane that wore it as a label, and a label reused after a lane ended
+reaches the live wearer. Two live wearers of a label refuse, and the ended rows
+are not tried. Anything else exits non-zero and writes nothing, rather than
+queueing a row that would match nothing and reporting success. `buddy msg all` goes to the sessions
 live at send time; a session created later never inherits it, and an
 undelivered broadcast expires after 24 hours. `hello` takes its label from
 `--label`, or else from `$BUDDY_LABEL` (D-089), so a launcher that sets
 `BUDDY_LABEL=<lane>` on the lane's tab makes `buddy msg <lane>` reach it. `hello`
 warns, once, when your `--label` (or `$BUDDY_LABEL`) is already worn by another live session: every `pause` or `msg` to
-that label is refused as ambiguous.
+that label is refused as ambiguous, naming the live candidates.
 
 **What a send reports.** `msg` reports what the ledger holds about its
 recipient, never a prediction (#24, D-032). One observation

@@ -172,7 +172,8 @@ end a turn that something else will end:
   `carries N commit(s) main DROPPED` means main was rewritten (an amend, a reset)
   under that tree: rebase onto current main before trusting its numbers.
 - `buddy who <target>` is everything the ledger holds about one session. A
-  target is a session id, a label, an `s-<8hex>` short form, or an open claim slug.
+  target is a session id, a label, an `s-<8hex>` short form, or an open claim slug;
+  a full id answers first, then a live session before an ended one.
   Its EXIT line is the close test on one line: claims held, wait declared, shells
   running (or "cannot say"), and any browser tool call it observed. Named by a claim slug, WAITED ON lists only that
   claim's waiters. A bare `buddy who` reports you.
@@ -304,7 +305,7 @@ bytes>`) and each clause map (`amends: <which clause went where>`).
 An assignment carries authority only if your brief said to take assignments
 from this orchestrator, and only within what the brief said it relays. The
 brief names it by label and session id: before your first assignment, check
-once that `buddy who <that id>` is live and wears the label (a label two
+once that `buddy who <that id>` is live and wears the label (a label two live
 sessions wear resolves to neither, and then no message under it is an
 assignment). Inside those bounds a relayed operator decision is decided, as
 if typed in your pane: act, and do not ask the operator again there. Where

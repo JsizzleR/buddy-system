@@ -447,6 +447,8 @@ place where the project's own measurement pointed straight at the gap and nothin
 it — D-009 established that peers address each other by claim slug (identity scored 0
 matches over 2313 live messages), and no target query consulted the claims table.
 
+*Amended by D-139: past the exact id, live sessions are tried before ended rows, and ambiguity is decided within that tier.*
+
 **What shipped** — `store.ResolveTarget` maps an argument onto exactly one session or
 refuses, in a fixed most-specific-first order: `all` → full session id → label → `s-<8hex>`
 short form → open claim slug. Slugs resolve only among OPEN claims, where the
@@ -10614,6 +10616,33 @@ storing what is open: the slot's description is that, in the holder's words.
 - code: `scripts/wire-hooks.py`, `gate-hook.py`, `install.sh`, `update.go`
 - skill: core, "Upgrading buddy"; USAGE "The browser slot"; README "Hook wiring"
 - amends: D-050 step 6, D-120's "Why it still installs nothing": settings edited under this flag only
+
+## D-139 — A target resolves among live sessions first, and ended rows only when nothing live matches (issue #80; amends D-013)
+
+2026-11-10 · issue #80 (a whole-project review, finding 6); lane target-live
+
+**What was wrong** — `ResolveTarget` ran its label, short-form and slug arms over every session row, ended ones included, and rows are never deleted. Reproduced, store tests: (a) lane `fix-74` claims slug `fix-74`, `release fix-74 --to fix-74-2`, bye; `pause fix-74` resolved to the ENDED lane by label, and the brake missed the live holder. (b) One ended and one live session wear `alpha`; `pause alpha` was refused as ambiguous for good. `hello`'s twin warning already counted live sessions only.
+
+**The rule** — `all` → the exact session id (ended or live: it is the remedy every ambiguity names) → the LIVE tier → the ENDED tier. Each tier runs D-013's arms in D-013's order (label, `s-<8hex>` short form, open slug); the live tier takes rows with `SessionInfo.Live()` and a slug whose holder is live, the ended tier the rest, a slug left open by an ended holder included. Ambiguity is decided inside a tier and ends resolution: two live wearers refuse, naming only them; one live beside any ended resolves; ended twins with nothing live refuse (recency is not intent). Matching stays exact, in Go. The id/label collision check still reads every row (an ended session revives under its id and label), and its refusal no longer offers the full id, which collides alike; it offers `all` only when the resolved session is live. Both reads (sessions, the slug's owner) are one `readSnapshot`: read apart, an ended `x` reviving and `x`'s slug moving between them could name a session that was never the answer (Codex design pass; reasoned, no test drives the interleaving). "Live" is "not ended": a lane killed without a bye still wins by its label.
+
+**Kept** — D-013's ended target: a send to a just-ended lane is still queued (the store test) and warned (`msgbody_test.go`'s ENDED case). No schema change; `cli.go` untouched.
+
+**Open** (`store.go`, `cli.go`, `stale.go` were other lanes' in this batch) —
+- `Resume` clears legacy rows (pre-D-013, raw `target`) by the typed string and the resolved label; with an ended twin wearing that label, `resume <label>` now lifts such a row for it too, as `resume <id>` already did. Its comment's premise ("refuses a label held by more than one session") now reads "live session".
+- A pause and its resume can resolve one word to different sessions: `pause fix-74` reaches the live slug holder; once that slug is released, `resume fix-74` reaches the ended lane by its label and says `cleared 0`. Fail-safe (the brake stays on); the echo names no id.
+- A resolution and its write are two transactions: a revival between them can make `x` mean another session than the one braked.
+- `msgTargetFor`'s comment ("a slug is the LAST thing a target resolves to") is true only within a tier; its id check keeps the logic right.
+
+**Review** — full: Codex@xhigh design (two folded: Resume's alias arms, recorded open; one snapshot); panel@opus, four lenses (callers, refusals, concurrency, docs: tests added for the short form tiered, an ambiguity not falling to a slug, two ended twins, the ended refusal's words, a queued message, the reserved id; the collision refusal's false "use a full session id"; `readSnapshot` in place of a driver-dependent read-only Begin; stale GIVENs 16, 84 and AGENTS.md); Codex@xhigh code (two P3 folded: `all` offered to an ended target, a test whose slug was orphaned before it asserted); Fable cross-check (folded: `all` restored for a live target, `Live()` pinned by a stale-but-not-ended fixture); Codex@xhigh re-verify, round 1 of 2, no defect.
+
+**Test shape** — `internal/store/target_live_test.go`: (a), (b), the live-twin refusal naming live candidates only, the ended fallback by label (the message queued) and by an ended holder's open slug, ended twins refused naming both, the ended exact id first, a live short form over an ended label, the short form tiered, a live ambiguity not falling to a slug, the ended tier's label before slug, the collision reading ended labels and its full-id form, the reserved `all` id. Mutants, in a private copy: 11 of 12 killed (tiers merged, reversed, ended dropped; ambiguity falling through; the slug arm untiered, first surviving because a hello orphaned its claim, killed once the test was fixed; the exact id live-only; the collision check live-only; candidates over every row; the split inverted; staleness for `Live()`; `all` offered unconditionally). Surviving: the snapshot spelled as two reads, which no test drives.
+
+### Where it lives
+- index: CLAUDE.md "Messages" line
+- GIVEN: 16, 84 (amended); AGENTS.md's relay check
+- code: `internal/store/target.go` (`ResolveTarget`, `targetSnapshot`)
+- docs: USAGE "Targets."; core skill "Finding out who is who" and the relay check; fleet skill's label numbering
+- amends: D-013's order (live before ended), its ambiguity (within a tier)
 
 ## D-140 — The chat room is the main checkout's name, and only the concierge's own rows can be an echo (issue #83; amends D-009, D-024)
 

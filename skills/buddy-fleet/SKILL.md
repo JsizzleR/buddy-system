@@ -820,12 +820,11 @@ end over a real ledger and a scratch fleet ledger (buddy-system's
   30 minutes.
 - **Wear a label that is yours alone, numbered per successor** (`top-1`,
   `top-2`, as coordinators are `orc-<n>`), and have peers address the claim
-  slug. A label is matched against ended rows too, and nothing removes a
-  session row, so once a successor wears the same label in a ledger,
-  `buddy msg <label>` is ambiguous there for good, unless the old id is
-  registered again under another label, whether or not the old row said bye
-  first. A claim slug resolves to its one holder past a duplicate label, and
-  moves with `release --to`.
+  slug. A successor helloes while you are still live, and two LIVE wearers
+  make `buddy msg <label>` ambiguous; an ended wearer yields to a live one
+  (D-139). A claim slug
+  resolves to its one live holder past an ended lane's label, and moves with
+  `release --to`.
 - **Hand off** as Handing off a coordinator says, and in each coordinated ledger, while
   you are live and in this order: `(cd <repo> && buddy msg orc-<project> "<successor label> (session <id>) is your coordinator from now; it relays the same decisions I did.")`,
   then `(cd <repo> && buddy bye $CLAUDE_CODE_SESSION_ID </dev/null)`, which

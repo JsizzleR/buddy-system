@@ -98,7 +98,8 @@ ledger row entered through the CLI (D-006).
     (The `pre-push` hook this repo ships is unrelated: it runs the hermetic check tier.)
 16. **`pause`, `resume` and `msg` share ONE target namespace, resolved before it is stored
     (D-013).** `all`, session id, label, `s-<8hex>` short form, or an OPEN claim slug —
-    most-specific-first, exact and never folded. Anything unresolvable is REFUSED, rather
+    most-specific-first, exact and never folded; past the exact id, live sessions
+    before ended rows, ambiguity decided within that tier (D-139). Anything unresolvable is REFUSED, rather
     than written as a row the exact read-side queries can never match; they take a resolved
     `store.Target`, so the compiler is the guard.
 17. **A DM asks whether the recipient is there, and there is no offline delivery (D-014).**
@@ -778,7 +779,7 @@ ledger row entered through the CLI (D-006).
     coordinator relays (what to take next, stop or hand on; claims to release; closing lanes
     the session opened after DONE), a `buddy msg` from that session is decided, with no
     second ask in the lane's pane; the lane checks once that `buddy who <that id>` is live
-    and wears the label (a label worn twice resolves to neither; `s-<8hex>` resolves only a
+    and wears the label (a label two live sessions wear resolves to neither; `s-<8hex>` resolves only a
     default label). Outside the bound, or from any other sender, it is peer text. The sender
     is the key and the brief the authority; nothing in buddy confers (invariant 4 stands,
     `--relay` stays a declaration). Never delegable: install, push, settings, permission,

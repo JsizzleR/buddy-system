@@ -105,19 +105,46 @@ func (t Target) String() string {
 // ResolveTarget maps an operator's argument onto exactly one session, or
 // refuses.
 //
-// ORDER IS MOST-SPECIFIC-FIRST AND MUST STAY DETERMINISTIC, because these
-// namespaces genuinely overlap: a claim slug may equal another session's label,
-// and a label is what `buddy ls` prints in the owner column. The order is
+// ORDER IS MOST-SPECIFIC-FIRST, LIVE BEFORE ENDED, AND MUST STAY
+// DETERMINISTIC, because these namespaces genuinely overlap: a claim slug may
+// equal another session's label, and a label is what `buddy ls` prints in the
+// owner column. The order is
 //
-//	all  ->  full session id  ->  label  ->  "s-<8hex>" short id  ->  open claim slug
+//	all  ->  full session id  ->  LIVE: label -> "s-<8hex>" short id -> open claim slug
+//	                          ->  ENDED: the same three arms, only when nothing live matched
 //
-// so the more precisely a form identifies a session, the earlier it wins.
+// so the more precisely a form identifies a session, the earlier it wins, and
+// a session that can act wins over one that cannot.
+//
+// WHY LIVE FIRST (#80). Session rows are never deleted, and the arms used to
+// run over every row. In the ordinary fleet pattern (lane `fix-74` claims slug
+// `fix-74`, hands it to its successor with `release --to`, says bye) `pause
+// fix-74` resolved to the ENDED lane by its label, and the brake missed the
+// live holder of the work; and a label worn by one ended and one live session
+// was refused as ambiguous for good, since the ended row never goes away.
+// `hello`'s twin warning already counted live sessions only; resolution now
+// agrees with it. The ended tier is kept, not dropped: D-013 decided a message
+// to a just-ended lane is queued against its id (and warned), not refused.
+// "Live" is SessionInfo.Live, the predicate every view uses, not a second one:
+// "not ended". A lane killed without a bye stays live until something ends
+// it, and still wins by its label (refusal lens); a GONE process is not read
+// here.
+//
+// THE EXACT ID STAYS AHEAD OF BOTH TIERS, ended or not: it is the remedy every
+// ambiguity names, so nothing spelled like it may capture it.
+//
+// AMBIGUITY IS DECIDED INSIDE A TIER. Two live sessions wearing one label
+// still refuse, naming only the live candidates; one live and any number of
+// ended resolve to the live one; with nothing live, two ended twins refuse
+// rather than pick (recency is not the operator's intent: Codex design pass).
+// An ambiguity ENDS resolution; it never falls through to a later arm.
 //
 // SLUGS RESOLVE ONLY AMONG OPEN CLAIMS. `claims_open_slug` is a UNIQUE index
 // over state='open', so an open slug names at most one claim by construction
 // and this lookup needs no ambiguity arm. A RELEASED slug is deliberately not
 // resolvable: the same slug may have been held by several sessions over time,
-// so the answer would silently change as history accumulated.
+// so the answer would silently change as history accumulated. An open claim
+// whose holder has ENDED (not yet swept) belongs to the ended tier.
 //
 // Matching is exact, never folded. These strings are copied out of `buddy ls`
 // and `buddy sessions` output, and the queries on the read side (PausedFor,
@@ -140,13 +167,16 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 	// file documents matching as exact and never folded. Both verified against
 	// sqlite directly. The session table is small and this is the write path,
 	// never the gate's, so reading it whole costs nothing worth a subtle query.
-	all, err := s.sessionsWhere("")
+	all, owner, taken, err := s.targetSnapshot(target)
 	if err != nil {
 		return Target{}, err
 	}
 
 	// labelOwner answers "is this string some OTHER session's label?", which is
-	// the check the canonical-id collision below needs.
+	// the check the canonical-id collision below needs. It reads EVERY row,
+	// ended ones included, on purpose (Codex design pass): an ended session
+	// revives under its own id and label, and a row stored against an id that
+	// is its label would brake it then.
 	labelOwner := func(v, except string) (SessionInfo, bool) {
 		for _, si := range all {
 			if si.Label == v && si.SessionID != except {
@@ -164,37 +194,26 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 			ErrAmbiguousTarget, target, len(hits), form, strings.Join(names, ", "))
 	}
 
-	var found SessionInfo
-	via := ""
-	switch {
-	default:
-		// Exact session id. The primary key, so at most one.
-		for _, si := range all {
-			if si.SessionID == target {
-				found, via = si, "id"
-			}
-		}
-		if via != "" {
-			break
-		}
-
+	// among runs the label, short-form and slug arms, in that order, over one
+	// tier's rows. It reports via == "" when nothing in the tier matched, and
+	// an error (an ambiguity) that ends resolution outright.
+	among := func(rows []SessionInfo) (SessionInfo, string, error) {
 		// Exact label. NOT unique — there is no index on sessions.label and
 		// Hello never checks one, so `hello --label alpha` twice is legal. The
 		// first version took LIMIT 1 and silently picked one, which is also a
 		// REGRESSION: the old code stored the label, and both readers' label
 		// arm matched every session carrying it.
 		var byLabel []SessionInfo
-		for _, si := range all {
+		for _, si := range rows {
 			if si.Label == target {
 				byLabel = append(byLabel, si)
 			}
 		}
 		if len(byLabel) > 1 {
-			return Target{}, ambiguous("label", byLabel)
+			return SessionInfo{}, "", ambiguous("label", byLabel)
 		}
 		if len(byLabel) == 1 {
-			found, via = byLabel[0], "label"
-			break
+			return byLabel[0], "label", nil
 		}
 
 		// The short form: the last segment of a default label
@@ -204,32 +223,57 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 		// worktrees, so they carry different labels but the SAME short form.
 		if strings.HasPrefix(target, "s-") && !strings.Contains(target, "/") {
 			var byShort []SessionInfo
-			for _, si := range all {
+			for _, si := range rows {
 				if strings.HasSuffix(si.Label, "/"+target) {
 					byShort = append(byShort, si)
 				}
 			}
 			if len(byShort) > 1 {
-				return Target{}, ambiguous("short id", byShort)
+				return SessionInfo{}, "", ambiguous("short id", byShort)
 			}
 			if len(byShort) == 1 {
-				found, via = byShort[0], "short"
-				break
+				return byShort[0], "short", nil
 			}
 		}
 
 		// The claim slug: the form peers actually use, and the reason this file
 		// exists. Unique among OPEN claims by the claims_open_slug partial
 		// index, so at most one row can match and there is no ambiguity arm.
-		_, owner, taken, err := openSlugOwner(s.db, target)
-		if err != nil {
-			return Target{}, err
-		}
 		if taken {
-			for _, si := range all {
+			for _, si := range rows {
 				if si.SessionID == owner {
-					found, via = si, "slug"
+					return si, "slug", nil
 				}
+			}
+		}
+		return SessionInfo{}, "", nil
+	}
+
+	var found SessionInfo
+	via := ""
+	// Exact session id. The primary key, so at most one; ended or live.
+	for _, si := range all {
+		if si.SessionID == target {
+			found, via = si, "id"
+		}
+	}
+	if via == "" {
+		var live, ended []SessionInfo
+		for _, si := range all {
+			if si.Live() {
+				live = append(live, si)
+			} else {
+				ended = append(ended, si)
+			}
+		}
+		for _, tier := range [][]SessionInfo{live, ended} {
+			si, v, err := among(tier)
+			if err != nil {
+				return Target{}, err
+			}
+			if v != "" {
+				found, via = si, v
+				break
 			}
 		}
 	}
@@ -248,8 +292,17 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 	// the readers can drop their label arm, which is a change with its own
 	// evidence to gather.
 	if other, clash := labelOwner(found.SessionID, found.SessionID); clash {
-		return Target{}, fmt.Errorf("%w: %q resolves to session %s, which is also the label of %s — pause/msg would reach both; use a full session id",
-			ErrAmbiguousTarget, target, found.SessionID, other.SessionID)
+		// No "use a full session id" here: the full id is the colliding
+		// string, so every form refuses alike (refusal lens). `all` reaches
+		// a LIVE session only (Codex code pass), so it is offered only when
+		// this one is live (Fable cross-check); the other row's label
+		// changing is the remedy either way.
+		remedy := fmt.Sprintf("%s must wear another label first", other.SessionID)
+		if found.Live() {
+			remedy = "`all` reaches it (every live session), or " + remedy
+		}
+		return Target{}, fmt.Errorf("%w: %q resolves to session %s, which is also the label of %s — pause/msg would reach both, by any name; %s",
+			ErrAmbiguousTarget, target, found.SessionID, other.SessionID, remedy)
 	}
 	// Same hazard with the reserved word: a session whose id is literally
 	// "all" would turn a targeted row into a fleet-wide one.
@@ -265,10 +318,48 @@ func (s *Store) ResolveTarget(target string) (Target, error) {
 	return t, nil
 }
 
+// targetSnapshot reads every session row and the open slug's owner in ONE
+// read snapshot (readSnapshot: a hand-issued BEGIN DEFERRED, which takes no
+// write lock under the DSN's _txlock=immediate), so both answers come from
+// the same instant.
+//
+// WHY ONE SNAPSHOT (Codex design pass on #80). Read separately, a resolution
+// could name a session that was never the right answer at any moment: ended A
+// wears label `x`, live C holds slug `x`; the sessions read sees A ended, A
+// then revives as `x` and C hands `x` to B, and the slug read sees B. Before
+// the revival the answer was C, after it A, and never B.
+//
+// WHAT IT DOES NOT CLOSE. The write that follows (Pause, Msg) is a separate
+// transaction. A session ending after resolution is the ordinary stale answer
+// (Target.Live; TransferClaim re-reads the incarnation under its write). One
+// window is new with live-first (concurrency lens): ended A wears `x`, live C
+// holds slug `x`; `pause x` resolves C, A revives as `x` before the write,
+// and the row brakes C while `x` now means A. It needs a label/slug collision
+// and a revival inside milliseconds; the brake can be re-issued, so resolving
+// inside Pause's write was not worth it.
+func (s *Store) targetSnapshot(slug string) (all []SessionInfo, owner string, taken bool, err error) {
+	err = s.readSnapshot(func(q querier) error {
+		var err error
+		if all, err = sessionsFrom(q, ""); err != nil {
+			return err
+		}
+		_, owner, taken, err = openSlugOwner(q, slug)
+		return err
+	})
+	if err != nil {
+		return nil, "", false, err
+	}
+	return all, owner, taken, nil
+}
+
 // sessionsWhere is the shared row reader for session lookups that can return
 // more than one row.
 func (s *Store) sessionsWhere(where string, args ...any) ([]SessionInfo, error) {
-	rows, err := s.db.Query(`SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
+	return sessionsFrom(s.db, where, args...)
+}
+
+func sessionsFrom(q querier, where string, args ...any) ([]SessionInfo, error) {
+	rows, err := q.Query(`SELECT session_id, incarnation, label, worktree, pid, terminal, started, last_seen, COALESCE(ended,0)
 		FROM sessions `+where+` ORDER BY label`, args...)
 	if err != nil {
 		return nil, err
