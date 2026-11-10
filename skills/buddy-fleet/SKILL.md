@@ -514,7 +514,8 @@ one.
   `review: full (panel + <second>@<effort> design + <second>@<effort> code + <third model> + <second>@<effort> reverify)`.
   A layer the tier owes is skipped only on the operator's word (the cap), and
   the receipt then names it with the reason; a lane never skips one on its
-  own (D-104).
+  own (D-104). Each layer may end in its counts, as the core skill teaches
+  (`: 3 raised, 1 reproduced`); one not written is not recorded, never zero.
 - **The operator caps the tier per run** (for example "lite at most,
   optional, no second model family"), and the brief carries the cap. A lane
   never raises its own tier above it, and never lowers the brief's.
@@ -569,7 +570,8 @@ as above, and the pick never lands on a model kept for reviews. For the rest:
   into the file your repo keeps for it, and read the report at the start of
   each run. A plain `buddy sweep` deletes released claims, with their
   descriptions and outcomes, after 24 hours; the export is the only record
-  that outlives it.
+  that outlives it. Its `<tsv>.receipts` keeps each commit receipt's layer
+  counts, by tier: tune a tier on those numbers, never before they exist.
 - **Pick by class.** Default to the cap's cheaper model for a class where
   the report shows its rework rate and its fail rate no worse than the other
   model's. Escalate one step where either rate is clearly worse. In a cell

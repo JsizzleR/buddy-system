@@ -41,7 +41,16 @@
 #     refused, and a hand-planted row is DATA: counted, never printed; a
 #     relative path that looks like an awk assignment or an option is a path;
 #   - a ledger at another schema is refused naming its version, and the same
-#     copy at 16 is read (the control).
+#     copy at 16 is read (the control);
+#   - REVIEW LAYERS (#78), over planted commits: a layer's count group read
+#     per kind; a count not written is `- (n=0)`, never 0, beside one that
+#     WROTE 0; the scope note after `;` and a subject are never read; the
+#     last receipt line wins; a repeated word, a word spelled out and a
+#     misspelt one are MALFORMED, read as not recorded; a canary in a layer
+#     name and a scope note never reaches the report or the receipts
+#     register; --export appends every commit once, leaves the register
+#     byte-identical the second time, counts a planted row and refuses a
+#     foreign header.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -231,6 +240,13 @@ shapes() {
 		-e '^(docs|code|test|research|ops|unknown) +[A-Za-z0-9._-]{1,64} +[0-9]+ +[0-9]+/[0-9]+ +([0-9]+%|-) +[0-9]+/[0-9]+ +([0-9]+%|-) +[0-9]+/[0-9]+ +([0-9]+%|-) +([0-9]+ \(n=[0-9]+\)|- \(n=0\)) +([0-9]+|-)$' \
 		-e '^below the floor: (docs|code|test|research|ops|unknown) x [A-Za-z0-9._-]{1,64} has [0-9]+ item\(s\), under [0-9]+; no inference$' \
 		-e '^outcome: items released with --outcome; fail: of those; reworked: items whose slug was claimed again after them\.$' \
+		-e '^Review layers: per tier x layer, over the (receipts on HEAD|receipts register beside the export|receipts NOT MEASURED: not a git checkout)$' \
+		-e '^export: [0-9]+ new commit receipt\(s\) appended$' \
+		-e '^receipts: [0-9]+ commit\(s\), [0-9]+ layer\(s\); counts recorded on [0-9]+, malformed on [0-9]+ \(read as not recorded, never as zero\)$' \
+		-e '^left out: [0-9]+ (receipt row\(s\) that are not in this report.s rendered form|repeated receipt layer\(s\))$' \
+		-e '^tier +layer +layers +recorded +raised +fixed +answered +reproduced$' \
+		-e '^(lite|full|chore|other) +(self|panel|design|code|cross-check|reverify|other) +[0-9]+ +[0-9]+( +([0-9]+ \(n=[0-9]+\)|- \(n=0\))){4}$' \
+		-e '^recorded: layers whose receipt wrote a count group; a count is summed over the layers that wrote it \(n\), never read as zero where none was written\.$' \
 		-e '^$' "$1" || true
 }
 
@@ -384,6 +400,101 @@ $(grep "^$(pid parked-item)" "$WORK/parked.tsv")"
 grep -q "^$(pid plain-item)	s-cccccccc	" "$WORK/parked.tsv" ||
 	fail "the control failed: a plain claim was not attributed to its holder:
 $(grep "^$(pid plain-item)" "$WORK/parked.tsv")"
+
+
+# --- REVIEW LAYERS (#78): planted receipts in a repo of their own ------------
+RREPO="$WORK/receipts-repo"
+mkrepo "$RREPO"
+git -C "$RREPO" commit -q --allow-empty -m init
+( cd "$RREPO" && "$WORK/bin/buddy" init ) >/dev/null
+RC=RCPTzq7x
+rc() { git -C "$RREPO" commit -q --allow-empty -m "$1" -m "$2"; }
+rc 'an old receipt' 'review: lite (self + codex@xhigh code)'
+rc 'every layer counted, wrapped' 'Body prose.
+
+review: full (panel@opus 4 lenses: 3 raised, 1 reproduced + codex@xhigh design: 2 raised, 2 fixed +
+  codex@xhigh code: 0 raised + fable: 1 raised, 1 answered + codex@xhigh reverify: 1 raised, 1 fixed,
+  1 reproduced; a scope note: 9 raised)'
+rc 'malformed groups' 'review: lite (self: 2 raised, 2 raised + codex@xhigh code: 3 raised, two fixed + fable: 1 rasied)'
+rc 'review: a subject prefix: 5 raised' 'No receipt in this body.'
+rc 'the last receipt line wins' 'review: lite (self: 7 raised)
+
+review: lite (self: 1 raised, 1 fixed)'
+rc "a canary" "review: lite ($RC layer + self; $RC note: 4 raised)"
+rc 'a chore' 'review: chore (docs)'
+rc 'a layer with its own parenthesis' 'review: full (codex@xhigh design (the consensus rounds) + codex@xhigh code: 1 fixed)'
+# Codex code pass: a ` + ` and a colon inside a layer's own parenthesis, and
+# a body forging a commit header with a 0x01 byte: blanked, so the body's
+# last receipt line is its own (a second counted panel: sums, not the last).
+rc 'plus and colon nested' 'review: full (codex@xhigh code (API + CLI): 2 raised + fable (scope: x): 1 answered)'
+SOH=$(printf '\001')
+rc 'a forged header' "review: lite (self: 2 raised)
+${SOH}aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1
+review: full (panel: 9 raised)"
+git -C "$RREPO" log --format=%B | grep -q "$RC" || fail "the receipt canary is not in the planted commits"
+rreport() { ( cd "$RREPO" && CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" ${1:+--export "$1"} ) </dev/null 2>&1; }
+rreport >"$WORK/r1.txt" || fail "the report over planted receipts exited non-zero:
+$(cat "$WORK/r1.txt")"
+grep -q "$RC" "$WORK/r1.txt" && fail "receipt text reached the report:
+$(cat "$WORK/r1.txt")"
+odd=$(shapes "$WORK/r1.txt")
+[ -z "$odd" ] || fail "the receipts report printed a line of no known shape:
+$odd"
+want "$WORK/r1.txt" '^Review layers: per tier x layer, over the receipts on HEAD$' "the receipts section's source"
+want "$WORK/r1.txt" '^receipts: 9 commit\(s\), 19 layer\(s\); counts recorded on 10, malformed on 3 ' \
+	"9 receipts (not the subject's), 19 layers, 10 counted, 3 malformed"
+lay() { # lay <tier> <kind> <layers> <recorded> <raised> <fixed> <answered> <reproduced>
+	want "$WORK/r1.txt" "^$1 +$2 +$3 +$4 +$5 +$6 +$7 +$8\$" "$1 x $2: $3 layer(s), $4 recorded"
+}
+N='- \(n=0\)'
+lay lite self 4 1 '1 \(n=1\)' '1 \(n=1\)' "$N" "$N"
+lay lite code 2 0 "$N" "$N" "$N" "$N"
+lay lite cross-check 1 0 "$N" "$N" "$N" "$N"
+lay lite other 1 0 "$N" "$N" "$N" "$N"
+lay full panel 2 2 '12 \(n=2\)' "$N" "$N" '1 \(n=1\)'
+lay full design 2 1 '2 \(n=1\)' '2 \(n=1\)' "$N" "$N"
+lay full code 3 3 '2 \(n=2\)' '1 \(n=1\)' "$N" "$N"
+lay full cross-check 2 2 '1 \(n=1\)' "$N" '2 \(n=2\)' "$N"
+lay full reverify 1 1 '1 \(n=1\)' '1 \(n=1\)' "$N" '1 \(n=1\)'
+lay chore other 1 0 "$N" "$N" "$N" "$N"
+[ "$(grep -cE '^(lite|full|chore|other) +[a-z-]+ +[0-9]+ +[0-9]+ ' "$WORK/r1.txt")" = 10 ] ||
+	fail "want exactly the 10 planted tier x layer rows:
+$(cat "$WORK/r1.txt")"
+
+# --export: the register beside the item export, every commit once.
+REXP="$WORK/rexp.tsv"
+rreport "$REXP" >"$WORK/r2.txt" || fail "the receipts export exited non-zero:
+$(cat "$WORK/r2.txt")"
+want "$WORK/r2.txt" '^export: 9 new commit receipt\(s\) appended$' "the first export: the 9 receipts"
+want "$WORK/r2.txt" '^Review layers: per tier x layer, over the receipts register beside the export$' "an export reports over the register"
+want "$WORK/r2.txt" '^full +panel +2 +2 +12 \(n=2\)' "the register read back carries the counts"
+[ "$(head -n 1 "$REXP.receipts")" = "commit	committed	tier	layer	kind	counts	raised	fixed	answered	reproduced" ] ||
+	fail "the receipts register's header is not the columns"
+rrow='^[0-9a-f]{40}	[0-9]+	(lite|full|chore|other)	[0-9]+	(self|panel|design|code|cross-check|reverify|other)	(recorded	([0-9]+|-)	([0-9]+|-)	([0-9]+|-)	([0-9]+|-)|(none|malformed)	-	-	-	-)$'
+norow='	recorded	-	-	-	-$'
+bad=$(sed 1d "$REXP.receipts" | LC_ALL=C grep -Ev "$rrow" || true)
+[ -z "$bad" ] || fail "a receipts register row is not in the rendered form:
+$bad"
+! grep -q "$norow" "$REXP.receipts" || fail "a receipts register row is recorded with no count"
+[ "$(sed 1d "$REXP.receipts" | grep -c .)" = 19 ] || fail "want 19 layer rows in the receipts register"
+grep -q "$RC" "$REXP.receipts" && fail "receipt text reached the receipts register"
+grep -q "^aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	" "$REXP.receipts" && fail "a body's 0x01 byte forged a commit's receipt"
+cp "$REXP.receipts" "$WORK/rfirst.tsv"
+rreport "$REXP" >"$WORK/r3.txt" || fail "the second receipts export exited non-zero"
+want "$WORK/r3.txt" '^export: 0 new commit receipt\(s\) appended$' "the second export appended a receipt"
+cmp -s "$REXP.receipts" "$WORK/rfirst.tsv" || fail "the second export changed the receipts register"
+# A hand-planted row is DATA: counted, never printed; a copied row is a repeat.
+printf 'not a row %s\n' "$RC" >>"$REXP.receipts"
+printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t1\tlite\t1\tself\trecorded\t-\t-\t-\t-\n' >>"$REXP.receipts"
+sed -n 2p "$WORK/rfirst.tsv" >>"$REXP.receipts"
+rreport "$REXP" >"$WORK/r4.txt" || fail "the export over a planted receipts register exited non-zero"
+grep -q "$RC" "$WORK/r4.txt" && fail "a planted receipts register row reached the report"
+want "$WORK/r4.txt" '^left out: 2 receipt row\(s\) that are not' "the planted receipts rows (one recorded with no count) were not counted"
+want "$WORK/r4.txt" '^left out: 1 repeated receipt layer' "the copied receipts row was not counted as a repeat"
+printf 'some other file\n' >"$WORK/rforeign.tsv.receipts"
+if rreport "$WORK/rforeign.tsv" >/dev/null; then fail "a receipts register with a foreign header was appended to"; fi
+[ "$(cat "$WORK/rforeign.tsv.receipts")" = "some other file" ] || fail "a refused receipts export changed the file"
+[ ! -e "$WORK/rforeign.tsv" ] || fail "a refused receipts export wrote the item register first"
 
 # Refusals, each with its reason.
 for f in 0 x -1 07; do

@@ -374,6 +374,14 @@ function ok(   i) {
 source="ledger copy"
 rows="$work/items.tsv"
 added=0
+# The receipts register (REVIEW LAYERS, below) is refused HERE, before the
+# item register is written: refused after it, a foreign `<tsv>.receipts`
+# left the items appended and the run exiting 2 (Codex code pass).
+rhdr='commit	committed	tier	layer	kind	counts	raised	fixed	answered	reproduced'
+if [ -n "$export_to" ] && [ -e "$export_to.receipts" ] && [ "$(head -n 1 "$export_to.receipts")" != "$rhdr" ]; then
+	echo "model-report: $export_to.receipts exists and its first line is not this report's receipts header; refusing to append to it" >&2
+	exit 2
+fi
 if [ -n "$export_to" ]; then
 	if [ -e "$export_to" ]; then
 		[ "$(head -n 1 "$export_to")" = "$hdr" ] || {
@@ -439,3 +447,165 @@ END {
 	for (i = 1; i <= nu; i++) print under[i]
 	printf "\noutcome: items released with --outcome; fail: of those; reworked: items whose slug was claimed again after them.\n"
 }' "$rows"
+
+# REVIEW LAYERS (#78, D-141): what each review layer FOUND, from the commits'
+# receipts. A receipt said which layers ran and never what one raised, so no
+# one could say which layer earns its cost (subagents and Codex passes are the
+# largest cost a fleet can turn down: 29% of Claude units and 49 Codex passes
+# in one week to 2026-11-09). The grammar, taught in the skills: a layer may
+# end in a count group, `<layer>: <n> raised, <n> fixed, <n> answered, <n>
+# reproduced`, any subset, each word once; `reproduced` is a finding a test
+# was watched to fail on. A count NOT WRITTEN is NOT RECORDED, never zero: no
+# receipt before this one carries a group, and reading those as "0 raised"
+# would tell the tier tuning every layer found nothing. A group that starts
+# with a digit and breaks the grammar is MALFORMED: counted, read as not
+# recorded. Prose after a colon (`self-review: the matcher …`, on old
+# receipts) is no group.
+#
+# The receipt is the body's LAST line beginning `review:` (either case), with
+# the lines after it (it wraps; a trailer may follow); the subject is never
+# read (`review: …` is also a subject prefix here). Its tier is the first word
+# (lite full chore, else other); its layers are its first parenthesis, cut at
+# the first `;` (the scope note), split on ` + `. A layer's kind is a literal
+# from a fixed test on its name: self, panel (a lens too), reverify, design,
+# code, cross-check (a bare model family), else other; a chore's reason reads
+# as `other`. Only those literals, counts, the commit id and its epoch leave
+# awk: no receipt text is printed or exported. The tier, not the claim's
+# class=, is the join: a commit names no claim, and the squash at landing
+# makes a commit the ledger never saw.
+#
+# Over HEAD's history, or with --export over `<tsv>.receipts`, appended to
+# like the item register (a row per layer, every commit once, read back as
+# DATA under the same checks as a fresh row).
+rvalid='
+function rok(   i) {
+	if (NF != 10) return 0
+	if ((length($1) != 40 && length($1) != 64) || $1 ~ /[^0-9a-f]/) return 0
+	if ($2 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/) return 0
+	if ($3 !~ /^(lite|full|chore|other)$/) return 0
+	if ($5 !~ /^(self|panel|design|code|cross-check|reverify|other)$/) return 0
+	if ($6 !~ /^(recorded|none|malformed)$/) return 0
+	for (i = 7; i <= 10; i++) if ($i !~ /^([0-9]+|-)$/) return 0
+	if ($6 != "recorded" && ($7 != "-" || $8 != "-" || $9 != "-" || $10 != "-")) return 0
+	if ($6 == "recorded" && $7 == "-" && $8 == "-" && $9 == "-" && $10 == "-") return 0
+	return 1
+}'
+: >"$work/receipts.tsv"
+if git -C "$PWD" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+	rsrc="receipts on HEAD"
+	# The record separator is a NUL git prints (%x00): a body's own 0x01
+	# byte is blanked first, so a body cannot forge a commit's header line
+	# (Codex code pass: `\001<40 hex> 1` in a body made a second record).
+	git -C "$PWD" log --no-color --format='%x00%H %ct%n%b' HEAD 2>/dev/null | tr '\001' ' ' | tr '\000' '\001' |
+		LC_ALL=C awk -v OFS='\t' '
+	function kind(n) {
+		n = tolower(n)
+		if (n ~ /(^|[^a-z])self([^a-z]|$)/) return "self"
+		if (n ~ /panel|lens/) return "panel"
+		if (n ~ /re-?verify/) return "reverify"
+		if (n ~ /design/) return "design"
+		if (n ~ /@[^ ]* +code/ || n ~ /(^|[^a-z])code([^a-z]|$)/) return "code"
+		if (n ~ /cross-?check|fable|opus|sonnet|haiku/) return "cross-check"
+		return "other"
+	}
+	function flush(   s, t, p, i, d, c, inner, nl, L, C, j, nm, g, np, P, w, cnt, st, seen, k, out) {
+		if (sha == "" || rc == "") return
+		s = substr(rc, index(tolower(rc), "review:") + 7)
+		t = ""; if (match(s, /[A-Za-z]+/)) t = tolower(substr(s, RSTART, RLENGTH))
+		if (t != "lite" && t != "full" && t != "chore") t = "other"
+		p = index(s, "(")
+		if (!p) { print sha, ct, t, 0, "other", "none", "-", "-", "-", "-"; return }
+		# The first parenthesis, balanced (a layer can hold its own), cut at
+		# a depth-0 `;`; then the layers at a depth-0 ` + `.
+		d = 0; inner = ""
+		for (i = p + 1; i <= length(s); i++) {
+			c = substr(s, i, 1)
+			if (c == "(") d++
+			else if (c == ")") { if (!d) break; d-- }
+			else if (c == ";" && !d) break
+			inner = inner c
+		}
+		# Depth-0 only, both: a parenthesis inside a layer may hold a ` + ` or
+		# a colon (`code (API + CLI): 2 raised`, `code (scope: x): 2 raised`;
+		# Codex code pass), so the group starts at the LAST depth-0 colon.
+		nl = 1; L[1] = ""; C[1] = 0; d = 0
+		for (i = 1; i <= length(inner); i++) {
+			c = substr(inner, i, 1)
+			if (c == "(") d++
+			else if (c == ")" && d) d--
+			if (!d && substr(inner, i, 3) == " + ") { nl++; L[nl] = ""; C[nl] = 0; i += 2; continue }
+			L[nl] = L[nl] c
+			if (!d && c == ":") C[nl] = length(L[nl])
+		}
+		for (j = 1; j <= nl; j++) {
+			c = C[j]; nm = c ? substr(L[j], 1, c - 1) : L[j]
+			cnt["raised"] = cnt["fixed"] = cnt["answered"] = cnt["reproduced"] = "-"
+			st = "none"
+			g = c ? substr(L[j], c + 1) : ""
+			if (g ~ /^ *[0-9]/) {
+				st = "recorded"; split("", seen)
+				np = split(g, P, ",")
+				for (k = 1; k <= np; k++) {
+					w = P[k]; gsub(/^ +| +$/, "", w)
+					if (w !~ /^[0-9]+ +(raised|fixed|answered|reproduced)$/) { st = "malformed"; break }
+					sub(/ +/, " ", w); split(w, out, " ")
+					if (out[2] in seen) { st = "malformed"; break }
+					seen[out[2]] = 1; cnt[out[2]] = out[1] + 0
+				}
+				if (st == "malformed") cnt["raised"] = cnt["fixed"] = cnt["answered"] = cnt["reproduced"] = "-"
+			}
+			print sha, ct, t, j, kind(nm), st, cnt["raised"], cnt["fixed"], cnt["answered"], cnt["reproduced"]
+		}
+	}
+	/^\001/ { flush(); sha = substr($0, 2, index($0, " ") - 2); ct = substr($0, index($0, " ") + 1); rc = ""; on = 0; next }
+	tolower($0) ~ /^review:/ { on = 1; rc = "" }
+	on { rc = rc " " $0 }
+	END { flush() }' >"$work/receipts.tsv"
+else
+	rsrc="receipts NOT MEASURED: not a git checkout"
+fi
+rrows="$work/receipts.tsv"
+radded=0
+if [ -n "$export_to" ]; then
+	reg="$export_to.receipts"
+	# Its header was checked before the item register was written (above).
+	[ -e "$reg" ] || printf '%s\n' "$rhdr" >"$reg"
+	# Every commit once: one already in the register adds no layer.
+	awk -F'\t' -v OFS='\t' "$rvalid"'
+		FILENAME == ARGV[1] { if (FNR > 1) done[$1] = 1; next }
+		!done[$1] && rok() { print }
+	' "$reg" "$work/receipts.tsv" >"$work/rnew.tsv"
+	radded=$(awk -F'\t' '!s[$1]++ { n++ } END { print n + 0 }' "$work/rnew.tsv")
+	cat "$work/rnew.tsv" >>"$reg"
+	rsrc="receipts register beside the export"
+	rrows=$reg
+fi
+
+echo
+echo "Review layers: per tier x layer, over the $rsrc"
+[ -z "$export_to" ] || echo "export: $radded new commit receipt(s) appended"
+LC_ALL=C awk -F'\t' -v header="$( [ -n "$export_to" ] && echo 1 || echo 0)" "$rvalid"'
+FNR == 1 && header { next }
+!rok() { bad++; next }
+seen[$1, $4]++ { dup++; next }
+{
+	if (!c[$1]++) nc++
+	nl++; k = $3 SUBSEP $5; L[k]++
+	if ($6 == "recorded") { rec[k]++; nrec++ } else if ($6 == "malformed") nmal++
+	for (i = 7; i <= 10; i++) if ($i != "-") { sum[k, i] += $i; n[k, i]++ }
+}
+function col(k, i) { return n[k, i] ? sprintf("%d (n=%d)", sum[k, i], n[k, i]) : "- (n=0)" }
+END {
+	printf "receipts: %d commit(s), %d layer(s); counts recorded on %d, malformed on %d (read as not recorded, never as zero)\n", nc, nl, nrec, nmal
+	if (bad) printf "left out: %d receipt row(s) that are not in this report'"'"'s rendered form\n", bad
+	if (dup) printf "left out: %d repeated receipt layer(s)\n", dup
+	if (!nl) exit
+	printf "\n%-6s  %-11s  %6s  %8s  %-12s  %-12s  %-12s  %s\n", "tier", "layer", "layers", "recorded", "raised", "fixed", "answered", "reproduced"
+	nt = split("lite full chore other", T, " "); nk = split("self panel design code cross-check reverify other", K, " ")
+	for (a = 1; a <= nt; a++) for (b = 1; b <= nk; b++) {
+		k = T[a] SUBSEP K[b]
+		if (!L[k]) continue
+		printf "%-6s  %-11s  %6d  %8d  %-12s  %-12s  %-12s  %s\n", T[a], K[b], L[k], rec[k], col(k, 7), col(k, 8), col(k, 9), col(k, 10)
+	}
+	printf "\nrecorded: layers whose receipt wrote a count group; a count is summed over the layers that wrote it (n), never read as zero where none was written.\n"
+}' "$rrows"

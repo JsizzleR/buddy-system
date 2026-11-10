@@ -362,7 +362,11 @@ ceiling on review rounds. Run what it owes:
 - **The receipt is the last line of the commit body** and names every layer
   that ran, each second-model pass with its effort:
   `review: lite (self + <model>@<effort> code)`. A bare model name cannot tell
-  a pinned pass from a silent fallback. Report it in your READY.
+  a pinned pass from a silent fallback. After a layer, what it found:
+  `<model>@<effort> code: 3 raised, 2 fixed, 1 answered, 1 reproduced` (any
+  of the four, each once; reproduced: a test watched to fail; `0 raised` when
+  it found nothing). A count you did not keep is left out, never written 0.
+  Report it in your READY.
 
 ## Other verbs
 

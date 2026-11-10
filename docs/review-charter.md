@@ -1217,6 +1217,11 @@ ledger row entered through the CLI (D-006).
     the other at the gate, a shared rider included; who acts is skill text. Do not propose an ancestry check or a release line in the
     refusal without new evidence.
 
+124. **A receipt layer may carry what it found; a count not written is not recorded, never zero
+    (D-141, amends D-104).** `<layer>: <n> raised, <n> fixed, <n> answered, <n> reproduced`, each once;
+    `model-report.sh` sums them per tier x layer from the receipts. Do not propose tuning a tier before
+    the counts exist, or reading a missing count as 0.
+
 ## Environment facts (measured, do not re-derive)
 
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch

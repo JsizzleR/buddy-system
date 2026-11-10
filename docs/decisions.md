@@ -10666,3 +10666,48 @@ worktree, and the main-checkout control), `TestMainCheckoutName`,
 unpresented), `TestPresenceWithNoProjectFallsBackToTheLabel`,
 `TestAddressedAlertsOnAnOperatorsBareSlug` (positive control: the concierge's
 row with the same body is still an echo), `TestDispatchAlertsKnowsTheConciergesName`.
+
+## D-141 — A receipt's layer may carry what it found; `model-report.sh` reads the counts, a count not written is not recorded (issue #78; amends D-104)
+
+2026-11-10. Issue #78, from the whole-project review of 2026-11-09; the
+operator's "do them all" (orc-17's pane, about 13:55Z), relayed by orc-18.
+
+**The failure** — a receipt said which layers ran, never what one found, so
+no one could say which layer earns its cost. Measured by the review, 7 days
+to 2026-11-09: subagents 29% of this repo's Claude units, 49 Codex passes
+from lanes, a full item's diff read about nine times. Read over HEAD at
+`7b17cc2` by the new section: 131 receipts, 241 layers, counts recorded on
+none.
+
+**The rule** — a layer may end in a count group, `<layer>: <n> raised, <n>
+fixed, <n> answered, <n> reproduced`, any of the four, each once;
+`reproduced` is a finding a test was watched to fail on, the only kind that
+is evidence. A count not written is NOT RECORDED, never zero: every receipt
+before this one parses that way, and `0 raised` is how a layer that found
+nothing says so. `model-report.sh` prints, per tier x layer kind (self,
+panel, design, code, cross-check, reverify, other), the layers, how many
+wrote a group, and each count summed over the layers that wrote it, `(n=)`
+beside it; a group that starts with a digit and breaks the grammar is
+MALFORMED, counted, read as not recorded (one old receipt, `dc1b37a`, reads
+so: "folded: 1 should-fix, 4 nits"). `--export <tsv>` appends each commit's
+layers once to `<tsv>.receipts`. Only literals, counts, a commit id and its
+epoch leave the parser. The tier is the join, not the claim's `class=`: a
+commit names no claim, and the landing squash makes a commit the ledger
+never saw. No tier changes on this: two or three weeks of counts first.
+
+- **Not done.** D-104's receipt CHECK (a done-check on a full receipt missing
+  a layer) stays undone; the parser it would need is here. The `fable`
+  alias resolving to 5.1 is the harness's; nothing here reads or pins it.
+  A commit whose receipt shares the subject's paragraph is not read (`%b`).
+
+**Tests** — `check-model-report.sh` plants ten commits (an old receipt,
+a wrapped full one with every count and a `0`, three malformed groups, a
+subject prefix, two receipt lines, a canary in a layer and a scope note, a
+chore, a nested parenthesis, a ` + ` and a colon nested in layers, and a
+body forging a commit header with a 0x01 byte); each of fifteen mutants of
+the parser dies (a missing count read as 0, no `;` cut, first line wins, a
+repeated word allowed, no dedupe on export, no read-back check, the subject
+read, no paren balance, any word taken as a count, a nested ` + ` or colon
+read, the 0x01 blanking cut, a countless `recorded` row allowed, the
+receipts header refused late, the last value kept instead of the sum).
+Review: lite (self + codex@xhigh code: 6 raised, 6 fixed, 6 reproduced).
