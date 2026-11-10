@@ -165,6 +165,47 @@ fi
 # the quoted spelling matches no recorded cwd (Codex code pass).
 git -C "$root" worktree list --porcelain -z 2>/dev/null >"$work/roots" || : >"$work/roots"
 roots_json=$(jq -Rsc 'split("\u0000") | map(select(startswith("worktree ")) | ltrimstr("worktree "))' <"$work/roots")
+# Plus a cwd under a SIBLING named `<root>-<anything>` that no longer exists:
+# a lane worktree beside the checkout (`buddy-system-wt-<label>`) is removed
+# once its work lands, and git then forgets it. Reading registered worktrees
+# alone, this report saw 6 of 25 sessions and 104M of 433M cache reads in the
+# week to 2026-11-09, nearly every lane missing (#77). startup-report.sh's
+# rule, for the same reason: an EXISTING sibling counts only through git
+# (a registered worktree is a root already), so one that is another
+# repository, or no repository, is named here to be left out. Prefixes from
+# every root as git lists it (resolved), mapped back through this checkout's
+# parent as the operator spells it (git lists /private/var where the harness,
+# started in /var, recorded /var: startup-report.sh's mapping; Codex code
+# pass), and from this checkout as spelled. A removed sibling
+# is taken on its name alone: a removed `<repo>-x` that was some other
+# repository is counted as ours, as startup-report.sh counts it.
+common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
+rcommon=$( (CDPATH= cd -- "$common" 2>/dev/null && pwd -P) || :)
+{
+	printf '%s\0' "$root"
+	r=$(CDPATH= cd -- "$root" && pwd -P) && printf '%s\0' "$r"
+	sp=$(dirname -- "$root"); srp=$(CDPATH= cd -- "$sp" && pwd -P) || srp=$sp
+	jq -j --arg p "$sp" --arg rp "$srp" '.[] | (., (select(startswith($rp + "/")) | $p + "/" + ltrimstr($rp + "/"))) | . + "\u0000"' <<EOF
+$roots_json
+EOF
+} >"$work/sibroots"
+sibs_json=$(jq -Rsc 'split("\u0000") | map(select(length > 0) | . + "-") | unique' <"$work/sibroots")
+# Not a checkout: no root, so no sibling of one either.
+[ "$roots_json" != "[]" ] || sibs_json="[]"
+# sh's `read` has no NUL delimiter, so the prefixes reach the glob as a
+# jq-quoted argument list (@sh), which a tab or a newline in a path survives.
+eval "set -- $(printf '%s' "$sibs_json" | jq -r 'map(@sh) | join(" ")')"
+for s in "$@"; do
+	for d in "$s"*; do
+		[ -d "$d" ] || continue
+		c=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || c=
+		[ -z "$c" ] || c=$( (CDPATH= cd -- "$c" 2>/dev/null && pwd -P) || :)
+		[ -n "$rcommon" ] && [ "$c" = "$rcommon" ] && continue
+		printf '%s\0' "$d"
+		r=$(CDPATH= cd -- "$d" && pwd -P) && printf '%s\0' "$r" || :
+	done
+done >"$work/excl"
+excl_json=$(jq -Rsc 'split("\u0000") | map(select(length > 0)) | unique' <"$work/excl")
 rf_json=$(awk -F '\t' '$1 == "read-first" { print $2 }' "$work/members" | jq -R . | jq -cs .)
 stat_of() { sed -n "s/^$1=//p" "$stats"; }
 
@@ -248,8 +289,14 @@ if [ -d "$claude_projects" ]; then
 	# still passed `mcp__buddylist__<any lowercase words>` (Codex code pass).
 	# The window compares at second precision: `…00.500Z` sorts before
 	# `…00Z` as a string (Codex code pass).
-	xargs -0 jq -r --arg cutoff "$cutoff_iso" --argjson roots "$roots_json" --argjson rf "$rf_json" '
+	xargs -0 jq -r --arg cutoff "$cutoff_iso" --argjson roots "$roots_json" --argjson sibs "$sibs_json" \
+		--argjson excl "$excl_json" --argjson rf "$rf_json" '
 			def num: if type == "number" then floor else 0 end;
+			def at($r): . == $r or startswith($r + "/");
+			def sibling: . as $c | ($c | test("/\\.\\.(/|$)") | not)
+				and any($sibs[]; . as $s | $c | startswith($s))
+				and (any($excl[]; . as $x | $c | at($x)) | not);
+			def ours: . as $c | any($roots[]; . as $r | $c | at($r)) or sibling;
 			def inwin: type == "string" and .[0:19] >= ($cutoff | .[0:19]);
 			def known: IN("chat_send", "chat_read", "chat_status", "chat_ack", "chat_who", "dm", "set_status");
 			def path_is($p): type == "string" and (. == $p or endswith("/" + $p));
@@ -278,7 +325,7 @@ if [ -d "$claude_projects" ]; then
 				["R",.tool_use_id,(.content|if type=="string" then utf8bytelength else (tojson|utf8bytelength) end)] | @tsv
 			else empty end),
 			((.cwd | if type == "string" then . else "" end) as $cwd
-			 | if $cwd == "" or (any($roots[]; . as $r | $cwd == $r or ($cwd | startswith($r + "/"))) | not) then empty else
+			 | if $cwd == "" or ($cwd | ours | not) then empty else
 				(.sessionId | if type == "string" then . else "" end) as $sid
 				| (if .isSidechain == true then 1 else 0 end) as $sc
 				| (.timestamp | inwin) as $in
@@ -454,7 +501,7 @@ fi
 
 echo
 if [ -n "$q" ] && [ "$roots_json" != "[]" ]; then
-	echo "Context billed (transcripts whose cwd is this checkout or a worktree of it, last $days day(s))"
+	echo "Context billed (transcripts whose cwd is this checkout, a worktree of it, or a removed sibling named after one, last $days day(s))"
 	printf 'sessions=%s  requests=%s  subagent_requests=%s  cache_read=%s  cache_write=%s  input=%s  output=%s\n' \
 		"$m" "$q" "$(stat_of subagent_requests)" "$(stat_of cache_read)" "$(stat_of cache_write)" "$(stat_of input)" "$(stat_of output)"
 	sort -n "$work/prompts" | awk '{ v[NR] = $1; s += $1 }

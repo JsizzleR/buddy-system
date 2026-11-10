@@ -29,9 +29,12 @@
 #   - Context billed: one request counted once across the records of one
 #     message, a resumed transcript's copied lines, and files; never a
 #     <synthetic> record, an out-of-window one, or one whose cwd is another
-#     repo or a sibling directory sharing the checkout's name as a prefix; a
-#     linked worktree's and a removed worktree's under the checkout counted;
-#     subagent requests counted and their session not counted twice;
+#     repo, an EXISTING sibling `<root>-*` that is another repository or none,
+#     or a directory sharing the name without the dash; a linked worktree's,
+#     a removed worktree's under the checkout, and a REMOVED sibling
+#     `<root>-*`'s (a landed lane's worktree, #77) counted, beside the
+#     checkout and beside a linked worktree; subagent requests counted and
+#     their session not counted twice;
 #   - skill exposure over that set: a request after a Skill call, a /command
 #     and a resumed copy of the load is carried, the request that made the
 #     call is not, a subagent's file does not inherit its parent's load, and a
@@ -116,6 +119,9 @@ git -C "$REPO" commit -q --allow-empty -m 'two' -m 'Review: full (panel + codex@
 WT="$WORK/wt
 x"
 git -C "$REPO" worktree add -q --detach "$WT"
+# An EXISTING sibling named `repo-*` that is another repository: its
+# records (m12 below) never count, though a removed one would (#77).
+mkrepo "$REPO-old"
 
 # --- the transcripts ------------------------------------------------------------
 P="$WORK/projects"
@@ -305,6 +311,39 @@ want=$(grep -oE '^		name: "[a-z_]+"' internal/buddylist/mcp.go | sed 's/.*"\(.*\
 got=$(sed -n 's/^[[:space:]]*def known: IN(\(.*\));$/\1/p' scripts/cost-report.sh | tr ',' '\n' | tr -d '" ' | sed '/^$/d' | sort | tr '\n' ' ')
 [ -n "$want" ] || fail "found no tool names in internal/buddylist/mcp.go's table — re-point this check"
 [ "$got" = "$want" ] || fail "cost-report.sh knows the MCP tools '$got', mcp.go's table has '$want'"
+
+# --- removed siblings count, existing foreign ones do not (#77) -------------------
+# A lane's worktree beside the checkout (`<repo>-<label>`) is gone from git's
+# list once removed. Counted: m16 under a removed `repo-gone`, m19 under a
+# removed sibling of the LINKED worktree (its name holds a newline). Not
+# counted: m17 under an existing `repo-plain` that is no repository, m18
+# under `repoz`, the name without the dash, m20 through a `..` segment. Phase one above holds the
+# existing foreign sibling (m12, `repo-old`) out with the same rule armed.
+mkdir -p "$WORK/repo-plain"
+SG=55555555-0000-4000-8000-000000000005
+mkdir -p "$P/-repo-gone"
+a m16 11000 0 1 "$SG" "$REPO-gone/sub" "$NOW" false "$M" '[]' > "$P/-repo-gone/$SG.jsonl"
+a m17 12000 0 1 66666666-0000-4000-8000-000000000006 "$WORK/repo-plain" "$NOW" false "$M" '[]' > "$P/-other/plain.jsonl"
+a m18 13000 0 1 77777777-0000-4000-8000-000000000007 "$WORK/repoz" "$NOW" false "$M" '[]' > "$P/-other/z.jsonl"
+a m19 14000 0 1 88888888-0000-4000-8000-000000000008 "$WT-gone" "$NOW" false "$M" '[]' > "$P/-other/wtgone.jsonl"
+# A `..` segment climbs out of the sibling: never counted (startup-report's rule).
+a m20 15000 0 1 99999999-0000-4000-8000-000000000009 "$REPO-gone/../../elsewhere" "$NOW" false "$M" '[]' > "$P/-other/dotdot.jsonl"
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with siblings planted:
+$out"
+has sessions=6 requests=15 "cache_read=$((cr + 11000 + 14000))" input=290
+
+# A removed sibling of a LINKED worktree recorded through a symlinked parent
+# (macOS: the harness records /var, git lists /private/var): counted when the
+# report runs from that spelling, as git's resolved root is mapped back
+# through it (Codex code pass). `alias` is a link to $WORK itself.
+ln -s "$WORK" "$WORK/alias"
+a m21 16000 0 1 aaaaaaaa-0000-4000-8000-00000000000a "$WORK/alias/wt
+x-gone2" "$NOW" false "$M" '[]' > "$P/-other/alias.jsonl"
+out=$( cd "$WORK/alias/repo" && HOME="$WORK/home" CLAUDE_PROJECTS_DIR="$P" BUDDYLIST_JOURNAL="$WORK/none.db" \
+	BUDDY_LEDGER="$WORK/none-ledger.db" BUDDYLIST_BIN="$WORK/no-buddylist" BUDDY_COST_DAYS=7 sh scripts/cost-report.sh 2>&1 ) ||
+	fail "the report exited non-zero through the alias:
+$out"
+has sessions=7 requests=16 "cache_read=$((cr + 11000 + 14000 + 16000))"
 
 # --- a malformed line: the FLOOR note, never its text ------------------------------
 printf '{"type":"user","message":"%s\n' "$CANARY" > "$P/-repo/zz-torn.jsonl"
