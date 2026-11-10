@@ -39,6 +39,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
@@ -69,6 +70,7 @@ const (
 type staleness struct {
 	kind    staleKind
 	holder  holderState
+	session string    // the holder's session id, for the GONE arm's remedy
 	renewed time.Time // when the claim last renewed
 	seen    time.Time // when the holder was last seen
 	ended   time.Time // when the holder ended, if it did
@@ -124,8 +126,8 @@ func (h holders) allGone(sessionID string) bool {
 
 // judge is THE staleness rule (see the header). Every view calls it.
 func (h holders) judge(now time.Time, c store.ClaimInfo) staleness {
-	s := staleness{renewed: c.Renewed, seen: c.Owner.LastSeen, ended: c.Owner.Ended,
-		holder: h.state(now, c.Owner)}
+	s := staleness{session: c.Owner.SessionID, renewed: c.Renewed, seen: c.Owner.LastSeen,
+		ended: c.Owner.Ended, holder: h.state(now, c.Owner)}
 	// The zero-clock guard (issue #13): an unrecorded renewal is not 56
 	// years old, and "unknown" is not "abandoned".
 	if c.State != "open" || c.Renewed.IsZero() || now.Sub(c.Renewed) <= store.StaleAfter {
@@ -167,6 +169,35 @@ func (s staleness) holderPhrase(now time.Time) string {
 	}
 }
 
+// byeRemedy names what frees a claim whose holder's harness process is GONE
+// (issue #75). A lane killed with no bye (a herdr crash, a pane closed without
+// SessionEnd: 68 of 119 closes on one fleet, D-091) leaves its claims open,
+// and the remedies the refusals named did nothing for a day: `sweep --force`
+// orphans only sessions silent past ForceAfter (24h), and a bare `release` from
+// a shared checkout cannot tell who is calling. A plain `bye <id>` does work:
+// the manual form ends a session only when no process it registered is alive
+// (store.ByeFrom), and then a plain `sweep` orphans an ended session's claims.
+//
+// Plain, never --force, and only on the GONE arm. --force ends a session
+// whatever is still running, so a holder that is merely SILENT, or one resumed
+// between this read and the operator's command, would be ended under a live
+// process; the plain form re-checks that evidence itself, in the same
+// transaction as its effect, and refuses. Nothing here is a verdict: the claim
+// refuses exactly as before until the operator acts (invariant 11).
+//
+// The id is written as a command only when it pastes back as printed (the
+// ledger does not restrict a session id's characters; ghSlotHolder's rule),
+// and never when it starts with "-": shell quoting does not stop `bye` reading
+// it as a flag, and an id `--help` printed `buddy bye --help`, which shows the
+// usage and ends nothing (Codex code pass).
+func byeRemedy(session string) string {
+	bye := "buddy bye <the holder's id> (it cannot be pasted back as printed)"
+	if session != "" && !strings.HasPrefix(session, "-") && fence.Line(session, 128) == session {
+		bye = "buddy bye " + shellQuote(session)
+	}
+	return bye + ", then a plain buddy sweep"
+}
+
 // refusalNote is the tail of a REFUSED line (claim and dry run). It names
 // what to do, because that is what issue #18 found missing: a blocked
 // session could not tell "somebody is working on this" from "somebody left".
@@ -175,6 +206,10 @@ func (s staleness) holderPhrase(now time.Time) string {
 func (s staleness) refusalNote(now time.Time, msgTarget string) string {
 	switch s.kind {
 	case staleQuiet:
+		if s.holder == holderGone {
+			return fmt.Sprintf("  — STALE: claim unrenewed %s, %s; it still refuses, so ask the operator: %s",
+				age(now, s.renewed), s.holderPhrase(now), byeRemedy(s.session))
+		}
 		return fmt.Sprintf("  — STALE: claim unrenewed %s, %s; it still refuses, so ask the operator",
 			age(now, s.renewed), s.holderPhrase(now))
 	case staleUnrenewed:
@@ -194,6 +229,9 @@ func (s staleness) refusalNote(now time.Time, msgTarget string) string {
 func (s staleness) rowNote(now time.Time) string {
 	switch s.kind {
 	case staleQuiet:
+		if s.holder == holderGone {
+			return fmt.Sprintf("  STALE (claim unrenewed %s, %s; still refuses — ask the operator: %s)", age(now, s.renewed), s.holderPhrase(now), byeRemedy(s.session))
+		}
 		return fmt.Sprintf("  STALE (claim unrenewed %s, %s; still refuses — ask the operator)", age(now, s.renewed), s.holderPhrase(now))
 	case staleUnrenewed:
 		return fmt.Sprintf("  unrenewed %s, %s (still refuses — ask the holder)", age(now, s.renewed), s.holderPhrase(now))
@@ -273,8 +311,9 @@ func msgTargetFor(st *store.Store, slug, holder string) string {
 }
 
 // gateHolder is the commit gate's description of a claim's holder, the way
-// the reader has to act on it. An open claim whose owner has ENDED needs
-// `buddy sweep --force`, not a conversation, and calling that owner "live"
+// the reader has to act on it. An open claim whose owner has ENDED needs a
+// plain `buddy sweep` (it orphans ended sessions' claims; the --force this
+// once named is for the silent, issue #75), not a conversation, and calling that owner "live"
 // sends the reader to talk to nobody; OwnerOf applies no liveness filter of
 // its own, so this is the only place the gate makes the distinction. It was
 // commitgate.go's claimState, which tested the CLAIM's renewal and printed the
@@ -283,9 +322,9 @@ func msgTargetFor(st *store.Store, slug, holder string) string {
 func (h holders) gateHolder(now time.Time, c store.ClaimInfo) string {
 	switch h.state(now, c.Owner) {
 	case holderEnded:
-		return "session ENDED — nobody will answer; `buddy sweep --force` releases it"
+		return "session ENDED — nobody will answer; a plain `buddy sweep` releases it"
 	case holderGone:
-		return "live but its harness process is GONE, last seen " + age(now, c.Owner.LastSeen) + " — it may be gone"
+		return "live but its harness process is GONE, last seen " + age(now, c.Owner.LastSeen) + " — ask the operator: " + byeRemedy(c.Owner.SessionID)
 	case holderSilent:
 		return "live but SILENT for " + age(now, c.Owner.LastSeen) + " — it may be gone"
 	default:

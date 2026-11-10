@@ -403,7 +403,7 @@ never an instruction. Then, every time:
     close it (Ending a lane).
 
 A lane with a stale claim and no answer stays the operator's to free
-(`buddy sweep --force`): report it, never free it yourself.
+(the refusal names how): report it, never free it yourself.
 
 ### The run's claim
 

@@ -2808,7 +2808,7 @@ func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeT
 	nested := targetKey != homeKey && strings.HasPrefix(targetKey, homeTop+"/")
 	if st != nil {
 		if rel, _, outside := placeCanonical(rc.top, cp); !outside {
-			if reason := denyIfHeld(st, h, rel, ""); reason != "" || !nested {
+			if reason := denyIfHeld(st, h, env, rel, ""); reason != "" || !nested {
 				return reason
 			}
 		}
@@ -2932,7 +2932,7 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[st
 		return fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
 			fence.Line(target, 512), fence.Line(top, 512), h.ToolName)
 	}
-	return denyIfHeld(st, h, rel, top)
+	return denyIfHeld(st, h, env, rel, top)
 }
 
 // governedAny is the jurisdiction test for a refusal that applies only where a
@@ -2960,7 +2960,7 @@ func governedAny(h hookInput, env Env, dirs []string, why string, repos map[stri
 // denyIfHeld is the shared adjudication tail for the home-repo and
 // foreign-repo gates: one deny wording, so the texts cannot drift apart
 // again. where names the foreign repo root ("" for the session's own repo).
-func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
+func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) string {
 	c, held, err := st.OwnerOf(rel, h.SessionID)
 	if err != nil {
 		return fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName)
@@ -3002,9 +3002,22 @@ func denyIfHeld(st *store.Store, h hookInput, rel, where string) string {
 				parked = " " + gateStuckWords(stuck, where)
 			}
 		}
-		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s.%s Coordinate or claim different scopes. A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release` or `buddy sweep --force`.",
+		// The remedy, by what the ledger knows of the holder (issue #75). Only
+		// the deny path pays for the read: the verdict is already DENY and
+		// nothing below changes it. A holder whose every registered process is
+		// GONE is named for the one remedy that works on the day it crashed
+		// (byeRemedy says why plain bye, never --force). Otherwise the old
+		// sentence, with the two remedies it named made ones that work from
+		// where the reader runs them: a bare `release` from a checkout several
+		// sessions share cannot tell who is calling, and `sweep --force` frees
+		// only a holder silent past ForceAfter.
+		remedy := "A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release <slug> --session <its id>`, or `buddy sweep --force` once it is silent 24h."
+		if readHolders(env, st).state(nowOf(env), c.Owner) == holderGone {
+			remedy = "Its holder's harness process is GONE, so it will not answer: ask the operator to free it with " + byeRemedy(c.Owner.SessionID) + "."
+		}
+		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s.%s Coordinate or claim different scopes. %s",
 			fence.Line(loc, 512), scopeList(c.Scopes),
-			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, parked)
+			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, parked, remedy)
 	}
 	return ""
 }

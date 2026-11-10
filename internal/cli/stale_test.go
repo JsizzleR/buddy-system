@@ -162,7 +162,7 @@ func TestEveryViewAsksTheHolderWhenTheHolderIsLive(t *testing.T) {
 		"refusal":     "STALE: claim unrenewed 31m, holder's harness process GONE, last seen 0s ago; it still refuses, so ask the operator",
 		"dry run":     "STALE: claim unrenewed 31m, holder's harness process GONE",
 		"ls":          "open STALE",
-		"whose":       "STALE (claim unrenewed 31m, holder's harness process GONE, last seen 0s ago; still refuses — ask the operator)",
+		"whose":       "STALE (claim unrenewed 31m, holder's harness process GONE, last seen 0s ago; still refuses — ask the operator: buddy bye sess-a, then a plain buddy sweep)",
 		"status":      "STALE (claim unrenewed 31m, holder's harness process GONE",
 		"hello":       "[STALE: holder's harness process GONE, last seen 0s ago]",
 		"commit gate": "live but its harness process is GONE",

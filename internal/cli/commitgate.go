@@ -310,9 +310,12 @@ func cmdCommitGate(args []string, env Env) int {
 		// rather than printed on its own as a standing grievance.
 		fmt.Fprintf(w, "who is committing could not be determined: %s\n\n", fence.Line(idErr.Error(), 512))
 	}
+	// Each holder line above names its own remedy (gateHolder). This footer
+	// once said "the operator can `buddy sweep --force` a claim whose session
+	// is gone", which frees nothing for a day after a crash (issue #75).
 	fmt.Fprint(w, "Coordinate with the owner before committing, or have them `buddy release <slug>`.\n"+
-		"`buddy ls` lists open claims; the operator can `buddy sweep --force` a claim whose\n"+
-		"session is gone. This is a claims check, not proof of authorship.\n")
+		"`buddy ls` lists open claims; a holder that is ENDED or GONE above says what frees it.\n"+
+		"This is a claims check, not proof of authorship.\n")
 
 	if pos == postureDeny && mine != "" {
 		fmt.Fprintf(w, "\nREFUSING the commit (%s=deny). Deliberate bypass: git commit --no-verify\n", EnvCommitPosture)

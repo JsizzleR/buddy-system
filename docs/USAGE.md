@@ -618,8 +618,12 @@ hello digest and the commit gate use the same judgement.
 
 A scope is freed by `buddy release`, by orphaning of a holder that has **said
 `bye`** — which runs at any session's `hello`, at a plain `buddy sweep`, and
-first inside every `buddy claim` — or by `buddy sweep --force`, the operator's
-act for a holder that went silent without saying so. `bye` itself records the
+first inside every `buddy claim` — or, for a holder that went silent without
+saying so, by the operator: a holder whose every registered process is `GONE`
+(a crashed pane) with a plain `buddy bye <id>`, which refuses while any of them
+runs, and then `buddy sweep`; any other with `buddy release <slug> --session
+<id>`, or `buddy sweep --force` once it has been silent 24h. The refusal, `who`,
+`whose`, the gate's deny and the commit gate name the bye on the GONE arm only. `bye` itself records the
 ending and deliberately touches no claim row, so `buddy ls` still shows an
 exited session's claims as `open` until something orphans them, and the
 PreToolUse gate still denies an unclaimed edit under them until then (the deny

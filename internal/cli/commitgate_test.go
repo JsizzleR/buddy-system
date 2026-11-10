@@ -254,8 +254,8 @@ func TestCommitGateIgnoresDiffRelativeConfig(t *testing.T) {
 	}
 }
 
-// An open claim whose owner has ENDED needs `buddy sweep --force`, not a
-// conversation. OwnerOf applies no liveness filter, so calling that owner live
+// An open claim whose owner has ENDED needs a plain `buddy sweep`, not a
+// conversation (and not the --force that frees only the silent, issue #75). OwnerOf applies no liveness filter, so calling that owner live
 // would send the reader to talk to nobody.
 func TestCommitGateNamesAnEndedOwnerAsEnded(t *testing.T) {
 	boundedParallel(t)
@@ -269,7 +269,7 @@ func TestCommitGateNamesAnEndedOwnerAsEnded(t *testing.T) {
 
 	var errw string
 	f.asSession("sess-b", func() { _, errw, _ = f.run(t, f.wtB, "", "commit-gate") })
-	if !strings.Contains(errw, "ENDED") || !strings.Contains(errw, "sweep --force") {
+	if !strings.Contains(errw, "ENDED") || !strings.Contains(errw, "a plain `buddy sweep` releases it") || strings.Contains(errw, "sweep --force") {
 		t.Fatalf("an ended owner must be named as ended and point at sweep, got:\n%s", errw)
 	}
 }

@@ -130,8 +130,9 @@ its process GONE, or ended. Choose one:
 A stale claim refuses exactly like a fresh one. If its holder has ended (said
 bye), your own `buddy claim` or a plain `buddy sweep` frees it
 (`buddy sweep --dry-run` says what a sweep would free, and writes nothing). If the holder
-only went silent, only the operator frees it, with `buddy release` or
-`buddy sweep --force`. Never do that yourself.
+only went silent, only the operator frees it: its process GONE, with a plain
+`buddy bye <its id>` and then `buddy sweep`; else `buddy release <slug>
+--session <its id>`, or `buddy sweep --force` after 24h. Never do that yourself.
 
 ## Before you park
 
