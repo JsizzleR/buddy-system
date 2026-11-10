@@ -193,6 +193,31 @@ a m11 200 0 2 "$S4" "$REPO/.claude/worktrees/gone" "$NOW" false "$M" '[]' > "$P/
 } > "$P/-other/x.jsonl"
 grep -rqF "$CANARY" "$P" || fail "the canary is not in the planted transcripts — the audit below would pass vacuously"
 
+# --- codex-review.sh's pass record (Codex report A3, D-146) ------------------------
+# Rows as that script writes them (14 tab-separated fields), in the planted
+# checkout's common dir: two verdicts, a header mismatch, a watchdog kill, a busy
+# NOT RUN, a row older than the window, two malformed rows (13 fields; a canary as
+# the time), and a well-formed verdict whose model and session fields are the canary:
+# counted, never printed.
+NOWZ=$(jq -rn 'now - 3600 | strftime("%Y-%m-%dT%H:%M:%SZ")')
+OLDZ=$(jq -rn 'now - 30 * 86400 | strftime("%Y-%m-%dT%H:%M:%SZ")')
+{
+	printf '%s\t0\t0\t200\tgpt-6-astra\txhigh\tok\tcore\t100\t200\t1000\t10\t2\tsid1\n' "$NOWZ"
+	printf '%s\t0\t0\t400\tgpt-6-astra\txhigh\tok\tcore\t100\t200\t3000\t20\t0\tsid2\n' "$NOWZ"
+	printf '%s\t0\t3\t100\tgpt-6-astra\txhigh\tMISMATCH\tcore\t100\t200\t500\t5\t1\tsid3\n' "$NOWZ"
+	printf '%s\t124\t124\t540\tgpt-6-astra\txhigh\tok\tcore\t100\t200\t-\t30\t3\tsid4\n' "$NOWZ"
+	printf '%s\t-\t75\t-\tgpt-6-astra\txhigh\t-\t-\t-\t-\t-\t-\t-\t-\n' "$NOWZ"
+	printf '%s\t0\t0\t999\tgpt-6-astra\txhigh\tok\tcore\t100\t200\t99999\t99\t9\told\n' "$OLDZ"
+	printf '%s\t0\t0\t1\tgpt-6-astra\txhigh\tok\tcore\t1\t1\t1\t1\t1\n' "$NOWZ"
+	printf '%s\t0\t0\t1\tgpt-6-astra\txhigh\tok\tcore\t1\t1\t1\t1\t1\tx\n' "$CANARY"
+	printf '%s\t0\t0\t300\t%s\txhigh\tok\tcore\t1\t1\t2000\t0\t0\t%s\n' "$NOWZ" "$CANARY" "$CANARY"
+	# Malformed by the shape the writer never produces: a ran row with no elapsed,
+	# an empty model field. And a codex that itself exited 75: it RAN, a no-verdict.
+	printf '%s\t0\t0\t-\tgpt-6-astra\txhigh\tok\tcore\t1\t1\t1\t1\t1\tx\n' "$NOWZ"
+	printf '%s\t0\t0\t1\t\txhigh\tok\tcore\t1\t1\t1\t1\t1\tx\n' "$NOWZ"
+	printf '%s\t75\t75\t50\tgpt-6-astra\txhigh\tok\tcore\t1\t1\t-\t0\t0\tx\n' "$NOWZ"
+} > "$REPO/.git/codex-passes.tsv"
+
 # report <copy> — run a copy of the report from inside the planted checkout.
 report() {
 	( cd "$REPO" && HOME="$WORK/home" CLAUDE_PROJECTS_DIR="$P" BUDDYLIST_JOURNAL="$WORK/none.db" \
@@ -208,6 +233,21 @@ awk '/^# Codex passes in the window/ { print "awk -F \"\\t\" '"'"'$1 == \"K\" { 
 	"$REPO/scripts/cost-report.sh" > "$REPO/scripts/leaky-report.sh"
 leak=$(report scripts/leaky-report.sh 2>&1) || true
 case $leak in *"$CANARY"*) ;; *) fail "a copy of the report that prints skill names did not print the canary — the audit is not armed" ;; esac
+
+# The pass record's section: exact aggregates of the planted rows (elapsed
+# 50 100 200 300 400 540; tokens 500 1000 2000 3000; commands 0 0 5 10 20 30;
+# re-reads in three passes, 2+1+3; the codex that exited 75 a no-verdict), the canary never printed (the audit above covers this
+# output), and a copy whose section prints a row's model field must print it.
+printf '%s\n' "$out" | grep -qxF "Codex passes recorded (codex-review.sh's pass record in the git common dir, last 7 day(s))" ||
+	fail "no 'Codex passes recorded' heading"
+printf '%s\n' "$out" | grep -qxF "passes=7 verdict=3 header_mismatch=1 no_verdict=2 not_run=1 malformed_rows=4" ||
+	fail "the pass-record counts are wrong: $(printf '%s\n' "$out" | grep '^passes=')"
+printf '%s\n' "$out" | grep -qxF "elapsed_s p50=200 p90=540  tokens sum=6500 p50=1000  commands p50=5 p90=30  charter_rereads passes=3 of 6 total=6" ||
+	fail "the pass-record aggregates are wrong: $(printf '%s\n' "$out" | grep '^elapsed_s')"
+awk '{ sub(/if \(\$2 == "-"\) \{ notrun\+\+; next \}/, "print $5; &"); print }' "$REPO/scripts/cost-report.sh" > "$REPO/scripts/leaky-passes.sh"
+grep -q 'print \$5; if (\$2 == "-")' "$REPO/scripts/leaky-passes.sh" || fail "the leaky pass-record copy was not made — its control tests nothing"
+leak=$(report scripts/leaky-passes.sh 2>&1) || true
+case $leak in *"$CANARY"*) ;; *) fail "a copy whose pass-record section prints a model field did not print the canary — the audit is not armed" ;; esac
 
 # clause <prefix> <text> — that line carries the text verbatim, so a count is
 # bound to its label: "1 of 4 sessions; rode 4 of 13" cannot pass as "4 of 4
@@ -367,4 +407,9 @@ out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero on
 case $out in *"$CANARY"*) fail "a torn transcript line reached the output (invariant 9)" ;; esac
 case $out in *"every number below is a FLOOR"*) ;; *) fail "a torn transcript did not draw the FLOOR note" ;; esac
 
-echo "check-cost-report: GREEN (prose classes summed from the check's enumeration, a section labelled not added, OVER only over; 13 requests deduplicated across messages, a resume and files; skill exposure, obedience and decisions reads on the planted counts; a planted canary never printed and a leaky copy caught)"
+# No record yet: one line that says so.
+mv "$REPO/.git/codex-passes.tsv" "$WORK/passes.saved"
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with no pass record"
+printf '%s\n' "$out" | grep -qxF "Codex passes recorded: none (no codex-passes.tsv in the git common dir yet)" || fail "no pass record did not say none"
+
+echo "check-cost-report: GREEN (codex pass record aggregated exactly, malformed rows counted and skipped, its canary never printed and a leaky copy caught; prose classes summed from the check's enumeration, a section labelled not added, OVER only over; 13 requests deduplicated across messages, a resume and files; skill exposure, obedience and decisions reads on the planted counts; a planted canary never printed and a leaky copy caught)"

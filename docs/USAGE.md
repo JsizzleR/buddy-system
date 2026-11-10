@@ -1922,9 +1922,10 @@ BUDDY_LEDGER="$common/buddy.db" scripts/cost-report.sh
 ```
 
 Set `BUDDY_COST_DAYS` to change the window. The report never prints messages,
-prompts, or tool results. Its last two sections are the prose classes of
+prompts, or tool results. Its last three sections are the prose classes of
 `docs/prose-budget.tsv` against their ceilings and the context the week's
-requests were billed for (its header says how each is counted).
+requests were billed for (its header says how each is counted), then the
+Codex review passes `codex-review.sh` recorded (D-146), aggregates only.
 
 For how long sessions spend before their first edit, which is the number a
 language server is meant to move:

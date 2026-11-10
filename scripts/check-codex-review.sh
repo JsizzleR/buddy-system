@@ -27,11 +27,18 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# lib.sh unsets git's local environment (D-057): with a GIT_DIR inherited from a
+# hook, the pass record below would land in the real repository's common dir.
+. "$ROOT/scripts/lib.sh"
 SCRIPT=$ROOT/scripts/codex-review.sh
 T=$(mktemp -d "${TMPDIR:-/tmp}/check-codex-review.XXXXXX")
 BUSY=
 trap '[ -z "$BUSY" ] || kill "$BUSY" 2>/dev/null || true; rm -rf "$T"' EXIT INT TERM
 mkdir -p "$T/bin" "$T/out"
+# Every case runs from a temp git repository, so the pass record (A3) lands in ITS
+# common dir, never this checkout's.
+mkrepo "$T/repo"
+REC=$T/repo/.git/codex-passes.tsv
 
 cat > "$T/bin/codex" <<'STUB'
 #!/bin/sh
@@ -68,7 +75,7 @@ echo "workdir: $PWD"
 echo "provider: openai"
 echo "sandbox: read-only"
 echo "reasoning effort: $effort"
-echo "session id: 00000000-0000-0000-0000-000000000001"
+echo "session id: ${STUB_SESSION:-00000000-0000-0000-0000-000000000001}"
 echo "--------"
 echo "user"
 printf '%s\n' "$prompt"
@@ -104,14 +111,17 @@ run() {
   _n=$1 _want=$2 _out=$3; shift 3
   : > "$T/log"
   set +e
-  env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 "$@" \
-    sh "$SCRIPT" "${PROMPT:-$T/prompt}" "$_out" > "$T/stdout.$_n" 2> "$T/stderr.$_n"
+  ( cd "${RUNDIR:-$T/repo}" && env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 "$@" \
+    sh "$SCRIPT" "${PROMPT:-$T/prompt}" "$_out" > "$T/stdout.$_n" 2> "$T/stderr.$_n" )
   _rc=$?
   set -e
   launched=$(grep -c . "$T/log" || true)
   [ "$_rc" -eq "$_want" ] || fail "$_n: exit $_rc, want $_want (stderr: $(head -3 "$T/stderr.$_n" | tr '\n' ' '))"
 }
 first() { head -1 "$1"; }
+rows() { if [ -f "$REC" ]; then grep -c . "$REC"; else echo 0; fi; }
+# lastrow <field-number>... — those fields of the record's last row, space-joined.
+lastrow() { tail -1 "$REC" | awk -F '\t' -v want="$*" 'BEGIN { n = split(want, w, " ") } { for (i = 1; i <= n; i++) printf "%s%s", $w[i], (i < n ? " " : "\n") }'; }
 has() { grep -qF -- "$2" "$1"; }
 stale() { echo "SENTINEL-7f3a old verdict from an earlier pass" > "$1"; echo "SENTINEL-7f3a old transcript" > "$1.transcript"; }
 
@@ -135,10 +145,21 @@ for k in "header=ok" "model=gpt-6-astra" "effort=xhigh" "tokens=12345" "B(core)"
 done
 [ "$(tail -1 "$O.transcript")" = "$st" ] || fail "ok: the transcript does not end with the status line"
 cmp -s "$O" "$T/stdout.ok" || fail "ok: stdout is not the out-file's content"
+# A3: one row, counts only. Fields: 1 time 2 rc 3 exit 4 elapsed 5 model 6 effort
+# 7 header 8 charter 9 charter_bytes 10 prompt_bytes 11 tokens 12 commands
+# 13 charter_reads 14 session. The stub ran one command, `cat CLAUDE.md`.
+[ "$(rows)" = 1 ] || fail "ok: the record has $(rows) rows, want 1"
+cb=$(wc -c < "$ROOT/docs/review-charter.md" | tr -d ' ')
+[ "$(lastrow 2 3 5 6 7 8 9 11 12 13 14)" = "0 0 gpt-6-astra xhigh ok core $cb 12345 1 1 00000000-0000-0000-0000-000000000001" ] ||
+  fail "ok: record row is '$(lastrow 2 3 5 6 7 8 9 11 12 13 14)'"
+[ "$(awk -F '\t' '{ print NF }' "$REC")" = 14 ] || fail "ok: the record row does not have 14 fields"
+tail -1 "$REC" | awk -F '\t' '$1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/ && $4 ~ /^[0-9]+$/ && $10 ~ /^[0-9]+$/ { ok = 1 } END { exit !ok }' ||
+  fail "ok: the record row's time, elapsed or prompt bytes are malformed: $(tail -1 "$REC")"
+grep -q -e REPLY -e "Review this" -e "Review charter" "$REC" && fail "ok: review or prompt text reached the pass record"
 
 # --- no out-file: stdout is the transcript, then the status line ---
 : > "$T/log"
-env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 sh "$SCRIPT" "$T/prompt" > "$T/stdout.none" 2>/dev/null || fail "none: exit $?"
+( cd "$T/repo" && env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 sh "$SCRIPT" "$T/prompt" > "$T/stdout.none" 2>/dev/null ) || fail "none: exit $?"
 has "$T/stdout.none" TRANSCRIPT-ONLY-LINE || fail "none: stdout lacks the transcript"
 case $(tail -1 "$T/stdout.none") in "codex-review: status rc=0 "*) ;; *) fail "none: stdout does not end with the status line" ;; esac
 
@@ -183,8 +204,10 @@ case $(first "$O") in "codex-review: NOT RUN"*) ;; *) fail "busy: first line '$(
 has "$O" SENTINEL-7f3a && fail "busy: the stale verdict survived a busy refusal"
 has "$O.transcript" SENTINEL-7f3a && fail "busy: the stale transcript survived a busy refusal"
 [ "$launched" -eq 0 ] || fail "busy: stub launched $launched times, want 0"
+[ "$(lastrow 2 3 7 14)" = "- 75 - -" ] || fail "busy: the record's last row is '$(lastrow 2 3 7 14)', want a NOT RUN row"
 
 # --- refusals before the run: exit 1, NO VERDICT, nothing launched ---
+nrows=$(rows)
 for kv in CODEX_BUDGET=abc CODEX_BUDGET=0 CODEX_BUDGET=9m CODEX_BUDGET=4294967296 CODEX_BUDGET=0600 CODEX_SLOTS=x CODEX_SLOTS=0 CODEX_SLOTS=9223372036854775808 CODEX_WAIT=1m CODEX_WAIT=3601 CODEX_CHARTER=bogus; do
   n=refuse-$(echo "$kv" | tr '=' '-')
   O=$T/out/$n.txt; stale "$O"
@@ -194,6 +217,7 @@ for kv in CODEX_BUDGET=abc CODEX_BUDGET=0 CODEX_BUDGET=9m CODEX_BUDGET=429496729
   has "$O" "refused: " || fail "$n: out-file does not name the refusal"
   [ "$launched" -eq 0 ] || fail "$n: stub launched $launched times, want 0"
 done
+[ "$(rows)" = "$nrows" ] || fail "refusals: a refused request wrote a pass record row"
 # Positive control for the knob refusals: valid values run.
 run knobs-ok 0 "$T/out/knobs.txt" CODEX_BUDGET=86400 CODEX_SLOTS=1000 CODEX_WAIT=0
 [ "$launched" -eq 1 ] || fail "knobs-ok: stub launched $launched times, want 1"
@@ -222,8 +246,8 @@ has "$O" "codex-review: status rc=124" || fail "slow: no status line"
 # Every other case overwrites the out-file at its end, so only a run that never reaches
 # its end shows the line written before it ran.
 O=$T/out/killed.txt; stale "$O"; : > "$T/log"
-env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" STUB_MODE=slow CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 CODEX_BUDGET=60 \
-  sh "$SCRIPT" "$T/prompt" "$O" > /dev/null 2>&1 &
+( cd "$T/repo" && exec env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" STUB_MODE=slow CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 CODEX_BUDGET=60 \
+  sh "$SCRIPT" "$T/prompt" "$O" > /dev/null 2>&1 ) &
 K=$!
 i=0; until grep -q launched "$T/log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || break; sleep 0.1; done
 kill -9 "$K" 2>/dev/null || true; wait "$K" 2>/dev/null || true
@@ -238,6 +262,32 @@ run rodir 0 "$O"
 [ "$(first "$O")" = "REPLY: one finding. model: gpt-6-astra" ] || fail "rodir: first line '$(first "$O")', want the reply"
 chmod u+w "$T/ro"
 
+# --- the record holds no value that could break a row: a model name with a tab and a
+# session id with spaces become `other`, and the row keeps 14 fields ---
+run hostile 0 "$T/out/hostile.txt" "CODEX_MODEL=gpt	CANARYzq7x" "CODEX_EFFORT=hi	CANARYzq7x" "STUB_SESSION=a b CANARYzq7x"
+[ "$(lastrow 5 6 14)" = "other other other" ] || fail "hostile: model/effort/session fields are '$(lastrow 5 6 14)', want 'other other other'"
+# `-n` passes the character test and must still be printed (echo would print nothing).
+run dashn 0 "$T/out/dashn.txt" CODEX_MODEL=-n STUB_SESSION=-n
+[ "$(lastrow 5 14)" = "-n -n" ] || fail "dashn: model/session fields are '$(lastrow 5 14)', want '-n -n'"
+[ "$(tail -1 "$REC" | awk -F '\t' '{ print NF }')" = 14 ] || fail "hostile: the row does not have 14 fields"
+grep -q CANARYzq7x "$REC" && fail "hostile: a planted value reached the pass record"
+# --- not in a git checkout: no row, a stderr note, the verdict unchanged ---
+mkdir "$T/nogit"; n0=$(rows)
+RUNDIR=$T/nogit; run nogit 0 "$T/out/nogit.txt"; RUNDIR=
+[ "$(rows)" = "$n0" ] || fail "nogit: a row was written from outside a checkout"
+has "$T/stderr.nogit" "no pass record (not in a git checkout)" || fail "nogit: no stderr note"
+[ "$(first "$T/out/nogit.txt")" = "REPLY: one finding. model: gpt-6-astra" ] || fail "nogit: the verdict was not published"
+# --- a record that cannot be written: a stderr note, the verdict and exit unchanged ---
+mv "$REC" "$T/rec.saved"; mkdir "$REC"
+run recfail 0 "$T/out/recfail.txt"
+has "$T/stderr.recfail" "the pass record could not be written" || fail "recfail: no stderr note"
+[ "$(first "$T/out/recfail.txt")" = "REPLY: one finding. model: gpt-6-astra" ] || fail "recfail: the verdict was not published"
+rmdir "$REC"; mv "$T/rec.saved" "$REC"
+# --- a killed run's tokens are not read: a prompt carrying a footer of its own ---
+printf 'tokens used\n999999\n' > "$T/fakefoot"
+PROMPT=$T/fakefoot; run fakefoot 124 "$T/out/fakefoot.txt" STUB_MODE=slow CODEX_BUDGET=1; PROMPT=
+[ "$(lastrow 2 11)" = "124 -" ] || fail "fakefoot: a killed run recorded tokens '$(lastrow 11)' from its prompt"
+
 # --- codex ran but gave no reply: exit 3; codex failed: its own code ---
 O=$T/out/noreply.txt; stale "$O"
 run noreply 3 "$O" STUB_MODE=noreply
@@ -251,4 +301,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok + reviewer line, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 11 knob refusals + control, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure)"
+echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 11 knob refusals + control, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"

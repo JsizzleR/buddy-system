@@ -142,6 +142,33 @@ knob CODEX_SLOTS "$SLOTS" 1 1000
 WAIT=${CODEX_WAIT:-0}
 knob CODEX_WAIT "$WAIT" 0 3600
 
+# THE PASS RECORD (Codex report A3). One counts-only row per pass is appended to
+# <git-common-dir>/codex-passes.tsv of the checkout this runs in, the ledger's
+# directory, which git never sees and every worktree shares. Receipts name only the
+# passes a commit kept: 119 `codex@` entries against 155 rollouts in 30 days, so 36
+# passes (dead, rerun, never committed) were invisible, and which review layers earn
+# their rounds had no data. A row is written for a pass this script saw finish (any
+# rc) and for a busy refusal; never for a refusal of the request itself, nor for a
+# pass whose wrapper was killed before codex returned. Columns, tab-separated,
+# no header (cost-report.sh reads them by position):
+#   time (the pass's start, UTC) rc (codex's; - when not run) exit elapsed_s model
+#   effort header (ok|MISMATCH|-) charter (core|core+adapter|off|-) charter_bytes
+#   prompt_bytes tokens commands (codex `exec` blocks) charter_reads (commands
+#   naming CLAUDE.md, DESIGN.md or review-charter.md: A1's measure) session (codex's
+#   session id)
+# NEVER review text: every field is a number, a fixed word, or a value held to
+# [A-Za-z0-9._+-]{1,64} (anything else is `other`), so no field carries a tab or a
+# newline. A row that cannot be written is a stderr note, never a changed verdict.
+START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# printf, not echo: `echo -n` prints nothing, and `-n` passes the character test.
+word() { case $1 in ''|*[!A-Za-z0-9._+-]*) printf 'other\n' ;; *) if [ ${#1} -le 64 ]; then printf '%s\n' "$1"; else printf 'other\n'; fi ;; esac; }
+record() { # <rc> <exit> <elapsed> <header> <charter> <charter_bytes> <prompt_bytes> <tokens> <commands> <reads> <session>
+  _c=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "codex-review: no pass record (not in a git checkout)" >&2; return 0; }
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$START" "$1" "$2" "$3" "$(word "$MODEL")" "$(word "$EFFORT")" \
+    "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$(word "${11}")" >> "$_c/codex-passes.tsv" 2>/dev/null ||
+    echo "codex-review: the pass record could not be written to $_c/codex-passes.tsv (the verdict stands)" >&2
+}
+
 # (7) Which charter parts, decided BEFORE anything runs or waits for a slot, so a typo
 # costs nothing and is never a pass on the wrong charter (D-128).
 case ${CODEX_CHARTER-core} in
@@ -230,6 +257,7 @@ if [ "$n" -ge "$SLOTS" ]; then
   # Its own exit code and its own word: a busy pool is "come back later", not a
   # refusal of the request, and the out-file must say nothing was reviewed.
   [ -z "$OUT" ] || echo "codex-review: NOT RUN -- all $SLOTS review slots were busy ($n live); nothing was reviewed. Rerun (CODEX_WAIT=60) to the same out-file." > "$OUT"
+  record - 75 - - - - - - - - -
   exit 75
 fi
 [ "$n" -eq 0 ] || echo "codex-review: $n of $SLOTS slots in use; starting in the free one." >&2
@@ -246,7 +274,7 @@ if [ "$SRC" = "-" ]; then cat > "$TMP/raw"; else [ -f "$SRC" ] || die "no such p
 # Both paths on their own lines: check-prose-budget.sh reads them from here.
 CHARTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter.md"
 CHARTER_ADAPTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-adapter.md"
-REVIEWER_LINE='You are a constrained review pass, and the charter above is already in this prompt: do not open CLAUDE.md, docs/DESIGN.md or docs/review-charter.md (AGENTS.md says to read them before CHANGING the repository; a review changes nothing). Read only what the review below asks for.'
+REVIEWER_LINE='You are a constrained review pass, and the charter above is already in this prompt: do not open CLAUDE.md, docs/DESIGN.md or docs/review-charter.md unless the review below asks for one of them (AGENTS.md says to read them before CHANGING the repository; a review changes nothing). Read only what the review below asks for.'
 if [ "${CODEX_NO_CHARTER:-0}" != "1" ]; then
   [ -f "$CHARTER" ] || die "docs/review-charter.md is missing (CODEX_NO_CHARTER=1 to skip)"
   cat "$CHARTER" > "$TMP/charter"
@@ -336,13 +364,26 @@ else
 fi
 
 # codex's own token count: the number on the line after its last `tokens used` line
-# (a reply that itself says "tokens used" is followed by prose, not a number).
-tokens=$(awk '/^tokens used$/ { if ((getline t) > 0 && t ~ /^[0-9,]+$/) v = t } END { gsub(/,/, "", v); print v }' "$TMP/out")
+# (a reply that itself says "tokens used" is followed by prose, not a number). Only
+# from a run that finished (rc 0): codex prints the footer last, after the echoed
+# prompt, so the last one is its own; a run killed before its footer would hand over
+# a `tokens used` line the PROMPT carried. At most 12 digits, so a row stays short.
+tokens=
+[ "$rc" -ne 0 ] || tokens=$(awk '/^tokens used$/ { if ((getline t) > 0 && t ~ /^[0-9,]+$/) v = t } END { gsub(/,/, "", v); if (length(v) <= 12) print v }' "$TMP/out")
 # Exit 3 only overrides a 0: a failed codex keeps its own code, which says more. The
 # status line carries both: rc is codex's, exit is this script's.
 xrc=$rc
 if [ "$rc" -eq 0 ] && { [ "$header" != ok ] || [ ! -s "$TMP/reply" ]; }; then xrc=3; fi
 STATUS="codex-review: status rc=$rc exit=$xrc elapsed=$((T1 - T0))s model=$MODEL effort=$EFFORT header=$header got=${got_model:-none}/${got_effort:-none} tier=$TIER(requested) $CHARTER_NOTE prompt=$(wc -c < "$TMP/prompt" | tr -d ' ')B tokens=${tokens:-none}"
+
+# The record's counts. A command is the line after an `exec` line; one naming the
+# three files AGENTS.md's read line names is a charter re-read (A1). Counted over the
+# whole transcript, so a prompt that itself carries a bare `exec` line over-counts:
+# a ceiling, not an exact figure.
+counts=$(awk '/^exec$/ { if ((getline c) > 0) { n++; if (c ~ /CLAUDE\.md|DESIGN\.md|review-charter\.md/) r++ } } END { printf "%d %d", n, r }' "$TMP/out")
+session=$(awk '/^--------$/ { if (++n == 2) exit; next } n == 1 && index($0, "session id: ") == 1 { print substr($0, 13); exit }' "$TMP/out")
+case $CHARTER_NOTE in charter=off) cpart=off cbytes=0 ;; *) cpart=$PARTS cbytes=$(wc -c < "$TMP/charter" | tr -d ' ') ;; esac
+record "$rc" "$xrc" "$((T1 - T0))" "$header" "$cpart" "$cbytes" "$(wc -c < "$TMP/prompt" | tr -d ' ')" "${tokens:--}" ${counts} "${session:--}"
 
 fired=0
 if [ "$rc" -eq 124 ] || [ "$rc" -eq 142 ] || [ "$rc" -eq 14 ]; then

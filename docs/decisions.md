@@ -11395,6 +11395,50 @@ launches nothing (D-027, D-056), and the fix is two sentences of recipe.
 - docs: USAGE "Targets."
 - amends: D-013's `Resume` label arm (narrowed); D-139's Open paragraph (closed)
 
+## D-146 — Every Codex review pass leaves one counts-only row in the git common dir; `cost-report.sh` reads it (Codex report A3; amends D-104, D-141)
+
+2026-11-10. The Codex-integration report (orc-18, over tree 980ea65), finding A3;
+the operator, in orc-18's pane at 18:59Z: "dont file issues just work them for the
+codex findings", relayed by orc-19.
+
+**The failure** — Nothing recorded a review pass. Receipts name only the passes a
+commit kept: the report counted 119 `codex@` entries in 30 days against 155 rollouts,
+so 36 passes (dead, rerun, never committed) were invisible, and 15 of 256 passes
+(5.9%) never completed, using 4.88M tokens. D-141 deferred any tier change to weeks
+of counts, and the counts it reads are the ones a lane chose to write. Which layers
+earn their rounds, and whether a pass re-reads the charter it was handed (A1), had
+no data.
+
+**The rule** — `scripts/codex-review.sh` appends one row per pass it sees finish
+(any rc) and per busy refusal (exit 75) to `<git-common-dir>/codex-passes.tsv` of the checkout
+it runs in: the ledger's directory, shared by every worktree, never seen by git. No
+row for a refused request. Fourteen tab-separated fields, no header: the pass's
+start (UTC), codex's rc, the script's exit, elapsed seconds, model, effort, header
+`ok|MISMATCH`, charter part, charter bytes, prompt bytes, codex's token count, the
+transcript's command count, the commands naming CLAUDE.md, DESIGN.md or the charter
+(A1's measure), and codex's session id. Never review text: each field is a number,
+a fixed word, or held to `[A-Za-z0-9._+-]{1,64}` (else `other`), so no field
+carries a tab or a newline. A row that cannot be written is a stderr note and never
+changes the verdict or the exit. `cost-report.sh` prints aggregates of the window's
+rows (passes by verdict, header mismatch, no verdict, not run; malformed rows
+counted and skipped; elapsed, tokens and command percentiles; charter re-reads),
+never a field.
+
+**Considered and cut** — a row written by the caller (the lane), which is the
+receipt's register and misses exactly the passes nobody kept; review text or
+finding counts in the row (the script cannot count findings, and text in a
+shared file is the leak invariant 9 guards); a ledger table (a schema change, not
+authorised, and a review is not a claim); a header line (two passes starting at
+once would both write one).
+
+**Residuals** — the command count is a ceiling: a prompt that itself carries a
+bare `exec` line is counted. Rows from a pass run outside a git checkout, or
+whose wrapper was killed before codex returned, are not written. The token count
+is read only from a run that finished (rc 0), at most 12 digits: a run killed
+before its footer would otherwise hand over a `tokens used` line its prompt
+carried. The record follows git's own resolution of the cwd, an inherited
+`GIT_DIR` included, as every git command there would. Concurrent appends rely on `O_APPEND` and a row under `PIPE_BUF`.
+
 ## D-156 — An admission record is produced before a planned adapter run, not per release (Codex report B3; amends D-079's cadence only)
 
 2026-11-10. The operator, in orc-19's pane at 19:06Z, answering whether a lane

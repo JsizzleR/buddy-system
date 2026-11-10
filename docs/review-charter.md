@@ -1244,6 +1244,7 @@ ledger row entered through the CLI (D-006).
     prints a tier's owed layers a receipt does not name, exits 0, and refuses no commit or push (a red
     over landed history in the pre-push tier would block every push); not held at or before D-104's
     epoch. Do not propose making it refuse without new evidence.
+127. **Every Codex pass leaves one counts-only row in `<git-common-dir>/codex-passes.tsv` (D-146).** `codex-review.sh` writes it (a pass it saw finish, or busy), `cost-report.sh` aggregates it; numbers, fixed words or `[A-Za-z0-9._+-]{1,64}`, never review text; a failed write never changes the verdict. Do not propose a ledger table or text in the row.
 
 ## Environment facts (measured, do not re-derive)
 

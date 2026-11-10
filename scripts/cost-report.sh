@@ -25,6 +25,10 @@
 #                    the plan's two counts were a fallback rule, not two
 #                    populations). Subagent requests count (they are billed);
 #                    `sessions` is main-thread session ids.
+#   Codex passes recorded  codex-review.sh's per-pass record (D-146): passes,
+#                    their verdicts, elapsed, tokens, commands and charter
+#                    re-reads, aggregates only, from the git common dir of
+#                    the checkout this script lives in (its worktrees share it).
 # Skill exposure is computed over that same set: a request carries a skill
 # body when ITS TRANSCRIPT FILE loaded it earlier (a Skill call naming it, a
 # `/name` command, or a whole-file Read of its SKILL.md), so a subagent's file
@@ -529,4 +533,49 @@ elif [ "$roots_json" = "[]" ]; then
 	echo "Context billed: unavailable ($root is not a git checkout, so no transcript is this repo's)"
 else
 	echo "Context billed: unavailable ($claude_projects not found)"
+fi
+
+# Codex passes as codex-review.sh RECORDED them (Codex report A3): one row per pass
+# that ran or found every slot busy, in the git common dir's codex-passes.tsv, so the
+# passes no receipt names (dead, rerun, never committed) are counted too. The rows'
+# layout is codex-review.sh's header's. Only aggregates are printed, never a field: a
+# row whose fields are not the shapes that script writes (14 tab-separated fields, a
+# UTC time, numbers where numbers go) counts as malformed and is otherwise skipped, so
+# a hand-edited or torn row cannot put text on a line here (invariant 9).
+echo
+rec=${common:+$common/codex-passes.tsv}
+if [ -z "$rec" ]; then
+	echo "Codex passes recorded: unavailable (not a git checkout)"
+elif [ ! -f "$rec" ]; then
+	echo "Codex passes recorded: none (no codex-passes.tsv in the git common dir yet)"
+else
+	echo "Codex passes recorded (codex-review.sh's pass record in the git common dir, last $days day(s))"
+	LC_ALL=C awk -F '\t' -v cutoff="$cutoff_iso" '
+		function num(v) { return v ~ /^[0-9]+$/ }
+		function opt(v) { return v == "-" || num(v) }
+		function pct(a, n, p) { return n ? a[int((n * p + 99) / 100)] : 0 }
+		function isort(a, n,   i, j, t) { for (i = 2; i <= n; i++) { t = a[i]; for (j = i - 1; j > 0 && a[j] > t; j--) a[j + 1] = a[j]; a[j + 1] = t } }
+		{
+			if (NF != 14 || $1 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z$/ ||
+			    !opt($2) || !num($3) || !opt($4) || !opt($9) || !opt($10) || !opt($11) || !opt($12) || !opt($13) ||
+			    ($7 != "ok" && $7 != "MISMATCH" && $7 != "-") || $5 == "" || $6 == "" || $8 == "" || $14 == "" ||
+			    ($2 != "-" && !num($4))) { bad++; next }
+			if ($1 < cutoff) next
+			n++
+			# NOT RUN is a busy refusal: no codex rc. A codex that itself exited 75 ran.
+			if ($2 == "-") { notrun++; next }
+			if ($3 == 0) ok++
+			else if ($7 == "MISMATCH") mm++
+			else nv++
+			el[++ne] = $4 + 0
+			if (num($11)) { tk[++nt] = $11 + 0; ts += $11 }
+			if (num($12)) { cm[++nc] = $12 + 0 }
+			if (num($13) && $13 > 0) { rp++; rs += $13 }
+		}
+		END {
+			isort(el, ne); isort(tk, nt); isort(cm, nc)
+			printf "passes=%d verdict=%d header_mismatch=%d no_verdict=%d not_run=%d malformed_rows=%d\n", n, ok, mm, nv, notrun, bad
+			printf "elapsed_s p50=%d p90=%d  tokens sum=%.0f p50=%d  commands p50=%d p90=%d  charter_rereads passes=%d of %d total=%d\n",
+				pct(el, ne, 50), pct(el, ne, 90), ts, pct(tk, nt, 50), pct(cm, nc, 50), pct(cm, nc, 90), rp, ne, rs
+		}' "$rec"
 fi
