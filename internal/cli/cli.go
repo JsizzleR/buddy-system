@@ -1172,7 +1172,32 @@ func mustLedger(dir string, env Env) (*store.Store, repoContext, error) {
 		return nil, rc, fmt.Errorf("no ledger at %s — this repository is not coordinated. A ledger made here would coordinate with nobody, so run buddy from inside the repository (or a worktree of it) whose ledger your peers use; `buddy init` only a repository meant to be coordinated on its own",
 			fence.Line(rc.ledger, 512))
 	}
-	return st, rc, err
+	return st, rc, fencedOpenErr(err)
+}
+
+// openErr is a ledger-open error as a verb prints it: errVerb renders
+// `buddy <verb>: %v`, and the error names the ledger's path (ErrLedgerNewer,
+// a refused migration, an os error), so a newline in that path was a line of
+// its own, of the directory's choosing (Codex, the commit-gate follow-up of
+// #85; reproduced: `buddy status`, every hook verb, and `init`, whose own
+// store.Open the Codex code pass found). Fenced HERE, at the verbs' open, and
+// not in openRepo: the gate's refusals fence the same error
+// once already, and a second pass turns their ⏎ into the literal \u23ce.
+// Not errVerb's whole line either: usage refusals and explainLedgerAccess's
+// cause and fix are several lines on purpose. Unwrap keeps the chain, so
+// errors.Is and explainLedgerAccess's SQLite code still see through it. 4096,
+// the gates' cap, so a long path does not cut the fix the error carries.
+type openErr struct{ err error }
+
+func (e openErr) Error() string { return fence.Line(e.err.Error(), 4096) }
+func (e openErr) Unwrap() error { return e.err }
+
+// fencedOpenErr wraps a failed open for printing; nil stays nil.
+func fencedOpenErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	return openErr{err}
 }
 
 // ---- caller identity ----
@@ -1504,7 +1529,7 @@ func cmdInit(args []string, env Env) error {
 	p := rc.ledger
 	st, err := store.Open(p, env.Now)
 	if err != nil {
-		return err
+		return fencedOpenErr(err) // names the ledger's path (openErr)
 	}
 	st.Close()
 	fmt.Fprintf(env.Stdout, "ledger ready: %s\n", fence.Line(p, 512))
@@ -1661,7 +1686,7 @@ func cmdHello(args []string, env Env) error {
 		return nil // feature off
 	}
 	if err != nil {
-		return err
+		return fencedOpenErr(err)
 	}
 	defer st.Close()
 
@@ -1889,7 +1914,7 @@ func cmdBye(args []string, env Env) error {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fencedOpenErr(err)
 	}
 	defer st.Close()
 	res, err := st.ByeFrom(session, from, env.procAlive, force)
@@ -1957,7 +1982,7 @@ func cmdIdle(args []string, env Env) error {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fencedOpenErr(err)
 	}
 	defer st.Close()
 
@@ -2026,7 +2051,7 @@ func cmdBusy(args []string, env Env) error {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fencedOpenErr(err)
 	}
 	defer st.Close()
 	if err := st.ClearIdle(h.SessionID); err != nil {
@@ -2135,7 +2160,7 @@ func cmdBeat(args []string, env Env) error {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fencedOpenErr(err)
 	}
 	defer st.Close()
 

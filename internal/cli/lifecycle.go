@@ -271,7 +271,7 @@ func lifecycleHook(incarnation string, env Env) error {
 		return err
 	}
 	if err != nil {
-		return err
+		return fencedOpenErr(err) // the verbs' rendering (openErr)
 	}
 	defer st.Close()
 	// A PostToolUse names the paths its tool touched; those, and only those,
