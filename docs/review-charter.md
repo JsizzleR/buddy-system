@@ -216,10 +216,11 @@ ledger row entered through the CLI (D-006).
     the rooms it serves (D-024).** An empty read now means a quiet room and nothing else.
     Both clauses are load-bearing: "not served" alone would refuse an archived room and the
     `@sent`/`@dm` pseudo-rooms; "no history" alone would refuse a configured room nobody has
-    spoken in. The check runs only on an empty result (an equivalent mutation: it buys cost, not behaviour). The SessionStart room name is still
-    DERIVED from the label and the digest now SAYS so — it is `path.Base(worktree)` while the ledger is in the git COMMON
-    dir, so a linked worktree's name is wrong; deriving it differently was cut because labels
-    are a stable addressing namespace (D-013) and already-minted ones would not change.
+    spoken in. The check runs only on an empty result (an equivalent mutation: it buys cost, not behaviour). The SessionStart room name, and
+    presence's, is DERIVED from the main checkout's directory name (the git COMMON dir's), not the label (D-140): the
+    label is `path.Base(worktree)` or a `BUDDY_LABEL`, wrong for a linked worktree and for every labelled lane. Labels
+    themselves are unchanged (a stable addressing namespace, D-013); presence falls back to the label's project half
+    when the client sends no project.
 
 29. **A `bye` is fenced by the registered PROCESS, found by NAME (D-025).** Hook-driven
     `hello` and `beat` register the `claude` ancestor of the hook (walked up to 16 hops by

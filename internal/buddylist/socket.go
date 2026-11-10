@@ -44,6 +44,11 @@ type Request struct {
 	// by `alerts` to recognize the echoes of its own posts. Like Session it
 	// confers no authority; a wrong one costs its owner a self-alert.
 	Label string `json:"label,omitempty"`
+	// Project is the main checkout's directory name, the room presence uses
+	// (issue #83): a BUDDY_LABEL label has no project half, and a linked
+	// worktree's default label names the worktree. Presentation only; empty
+	// from an older client, and then the label's project half decides.
+	Project string `json:"project,omitempty"`
 	// Slugs are the claim slugs this session currently holds. They ride along
 	// so the caller that already read the ledger for its own purposes can
 	// present them in the room; the daemon never reads the ledger itself.
@@ -266,8 +271,8 @@ func (d *Daemon) dispatch(req Request) Response {
 		// carries the identity and the claim slugs, because the alert needed
 		// them for its own mention tokens. note does no I/O, so the hook's
 		// measured cost is unchanged.
-		d.presence.note(req.Session, req.Label, req.Slugs)
-		alerts, err := d.cfg.Journal.Addressed(req.Session, req.Label, req.Mentions, req.Limit)
+		d.presence.note(req.Session, req.Label, req.Project, req.Slugs)
+		alerts, err := d.cfg.Journal.Addressed(req.Session, req.Label, d.cfg.Name, req.Mentions, req.Limit)
 		if err != nil {
 			return Response{Error: err.Error()}
 		}
@@ -297,7 +302,7 @@ func (d *Daemon) dispatch(req Request) Response {
 		if req.Gone {
 			d.presence.forget(req.Session)
 		} else {
-			d.presence.note(req.Session, req.Label, req.Slugs)
+			d.presence.note(req.Session, req.Label, req.Project, req.Slugs)
 		}
 		online, wanted := d.presence.live()
 		return Response{OK: true, Note: fmt.Sprintf("presence: %d/%d session buddies online", online, wanted)}

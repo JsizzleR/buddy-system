@@ -270,8 +270,8 @@ func TestPresenceJoinsTheProjectRoomAndWearsTheClaim(t *testing.T) {
 // joining one would put a session in a room its operator is not watching.
 func TestPresenceSkipsLabelsWithNoServedRoom(t *testing.T) {
 	h := startPresence(t)
-	h.d.presence.note("sess-x", "example.org/s-11111111", []string{"site-copy"})
-	h.d.presence.note("sess-y", "harbor/s-22222222", nil)
+	h.d.presence.note("sess-x", "example.org/s-11111111", "", []string{"site-copy"})
+	h.d.presence.note("sess-y", "harbor/s-22222222", "", nil)
 	waitFor(t, "the served session to join", func() bool {
 		return recordedHas(h.script.conn("harbor-s-22222222"), "join harbor")
 	})
@@ -290,7 +290,7 @@ func TestPresenceSkipsLabelsWithNoServedRoom(t *testing.T) {
 func TestPresenceWalksTheSuffixOnANameCollision(t *testing.T) {
 	h := startPresence(t)
 	h.script.fail["harbor-s-33333333"] = fmt.Errorf("registration refused (433): %w", ErrNickInUse)
-	h.d.presence.note("sess-c", "harbor/s-33333333", []string{"claimed"})
+	h.d.presence.note("sess-c", "harbor/s-33333333", "", []string{"claimed"})
 	waitFor(t, "the suffixed name to connect", func() bool {
 		return recordedHas(h.script.conn("harbor-s-33333333-2"), "join harbor")
 	})
@@ -305,7 +305,7 @@ func TestPresenceWalksTheSuffixOnANameCollision(t *testing.T) {
 func TestPresenceKeepsItsNameWhenTheFailureIsNotACollision(t *testing.T) {
 	h := startPresence(t)
 	h.script.fail["harbor-s-44444444"] = errors.New("dial tcp 127.0.0.1:6667: connection refused")
-	h.d.presence.note("sess-d", "harbor/s-44444444", nil)
+	h.d.presence.note("sess-d", "harbor/s-44444444", "", nil)
 	waitFor(t, "the failed dial to be recorded", func() bool { return len(h.script.names()) > 0 })
 
 	// Then drive the backed-off RETRY, because that is the ordering proof this
@@ -343,7 +343,7 @@ func TestPresenceKeepsItsNameWhenTheFailureIsNotACollision(t *testing.T) {
 			return true
 		}
 		h.clk.advance(backoffFor(1))
-		h.d.presence.note("sess-d", "harbor/s-44444444", nil)
+		h.d.presence.note("sess-d", "harbor/s-44444444", "", nil)
 		return false
 	})
 	// "no rename", not "no third dial": nothing here caps the number of
@@ -367,7 +367,7 @@ func TestPresenceKeepsItsNameWhenTheFailureIsNotACollision(t *testing.T) {
 // the room and `buddy ls` tell the same story.
 func TestPresenceGoesIdleThenLeaves(t *testing.T) {
 	h := startPresence(t)
-	h.d.presence.note("sess-e", "harbor/s-55555555", []string{"slow-work"})
+	h.d.presence.note("sess-e", "harbor/s-55555555", "", []string{"slow-work"})
 	waitFor(t, "buddy online", func() bool {
 		return recordedHas(h.script.conn("harbor-s-55555555"), "away claim: slow-work · active")
 	})
@@ -397,7 +397,7 @@ func TestPresenceGoesIdleThenLeaves(t *testing.T) {
 // for half an hour.
 func TestPresenceGoneRetiresImmediately(t *testing.T) {
 	h := startPresence(t)
-	h.d.presence.note("sess-f", "harbor/s-66666666", nil)
+	h.d.presence.note("sess-f", "harbor/s-66666666", "", nil)
 	waitFor(t, "buddy online", func() bool {
 		return recordedHas(h.script.conn("harbor-s-66666666"), "join harbor")
 	})
@@ -451,7 +451,7 @@ func TestPresenceDialLandingAfterRetirementIsClosed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := startPresence(t)
 			h.script.hold, h.script.held = make(chan struct{}), make(chan string, 1)
-			h.d.presence.note(session, label, nil)
+			h.d.presence.note(session, label, "", nil)
 			select {
 			case got := <-h.script.held:
 				if got != nick {
@@ -528,7 +528,7 @@ func TestPresenceConnectionsNeverJournal(t *testing.T) {
 		fromConcierge = "concierge-marker: the journal is armed"
 	)
 	h := startPresence(t)
-	h.d.presence.note("sess-g", "harbor/s-77777777", nil)
+	h.d.presence.note("sess-g", "harbor/s-77777777", "", nil)
 	waitFor(t, "buddy online", func() bool {
 		return recordedHas(h.script.conn("harbor-s-77777777"), "join harbor")
 	})
@@ -595,7 +595,7 @@ func TestPresenceConnectionsNeverJournal(t *testing.T) {
 func TestPresenceCapsConcurrentBuddies(t *testing.T) {
 	h := startPresence(t)
 	for i := 0; i < maxPresenceBuddies+4; i++ {
-		h.d.presence.note(fmt.Sprintf("sess-%02d", i), fmt.Sprintf("harbor/s-%08d", i), nil)
+		h.d.presence.note(fmt.Sprintf("sess-%02d", i), fmt.Sprintf("harbor/s-%08d", i), "", nil)
 	}
 	// note applies the cap synchronously, so the WANTED count is already final
 	// when the last note returns and this assertion needs no wait at all. A cap

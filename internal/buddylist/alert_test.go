@@ -53,7 +53,7 @@ func peerSays(t *testing.T, j *Journal, room, body string) int64 {
 
 func addressed(t *testing.T, j *Journal) []RoomAlert {
 	t.Helper()
-	a, err := j.Addressed(testSession, testLabel, testTokens(), 0)
+	a, err := j.Addressed(testSession, testLabel, "", testTokens(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestAddressedAlertsOnAPeerNamingTheClaimSlug(t *testing.T) {
 func TestAddressedWithoutTheClaimSlugFindsNothing(t *testing.T) {
 	j := testJournal(t)
 	peerSays(t, j, "harbor", "[harbor/s-other] @"+testSlug+" over to you")
-	got, err := j.Addressed(testSession, testLabel, []string{"s-e284b102", testLabel, testSession}, 0)
+	got, err := j.Addressed(testSession, testLabel, "", []string{"s-e284b102", testLabel, testSession}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestAddressedCapIsReportedAsAFloor(t *testing.T) {
 		seqs = append(seqs, peerSays(t, j, "harbor", "@"+testSlug+" item"))
 	}
 	newest := peerSays(t, j, "harbor", "unrelated tail message")
-	got, err := j.Addressed(testSession, testLabel, testTokens(), 2)
+	got, err := j.Addressed(testSession, testLabel, "", testTokens(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +627,7 @@ func TestSetAlertCursorReportsTheCursorThatStands(t *testing.T) {
 func TestAddressedRefusesAnEmptySession(t *testing.T) {
 	j := testJournal(t)
 	peerSays(t, j, "harbor", "@"+testSlug+" ping")
-	if _, err := j.Addressed("", testLabel, testTokens(), 0); err == nil {
+	if _, err := j.Addressed("", testLabel, "", testTokens(), 0); err == nil {
 		t.Fatal("Addressed without a session must be refused")
 	}
 	// The control: the same fixture answers for a real session.

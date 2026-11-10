@@ -10614,3 +10614,55 @@ storing what is open: the slot's description is that, in the holder's words.
 - code: `scripts/wire-hooks.py`, `gate-hook.py`, `install.sh`, `update.go`
 - skill: core, "Upgrading buddy"; USAGE "The browser slot"; README "Hook wiring"
 - amends: D-050 step 6, D-120's "Why it still installs nothing": settings edited under this flag only
+
+## D-140 — The chat room is the main checkout's name, and only the concierge's own rows can be an echo (issue #83; amends D-009, D-024)
+
+2026-11-10. From a whole-project review (finding 9 of 10), lite tier.
+
+**The failures** — (a) The SessionStart digest's room and presence's were the
+label's text before `/`. A default label is `path.Base(worktree)/s-<id>`, so
+that is the project only in the main checkout: a `BUDDY_LABEL=fable-review`
+lane was told `chat_read fable-review`, a lane in a linked worktree
+`chat_read <worktree>`, and `presence.note` skipped both, since neither names a
+served room. Measured (read-only, 14 days of the journal): all 10 nicks
+presented were default-labelled main-checkout sessions. (b) The alert's echo
+filter dropped a row whose body is a substring of any of the session's recent
+`@sent` rows, which hold its label and the slugs it announced, so an operator
+typing an addressed message whose whole body is the slug was dropped: `fix-gate`
+gave 0 alert rows, `fix-gate status?` gave 1.
+
+**The decision** — (a) The room is the main checkout's directory name, taken
+from the git common dir (`<name>/.git`, or `<name>.git` bare): D-101's
+`<project>`, and what `buddylist serve --rooms` names. `hello` derives it from
+the repo it already resolved; the chat hooks get it from `cli.ChatIdentity`'s
+same discovery (no new git call on the alert's path) and send it as the
+request's `project`. Presence uses it when it names a served room, else the
+label's half, so a client from before this change is presented exactly as
+before. Labels do not change (D-013, D-024's reason for the cut stands). (b)
+The containment test runs only on rows whose sender folds equal to the
+concierge's own name (`Config.Name`, its `--name`): every session's send
+reaches the room through the concierge, and IRC's `echo-message` returns it
+under that nick, so no other sender's row can be an echo. A caller that does not
+know the name passes "" and keeps the old test on every row.
+
+**Not done** — `BUDDY_CHAT=off` for lanes is a launch-recipe option in the
+fleet skill, not a default: it drops the digest line only; alerts and presence
+do not read it. The review's usage numbers (0 operator-typed messages in 14
+days; 13 `chat_read` against 4,898 `buddy msg` wakes, D-132) are the operator's
+to weigh; D-006 to D-008 stand.
+
+**Open (Codex code pass, answered, not folded)** — The common dir's name is
+not the checkout's when git metadata lives elsewhere (`GIT_DIR=/meta/x.git`
+names `x`) or in a submodule whose module dir is named otherwise: the digest
+names a room that is then refused with the real ones, and presence falls back
+to the label. A sender the server spells differently from `--name` (a TOC
+account whose display name has spaces, an IRC nick the server changed) is not
+recognised as the concierge, so its echo can self-alert once: the direction the
+filter already accepts for a window miss, never a dropped message.
+
+**Tests** — `TestHelloRoomIsTheMainCheckoutsName` (BUDDY_LABEL, linked
+worktree, and the main-checkout control), `TestMainCheckoutName`,
+`TestPresenceUsesTheProjectTheClientSends` (an unserved project stays
+unpresented), `TestPresenceWithNoProjectFallsBackToTheLabel`,
+`TestAddressedAlertsOnAnOperatorsBareSlug` (positive control: the concierge's
+row with the same body is still an echo), `TestDispatchAlertsKnowsTheConciergesName`.

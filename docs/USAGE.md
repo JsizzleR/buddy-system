@@ -1799,6 +1799,9 @@ check that breaks must cost a diagnosis, never the message.
     outbox: every echoed chunk is a substring of the row that recorded the
     submission (measured, 13 of 13 on a 3566-byte send). Across four real
     sessions the filter suppressed 7 self-alerts and kept all 3 genuine ones.
+    It tests only rows the concierge relayed (its own `--name`): an operator
+    typing a bare slug from a chat client matched the session's own send and
+    was dropped, and no other sender's row can be an echo (D-140).
   - The alert cursor is **not** the read cursor. Being told about a message is
     not having seen it, and a session that has read a room must still be told
     about a later one that names it.

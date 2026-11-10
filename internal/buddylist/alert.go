@@ -62,7 +62,17 @@ const (
 // nothing that a lost reply could lose, and leaving it parked would make every
 // later call rescan the same history. A room WITH something to report is left
 // alone for the caller to ack after it has actually delivered the alert.
-func (j *Journal) Addressed(session, label string, tokens []string, limit int) ([]RoomAlert, error) {
+//
+// self is the concierge's own name, the sender of every row it relays (issue
+// #83). Containment ran on EVERY row, and a session's @sent rows hold its label
+// and the slugs it announced, so an operator typing an addressed message whose
+// whole body is the slug (`fix-gate`) matched one and was dropped as an echo:
+// 0 alert rows, where `fix-gate status?` gave 1. A session's sends reach the
+// room only through the concierge, so only the concierge's rows can be its
+// echo; a row from any other sender is never one. "" (a caller that does not
+// know the name) keeps the old test on every row: the over-alert it avoids is
+// the lesser failure there, and production always passes the name.
+func (j *Journal) Addressed(session, label, self string, tokens []string, limit int) ([]RoomAlert, error) {
 	if session == "" {
 		return nil, errNoSession
 	}
@@ -137,7 +147,7 @@ func (j *Journal) Addressed(session, label string, tokens []string, limit int) (
 			a.Advance = msgs[len(msgs)-1].Seq
 		}
 		for _, m := range msgs {
-			if !own.authored(m.Body) {
+			if !own.authored(self, m) {
 				a.Msgs = append(a.Msgs, m)
 			}
 		}
@@ -319,9 +329,13 @@ func (j *Journal) alertCursors(session string) (map[string]int64, error) {
 // own messages.
 type ownSends []string
 
-func (o ownSends) authored(body string) bool {
+func (o ownSends) authored(self string, m Msg) bool {
+	body := m.Body
 	if body == "" {
 		return false
+	}
+	if self != "" && fold(m.Sender) != fold(self) {
+		return false // not relayed by the concierge, so not this session's echo
 	}
 	for _, sent := range o {
 		if strings.Contains(sent, body) {
@@ -362,7 +376,10 @@ type AlertDeps struct {
 	Call      func(Request, time.Duration) (Response, error)
 	SessionID string
 	Label     string
-	Slugs     []string
+	// Project is the main checkout's name, the room presence puts the
+	// session in (issue #83). "" leaves the daemon the label's project half.
+	Project string
+	Slugs   []string
 }
 
 // alertCallTime bounds the socket round-trip. This runs on EVERY tool call, so
@@ -393,7 +410,7 @@ func RunAlert(deps AlertDeps, emit func(text string) error) error {
 	// ledger read that produced them has already happened here. It adds no
 	// round-trip and the daemon does no I/O with them.
 	resp, err := deps.Call(Request{Op: "alerts", Session: deps.SessionID, Label: deps.Label,
-		Slugs: deps.Slugs, Mentions: tokens, Limit: alertRowCap}, alertCallTime)
+		Project: deps.Project, Slugs: deps.Slugs, Mentions: tokens, Limit: alertRowCap}, alertCallTime)
 	if err != nil {
 		return err // Call already turns a !OK reply into this error
 	}

@@ -347,9 +347,14 @@ func TestChatIdentityCarriesThisSessionsClaimSlugs(t *testing.T) {
 		}
 	})
 
-	id, label, slugs := ChatIdentity(f.repo, "sess-a")
-	if id != "sess-a" || label != "alpha" {
-		t.Fatalf("identity: id=%q label=%q", id, label)
+	id, label, project, slugs := ChatIdentity(f.repo, "sess-a")
+	if id != "sess-a" || label != "alpha" || project != "repo" {
+		t.Fatalf("identity: id=%q label=%q project=%q", id, label, project)
+	}
+	// The project is the MAIN checkout's name from a linked worktree too: the
+	// room presence uses (issue #83), which the label "alpha" cannot give.
+	if _, _, project, _ := ChatIdentity(f.wtB, "sess-a"); project != "repo" {
+		t.Fatalf("from a linked worktree the project is still the main checkout's: %q", project)
 	}
 	// The peer's slug is the point of the negative half: alerting on it would
 	// wake this session for somebody else's work.
@@ -363,7 +368,7 @@ func TestChatIdentityCarriesThisSessionsClaimSlugs(t *testing.T) {
 			t.Fatalf("release: %s %s", out, errw)
 		}
 	})
-	if _, _, slugs := ChatIdentity(f.repo, "sess-a"); len(slugs) != 0 {
+	if _, _, _, slugs := ChatIdentity(f.repo, "sess-a"); len(slugs) != 0 {
 		t.Fatalf("a released claim is not a name: %v", slugs)
 	}
 }
@@ -374,14 +379,14 @@ func TestChatIdentityCarriesThisSessionsClaimSlugs(t *testing.T) {
 func TestChatIdentityFailsSilentlyRatherThanGuessing(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
-	if id, label, slugs := ChatIdentity(f.repo, "sess-a"); id != "" || label != "" || slugs != nil {
-		t.Fatalf("no ledger must yield no identity: %q %q %v", id, label, slugs)
+	if id, label, project, slugs := ChatIdentity(f.repo, "sess-a"); id != "" || label != "" || project != "" || slugs != nil {
+		t.Fatalf("no ledger must yield no identity: %q %q %q %v", id, label, project, slugs)
 	}
 	if _, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
 		t.Fatal(errw)
 	}
 	f.helloIn(t, f.repo, "sess-a", "alpha")
-	if id, label, _ := ChatIdentity(f.repo, "sess-nobody"); id != "" || label != "" {
+	if id, label, _, _ := ChatIdentity(f.repo, "sess-nobody"); id != "" || label != "" {
 		t.Fatalf("an unregistered id must not resolve to the one live session: %q %q", id, label)
 	}
 }

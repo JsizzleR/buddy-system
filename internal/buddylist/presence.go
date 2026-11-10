@@ -121,11 +121,11 @@ func newPresence(d *Daemon) *presence {
 // note records that a session is alive and what it is claiming. It is called
 // on the socket's hot path, so it does no I/O: worst case it stores a map
 // entry and pokes the manager.
-func (p *presence) note(session, label string, slugs []string) {
+func (p *presence) note(session, label, project string, slugs []string) {
 	if p == nil || session == "" || label == "" {
 		return
 	}
-	room := p.d.servedRoom(label)
+	room := p.d.servedRoomFor(project, label)
 	if room == "" {
 		return // a label whose project has no room here is simply not presented
 	}
@@ -449,9 +449,24 @@ func backoffFor(failures int) time.Duration {
 	return min(time.Duration(1<<uint(failures))*time.Second, presenceMaxDelay)
 }
 
+// servedRoomFor is the room this daemon serves for a session, or "" when
+// there is none: the project the client sent (the main checkout's name, the
+// SessionStart digest's derivation, issue #83) when it names a served room,
+// else the label's project half. The label alone missed every BUDDY_LABEL
+// session (no project half) and every linked-worktree one (its half names the
+// worktree); the fallback keeps an older client, which sends no project,
+// presented exactly as before.
+func (d *Daemon) servedRoomFor(project, label string) string {
+	if p := fold(project); p != "" {
+		if room := d.servesRoom(p); room != "" {
+			return room
+		}
+	}
+	return d.servedRoom(label)
+}
+
 // servedRoom maps a session label ("<project>/s-<id>") to the room this daemon
-// actually serves for it, or "" when there is none. The derivation matches the
-// SessionStart digest's: the project half of the label IS the room name.
+// serves for it, or "" when there is none: the project half of the label.
 func (d *Daemon) servedRoom(label string) string {
 	project := label
 	if i := strings.IndexByte(project, '/'); i > 0 {

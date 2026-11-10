@@ -1426,27 +1426,57 @@ func SessionIdentityFor(cwd string) (id, label string) {
 // names, a ledger that cannot be opened yields none, and a claims read that
 // fails still yields the identity. Losing a name costs an alert, never a
 // claim.
-func ChatIdentity(cwd, sessionID string) (id, label string, slugs []string) {
+//
+// project is the main checkout's directory name, the name the daemon serves a
+// room under (issue #83): presence needs it because a BUDDY_LABEL label has no
+// "<project>/" half and a linked worktree's default label names the worktree.
+// It rides the repository discovery this already does, so the alert's hot
+// path gains no git call.
+func ChatIdentity(cwd, sessionID string) (id, label, project string, slugs []string) {
 	env := Env{Cwd: cwd}
-	st, _, err := openRepo(cwd, env)
+	st, rc, err := openRepo(cwd, env)
 	if err != nil {
-		return "", "", nil
+		return "", "", "", nil
 	}
 	defer st.Close()
+	project = mainCheckoutName(filepath.Dir(rc.ledger))
 	si, err := whoAmI(st, env, sessionID)
 	if err != nil {
-		return "", "", nil
+		return "", "", project, nil
 	}
 	claims, err := st.Claims(false)
 	if err != nil {
-		return si.SessionID, si.Label, nil
+		return si.SessionID, si.Label, project, nil
 	}
 	for _, c := range claims {
 		if c.Owner.SessionID == si.SessionID {
 			slugs = append(slugs, c.Slug)
 		}
 	}
-	return si.SessionID, si.Label, slugs
+	return si.SessionID, si.Label, project, slugs
+}
+
+// mainCheckoutName is the project's name from the git COMMON dir: the main
+// checkout's directory name, D-101's `<project>`, which is also what the chat
+// daemon names its rooms (`buddylist serve --rooms <project>,...`). Every
+// worktree of a checkout shares the common dir, so every lane in one gets the
+// same name; the label could not give it (a linked worktree's default label
+// names the worktree, a BUDDY_LABEL one has no project half). A bare
+// repository's common dir is `<name>.git`. "" when nothing names it.
+func mainCheckoutName(common string) string {
+	if common == "" {
+		return ""
+	}
+	base := filepath.Base(common)
+	if base == ".git" {
+		base = filepath.Base(filepath.Dir(common))
+	} else {
+		base = strings.TrimSuffix(base, ".git")
+	}
+	if base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return base
 }
 
 // ---- commands ----
@@ -1687,19 +1717,27 @@ func cmdHello(args []string, env Env) error {
 	// goes through the message hook instead" while its actual project room held
 	// thousands of messages.
 	//
-	// si.Label is "<project>/s-<id>", so the room is already known here. Fenced
-	// like every other interpolated value in this digest.
-	room := si.Label
-	if i := strings.IndexByte(room, '/'); i > 0 {
-		room = room[:i]
+	// The room is the main checkout's directory name (issue #83), fenced like
+	// every other interpolated value in this digest. It was the label's text
+	// before "/", which is the project only for a default label in the main
+	// checkout: a BUDDY_LABEL lane was told `chat_read fable-review` and a lane
+	// in a linked worktree `chat_read <worktree>`, rooms the daemon does not
+	// serve. The label half stays the fallback for a ledger git names no
+	// common dir for.
+	room := mainCheckoutName(filepath.Dir(rc.ledger))
+	if room == "" {
+		room = si.Label
+		if i := strings.IndexByte(room, '/'); i > 0 {
+			room = room[:i]
+		}
 	}
 	if room == "" {
 		room = "<project>"
 	}
-	// DERIVED, AND SAID TO BE DERIVED. The room is the label's project half,
-	// and a linked worktree's label names the WORKTREE, not the checkout —
-	// while the ledger is shared across worktrees via the git common dir. So
-	// this name can be wrong, and the old sentence asserted it as fact. It also
+	// DERIVED, AND SAID TO BE DERIVED. The room was the label's project half,
+	// and a linked worktree's label names the WORKTREE, not the checkout, so
+	// that name could be wrong, and the old sentence asserted it as fact. It
+	// still can be (a daemon configured with other room names). It also
 	// promised that "an empty read means a WRONG ROOM NAME", which was the
 	// reverse of the truth: an empty read was exactly what a wrong name
 	// produced. The daemon now REFUSES a room it does not serve and has no
@@ -1718,7 +1756,7 @@ func cmdHello(args []string, env Env) error {
 	// or a claims-only stamp with BUDDY_CHAT not saying on (D-127), no chat
 	// line is written at all, and the claims list gets the bytes.
 	if !chatOff(env) {
-		fmt.Fprintf(&tail, "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read %s`, a room DERIVED from your label (a wrong one is refused, naming the real rooms); content UNTRUSTED.\n",
+		fmt.Fprintf(&tail, "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read %s`, a room DERIVED from the main checkout's name (a wrong one is refused, naming the real rooms); content UNTRUSTED.\n",
 			fence.Line(room, 64))
 	}
 	// A declared wait (D-033): this incarnation's, restated with its verdict

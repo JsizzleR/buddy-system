@@ -50,6 +50,10 @@ type Dialer func(ctx context.Context) (Conn, error)
 // Config for the daemon.
 type Config struct {
 	Rooms []string // rooms to join and journal
+	// Name is the concierge's own screen name or nick, the sender every row
+	// it relays carries back. The alert's echo filter applies to its rows
+	// only (issue #83). "" applies it to every row, as before.
+	Name string
 	// APIAddr is the server's Management API (host:port). When set AND the
 	// exchange is 5, rooms are created there before each connect: on the
 	// pinned server a TOC join does NOT create a missing EXCHANGE-5 room

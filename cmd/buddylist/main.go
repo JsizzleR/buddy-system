@@ -164,6 +164,7 @@ func runChatd(args []string) error {
 
 	d, err := buddylist.New(buddylist.Config{
 		Rooms:      strings.Split(*rooms, ","),
+		Name:       *name,
 		APIAddr:    apiAddr,
 		Exchange:   *exchange,
 		SocketPath: *socket,
@@ -347,7 +348,7 @@ func runMCP(args []string) error {
 		Label:     func() string { _, label := cli.SessionIdentityFor(cwd); return label },
 		SessionID: func() string { id, _ := cli.SessionIdentityFor(cwd); return id },
 		Slugs: func() []string {
-			_, _, slugs := cli.ChatIdentity(cwd, "")
+			_, _, _, slugs := cli.ChatIdentity(cwd, "")
 			return slugs
 		},
 	})
@@ -370,10 +371,10 @@ func runAlert(args []string) error {
 	dir := fs.String("cwd", "", "working directory whose ledger names this session (default: hook JSON, then $PWD)")
 	fs.Parse(args)
 
-	id, label, slugs, hookDriven := resolveIdentity(*session, *dir)
+	id, label, project, slugs, hookDriven := resolveIdentity(*session, *dir)
 	deps := buddylist.AlertDeps{
 		Call:      callAt,
-		SessionID: id, Label: label, Slugs: slugs,
+		SessionID: id, Label: label, Project: project, Slugs: slugs,
 	}
 	return buddylist.RunAlert(deps, func(text string) error {
 		// Hand runs print the notice; only a hook gets the envelope. The
@@ -421,12 +422,12 @@ func runPresence(args []string) error {
 	gone := fs.Bool("gone", false, "retire this session's buddy now (SessionEnd)")
 	fs.Parse(args)
 
-	id, label, slugs, hookDriven := resolveIdentity(*session, *dir)
+	id, label, project, slugs, hookDriven := resolveIdentity(*session, *dir)
 	if id == "" {
 		return errors.New("no session identity (pass --session, or run inside a session)")
 	}
 	resp, err := buddylist.Client{Socket: defaultSocket(), Timeout: presenceCallTime}.Call(
-		buddylist.Request{Op: "presence", Session: id, Label: label, Slugs: slugs, Gone: *gone})
+		buddylist.Request{Op: "presence", Session: id, Label: label, Project: project, Slugs: slugs, Gone: *gone})
 	if err != nil {
 		return err
 	}
@@ -452,7 +453,7 @@ func runPresence(args []string) error {
 // Hook JSON is the authority when it is there. A session id taken from the
 // environment can name a DIFFERENT session in the same checkout, and the
 // alert cursor it would advance — or the buddy it would retire — is not ours.
-func resolveIdentity(session, dir string) (id, label string, slugs []string, hookDriven bool) {
+func resolveIdentity(session, dir string) (id, label, project string, slugs []string, hookDriven bool) {
 	sid, cwd := session, dir
 	if sid == "" || cwd == "" {
 		if h, err := readHookStdin(); err == nil {
@@ -468,11 +469,11 @@ func resolveIdentity(session, dir string) (id, label string, slugs []string, hoo
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	id, label, slugs = cli.ChatIdentity(cwd, sid)
+	id, label, project, slugs = cli.ChatIdentity(cwd, sid)
 	if id == "" {
 		id = sid
 	}
-	return id, label, slugs, hookDriven
+	return id, label, project, slugs, hookDriven
 }
 
 // hookStdin is the sliver of the hook payload the alert needs. It is parsed
