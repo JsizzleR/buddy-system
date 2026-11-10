@@ -47,7 +47,13 @@ nobody authorised.
   yet at its shell prompt) works when retried seconds later (D-082). A start
   that answers `timed out waiting for agent startup` has usually started the
   lane anyway, but herdr then does not know it by label: wait on it by pane
-  id, and check `buddy who <its full session id>` (D-122).
+  id, and check `buddy who <its full session id>` (D-122). On a Claude lane
+  the start runs to its timeout every time, so a launcher that starts lanes
+  one after another pays N x the timeout: start them in parallel (one
+  background start per lane, a few seconds apart, then wait for all) or pass
+  a short timeout (`herdr agent start … --timeout 10000`). Never retry a
+  timed-out start: confirm each lane by its first `buddy msg` or by
+  `buddy who <its full session id>`; retry only on `agent_pane_busy` (D-144).
   Pass the mode the operator decided for lanes, never a more permissive one
   than your own. Without the flag a lane starts in manual mode (D-056), and
   every tool call it makes, each `buddy msg` report included, waits for an

@@ -11164,3 +11164,31 @@ roster in any window); a mid-turn notice from `beat`, once per step through
 `HandoffTell` (it would have told one lane at 300k instead of 333k, at most
 28 requests in the week): not built, the overrun being accepted. Take it up
 if a later overrun is measured to be NEW work past the size.
+
+## D-144 — A timed-out Claude lane start costs its whole timeout, so lanes start in parallel and a timed-out start is never retried (amends D-122)
+
+2026-11-10. No issue: the operator gave the item in orc-18's pane at 17:55Z.
+
+**Measured** — in another project's fleet on 2026-11-10 (the operator's
+figure): `herdr agent start --kind claude` answered `timed out waiting for
+agent startup` on every Claude lane, every time, while the lane was up and
+working after about 60 s; one sent its first `buddy msg` while its start call
+was still waiting. That fleet's previous launcher passed `--timeout 120000`
+and started lanes one after another, so 10 lanes took about 20 minutes. In
+this repo's fleet the same day (orc-18): seven starts launched in parallel
+from one script each answered the timeout, and all seven lanes were live on
+`buddy who` within about 35 s. herdr's default `--timeout` is 30000 ms (its
+`--help`).
+
+**The decision** — D-122's rule (a timed-out start has usually started the
+lane) stands, and "Opening lanes" says what it costs in a loop: N lanes
+started one after another pay N x the timeout. A launcher starts lanes in
+parallel (one background start each, a few seconds apart, then waits for
+all) or passes a short `--timeout` such as 10000. A timed-out start is never
+retried: the lane may already be starting (measured only at 30 s and 120 s
+timeouts, never at 10 s, and what a retry does to a starting lane's pane was
+not measured), so each lane is confirmed by its first `buddy msg` or by `buddy
+who <its full session id>`. Only `agent_pane_busy` is retried (D-082).
+
+**Considered and cut** — a buddy launch helper or a wrapper script: buddy
+launches nothing (D-027, D-056), and the fix is two sentences of recipe.

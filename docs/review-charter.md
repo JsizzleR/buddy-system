@@ -767,14 +767,16 @@ ledger row entered through the CLI (D-006).
 81. **A qualification candidate is bound by typed sha256 and a loopback provider (D-080).** `buddy-adapter --qualify-candidate <artifact> --qualify-sha256 <hex>`; every receipt carries `qualification_candidate`; cross-mode resume refuses. Do not propose: a candidate without the typed digest, a non-loopback provider. (full text: `CODEX_CHARTER=adapter`)
 82. **A qualification run binds its own binary; checkers read the records (D-081).** Earned tiers only, clean tree at one HEAD. Do not propose: per-checker version lists, hand-written records, `BUDDY_QUALIFY_*` env transport. (full text: `CODEX_CHARTER=adapter`)
 83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a
-    start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082).**
+    start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082, D-144).**
     The herdr measurements are D-082's record. Under the Codex sandbox the hermetic tier runs
     escalated, once for the whole tier (`TestAdapterReportsEscapedToolAtClose` reads the
     process table, which the sandbox refuses, so a sandboxed red says nothing about the
     tree); a Codex session's JOBS line always says "cannot say" (its hooks bind no process,
-    D-068), so its DONE words are its account of its jobs. Do not propose a sandbox skip for
-    that test, a JOBS arm that anchors a Codex process, or a state list in place of the
-    default wait.
+    D-068), so its DONE words are its account of its jobs. A Claude lane's start runs to its
+    timeout with the lane usually starting (D-144), confirmed by `buddy who`: lanes start in parallel or with a short `--timeout`, a
+    timed-out start is never retried, only `agent_pane_busy` is. Do not propose a sandbox skip for
+    that test, a JOBS arm that anchors a Codex process, a buddy launch helper, or a state list
+    in place of the default wait.
 84. **A launch brief delegates a bounded relay of the operator's decisions to ONE
     coordinator, named by full session id and label (D-083).** The brief is the launched
     session's operator request (its first prompt, D-056). Inside the decisions it says that
