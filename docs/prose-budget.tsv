@@ -21,7 +21,7 @@ read-first	1196032	2026-11-06 operator (D-116)	class total: what CLAUDE.md's Rea
 README.md	28672	2026-10-28 operator (D-116)	named in Read this first; 22,566 at landing
 docs/README.md	4096	2026-10-28 operator (D-116)	named in Read this first; 3,385 at landing
 docs/DESIGN.md	16384	2026-10-28 operator (D-116)	named in Read this first and by AGENTS.md; 11,650 at landing
-docs/USAGE.md	188416	2026-10-28 operator (D-116)	named in Read this first as the per-feature reference; 169,395 at landing
+docs/USAGE.md	192512	2026-11-10 operator (relayed by orc-17)	named in Read this first as the per-feature reference; 169,395 at landing; 189,243 when the #75-#84 batch landed (nine items, each under the old 188,416, together 827 over), raised by 4 KB, under the formula's 204,800
 docs/decisions.md	839680	2026-11-10 operator (relayed by orc-17)	named in Read this first since D-112, read by heading (452 of 453 calls); 761,786 at the raise for the #75-#84 batch (ten items, 5-9 KB a decision), set by the formula (landed size + 10%, rounded up to 4,096); the read-first total binds next, near 1,241,088
 codex-pass	114688	2026-11-02 charter-split (D-128), lowered	class total: AGENTS.md + the charter, on every Codex pass without CODEX_CHARTER=adapter; 103,933 at landing (adapter GIVENs as stubs)
 docs/review-charter.md	110592	2026-11-02 charter-split (D-128), lowered	prepended to every Codex pass, and named in Read this first; 99,183 at landing (adapter GIVENs 72 76 78 80 81 82 as one-line stubs); GIVENs topical from D-116
