@@ -12,6 +12,27 @@
 #   scripts/codex-review.sh <prompt-file> [out-file]
 #   scripts/codex-review.sh - <<'EOF' ... EOF        # prompt on stdin
 #
+# THE OUT-FILE IS THE VERDICT, and it can say only what this pass did (Codex report
+# A2, A6, A8). Before anything can refuse, it is overwritten with a `NO VERDICT` line,
+# so a file left by an earlier pass at the same path can never be read as this one's:
+# a lane that reran after "slots busy" used to read the previous verdict. It ends as
+# exactly one of:
+#   - the reply alone (codex's `-o` last message), then one `codex-review: status`
+#     line: rc, elapsed, model, effort, header ok|MISMATCH, charter and prompt bytes,
+#     codex's token count. The full transcript (header, echoed prompt, every command)
+#     is beside it as <out-file>.transcript: it was 99% of an out-file (median 435 KB
+#     against a 2.8 KB reply), and lanes read it back into their context;
+#   - `NO VERDICT` and why (a refusal before the run, the watchdog, no reply), then the
+#     status line when codex ran;
+#   - `NOT RUN` when every slot was busy.
+# Exit codes: codex's own, or 1 a refusal before the run (usage, a knob, the charter,
+# the prompt, an out-file that cannot be written), 75 all slots busy (EX_TEMPFAIL: come
+# back later, nothing ran), 124 the watchdog fired, 3 codex exited 0 but the result is
+# not a pass at the pin (a header that does not name the pinned model and effort, or no
+# reply). A downgrade used to exit 0 with a stderr WARNING and an unmarked out-file.
+# Without an out-file, stdout is the whole transcript then the status line; with one,
+# stdout is what the out-file holds.
+#
 # What it enforces, each with the reason it is not optional:
 #
 #  1. FOREGROUND ONLY. `codex exec` WEDGES when it is backgrounded by an agent harness:
@@ -70,11 +91,56 @@ EFFORT=${CODEX_EFFORT:-xhigh}
 TIER=${CODEX_TIER:-default}
 BUDGET=${CODEX_BUDGET:-540} # under the 600s foreground tool cap; scope the prompt to fit
 
-die() { echo "codex-review: $*" >&2; exit 1; }
+# die: a refusal before the run. Once the out-file is armed (below) it says so there
+# too, so the file a lane reads names the refusal instead of keeping an old verdict.
+OUT=
+die() {
+  echo "codex-review: $*" >&2
+  if [ -n "$OUT" ]; then
+    { echo "codex-review: NO VERDICT -- refused before the run, nothing was reviewed:"; echo "  $*"; } > "$OUT" 2>/dev/null || true
+  fi
+  exit 1
+}
 
-[ $# -ge 1 ] || die "usage: codex-review.sh <prompt-file|-> [out-file]"
+[ $# -ge 1 ] && [ $# -le 2 ] || die "usage: codex-review.sh <prompt-file|-> [out-file]
+  refused: wrong number of arguments"
 SRC=$1
-OUT=${2:-}
+
+# Arm the out-file FIRST: every later exit, a refusal included, leaves this file saying
+# what this pass did. Its directory is checked here, before any run: a missing one used
+# to fail the final `cp` under set -e, after the run, and the trap then deleted the
+# run's only copy. The transcript beside it is overwritten the same way.
+if [ $# -eq 2 ]; then
+  [ -n "$2" ] || die "the out-file argument is empty
+  refused: empty out-file"
+  _od=$(dirname -- "$2")
+  [ -d "$_od" ] || die "the out-file's directory '$_od' does not exist; nothing was run
+  refused: missing out-file directory"
+  _nv="codex-review: NO VERDICT -- this pass has not finished (started $(date -u +%Y-%m-%dT%H:%M:%SZ)); a file still saying this was left by a run that never completed"
+  { echo "$_nv" > "$2" && echo "$_nv" > "$2.transcript"; } 2>/dev/null || die "cannot write '$2' or '$2.transcript'; nothing was run
+  refused: out-file not writable"
+  OUT=$2
+fi
+
+# The numeric knobs, refused unless they are canonical whole numbers in range.
+# `CODEX_BUDGET=abc` or `0` used to give `alarm 0`, i.e. NO watchdog; `9m` gave 9 s; a
+# non-numeric CODEX_SLOTS turned the cap off (every `-ge` test failed). The ceilings
+# close the same holes from above: 4294967296 passes a digits test and wraps to 0 in
+# Darwin's 32-bit alarm(), and a SLOTS past the shell's integer range fails its
+# comparison inside `if`, which lets the run through. A leading zero is refused rather
+# than read as octal or decimal. CODEX_WAIT is held to the same rule: a typo there
+# silently meant "do not wait".
+knob() { # <name> <value> <min> <max>
+  case $2 in ''|*[!0-9]*|0?*) die "$1='$2' is not a whole number from $3 to $4
+  refused: $1 not an integer in range" ;; esac
+  [ ${#2} -le ${#4} ] && [ "$2" -ge "$3" ] && [ "$2" -le "$4" ] || die "$1='$2' is not a whole number from $3 to $4
+  refused: $1 not an integer in range"
+}
+knob CODEX_BUDGET "$BUDGET" 1 86400
+SLOTS=${CODEX_SLOTS:-4}
+knob CODEX_SLOTS "$SLOTS" 1 1000
+WAIT=${CODEX_WAIT:-0}
+knob CODEX_WAIT "$WAIT" 0 3600
 
 # (7) Which charter parts, decided BEFORE anything runs or waits for a slot, so a typo
 # costs nothing and is never a pass on the wrong charter (D-128).
@@ -127,8 +193,7 @@ live_count() { live_runs | grep -c . ; }
 #
 # It is enforced by OBSERVATION, not by a lock: N sessions checking simultaneously can all
 # see the same free slot and all start, so treat the number as intent and expect an
-# occasional overshoot. CODEX_SLOTS=1 for serial behavior.
-SLOTS=${CODEX_SLOTS:-4}
+# occasional overshoot. CODEX_SLOTS=1 for serial behavior. (Read and validated above.)
 
 # The detector's own positive control. `ps -eo pid,command` is the one thing every clause
 # here stands on, so prove it can see a process whose argv we KNOW — this shell — before
@@ -143,8 +208,7 @@ fi
 # waiting belongs HERE, on the verified detector, not in a per-session poll. Keep it small
 # (<=60s) and re-invoke, rather than asking one blocking call to cover the wait AND the
 # run against the 600s foreground cap.
-WAIT=${CODEX_WAIT:-0}
-if [ "$WAIT" -gt 0 ] 2>/dev/null; then
+if [ "$WAIT" -gt 0 ]; then
   waited=0
   while [ "$(live_count)" -ge "$SLOTS" ] && [ "$waited" -lt "$WAIT" ]; do
     echo "codex-review: all $SLOTS slots busy (pids: $(live_runs | tr '\n' ' ')); waited ${waited}s of ${WAIT}s" >&2
@@ -162,7 +226,11 @@ if [ "$n" -ge "$SLOTS" ]; then
   echo "  If a row's CPU time is ~0 while ELAPSED climbs, THAT ONE is WEDGED (almost certainly" >&2
   echo "  backgrounded). Kill that PID specifically — never all of them, and never pkill -f;" >&2
   echo "  a peer session's healthy run is very likely one of these rows." >&2
-  die "refusing to start a competing run"
+  echo "codex-review: refusing to start a competing run (exit 75: NOT RUN)" >&2
+  # Its own exit code and its own word: a busy pool is "come back later", not a
+  # refusal of the request, and the out-file must say nothing was reviewed.
+  [ -z "$OUT" ] || echo "codex-review: NOT RUN -- all $SLOTS review slots were busy ($n live); nothing was reviewed. Rerun (CODEX_WAIT=60) to the same out-file." > "$OUT"
+  exit 75
 fi
 [ "$n" -eq 0 ] || echo "codex-review: $n of $SLOTS slots in use; starting in the free one." >&2
 
@@ -215,6 +283,7 @@ echo "codex-review: model=$MODEL effort=$EFFORT tier=$TIER budget=${BUDGET}s $CH
 # verdict (exit 124, unconditional once fired), the parent escalates TERM->KILL on the
 # process GROUP, waitpid retries EINTR, and a failed exec is a fail-closed 127.
 set +e
+T0=$(date +%s)
 perl -MPOSIX -e '
   my $t = shift;
   my $pid = fork();
@@ -238,25 +307,76 @@ perl -MPOSIX -e '
   exit($status >> 8);
 ' "$BUDGET" \
   codex exec -s read-only -m "$MODEL" -c model_reasoning_effort="$EFFORT" \
-  -c service_tier="$TIER" \
+  -c service_tier="$TIER" -o "$TMP/reply" \
   "$(cat "$TMP/prompt")" < /dev/null > "$TMP/out" 2>&1
 rc=$?
+T1=$(date +%s)
 set -e
 
-[ -n "$OUT" ] && cp "$TMP/out" "$OUT"
-
-# (3) VERIFY the header rather than trusting it.
-if ! grep -q "model: $MODEL" "$TMP/out" || ! grep -q "reasoning effort: $EFFORT" "$TMP/out"; then
-  echo "codex-review: WARNING — the run header does not echo $MODEL / $EFFORT." >&2
-  grep -E "^(model|reasoning effort):" "$TMP/out" >&2 || echo "  (no header at all)" >&2
+# (3) VERIFY the header rather than trusting it. ANCHORED to the run header: the block
+# between codex's first two `--------` lines, which precedes the echoed prompt, and each
+# line matched whole. The old check was an unanchored grep over the entire output, so a
+# prompt or a reply that quoted `model: gpt-6-astra` satisfied it, and so did
+# `model: gpt-6-astra-mini` for a prefix.
+hdr() { awk -v k="$1" '/^--------$/ { if (++n == 2) exit; next } n == 1 && index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$TMP/out"; }
+got_model=$(hdr model)
+got_effort=$(hdr "reasoning effort")
+if [ "$got_model" = "$MODEL" ] && [ "$got_effort" = "$EFFORT" ]; then
+  header=ok
+else
+  header=MISMATCH
+  echo "codex-review: HEADER MISMATCH -- the run header says model=${got_model:-<none>} effort=${got_effort:-<none>}, not $MODEL / $EFFORT." >&2
   echo "  A silent downgrade makes this a same-model-family review, i.e. no gate at all." >&2
 fi
 
+# codex's own token count: the number on the line after its last `tokens used` line
+# (a reply that itself says "tokens used" is followed by prose, not a number).
+tokens=$(awk '/^tokens used$/ { if ((getline t) > 0 && t ~ /^[0-9,]+$/) v = t } END { gsub(/,/, "", v); print v }' "$TMP/out")
+# Exit 3 only overrides a 0: a failed codex keeps its own code, which says more. The
+# status line carries both: rc is codex's, exit is this script's.
+xrc=$rc
+if [ "$rc" -eq 0 ] && { [ "$header" != ok ] || [ ! -s "$TMP/reply" ]; }; then xrc=3; fi
+STATUS="codex-review: status rc=$rc exit=$xrc elapsed=$((T1 - T0))s model=$MODEL effort=$EFFORT header=$header got=${got_model:-none}/${got_effort:-none} tier=$TIER(requested) $CHARTER_NOTE prompt=$(wc -c < "$TMP/prompt" | tr -d ' ')B tokens=${tokens:-none}"
+
+fired=0
 if [ "$rc" -eq 124 ] || [ "$rc" -eq 142 ] || [ "$rc" -eq 14 ]; then
+  fired=1
   echo "codex-review: the ${BUDGET}s watchdog FIRED." >&2
-  echo "  This is a SCOPE problem, not a reason to background it. Cut the prompt down —" >&2
+  echo "  This is a SCOPE problem, not a reason to background it. Cut the prompt down --" >&2
   echo "  name the exact files/symbols to read, say 'do not explore', 'no web search'." >&2
   echo "  A tightly scoped pass returns in minutes; a broad one explores until it dies." >&2
 fi
-cat "$TMP/out"
-exit "$rc"
+
+# The verdict file, built in $TMP and then written OVER the armed files in place (not
+# renamed into the directory: a writable out-file in a directory the caller cannot
+# write would fail a rename after the run, and the trap would delete the result). The
+# transcript goes first, so a verdict never points at a missing one. Writing in place is
+# not atomic: an interrupted write leaves a file without its last line, so a verdict
+# without its `codex-review: status` line is not a finished verdict.
+TR=${OUT:+$OUT.transcript}
+{
+  if [ "$fired" -eq 1 ]; then
+    echo "codex-review: NO VERDICT -- the ${BUDGET}s watchdog fired (rc=$rc); the partial transcript is ${TR:-on stdout}."
+  elif [ "$rc" -ne 0 ]; then
+    echo "codex-review: NO VERDICT -- codex exited $rc; the transcript is ${TR:-on stdout}."
+  elif [ ! -s "$TMP/reply" ]; then
+    echo "codex-review: NO VERDICT -- codex exited 0 but wrote no reply; the transcript is ${TR:-on stdout}."
+  else
+    if [ "$header" != ok ]; then
+      echo "codex-review: HEADER MISMATCH -- the run header says model=${got_model:-<none>} effort=${got_effort:-<none>}: this reply is NOT a $MODEL@$EFFORT pass, and no receipt may cite it as one."
+    fi
+    cat "$TMP/reply"
+    echo
+  fi
+  echo "$STATUS"
+} > "$TMP/verdict"
+
+if [ -n "$OUT" ]; then
+  { cat "$TMP/out"; echo "$STATUS"; } > "$TR"
+  cat "$TMP/verdict" > "$OUT"
+  cat "$OUT"
+else
+  cat "$TMP/out"
+  echo "$STATUS"
+fi
+exit "$xrc"
