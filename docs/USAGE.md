@@ -311,7 +311,11 @@ buddy command in a layer that lacks it (see "Offline compatibility diagnostic").
 untrusted hooks are skipped, so an edited gate line fails open until it is
 trusted again. Configuration, trust and observed enforcement are
 separate facts. The repository installer does not change Codex permissions or
-hook trust. After opting in, run an actual Codex patch against a peer-held
+hook trust. Where `${CODEX_HOME:-~/.codex}` exists, `install.sh`'s report and
+`scripts/env-check.sh` each print one Codex row from that diagnosis of its
+`hooks.json`: wired, NOT WIRED (no file, no gate, or a gate with findings) or
+CANNOT ASSESS (unreadable, refused, or no file beside a hooks table in
+`config.toml`, which is scanned, not parsed); neither writes there. After opting in, run an actual Codex patch against a peer-held
 scope and a non-conflicting control, and confirm the former wrote nothing.
 A direct `buddy gate` fixture is not proof the installed harness invoked it.
 

@@ -581,6 +581,17 @@ else
 	fi
 fi
 
+# 6a''. The Codex row (Codex report B1): plain Codex here is gated only by a
+# hand-wired hooks.json, and an absent hook is a silent allow, so one line
+# says which, when ${CODEX_HOME:-~/.codex} exists. The reading is
+# scripts/codex-gate-row.sh's (env-check.sh prints the same row from it),
+# over the buddy just installed. Report only: nothing in Codex's directory is
+# written, trusted or wired, --wire-hooks included (it is Claude Code's).
+. "$ROOT/scripts/codex-gate-row.sh"
+if codex_gate_row "$BIN_DIR/buddy"; then
+	say "codex: $cgr_state: $cgr_detail"
+fi
+
 # 6b. Claims-only names what it found of the chat half and left alone (its
 # posture line came first, before step 1). The posture describes this install,
 # so a buddylist, a daemon plist or

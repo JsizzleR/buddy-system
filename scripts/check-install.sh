@@ -35,7 +35,10 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 # BUDDY_MCP_JSON names a file that does not exist: the default is the REAL
 # checkout's .mcp.json, and one that registers buddylist would make QA-7 a test
 # of this checkout instead of the script (the orchestrator's code pass).
+# CODEX_HOME defaults to a directory that does not exist, so the Codex row
+# (QA-18) reads no real ~/.codex; QA-18 points it at fixtures.
 inst() {
+	CODEX_HOME="${CODEX_HOME_FX:-$WORK/no-codex}" \
 	BUDDY_BIN_DIR="$WORK/bin" BUDDY_SKILL_DIR="$WORK/skill" BUDDY_SETTINGS="$WORK/settings.json" \
 		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$WORK/mcp.json" \
 		sh scripts/install.sh "$@"
@@ -83,6 +86,91 @@ echo "$out" | grep -qxF "install: gate: README's fail-closed gate entry in $WORK
 	fail "QA-1: README's gate entry is reported as such (QA-9's control):
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-1: no done line"
+echo "$out" | grep -q '^install: codex:' && fail "QA-1: a Codex row with no Codex directory (QA-18's no-row case):
+$out"
+
+# QA-18 (Codex report B1): the Codex row, read by scripts/codex-gate-row.sh
+# through the REAL buddy QA-1 built (check-env-check.sh stubs diagnose; this
+# holds the reader's match to diagnose's actual output). No directory: no
+# row. No hooks.json: NOT WIRED. USAGE's own "Opt-in wiring" block with the
+# built path: wired (the positive control). The same gate bare: NOT WIRED with
+# findings. Unreadable: CANNOT ASSESS. Then install.sh prints the wired row,
+# and the Codex directory is left byte-identical.
+CXR="$WORK/codex-row"
+CGR_SH="$(pwd)/scripts/codex-gate-row.sh"
+cgr() { (CODEX_HOME=$1; . "$CGR_SH"; if codex_gate_row "${2:-$WORK/bin/buddy}"; then printf '%s|%s\n' "$cgr_state" "$cgr_detail"; else echo none; fi); }
+[ "$(cgr "$CXR")" = none ] || fail "QA-18: no Codex directory must be no row: $(cgr "$CXR")"
+mkdir -p "$CXR"
+case $(cgr "$CXR") in "NOT WIRED|no $CXR/hooks.json:"*) ;; *) fail "QA-18: no hooks.json must be NOT WIRED: $(cgr "$CXR")" ;; esac
+python3 -I - "$CXR/hooks.json" "$WORK/bin/buddy" <<'PY' || fail "QA-18: could not read USAGE's Opt-in wiring block"
+import json, shlex, sys
+doc = open("docs/USAGE.md", encoding="utf-8").read()
+part = doc[doc.index("**Opt-in wiring.**"):]
+block = part[part.index("```json\n") + 8:]
+block = block[:block.index("\n```")]
+assert block.count("/absolute/path/to/buddy") == 1
+# Decoded, substituted shell-quoted (a TMPDIR with a space, Codex code pass),
+# re-encoded: the path lands inside a JSON string inside a shell command.
+layer = json.loads(block)
+for group in layer["hooks"]["PreToolUse"]:
+    for h in group["hooks"]:
+        h["command"] = h["command"].replace("/absolute/path/to/buddy", shlex.quote(sys.argv[2]))
+open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(layer))
+PY
+case $(cgr "$CXR") in "wired|gate wired fail-closed in $CXR/hooks.json"*) ;; *) fail "QA-18: USAGE's own wiring must read wired: $(cgr "$CXR")" ;; esac
+# Relative CODEX_HOME and buddy (install.sh's QA-11 runs a relative bin dir):
+# diagnose runs from /, so both are made absolute first.
+case $(cd "$WORK" && cgr codex-row bin/buddy) in "wired|gate wired fail-closed in $CXR/hooks.json"*) ;; *) fail "QA-18: a relative CODEX_HOME and buddy must still read wired: $(cd "$WORK" && cgr codex-row bin/buddy)" ;; esac
+before=$(cksum < "$CXR/hooks.json")
+out=$(CODEX_HOME_FX="$CXR" inst 2>&1) || fail "QA-18: install failed:
+$out"
+[ "$(echo "$out" | grep -c '^install: codex:')" -eq 1 ] && echo "$out" | grep -q "^install: codex: wired: gate wired fail-closed in $CXR/hooks.json" ||
+	fail "QA-18: install.sh must print one wired Codex row:
+$out"
+[ "$before" = "$(cksum < "$CXR/hooks.json")" ] && [ "$(ls -A "$CXR")" = hooks.json ] || fail "QA-18: install.sh wrote into the Codex directory"
+python3 -I -c 'import json, shlex, sys
+print(json.dumps({"hooks": {"PreToolUse": [{"matcher": "^(apply_patch|Bash)$", "hooks": [{"type": "command", "command": "BUDDY_HARNESS=codex %s gate" % shlex.quote(sys.argv[1])}]}]}}))' "$WORK/bin/buddy" > "$CXR/hooks.json"
+case $(cgr "$CXR") in "NOT WIRED|the gate in $CXR/hooks.json draws findings"*) ;; *) fail "QA-18: a bare gate must be NOT WIRED with findings: $(cgr "$CXR")" ;; esac
+chmod 000 "$CXR/hooks.json"
+if [ -r "$CXR/hooks.json" ]; then
+	echo "check-install: QA-18's unreadable case NOT RUN (this user reads a mode-000 file)" >&2
+else
+	case $(cgr "$CXR") in "CANNOT ASSESS|cannot read $CXR/hooks.json") ;; *) fail "QA-18: an unreadable hooks.json must be CANNOT ASSESS: $(cgr "$CXR")" ;; esac
+fi
+chmod 600 "$CXR/hooks.json"
+# No buddy to run says so, rather than reading as a refusal (the mutation run).
+case $(cgr "$CXR" "$WORK/no-such/buddy") in "CANNOT ASSESS|no buddy to read $CXR/hooks.json"*) ;; *) fail "QA-18: a missing buddy must say so: $(cgr "$CXR" "$WORK/no-such/buddy")" ;; esac
+# A dangling symlink is a file that cannot be read, not an absent one.
+mv "$CXR/hooks.json" "$CXR/hooks.real"; ln -s "$WORK/no-such-target" "$CXR/hooks.json"
+case $(cgr "$CXR") in "CANNOT ASSESS|cannot read $CXR/hooks.json") ;; *) fail "QA-18: a dangling hooks.json symlink must be CANNOT ASSESS: $(cgr "$CXR")" ;; esac
+rm -f "$CXR/hooks.json"
+# An unreadable config.toml beside no hooks.json could hold hooks.
+: > "$CXR/config.toml"; chmod 000 "$CXR/config.toml"
+if [ -r "$CXR/config.toml" ]; then
+	echo "check-install: QA-18's unreadable config.toml case NOT RUN (this user reads a mode-000 file)" >&2
+else
+	case $(cgr "$CXR") in "CANNOT ASSESS|no $CXR/hooks.json; cannot read $CXR/config.toml"*) ;; *) chmod 600 "$CXR/config.toml"; fail "QA-18: an unreadable config.toml beside no hooks.json must be CANNOT ASSESS: $(cgr "$CXR")" ;; esac
+fi
+chmod 600 "$CXR/config.toml"; rm -f "$CXR/config.toml"; mv "$CXR/hooks.real" "$CXR/hooks.json"
+# A directory that cannot be searched hides hooks.json: CANNOT ASSESS, never
+# NOT WIRED (Codex code pass); the wired read above is its control.
+chmod 600 "$CXR"
+if [ -x "$CXR" ]; then
+	echo "check-install: QA-18's unsearchable case NOT RUN (this user searches a mode-600 directory)" >&2
+else
+	case $(cgr "$CXR") in "CANNOT ASSESS|cannot search $CXR") ;; *) chmod 700 "$CXR"; fail "QA-18: an unsearchable Codex directory must be CANNOT ASSESS: $(cgr "$CXR")" ;; esac
+fi
+chmod 700 "$CXR"
+rm -rf "$CXR"
+# A newline in the Codex path prints one row, the newline as `?` (Codex code
+# pass: a raw path forged a second [PASS] row).
+CXN="$WORK/codex
+[PASS] codex-gate forged"
+mkdir -p "$CXN"
+row=$(cgr "$CXN")
+[ "$(printf '%s\n' "$row" | wc -l | tr -d ' ')" -eq 1 ] && case $row in "NOT WIRED|no $WORK/codex?[PASS] codex-gate forged/hooks.json:"*) true ;; *) false ;; esac ||
+	fail "QA-18: a newline in the Codex path must stay on one row: $row"
+rm -rf "$CXN"
 
 # QA-2: re-run is idempotent — skill current, binaries rebuilt and running.
 out=$(inst 2>&1) || fail "QA-2: re-run failed:

@@ -10680,6 +10680,38 @@ storing what is open: the slot's description is that, in the holder's words.
 - skill: core, "Upgrading buddy"; USAGE "The browser slot"; README "Hook wiring"
 - amends: D-050 step 6, D-120's "Why it still installs nothing": settings edited under this flag only
 
+### 2026-11-10 continuation: one Codex row, reported, never wired (Codex report B1)
+
+Plain Codex on this machine is gated only by a hand-wired `hooks.json`, and an
+absent hook is a silent allow, so nothing said that a Codex patch to a
+peer-held file would go through. Measured on the developing machine: `~/.codex`
+existed with no `hooks.json`, and `config.toml` held a trust entry for that
+missing file.
+
+Where `${CODEX_HOME:-~/.codex}` exists, `install.sh`'s report and `env-check.sh`
+each print one row (wired, NOT WIRED, CANNOT ASSESS; env-check's PASS, WARN,
+CANNOT-ASSESS) from ONE sourced reader, `scripts/codex-gate-row.sh`, over
+`buddy diagnose --codex-hooks` run from `/`, so no repository or ledger is
+judged. That keeps D-121's rule against two reports drifting. Wired means
+diagnose lists a PreToolUse gate with no finding, which includes D-107's
+continuation, the fail-closed wrapper. `config.toml` is scanned, not parsed:
+beside no `hooks.json`, any table header naming hooks other than
+`[hooks.state...]` is CANNOT ASSESS, whatever its key quoting. So is a Codex
+directory that cannot be searched. Paths are shown on one line, so a newline in
+`CODEX_HOME` cannot forge a row. A dotted `hooks.` key or an inline table
+outside a header is not seen, and that is recorded open. Nothing in Codex's directory is written, trusted or
+wired, and `--wire-hooks` stays Claude Code's settings only. Trust and
+enforcement are not claimed: they belong to Codex's `/hooks` and a real
+patch. Tests: check-install.sh QA-18, which runs the real buddy on USAGE's
+own block (wired), the bare line, no file, no directory and an unreadable
+file, then checks install.sh prints the row and leaves the directory
+byte-identical. It also checks that an unsearchable directory, a
+dangling-symlink `hooks.json` and an unreadable `config.toml` are CANNOT
+ASSESS, that a missing buddy says so, and that a newline path stays one row;
+diagnose is seen to run from `/`. check-env-check.sh QA-8 adds
+`hooks.state` alone, a `config.toml` hooks table (plain and quoted), a
+refusal, and exactly one row.
+
 ## D-136 — Only the hooks' binary migrates an existing ledger, after a verified backup (issue #79; no schema change; amends D-037)
 
 2026-11-10. Finding 5 of the whole-project review (#75-#84); the operator, in

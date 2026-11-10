@@ -79,7 +79,12 @@ case "$1 ${2:-}" in
 *) echo "stub go: unexpected $*" >&2; exit 1 ;;
 esac' ;;
 		python3) ln -s "$PY" "$d/python3" ;;
-		buddy) stub "$d" buddy 'exit 0' ;;
+		# buddy answers `diagnose --codex-hooks` from the scenario when it
+		# has an answer (QA-8), else nothing. The real diagnose's output is
+		# check-install.sh QA-18's, over the binary install.sh built.
+		buddy) stub "$d" buddy '[ -f "$SC/buddy_out" ] || exit 0
+pwd > "$SC/buddy_cwd"
+cat "$SC/buddy_out"; exit "$(cat "$SC/buddy_rc" 2>/dev/null || echo 0)"' ;;
 		df) stub "$d" df 'p=$2; m=/System/Volumes/Data
 [ -n "${STUB_CACHEVOL:-}" ] && case $p in "$STUB_CACHEVOL"|"$STUB_CACHEVOL"/*) m=$STUB_CACHEVOL ;; esac
 [ -n "${STUB_OWNVOL:-}" ] && [ "$p" = "$STUB_OWNVOL" ] && m=$p
@@ -151,7 +156,7 @@ got=$(mutations "$LOG" | sed 's/ .*//' | tr '\n' ' ')
 # overwrite of an existing file shows as well as a new one (Codex code pass).
 snapshot() {
 	find "$HOMEFX" "$CO" "$TMPFX" -print | sort
-	find "$HOMEFX" "$CO" "$TMPFX" -type f -print | sort | while IFS= read -r f; do cksum < "$f"; done
+	find "$HOMEFX" "$CO" "$TMPFX" -type f -print | sort | while IFS= read -r f; do if [ -r "$f" ]; then cksum < "$f"; else ls -l "$f"; fi; done
 }
 # The control: a changed byte in an existing file moves the snapshot.
 _s0=$(snapshot); printf 'y\n' > "$CO/f"; _s1=$(snapshot); printf 'x\n' > "$CO/f"
@@ -339,9 +344,9 @@ grep -q '^go version' "$LOG" || fail "QA-7: go version was not reached"
 run "$BIN_A" "$SC_A" --checkout "$CO" --list
 [ "$rc" -eq 0 ] || fail "QA-6: --list rc=$rc"
 [ ! -s "$LOG" ] || fail "QA-6: --list ran a command: $(cat "$LOG")"
-[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 12 ] || fail "QA-6: --list must name the 12 checks:
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 13 ] || fail "QA-6: --list must name the 13 checks:
 $out"
-for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd go-cache-trim time-machine ac-sleep worktrees-tmp scratch; do
+for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd go-cache-trim time-machine ac-sleep worktrees-tmp scratch codex-gate; do
 	printf '%s\n' "$out" | grep -q "^$c " || fail "QA-6: --list does not name $c"
 done
 run "$BIN_A" "$SC_A" --checkout "$CO" --help
@@ -356,4 +361,68 @@ run "$BIN_A" "$SC_A" --checkout "$CO" stray
 $out"
 [ ! -s "$LOG" ] || fail "QA-6: a refused call ran a command"
 
-echo "check-env-check: GREEN (QA-1 good machine 12 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 9 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"
+# QA-8 (Codex report B1): the Codex row. No ~/.codex is no row (QA-1's 12
+# PASS are the control: HOMEFX has none). With one: no hooks.json is WARN NOT
+# WIRED; a gate diagnose lists clean is PASS (the positive control, and the
+# one that proves diagnose was asked: its argv is in the log); a gate drawing
+# findings is WARN; an unreadable file, a diagnose refusal, and a config.toml
+# hooks table beside no hooks.json are CANNOT-ASSESS; config.toml's
+# `[hooks.state]` (trust state) alone is not a hooks table. Each run is held to
+# the same no-write rule, Codex's directory included.
+CX="$HOMEFX/.codex"; mkdir -p "$CX"
+SC_X="$WORK/sc-x"; cp -R "$SC_A" "$SC_X"
+codex_row() { printf '%s\n' "$1" | grep 'codex-gate'; }
+printf '[hooks.state]\n[hooks.state."%s/hooks.json:pre_tool_use:0:0"]\ntrusted_hash = "x"\n' "$CX" > "$CX/config.toml"
+run "$BIN_A" "$SC_X" --checkout "$CO"
+codex_row "$out" | grep -q '^\[WARN\] *codex-gate *NOT WIRED: no .*/hooks.json: a Codex session here patches peer-held files unrefused' ||
+	fail "QA-8: no hooks.json must be WARN NOT WIRED (hooks.state alone is no hooks table):
+$out"
+[ -z "$(shape "$out")" ] || fail "QA-8: shape:$(shape "$out")"
+grep -q '^buddy diagnose' "$LOG" && fail "QA-8: diagnose was run with no hooks.json to read"
+printf '[[hooks.PreToolUse]]\nmatcher = ".*"\n' >> "$CX/config.toml"
+run "$BIN_A" "$SC_X" --checkout "$CO"
+codex_row "$out" | grep -q '^\[CANNOT-ASSESS\] *codex-gate *no .*hooks.json; .*config.toml declares hooks too' ||
+	fail "QA-8: a config.toml hooks table beside no hooks.json must be CANNOT-ASSESS:
+$out"
+printf '[["hooks".PreToolUse]]\nmatcher = ".*"\n' > "$CX/config.toml"
+run "$BIN_A" "$SC_X" --checkout "$CO"
+codex_row "$out" | grep -q '^\[CANNOT-ASSESS\] *codex-gate *no .*hooks.json; .*config.toml declares hooks too' ||
+	fail "QA-8: a quoted hooks table key must still be CANNOT-ASSESS (Codex code pass):
+$out"
+printf '[hooks.state]\n' > "$CX/config.toml"
+printf '{"hooks":{}}\n' > "$CX/hooks.json"
+printf '%s\n' '{"schema":"x","codex_hooks":{"verdict":"marked","commands":[{"event":"PreToolUse","verb":"gate","marker":"codex"}]}}' > "$SC_X/buddy_out"
+run "$BIN_A" "$SC_X" --checkout "$CO"
+codex_row "$out" | grep -q '^\[PASS\] *codex-gate *gate wired fail-closed in .*/hooks.json' || fail "QA-8: a clean gate must PASS:
+$out"
+grep -q "^buddy diagnose --codex-hooks $CX/hooks.json\$" "$LOG" || fail "QA-8: the PASS did not come from buddy diagnose --codex-hooks: $(cat "$LOG")"
+# diagnose runs from /, so it judges no repository and reads no ledger.
+[ "$(cat "$SC_X/buddy_cwd")" = / ] || fail "QA-8: diagnose ran from $(cat "$SC_X/buddy_cwd"), not /"
+[ "$rc" -eq 0 ] && [ -z "$(shape "$out")" ] || fail "QA-8: a PASS row (rc=$rc) shape:$(shape "$out")"
+printf '%s\n' '{"codex_hooks":{"verdict":"marked","commands":[{"event":"PreToolUse","verb":"gate","marker":"codex","finding":"the gate is not wrapped fail-closed"}]}}' > "$SC_X/buddy_out"
+run "$BIN_A" "$SC_X" --checkout "$CO"
+codex_row "$out" | grep -q '^\[WARN\] *codex-gate *NOT WIRED: the gate in .* draws findings' || fail "QA-8: a gate with findings must be WARN:
+$out"
+printf '%s\n' '{"codex_hooks":{"verdict":"no_buddy_command_recognized","commands":[{"event":"PreToolUse","finding":"no PreToolUse buddy gate recognized in this layer"}]}}' > "$SC_X/buddy_out"
+run "$BIN_A" "$SC_X" --checkout "$CO"
+codex_row "$out" | grep -q '^\[WARN\] *codex-gate *NOT WIRED: .*runs no buddy gate on PreToolUse' || fail "QA-8: a layer with no gate must be WARN:
+$out"
+printf 'refused\n' > "$SC_X/buddy_out"; printf '1\n' > "$SC_X/buddy_rc"
+run "$BIN_A" "$SC_X" --checkout "$CO"
+codex_row "$out" | grep -q '^\[CANNOT-ASSESS\] *codex-gate *buddy diagnose --codex-hooks .* refused it' || fail "QA-8: a diagnose refusal must be CANNOT-ASSESS:
+$out"
+rm -f "$SC_X/buddy_rc"
+chmod 000 "$CX/hooks.json"
+if [ -r "$CX/hooks.json" ]; then
+	echo "check-env-check: QA-8's unreadable case NOT RUN (running as a user who can read a mode-000 file)" >&2
+else
+	run "$BIN_A" "$SC_X" --checkout "$CO"
+	codex_row "$out" | grep -q '^\[CANNOT-ASSESS\] *codex-gate *cannot read .*/hooks.json' || fail "QA-8: an unreadable hooks.json must be CANNOT-ASSESS:
+$out"
+fi
+chmod 600 "$CX/hooks.json"
+[ "$(printf '%s\n' "$out" | grep -c '^\[[A-Z-]*\] *codex-gate ')" -eq 1 ] || fail "QA-8: one Codex row, not $(printf '%s\n' "$out" | grep -c codex-gate):
+$out"
+rm -rf "$CX"
+
+echo "check-env-check: GREEN (QA-1 good machine 12 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 9 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"

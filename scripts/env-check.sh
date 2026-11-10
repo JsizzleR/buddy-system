@@ -39,7 +39,9 @@
 # (the volume's indexing state; `-i` would change it and is never run),
 # `ps`, `tmutil destinationinfo|isexcluded`, `pmset -g custom`, `du` of
 # ~/.claude/projects, a directory listing of the harness's scratch root, the
-# user's LaunchAgents plists and `crontab -l`. `go` runs with GOTOOLCHAIN=local
+# user's LaunchAgents plists, `crontab -l`, and, where Codex's directory
+# exists, its config.toml and `buddy diagnose --codex-hooks` of its hooks.json.
+# `go` runs with GOTOOLCHAIN=local
 # and GOTELEMETRY=off: from a checkout pinning a newer toolchain a bare `go
 # version` would download it, and go writes telemetry counters at startup. The done-check
 # (check-env-check.sh) runs it against stubbed commands that log every call
@@ -48,7 +50,10 @@
 # NOT REPEATED HERE (reported by what already reports it, so two reports
 # cannot drift): the hooks, the gate entry, the chat state and the handoff
 # size (`sh scripts/install.sh` ends with them); language servers (`buddy
-# init`); harness compatibility (`buddy diagnose`). The footer says so.
+# init`); harness compatibility (`buddy diagnose`). The footer says so. The
+# Codex gate row is the exception that keeps the rule: install.sh prints it
+# from the same sourced reader (codex-gate-row.sh), so it is one report printed
+# twice, for a user who runs only this script.
 #
 # KNOBS, for the done-check only: BUDDY_ENV_CHECK_TMP (default /tmp) is where
 # the harness's scratch root `claude-<uid>` and the /tmp worktree rule are
@@ -97,7 +102,8 @@ go-cache-trim|Go trims only entries unused 5 days; one cache passed 100 GB insid
 time-machine|a build cache in a Time Machine backup is gigabytes of churn per backup
 ac-sleep|a maintenance sleep on AC froze an unattended run; three checks ran 5-16x slow
 worktrees-tmp|/tmp is a symlink to /private/tmp on macOS, and path checks on a worktree there disagree
-scratch|transcripts and harness scratch grow without bound; 4.7 GB and 6.6 GB on one machine'
+scratch|transcripts and harness scratch grow without bound; 4.7 GB and 6.6 GB on one machine
+codex-gate|plain Codex is gated only by a hand-wired hooks.json, and an absent hook is a silent allow; only where ~/.codex exists'
 
 if [ "$LIST" = 1 ]; then
 	printf '%s\n' "$CHECKS" | while IFS='|' read -r name why; do
@@ -146,6 +152,9 @@ indexing() {
 }
 
 echo "env-check: read-only; it changes nothing, runs no sudo, and reads only what each line names"
+
+# This script's own directory: codex-gate-row.sh ships beside it.
+SCRIPTS=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 # The checkout: --checkout, else the main checkout of the repository around
 # the cwd (worktrees share it), else the one this script ships in.
@@ -406,6 +415,28 @@ elif [ "$pk" -ge 5242880 ] || [ "$sn" -ge 200 ]; then
 	fix "transcripts: cleanupPeriodDays in ~/.claude/settings.json (no sudo; irreversible: a deleted transcript cannot be resumed and the report scripts read them); scratch: delete entries you no longer need under $sdir (no sudo; irreversible)"
 else
 	verdict PASS scratch "transcripts ${pgb} GB, scratch $sn entries under $sdir"
+fi
+
+# codex-gate (Codex report B1): one row, only where Codex's directory exists,
+# from scripts/codex-gate-row.sh, the reader install.sh's report shares, so the
+# two cannot drift. It runs `buddy diagnose --codex-hooks` (a read; cwd /, so
+# no repository and no ledger) and writes nothing in Codex's directory.
+if [ -r "$SCRIPTS/codex-gate-row.sh" ]; then
+	. "$SCRIPTS/codex-gate-row.sh"
+	if codex_gate_row "$(command -v buddy 2>/dev/null || true)"; then
+		case $cgr_state in
+		wired) verdict PASS codex-gate "$cgr_detail" ;;
+		"NOT WIRED")
+			verdict WARN codex-gate "NOT WIRED: $cgr_detail"
+			fix "wire the gate by hand from docs/USAGE.md \"Opt-in wiring\", then trust it in Codex's /hooks (no sudo; reversible: remove the entry)" ;;
+		*)
+			verdict CANNOT-ASSESS codex-gate "$cgr_detail"
+			fix "buddy diagnose --codex-hooks <absolute hooks.json> by hand, as the user" ;;
+		esac
+	fi
+elif [ -d "${CODEX_HOME:-$HOME/.codex}" ]; then
+	verdict CANNOT-ASSESS codex-gate "no $SCRIPTS/codex-gate-row.sh to read Codex's hooks.json with"
+	fix "run this script from a buddy-system checkout"
 fi
 
 echo "env-check: $npass PASS, $nwarn WARN, $nfail FAIL, $ncant CANNOT-ASSESS. A WARN is advice; only a FAIL exits non-zero."
