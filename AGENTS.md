@@ -17,7 +17,9 @@ The operator's request determines the role, not the model name:
   workflow does not build or test. A review verdict is not test evidence. A
   review of adapter code (`internal/harness`, `cmd/buddy-adapter`, the
   qualify/check `.py` scripts, `docs/admissions/`) sets `CODEX_CHARTER=adapter`
-  (D-128).
+  (D-128). A constrained review pass has the charter in its prompt: it opens
+  none of CLAUDE.md, docs/DESIGN.md and docs/review-charter.md (the read line
+  above is for changing the repository, which a review does not do).
 
 Under the Codex sandbox, a driver or worker runs the hermetic tier escalated,
 asked once for the whole tier: `TestAdapterReportsEscapedToolAtClose` reads

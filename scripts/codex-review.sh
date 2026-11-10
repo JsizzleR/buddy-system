@@ -246,6 +246,7 @@ if [ "$SRC" = "-" ]; then cat > "$TMP/raw"; else [ -f "$SRC" ] || die "no such p
 # Both paths on their own lines: check-prose-budget.sh reads them from here.
 CHARTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter.md"
 CHARTER_ADAPTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-adapter.md"
+REVIEWER_LINE='You are a constrained review pass, and the charter above is already in this prompt: do not open CLAUDE.md, docs/DESIGN.md or docs/review-charter.md (AGENTS.md says to read them before CHANGING the repository; a review changes nothing). Read only what the review below asks for.'
 if [ "${CODEX_NO_CHARTER:-0}" != "1" ]; then
   [ -f "$CHARTER" ] || die "docs/review-charter.md is missing (CODEX_NO_CHARTER=1 to skip)"
   cat "$CHARTER" > "$TMP/charter"
@@ -253,7 +254,13 @@ if [ "${CODEX_NO_CHARTER:-0}" != "1" ]; then
     [ -f "$CHARTER_ADAPTER" ] || die "docs/review-charter-adapter.md is missing; CODEX_CHARTER=adapter asked for it"
     { printf '\n\n'; cat "$CHARTER_ADAPTER"; } >> "$TMP/charter"
   fi
-  { cat "$TMP/charter"; printf '\n\n---\n\n'; cat "$TMP/raw"; } > "$TMP/full"
+  # One fixed line after the charter (Codex report A1): of 97 surviving out-files, 84
+  # passes opened CLAUDE.md, 84 docs/DESIGN.md and 80 the charter itself, because
+  # AGENTS.md (which codex loads on every run) says to read them before changing the
+  # repository. The charter is ~28% of a pass's input and rides every request; reading
+  # it again buys nothing. AGENTS.md says the same to a reviewer. Not under
+  # CODEX_NO_CHARTER=1: a pass with no charter may need to read it.
+  { cat "$TMP/charter"; printf '\n\n%s\n' "$REVIEWER_LINE"; printf '\n---\n\n'; cat "$TMP/raw"; } > "$TMP/full"
   mv "$TMP/full" "$TMP/raw"
   CHARTER_NOTE="charter=$(wc -c < "$TMP/charter" | tr -d ' ')B($PARTS)"
 else

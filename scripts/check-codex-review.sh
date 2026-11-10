@@ -126,6 +126,8 @@ has "$O" TRANSCRIPT-ONLY-LINE && fail "ok: the transcript leaked into the out-fi
 has "$O" "# Review charter" && fail "ok: the echoed charter is in the out-file"
 has "$O.transcript" TRANSCRIPT-ONLY-LINE || fail "ok: the transcript is not beside the out-file"
 has "$O.transcript" "# Review charter" || fail "ok: the charter did not reach codex (control for the line above)"
+# A1: the fixed reviewer line rides after the charter and before the review prompt.
+awk '/^# Review charter/ { c = NR } /^You are a constrained review pass, and the charter above/ { l = NR } /^Review this. Do not explore./ { p = NR } END { exit !(c && l && p && c < l && l < p) }' "$T/log.prompt" || fail "ok: the reviewer line is not between the charter and the prompt"
 st=$(tail -1 "$O")
 case $st in "codex-review: status rc=0 exit=0 "*) ;; *) fail "ok: last line is '$st', want the status line" ;; esac
 for k in "header=ok" "model=gpt-6-astra" "effort=xhigh" "tokens=12345" "B(core)" "prompt=" "elapsed="; do
@@ -195,6 +197,8 @@ done
 # Positive control for the knob refusals: valid values run.
 run knobs-ok 0 "$T/out/knobs.txt" CODEX_BUDGET=86400 CODEX_SLOTS=1000 CODEX_WAIT=0
 [ "$launched" -eq 1 ] || fail "knobs-ok: stub launched $launched times, want 1"
+# No charter, no reviewer line: a pass without the charter may need to open it.
+has "$T/log.prompt" "You are a constrained review pass" && fail "knobs-ok: the reviewer line rode a CODEX_NO_CHARTER=1 pass"
 
 # A missing prompt, after the out-file is armed.
 O=$T/out/noprompt.txt; stale "$O"
@@ -247,4 +251,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 11 knob refusals + control, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure)"
+echo "check-codex-review: GREEN (ok + reviewer line, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 11 knob refusals + control, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure)"
