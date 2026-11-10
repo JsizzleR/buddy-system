@@ -462,17 +462,14 @@ END {
 # recorded. Prose after a colon (`self-review: the matcher …`, on old
 # receipts) is no group.
 #
-# The receipt is the body's LAST line beginning `review:` (either case), with
-# the lines after it (it wraps; a trailer may follow); the subject is never
-# read (`review: …` is also a subject prefix here). Its tier is the first word
-# (lite full chore, else other); its layers are its first parenthesis, cut at
-# the first `;` (the scope note), split on ` + `. A layer's kind is a literal
-# from a fixed test on its name: self, panel (a lens too), reverify, design,
-# code, cross-check (a bare model family), else other; a chore's reason reads
-# as `other`. Only those literals, counts, the commit id and its epoch leave
-# awk: no receipt text is printed or exported. The tier, not the claim's
-# class=, is the join: a commit names no claim, and the squash at landing
-# makes a commit the ledger never saw.
+# The reader is scripts/receipts.awk (D-143), shared with receipt-check.sh so
+# the report and the check never read one receipt two ways: the last line
+# beginning `review:`, the subject line never read, the tier its first word,
+# the layers its first parenthesis up to a depth-0 `;`, each layer's kind a
+# literal (self, panel, design, code, cross-check, reverify, other). Only
+# literals, counts, the commit id and its epoch leave it. The tier, not the
+# claim's class=, is the join: a commit names no claim, and the squash at
+# landing makes a commit the ledger never saw.
 #
 # Over HEAD's history, or with --export over `<tsv>.receipts`, appended to
 # like the item register (a row per layer, every commit once, read back as
@@ -496,71 +493,8 @@ if git -C "$PWD" rev-parse -q --verify HEAD >/dev/null 2>&1; then
 	# The record separator is a NUL git prints (%x00): a body's own 0x01
 	# byte is blanked first, so a body cannot forge a commit's header line
 	# (Codex code pass: `\001<40 hex> 1` in a body made a second record).
-	git -C "$PWD" log --no-color --format='%x00%H %ct%n%b' HEAD 2>/dev/null | tr '\001' ' ' | tr '\000' '\001' |
-		LC_ALL=C awk -v OFS='\t' '
-	function kind(n) {
-		n = tolower(n)
-		if (n ~ /(^|[^a-z])self([^a-z]|$)/) return "self"
-		if (n ~ /panel|lens/) return "panel"
-		if (n ~ /re-?verify/) return "reverify"
-		if (n ~ /design/) return "design"
-		if (n ~ /@[^ ]* +code/ || n ~ /(^|[^a-z])code([^a-z]|$)/) return "code"
-		if (n ~ /cross-?check|fable|opus|sonnet|haiku/) return "cross-check"
-		return "other"
-	}
-	function flush(   s, t, p, i, d, c, inner, nl, L, C, j, nm, g, np, P, w, cnt, st, seen, k, out) {
-		if (sha == "" || rc == "") return
-		s = substr(rc, index(tolower(rc), "review:") + 7)
-		t = ""; if (match(s, /[A-Za-z]+/)) t = tolower(substr(s, RSTART, RLENGTH))
-		if (t != "lite" && t != "full" && t != "chore") t = "other"
-		p = index(s, "(")
-		if (!p) { print sha, ct, t, 0, "other", "none", "-", "-", "-", "-"; return }
-		# The first parenthesis, balanced (a layer can hold its own), cut at
-		# a depth-0 `;`; then the layers at a depth-0 ` + `.
-		d = 0; inner = ""
-		for (i = p + 1; i <= length(s); i++) {
-			c = substr(s, i, 1)
-			if (c == "(") d++
-			else if (c == ")") { if (!d) break; d-- }
-			else if (c == ";" && !d) break
-			inner = inner c
-		}
-		# Depth-0 only, both: a parenthesis inside a layer may hold a ` + ` or
-		# a colon (`code (API + CLI): 2 raised`, `code (scope: x): 2 raised`;
-		# Codex code pass), so the group starts at the LAST depth-0 colon.
-		nl = 1; L[1] = ""; C[1] = 0; d = 0
-		for (i = 1; i <= length(inner); i++) {
-			c = substr(inner, i, 1)
-			if (c == "(") d++
-			else if (c == ")" && d) d--
-			if (!d && substr(inner, i, 3) == " + ") { nl++; L[nl] = ""; C[nl] = 0; i += 2; continue }
-			L[nl] = L[nl] c
-			if (!d && c == ":") C[nl] = length(L[nl])
-		}
-		for (j = 1; j <= nl; j++) {
-			c = C[j]; nm = c ? substr(L[j], 1, c - 1) : L[j]
-			cnt["raised"] = cnt["fixed"] = cnt["answered"] = cnt["reproduced"] = "-"
-			st = "none"
-			g = c ? substr(L[j], c + 1) : ""
-			if (g ~ /^ *[0-9]/) {
-				st = "recorded"; split("", seen)
-				np = split(g, P, ",")
-				for (k = 1; k <= np; k++) {
-					w = P[k]; gsub(/^ +| +$/, "", w)
-					if (w !~ /^[0-9]+ +(raised|fixed|answered|reproduced)$/) { st = "malformed"; break }
-					sub(/ +/, " ", w); split(w, out, " ")
-					if (out[2] in seen) { st = "malformed"; break }
-					seen[out[2]] = 1; cnt[out[2]] = out[1] + 0
-				}
-				if (st == "malformed") cnt["raised"] = cnt["fixed"] = cnt["answered"] = cnt["reproduced"] = "-"
-			}
-			print sha, ct, t, j, kind(nm), st, cnt["raised"], cnt["fixed"], cnt["answered"], cnt["reproduced"]
-		}
-	}
-	/^\001/ { flush(); sha = substr($0, 2, index($0, " ") - 2); ct = substr($0, index($0, " ") + 1); rc = ""; on = 0; next }
-	tolower($0) ~ /^review:/ { on = 1; rc = "" }
-	on { rc = rc " " $0 }
-	END { flush() }' >"$work/receipts.tsv"
+	git -C "$PWD" log --no-color --format='%x00%H %ct%n%B' HEAD 2>/dev/null | tr '\001' ' ' | tr '\000' '\001' |
+		LC_ALL=C awk -v OFS='\t' -f "$(dirname -- "$0")/receipts.awk" >"$work/receipts.tsv"
 else
 	rsrc="receipts NOT MEASURED: not a git checkout"
 fi

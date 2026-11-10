@@ -11182,6 +11182,76 @@ roster in any window); a mid-turn notice from `beat`, once per step through
 28 requests in the week): not built, the overrun being accepted. Take it up
 if a later overrun is measured to be NEW work past the size.
 
+## D-143 — D-104's receipt check is a report over a range, never a gate; the receipt reader is one file (issue #87; amends D-104, D-141)
+
+2026-11-10. Issue #87, D-104's and D-141's "Not done"; the operator's "do the
+lane followups now" (orc-18's pane, about 17:40Z), relayed by orc-18.
+
+**The failure** — D-104 said what each tier owes and deferred the check
+until receipts had a shape; D-141 built the parser and deferred it again.
+Nothing held a commit to its tier. Read over main at `980ea65` by the new
+script: 284 commits, 195 at or before D-104 (not held), 89 held, 10 findings
+on 9 of them, all from 2026-10-26/27: five `full` receipts written as prose
+after an em dash with no layer list (`94ce7c9`, `9959d90`, `d78fb42`,
+`81ee7d1`, `06c511c`, the D-106 rounds), one lite naming neither a self
+review nor a code pass (`dc1b37a`), two lites naming no self review
+(`f5e36b7`, `88fa5fc`), and one (`26e6003`) naming it only in its scope note,
+after the `;`, which is not read as a layer (Codex code pass; answered, not
+folded: reading the note as layers would let `; fable cross-check on the
+cap`, with no skip word, pass a full). Also found: a receipt written straight
+under the subject (no blank line) was not read at all (`%b` drops the
+subject's paragraph), and a prose receipt's first parenthesis, anywhere in
+it, was read as its layer list.
+
+**The rule** — `scripts/receipt-check.sh [<range>]` (default HEAD) prints,
+per held commit, each layer its tier owes and its receipt does not name:
+full owes panel, design, code, cross-check and reverify (no re-verify when a
+code layer wrote `0 raised`); lite owes self and code; a chore owes a reason
+(a parenthesis). Also: no receipt line, no tier word, a lite or full with no
+layer list, and after D-141 a malformed count group. A layer skipped on the
+operator's word passes when a scope-note segment names it with `skip`,
+`skipped` or `waived` (`57c11b0`, `0deb3a4`); the reason's wording is not
+judged. Commit ids, literals and counts only. It **refuses nothing and exits
+0 when it ran**: `check.sh hermetic` is the pre-push tier, and a landed
+commit's message cannot change without rewriting main, so a red over history
+would refuse every push for a commit nobody can fix; a refusal at commit
+time would be a new gate, the full tier. Where it runs: on demand, the
+integrator's `main..<run tip>` before landing, or all of HEAD. The cuts are
+COMMITTER epochs (D-104 `0e1a5d9`, D-141 `ffaf5bf`), not ancestor tests, so a
+rewritten main keeps them; a commit at the cut is not held.
+
+The reader moved, unchanged but for three folds, to `scripts/receipts.awk`,
+which `model-report.sh` and the check both run, so the two never read a
+receipt two ways: `%B` with only the subject LINE skipped (a `review: …`
+subject is still never read); the layer list only straight after the tier
+word; a bare `codex@<effort>` layer is the code pass (D-104's first lites,
+which read as `other`).
+
+- **Not done.** The two respellings #87's item 3 names (a case variant and a
+  trailing-newline sibling) are `scripts/cost-report.sh`'s foreign-sibling
+  exclusions, from the Codex pass on #77 (`1a11bc8`), not the receipt
+  parser's: left open there. A receipt check at commit or push time (a
+  gate: full tier, not asked). Judging a skip's reason. The `--end-of-options`
+  behind the leading-dash refusal is untested while the refusal stands.
+
+**Tests** — `check-receipt-check.sh` plants 29 commits at chosen epochs (each
+finding beside a passing twin: each of full's five layers and lite's two
+gone, a skip with and without its word, `0` and `1 raised` with no
+re-verify, a bare Codex pass and a Codex cross-check, a chore with and
+without a reason, no receipt, no tier (with a malformed group), the em-dash
+prose, malformed counts either side of D-141, a commit at the D-104 epoch
+and one a second later, a receipt in the subject's paragraph and a subject
+alone, a canary), a range, and the refusals (an option-shaped range writes
+no file, exit 2; two ranges; a range git cannot read, exit 1). Each of
+nineteen mutants dies on its own fixture (`%b` back, the subject line read,
+no bare-Codex kind, a loose one, design held as panel, the internal tier
+printed, the first parenthesis anywhere, no skip rows, any note a skip, a
+skip not counted, the D-104 cut `<` or gone, the D-141 cut gone, re-verify
+always owed, no `absent` row, a chore's finding misworded, the leading-dash
+refusal gone, `owe` ignoring what is named; `model-report.sh` on `%b` dies
+in `check-model-report.sh`). Review: lite (self + codex@xhigh code: 4
+raised, 3 fixed, 1 answered, 2 reproduced).
+
 ## D-144 — A timed-out Claude lane start costs its whole timeout, so lanes start in parallel and a timed-out start is never retried (amends D-122)
 
 2026-11-10. No issue: the operator gave the item in orc-18's pane at 17:55Z.

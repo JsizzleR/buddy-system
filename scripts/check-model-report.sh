@@ -287,6 +287,7 @@ $fl"
 
 # The audit's control: the same report with the slugs printed must fail it.
 cp scripts/model-report.sh "$WORK/leaky.sh"
+cp scripts/receipts.awk "$WORK/receipts.awk" # its receipts reader, found beside it (D-143)
 echo "echo 'SELECT slug FROM claims;' | q" >>"$WORK/leaky.sh"
 report "$WORK/leaky.sh" >"$WORK/leaky.txt" || fail "the leaky control exited non-zero"
 audit "$WORK/leaky.txt" >/dev/null && fail "the audit's control failed: a report that prints the slugs passed it"

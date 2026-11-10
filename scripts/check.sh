@@ -202,6 +202,7 @@ if [ "$run_hermetic" = 1 ]; then
   done_check wake-report
   done_check fleet-report
   done_check model-report
+  done_check receipt-check
   done_check subagent-report
   done_check libc-pin
   done_check prose-budget
@@ -221,7 +222,7 @@ if [ "$run_hermetic" = 1 ]; then
   # and a planted control it must agree with (b ran; a required check that
   # did not run and a discovered one that did not run are both reported, and
   # the one that ran is not).
-  required="commit-gate pre-push local-hooks fence charter index wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report subagent-report libc-pin prose-budget cost-report env-check leftover-report uninstall"
+  required="commit-gate pre-push local-hooks fence charter index wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report receipt-check subagent-report libc-pin prose-budget cost-report env-check leftover-report uninstall"
   wiring() { # <ran> <required> <discovered> — every name in the last two not in the first
     for n in $2 $3; do
       case "$1" in *" $n "*) ;; *) echo "$n" ;; esac

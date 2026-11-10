@@ -1238,6 +1238,10 @@ ledger row entered through the CLI (D-006).
     alone. Accepted, not defects: a FRESH ledger is created by any build (a dev build's `init` in an
     un-inited repo can stamp a newer schema), hooks wired to another path refuse until
     `BUDDY_MIGRATE=1 buddy init`, a fixture HOME passes. Do not propose these without new evidence.
+126. **D-104's receipt check is a report over a range, never a gate (D-143).** `receipt-check.sh`
+    prints a tier's owed layers a receipt does not name, exits 0, and refuses no commit or push (a red
+    over landed history in the pre-push tier would block every push); not held at or before D-104's
+    epoch. Do not propose making it refuse without new evidence.
 
 ## Environment facts (measured, do not re-derive)
 
