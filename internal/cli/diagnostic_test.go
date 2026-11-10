@@ -168,8 +168,10 @@ func TestDiagnoseCodexHookMarkers(t *testing.T) {
 		finding   string
 		noFinding bool
 	}{
-		{"marked gate", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=codex /abs/bin/buddy gate"}}, "marked", 0, "", true},
-		{"marked through env", map[string][]string{"PreToolUse": {"env BUDDY_HARNESS='codex' /abs/bin/buddy gate"}}, "marked", 0, "", true},
+		// The no-finding controls wear USAGE's fail-closed wrapper: a bare
+		// gate line draws the fail-open finding (diagnostic_failopen_test.go).
+		{"marked gate", map[string][]string{"PreToolUse": {failClosed("BUDDY_HARNESS=codex /abs/bin/buddy gate")}}, "marked", 0, "", true},
+		{"marked through env", map[string][]string{"PreToolUse": {failClosed("env BUDDY_HARNESS='codex' /abs/bin/buddy gate")}}, "marked", 0, "", true},
 		{"unmarked gate", map[string][]string{"PreToolUse": {"/abs/bin/buddy gate"}}, "unmarked", 1, "classified as a Claude hook", false},
 		{"one of two unmarked", map[string][]string{"PreToolUse": {"BUDDY_HARNESS=codex /abs/bin/buddy gate", "/abs/bin/buddy gate"}}, "unmarked", 1, "classified as a Claude hook", false},
 		{"unmarked lifecycle", map[string][]string{"PostToolUse": {"/abs/bin/buddy beat"}}, "unmarked", 1, "without its captured token", false},
@@ -222,7 +224,10 @@ func TestDiagnoseCodexHookMarkers(t *testing.T) {
 func TestDiagnoseCodexHookGateCoverage(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
-	const absoluteGate = "BUDDY_HARNESS=codex /abs/bin/buddy gate"
+	// Wrapped fail-closed, so the no-finding controls owe no fail-open finding
+	// (diagnostic_failopen_test.go); the bare cases below draw it beside the
+	// one they test, and the presence check covers only these three.
+	absoluteGate := failClosed("BUDDY_HARNESS=codex /abs/bin/buddy gate")
 	const missingGate = "no PreToolUse buddy gate"
 	const badMatcher = "matcher does not satisfy the apply_patch and Bash coverage contract"
 	const relativeCommand = "buddy command word is not an absolute path"
@@ -237,11 +242,11 @@ func TestDiagnoseCodexHookGateCoverage(t *testing.T) {
 		{"positive control", "PreToolUse", "^(apply_patch|Bash)$", absoluteGate, "marked", nil},
 		// D-107: USAGE's fail-closed wrapper is read through its brace group,
 		// and the echo's "buddy gate failed" is an argument, not a command.
-		{"fail-closed wrapper", "PreToolUse", "^(apply_patch|Bash)$", `{ ` + absoluteGate + `; } 2>/dev/null || { echo "buddy gate failed (status $?); refusing the tool call (the gate fails closed). Operator: rebuild the binary this hook names" >&2; exit 2; }`, "marked", nil},
+		{"fail-closed wrapper", "PreToolUse", "^(apply_patch|Bash)$", `{ BUDDY_HARNESS=codex /abs/bin/buddy gate; } 2>/dev/null || { echo "buddy gate failed (status $?); refusing the tool call (the gate fails closed). Operator: rebuild the binary this hook names" >&2; exit 2; }`, "marked", nil},
 		{"reverse order", "PreToolUse", "^(Bash|apply_patch)$", absoluteGate, "marked", nil},
 		{"empty matcher covers all", "PreToolUse", "", absoluteGate, "marked", nil},
 		{"dot star covers all", "PreToolUse", ".*", absoluteGate, "marked", nil},
-		{"env absolute control", "PreToolUse", ".*", "env BUDDY_HARNESS=codex '/abs path/buddy' gate", "marked", nil},
+		{"env absolute control", "PreToolUse", ".*", failClosed("env BUDDY_HARNESS=codex '/abs path/buddy' gate"), "marked", nil},
 		{"no hooks", "", "", "", "no_buddy_command_recognized", []string{missingGate}},
 		{"no buddy command", "PreToolUse", ".*", "/usr/bin/true", "no_buddy_command_recognized", []string{missingGate}},
 		{"wrong event", "PostToolUse", ".*", absoluteGate, "marked", []string{missingGate}},

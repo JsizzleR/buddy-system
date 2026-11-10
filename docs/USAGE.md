@@ -2979,7 +2979,13 @@ recognized `PreToolUse` buddy gate, a gate matcher outside the shared
 `apply_patch` and `Bash` coverage contract, and a buddy command word that is not
 an absolute path. The admitted matchers are empty, `.*`, `^(apply_patch|Bash)$`
 and `^(Bash|apply_patch)$`; broader regular expressions are not guessed. A
-missing gate appears as a `PreToolUse` finding without a verb. These findings
+missing gate appears as a `PreToolUse` finding without a verb. A gate whose
+command is not the fail-closed line of "Opt-in wiring" (the gate call alone,
+only `2>/dev/null`, then `|| { echo <text> >&2; exit 2; }`) is a finding, because Codex lets the call
+through when the hook fails, and exit 2 with an empty stderr is a failure too;
+so is an `async: true` gate, which cannot block. Only that shape is recognized:
+another spelling draws the finding even if it would fail closed. A missing
+`timeout` is not one (Codex's PreToolUse default is 600 s). These findings
 do not change the marker verdicts: `marked` alone does not mean gate coverage.
 Commands are parsed with
 the gate's shell parser, parse only; `env NAME=value` prefixes are read, a

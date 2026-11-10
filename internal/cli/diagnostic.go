@@ -193,6 +193,24 @@ func diagnosticJSON(path string, dst any) (string, error) {
 // the native admission matcher contract rather than a second regexp policy.
 // Exit 0 still means only that a report was produced: a layer on disk is not
 // the effective configuration Codex loaded, trusted or ran.
+//
+// A GATE LINE THAT FAILS OPEN (Codex report B2, amending D-107's reach). Codex
+// lets the call through when a PreToolUse hook fails: a timeout, a spawn
+// error, a signal, any exit but 0 and 2, and exit 2 with nothing on stderr
+// (codex-rs/hooks events/pre_tool_use.rs; the installed 0.166.0 carries the
+// same messages). A bare gate line whose buddy cannot decide (SIGKILL after `cp`
+// over the running Mach-O, a corrupt binary's 126, a missing one's 127) was
+// reported `marked` with no finding. (A Go panic exits 2 with its trace on
+// stderr, which Codex happens to block on; the wrapper makes every death one
+// refusal with a fixed reason.) Each PreToolUse gate now draws a finding unless its
+// command is USAGE's fail-closed shape, and an `async: true` gate draws one
+// because an async hook applies no control effect at all. Recognition is of
+// that one shape, narrowly: a respelling that would also fail closed (`if !`,
+// `sh -c`, a wrapper script) draws the finding, the safe direction for a report,
+// and stays open rather than being guessed. A missing `timeout` draws nothing:
+// Codex defaults a PreToolUse hook to 600 s, the gate answers in milliseconds,
+// and an expired timeout fails open whichever value is set. The verdict word
+// stays the marker verdict: diagnose grants and promotes nothing (D-071..D-081).
 
 type codexHookDiagnostic struct {
 	SHA256       string             `json:"sha256"`
@@ -223,6 +241,7 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 			Hooks   []struct {
 				Type    string `json:"type"`
 				Command string `json:"command"`
+				Async   bool   `json:"async"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -250,6 +269,12 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 						gateFound = true
 						if !harness.CodexGateCoversWrites(group.Matcher) {
 							c.addFinding("the PreToolUse gate matcher does not satisfy the apply_patch and Bash coverage contract")
+						}
+						if !failClosedGateLine(h.Command) {
+							c.addFinding(gateFailsOpenFinding)
+						}
+						if h.Async {
+							c.addFinding("the gate hook is async: Codex runs it in the background, so it cannot block the call")
 						}
 					}
 					switch {
@@ -280,6 +305,164 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 		d.Verdict = "no_buddy_command_recognized"
 	}
 	return d, nil
+}
+
+const gateFailsOpenFinding = "the gate is not wrapped fail-closed: a buddy that is killed or cannot run fails this hook and Codex lets the call through; use USAGE's line, { ... gate; } 2>/dev/null || { echo <reason> >&2; exit 2; } (D-107)"
+
+// failClosedGateLine reports whether a hook command is USAGE's fail-closed
+// gate line: exactly one statement, `<gate> || { echo|printf ... >&2; exit 2; }`,
+// where <gate> is the buddy gate call alone, bare or as the one statement of a
+// brace group, with only stderr redirected. Each clause is a way the line
+// fails open, each a case in diagnostic_failopen_test.go: stdout redirected
+// loses the deny JSON; anything after the gate inside the group (`exit 0`)
+// masks its death; `|| exit 2` alone exits 2 with an empty stderr, which Codex
+// does not block on; a negated or backgrounded statement, or a second one,
+// decides the hook's status instead.
+func failClosedGateLine(command string) bool {
+	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
+	if err != nil || len(file.Stmts) != 1 {
+		return false
+	}
+	s := file.Stmts[0]
+	if !plainStmt(s) || len(s.Redirs) != 0 {
+		return false
+	}
+	or, ok := s.Cmd.(*syntax.BinaryCmd)
+	if !ok || or.Op != syntax.OrStmt {
+		return false
+	}
+	return gateOperand(or.X) && refusalOperand(or.Y)
+}
+
+func plainStmt(s *syntax.Stmt) bool {
+	return s != nil && !s.Negated && !s.Background && !s.Coprocess
+}
+
+// onlyStderrRedirected: every redirect is exactly `2>/dev/null`, so the gate's
+// stdout (its deny JSON) still reaches Codex. Any fd-2 redirect was not enough
+// (Codex code pass): `2>&1-` moves stdout onto stderr and closes it, so a deny
+// is lost and the `||` never runs.
+func onlyStderrRedirected(s *syntax.Stmt) bool {
+	for _, r := range s.Redirs {
+		if r.Op != syntax.RdrOut || r.N == nil || r.N.Value != "2" || r.Word == nil {
+			return false
+		}
+		if w := decodeWord(r.Word); !w.known || w.text != "/dev/null" {
+			return false
+		}
+	}
+	return true
+}
+
+func gateOperand(s *syntax.Stmt) bool {
+	if !plainStmt(s) || !onlyStderrRedirected(s) {
+		return false
+	}
+	if b, ok := s.Cmd.(*syntax.Block); ok {
+		if len(b.Stmts) != 1 {
+			return false
+		}
+		s = b.Stmts[0]
+		if !plainStmt(s) || !onlyStderrRedirected(s) {
+			return false
+		}
+	}
+	call, ok := s.Cmd.(*syntax.CallExpr)
+	return ok && isBuddyGateCall(call)
+}
+
+// isBuddyGateCall: `[env] [NAME=value...] <.../buddy> gate` and nothing after
+// the verb, fixed literals. The marker and the path are codexHookCalls'
+// findings. An argument is refused (Codex code pass): `gate --help` prints the
+// usage and exits 0 without deciding anything.
+func isBuddyGateCall(call *syntax.CallExpr) bool {
+	args := call.Args
+	if len(args) > 0 {
+		if w := decodeWord(args[0]); w.known && path.Base(w.text) == "env" {
+			args = args[1:]
+			for len(args) > 0 {
+				w := decodeWord(args[0])
+				name, _, isAssign := strings.Cut(w.text, "=")
+				if !w.known || !isAssign || !validEnvName(name) {
+					break
+				}
+				args = args[1:]
+			}
+		}
+	}
+	if len(args) != 2 {
+		return false
+	}
+	cmd, verb := decodeWord(args[0]), decodeWord(args[1])
+	return cmd.known && path.Base(cmd.text) == "buddy" && verb.known && verb.text == "gate"
+}
+
+// refusalOperand: `{ echo <text> >&2; exit 2; }` and nothing else. Codex blocks
+// on exit 2 only when its trimmed stderr is not empty, so the reason is owed and
+// must be visibly non-empty (Codex code pass): an empty `printf` and `echo "" >&2` print
+// nothing, and `echo x 2>/dev/null >&2` sends the reason to /dev/null, so
+// the one redirect allowed is `>&2` and echo needs a word with literal text.
+func refusalOperand(s *syntax.Stmt) bool {
+	if !plainStmt(s) || len(s.Redirs) != 0 {
+		return false
+	}
+	b, ok := s.Cmd.(*syntax.Block)
+	if !ok || len(b.Stmts) != 2 {
+		return false
+	}
+	say, exit := b.Stmts[0], b.Stmts[1]
+	if !plainStmt(say) || !plainStmt(exit) || len(exit.Redirs) != 0 {
+		return false
+	}
+	echo, ok := say.Cmd.(*syntax.CallExpr)
+	if !ok || len(echo.Args) == 0 {
+		return false
+	}
+	if w := decodeWord(echo.Args[0]); !w.known || w.text != "echo" {
+		return false
+	}
+	text := false
+	for _, a := range echo.Args[1:] {
+		text = text || wordHasText(a)
+	}
+	if !text || len(say.Redirs) != 1 {
+		return false
+	}
+	r := say.Redirs[0]
+	if r.Op != syntax.DplOut || r.N != nil || r.Word == nil {
+		return false
+	}
+	if w := decodeWord(r.Word); !w.known || w.text != "2" {
+		return false
+	}
+	call, ok := exit.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Assigns) != 0 || len(call.Args) != 2 {
+		return false
+	}
+	e, code := decodeWord(call.Args[0]), decodeWord(call.Args[1])
+	return e.known && e.text == "exit" && code.known && code.text == "2"
+}
+
+// wordHasText: the word carries literal text that is not blank and is not an
+// echo option (`-n`, `-e`), so echo prints something whatever it expands to.
+func wordHasText(w *syntax.Word) bool {
+	var lit strings.Builder
+	var walk func(parts []syntax.WordPart)
+	walk = func(parts []syntax.WordPart) {
+		for _, p := range parts {
+			switch p := p.(type) {
+			case *syntax.Lit:
+				lit.WriteString(p.Value)
+			case *syntax.SglQuoted:
+				lit.WriteString(p.Value)
+			case *syntax.DblQuoted:
+				walk(p.Parts)
+			}
+		}
+	}
+	walk(w.Parts)
+	t := strings.TrimSpace(lit.String())
+	return t != "" && !strings.HasPrefix(t, "-")
 }
 
 func (c *codexHookCommand) addFinding(finding string) {

@@ -8193,6 +8193,50 @@ among them; M21 and M22
 codex@xhigh code + opus@xhigh cross-check, the operator's choice, not fable +
 codex@xhigh reverify x3).
 
+### 2026-11-10 continuation: `diagnose --codex-hooks` finds a gate line that fails open (Codex report B2)
+
+A bare `BUDDY_HARNESS=codex /abs/buddy gate` was reported `marked` with no
+finding, though Codex lets the call through when a PreToolUse hook fails. Read
+from codex-rs/hooks (events/pre_tool_use.rs, engine/discovery.rs; the installed
+0.166.0 binary carries the same messages): a timeout, a spawn error, a signal,
+any exit but 0 and 2, and exit 2 with an EMPTY stderr are each a failed hook,
+not a block; an `async: true` hook applies no control effect; `timeout` is in
+seconds, 600 by default on PreToolUse, at least 1. So a killed, corrupt or
+missing buddy behind a bare line lets the patch through (a Go panic exits 2 with
+its trace on stderr, which Codex blocks on), and `|| exit 2` alone does not help.
+
+Each PreToolUse gate now draws a finding unless its command is the "Opt-in
+wiring" shape: one statement, the gate call alone (bare or the one statement of
+a brace group, no argument after `gate`, redirected only by `2>/dev/null`),
+`||`, then a group of exactly `echo` with literal text, its one redirect `>&2`,
+and `exit 2`. An async gate draws its own finding. A missing
+`timeout` draws none: the default is long, the gate answers in milliseconds, and
+any timeout that expires fails open whatever its value. The verdict word stays
+the marker verdict, because diagnose describes a file and grants or promotes
+nothing (D-071..D-081). Recognition is narrow (D-115): a respelling that would
+also fail closed (`if ! ...; then`, a wrapper script, `sh -c`) draws the
+finding, the safe direction for a report, and is recorded open, not guessed.
+
+Tests: `diagnostic_failopen_test.go`, 51 layers. The documented line (also with
+`async: false` and with a `timeout`) is the positive control; the bare line,
+`; exit 0`, `|| true`, `|| exit 2`, `&&`, the reason on stdout, from `true`, or
+discarded, `exit 1`, stdout discarded, `exit 0` inside the group, negated,
+backgrounded, a trailing statement, `exit 2` not last, async, an unmarked line,
+and the Codex code pass's four (an empty `printf ''` or `echo ""` reason, the
+reason sent to /dev/null before `>&2`, `2>&1-` closing stdout, `gate --help`)
+each draw it with their verdict unchanged, as do one input per clause that a
+mutation run first found unguarded (a malformed `exit`, a negated or
+backgrounded reason, a reason to fd 1, from fd 3 or to a file named `2`, a
+bare assignment as the reason, the gate's stdout discarded or negated inside
+the group, an explicit `1>`, a blank reason, `printf`, `2>>`, `2>file`, a
+wrapped call that is not the gate; a single-quoted reason is a positive
+control). Mutation: two rounds in private copies, 78 mutants. Each reachable
+survivor got a row whose input separates it from the pristine code. Three are
+equivalent: a redirect on a top-level `||`, a coprocess, which never reaches
+the check, and an `env` word that is not a name, a gate `codexHookCalls` never
+recognizes. The bare-line cases failed against the tree before the
+check. The older tables' no-finding controls now wear the wrapper.
+
 ## D-108 — The gate refuses gh stack's rewriting subcommands without `.buddy/slot/gh-stack`
 
 2026-10-27. The operator (17:00): a known hazard gets enforcement with the
