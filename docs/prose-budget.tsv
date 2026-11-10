@@ -13,16 +13,16 @@ CLAUDE.md#Decisions	12288	2026-10-28 index-topical (D-118), lowered	the index, t
 skills/buddy/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 543 at landing
 skills/buddy-fleet/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 542 at landing
 skills/buddy-lead/SKILL.md:description	4096	2026-10-29 buddy-lead (D-121)	every session's skills listing; 613 at landing
-per-session	90112	2026-10-28 operator (D-116)	class total: every skill body, core + fleet + lead (a coordinator loads the first two; D-121 added the third inside this ceiling); 79,965 after D-122, the formula still gives 90,112
+per-session	94208	2026-11-10 operator (relayed by orc-17)	class total: every skill body, core + fleet + lead (a coordinator loads the first two; D-121 added the third inside this ceiling); 90,108 at the raise for the #75-#84 batch, raised by 4 KB, under the formula's 102,400, since every session carries it
 skills/buddy/SKILL.md	28672	2026-10-28 operator (D-116)	core: what every session that loads the skill needs; 23,819 at landing (after D-114)
-skills/buddy-fleet/SKILL.md	57344	2026-10-29 prose-trim (D-122), lowered	coordinators only; 49,649 at landing (after D-122: review defers to the core, gh stack narrative to D-108/D-122)
+skills/buddy-fleet/SKILL.md	61440	2026-11-10 operator (relayed by orc-17)	coordinators only; 49,649 at landing (after D-122: review defers to the core, gh stack narrative to D-108/D-122); 57,318 at the raise for the #75-#84 batch, raised by 4 KB inside the per-session total
 skills/buddy-lead/SKILL.md	8192	2026-10-29 buddy-lead (D-121)	a first-time user's helper: asks, routes to the other two skills and the docs, points at scripts/env-check.sh; 6,461 at landing
 read-first	1196032	2026-11-06 operator (D-116)	class total: what CLAUDE.md's Read this first and AGENTS.md's read paragraph name; 985,707 at landing, today's list; raised at 1,085,400 of 1,085,440, to the formula's value; step 3 decides what stays
 README.md	28672	2026-10-28 operator (D-116)	named in Read this first; 22,566 at landing
 docs/README.md	4096	2026-10-28 operator (D-116)	named in Read this first; 3,385 at landing
 docs/DESIGN.md	16384	2026-10-28 operator (D-116)	named in Read this first and by AGENTS.md; 11,650 at landing
 docs/USAGE.md	188416	2026-10-28 operator (D-116)	named in Read this first as the per-feature reference; 169,395 at landing
-docs/decisions.md	761856	2026-10-29 operator (D-116)	named in Read this first since D-112, read by heading (452 of 453 calls); 681,019 at the raise (97.2% of 700,416), set by the formula at 691,000 for run42 (D-123 + a D-118 amendment); grows 5-9 KB a decision; the read-first total binds first, near 737,000
+docs/decisions.md	839680	2026-11-10 operator (relayed by orc-17)	named in Read this first since D-112, read by heading (452 of 453 calls); 761,786 at the raise for the #75-#84 batch (ten items, 5-9 KB a decision), set by the formula (landed size + 10%, rounded up to 4,096); the read-first total binds next, near 1,241,088
 codex-pass	114688	2026-11-02 charter-split (D-128), lowered	class total: AGENTS.md + the charter, on every Codex pass without CODEX_CHARTER=adapter; 103,933 at landing (adapter GIVENs as stubs)
 docs/review-charter.md	110592	2026-11-02 charter-split (D-128), lowered	prepended to every Codex pass, and named in Read this first; 99,183 at landing (adapter GIVENs 72 76 78 80 81 82 as one-line stubs); GIVENs topical from D-116
 docs/review-charter-adapter.md	12288	2026-11-02 charter-split (D-128)	the stubbed adapter GIVENs in full, appended only on CODEX_CHARTER=adapter (codex-review.sh's CHARTER_ADAPTER= line; in no class total); 8,171 at landing
