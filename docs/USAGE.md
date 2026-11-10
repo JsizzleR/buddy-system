@@ -799,7 +799,18 @@ buddy sweep                       # tidies released/orphaned claims; never reaps
 buddy sweep --force               # also frees claims whose holder went silent: the operator's act
 ```
 
-A paused session's next mutating tool call is denied, with the note. `sweep
+A paused session's next tool call that this ledger governs is denied, with the
+note: every call but a read-only one (Read, Grep, ...) from a cwd inside the
+repository, a file tool's write into it from anywhere, and a shell command
+that changes into it LITERALLY (`cd <repo>`, `pushd`, `git -C <repo>`, `env
+-C`, `sudo -D`) from anywhere, also inside a quoted operand (`su -c '...'`,
+`watch '...'`), which is why `logger 'cd <repo>'` from a paused session is
+denied too (D-138). Not stopped, because the gate cannot
+place them: a command from outside the repository that reaches it through a
+variable (`cd "$d"`), a command substitution, a script or Makefile that
+changes directory, or a write by absolute path with no `cd` (`echo x >
+<repo>/f`), or a repository past the fourth distinct repository or plain
+directory one command reaches (the hook's latency bound). Enforcement is cooperative (D-005). `sweep
 --dry-run` is the real sweep rolled back inside its transaction, so what it
 prints is what a sweep would do.
 
@@ -1154,8 +1165,9 @@ the state column of its own row.
 
 The annotations after the id are what an orchestrator picks on:
 
-- `PAUSED` — the operator's brake is on this session. Its next mutating tool
-  call will be **denied**, and without this the row just says `live`.
+- `PAUSED` — the operator's brake is on this session. Its next tool call this
+  ledger governs will be **denied** (the brake section says which), and
+  without this the row just says `live`.
 - `idle 7m` — the session finished a turn that long ago and has run no tool
   since: it is waiting for a human, not working. This is the annotation that
   inverts the default order's meaning — `seen` ranks the session hardest at

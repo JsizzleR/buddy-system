@@ -715,7 +715,8 @@ ledger row entered through the CLI (D-006).
     ledger governs; read-only tools pass. Lexical and physical spellings, each followed and as
     the link entry, plus a dangling link's target, are all checked; any held refuses. A home
     claim covering a path inside a nested repo still refuses. A target repo's pause applies to
-    a cross-repo edit. Do not propose parsing shell-routed patches, refusing identity
+    a cross-repo edit, and to a shell command's literal `cd`/`git -C` into it (at most four
+    reached keys; variables, scripts and absolute-path writes stay open, D-138). Do not propose parsing shell-routed patches, refusing identity
     conflicts machine-wide, or checking one spelling.
 
 75. **`buddy-adapter` is the one opt-in exception to "buddy launches, wakes and ends nothing"

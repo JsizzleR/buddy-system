@@ -2712,6 +2712,9 @@ func cmdGate(args []string, env Env) int {
 	}()
 	route := shellPatchRoute(h)
 	shellPatch := route.refuses()
+	// shellCmd is shellPatchRoute's own condition: a command the shell walker
+	// reads for literal directory changes.
+	shellCmd := h.ToolName != "apply_patch" && h.ToolInput.Command != ""
 	if idErr != nil || (st == nil && shellPatch) {
 		// Two refusals that hold only where a ledger governs. With a home
 		// ledger that is settled; without one, the call is governed exactly
@@ -2746,6 +2749,15 @@ func cmdGate(args []string, env Env) int {
 				// unseen placements remain outside the cooperative observation.
 				why = fmt.Sprintf("buddy gate cannot place shell patch routing (%s); use the apply_patch tool", fence.Line(routeErr.Error(), 512))
 			}
+		} else if shellCmd {
+			// Any other shell command reaches a governed repo through the same
+			// literal directory changes: with conflicting native ids, `cd
+			// <governed> && make` from a plain cwd discovered nothing and
+			// passed (#81's Codex design pass, P1). The same bounded set the
+			// brake reads, without the cwd, already answered (latency lens).
+			for _, r := range reachedDirs(h, env, false) {
+				dirs = append(dirs, r.dir)
+			}
 		}
 		if reason := governedAny(h, env, dirs, why, targetRepos); reason != "" {
 			deny(env, reason)
@@ -2771,6 +2783,12 @@ func cmdGate(args []string, env Env) int {
 		}
 		if shellPatch {
 			deny(env, shellPatchReason(h, route))
+			return 0
+		}
+	}
+	if shellCmd {
+		if reason := gateReachedBrakes(h, env, st != nil, targetRepos); reason != "" {
+			deny(env, reason)
 			return 0
 		}
 	}
@@ -2979,6 +2997,93 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[st
 			fence.Line(target, 512), fence.Line(top, 512), h.ToolName)
 	}
 	return denyIfHeld(st, h, env, rel, top)
+}
+
+// gateReachedBrakes reads the operator's brake in each ledger a shell command's
+// literal directory changes reach (#81, D-138). The brake used to be read only
+// in the home ledger, so a paused session's `cd <repo> && echo x > f` from a
+// plain cwd consulted no ledger and passed, 0 bytes, while the same command
+// from inside the repo denied: a session started in a parent directory was
+// never braked for Bash, which is how most of its writes happen.
+//
+// The directories are shellBaseDirs' (literal cd/pushd/chdir, git -C,
+// env -C, sudo -D, and the lexical recovery for a script the parser rejects),
+// at most maxPatchPaths placements, each repository key discovered once per
+// gate call (openGateRepo's cache) with the label THAT ledger knows the
+// session by. A cd inside an unknown program's quoted operand counts:
+// `su -c` and `watch` run that text (shellBaseDirs says why). A directory reached
+// through a variable, a command substitution, a script or a Makefile, and a
+// write by absolute path with no cd, stay open (D-005): recorded in D-138,
+// not recognized. An unreadable ledger at a reached directory denies
+// (invariant 3); one provably absent is feature-off.
+//
+// The first base is the cwd's own, which the home discovery already answered.
+// With a home ledger, a base under the same .git entry reads that same
+// ledger, whose brake was just read, and is skipped. With none, only the cwd's
+// own directory is: one .git entry does not prove one answer, since git stops
+// at a filesystem boundary that nearestGitEntry walks across (Codex design
+// pass, Q5). Nor, even with a home ledger, does it at a bare repository
+// nested in the worktree, which git finds first: shared with every file-tool
+// target's key (gateRepoKey), recorded open in D-138 (Codex code pass).
+//
+// At most maxReachedBrakes distinct keys (repoKeyForDir) are discovered per
+// call, however many directories share one. Each costs a
+// git process or two (measured 2026-11-10, load 4: +8 ms for a cd into one
+// repository, +16 ms into two; 127 distinct plain directories took 1.8 s,
+// 14 ms each, against 24 ms before: discovery runs git twice when it fails),
+// and the hook budget is 100 ms, so four plain directories cost about 56 ms
+// on top of the gate's 20. Past the bound the rest are not read: like an
+// exhausted routing budget, it invents no jurisdiction, and a crafted command
+// can hide a paused repository behind four others (recorded open in D-138).
+func gateReachedBrakes(h hookInput, env Env, home bool, repos map[string]gateRepo) string {
+	for _, r := range reachedDirs(h, env, home) {
+		dir, key := r.dir, r.key
+		repo := openGateRepo(h, env, dir, key, repos)
+		switch {
+		case errors.Is(repo.err, errNoLedger):
+			continue
+		case repo.err != nil:
+			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",
+				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), h.ToolName)
+		case repo.paused != "":
+			return repo.paused
+		}
+	}
+	return ""
+}
+
+// maxReachedBrakes bounds the ledgers gateReachedBrakes discovers per call.
+const maxReachedBrakes = 4
+
+type reachedDir struct{ dir, key string }
+
+// reachedDirs is the bounded set of directories a shell command's literal
+// directory changes reach that the home discovery has not already answered,
+// at most maxReachedBrakes distinct keys: gateReachedBrakes reads their
+// brakes, and the ambiguous-identity arm their jurisdiction.
+func reachedDirs(h hookInput, env Env, home bool) []reachedDir {
+	bases := shellBaseDirs(h, env.getenv("HOME"))
+	if len(bases) < 2 {
+		return nil
+	}
+	cwdDir, cwdKey := repoKeyForDir(bases[0])
+	var out []reachedDir
+	keys, dirs := map[string]bool{}, map[string]bool{}
+	for _, d := range bases[1:] {
+		dir, key := repoKeyForDir(d)
+		if dir == cwdDir || (home && key == cwdKey) || dirs[dir] {
+			continue
+		}
+		if !keys[key] {
+			if len(keys) == maxReachedBrakes {
+				break
+			}
+			keys[key] = true
+		}
+		dirs[dir] = true
+		out = append(out, reachedDir{dir, key})
+	}
+	return out
 }
 
 // governedAny is the jurisdiction test for a refusal that applies only where a

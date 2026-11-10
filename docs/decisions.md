@@ -10853,6 +10853,148 @@ hook verbs survived; `idle`, `busy` and `beat` are now each driven under a
 relative `GIT_DIR` (the roster state and the dirty-path row land in the
 repository's ledger) and the set is pinned, and all four die.
 
+## D-138 — Each ledger a shell command's literal directory change reaches applies its brake (issue #81)
+
+2026-11-10 · issue #81, finding 7 of the 2026-11-09 whole-project review
+
+**What was wrong** — `buddy pause <session>` did not stop that session's Bash
+when the call's cwd had no ledger, even when the command itself changed into a
+governed repository and wrote there. Reproduced at main 7b17cc2: `buddy pause
+bravo`, then bravo's Bash from a plain cwd, `cd <repo> && echo x > dir2/x.go`:
+ALLOWED, 0 bytes; the same from cwd `<repo>`: denied. Also allowed: `git -C
+<repo> commit -qam x` from a plain cwd; `pause all` and an unknown session's
+`cd <repo> && make`; a session in governed repository F running `cd <G> && ...`
+where G has `pause all`; and `cd <repo>` whose ledger is a dangling symlink
+(invariant 3 says an unreadable ledger denies). The brake was read only from
+the home ledger for a Bash call (a file tool's cross-repository write has read
+its target's since F-28), so a session started in a parent directory of its
+repository was never braked for Bash, which is how most of its writes happen, while
+USAGE promised that a paused session's "next mutating tool call is denied".
+
+**The rule** — For a shell command (any tool but `apply_patch` whose input
+carries a `command`, `shellPatchRoute`'s own condition), after the home brake,
+`gateReachedBrakes` reads the brake in each ledger the command's literal
+directory changes reach: `shellBaseDirs`, the directories `shellPatchDirs`
+already placed for a shell-routed patch (D-073) without its embedded patch
+paths — literal
+`cd`/`pushd`/`chdir`, `git -C`, `env -C`, `sudo -D`, and the lexical recovery
+for a script the parser rejects. Each is
+discovered once per gate call (`openGateRepo`'s cache), with the label THAT
+ledger knows the session by (F-28's rule for a cross-repository edit).
+`errNoLedger` is feature-off; any other failure denies, naming the directory
+(invariant 3); a brake that stops the caller denies with its note. The first
+base is the cwd's own, already answered by the home discovery. With a home
+ledger, a base under the same `.git` entry is skipped: it reads the ledger
+whose brake was just read. With none, only the cwd's own directory is skipped:
+one `.git` entry does not prove one answer, since git stops at a filesystem
+boundary that `nearestGitEntry` walks across (Codex design pass, Q5).
+
+The early arm for an ambiguous identity (and for a shell-routed patch from a
+plain cwd) now collects those directories for EVERY shell command, not only a
+patch or a gh stack route: with conflicting native ids, `cd <governed> && make`
+from a plain cwd discovered nothing and passed (Codex design pass, P1). It
+reads the same bounded set the brake does, without the cwd the home discovery
+already answered (panel latency lens: unbounded, every Bash call with an
+ambiguous identity from a plain cwd re-discovered its cwd).
+
+**What stays open, recorded, not recognized** (the A-01 lesson, D-115):
+a directory reached through a variable (`d=<repo>; cd "$d"`), a command
+substitution, a subshell's computed path, a script or Makefile that changes
+directory (`./deploy.sh`; `make -C` in a script that parses), a write by
+absolute path with no `cd` (`echo x > <repo>/f` from a plain cwd), `git
+--git-dir=`/`--work-tree=`, and two the panel's bypass lens found that predate
+this change for shell-routed patches too: a glob in a `cd` word (`cd
+~/Proj*/repo`) is placed as the literal, missing name, at an ancestor above
+the repository; and `git -C <repo>` behind a program the wrapper table does
+not list (`gtimeout 60 git -C <repo> ...`, `flock`) is never read (D-106
+records the unknown wrapper). A pause by label stops a session in a reached
+ledger only where it said `hello` there; elsewhere `pause all` or its id does. The shell's side effects are not
+checked (D-005). The embedded patch directories need no brake of their own: a
+shell-routed patch refuses wherever any of them is governed (D-087). The
+`openGateRepo` cache and the home-key skip are keyed by the nearest `.git`
+entry, so two directories under one entry share an answer git would not give:
+across a mount, and for a BARE repository nested inside a worktree, whose own
+ledger git finds first (Codex code pass: `cd <home>/cache.git` with a paused
+`cache.git/buddy.db` passed). Both predate this change for file-tool targets
+(`gateRepoKey`), and a key that tells them apart is a change to every target's
+placement, not this fold. The same key folds case (invariant 13), so on a
+case-SENSITIVE volume two repositories whose roots differ only in case share
+it (Fable cross-check; D-002's residual). And a command whose quoted operands
+name more than `maxPatchPaths` (128) directories, existing or not, fills the
+placement list before a later `cd <repo>`, which is then not placed: the
+brake does not read that routing error (a crafted command, the bound's
+variant; Fable cross-check).
+
+**Speculative text is read** — an unknown program's quoted operand is parsed
+only because it looks like shell, and its `cd` is placed and braked like any
+other. The Codex code pass found `logger 'cd <repo>'` denied a paused or
+unreadable `<repo>`, and a fold read only bases a non-speculative read placed;
+the Fable cross-check found that fold let a paused session's `su me -c 'cd
+<repo> && ...'`, `watch`, `flock -c` and `nix-shell --run` through (those RUN
+the text, and the parser cannot tell them from logger), and made a firm `cd
+src` after a speculative `<repo>` firm at `<repo>/src`. Reverted: the
+fail-closed side, logger's text an accepted over-refusal (below).
+
+**Accepted over-refusal** — a `cd` in an unknown program's quoted operand
+that only prints it (`logger 'cd <repo>'`), above: only a paused or
+unreadable `<repo>` refuses. A git subcommand's own `-C` data operand (`git
+rev-parse --sq-quote -C <dir>`) is read as git's option, as it already is for a
+shell-routed patch (Codex code pass): crafted, and only a paused or unreadable
+`<dir>` refuses. A `cd` into a MISSING directory under a paused
+repository (`cd <R>/missing && echo x > f`) is placed at its deepest existing
+ancestor (D-102's walk) and denied, though the shell's `cd` would fail and the
+write never run (Codex design pass, P3). The caller is paused there anyway. An
+unreadable ledger at a reached directory now denies `cd <broken> && ls` from a
+plain cwd, which passed before: invariant 3, as for a file tool's target.
+
+**USAGE** — the brake section now says which calls a ledger governs and names
+what stays open; the roster's `PAUSED` gloss points there.
+
+**Bounded** — at most `maxReachedBrakes` (4) distinct keys (`repoKeyForDir`: the
+nearest `.git` entry, or a plain directory itself) are discovered per call. Measured 2026-11-10 at load 4, `buddy gate` from a private build: a Bash
+call with no directory change is unchanged (plain cwd 20.4 ms against 19.6
+before; repository cwd 14.6 against 14.6); a `cd` into one repository from a
+plain cwd 27.9 ms against 19.6, into a second from a repository 22.3 against
+14.7, into two from a plain cwd 35.6 against 19.9. Unbounded, 127 distinct
+plain directories took 1.8 s (14 ms each: discovery runs git twice on a
+failure) against 24 ms. Eight was the first bound; the latency lens put it at
+about 20 + 8 x 14 = 132 ms (est.) for plain directories, so it is four, about
+76 ms. Past the bound the rest are not read, as an exhausted routing budget
+invents no jurisdiction: a crafted command can hide a paused repository behind
+four other directories, recorded open. The command is parsed twice per Bash
+call (route, then bases), each under the walker's budgets (512 KiB parsed);
+measured under 1 ms on a short command, not measured at the budget.
+
+**Tests** — `pausereach_test.go`, each watched to FAIL on main 7b17cc2 first:
+the issue's exact input, with the repository-cwd deny as the positive control,
+an unpaused session's same command and a `cd` that reaches no ledger allowed;
+`git -C`; `pause all` stopping a session the reached ledger has never seen,
+with the label-only pause not stopping it; a cd from one governed repository
+into another whose brake stops the caller, the same call staying home allowed;
+an unreadable reached ledger denying and a never-initialized one passing; an
+ambiguous identity's `cd`/`git -C` into a governed repository refused, a
+consistent identity's allowed; a directory named as DATA (a `printf` operand,
+a quoted here-document body, a comment, an `echo` operand) not braked, beside
+the real `cd` that is; a `cd` inside `su -c`, `watch`, `flock -c` and
+`logger` operands braked, an unpaused session's same commands allowed (each
+watched to fail on the firm-only fold); `pushd`, `env -C` and `sudo -D`
+braked, each aimed at a plain directory allowed; a pause by the label the
+reached ledger knows, which a home-label lookup would miss; and the bound at
+three and four directories, at three literal ones (the constant lowered to 1
+survived the first), and five directories of one plain repository counting
+as one key. Mutated in
+a private copy, each watched to fail: the reached brakes a no-op, an unreadable
+reached ledger skipped, a reached brake ignored, and the early arm back to a
+patch or gh stack route only. One SURVIVED and is unkillable hermetically:
+skipping a base under the cwd's `.git` entry when there is NO home ledger
+differs only across a mount boundary inside a repository (Q5) or at a nested
+bare repository (recorded open above). On the final code (gate-reach-2's
+run), the bound lowered to 1 and the bound counting directories instead of
+keys survived until the literal and same-repository cases above; dropping the
+cwd's own-directory skip survives too, near-equivalent (re-reading the cwd's
+directory finds the same answer; it only spends one of the four keys on a
+differently spelled cwd).
+
 ## D-139 — A target resolves among live sessions first, and ended rows only when nothing live matches (issue #80; amends D-013)
 
 2026-11-10 · issue #80 (a whole-project review, finding 6); lane target-live

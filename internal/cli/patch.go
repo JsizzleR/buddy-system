@@ -1825,29 +1825,7 @@ func (c *shellPatchContext) addBase(candidate string) {
 // workdir outside the hook command remains invisible; dynamic values are not
 // expanded. home is the hook's HOME, the first candidate for `~`.
 func shellPatchDirs(h hookInput, home string) ([]string, error) {
-	context := &shellPatchContext{bases: []string{h.Cwd}}
-	w := &shellWalker{ctx: context}
-	if filepath.IsAbs(home) {
-		w.homes = []string{home}
-	}
-	w.analyze(h.ToolInput.Command, 0, true, nil)
-	var dirs []string
-	for _, base := range context.bases {
-		dir := existingDir(filepath.Join(canon(base), "x"))
-		// A base that does not resolve (a vanished hook cwd, a `cd` under it,
-		// or a `cd ..` that lands on a dangling link's own entry) is placed as
-		// an empty directory there would be (D-102). canon cannot follow a
-		// DANGLING link and existingDir then climbs past it lexically, into a
-		// repository the directory would not be in (Codex code and re-verify
-		// passes). Embedded patch targets below keep the lexical walk: at worst
-		// a refusal of a shell-routed patch the tool would take.
-		if _, err := os.Stat(base); errors.Is(err, syscall.ENOENT) {
-			if anc, ok := resolvedAncestor(base); ok {
-				dir = anc
-			}
-		}
-		dirs = append(dirs, dir)
-	}
+	context, dirs := shellBases(h, home)
 	for _, script := range context.scripts {
 		i := strings.Index(script, "*** Begin Patch")
 		j := strings.LastIndex(script, "*** End Patch")
@@ -1871,6 +1849,58 @@ func shellPatchDirs(h hookInput, home string) ([]string, error) {
 		}
 	}
 	return dirs, context.err
+}
+
+// shellBaseDirs is shellPatchDirs without the embedded patch paths: the
+// existing directories the hook cwd and each literal directory change place at
+// (at most maxPatchPaths, addBase's bound), the cwd's own FIRST. The gate
+// reads the operator's brake in each one's ledger (#81, D-138): a paused
+// session's `cd <repo> && ...` from a plain cwd consulted no ledger. The
+// embedded paths are not placed here: a shell-routed patch already refuses
+// wherever any of them is governed (D-073, D-087), and placing them cost
+// scripts x bases x paths target resolutions for nothing on every Bash call
+// (latency panel lens).
+//
+// A directory read inside an operand parsed only because it LOOKS like shell
+// (an unknown program's quoted argument) is placed too, and its brake read:
+// `su me -c 'cd <repo> && ...'`, `watch`, `flock -c` and `nix-shell --run`
+// RUN that text, and the parser cannot tell them from `logger 'cd <repo>'`,
+// which only prints it. A fold that read only non-speculative bases (Codex
+// code pass) let a paused session through every one of the first (Fable
+// cross-check), and made a firm `cd src` after a speculative base firm at
+// that base; this is the fail-closed side. logger's text is an accepted
+// over-refusal (D-138): it denies only under a brake or an unreadable ledger.
+func shellBaseDirs(h hookInput, home string) []string {
+	_, dirs := shellBases(h, home)
+	return dirs
+}
+
+// shellBases walks the command once and places each base.
+func shellBases(h hookInput, home string) (*shellPatchContext, []string) {
+	context := &shellPatchContext{bases: []string{h.Cwd}}
+	w := &shellWalker{ctx: context}
+	if filepath.IsAbs(home) {
+		w.homes = []string{home}
+	}
+	w.analyze(h.ToolInput.Command, 0, true, nil)
+	var dirs []string
+	for _, base := range context.bases {
+		dir := existingDir(filepath.Join(canon(base), "x"))
+		// A base that does not resolve (a vanished hook cwd, a `cd` under it,
+		// or a `cd ..` that lands on a dangling link's own entry) is placed as
+		// an empty directory there would be (D-102). canon cannot follow a
+		// DANGLING link and existingDir then climbs past it lexically, into a
+		// repository the directory would not be in (Codex code and re-verify
+		// passes). Embedded patch targets keep the lexical walk: at worst
+		// a refusal of a shell-routed patch the tool would take.
+		if _, err := os.Stat(base); errors.Is(err, syscall.ENOENT) {
+			if anc, ok := resolvedAncestor(base); ok {
+				dir = anc
+			}
+		}
+		dirs = append(dirs, dir)
+	}
+	return context, dirs
 }
 
 // Bound adjudication work separately from the hook's byte cap. A short delete
