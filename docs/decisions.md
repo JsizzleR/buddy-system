@@ -11354,3 +11354,64 @@ was not measured: every admission suite runs on loopback.
 `qualify-release.py` stays the one entry point (D-081). Refused: retiring the
 older records (a planned run may want one), and admitting each release ahead of
 need (the report counts four records and zero real launches).
+
+## D-157 — One backgrounded review pass on Codex 0.166.0 completed; a minutes-long one was not measured, and the foreground rule stands (Codex report A7)
+
+2026-11-10. The operator, in orc-19's pane at 19:06Z (relayed in this lane's
+brief), authorized ONE probe of a backgrounded pass on the installed Codex ("8
+and 10, yes"); exactly two Codex runs. No record held the foreground rule
+before this one: it lives in CLAUDE.md's "Commands" and `codex-review.sh`'s
+header item 1, and its measurement (2026-08-15, no Codex version noted) is the
+Codex integration report's figure (A7, relayed, not re-checked), never written
+down here.
+
+**Method** — both runs: the MAIN checkout's `scripts/codex-review.sh`
+(checkout at `fc3a185`, the script unmodified, last changed in `a0d819a`),
+from a linked worktree, `CODEX_BUDGET=180 CODEX_NO_CHARTER=1`, a 126-byte
+prompt asking for the single word OK and no command, file read or web search;
+`codex-cli 0.166.0` (`codex --version`), Claude Code 2.1.322 (`claude
+--version`); run header verified by the script both times (`gpt-6-astra`,
+`xhigh`); the script's stderr said `1 of 4 slots in use` at each start
+(another run's). Run 1 under the Bash tool's `run_in_background: true`, stdout
+and stderr redirected to files. Run 2, the control, in the foreground with
+`FG_OK` set and a 600000 ms tool timeout. A background sampler beside each
+walked the process tree under the run's shell (`ps -A -o pid= -o ppid=`, then
+`ps -o pid,ppid,etime,time,%cpu,stat,comm`) every 10 s (run 2: 5 s), and sized
+codex's stdout through its fd 1 (`lsof -a -p <codex pid> -d 1`): the script
+redirects codex into its own `$TMP/out` and copies that to the out-file only
+at exit, so the out-file alone cannot show progress. To re-run, the prompt
+file is the three lines `This is a timing probe, not a review.` / `Reply with
+the single word OK.` / `Do not run any command, read any file or search the
+web.`, and each run is `CODEX_BUDGET=180 CODEX_NO_CHARTER=1 sh
+<main>/scripts/codex-review.sh <prompt> <out> > <stdout> 2> <stderr>` (run 2
+with `FG_OK='<reason>'` in front), the sampler started in the background
+beside it. Nothing is shipped for it, and a re-run is a backgrounded pass: it
+needs the operator's authorization as this one had.
+
+**Measured** (each figure one run, these two runs only):
+
+| | backgrounded | foreground control |
+|---|---|---|
+| start, end (UTC) | 19:07:55Z, 19:08:06Z (11 s) | 19:08:29Z, 19:08:35Z (6 s) |
+| exit | 0 | 0 |
+| reply, token line | `OK`, `tokens used 2,034` | `OK`, `tokens used 7,794` |
+| out-file | 476 B | 476 B |
+| sample mid-run | +10 s: codex alive, 0.78 s CPU, a `node_repl` and a `node` child (the `node` with a `node_repl` of its own); its stdout file 455 B | +1 s: codex alive, 0.13 s CPU; stdout file 446 B |
+
+The outcome is **completed**: exit 0 with the reply and the token line, not
+the watchdog's 124, and not the wedge's shape (codex had used 0.78 s of CPU at
++10 s, one sample, not ~0). The sampler records sizes, not content: the
+control's 446 B at +1 s is the final file less 30 B, the reply block and token
+line; the backgrounded run's 455 B at +10 s is the final file less 21 B, so
+consistent with its reply already written. Either way codex's stdout is not
+empty until exit.
+
+**What it does not show** — whether a real review pass (238 s median, the
+report's A7 figure over its 155 passes, relayed; the charter prepended and the
+repo explored) still wedges when backgrounded. This probe ran for seconds and
+read nothing. A seconds-long pass completing does not refute a wedge that
+appears minutes in, and one run is not a rate.
+
+**The decision** — none on the rule. The foreground rule (CLAUDE.md
+"Commands", `codex-review.sh` item 1) stands as written; whether to keep it,
+or to authorize a real-size backgrounded pass first, is the operator's call.

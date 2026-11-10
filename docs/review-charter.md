@@ -1247,6 +1247,9 @@ ledger row entered through the CLI (D-006).
 
 ## Environment facts (measured, do not re-derive)
 
+- A backgrounded `codex-review.sh` pass (Bash `run_in_background`, Codex 0.166.0, a 126 B
+  reply-OK prompt) completed in 11 s on 2026-11-10; a minutes-long backgrounded pass was not
+  measured, and the foreground rule stands (D-157).
 - A NEW buddylist build is refused its first launchd spawn: `OS_REASON_CODESIGNING | Launch
   Constraint Violation`, the agent carrying `managed LWCR`. backgroundtaskmanagementd
   re-registers it 10.0 s later (two samples), and the next spawn runs. It follows the spawn,
