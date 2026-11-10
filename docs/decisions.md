@@ -6487,6 +6487,17 @@ each with a writable-ledger positive control), `TestLedgerAccessSaysNothingOther
 trial's `(14)` line, EPERM and the fix. It skips, saying so, only where a
 sandbox cannot nest.
 
+**Amended (issue #85, 2026-11-10)** — the gate's own ledger-unavailable arm
+(`cmdGate`, an `openRepo` failure other than `errNoLedger`) now speaks this
+register too: the error, the tool, that the gate fails closed, "fix what the
+error names", `buddy status` for any cause it can name (errVerb adds this
+record's sandbox lines there, never in the gate), ask the operator, never
+delete the ledger. It used to end "or remove <repo>/.git/buddy.db to turn
+fleet off". Same verdict. Every value a gate refusal prints, the hook's
+`tool_name` included, now goes through `internal/fence` (invariant 9;
+`gate_deny_fence_test.go`). The commit gate's "delete buddy.db … to turn the
+Buddy System off" (`commitgate.go`) is recorded open.
+
 ## D-085 — Inherited harness identity: refuse with the remedy; a herdr tab does not leak
 
 2026-10-14. F2 of the Codex fleet trial.
@@ -10703,7 +10714,8 @@ watchdog after two findings)
   escaped (the code pass: a raw `good%2edb` verified `good.db`).
 - The gate's home-repo arm (`cli.go`, held by other lanes) appends "or remove
   <repo>/.git/buddy.db to turn fleet off" to this refusal and renders the
-  ledger path unfenced, as for `ErrLedgerNewer`: recorded open.
+  ledger path unfenced, as for `ErrLedgerNewer`: recorded open. Closed by
+  issue #85 (D-084's amendment).
 - `os.Executable` names a path: a running newer buddy whose file a downgrade
   install renamed over is judged by the new file (`buddy update` refuses a
   downgrade, D-110).

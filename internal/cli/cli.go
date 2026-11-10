@@ -2662,7 +2662,7 @@ func cmdGate(args []string, env Env) int {
 		// The gate cannot prove an unreadable call safe: malformed, oversized,
 		// or absent hook JSON fails CLOSED, matching the posture for ledger
 		// errors below (it used to silently allow).
-		deny(env, fmt.Sprintf("buddy gate could not read hook input (%v); refusing the tool call", err))
+		deny(env, fmt.Sprintf("buddy gate could not read hook input (%s); refusing the tool call", fence.Line(err.Error(), 512)))
 		return 0
 	}
 	// Identity is classified now and adjudicated only where a ledger governs
@@ -2688,13 +2688,29 @@ func cmdGate(args []string, env Env) int {
 	}
 	paths, err := gatePaths(h)
 	if err != nil {
-		deny(env, fmt.Sprintf("buddy gate %v; refusing %s", err, h.ToolName))
+		deny(env, fmt.Sprintf("buddy gate %s; refusing %s", fence.Line(err.Error(), 512), fencedTool(h)))
 		return 0
 	}
 	st, rc, err := openRepo(h.Cwd, env)
 	if err != nil && !errors.Is(err, errNoLedger) {
 		// Ambiguous discovery failure or unreadable ledger: fail closed.
-		deny(env, fmt.Sprintf("buddy ledger unavailable (%v); refusing %s until it is fixed (or remove <repo>/.git/buddy.db to turn fleet off)", err, h.ToolName))
+		// The words are D-084's register, the cause and the fix (issue #85).
+		// They used to end "or remove <repo>/.git/buddy.db to turn fleet
+		// off": advice to delete every claim, wait, outcome and inbox row in
+		// the checkout, sent to a model that may follow it literally, and
+		// wrong for a linked worktree, whose .git is a file. The error already
+		// carries its own fix where one is known (a stale binary, a refused
+		// migration, a vanished cwd); `buddy status` re-runs the open through
+		// errVerb, which adds a sandbox's cause and fix (explainLedgerAccess)
+		// that this arm does not compute (D-084: the gate is not routed
+		// through it). The error is bounded at 4096, not 512: a refused
+		// migration's fix sits after a path of up to 200 bytes, and a
+		// vanished cwd's wrapping puts two paths of up to 512 ahead of the
+		// open error and its own advice after it. At 1024 a repository 450
+		// bytes deep lost both fixes (Codex code pass). 4096 holds every
+		// bounded part with room; the hook's output limit is 10,000.
+		deny(env, fmt.Sprintf("buddy ledger unavailable (%s); refusing %s. The gate fails closed while a ledger it cannot read may govern this call. Fix what the error names; `buddy status` from this directory may name more of the cause. Ask the operator if it is not yours to fix; never delete the ledger, which holds every session's claims, waits and messages.",
+			fence.Line(err.Error(), 4096), fencedTool(h)))
 		return 0
 	}
 	if st != nil {
@@ -2721,7 +2737,7 @@ func cmdGate(args []string, env Env) int {
 		// when one of its targets lies in a buddy-governed repo.
 		why := shellPatchReason(h, route)
 		if idErr != nil {
-			why = fmt.Sprintf("buddy gate: the hook's session identity is ambiguous (%v); refusing %s where a buddy ledger governs it", idErr, h.ToolName)
+			why = fmt.Sprintf("buddy gate: the hook's session identity is ambiguous (%s); refusing %s where a buddy ledger governs it", fence.Line(idErr.Error(), 512), fencedTool(h))
 		}
 		if st != nil {
 			deny(env, why)
@@ -2767,11 +2783,11 @@ func cmdGate(args []string, env Env) int {
 	if st != nil {
 		label, err := sessionLabel(st, h.SessionID)
 		if err != nil {
-			deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
+			deny(env, fmt.Sprintf("buddy ledger read failed (%s); refusing %s", fence.Line(err.Error(), 512), fencedTool(h)))
 			return 0
 		}
 		if note, paused, err := st.PausedFor(h.SessionID, label); err != nil {
-			deny(env, fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName))
+			deny(env, fmt.Sprintf("buddy ledger read failed (%s); refusing %s", fence.Line(err.Error(), 512), fencedTool(h)))
 			return 0
 		} else if paused {
 			msg := "the operator paused this session (buddy pause)"
@@ -2811,7 +2827,7 @@ func cmdGate(args []string, env Env) int {
 		// can be placed, so nothing can be adjudicated: refuse rather than
 		// treat an unplaceable path as an unclaimed one.
 		deny(env, fmt.Sprintf("buddy gate could not resolve the worktree root for %s; refusing %s",
-			fence.Line(h.Cwd, 512), h.ToolName))
+			fence.Line(h.Cwd, 512), fencedTool(h)))
 		return 0
 	}
 	homeTop := store.Fold(canon(rc.top))
@@ -2826,7 +2842,7 @@ func cmdGate(args []string, env Env) int {
 				fence.Line(path, 512), fence.Line(h.Cwd, 512))
 		}
 		if err != nil {
-			why := fmt.Sprintf("buddy gate could not resolve the target (%s); refusing %s where a buddy ledger governs it", fence.Line(err.Error(), 512), h.ToolName)
+			why := fmt.Sprintf("buddy gate could not resolve the target (%s); refusing %s where a buddy ledger governs it", fence.Line(err.Error(), 512), fencedTool(h))
 			if st != nil {
 				deny(env, why)
 				return 0
@@ -2949,7 +2965,7 @@ func openGateRepo(h hookInput, env Env, dir, key string, repos map[string]gateRe
 		switch {
 		case err != nil:
 			repo.paused = fmt.Sprintf("buddy: target repo ledger read failed (%s); refusing %s",
-				fence.Line(err.Error(), 512), h.ToolName)
+				fence.Line(err.Error(), 512), fencedTool(h))
 		case paused:
 			msg := fmt.Sprintf("the operator paused edits in %s (buddy pause)", fence.Line(repo.rc.top, 512))
 			if note != "" {
@@ -2975,7 +2991,7 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[st
 	}
 	if err != nil {
 		return fmt.Sprintf("buddy: target %s is in a repo whose ledger is unavailable (%s); refusing %s",
-			fence.Line(target, 512), fence.Line(err.Error(), 512), h.ToolName)
+			fence.Line(target, 512), fence.Line(err.Error(), 512), fencedTool(h))
 	}
 	if repo.paused != "" {
 		return repo.paused
@@ -2983,7 +2999,7 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[st
 	top := rc.top
 	if top == "" {
 		return fmt.Sprintf("buddy: could not resolve the target repo root for %s; refusing %s",
-			fence.Line(target, 512), h.ToolName)
+			fence.Line(target, 512), fencedTool(h))
 	}
 	rel, _, outside := placeCanonical(top, target)
 	if outside {
@@ -2994,7 +3010,7 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[st
 		// spelled the target, and a disagreement the gate cannot resolve must
 		// not resolve to allow. This arm was the exit the NFD spelling took.
 		return fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
-			fence.Line(target, 512), fence.Line(top, 512), h.ToolName)
+			fence.Line(target, 512), fence.Line(top, 512), fencedTool(h))
 	}
 	return denyIfHeld(st, h, env, rel, top)
 }
@@ -3044,7 +3060,7 @@ func gateReachedBrakes(h hookInput, env Env, home bool, repos map[string]gateRep
 			continue
 		case repo.err != nil:
 			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",
-				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), h.ToolName)
+				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), fencedTool(h))
 		case repo.paused != "":
 			return repo.paused
 		}
@@ -3101,7 +3117,7 @@ func governedAny(h hookInput, env Env, dirs []string, why string, repos map[stri
 			continue
 		case repo.err != nil:
 			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",
-				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), h.ToolName)
+				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), fencedTool(h))
 		}
 		return why
 	}
@@ -3114,7 +3130,7 @@ func governedAny(h hookInput, env Env, dirs []string, why string, repos map[stri
 func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) string {
 	c, held, err := st.OwnerOf(rel, h.SessionID)
 	if err != nil {
-		return fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName)
+		return fmt.Sprintf("buddy ledger read failed (%s); refusing %s", fence.Line(err.Error(), 512), fencedTool(h))
 	}
 	if held {
 		loc := rel
@@ -3172,6 +3188,17 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) string
 	}
 	return ""
 }
+
+// fencedTool is the hook's tool_name as a refusal prints it (invariant 9,
+// issue #85). The name comes from the hook payload, and any name carrying
+// tool_input.command is read as a shell command, so a hostile or drifted name
+// reaches the shell arms' words, not only the path arms', whose names are the
+// gate's own map keys. deny JSON-encodes the reason and the model reads it
+// decoded: a raw newline there is a real line. 128 is the slug cap, past any
+// tool name a harness sends. Never fence the reason as a whole: its values
+// are fenced already, and a second pass turns their ⏎ into the literal
+// \u23ce.
+func fencedTool(h hookInput) string { return fence.Line(h.ToolName, 128) }
 
 func deny(env Env, reason string) {
 	out := map[string]any{"hookSpecificOutput": map[string]any{

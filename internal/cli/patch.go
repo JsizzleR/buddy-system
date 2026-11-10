@@ -1739,14 +1739,14 @@ func shellPatchReason(h hookInput, r shellRoute) string {
 		// Not Codex (D-087): no in-process engine and no apply_patch tool to
 		// point at, so the words are about the literal and the budget only.
 		if !r.found {
-			return fmt.Sprintf("buddy gate: the gate stopped reading this %s command (%s) before it could rule out a literal apply_patch; split the command or put it in a script file; refusing.", h.ToolName, fence.Line(r.uncertain, 256))
+			return fmt.Sprintf("buddy gate: the gate stopped reading this %s command (%s) before it could rule out a literal apply_patch; split the command or put it in a script file; refusing.", fencedTool(h), fence.Line(r.uncertain, 256))
 		}
-		return fmt.Sprintf("buddy gate: this %s command runs apply_patch (or applypatch) as a command. Under Codex that word is an in-process patch engine whose paths the gate cannot place, so buddy refuses it at a command position under every harness (D-073, D-087); refusing.", h.ToolName)
+		return fmt.Sprintf("buddy gate: this %s command runs apply_patch (or applypatch) as a command. Under Codex that word is an in-process patch engine whose paths the gate cannot place, so buddy refuses it at a command position under every harness (D-073, D-087); refusing.", fencedTool(h))
 	}
 	if !r.found && r.uncertain != "" {
-		return fmt.Sprintf("buddy gate: this %s command cannot rule out apply_patch through the shell: %s. Codex can apply a patch in-process from its shell, and the hook payload omits the command's working directory, so the gate cannot place such a patch against the claims. Write the command so its script is literal text the gate can read, or use the apply_patch tool, which the gate checks path by path; refusing.", h.ToolName, fence.Line(r.uncertain, 256))
+		return fmt.Sprintf("buddy gate: this %s command cannot rule out apply_patch through the shell: %s. Codex can apply a patch in-process from its shell, and the hook payload omits the command's working directory, so the gate cannot place such a patch against the claims. Write the command so its script is literal text the gate can read, or use the apply_patch tool, which the gate checks path by path; refusing.", fencedTool(h), fence.Line(r.uncertain, 256))
 	}
-	return fmt.Sprintf("buddy gate: this %s command invokes, or cannot safely rule out, apply_patch through the shell. Codex can apply it in-process, but the hook payload omits the command's working directory, so the gate cannot place the patched paths against the claims. Use the apply_patch tool, which the gate checks path by path; refusing.", h.ToolName)
+	return fmt.Sprintf("buddy gate: this %s command invokes, or cannot safely rule out, apply_patch through the shell. Codex can apply it in-process, but the hook payload omits the command's working directory, so the gate cannot place the patched paths against the claims. Use the apply_patch tool, which the gate checks path by path; refusing.", fencedTool(h))
 }
 
 // shellPatchContext records possible literal working directories from the

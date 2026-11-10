@@ -298,11 +298,11 @@ func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub stri
 		seen[homeKey] = true
 		if routeErr != nil {
 			return fmt.Sprintf("buddy gate cannot place this gh stack command's directories (%s); split the command; refusing %s",
-				fence.Line(routeErr.Error(), 512), h.ToolName)
+				fence.Line(routeErr.Error(), 512), fencedTool(h))
 		}
 		if rc.top == "" {
 			return fmt.Sprintf("buddy gate could not resolve the worktree root for %s; refusing %s",
-				fence.Line(h.Cwd, 512), h.ToolName)
+				fence.Line(h.Cwd, 512), fencedTool(h))
 		}
 		if reason := ghStackSlotHeld(st, h, env, sub, ""); reason != "" {
 			return reason
@@ -320,7 +320,7 @@ func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub stri
 			continue // not governed: outside our jurisdiction
 		case repo.err != nil:
 			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",
-				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), h.ToolName)
+				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), fencedTool(h))
 		case repo.paused != "":
 			return repo.paused // the target repo's brake applies (F-28)
 		}
@@ -330,7 +330,7 @@ func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub stri
 			// governed repo is in reach and the gate cannot say which others
 			// are: refuse rather than admit on a partial list.
 			return fmt.Sprintf("buddy gate cannot place this gh stack command's directories (%s); split the command; refusing %s",
-				fence.Line(routeErr.Error(), 512), h.ToolName)
+				fence.Line(routeErr.Error(), 512), fencedTool(h))
 		}
 		if top == "" {
 			// A ledger with no worktree root (a bare repository): the slot
@@ -338,7 +338,7 @@ func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub stri
 			// gh-stack cannot run there either, and admitting against
 			// nothing is the arm the paths gate refuses too.
 			return fmt.Sprintf("buddy gate could not resolve the worktree root for %s; refusing %s",
-				fence.Line(dir, 512), h.ToolName)
+				fence.Line(dir, 512), fencedTool(h))
 		}
 		if reason := ghStackSlotHeld(ledger, h, env, sub, where); reason != "" {
 			return reason
@@ -354,7 +354,7 @@ func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub stri
 func ghStackSlotHeld(st *store.Store, h hookInput, env Env, sub, where string) string {
 	touching, err := st.ClaimsTouching(ghStackSlot)
 	if err != nil {
-		return fmt.Sprintf("buddy ledger read failed (%v); refusing %s", err, h.ToolName)
+		return fmt.Sprintf("buddy ledger read failed (%s); refusing %s", fence.Line(err.Error(), 512), fencedTool(h))
 	}
 	var holder *store.ClaimInfo
 	for i := range touching {
@@ -369,7 +369,7 @@ func ghStackSlotHeld(st *store.Store, h hookInput, env Env, sub, where string) s
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "buddy gate: this %s command runs `gh stack %s`, which needs this checkout's gh-stack slot: the stack catalog and its lock live in the git common dir every worktree shares, and gh stack's rewriting subcommands move other lanes' branches. ", h.ToolName, sub)
+	fmt.Fprintf(&b, "buddy gate: this %s command runs `gh stack %s`, which needs this checkout's gh-stack slot: the stack catalog and its lock live in the git common dir every worktree shares, and gh stack's rewriting subcommands move other lanes' branches. ", fencedTool(h), sub)
 	in := ""
 	if where != "" {
 		in = fmt.Sprintf(" — in the TARGET repo's buddy ledger (%s)", fence.Line(where, 512))
