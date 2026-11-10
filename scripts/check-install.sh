@@ -90,6 +90,52 @@ $out"
 echo "$out" | grep -q 'is current$' || fail "QA-2: the skill should already be current:
 $out"
 
+# QA-17 (D-136, issue #79): the buddy install.sh built migrates an OLDER
+# ledger in another repository only as the binary the hook lines run
+# ($HOME/bin/buddy), and backs it up first; the same file run from a HOME
+# whose bin/buddy is not it refuses, the ledger's stamp unchanged and no
+# backup written; BUDDY_MIGRATE=1 is the override. A fixture repo with a
+# linked worktree, run with env -i (no session id, no BUDDY_* from the
+# caller), its ledger downgraded by python's sqlite3 (one stamp, no schema
+# change: migrate re-runs an IF NOT EXISTS script).
+Q="$WORK/qa17"
+# $Q/other's bin/buddy is ANOTHER file, so the refusal is SameFile's, not a
+# missing file's (the mutation run: an always-true SameFile passed QA-17).
+mkdir -p "$Q/home" "$Q/other/bin"
+printf '#!/bin/sh\nexit 0\n' > "$Q/other/bin/buddy" && chmod +x "$Q/other/bin/buddy" || fail "QA-17: stub"
+git init -q "$Q/repo" || fail "QA-17: git init"
+git -C "$Q/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init || fail "QA-17: commit"
+git -C "$Q/repo" worktree add -q "$Q/wt" 2>/dev/null || fail "QA-17: worktree add"
+qb() { h=$1; shift; (CDPATH= cd -- "$Q/wt" && env -i PATH="$PATH" HOME="$h" "$@"); }
+# Not mode=ro: a WAL ledger whose -shm went with its last close cannot be
+# opened read-only (measured: "unable to open database file").
+qver() { python3 -I -c 'import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute("PRAGMA user_version").fetchone()[0])' "$1"; }
+qset() { python3 -I -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("PRAGMA user_version = %d" % int(sys.argv[2])); c.commit()' "$1" "$2"; }
+qdb="$Q/repo/.git/buddy.db"
+qb "$Q/other" "$WORK/bin/buddy" init >/dev/null 2>&1 || fail "QA-17: init of a fresh ledger (any binary) failed"
+qcur=$(qver "$qdb") && qold=$((qcur - 1)) || fail "QA-17: cannot read the fixture's version"
+qset "$qdb" "$qold" || fail "QA-17: cannot downgrade the fixture's stamp"
+out=$(qb "$Q/other" "$WORK/bin/buddy" ls 2>&1) && fail "QA-17: a buddy that is not \$HOME/bin/buddy migrated the shared ledger:
+$out"
+echo "$out" | grep -qF "refusing to migrate a shared ledger" && echo "$out" | grep -qF "it is not $Q/other/bin/buddy" || fail "QA-17: the refusal does not say why:
+$out"
+[ "$(qver "$qdb")" = "$qold" ] || fail "QA-17: a refused open changed the stamp to $(qver "$qdb")"
+for b in "$qdb".pre-schema*; do [ -e "$b" ] && fail "QA-17: a refused open wrote $b"; done
+out=$(qb "$Q/other" env BUDDY_MIGRATE=1 "$WORK/bin/buddy" ls 2>&1) || fail "QA-17: BUDDY_MIGRATE=1 did not migrate:
+$out"
+[ "$(qver "$qdb")" = "$qcur" ] || fail "QA-17: BUDDY_MIGRATE=1 left the stamp at $(qver "$qdb")"
+[ "$(qver "$qdb.pre-schema$qcur.bak")" = "$qold" ] || fail "QA-17: BUDDY_MIGRATE=1 made no backup at the old version"
+# The control: HOME's bin/ IS the install's bin dir, and the hook-line
+# spelling runs it. A second migration of the same version takes the next
+# backup name and leaves the first.
+ln -s "$WORK/bin" "$Q/home/bin" || fail "QA-17: symlink"
+qset "$qdb" "$qold" || fail "QA-17: cannot downgrade again"
+out=$(qb "$Q/home" "$Q/home/bin/buddy" ls 2>&1) || fail "QA-17: the hooks' binary did not migrate the older ledger (the failure moved to another repository):
+$out"
+[ "$(qver "$qdb")" = "$qcur" ] || fail "QA-17: the hooks' binary left the stamp at $(qver "$qdb")"
+[ "$(qver "$qdb.pre-schema$qcur.2.bak")" = "$qold" ] || fail "QA-17: the hooks' binary made no second backup"
+[ "$(qver "$qdb.pre-schema$qcur.bak")" = "$qold" ] || fail "QA-17: the first backup did not survive the second migration"
+
 # QA-13: the buddy install.sh built carries this checkout, and `buddy update`
 # follows it. Run with inst()'s knobs in its environment, which the verb hands
 # install.sh, so a dry run that did run it would still install only into
@@ -1195,6 +1241,7 @@ pyc_after=$([ -e scripts/__pycache__ ] && echo yes || echo no)
 [ "$pyc_before" = yes ] || [ "$pyc_after" = no ] || fail "QA-14: the report wrote scripts/__pycache__ into the checkout"
 
 echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
+echo "  QA-17 an older ledger elsewhere migrates only under the hooks' binary (\$HOME/bin/buddy) or BUDDY_MIGRATE=1, backed up first;"
 echo "  QA-13 the installed buddy's update names this checkout's install.sh, a dry run runs nothing, and the real run installs,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
 echo "  QA-6 the daemon waits past the old ten-poll window, says what launchd recorded, and fails last (also on a failed"

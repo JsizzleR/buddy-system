@@ -343,7 +343,7 @@ ledger row entered through the CLI (D-006).
     not propose ranking by slug or a hidden-claims tier without its own bound.
 
 40. **`Open` refuses a ledger stamped newer than the binary (D-037).** `user_version >
-    schemaVersion` is `ErrLedgerNewer` in `Open` and in `migrate`'s locked re-check, naming
+    schemaVersion` is `ErrLedgerNewer` in `Open` and in `migrateTx`'s locked re-check, naming
     both versions and the fix. It is "exists but unreadable", so the gate DENIES (invariant 3),
     never "no ledger". Nothing migrates down, and no read-only open or `doctor` verb until one
     is needed.
@@ -1222,6 +1222,16 @@ ledger row entered through the CLI (D-006).
     (D-141, amends D-104).** `<layer>: <n> raised, <n> fixed, <n> answered, <n> reproduced`, each once;
     `model-report.sh` sums them per tier x layer from the receipts. Do not propose tuning a tier before
     the counts exist, or reading a missing count as 0.
+125. **Only the hooks' binary migrates an existing ledger, after a verified backup (D-136).** An
+    existing older ledger (version not exactly 0, or 0 with tables) migrates only when the running
+    executable is `os.SameFile` as `$HOME/bin/buddy`, or under `BUDDY_MIGRATE=1` exactly; else
+    `ErrMigrationRefused`, decided unlocked (no lock taken) and again under `migrateTx`'s lock, and
+    the gate denies. The backup is `VACUUM INTO` a unique temp on a second connection under that lock,
+    verified, hard-linked to `buddy.db.pre-schema<N>.bak` (`.<k>.bak` to 20, never overwritten).
+    Cut: install.sh's stamp as the permit, `$BUDDY_BIN_DIR/buddy` as a hooks path, `BUDDY_MIGRATE`
+    alone. Accepted, not defects: a FRESH ledger is created by any build (a dev build's `init` in an
+    un-inited repo can stamp a newer schema), hooks wired to another path refuse until
+    `BUDDY_MIGRATE=1 buddy init`, a fixture HOME passes. Do not propose these without new evidence.
 
 ## Environment facts (measured, do not re-derive)
 

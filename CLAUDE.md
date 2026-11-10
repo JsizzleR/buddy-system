@@ -153,7 +153,7 @@ operator-authorized only; read the release notes first.
 Knobs (`docs/USAGE.md` documents each `BUDDY_*`; `codex-review.sh`'s header each
 `CODEX_*`): `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`),
 `BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_CONTEXT_WINDOW` and `BUDDY_HANDOFF_AT`
-(declared, never inferred; D-055), `BUDDY_LABEL` (D-089), `BUDDY_COST_DAYS`,
+(declared, never inferred; D-055), `BUDDY_LABEL` (D-089), `BUDDY_MIGRATE=1` (D-136), `BUDDY_COST_DAYS`,
 `BUDDY_OSCAR_BIN` (the live test's server); `BUDDY_LEDGER` is a report knob
 ONLY, `buddy` never reads it. `CODEX_EFFORT` (default `xhigh`; `max` is a second
 pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
@@ -383,7 +383,7 @@ stays an offline coordination CLI. Adapters consume versioned JSON and immutable
 captured lifecycle receipts; no human-output parsing, current-token recapture,
 task database or dashboard. Schema 15 added incarnation-bound inbox metadata and
 receiving Claude endpoint observations; the ledger is at 19. Older installed binaries refuse a
-migrated ledger (D-037): never run a new binary on a production ledger or install
+migrated ledger (D-037), so any other build refuses to migrate one (D-136): never run a new binary on a production ledger or install
 it as part of a fixture exercise. Exact checks and qualification gaps:
 `docs/CODEX-ORCHESTRATOR-PLAN.md`.
 
@@ -407,7 +407,7 @@ assuming the opposite. A new decision amends its subject's line (dropping any
 clause it supersedes) and adds its number; only a new subject gets a new line.
 Every number stays on some line.
 
-- **Ledger.** Transactional SQLite, not `O_EXCL` lock files; two binaries, so claims never ride the chat stack; an older binary refuses a newer ledger and the gate denies; never migrate down (D-001, D-004, D-037).
+- **Ledger.** Transactional SQLite, not `O_EXCL` lock files; two binaries, so claims never ride the chat stack; an older binary refuses a newer ledger and the gate denies; never migrate down; an existing ledger is migrated only by `$HOME/bin/buddy` (the hooks' file) or under `BUDDY_MIGRATE=1`, after a verified backup (D-001, D-004, D-037, D-136).
 - **Scopes.** Exact paths and directory prefixes; glob scopes were cut, do not propose them; `claim` refuses a comma in `--scope`; backslashes fold to `/` before the absolute check, so `\etc` is refused (D-002, D-066, D-100).
 - **Claims.** Granted or refused whole, naming every conflict (`--dry-run` forecasts it); a stale claim refuses like a fresh one, STALE keyed on the holder too; `--shared` overlaps only shared claims, the one other is a claim parked in an open run (one with its slot) beside an exclusive declarer of that run; a claim so parked, or a shared one, declares nothing (declarations unchecked; one predicate at `claim`, `release --to` and the gate), so an exclusive rider beside an active shared claim refuses peers both ways, the words naming whom to ask, also to its maker; a holder's refusal exits 4 (D-019, D-022, D-042, D-088, D-090, D-133).
 - **Handing on, slots.** `release <slug> --to <target>` hands a claim on with its waits, recording a previous holder only as `--in-run`'s producer; several slugs release all-or-nothing; a slot is a claim on `.buddy/slot/<name>`, capacity 1, no new scope kind, and never parks or yields; `release --to` refuses `.buddy/slot/browser`, whose holder stays open until it releases (D-035, D-063, D-093, D-133, D-134).

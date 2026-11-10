@@ -386,7 +386,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 
 // schemaVersion is stamped into PRAGMA user_version once the schema above and
 // its backfills have been applied. Bump it whenever the schema string changes:
-// a ledger below it re-runs the whole (IF NOT EXISTS) script under migrate; a
+// a ledger below it re-runs the whole (IF NOT EXISTS) script under migrateTx; a
 // ledger at it is opened without touching the write lock at all. Ledgers from
 // before the stamp existed read 0 and migrate exactly once.
 // 17 adds claims.job_pid, job_born and job_boot (D-131), ALTER arms.
@@ -399,12 +399,12 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // (D-049), ALTER arms.
 // 13 adds inbox.kind and inbox.kind_note (D-045), ALTER arms.
 // 12 adds inbox.sender_session and inbox.supersedes (D-043), ALTER arms.
-// 11 adds claims.shared (D-042), the second ALTER arm — see migrate.
+// 11 adds claims.shared (D-042), the second ALTER arm — see migrateTx.
 // 10 adds session_base (D-038).
 // 9 adds session_waits and session_wait_targets (D-033).
 // 8 adds id_spaces and id_blocks (D-029).
 // 7 adds authority and authority_warned (D-028).
-// 6 adds sessions.terminal (an ALTER arm — see migrate) and session_procs.
+// 6 adds sessions.terminal (an ALTER arm — see migrateTx) and session_procs.
 // 5 adds cache_5m/cache_1h to session_context, again by DROPPING it (D-018:
 // it is the one table that may be, because every row is re-derived at the
 // next beat). 4 reshaped session_context (turn_ms, effort) the same way. 3 adds
@@ -455,7 +455,10 @@ func Open(dbPath string, now func() time.Time) (*Store, error) {
 		return nil, newerLedger(dbPath, ver)
 	}
 	if ver < schemaVersion {
-		if err := migrate(db); err != nil {
+		// Never migrate(db) here: migrateLedger is the guarded door (issue
+		// #79, D-136). It creates a fresh ledger for anyone, and migrates an
+		// existing one only for the binary the hooks run, after a backup.
+		if err := migrateLedger(db, dbPath); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -484,7 +487,7 @@ func newerLedger(dbPath string, ver int) error {
 		ErrLedgerNewer, dbPath, ver, schemaVersion)
 }
 
-// migrate brings a ledger below schemaVersion up to it, in ONE transaction:
+// migrateTx brings a ledger below schemaVersion up to it, in ONE transaction:
 // the version re-check, the marker-table inspection, the schema, the backfill
 // and the stamp all commit together or not at all. If the process dies part
 // way, SQLite rolls all of it back and the next Open sees the old version and
@@ -496,7 +499,15 @@ func newerLedger(dbPath string, ver int) error {
 // The version is re-read under the lock because two openers can both pass the
 // unlocked check in Open: the second one to win BEGIN IMMEDIATE finds the
 // first one's stamp and does nothing.
-func migrate(db *sql.DB) error {
+//
+// beforeSchema runs under that lock, after the re-check found the ledger
+// below schemaVersion and before the first schema statement: migrateLedger's
+// guard and backup (D-136), so nothing can be written between the backup's
+// snapshot and the migration. Production passes it only from migrateLedger
+// (TestMigrateTxCalledOnlyFromMigrateLedger); a nil one is the tests'
+// migrate(db) on a downgraded fixture, in a _test.go file, so the unguarded
+// shape is not a door any production caller can reach.
+func migrateTx(db *sql.DB, beforeSchema func(tx *sql.Tx, ver int) error) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin ledger migration: %w", err)
@@ -514,6 +525,11 @@ func migrate(db *sql.DB) error {
 	}
 	if ver == schemaVersion {
 		return nil
+	}
+	if beforeSchema != nil {
+		if err := beforeSchema(tx, ver); err != nil {
+			return err
+		}
 	}
 	// Detect the one migration that needs data backfill before the schema
 	// creates its marker table. Existing broadcasts can be assigned to the

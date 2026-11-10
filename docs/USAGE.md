@@ -433,6 +433,31 @@ SIGKILLs the result — measured, exit 137 on the very next run.
 runs (D-107); `cp new ~/bin/buddylist` is not safe. A killed binary
 is silent on the `exit 0` hook lines and refuses every gated call (above, D-107).
 
+### Who migrates a ledger, and the backup (D-136)
+
+The ledger is shared by every worktree, so a newer build that migrated it
+would leave every hook's older binary refusing it. An EXISTING older ledger is
+therefore migrated only by the binary the hook lines run, `$HOME/bin/buddy`
+(the same file, symlinks followed), or with `BUDDY_MIGRATE=1` (exactly `1`). Any
+other build (`go run ./cmd/buddy`, a `go build` elsewhere, `buddylist`, whose
+identity lookups then stay silent) refuses with `refusing to migrate a shared
+ledger`, naming the fix, and changes nothing in it: on a
+schema-bump branch, try it on a fixture repo with its own `buddy init`. After an
+install, the new `~/bin/buddy` migrates each repository's older ledger on its
+first open there. A fresh ledger (`buddy init` in a new repo) is created by any
+build.
+
+Every migration of an existing ledger first writes a verified copy beside it,
+`buddy.db.pre-schema<N>.bak` (`N` the version migrated to; `.2.bak` up to
+`.20.bak` if that name is taken: nothing is overwritten, and with all twenty
+taken the migration is refused until old copies are moved aside). No backup,
+no migration. `BUDDY_MIGRATE=1` is for hooks wired to another path (a Codex
+hook naming one, `buddy-adapter --buddy <path>`, a non-default
+`BUDDY_BIN_DIR`); it makes no older hook read the migrated ledger. An install
+with a non-default `BUDDY_BIN_DIR` stops at its setup-clone step on an older
+ledger in its own checkout: `BUDDY_MIGRATE=1 sh scripts/install.sh` when the
+hooks run that bin dir.
+
 ### `buddy update` — reinstall from the checkout you installed from (D-110)
 
 `install.sh` stamps its checkout's absolute path into every `buddy` it builds.

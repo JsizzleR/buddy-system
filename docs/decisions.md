@@ -10617,6 +10617,123 @@ storing what is open: the slot's description is that, in the holder's words.
 - skill: core, "Upgrading buddy"; USAGE "The browser slot"; README "Hook wiring"
 - amends: D-050 step 6, D-120's "Why it still installs nothing": settings edited under this flag only
 
+## D-136 — Only the hooks' binary migrates an existing ledger, after a verified backup (issue #79; no schema change; amends D-037)
+
+2026-11-10. Finding 5 of the whole-project review (#75-#84); the operator, in
+orc-17's pane at about 13:55Z: "okay do them all".
+
+**The failure** — `store.Open` migrated any ledger below `schemaVersion`, from
+any binary, with no backup. The ledger is shared by every worktree of a
+checkout, so one `go run ./cmd/buddy ls` from a schema-bump branch in a linked
+worktree migrated it in place; the installed older `~/bin/buddy` every hook
+runs then refused it (D-037), and the gate denied every gated call, Bash
+included, in every worktree. Reproduced at 7b17cc2 by
+`TestDevBuildDoesNotMigrateTheSharedLedger` (an unstamped build, a linked
+worktree): the ledger came back at the new version with no backup.
+
+**The rule** — the damage is a mismatch between the binary that migrates and
+the one the hooks run, so an EXISTING ledger (a version other than exactly 0,
+or 0 with any row in `sqlite_master`) is migrated only when the running
+executable is the same file as `$HOME/bin/buddy` (README's hook lines;
+symlinks followed; `internal/cli/migrate.go`), or under `BUDDY_MIGRATE=1`,
+exactly `1`. Anything else returns `ErrMigrationRefused`, decided from Open's
+unlocked read (a refused build takes no lock) and again under the lock; the
+gate denies on it (invariant 3), the fix inside the gate's 512-byte cut for a
+ledger path under about 250 bytes (the cross-check), the path fenced. A
+fresh ledger is created by any build. `buddylist` links the same permit and is
+never `~/bin/buddy`, so it no longer migrates (its lookups stay silent). After
+`install.sh`, the new `~/bin/buddy` migrates each OTHER repository's older
+ledger on its first open there, so the failure is not moved (the issue's
+design question). install.sh needs no knob at the default bin dir:
+setup-clone runs its `buddy init` with `~/bin` first on PATH. The unlocked
+check reads the version and the table count in ONE statement (two reads
+straddled a peer's fresh create, the concurrency lens); the permit is set once
+(a second `SetMigrationPermit` panics) and fences HOME and the executable's
+path, since the gate's home-repo arm renders an open's error unfenced.
+
+**The backup** — under `migrateTx`'s `BEGIN IMMEDIATE`, a second connection
+runs `VACUUM INTO` a temporary name unique to the process, which is fsynced,
+read back (`user_version` equal to the locked read, `quick_check` ok) and
+hard-linked to `buddy.db.pre-schema<N>.bak` (`N` the target, as the hand-made
+pre-schema15 copy was named), or `.<k>.bak` up to 20 on EEXIST (a free name is
+probed first, so a full set fails before any VACUUM under the lock); then the
+directory is fsynced and the migration runs. Measured 2026-11-10 (modernc
+sqlite): `VACUUM INTO` on a second connection succeeds in WAL while the first
+holds the write lock with an uncommitted write, and copies committed state
+only; it refuses inside a transaction; it writes INTO an existing empty file,
+hence the unique name and the exclusive link. Holding the lock from the
+snapshot to the commit means no write lands between them, and a second opener
+finds the version current and makes no backup. Guaranteed (the design pass's
+wording): before an existing ledger's migration commits, a verified, synced
+logical snapshot of its committed pre-migration state is published beside it;
+any backup failure commits no migration.
+
+**Considered and cut** (Codex design pass, two rounds; the first hit the
+watchdog after two findings)
+- `BUDDY_MIGRATE` alone, set by install.sh: the issue's own question; the new
+  installed hooks would deny in every other repository with an older ledger.
+- install.sh's provenance stamp (`installedFrom`) as the permit: it proves
+  where a build came from, not that hooks run it.
+- `$BUDDY_BIN_DIR/buddy` as a hooks path: a dev build run with
+  `BUDDY_BIN_DIR=/tmp/dev` passes, and check-install.sh sets it around builds
+  of the tree under test.
+- An unguarded `migrate(db)` in production: it is now a `_test.go` wrapper,
+  and an AST test holds `migrateTx` to one call, from `migrateLedger`.
+
+**Not done, accepted**
+- A FRESH ledger is created by any build (the bypass and refusal lenses): a
+  dev build's `buddy init` in a repository never inited, or any verb on a
+  zero-byte `buddy.db`, stamps its own schema, and older installed hooks there
+  then deny (D-037). Kept: every fixture harness (in-process tests, built
+  binaries, check scripts) creates ledgers with builds that are not
+  `~/bin/buddy`, and the issue's failure is a shared ledger that existed.
+- Hooks wired to another path (a Codex line naming one, `buddy-adapter
+  --buddy`, a non-default `BUDDY_BIN_DIR`) are refused, fail closed, until
+  `BUDDY_MIGRATE=1 buddy init` in each repository, and install.sh with such a
+  bin dir stops at setup-clone on its own older ledger; `BUDDY_MIGRATE=1`
+  makes no older hook read the result, and the refusal does not offer it as a
+  repair. It reaches every process that inherits it, chat ones included.
+- HOME comes from the environment: `HOME=/tmp/h` with `/tmp/h/bin/buddy` a
+  link to a dev build passes, and migrates for every reader of that ledger.
+- A git common dir on a volume with no hard links (exFAT, some SMB mounts):
+  the link fails, so the hooks' own binary refuses with the backup error and
+  `BUDDY_MIGRATE=1` takes the same path (the cross-check; not measured).
+- `Open`'s DSN is `"file:"+dbPath` unescaped, so a `%`, `?` or `#` in the
+  path names another file (older than this change); the verifier's own URI is
+  escaped (the code pass: a raw `good%2edb` verified `good.db`).
+- The gate's home-repo arm (`cli.go`, held by other lanes) appends "or remove
+  <repo>/.git/buddy.db to turn fleet off" to this refusal and renders the
+  ledger path unfenced, as for `ErrLedgerNewer`: recorded open.
+- `os.Executable` names a path: a running newer buddy whose file a downgrade
+  install renamed over is judged by the new file (`buddy update` refuses a
+  downgrade, D-110).
+- The DSN's `journal_mode=WAL` runs at connection open, before the version
+  read, as for `ErrLedgerNewer`: every ledger has been WAL since D-001, so a
+  refusal can leave `-wal`/`-shm` and changes nothing else.
+- A backup slower than `busy_timeout` (5 s) fails a concurrent opener once.
+  Killed mid-backup: a temporary may remain; killed after the link, a backup
+  and no migration, and the next attempt takes the next name.
+
+**Tests** — `internal/store/migrate_test.go`: the refusal (names, versions,
+fix offset; stamp unchanged, nothing written) beside its permitted control
+(migrated, one backup holding the claim, no temporary); `BUDDY_MIGRATE`
+exactly `1`; fresh versus 0-with-tables and -1; the locked re-check (a peer
+creates the ledger at the seam); a refusal returns at once under a held lock;
+a hand-made and an EMPTY backup name left alone; every name taken, or a
+failed verify, migrates nothing; a nil permit refuses, a second set panics;
+eight concurrent opens, one backup; the verifier (wrong version, corrupt
+pages, not a database); the AST door (one name, one call, the only stamp).
+`internal/cli/migrate_test.go`: the permit (absent, another file, a symlink
+to the test binary, relative HOME); an unstamped build in a linked worktree
+refused, then the same file as `$HOME/bin/buddy` migrating with a backup; the
+gate denying with cause and fix, beside its control. `check-install.sh`
+QA-17: the buddy install.sh built, refused from a HOME whose `bin/buddy` is
+another file, migrating under `BUDDY_MIGRATE=1` and as `$HOME/bin/buddy`, each
+with a backup, the first kept. Mutation, in private copies: 19 mutants, 17
+killed; the two survivors (quick_check ignored; an always-true SameFile under
+QA-17) die since the folds; `ver > 0` for `ver != 0` in the locked check is
+now equivalent, the unlocked check refusing first.
+
 ## D-139 — A target resolves among live sessions first, and ended rows only when nothing live matches (issue #80; amends D-013)
 
 2026-11-10 · issue #80 (a whole-project review, finding 6); lane target-live
