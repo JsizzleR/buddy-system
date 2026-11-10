@@ -11315,3 +11315,42 @@ launches nothing (D-027, D-056), and the fix is two sentences of recipe.
 - code: `internal/store/store.go` (`Pause`, `Resume`, `ResumeResult`), `internal/store/target.go` (`resolveFrom`, `targetRows`, `reresolve`), `internal/cli/resume.go`, `internal/cli/stale.go` (`msgTargetFor`'s comment)
 - docs: USAGE "Targets."
 - amends: D-013's `Resume` label arm (narrowed); D-139's Open paragraph (closed)
+
+## D-156 — An admission record is produced before a planned adapter run, not per release (Codex report B3; amends D-079's cadence only)
+
+2026-11-10. The operator, in orc-19's pane at 19:06Z, answering whether a lane
+should record that Codex admission is on demand: "8 and 10, yes".
+
+**Measured** (Codex integration report, tree 980ea65, its B3; relayed figures
+marked) — four Codex builds are admitted (0.160.0, 0.162.1, 0.164.0, 0.165.0)
+and four Claude builds (2.1.291, 2.1.299, 2.1.311, 2.1.312). The three
+Codex records `qualify-release.py` wrote are commits of 1,060 to 1,084 added
+lines each (356663d 2026-10-14, fb7547c 2026-10-26, 732c998 2026-10-29;
+`git show --stat`), each after an operator-only run of the suites
+`admissionSuites` names. No adapter-launched worker has done real work: the
+plan's "Real-provider or model-directed fleet" row reads "Not qualified", and
+every native fixture is a loopback provider (`docs/CODEX-ORCHESTRATOR-PLAN.md`).
+Installed on 2026-11-10: `codex-cli 0.166.0` and Claude Code 2.1.322, neither
+admitted. Retained copies on disk (`ls ~/.buddy/harness/*/`): Codex 0.162.1,
+0.164.0, 0.165.0; Claude 2.1.299, 2.1.311, 2.1.312.
+
+**The decision** — a new admission record is produced when an adapter run is
+planned, for the build that run will launch, not each time a harness release
+lands. An unadmitted installed build is the expected state between runs and
+is not a defect to close. D-079's rule is unchanged: one exact artifact per
+record, bound by its bytes and release tree, granted only the tiers D-081's
+runner earned, and an unrecorded version refuses (`admission_missing`, before
+anything runs). Only the cadence moves.
+
+**What still launches** (read in code, not run) — `buddy-adapter --retained`
+resolves the one committed record for the declared harness and version
+(`harness.RetainedExecutable`) to `~/.buddy/harness/<harness>/<version>-<sha8>/`,
+and admission then hashes what is there like any other path. So a run planned
+on a retained admitted build (Codex 0.165.0 or Claude 2.1.312 here) needs no
+new record. Whether such an older build still works against the live provider
+was not measured: every admission suite runs on loopback.
+
+**Nothing cut** — no code changes, no record or retained copy is deleted, and
+`qualify-release.py` stays the one entry point (D-081). Refused: retiring the
+older records (a planned run may want one), and admitting each release ahead of
+need (the report counts four records and zero real launches).

@@ -81,7 +81,9 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     record cannot bind its own binary; the contract id is bumped instead). A version-keyed
     parse rule whose outcomes are identical on every measured frame of every recorded
     version, proven by a committed hermetic replay, does not bump the contract id; a change
-    that alters any such outcome does, and requalifies (the operator's choice).
+    that alters any such outcome does, and requalifies (the operator's choice). A record is
+    produced before a planned adapter run, for the build it launches, not per release; an
+    unadmitted installed build is expected between runs (D-156).
 
 81. **A qualification candidate (D-080)** is `buddy-adapter --qualify-candidate <artifact>
     --qualify-sha256 <hex>` in the shipped binary: the typed digest binds the artifact, the
