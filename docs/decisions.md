@@ -6495,8 +6495,13 @@ record's sandbox lines there, never in the gate), ask the operator, never
 delete the ledger. It used to end "or remove <repo>/.git/buddy.db to turn
 fleet off". Same verdict. Every value a gate refusal prints, the hook's
 `tool_name` included, now goes through `internal/fence` (invariant 9;
-`gate_deny_fence_test.go`). The commit gate's "delete buddy.db … to turn the
-Buddy System off" (`commitgate.go`) is recorded open.
+`gate_deny_fence_test.go`). The commit gate's ledger-unavailable refusal
+offered "delete buddy.db … to turn the Buddy System off"; it now says the
+same cause and fix, its error capped at 4096 (at 512 a deep repository lost a
+newer ledger's fix), same exit code (`commitgate_deny_fence_test.go`). Recorded
+open (Codex, reproduced): the `buddy status` both refusals point to prints a
+verb's error raw (`errVerb`'s `%v`), so a newline in the ledger's path is a
+line of its own there.
 
 ## D-085 — Inherited harness identity: refuse with the remedy; a herdr tab does not leak
 

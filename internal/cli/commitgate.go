@@ -187,14 +187,23 @@ func cmdCommitGate(args []string, env Env) int {
 		return commitGateAllow
 	}
 	if err != nil {
-		// The ledger lives in the git COMMON dir, not in `.git` — a linked
-		// worktree's `.git` is a file, so advice naming `.git/buddy.db` sends
-		// the reader somewhere the database is not.
+		// The cause and the fix, in D-084's register, as the PreToolUse gate's
+		// arm says since #85. This used to offer "delete buddy.db from `git
+		// rev-parse --git-common-dir` to turn the Buddy System off": advice
+		// to delete every claim, wait, outcome and inbox row in the checkout,
+		// read by a committing model as often as by a human, and a model may
+		// follow it literally. The error carries its own fix where one is
+		// known (a stale binary, a refused migration); `buddy status` runs the
+		// open through errVerb, which adds a sandbox's cause and fix. Bounded
+		// at 4096, not 512: a newer ledger's fix follows the ledger's path,
+		// and at 512 a repository about 450 bytes deep lost it.
 		fmt.Fprintf(env.Stderr, "buddy commit-gate: ledger unavailable (%s); refusing the commit.\n"+
-			"  Fix it, or delete buddy.db from `git rev-parse --git-common-dir` to turn the\n"+
-			"  Buddy System off in this repo.\n"+
+			"  A ledger this gate cannot read may govern this repo, so the claims check fails closed.\n"+
+			"  Fix what the error names; `buddy status` here may name more of the cause.\n"+
+			"  Ask the operator if it is not yours to fix; never delete buddy.db, which holds\n"+
+			"  every session's claims, waits and messages.\n"+
 			"  Deliberate bypass for this one commit: git commit --no-verify\n",
-			fence.Line(err.Error(), 512))
+			fence.Line(err.Error(), 4096))
 		return commitGateBroken
 	}
 	defer st.Close()
