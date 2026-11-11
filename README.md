@@ -34,8 +34,9 @@ session's own choice; what buddy refuses comes from the ledger.
   holder (shared claims overlap each other, and a claim parked in a run yields to an exclusive one declaring it); a refused claim
   names the whole conflict set and how to wait for it.
 - **Messages between sessions.** `buddy msg <label|slug|id> "…"` queues a note
-  delivered on the recipient's next tool call, with an id so a later message
-  can correct it; `buddy sent` says what became of it, never "read".
+  delivered on the recipient's next tool call (a Codex recipient runs
+  `buddy inbox`), with an id so a later message can correct it; `buddy sent`
+  says what became of it, never "read".
 - **A roster for the operator.** `buddy sessions` is the roster: each session
   live, idle or paused with its claims and context size (dead rows fold into
   one count line; `--all` lists them); `buddy who` is everything the ledger

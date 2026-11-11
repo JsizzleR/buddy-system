@@ -932,7 +932,16 @@ func openWaitOf(st *store.Store, si store.SessionInfo) (store.Wait, bool, error)
 // Only LANDED is announced here, and only for the current incarnation's open
 // row: EXPIRED is the check's to say, and nothing here closes the row — the
 // check that reads the verdict does.
-func waitNotice(st *store.Store, me store.SessionInfo, now time.Time, codex bool) (string, func() error) {
+//
+// CLAUDE ONLY, so no Codex wording (Codex report B4). This took a codex flag
+// and said "schedule no further check" under it, but its one caller is
+// cmdBeat, which refuses every Codex hook (the JSON marker, BUDDY_HARNESS or
+// CODEX_THREAD_ID, each of which classifyHook turns into h.Harness) before it
+// gets here, and h is not reassigned between: the flag was always false and
+// the arm unreachable. A Codex session reads LANDED from `buddy wait check`,
+// whose advice already speaks Codex. TestCodexBeatNeverReachesWaitNotice pins
+// the refusal; a beat that one day accepts Codex must word this again.
+func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, func() error) {
 	nothing := func() error { return nil }
 	w, ok, err := openWaitOf(st, me)
 	if err != nil || !ok || w.Told || w.Verdict(now) != store.WaitLanded {
@@ -942,12 +951,8 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time, codex bool
 	if caveat != "" {
 		caveat = " " + caveat
 	}
-	stop := "then stop the /loop that runs it"
-	if codex {
-		stop = "schedule no further check"
-	}
-	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s%s. `buddy wait check` clears it; %s.%s\n",
-		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), handedPhrase(w, hookHandedRoom), notePhrase(w), stop, caveat)
+	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s%s. `buddy wait check` clears it; then stop the /loop that runs it.%s\n",
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), handedPhrase(w, hookHandedRoom), notePhrase(w), caveat)
 	return line, func() error { return st.MarkWaitTold(me.SessionID, w.Decl) }
 }
 

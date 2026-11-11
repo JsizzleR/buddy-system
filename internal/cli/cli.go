@@ -1616,6 +1616,10 @@ func chatOff(env Env) bool {
 
 func cmdHello(args []string, env Env) error {
 	session, label, _ := helloFlags(args)
+	// Named by --session, the caller need not BE the session (usually the
+	// operator's terminal), and `buddy inbox` there resolves no one: the
+	// Codex count line below then names the id (Codex review of B4).
+	namedByFlag := session != ""
 	if label == "" {
 		// The flag wins. Then the same path --label takes: stored as given,
 		// fenced wherever it renders, and the label-worn-twice warning below
@@ -1806,6 +1810,9 @@ func cmdHello(args []string, env Env) error {
 	inboxReserve := 0
 	if len(msgs) > 0 {
 		inboxReserve = helloInboxCountLine
+		if codex && namedByFlag {
+			inboxReserve += len(fence.Line(si.SessionID, 128))
+		}
 	}
 	if len(claims) == 0 {
 		b.WriteString("BUDDY: no live claims.\n")
@@ -1844,8 +1851,34 @@ func cmdHello(args []string, env Env) error {
 			}
 			ids = writeInbox(&b, shown, now)
 		}
+		// NAME WHAT DELIVERS THEM (Codex report B4). "Your next tool call" is
+		// Claude's beat. Under Codex this hello is never hook-driven (a Codex
+		// SessionStart is refused above), so every message lands here, and a
+		// Codex tool call's beat is refused too: the line promised a delivery
+		// that never came, and the mail sat until someone thought to run
+		// `buddy inbox`. Under Codex it names that verb. A hand-run hello for
+		// a Codex session from a terminal with no Codex marker still gets the
+		// Claude line: the ledger records no harness for a session. The
+		// longer line is 120 bytes at a five-digit count, inside the
+		// helloInboxCountLine reserve both budgets hold back for it.
+		//
+		// Named by --session, the line says which session runs it and with
+		// what: a plain `buddy inbox` from another terminal resolves the
+		// caller, or nobody, and refuses with two live sessions (Codex review
+		// of B4). It is addressed to THAT session, never "run it here": run by
+		// the operator, it would drain X's mail into the operator's terminal,
+		// the very thing this hand-run arm refuses to do above. Its id is
+		// counted into inboxReserve; the drain's room is not, because a
+		// Codex hello is never hook-driven and shows nothing.
 		if rest := len(msgs) - len(shown); rest > 0 {
-			fmt.Fprintf(&b, "BUDDY: %d queued message(s) not shown here; they will arrive after your next tool call.\n", rest)
+			switch {
+			case codex && namedByFlag:
+				fmt.Fprintf(&b, "BUDDY: %d queued message(s) not shown here; no tool call delivers them under Codex: that session runs `buddy inbox --session %s`.\n", rest, fence.Line(si.SessionID, 128))
+			case codex:
+				fmt.Fprintf(&b, "BUDDY: %d queued message(s) not shown here; run `buddy inbox` to read them (no tool call delivers them under Codex).\n", rest)
+			default:
+				fmt.Fprintf(&b, "BUDDY: %d queued message(s) not shown here; they will arrive after your next tool call.\n", rest)
+			}
 		}
 	}
 	if _, err := io.WriteString(env.Stdout, b.String()); err != nil {
@@ -2269,7 +2302,7 @@ func cmdBeat(args []string, env Env) error {
 	// whichever comes first.
 	landed, commitLanded := "", func() error { return nil }
 	if known && me.Live() && !sub {
-		landed, commitLanded = waitNotice(st, me, nowOf(env), h.Harness == "codex")
+		landed, commitLanded = waitNotice(st, me, nowOf(env))
 	}
 
 	// THE guard for a subagent: nothing but the dirty warning is written, so

@@ -205,8 +205,9 @@ end a turn that something else will end:
   original still arrives, marked SUPERSEDED.
 - `buddy sent [<id>]` shows what became of your sends: delivered, queued, or
   expired. It never reports "read", and names the wake address of a queued one.
-- Your own mail arrives by itself, on your own tool calls, at a prompt that
-  opens a turn, and at your Stop: mail that lands as your turn ends holds the
+- Your own mail arrives by itself (under Codex it does not: run
+  `buddy inbox`), on your own tool calls, at a prompt that opens a turn,
+  and at your Stop: mail that lands as your turn ends holds the
   turn open one step to hand it over (`BUDDY: mail reached you as this turn
   ended`). A subagent's tool calls never drain it. `buddy inbox` drains it on
   demand, and `buddy inbox <id>` re-prints one message sent to you (the `#N` it
