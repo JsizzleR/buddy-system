@@ -3,6 +3,9 @@
 # Columns, TAB-separated: key, ceiling_bytes, set (date and who), why.
 # A key is a path, a section (path#<heading text>: that `## ` heading to the next), a frontmatter
 # field (path:description), or a class total. The check, not this table, decides what must be here.
+# An ENTRY key, path#*, is each `## ` section of the file on its own: what a by-heading read returns (D-169).
+# A ceiling of `report` prints the bytes and fails nothing; the check allows it only on the read-first
+# total and on a read-first-only file with an entry key, never on bytes a request carries (D-169).
 # Ceiling = landed size + 10%, rounded up to 4,096 (`sh scripts/check-prose-budget.sh --sizes`).
 # RAISE only on the operator's word: edit the key's line, the date and the reason in `set`/`why`, in
 # the commit that needs the room. A lane never raises one; it names the overage in READY.
@@ -17,12 +20,14 @@ per-session	94208	2026-11-10 operator (relayed by orc-17)	class total: every ski
 skills/buddy/SKILL.md	28672	2026-10-28 operator (D-116)	core: what every session that loads the skill needs; 23,819 at landing (after D-114)
 skills/buddy-fleet/SKILL.md	61440	2026-11-10 operator (relayed by orc-17)	coordinators only; 49,649 at landing (after D-122: review defers to the core, gh stack narrative to D-108/D-122); 57,318 at the raise for the #75-#84 batch, raised by 4 KB inside the per-session total
 skills/buddy-lead/SKILL.md	8192	2026-10-29 buddy-lead (D-121)	a first-time user's helper: asks, routes to the other two skills and the docs, points at scripts/env-check.sh; 6,461 at landing
-read-first	1228800	2026-11-10 operator (relayed by orc-19)	class total: what CLAUDE.md's Read this first and AGENTS.md's read paragraph name; 985,707 at landing, today's list; raised at 1,085,400 of 1,085,440, to the formula's value; step 3 decides what stays; raised 16 KB at 1,198,170 for the Codex-findings batch (run-i88: four lanes adding records, each under alone), formula 1,318,912; raised 16 KB again at 1,214,455 (run-i90: the batch's seven records together), formula 1,335,902
+read-first	report	2026-11-11 operator ("do them all", relayed by orc-19; D-169)	class total: what CLAUDE.md's Read this first and AGENTS.md's read paragraph name; REPORT-ONLY since D-169 (obeyed in 7 of 86 sessions, no request carries the total); its members keep their own lines; was ceiling 1,228,800 at 1,179,816; 985,707 at D-116's landing
 README.md	28672	2026-10-28 operator (D-116)	named in Read this first; 22,566 at landing
 docs/README.md	4096	2026-10-28 operator (D-116)	named in Read this first; 3,385 at landing
 docs/DESIGN.md	16384	2026-10-28 operator (D-116)	named in Read this first and by AGENTS.md; 11,650 at landing
-docs/USAGE.md	192512	2026-11-10 operator (relayed by orc-17)	named in Read this first as the per-feature reference; 169,395 at landing; 189,243 when the #75-#84 batch landed (nine items, each under the old 188,416, together 827 over), raised by 4 KB, under the formula's 204,800
-docs/decisions.md	839680	2026-11-10 operator (relayed by orc-17)	named in Read this first since D-112, read by heading (452 of 453 calls); 761,786 at the raise for the #75-#84 batch (ten items, 5-9 KB a decision), set by the formula (landed size + 10%, rounded up to 4,096); the read-first total binds next, near 1,241,088
+docs/USAGE.md	report	2026-11-11 operator ("do them all", relayed by orc-19; D-169)	named in Read this first as the per-feature reference, read by section; REPORT-ONLY since D-169, its sections capped by docs/USAGE.md#*; was ceiling 192,512 at 191,307; 169,395 at D-116's landing
+docs/USAGE.md#*	69632	2026-11-11 operator ("do them all", relayed by orc-19; D-169)	EACH `## ` section (what a by-heading read returns); the formula on the largest, "Structured adapters (experimental)" at 61,291; next 20,457
+docs/decisions.md	report	2026-11-11 operator ("do them all", relayed by orc-19; D-169)	named in Read this first since D-112, read by heading (1,660 ranged reads or searches, 0 whole-file reads in 14 days); REPORT-ONLY since D-169, each entry capped by docs/decisions.md#*; was ceiling 839,680 at 806,947
+docs/decisions.md#*	36864	2026-11-11 operator ("do them all", relayed by orc-19; D-169)	EACH `## D-NNN` entry (what a by-heading read returns); the formula on the largest, D-077 at 30,171; then D-078 23,306, D-106 19,821, D-108 18,152; none over
 codex-pass	118784	2026-11-11 operator (relayed by orc-19)	class total: AGENTS.md + the charter, on every Codex pass without CODEX_CHARTER=adapter; 103,933 at landing (adapter GIVENs as stubs); 114,560 at D-158, which adds the install and testinfra parts a pass with no CODEX_DIFF loads; raised 4 KB at 114,969 (run-i92: D-158's install and testinfra parts ride in full on a pass that names no CODEX_DIFF), formula 126,976
 docs/review-charter.md	110592	2026-11-02 charter-split (D-128), lowered	prepended to every Codex pass, and named in Read this first; 99,183 at landing (adapter GIVENs 72 76 78 80 81 82 as one-line stubs); GIVENs topical from D-116
 docs/review-charter-adapter.md	12288	2026-11-02 charter-split (D-128)	the stubbed adapter GIVENs in full, appended only on CODEX_CHARTER=adapter (codex-review.sh's CHARTER_ADAPTER= line; in no class total); 8,171 at landing

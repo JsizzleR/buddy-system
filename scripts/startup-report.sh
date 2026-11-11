@@ -3,7 +3,8 @@
 # around before their first edit, and how. Counts and byte lengths only: no
 # prompt, command, path or tool output is ever printed.
 #
-#   sh scripts/startup-report.sh [repo-dir]      # default: this checkout
+#   sh scripts/startup-report.sh [repo-dir]      # default: this repo, its main
+#                                                # checkout from any worktree (D-169)
 #
 # WHY IT EXISTS (D-051). Its first run here, 30 days to 2026-09-26: 14
 # sessions reached an edit, a median 22 minutes and 29 tool calls (89 KB
@@ -88,9 +89,6 @@ dir=${1:-$PWD}
 cdup=$(git -C "$dir" rev-parse --show-cdup 2>/dev/null) || cdup=
 top=$(CDPATH= cd -- "$dir/${cdup:-.}" && pwd -L)
 projects=${CLAUDE_PROJECTS_DIR:-"$HOME/.claude/projects"}
-parent=$(dirname -- "$top")
-base=$(basename -- "$top")
-rparent=$(CDPATH= cd -- "$parent" && pwd -P)
 common=$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
 # Run from a worktree the harness made (`<main>/.claude/worktrees/<n>`), the
 # main checkout as the operator spells it is $top with that cut off, kept only
@@ -102,6 +100,38 @@ case "${top#"$under"/.claude/worktrees/}" in
 	"$top" | '' | */*) under= ;;
 	*) [ -n "$common" ] && [ "$(git -C "$under" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" = "$common" ] || under= ;;
 esac
+# Run from any other LINKED worktree (a sibling `<repo>-wt-<label>`, where this
+# repo's lanes live, or one parked under another repository), the main
+# checkout is git's first entry, mapped to the operator's spelling through the
+# symlink in $top's own (the prefix pair left once the components the two
+# spellings end in alike are stripped: /var and /private/var). The report is
+# then the main checkout's, from wherever it runs. The first cut took the
+# worktree for the repo (the token-overhead report, D-169): its sibling rule
+# became `<worktree>-*`, a removed lane's edits stopped counting, and the
+# header named the worktree. $here, the run's own top, stays a root.
+here=$top
+gd=$(git -C "$top" rev-parse --path-format=absolute --git-dir 2>/dev/null) || gd=
+if [ -n "$under" ]; then
+	top=$under
+elif [ -n "$common" ] && [ -n "$gd" ] && [ "$gd" != "$common" ]; then
+	m=$(git -C "$top" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+	lp=$top; pp=$(CDPATH= cd -- "$top" && pwd -P)
+	while [ "$lp" != / ] && [ "$pp" != / ] && [ "$(basename -- "$lp")" = "$(basename -- "$pp")" ]; do
+		lp=$(dirname -- "$lp"); pp=$(dirname -- "$pp")
+	done
+	rest=${m#"$pp"/}
+	# Kept only when it names the SAME directory (Codex code pass): matching
+	# trailing components do not prove an alias, and a lane under a symlinked
+	# parent mapped the main checkout onto another repository's path.
+	if [ "$lp" != "$pp" ] && [ "$pp" != / ] && [ "$rest" != "$m" ] &&
+		[ "$(CDPATH= cd -- "${lp%/}/$rest" 2>/dev/null && pwd -P)" = "$(CDPATH= cd -- "$m" 2>/dev/null && pwd -P)" ]; then
+		m="${lp%/}/$rest"
+	fi
+	if [ -n "$m" ] && [ -d "$m" ]; then top=$m; fi
+fi
+parent=$(dirname -- "$top")
+base=$(basename -- "$top")
+rparent=$(CDPATH= cd -- "$parent" && pwd -P)
 # Every worktree root: as git lists it (resolved), resolved again, and mapped
 # back through the repo's own parent as the operator spells it — git lists
 # /private/var where the harness, started in /var, named its directory from
@@ -110,7 +140,7 @@ esac
 roots=$(
 	{
 		printf '%s\n' "$top"
-		if [ -n "$under" ]; then printf '%s\n' "$under"; fi
+		printf '%s\n' "$here"
 		git -C "$top" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p'
 	} | while IFS= read -r r; do
 		[ -n "$r" ] || continue

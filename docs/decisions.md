@@ -11427,3 +11427,129 @@ Two beats racing three peer writes (B announced, C announced, B's record landing
 after C's) leave B as the newest row, so B restored later is not announced; a
 compare-and-set record would close it. Both need a peer write inside one hook's
 window.
+
+## D-169 — Bytes nobody loads are reported, not budgeted: the read-first total and the whole of `decisions.md` and `USAGE.md` are report-only, one entry of each is capped; and three report-script defects (the token-overhead report's 5a and its instrument defects; amends D-116)
+
+2026-11-11 · the operator's decision: "do them all", in orc-19's pane at about 14:12Z,
+after opening the token-overhead report (Fable lane, shasum 05156aec), its 5a and stop-doing 4;
+carried out by lane budget-reports under orc-19, then orc-20
+
+**What was wrong** — D-116 put a red ceiling on every text a startup list names, and on
+the `read-first` class total. Measured by the report over the 14 days to 2026-11-11
+(`cost-report.sh` and a transcript sweep): "Read this first" was obeyed in 7 of 86
+sessions; `docs/decisions.md` had 1,660 ranged reads or searches and 0 whole-file reads;
+its reads returned 505 KB in 161 calls. No request carries the file's total. Yet that
+total bound: `docs/prose-budget.tsv`'s read-first, `decisions.md` and `USAGE.md` ceilings
+were raised three times on 2026-11-10, each an operator decision relayed through an
+orchestrator, and commit `5f4ec67` was a lane spent trimming 46 KB from the record, about
+15 M token-reads (the report's estimate) to save none. A whole-file ceiling there polices
+bytes nobody loads; what a session pays is one entry, the by-heading read.
+
+**What shipped** — `check-prose-budget.sh` takes two new forms. A ceiling of `report` is
+report-only: the bytes print (`REPORT key n`), nothing fails on them, and the line is still
+required and still fails as vanished when its text goes. The CHECK, not the table, says
+where it is allowed: on the `read-first` total, and on a file that is in read-first and in
+no other class (nor a flagged charter part, which rides every pass that asks for it) and has
+an entry key of its own; anywhere else it fails `report-only`, so a lane cannot turn
+CLAUDE.md, a skill or a charter to `report` by editing one field. An ENTRY key, `path#*`, is every `## ` section of the file on its own, the text before
+the first heading one more, each keyed by its line so two headings spelled alike are two
+reads: its size is the largest one's, and over its ceiling it names every entry over. The
+table: `read-first`, `docs/decisions.md` and `docs/USAGE.md` are `report`;
+`docs/decisions.md#*` is 36,864 (the formula on the largest entry, D-077 at 30,171; then
+D-078 23,306, D-106 19,821, D-108 18,152; none over) and `docs/USAGE.md#*` 69,632 (the formula
+on "Structured adapters (experimental)", 61,291; the next is 20,457; none over). Red stays
+where bytes ride requests: every-request, per-session, codex-pass, CLAUDE.md and its
+Decisions section, the skill keys, and the read-first files that are small and whole-read
+(README.md, docs/README.md, docs/DESIGN.md, the charter). `cost-report.sh` prints a `report`
+line as `ceiling=report-only` (read as a number it was 0, and its headroom a division by
+zero that ended the prose section) and labels an entry key as its file's largest entry.
+
+**Instrument defects, each reproduced by a fixture first.**
+- `wake-report.sh`, run from a linked worktree the harness did not make (a sibling
+  `<repo>-wt-<label>`, where this repo's lanes live, or one parked under another
+  repository), took the worktree for the repo and read its one directory: the empty table
+  looked like "no wakes". Its default now reads the main checkout's directory (git's first
+  worktree entry) and every registered worktree's, by each spelling, from the main
+  checkout or any worktree alike, plus the harness-named `--claude-worktrees-*` ones. The
+  spellings map git's resolved path back through the symlink in the run's own top (the
+  prefix pair left when the components both spellings end in alike are stripped: `/var`
+  and `/private/var`), not through its parent, which a parked worktree does not share.
+  The check's "parked" case, which asserted the old stand-alone reading, now asserts the
+  repository's whole set from three vantage points.
+- `startup-report.sh`, from such a worktree, anchored its sibling rule and header on the
+  worktree (`<worktree>-*`), so a removed lane's edit stopped counting. It now anchors on
+  the main checkout the same way, the run's own top kept as a root; from the sibling or a
+  directory in it the report equals the main checkout's word for word.
+- `cost-report.sh` parsed transcripts as one JSON stream, so a line that is not JSON (a
+  transcript being written ends mid-line) was a parse error that abandoned the rest of
+  jq's file list: a 7-day run during a live fleet read 2,534 of 3,024 transcripts and said
+  only FLOOR. It now reads raw lines (`-R`) and parses each with `try fromjson`; a bad line
+  is skipped and counted on a `transcript_lines_not_json` line (`skipped`,
+  `unterminated_last_line`, `elsewhere`), printed only when there is one, never its text.
+  Raw mode joins an unterminated last line to the next file's first, so each transcript is
+  followed in jq's list by a one-newline separator file: a non-empty line attributed to it
+  is a transcript's unterminated last line, credited (through a `foreach` carrying the last
+  transcript's name) to that file when it is a complete record, skipped and counted when it
+  is not. Measured on jq 1.7.1 on the way: after a file it cannot open,
+  jq's main loop reads ONE more file and stops (raw or not), so the program runs under `-n`
+  with `inputs`, which reads them all; that error still draws the FLOOR note. And a file's
+  first line now gives its `F` row whatever it holds, closing the old blank-first-line
+  residual. Refuted: `--seq` (a parse failure discards input to the next RS, and
+  transcripts have none); one jq per file (refuted in the script's header).
+
+**Not done** — No entry trimmed (none is over). A cap per `### ` subsection of USAGE (a
+`## ` section is what a by-heading read returns there too). Removed sibling worktrees'
+transcript directories are still not read by wake-report and startup-report (their
+encoded names cannot be told from another repository's `<repo>-…`); cost-report keeps
+its own sibling rule. The kind of a torn line at the end of an xargs batch can read as
+`elsewhere`; its count cannot be lost. OPEN, pre-existing (Codex code pass): startup-report's
+roots map git's resolved paths back only through the main checkout's parent, so from the
+main checkout a worktree under another symlinked parent, whose transcripts were filed under
+that spelling, is not read (from inside it, its own top is a root).
+
+**Review** — Lite, one Codex code pass over both halves (5a and the instrument defects)
+at xhigh, folded once. Self-review: three headers left stale (the budget check's planted-tree
+list, wake-report's WHAT IT MISSES, startup-report's usage line), fixed. Codex, 3 raised, 3
+fixed, each reproduced by a test watched to fail without its fold: a flagged charter part
+(adapter, process) could be made `report` though it rides every pass that asks for it (the
+allow-rule now excludes `flagged`; planted); a lane under a symlinked parent mapped the main
+checkout onto ANOTHER repository's path, the suffix-stripped prefix pair being no proof of an
+alias (a mapped spelling is now kept only when it resolves to the same directory, in both
+reports; planted); and a COMPLETE last record with no newline was skipped at a separator yet
+counted at an xargs boundary (it is now credited to its file; a one-line such file, never
+read under its own name, gets a key of its own; planted). Its documentation notes folded
+(this record's torn-line and test-coverage sentences, CLAUDE.md's breadth); one pre-existing
+limitation recorded open (above). The cost-report fold is the one narrow fold that took two
+tries: crediting the previous file mis-keyed a one-line file, caught by the same test.
+
+**Test shape** — `check-prose-budget.sh`'s planted tree gains four failures (18 in all):
+`report` with no entry key, on an every-request import that has one, on a read-first file
+that also rides codex-pass and has one (each clause of the allow-rule alone), and an entry
+over its ceiling; and its positive controls: `REPORT` lines for the class and the
+read-first-only file, entry keys under their ceilings `OK`, the over entry named alone (not
+its `###` sub-heading's text, the entry under or the preamble). `check-cost-report.sh`: a
+torn last line and a malformed first line, whatever order find lists them in, cost no
+other request (the full count is the witness), are counted by kind, draw no FLOOR note, and
+leave every file parsed; the control without them prints no skip line; an unreadable
+transcript still draws FLOOR and costs nothing else; a `report` ceiling and an entry key in
+the prose table; a complete last record with no newline counted, no skipped line.
+`check-wake-report.sh`: runs from a sibling worktree, from one parked under another
+repository, and from the main checkout give the same result. `check-startup-report.sh`:
+from the sibling worktree and a directory in it, the report equals the main checkout's.
+Both: from a lane under a symlinked parent whose mapped spelling names ANOTHER repository,
+that repository is never read. Each watched to fail on the pre-fix scripts. Mutants, in private copies: 14
+(the allow-rule's three clauses, the entry size, the over listing, the REPORT line; jq's
+main loop for `inputs`, no separator, `report` read as a number, the `F` row after the
+parse; each report's fix reverted and its symlink mapping dropped): 13 killed at once; the
+class-exclusion clause survived (the planted import was in no read-first list, so the
+clause never decided) and was killed once the charter, read-first and codex-pass, was
+planted `report`. Five more over the Codex folds (`flagged` dropped, each identity check
+dropped, a separator line skipped though it parses, the closed-file state dropped): 5 killed.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "This file." line (amended; number added)
+- GIVEN: review-charter.md GIVEN 113's prose-ceilings paragraph (amended; number added)
+- code: `scripts/check-prose-budget.sh` (`report_ok`, `entries`, the planted tree), `docs/prose-budget.tsv`, `scripts/cost-report.sh` (the raw-line pass, `ceiling=report-only`), `scripts/wake-report.sh` and `scripts/startup-report.sh` (the main checkout from a linked worktree)
+- skill: none
+- USAGE: § Measuring context cost (startup-report's default, cost-report's skip line)
+- amends: D-116's red ceiling on the read-first total and on `docs/decisions.md` and `docs/USAGE.md` whole (now report-only, an entry cap each); its "Not done" item "a ceiling on docs/decisions.md beyond what its place in the startup list requires" (the entry cap is that ceiling). The rest of D-116 stands.

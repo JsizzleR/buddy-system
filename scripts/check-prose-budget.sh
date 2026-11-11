@@ -32,6 +32,21 @@
 #   - over its ceiling FAILS the tier (exit 1, never a warning: the commit
 #     gate's cut warning fired on every commit and was ignored), printing the
 #     overage, the file's five largest sections and the one way to raise it.
+#   - an ENTRY key, `path#*`, is every `## ` section of the file, each on its
+#     own (and the text before the first, as a section): its size is the
+#     largest one's, and over its ceiling it names every section over (D-169).
+#     That is what a by-heading read returns, the only way decisions.md is read.
+#   - a ceiling of `report` is REPORT-ONLY: the bytes print, nothing fails on
+#     them, and the line is still required and still vanishes red (D-169). It is
+#     refused on any key whose bytes ride a request: allowed only on the
+#     read-first total, and on a file that is in read-first and NO other class
+#     AND has an entry key of its own. Measured (D-169, the token-overhead
+#     report): "Read this first" was obeyed in 7 of 86 sessions, decisions.md had
+#     1,660 ranged reads and searches and 0 whole-file reads, and three operator
+#     raises and one 46 KB trim lane bought nothing a request carries. A
+#     whole-file ceiling there polices bytes nobody loads; one entry's size is
+#     what a read returns. The allow-rule is the check's, not the table's, so a
+#     lane cannot turn CLAUDE.md or a skill to `report` by editing one field.
 #
 # THE ENUMERATION IS THE CHECK'S, NOT THE TABLE'S (the plan's first Codex pass,
 # P1 twice). Per-file ceilings alone let a lane add a NEW always-loaded file
@@ -80,11 +95,15 @@
 # whose member is under, one description over only past its blank line, one
 # unbudgeted auto-load, one unbudgeted closure read, one unbudgeted import at
 # the second hop, one unbudgeted titled link, one unbudgeted read in a SECOND
-# "Read this first" section, two unbudgeted flag-appended charters (adapter,
-# process), one vanished
-# line and one misplaced directive, and
+# "Read this first" section, one unbudgeted flag-appended charter
+# (process), one vanished
+# line and one misplaced directive, three refused `report` ceilings (no entry
+# key; an every-request import; a read-first file that also rides codex-pass,
+# and one that is also a flagged charter part, each clause of the allow-rule
+# alone; the adapter part is therefore budgeted here, the process part not), and one entry over (D-169), and
 # nothing else: not the file under its ceiling, not the path-less directive,
-# not the second level of closure. A judge that stopped measuring, summing, enumerating or parsing
+# not the second level of closure, not the allowed `report` lines or the
+# entries under (their REPORT and OK lines are asserted too). A judge that stopped measuring, summing, enumerating or parsing
 # reports a different set, and the real tree is never judged by it.
 #
 # HOW A CEILING MOVES. Raised only by editing its line, `set` and `why` dated
@@ -96,10 +115,11 @@
 # room. A raise is a dated diff line in a file whose only purpose is to be read
 # at landing; this does not try to bind the operator, only to make it visible.
 #
-# Not budgeted, on purpose: docs/decisions.md and the plans when no startup list
-# names them (read by range: 452 of 453 calls in the measured week), and the
-# operator's own ~/.claude/CLAUDE.md, which is outside the repo and is never a
-# destination for repo text.
+# Not budgeted, on purpose: the plans when no startup list names them, the
+# whole of docs/decisions.md and docs/USAGE.md beyond a reported line (read by
+# range: 452 of 453 calls in the measured week; 0 whole-file reads in 14 days,
+# D-169), and the operator's own ~/.claude/CLAUDE.md, which is outside the repo
+# and is never a destination for repo text.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 CDPATH= cd -- "$(repo_root "$0")"
@@ -262,6 +282,9 @@ keysize() {
 		echo "$t"; return ;;
 	esac
 	case $3 in
+	*"#*")
+		f=${3%"#*"}; [ -f "$1/$f" ] || return 0
+		entries "$1/$f" | awk 'NR == 1 { print $1 }' ;;
 	*"#"*)
 		f=${3%%#*}; [ -f "$1/$f" ] || return 0
 		section "$1/$f" "${3#*#}" | awk '{ n += length($0) + 1; any = 1 } END { if (any) print n }' ;;
@@ -279,10 +302,27 @@ keysize() {
 	esac
 }
 
+# entries <file> — every `## ` section, bytes first, largest first; the text
+# before the first heading is one more. Each section by its LINE number, not its
+# heading text: two headings spelled alike are two reads, never one sum.
+entries() {
+	awk 'BEGIN { i = 0 } /^## / { i = FNR; h[i] = $0 } { n[i] += length($0) + 1 } END { for (k in n) printf "%8d  %s\n", n[k], (k == 0 ? "(before the first ## )" : h[k]) }' "$1" |
+		sort -rn
+}
+
 # sections <file> — its five largest `## ` sections, bytes first.
-sections() {
-	awk '/^## / { h = $0 } { n[h] += length($0) + 1 } END { for (k in n) printf "%8d  %s\n", n[k], (k == "" ? "(before the first ## )" : k) }' "$1" |
-		sort -rn | head -5
+sections() { entries "$1" | head -5; }
+
+# report_ok <out-dir> <key> — 0 when the key may carry a `report` ceiling: the
+# read-first total, or a file in read-first and no other class with an entry
+# key (`<file>#*`) in the table. Everything else rides a request (D-169).
+report_ok() {
+	[ "$2" = read-first ] && return 0
+	grep -qxF -- "$2" "$1/read-first" || return 1
+	# `flagged` too: an adapter or process charter part rides every pass that asks
+	# for it, whole (Codex code pass).
+	for _c in every-request per-session codex-pass flagged; do grep -qxF -- "$2" "$1/$_c" && return 1; done
+	grep -qxF -- "$2#*" "$1/keys"
 }
 
 # judge <root> <table> — one `FAIL <kind> <key>` line per failure (details
@@ -295,12 +335,12 @@ judge() {
 	[ -f "$T" ] || { echo "FAIL missing-table $T"; rm -rf "$W"; return 1; }
 	# The table: key<TAB>ceiling<TAB>set<TAB>why; `#` comments and blank lines.
 	awk -F '\t' '/^#/ || /^[[:space:]]*$/ { next }
-		NF != 4 || $2 !~ /^[1-9][0-9]*$/ || $1 == "" { print "BAD\t" NR; next }
+		NF != 4 || $2 !~ /^([1-9][0-9]*|report)$/ || $1 == "" { print "BAD\t" NR; next }
 		seen[$1]++ { print "DUP\t" $1; next }
 		{ print "KEY\t" $1 "\t" $2 }' "$T" > "$W/table"
 	while IFS="	" read -r kind a b; do
 		case $kind in
-		BAD) echo "FAIL malformed $T:$a"; echo "  want 4 tab-separated fields: key, ceiling_bytes (a positive integer), set, why"; bad=1 ;;
+		BAD) echo "FAIL malformed $T:$a"; echo "  want 4 tab-separated fields: key, ceiling_bytes (a positive integer, or \`report\`), set, why"; bad=1 ;;
 		DUP) echo "FAIL duplicate $a"; echo "  one line per key"; bad=1 ;;
 		esac
 	done < "$W/table"
@@ -325,13 +365,22 @@ judge() {
 		[ "$kind" = KEY ] || continue
 		n=$(keysize "$R" "$W" "$key")
 		if [ -z "$n" ]; then echo "FAIL vanished $key"; echo "  a budgeted text is gone: delete its line in the same commit as the text, never the line alone"; bad=1; continue; fi
+		if [ "$ceil" = report ]; then
+			if report_ok "$W" "$key"; then echo "REPORT $key $n"; continue; fi
+			echo "FAIL report-only $key"
+			echo "  its bytes ride a request, or it has no \`$key#*\` entry line: only the read-first total and a read-first-only file with an entry ceiling may be report-only (D-169)"
+			bad=1; continue
+		fi
 		pct=$((n * 100 / ceil))
 		if [ "$n" -gt "$ceil" ]; then
 			echo "FAIL over $key"
 			echo "  $n bytes, ceiling $ceil, over by $((n - ceil))"
 			case " $CLASSES " in
 			*" $key "*) while IFS= read -r m; do printf '  %8s  %s\n' "$(keysize "$R" "$W" "$m")" "$m"; done < "$W/$key" ;;
-			*) f=${key%%#*}; f=${f%:description}; sections "$R/$f" | sed 's/^/  /' ;;
+			*) case $key in
+				*"#*") entries "$R/${key%"#*"}" | awk -v c="$ceil" '$1 + 0 > c + 0' | sed 's/^/  /' ;;
+				*) f=${key%%#*}; f=${f%:description}; sections "$R/$f" | sed 's/^/  /' ;;
+				esac ;;
 			esac
 			echo "  $RAISE"
 			bad=1
@@ -399,7 +448,7 @@ Read it before exploring; the docs below.
 
 ## Read this first
 
-- `docs/a.md`, [the record](docs/b.md#top) and [rules](docs/f.md "Startup policy").
+- `docs/a.md`, [the record](docs/b.md#top), [rules](docs/f.md "Startup policy") and `docs/review-charter.md`, `docs/review-charter-adapter.md`.
 
 ## Commands
 
@@ -413,7 +462,7 @@ Read `docs/sneak.md` first, before anything.
 MD
 printf 'Read [CLAUDE.md](CLAUDE.md) and `docs/b.md` before changing this repository.\n\nOther text.\n' > "$FX/AGENTS.md"
 printf '# A\n\n## Read these first\n\n- `c.md`\n' > "$FX/docs/a.md"
-printf '# B\n' > "$FX/docs/b.md"
+printf '# B\n\n## D-1 small\n\n## D-2 an entry longer than its ceiling\n\nbody\n\n### D-2 sub, inside D-2\n' > "$FX/docs/b.md"
 printf '# C\n\n## Read first\n\n- `docs/d.md`\n' > "$FX/docs/c.md"
 printf '# D\n' > "$FX/docs/d.md"
 printf '# E\n' > "$FX/docs/e.md"
@@ -433,22 +482,40 @@ printf 'a new always-loaded rules file nobody budgeted\n' > "$FX/.claude/rules/n
 	printf '# a planted table\n'
 	printf 'every-request\t100000\tfixture\tclass\n'
 	printf 'per-session\t10\tfixture\tclass over, its one member under\n'
-	printf 'read-first\t100000\tfixture\tclass\n'
+	printf 'read-first\treport\tfixture\tclass, report-only: allowed\n'
 	printf 'codex-pass\t100000\tfixture\tclass\n'
 	printf 'CLAUDE.md\t20\tfixture\tover\n'
 	printf 'CLAUDE.md#Read this first\t1000\tfixture\ta section, under\n'
 	printf 'AGENTS.md\t1000\tfixture\tunder\n'
-	printf 'docs/a.md\t1000\tfixture\tunder\n'
-	printf 'docs/i1.md\t1000\tfixture\tunder\n'
-	printf 'docs/b.md\t1000\tfixture\tunder\n'
-	printf 'docs/review-charter.md\t1000\tfixture\tunder\n'
+	printf 'AGENTS.md#*\t1000\tfixture\tentries, each under\n'
+	printf 'docs/a.md\treport\tfixture\treport-only with no entry line: refused\n'
+	printf 'docs/i1.md\treport\tfixture\treport-only on an import (every-request), entry line or not: refused\n'
+	printf 'docs/i1.md#*\t1000\tfixture\tentries, under\n'
+	printf 'docs/b.md\treport\tfixture\treport-only, read-first alone, with an entry line: allowed\n'
+	printf 'docs/b.md#*\t30\tfixture\tone entry over, one under, the preamble under\n'
+	printf 'docs/review-charter.md\treport\tfixture\treport-only, read-first AND codex-pass, with an entry line: refused\n'
+	printf 'docs/review-charter.md#*\t1000\tfixture\tentries, under\n'
+	printf 'docs/review-charter-adapter.md\treport\tfixture\treport-only, read-first AND flagged, with an entry line: refused\n'
+	printf 'docs/review-charter-adapter.md#*\t1000\tfixture\tentries, under\n'
 	printf 'skills/s/SKILL.md\t1000\tfixture\tunder\n'
 	printf 'skills/s/SKILL.md:description\t60\tfixture\tover only past its blank line\n'
 	printf 'docs/gone.md\t1000\tfixture\tvanished\n'
 } > "$FX/table.tsv"
-got=$(judge "$FX" "$FX/table.tsv" | sed -n 's/^FAIL //p' | sort | tr '\n' ';' || true)
-want='directive CLAUDE.md:12;over CLAUDE.md;over per-session;over skills/s/SKILL.md:description;unbudgeted .claude/rules/new.md;unbudgeted docs/c.md;unbudgeted docs/e.md;unbudgeted docs/f.md;unbudgeted docs/i2.md;unbudgeted docs/review-charter-adapter.md;unbudgeted docs/review-charter-install.md;unbudgeted docs/review-charter-process.md;unbudgeted docs/review-charter-testinfra.md;vanished docs/gone.md;'
+jx=$(judge "$FX" "$FX/table.tsv" || true)
+got=$(printf '%s\n' "$jx" | sed -n 's/^FAIL //p' | sort | tr '\n' ';')
+want='directive CLAUDE.md:12;over CLAUDE.md;over docs/b.md#*;over per-session;over skills/s/SKILL.md:description;report-only docs/a.md;report-only docs/i1.md;report-only docs/review-charter-adapter.md;report-only docs/review-charter.md;unbudgeted .claude/rules/new.md;unbudgeted docs/c.md;unbudgeted docs/e.md;unbudgeted docs/f.md;unbudgeted docs/i2.md;unbudgeted docs/review-charter-install.md;unbudgeted docs/review-charter-process.md;unbudgeted docs/review-charter-testinfra.md;vanished docs/gone.md;'
 [ "$got" = "$want" ] || fail "the judge reported '$got' on its planted tree, want '$want' — the gate is broken, not the tree"
+# The report-only and entry arms' positive controls (D-169): `report` reports the
+# total and the read-first-only file, an entry key under its ceiling is OK, and
+# the one over names its over entry ALONE (the sub-heading inside it, the entry
+# under and the preamble are not named). Without these, a `report` arm that
+# skipped every line, or an entry key that summed the file, would still match.
+for l in 'REPORT read-first ' 'REPORT docs/b.md ' 'OK AGENTS.md#\* ' 'OK docs/i1.md#\* '; do
+	printf '%s\n' "$jx" | grep -q "^$l" || fail "the judge printed no '$l' line on its planted tree — the gate is broken, not the tree"
+done
+ov=$(printf '%s\n' "$jx" | awk '/^FAIL over docs\/b\.md#\*$/ { on = 1; next } on && /^  [ 0-9]+  / { print } on && !/^  / { exit }')
+[ "$(printf '%s\n' "$ov" | wc -l | tr -d ' ')" = 1 ] && printf '%s\n' "$ov" | grep -q '## D-2 an entry longer' ||
+	fail "the planted over entry was named as '$ov', want the one '## D-2' line — the gate is broken, not the tree"
 # The class each charter part lands in: the code-area parts ride a pass with no knob, so
 # codex-pass counts them; the flagged ones no class does. The judge above reports both
 # kinds as `unbudgeted` alike, so it cannot tell a part filed under the wrong one
@@ -462,8 +529,8 @@ rm -rf "$MW"
 [ "$(formula 3723)" = 4096 ] && [ "$(formula 3724)" = 8192 ] || fail "the formula gave $(formula 3723) and $(formula 3724) for 3,723 and 3,724 bytes, want 4096 and 8192"
 
 if out=$(judge . "$TABLE"); then
-	echo "$out" | sed 's/^OK /  /'
-	echo "check-prose-budget: GREEN (planted tree: 14 failures found, 4 part classes, 0 false; $(echo "$out" | grep -c '^OK ') keys under their ceilings)"
+	echo "$out" | sed -e 's/^OK /  /' -e 's/^REPORT \(.*\)$/  \1 (report-only)/'
+	echo "check-prose-budget: GREEN (planted tree: 18 failures found, 4 part classes, 0 false; $(echo "$out" | grep -c '^OK ') keys under their ceilings, $(echo "$out" | grep -c '^REPORT ') report-only)"
 else
 	echo "$out" | grep -v '^OK ' >&2
 	echo "check-prose-budget: FAIL — $(echo "$out" | grep -c '^FAIL ') line(s) above; nothing here is a warning" >&2

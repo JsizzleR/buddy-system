@@ -1937,13 +1937,17 @@ Set `BUDDY_COST_DAYS` to change the window. The report never prints messages,
 prompts, or tool results. Its last three sections are the prose classes of
 `docs/prose-budget.tsv` against their ceilings and the context the week's
 requests were billed for (its header says how each is counted), then the
-Codex review passes `codex-review.sh` recorded (D-146), aggregates only.
+Codex review passes `codex-review.sh` recorded (D-146), aggregates only. A
+transcript line that is not JSON (the end of one still being written) is
+skipped and counted on a `transcript_lines_not_json` line, and costs nothing
+else (D-169). A table line whose ceiling is `report` prints as
+`ceiling=report-only`.
 
 For how long sessions spend before their first edit, which is the number a
 language server is meant to move:
 
 ```sh
-sh scripts/startup-report.sh                 # this checkout
+sh scripts/startup-report.sh                 # this repo, from its main checkout or any worktree
 sh scripts/startup-report.sh /path/to/repo
 ```
 

@@ -285,11 +285,10 @@ if [ -d "$claude_projects" ]; then
 	# 4095. `<= 1` restores 1448/1448 and cannot double count: the analysis awk
 	# keys the row on the filename.
 	#
-	# Residual, deliberately left: a transcript whose FIRST line is blank still
-	# yields its first value at line 2 and is still counted unparsed. Zero such
-	# files exist in the 1448 here, machines write these, and the cost of finding
-	# out is emitting a row per line rather than per file. It lands in the second
-	# NOTE arm below, which names its evidence instead of blaming jq.
+	# A transcript whose FIRST line is blank or not JSON was once a residual here
+	# (its first value came at line 2, so it read as unparsed); since lines are
+	# read raw (below, D-169) the `F` row comes from the first line itself,
+	# whatever it holds.
 	#
 	# The `F` row costs one line per file and the analysis awk below ignores it.
 	#
@@ -303,7 +302,32 @@ if [ -d "$claude_projects" ]; then
 	# still passed `mcp__buddylist__<any lowercase words>` (Codex code pass).
 	# The window compares at second precision: `…00.500Z` sorts before
 	# `…00Z` as a string (Codex code pass).
-	xargs -0 jq -r --arg cutoff "$cutoff_iso" --argjson roots "$roots_json" --argjson sibs "$sibs_json" \
+	#
+	# ONE LINE AT A TIME, RAW (D-169). Parsed as a JSON stream, a line that is not
+	# JSON was a parse error, and that abandoned the rest of jq's file list (the
+	# FLOOR arm's own measurement above). The line that is not JSON is ordinary
+	# while a fleet is live: a transcript being written ends mid-line, and a 7-day
+	# run during one read 2,534 of 3,024 transcripts and said only FLOOR (the
+	# token-overhead report). So jq reads raw lines (-R) and parses each with
+	# `try fromjson`: a bad line is one `X` row, counted by kind and never printed,
+	# and the next line and the next file are read as before. Raw mode joins an
+	# UNTERMINATED last line to the next file's first, which would cost that line
+	# and credit the wrong file, so each transcript is followed in the list by
+	# $sep, a file holding one newline: a non-empty line jq attributes to $sep is
+	# exactly a transcript's unterminated last line: skipped and counted as one
+	# when it is not JSON (being written), and credited to its own file when it
+	# is a complete record. A torn line at the END of an xargs batch has no $sep
+	# after it in that jq, so it is counted `elsewhere`: the kind can be off
+	# there, the count cannot.
+	# `-n` and `inputs`, not jq's own main loop: measured on jq 1.7.1, after a file
+	# it cannot open (an error on stderr, rc=2) the main loop reads ONE more file
+	# and stops, raw or not, so an unreadable transcript cost every file after
+	# the next; `inputs` reads them all. That error still draws the FLOOR note.
+	# Refuted: --seq (a parse failure discards the input up to the next RS, and
+	# transcripts have none); one jq per file (`-n 1`, refuted above).
+	sep="$work/sep"; printf '\n' >"$sep"
+	xargs -0 sh -c 'for f; do printf "%s\0%s\0" "$f" "$0"; done' "$sep" <"$transcripts" >"$work/tlist"
+	xargs -0 jq -n -R -r --arg sep "$sep" --arg cutoff "$cutoff_iso" --argjson roots "$roots_json" --argjson sibs "$sibs_json" \
 		--argjson excl "$excl_json" --argjson rf "$rf_json" '
 			def num: if type == "number" then floor else 0 end;
 			def at($r): . == $r or startswith($r + "/");
@@ -325,7 +349,25 @@ if [ -d "$claude_projects" ]; then
 				elif .name == "Read" and (ranged | not) then
 					(.input.file_path | strings | capture("(^|/)skills/(?<s>[^/]+)/SKILL\\.md$")? | .s)
 				else empty end;
-			(if input_line_number <= 1 then (["F", input_filename] | @tsv) else empty end),
+			# The state names the transcript a line belongs to ($fn), so a line jq
+			# attributes to $sep is credited to the file it ended: a complete record
+			# with no final newline still counts, as it does at an xargs boundary
+			# (Codex code pass). The list is strictly <file> $sep <file> $sep, so a
+			# $sep line belongs to the last file read UNLESS a $sep already closed
+			# that one: then it is a file whose only line had no newline, never read
+			# under its own name, and it gets a key of its own (`F`/`U`/`K` key on the
+			# name, and none is printed; it names the last file read, so the key
+			# stays unique across xargs batches). Its `F` row comes from there too.
+			foreach inputs as $l ({fn: null, last: null, closed: true, n: 0};
+				if input_filename == $sep then
+					(if .closed then .n += 1 | .fn = ("unnamed " + (.n | tostring) + " after " + (.last // "a batch start")) else . end) | .closed = true
+				else .fn = input_filename | .last = input_filename | .closed = false end;
+				[.fn, $l, input_filename == $sep, input_line_number])
+			| . as [$fn, $l, $atsep, $ln]
+			| (if (($atsep | not) and $ln <= 1) or ($atsep and ($l | length) > 0) then (["F", $fn] | @tsv) else empty end),
+			(if ($l | length) == 0 then empty
+			else (try ($l | fromjson | [.]) catch []) as $p
+			| if ($p | length) == 0 then (["X", (if $atsep then "end" else "mid" end)] | @tsv) else $p[0] | (
 			(if .type=="assistant" then .timestamp as $ts | .message.content[]? |
 				select(.type=="tool_use" and ((.name // "")|startswith("mcp__buddylist__")) and ($ts | inwin)) |
 				["C",.id,(if (.name | ltrimstr("mcp__buddylist__") | known) then .name else "mcp__buddylist__(other)" end),(.input|tojson|utf8bytelength),
@@ -346,32 +388,35 @@ if [ -d "$claude_projects" ]; then
 				| if .type == "assistant" and (.message | type) == "object" and .message.model != "<synthetic>" then
 					(if $in and (.message.usage | type) == "object" then
 						(.message.usage) as $u
-						| ["U", input_filename, ((.message.id // .requestId // "") | tostring), $sid, $sc,
+						| ["U", $fn, ((.message.id // .requestId // "") | tostring), $sid, $sc,
 							($u.input_tokens | num), ($u.cache_read_input_tokens | num),
 							($u.cache_creation_input_tokens | num), ($u.output_tokens | num)] | @tsv
 					 else empty end),
 					(.message.content[]? | select(type == "object" and .type == "tool_use" and (.id | type) == "string"
 						and (.input | type) == "object") | . as $t
-						| (["T", input_filename, .id, $sid, $sc, (if $in then 1 else 0 end),
+						| (["T", $fn, .id, $sid, $sc, (if $in then 1 else 0 end),
 							(if any($rf[]; . as $p | $t | reads($p)) then 1 else 0 end),
 							(if (.input | tojson | contains("decisions.md")) then 1 else 0 end),
 							(if whole("docs/decisions.md") then 1 else 0 end)] | @tsv),
-						(skill | ["K", input_filename, $sid, $sc, ., $t.id] | @tsv))
+						(skill | ["K", $fn, $sid, $sc, ., $t.id] | @tsv))
 				  elif .type == "user" and (.message | type) == "object" then
 					((.message.content | strings | capture("<command-name>/?(?<c>[^<]{1,64})</command-name>")? | .c)
-					 | ["K", input_filename, $sid, $sc, ., "-"] | @tsv),
+					 | ["K", $fn, $sid, $sc, ., "-"] | @tsv),
 					(.message.content[]? | select(type == "object" and .type == "tool_result" and .is_error == true
 						and (.tool_use_id | type) == "string") | ["E", .tool_use_id] | @tsv)
 				  else empty end
 			 end)
-		' <"$transcripts" 2>"$jqerr" >"$events" || true
+			) end end)
+		' <"$work/tlist" 2>"$jqerr" >"$events" || true
 	parsed=$(awk -F '\t' '$1=="F" && !f[$2]++ {n++} END {print n+0}' "$events")
 
 	echo
 	echo "Claude Buddy MCP usage"
 	printf 'transcripts\tseen=%s\tparsed=%s\n' "$seen" "$parsed"
+	# Counts only, and only when there is something to count (D-169).
+	awk -F '\t' '$1 == "X" { n++; k[$2]++ } END { if (n) printf "transcript_lines_not_json\tskipped=%d\tunterminated_last_line=%d\telsewhere=%d\t(each skipped alone; every other line read)\n", n, k["end"], k["mid"] }' "$events"
 	if [ -s "$jqerr" ]; then
-		echo "  NOTE: jq stopped early on at least one transcript, and a parse error abandons the rest of its file list; every number below is a FLOOR."
+		echo "  NOTE: jq reported an error on at least one transcript (one it could not open, or worse); every number below is a FLOOR."
 		# The COUNT of jq's complaints, never their text: a parse error message
 		# can quote the bytes it choked on (jq 1.6 appends "while parsing '…'"),
 		# and this report promises in its own header to print no transcript
@@ -470,7 +515,10 @@ if [ -n "$prose_ok" ]; then
 		-v a1="" -v a2="$ann_ps" -v a3="$ann_rf" -v a4="$passes" '
 		function row(ind, k, b, note,   s, c) {
 			s = sprintf("%s%-" (44 - length(ind)) "s bytes=%-8d", ind, k, b)
-			if (k in ceil) {
+			# `report` (D-169): the bytes print, no ceiling; read as a number it was 0,
+			# and the headroom a division by zero that ended the whole section.
+			if (k in rep) s = s " ceiling=report-only"
+			else if (k in ceil) {
 				c = ceil[k]
 				s = s sprintf(" ceiling=%-8d headroom=%d%%", c, int((c - b) * 100 / c))
 				if (b > c) s = s " OVER"
@@ -482,7 +530,8 @@ if [ -n "$prose_ok" ]; then
 		BEGIN {
 			while ((getline l < table) > 0) {
 				if (l ~ /^#/ || l ~ /^[[:space:]]*$/) continue
-				split(l, f, "\t"); ceil[f[1]] = f[2] + 0
+				split(l, f, "\t")
+				if (f[2] == "report") rep[f[1]] = 1; else ceil[f[1]] = f[2] + 0
 			}
 		}
 		{ cl[NR] = $1; k[NR] = $2; b[NR] = $3; n = NR }
@@ -499,7 +548,7 @@ if [ -n "$prose_ok" ]; then
 					if (!(k[j] in first)) first[k[j]] = C[i]
 					for (x = 1; x <= n; x++) {
 						if (cl[x] != "-" || done[x] || index(k[x], k[j] "#") != 1) continue
-						row("    ", k[x], b[x], "a section: inside " k[j] ", not added"); done[x] = 1
+						row("    ", k[x], b[x], (k[x] == k[j] "#*") ? "its largest entry: each section of " k[j] " on its own, not added" : "a section: inside " k[j] ", not added"); done[x] = 1
 					}
 				}
 			}

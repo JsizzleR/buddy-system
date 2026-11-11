@@ -280,22 +280,59 @@ $both"
 		fail "from $from: the worktree directory read was not said:
 $both"
 done
-# A worktree of this repository parked under ANOTHER repository's
-# .claude/worktrees stands alone: its own directory (w1's two wakes), never
-# the other repository's (whose 9h wake would land in 4h+).
+# A SIBLING worktree (`<repo>-wt-<label>`, where this repo's lanes live) and one
+# of this repository parked under ANOTHER repository's .claude/worktrees: from
+# either, and from the main checkout, the report reads the main checkout's
+# directory and every worktree's (D-169; the first cut read the worktree's
+# own alone, an empty table that looked like "no wakes"), and never the other
+# repository's (whose 9h wake of 77777 would land in 4h+). The sibling's 3h
+# wake is 6000, lane2's two are w1's 500: 0 cold-warm, 6 wakes, 11000 in all.
 arch="$WORK/arch"
 mkrepo "$arch"
 git -C "$repo" worktree add -q --detach "$arch/.claude/worktrees/lane2"
+git -C "$repo" worktree add -q --detach "$repo-wt-a"
 wenc=$(printf '%s' "$WORK" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g')
-mkdir -p "$WORK/projects/$wenc-arch--claude-worktrees-lane2" "$WORK/projects/$wenc-arch"
+mkdir -p "$WORK/projects/$wenc-arch--claude-worktrees-lane2" "$WORK/projects/$wenc-arch" "$WORK/projects/$enc-wt-a"
 cp "$W/w1.jsonl" "$WORK/projects/$wenc-arch--claude-worktrees-lane2/"
 cp "$WORK/projects/$enc-other--claude-worktrees-z/z.jsonl" "$WORK/projects/$wenc-arch/"
-parked=$(cd "$arch/.claude/worktrees/lane2" && CLAUDE_PROJECTS_DIR="$WORK/projects" sh "$ROOT/scripts/wake-report.sh" 2>&1) ||
-	fail "the run from a worktree under another repository exited non-zero:
-$parked"
-printf '%s\n' "$parked" | grep -q '^total  *0  *2  *500$' ||
-	fail "a worktree under another repository's .claude/worktrees took in that repository's transcripts:
-$parked"
+{
+	req "$(at 4)" s1 0 100
+	req "$(at 1)" s2 0 6000
+} >"$WORK/projects/$enc-wt-a/sib.jsonl"
+for from in "$repo-wt-a" "$arch/.claude/worktrees/lane2" "$repo/sub"; do
+	all=$(cd "$from" && CLAUDE_PROJECTS_DIR="$WORK/projects" sh "$ROOT/scripts/wake-report.sh" 2>&1) ||
+		fail "the default run from $from exited non-zero:
+$all"
+	printf '%s\n' "$all" | grep -q '^total  *0  *6  *11000$' ||
+		fail "from $from: want the main checkout's, the lanes' and the sibling's wakes, never the other repository's:
+$all"
+	printf '%s\n' "$all" | grep -q "^Wake report: $enc, " ||
+		fail "from $from: the report did not name the main checkout:
+$all"
+	printf '%s\n' "$all" | grep -q '^plus 3 linked worktree dir(s): ' ||
+		fail "from $from: want 3 worktree directories said:
+$all"
+done
+# A lane under a symlinked parent (`al` -> `real2/al`) of a repository at
+# real2/r3, beside ANOTHER repository's transcripts at `r3`: the prefix pair
+# the two spellings leave maps real2/r3 onto r3, and only a mapping naming the
+# same directory is kept (Codex code pass). The lane's own two wakes, never
+# r3's 77777.
+mkdir -p "$WORK/real2/al"
+ln -s "$WORK/real2/al" "$WORK/al"
+mkrepo "$WORK/real2/r3"
+git -C "$WORK/real2/r3" commit -q --allow-empty -m init
+git -C "$WORK/real2/r3" worktree add -q --detach "$WORK/real2/al/lane"
+mkrepo "$WORK/r3"
+mkdir -p "$WORK/projects/$wenc-al-lane" "$WORK/projects/$wenc-r3"
+cp "$W/w1.jsonl" "$WORK/projects/$wenc-al-lane/"
+cp "$WORK/projects/$enc-other--claude-worktrees-z/z.jsonl" "$WORK/projects/$wenc-r3/"
+fromal=$(cd "$WORK/al/lane" && CLAUDE_PROJECTS_DIR="$WORK/projects" sh "$ROOT/scripts/wake-report.sh" 2>&1) ||
+	fail "the run from a lane under a symlinked parent exited non-zero:
+$fromal"
+printf '%s\n' "$fromal" | grep -q '^total  *0  *2  *500$' ||
+	fail "a lane under a symlinked parent took in another repository's transcripts:
+$fromal"
 alone=$(CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh "$enc" 2>&1)
 printf '%s\n' "$alone" | grep -q '^total  *0  *2  *500$' ||
 	fail "a named project directory took in its worktrees' directories:

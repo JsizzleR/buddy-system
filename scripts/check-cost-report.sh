@@ -43,7 +43,10 @@
 #     (one session reads a listed file at its 11th: not obeyed); docs/
 #     decisions.md mentions against whole-file reads, a piped cat a mention;
 #   - codex passes from receipts only, both spellings, wrapped, in the window;
-#   - a malformed transcript line degrades to the FLOOR note, never to text.
+#   - a line that is not JSON (a transcript's unterminated last line, being
+#     written, or a malformed one mid-file) is skipped and counted by kind,
+#     never printed, and never costs the lines and files after it; jq's own
+#     error (a file it cannot open) still draws the FLOOR note (D-169).
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -99,9 +102,10 @@ printf -- '---\nname: buddy-fleet\ndescription: the fleet skill\n---\n\nThe flee
 	printf 'per-session\t100000\tfixture\tclass\n'
 	printf 'skills/buddy/SKILL.md\t1000\tfixture\tx\n'
 	printf 'skills/buddy-fleet/SKILL.md\t1000\tfixture\tx\n'
-	printf 'read-first\t100000\tfixture\tclass\n'
+	printf 'read-first\treport\tfixture\tclass, report-only (D-169)\n'
 	printf 'docs/a.md\t10\tfixture\tOVER, planted\n'
-	printf 'docs/decisions.md\t1000\tfixture\tx\n'
+	printf 'docs/decisions.md\treport\tfixture\treport-only, entries capped\n'
+	printf 'docs/decisions.md#*\t1000\tfixture\teach entry\n'
 	printf 'codex-pass\t100000\tfixture\tclass\n'
 	printf 'AGENTS.md\t1000\tfixture\tx\n'
 	printf 'docs/review-charter.md\t1000\tfixture\tx\n'
@@ -308,13 +312,18 @@ in_class ""
 has per-session "bytes=$((core + fleet))"
 clause per-session "(loaded in 2 of 4 sessions; rode 4 of 13 requests)"
 has "  skills/buddy/SKILL.md" "bytes=$core"
-has read-first "bytes=$rf"
+has read-first "bytes=$rf" ceiling=report-only
 # S1 (a Read of docs/a.md) and S3 (its first call cats two listed files);
 # not S2, whose read is its 11th call.
 clause read-first "(obeyed in 2 of 4 sessions, by a Read/cat"
 in_class read-first
 has "  docs/a.md" "bytes=$(sz docs/a.md)" ceiling=10 OVER
+has "  docs/decisions.md" "bytes=$(sz docs/decisions.md)" ceiling=report-only
 lacks "  docs/decisions.md" OVER
+# The entry key: the largest `## ` section's bytes, labelled, never added (D-169).
+ent_b=$(sed -n '/^## D-001/,$p' "$REPO/docs/decisions.md" | wc -c | tr -d ' ')
+has "    docs/decisions.md#*" "bytes=$ent_b" ceiling=1000
+clause "    docs/decisions.md#*" "(its largest entry: each section of docs/decisions.md on its own, not added)"
 clause "  CLAUDE.md" "(also in every-request, counted in each)"
 in_class ""
 has codex-pass "bytes=$(( $(sz AGENTS.md) + $(sz docs/review-charter.md) ))"
@@ -401,15 +410,46 @@ out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero wi
 $out"
 has sessions=7 requests=16 "cache_read=$((cr + 11000 + 14000 + 19000))"
 
-# --- a malformed line: the FLOOR note, never its text ------------------------------
-printf '{"type":"user","message":"%s\n' "$CANARY" > "$P/-repo/zz-torn.jsonl"
+# --- lines that are not JSON: skipped and counted, never text, never the rest ------
+# A transcript being WRITTEN ends in an unterminated line; a malformed line can sit
+# mid-file. Parsed as JSON, either one was a parse error that ABANDONED the rest of
+# jq's file list (measured on jq 1.7.1: rc=5, the files after it never opened), so a
+# report run while a fleet is live read 2,534 of 3,024 transcripts and said only
+# "FLOOR" (the token-overhead report, D-169). Now each line is parsed on its own:
+# the bad ones are skipped and counted by kind, and every other line counts. The
+# torn file's own first line (m24) and every file found after either one count,
+# whatever order find lists them in, so the full request count is the witness.
+S5=dddddddd-0000-4000-8000-00000000000d
+{ a m24 21000 0 1 "$S5" "$REPO" "$NOW" false "$M" '[]'; printf '{"type":"user","message":"%s' "$CANARY"; } > "$P/-repo/aa-torn.jsonl"
+printf '{"type":"user","message":"%s\n%s\n' "$CANARY" "$(a m25 22000 0 1 "$S5" "$REPO" "$NOW" false "$M" '[]')" > "$P/-repo/zz-mid.jsonl"
+# A COMPLETE last record with no final newline counts like any other (m26), here
+# and at an xargs boundary alike, and is no skipped line (Codex code pass).
+printf '%s' "$(a m26 23000 0 1 "$S5" "$REPO" "$NOW" false "$M" '[]')" > "$P/-repo/ab-tail.jsonl"
 out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero on a torn transcript"
 case $out in *"$CANARY"*) fail "a torn transcript line reached the output (invariant 9)" ;; esac
-case $out in *"every number below is a FLOOR"*) ;; *) fail "a torn transcript did not draw the FLOOR note" ;; esac
+case $out in *"every number below is a FLOOR"*) fail "lines that are not JSON drew the FLOOR note: a parse error still abandons the rest of jq's file list
+$out" ;; esac
+has sessions=8 requests=19 "cache_read=$((cr + 11000 + 14000 + 19000 + 21000 + 22000 + 23000))"
+has transcript_lines_not_json skipped=2 unterminated_last_line=1 elsewhere=1
+# A file whose FIRST line is the bad one still counts as parsed: no "no first-line
+# value" NOTE either.
+has transcripts seen=18 parsed=18
+# The control: with nothing torn, no skip line at all (it is not printed always).
+mv "$P/-repo/aa-torn.jsonl" "$P/-repo/zz-mid.jsonl" "$P/-repo/ab-tail.jsonl" "$WORK/"
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with the torn transcripts moved out"
+case $out in *transcript_lines_not_json*) fail "a skip line printed with nothing to skip" ;; esac
+has sessions=7 requests=16 "cache_read=$((cr + 11000 + 14000 + 19000))"
+# jq's OWN error (a transcript it cannot open) still draws the FLOOR note, and the
+# open files still count.
+cp "$WORK/zz-mid.jsonl" "$P/-repo/zz-mid.jsonl"; chmod 000 "$P/-repo/zz-mid.jsonl"
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero on an unreadable transcript"
+chmod 600 "$P/-repo/zz-mid.jsonl"; rm -f "$P/-repo/zz-mid.jsonl"
+case $out in *"every number below is a FLOOR"*) ;; *) fail "a transcript jq could not open did not draw the FLOOR note" ;; esac
+has sessions=7 requests=16 "cache_read=$((cr + 11000 + 14000 + 19000))"
 
 # No record yet: one line that says so.
 mv "$REPO/.git/codex-passes.tsv" "$WORK/passes.saved"
 out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with no pass record"
 printf '%s\n' "$out" | grep -qxF "Codex passes recorded: none (no codex-passes.tsv in the git common dir yet)" || fail "no pass record did not say none"
 
-echo "check-cost-report: GREEN (codex pass record aggregated exactly, malformed rows counted and skipped, its canary never printed and a leaky copy caught; prose classes summed from the check's enumeration, a section labelled not added, OVER only over; 13 requests deduplicated across messages, a resume and files; skill exposure, obedience and decisions reads on the planted counts; a planted canary never printed and a leaky copy caught)"
+echo "check-cost-report: GREEN (codex pass record aggregated exactly, malformed rows counted and skipped, its canary never printed and a leaky copy caught; prose classes summed from the check's enumeration, a section and an entry key labelled not added, a report-only ceiling printed as one, OVER only over; lines that are not JSON skipped and counted, never costing the files after them; 13 requests deduplicated across messages, a resume and files; skill exposure, obedience and decisions reads on the planted counts; a planted canary never printed and a leaky copy caught)"

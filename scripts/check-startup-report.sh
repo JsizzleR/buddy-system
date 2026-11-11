@@ -38,7 +38,9 @@
 #     worktree directory of a sibling that is another repo, are not read (J's
 #     controls, each a session that would list); run from a harness worktree
 #     through a symlinked spelling, the main checkout's directory by that
-#     spelling is read;
+#     spelling is read; run from a linked sibling worktree, or a directory in
+#     it, the report is the main checkout's word for word (D-169), and from a
+#     lane under a symlinked parent never another repository's;
 #   - calls in a subagent sidechain and calls after the first edit (in a later
 #     message, or later in the edit's own message) are not counted; an LSP
 #     call is counted as lsp;
@@ -221,6 +223,21 @@ if printf '%s\n' "$out" | grep -q '2026-08-01'; then
 	fail "a transcript older than the window was listed:
 $out"
 fi
+# Run from the linked SIBLING worktree (where this repo's lanes live) and from a
+# directory inside it, the report is the main checkout's, word for word: the
+# same sessions and the same sibling rule, `<main>-*`. The first cut took the
+# worktree for the repo (D-169): its sibling rule became `<repo>-wt-*`, so I's
+# removed sibling lost its edit, and the header named the worktree.
+mkdir -p "$wt/sub"
+for from in "$wt" "$wt/sub"; do
+	fromwt=$(CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/startup-report.sh "$from" 2>&1) ||
+		fail "the run from $from exited non-zero:
+$fromwt"
+	[ "$fromwt" = "$out" ] || fail "run from $from, the report is not the main checkout's:
+$fromwt
+--- want ---
+$out"
+done
 # The control: the window, widened, does take the old transcript in.
 # 36500 days, so the control outlives the fixture's fixed 2026 dates.
 widened=$(BUDDY_COST_DAYS=36500 CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/startup-report.sh "$repo" 2>&1)
@@ -258,6 +275,24 @@ $fromlane"
 printf '%s\n' "$fromlane" | grep -q '^2026-09-26 20:00  *1\.0 ' ||
 	fail "run from a harness worktree, the main checkout's transcripts by its linked spelling were not read:
 $fromlane"
+
+# A lane under a symlinked parent (`al` -> `real2/al`), its main checkout at
+# real2/r3, and ANOTHER repository at `r3` beside `al`: the components the two
+# spellings end in alike are `al/lane`, so the prefix pair maps real2/r3 onto
+# the foreign r3. Only a mapping that names the same directory is kept (Codex
+# code pass): the report is real2/r3's, never r3's.
+mkdir -p "$WORK/real2/al"
+ln -s "$WORK/real2/al" "$WORK/al"
+mkrepo "$WORK/real2/r3"
+git -C "$WORK/real2/r3" commit -q --allow-empty -m init
+git -C "$WORK/real2/r3" worktree add -q --detach "$WORK/real2/al/lane"
+mkrepo "$WORK/r3"
+fromal=$(CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/startup-report.sh "$WORK/al/lane" 2>&1) ||
+	fail "the run from a lane under a symlinked parent exited non-zero:
+$fromal"
+printf '%s\n' "$fromal" | grep -q '^Startup report: .*/real2/r3 and its 1 linked worktree(s)' ||
+	fail "run from a lane under a symlinked parent, the report is not its own main checkout's:
+$fromal"
 
 # Privacy, with its control: the markers ARE in the fixture.
 grep -q MARKER_OUTPUT "$proj/a.jsonl" || fail "the privacy control failed: the fixture lost its markers"

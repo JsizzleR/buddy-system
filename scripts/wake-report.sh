@@ -85,8 +85,10 @@
 # filed as `<main's name>--claude-worktrees-<n>`), from the main checkout or
 # from any of its worktrees: the first cut read one directory, and in this repo
 # that left out every lane (60 of 67 wait-check arms, and all 22 that fired,
-# measured 2026-10-27). A worktree made anywhere else is filed under its own
-# path's name and is not found; name it.
+# measured 2026-10-27). Every REGISTERED worktree's directory joins too, from
+# anywhere in the repo (D-169: run from a sibling lane worktree, the report
+# read that lane alone). A worktree made outside `.claude/worktrees` and since
+# REMOVED is gone from git's list and its directory is not found; name it.
 #
 # KNOBS
 #   BUDDY_WAKE_DAYS      look back this many days (default 7): transcripts
@@ -164,29 +166,88 @@ else
 	# directory the harness never wrote. The cut is kept only when it names a
 	# checkout sharing this common dir: a worktree of one repository parked
 	# under ANOTHER's .claude/worktrees would otherwise take in that one's
-	# transcripts. A worktree anywhere else stands alone.
+	# transcripts; it then stands as a worktree anywhere else does (below).
 	gd=$(git rev-parse --path-format=absolute --git-dir)
 	cd_=$(git rev-parse --path-format=absolute --git-common-dir)
+	# Every registered worktree's path, git's list, the main checkout first;
+	# newline-separated, so a path holding a newline is not supported.
+	wtl=$(git worktree list --porcelain -z 2>/dev/null | tr '\0' '\n' | sed -n 's/^worktree //p') || wtl=
+	# The symlink in $top's spelling, as a prefix pair: strip the components
+	# the operator's spelling and the resolved one end in alike, and what is
+	# left is the link (/var) and its target (/private/var). Not $top's
+	# parent: a worktree parked under another repository shares no parent
+	# with the main checkout, and the mapping missed it.
+	lp=$top; pp=$(CDPATH= cd -- "$top" && pwd -P)
+	while [ "$lp" != / ] && [ "$pp" != / ] && [ "$(basename -- "$lp")" = "$(basename -- "$pp")" ]; do
+		lp=$(dirname -- "$lp"); pp=$(dirname -- "$pp")
+	done
+	# spellings <path> — the path as given, resolved, and mapped back through
+	# that pair to the operator's spelling: git lists /private/var where the
+	# harness, started in /var, named its directory from /var.
+	spellings() {
+		printf '%s\n' "$1"
+		(CDPATH= cd -- "$1" 2>/dev/null && pwd -P) || true
+		# Kept only when it names the SAME directory: matching trailing components
+		# do not prove an alias, and a lane under a symlinked parent mapped the
+		# main checkout onto another repository's path (Codex code pass).
+		if [ "$lp" != "$pp" ] && [ "$pp" != / ]; then
+			_rest=${1#"$pp"/}
+			if [ "$_rest" != "$1" ] &&
+				[ "$(CDPATH= cd -- "${lp%/}/$_rest" 2>/dev/null && pwd -P)" = "$(CDPATH= cd -- "$1" 2>/dev/null && pwd -P)" ]; then
+				printf '%s/%s\n' "${lp%/}" "$_rest"
+			fi
+		fi
+	}
 	main=$top
 	if [ "$gd" != "$cd_" ]; then
 		under=${top%/.claude/worktrees/*}
 		case "${top#"$under"/.claude/worktrees/}" in
-			"$top" | '' | */*) ;;
-			*) [ "$(git -C "$under" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" != "$cd_" ] || main=$under ;;
+			"$top" | '' | */*) under= ;;
+			*) [ "$(git -C "$under" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" = "$cd_" ] || under= ;;
 		esac
+		# A linked worktree anywhere else (a sibling, the lanes' usual place, or
+		# one parked under another repository): the main checkout is git's first
+		# entry, in the operator's spelling. The first cut took the worktree
+		# for the repo and read its one directory (the token-overhead report,
+		# D-169): run from a lane, the table was empty and looked like "no
+		# wakes".
+		if [ -n "$under" ]; then main=$under
+		else
+			m=$(printf '%s\n' "$wtl" | head -n 1)
+			# The spelling whose directory exists, else the last (the mapped one).
+			if [ -n "$m" ]; then
+				main=$(spellings "$m" | while IFS= read -r c; do
+					if [ -d "$projects/$(encode "$c")" ]; then printf '%s\n' "$c"; break; fi
+				done)
+				[ -n "$main" ] || main=$(spellings "$m" | tail -n 1)
+			fi
+		fi
 	fi
 	proj="$projects/$(encode "$main")"
-	# The worktree directories are taken on the harness's naming alone: the
-	# common-dir check above runs only from inside a worktree, and from the
-	# main checkout nothing ties `<enc(main)>--claude-worktrees-<n>` to it.
+	# Plus every registered worktree's directory, by each spelling, from the
+	# main checkout or any worktree alike; and the harness's own worktrees'
+	# taken on its naming alone, removed ones included: from the main checkout
+	# nothing else ties `<enc(main)>--claude-worktrees-<n>` to it.
+	dirs=$(
+		{
+			printf '%s\n' "$top"
+			printf '%s\n' "$wtl" | while IFS= read -r r; do [ -z "$r" ] || spellings "$r"; done
+		} | while IFS= read -r r; do printf '%s\n' "$projects/$(encode "$r")"; done
+		for d in "$proj--claude-worktrees-"*; do printf '%s\n' "$d"; done
+	)
+	dirs=$(printf '%s\n' "$dirs" | awk -v p="$proj" 'NF && $0 != p && !seen[$0]++')
+	# One word per line, no globbing: a projects dir may hold a space.
 	set --
-	for d in "$proj--claude-worktrees-"*; do
+	set -f; _ifs=$IFS; IFS='
+'
+	for d in $dirs; do
 		if [ -d "$d" ]; then set -- "$@" "$d"; fi
 	done
+	IFS=$_ifs; set +f
 fi
 
 echo "Wake report: $(basename -- "$proj"), last $days day(s)"
-[ $# -eq 0 ] || echo "plus $# linked worktree dir(s): $(basename -- "$proj")--claude-worktrees-*"
+[ $# -eq 0 ] || echo "plus $# linked worktree dir(s): every registered worktree's and $(basename -- "$proj")--claude-worktrees-*"
 echo "Every request after 5+ min idle in the same session (main thread). Counts, tokens and times only."
 if [ ! -d "$proj" ] && [ $# -eq 0 ]; then
 	echo "no transcripts: $proj does not exist"
