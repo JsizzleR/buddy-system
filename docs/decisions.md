@@ -10924,7 +10924,7 @@ was not measured: every admission suite runs on loopback.
 older records (a planned run may want one), and admitting each release ahead of
 need (the report counts four records and zero real launches).
 
-## D-157 — One backgrounded review pass on Codex 0.166.0 completed; a minutes-long one was not measured, and the foreground rule stands (Codex report A7)
+## D-157 — Two backgrounded review passes on Codex 0.166.0 completed, an 11 s probe and a 167 s real review; the foreground rule stands (Codex report A7)
 
 2026-11-10. The operator, in orc-19's pane at 19:06Z (relayed in this lane's
 brief), authorized ONE probe of a backgrounded pass on the installed Codex ("8
@@ -10977,3 +10977,68 @@ appears minutes in, and one run is not a rate.
 **The decision** — none on the rule. The foreground rule (CLAUDE.md
 "Commands", `codex-review.sh` item 1) stands as written; whether to keep it,
 or to authorize a real-size backgrounded pass first, is the operator's call.
+
+**Amended 2026-11-11: the real-size pass, backgrounded, completed.** The
+operator, in orc-19's pane at about 05:01Z ("do the open items", relayed in this
+lane's brief), authorized ONE real-size backgrounded pass; exactly one Codex
+run, no foreground control (the baseline is the report's 155 passes above,
+relayed: median 238 s, and p90 431 s as the brief relays it).
+
+*Method.* The MAIN checkout's `scripts/codex-review.sh` (checkout at `a900b07`,
+clean, the script last changed in `db84853`), from a linked worktree;
+`codex-cli 0.166.0`, Claude Code 2.1.322 (`--version` of each, before the run).
+A real lite code-pass prompt: commit
+`a900b07`'s `git show` under five lite questions, 19,480 B; the default charter
+(`core`, 106,077 B) and budget (540 s); 125,868 B to codex after the charter and
+fold. Under the Bash tool's `run_in_background: true` as `exec sh <main>/scripts/
+codex-review.sh <prompt> <out> > <stdout> 2> <stderr>`, the shell writing its pid
+first so the sampler's root was the script itself. The sampler, started
+backgrounded in the same turn, walked that pid's descendants every 20 s (`ps -A
+-o pid= -o ppid=`, then `ps -o comm=,time=,stat=` per process), summed their CPU,
+sized codex's stdout through its fd 1 (`lsof -a -p <codex pid> -d 1`), and exited
+when the pid was gone. Its tree CPU is a snapshot sum over the processes alive
+at that sample, the root's shell included: a child that ended between samples
+is missing, so it is not the run's total. The samples are about 20 s apart, not
+continuous. A separate monitor over the log would have flagged six consecutive
+samples each unchanged from the one before (120 s: file the same size, codex CPU
+up under 1 s); it never fired.
+
+*Measured* (one run; sizes and counts, no review text):
+
+| +s (UTC) | codex CPU | tree CPU | codex stdout |
+|---|---|---|---|
+| 0 (05:04:14Z) | not yet started | 0.02 s | - |
+| 21 | 0.74 s | 1.06 s | 180,029 B |
+| 41 | 0.94 s | 1.26 s | 191,727 B |
+| 61 | 1.22 s | 1.55 s | 243,298 B |
+| 81 | 1.28 s | 1.62 s | 256,060 B |
+| 101, 121, 141, 162 | 1.30, 1.34, 1.39, 1.43 s | 1.64 to 1.77 s | 256,060 B |
+
+Seven processes in the tree at every sample after the first; codex in state
+`S` throughout. Start 05:04:13Z; the status line `rc=0 exit=0 elapsed=167s`,
+header `ok` (`gpt-6-astra`/`xhigh`), `tokens=89498`; the out-file 1,311 B (the
+reply and the status line); the transcript 258,524 B, the same 183 B status
+line last, so codex wrote 2,281 B after the +162 s sample. The pass row: 9
+`exec` blocks, 0 charter reads. 167 s is under the foreground median (238 s).
+
+*The outcome is* **completed**: the reply, the token line and the status line,
+not the watchdog's 124, and not the wedge (codex's stdout grew from +21 s to
++81 s, and the run exited).
+
+*The useful finding:* for 81 s, from +81 s to +162 s, this live run had the
+wedge's shape. Its stdout was the same size at all five samples, and codex
+gained 0.15 s of CPU (0.002 s a second), then the reply came. Codex's work is remote, so its
+local CPU is near zero across a live run too (1.43 s in 162 s): CPU near 0 does
+not tell a wedged run from one waiting on the model, and a stdout file can stop
+growing for 81 s in a run that completes. The brief's wedge test (two minutes
+flat) did not trip here; a run with a remote stretch past 2 min could trip it while live (not measured). Only the exit tells a live run from a
+wedged one; the watchdog's 124 says neither (`codex-review.sh` item 6).
+
+*What it does not show* — a rate. One real-size run completing does not refute
+the wedge the 2026-08-15 measurement saw (no Codex version noted); it is one run
+on 0.166.0, and a backgrounded pass longer than the median (238 s), let alone
+the p90 (431 s), is still unmeasured.
+
+*The decision* — none on the rule. The foreground rule stands as written;
+whether to change it on these two runs is the operator's call. A re-run is a
+backgrounded pass and needs the operator's authorization as this one had.
