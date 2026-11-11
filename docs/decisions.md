@@ -11042,3 +11042,33 @@ the p90 (431 s), is still unmeasured.
 *The decision* — none on the rule. The foreground rule stands as written;
 whether to change it on these two runs is the operator's call. A re-run is a
 backgrounded pass and needs the operator's authorization as this one had.
+
+## D-160 — A send's result line says when the ledger cannot tell a Codex recipient, whose mail waits for its own `buddy inbox` (Codex report B4's siblings)
+
+**The failure.** `buddy msg`'s result line ended every live arm in "delivery
+waits for its next tool call" (D-032's mechanism). That is Claude's beat. Under
+Codex beat is refused (D-069), and a logical session's lifecycle events deliver
+no mail, so a Codex recipient's message waits for its own `buddy inbox`: the
+sender was told to expect a delivery no tool call makes. a900b07 fixed the same
+promise in `hello`'s count line; this is the send side. Reproduced first:
+`TestMsgResultLineNamesCodexInbox`'s four Codex arms (a hand-run hello under
+`CODEX_THREAD_ID` fresh, seen through a verb, stale; a logical session idle)
+printed the bare line on a900b07, the two Claude controls passing.
+
+**What the ledger knows.** It records no harness for a session (no schema change
+authorised). The one positive evidence is a LIVE registered harness process:
+only a Claude hook registers one (hookAnchor refuses Codex; a hand-run hello, a
+verb's `last_seen` touch and a logical begin register none). With one, today's
+line stands word for word. Without one (a Codex session, or a Claude session no
+hook has bound yet), the arm keeps today's words and adds that the ledger cannot
+say it is a Claude Code session, naming Codex's `buddy inbox`. Rejected: reading
+the harness from the id's shape, an inference (D-055's register); a schema
+column, unauthorised.
+
+**The same promise elsewhere, folded narrowly.** `buddy authority add` said
+"sessions are told once, on their next tool call": only beat consumes that
+notice, so a Codex session is never told; the line now says so and names its
+`buddy status`, which carries the AUTHORITY block. `whose`'s advisory names a
+Codex session's `buddy inbox`. USAGE's msg section and its two LANDED one-shot
+lines, and the core and fleet skills' message lines, say the same.
+docs/DEMO-RUN.md, a captured run, is left as captured.

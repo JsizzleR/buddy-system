@@ -939,10 +939,13 @@ id helloes again` (naming the open claims a plain `buddy claim` displaces),
 ago; … delivery waits for its next tool call`, `NOT SEEN FOR 2h, past the 30m
 stale mark`, `registered 30s ago and not seen since`, or `last seen 4s ago` —
 and then how many earlier messages to it are still undelivered, with the age
-of the oldest, which is the fact that proves a channel is not draining. It
-never says *delivered*, because delivery is the recipient's act on its next
-tool call; `buddy who <target>` is the check afterwards, and its `INBOX` line
-dates the oldest undelivered row. No idle row and a recent beat is `last seen
+of the oldest, which is the fact that proves a channel is not draining. With no
+live harness process registered to the recipient (a Codex session, which no hook
+binds, or a Claude one not yet bound), the arm keeps its words and adds that the
+ledger cannot say it is a Claude Code session: under Codex no tool call delivers
+mail, its own `buddy inbox` does. It never says *delivered*, because delivery is
+the recipient's act on its next tool call or `buddy inbox`; `buddy who <target>`
+is the check afterwards, and its `INBOX` line dates the oldest undelivered row. No idle row and a recent beat is `last seen
 4s ago`, never *busy*.
 
 **Waking a session at its prompt (D-039).** A quiet recipient (an idle
@@ -1450,9 +1453,10 @@ of this feature is the operator typing that same `/loop` line into a parked
 pane by hand. Each check prints one verdict — `STILL WAITING` (with when the
 next is due), `LANDED` (with the note), `EXPIRED`, or `NO WAIT` — and every
 verdict that ends the wait says to stop the loop. `beat` also says `LANDED`
-once on the session's next tool call, so a session that never armed a timer
-learns anyway. A refused `claim` prints the `buddy wait --on …` line that would
-wait for it; it never registers one.
+once on a Claude Code session's next tool call, so a session that never armed a
+timer learns anyway (a Codex session has no beat: its `buddy wait check` says
+it). A refused `claim` prints the `buddy wait --on …` line that would wait for
+it; it never registers one.
 
 **Self-paced is the recommended form; `/loop 30m buddy wait check` is the
 fallback.** The check paces from itself: `next check in 50m`, or less when the
@@ -1653,8 +1657,8 @@ buddy claim herm --desc "RUNNING pinned 9f1e2a44 since 14:07 — in: charlie bra
 buddy release herm --outcome pass --note "landed 7d3a0b1c; charlie bravo in; delta NEXT"
 ```
 
-Every rider's next `buddy wait check`, and its next tool call's one-shot
-notice, then reads:
+Every rider's next `buddy wait check`, and a Claude Code rider's next tool
+call's one-shot notice (a Codex rider has only the check), then reads:
 
 ```
 LANDED: claim "herm" released 0s ago, outcome PASS "landed 7d3a0b1c; charlie bravo in; delta NEXT" — the wait is over after 58m; …

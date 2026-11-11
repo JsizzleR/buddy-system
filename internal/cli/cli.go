@@ -1809,10 +1809,7 @@ func cmdHello(args []string, env Env) error {
 	msgs, _ := st.Undelivered(si.SessionID, si.Label)
 	inboxReserve := 0
 	if len(msgs) > 0 {
-		inboxReserve = helloInboxCountLine
-		if codex && namedByFlag {
-			inboxReserve += len(fence.Line(si.SessionID, 128))
-		}
+		inboxReserve = helloCountReserve(codex, namedByFlag, len(msgs), si.SessionID)
 	}
 	if len(claims) == 0 {
 		b.WriteString("BUDDY: no live claims.\n")
@@ -1871,14 +1868,7 @@ func cmdHello(args []string, env Env) error {
 		// counted into inboxReserve; the drain's room is not, because a
 		// Codex hello is never hook-driven and shows nothing.
 		if rest := len(msgs) - len(shown); rest > 0 {
-			switch {
-			case codex && namedByFlag:
-				fmt.Fprintf(&b, "BUDDY: %d queued message(s) not shown here; no tool call delivers them under Codex: that session runs `buddy inbox --session %s`.\n", rest, fence.Line(si.SessionID, 128))
-			case codex:
-				fmt.Fprintf(&b, "BUDDY: %d queued message(s) not shown here; run `buddy inbox` to read them (no tool call delivers them under Codex).\n", rest)
-			default:
-				fmt.Fprintf(&b, "BUDDY: %d queued message(s) not shown here; they will arrive after your next tool call.\n", rest)
-			}
+			b.WriteString(helloCountLine(codex, namedByFlag, rest, si.SessionID))
 		}
 	}
 	if _, err := io.WriteString(env.Stdout, b.String()); err != nil {
@@ -2536,6 +2526,42 @@ func writeInbox(b *strings.Builder, msgs []store.InboxMsg, now time.Time) []int6
 // session must not miss. So messages get the room the digest leaves and no
 // more. Counted in BYTES, which is never fewer than characters, with margin.
 const helloBudget = 9000
+
+// helloCountLine is hello's "N queued message(s) not shown here" line, in
+// the one place both the line and its reserve read it (B4; the reserve was
+// one byte short when it was summed by hand).
+//
+// Named by --session under Codex, the id is quoted as a pasted slug is
+// (shellQuote, D-066): it is free text (`hello --session` validates nothing),
+// and an id with a space pasted as two arguments, so the command the line
+// names refused (codex-probe's pass on a900b07, P2). Bare when safe, so a
+// plain id's line is unchanged. But ONLY an id fence.Line leaves as it is: a
+// rewritten one (a tab shows as a space, a long one is cut) quoted would name
+// a DIFFERENT session, and `buddy inbox --session 'sess x'` would drain that
+// session's mail and mark it delivered (Codex code pass). That id is not
+// printed as a command; the session runs `buddy inbox` as itself, the
+// unregisteredClause rule.
+func helloCountLine(codex, named bool, rest int, id string) string {
+	switch {
+	case codex && named && fence.Line(id, 128) == id:
+		return fmt.Sprintf("BUDDY: %d queued message(s) not shown here; no tool call delivers them under Codex: that session runs `buddy inbox --session %s`.\n", rest, shellQuote(id))
+	case codex && named:
+		return fmt.Sprintf("BUDDY: %d queued message(s) not shown here; no tool call delivers them under Codex: that session runs `buddy inbox` as itself (its id does not paste as printed).\n", rest)
+	case codex:
+		return fmt.Sprintf("BUDDY: %d queued message(s) not shown here; run `buddy inbox` to read them (no tool call delivers them under Codex).\n", rest)
+	}
+	return fmt.Sprintf("BUDDY: %d queued message(s) not shown here; they will arrive after your next tool call.\n", rest)
+}
+
+// helloCountReserve is the room the claims list leaves for helloCountLine:
+// the line's own length at the WHOLE queued count (never fewer than the rest
+// it prints), so it is an upper bound by construction. The named Codex line
+// is 126 fixed bytes plus digits plus the id, and the hand-summed 128 plus the
+// id fell one byte short at 100 messages: a claims list filling its room made
+// a 9,001-byte digest (Codex code pass, a defect since a900b07).
+func helloCountReserve(codex, named bool, queued int, id string) int {
+	return max(helloInboxCountLine, len(helloCountLine(codex, named, queued, id)))
+}
 
 // helloInboxCountLine is the room held back for the "N queued message(s) not
 // shown here" line, generously: the claims list reserves it, and so does the
@@ -4559,6 +4585,22 @@ func sendNote(st *store.Store, r recipient, t store.Target, now time.Time) strin
 	if r.adapterRecipient() {
 		why = "it reads mail through an adapter, which never fetches a plain message; only a `buddy inbox` run there shows this one"
 		idleWhy, staleWhy = why, why
+	} else if len(r.alive) == 0 {
+		// THE HARNESS IS NOT RECORDED (B4's sibling; a900b07 fixed hello's
+		// count line). "Its next tool call" is Claude's beat. Under Codex beat
+		// is refused (D-069) and a logical session's lifecycle events deliver
+		// no mail, so a Codex recipient's message waits for its own `buddy
+		// inbox`, and the sender was told to expect a delivery no tool call
+		// makes. The one positive evidence the ledger holds is a LIVE
+		// registered harness process: only a Claude hook registers one
+		// (hookAnchor refuses Codex; a hand-run hello, a verb's heardVerb and
+		// a logical begin register none). Without it the ledger cannot tell a
+		// Codex session from a Claude one not yet bound by a hook, so today's
+		// words stay and the line says it cannot tell, naming what delivers
+		// under Codex. No schema change: the ledger records no harness, and
+		// guessing one from the id's shape would be an inference (D-055).
+		const unsure = "; the ledger has no live harness process for it, so it cannot say this is a Claude Code session: under Codex no tool call delivers mail, its own `buddy inbox` does"
+		why, idleWhy, staleWhy = why+unsure, idleWhy+unsure, staleWhy+unsure
 	}
 	var b strings.Builder
 	switch {

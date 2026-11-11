@@ -1224,6 +1224,7 @@ ledger row entered through the CLI (D-006).
     over landed history in the pre-push tier would block every push); not held at or before D-104's
     epoch. Do not propose making it refuse without new evidence.
 127. **Every Codex pass leaves one counts-only row in `<git-common-dir>/codex-passes.tsv` (D-146).** `codex-review.sh` writes it (a pass it saw finish, or busy), `cost-report.sh` aggregates it; numbers, fixed words or `[A-Za-z0-9._+-]{1,64}`, never review text; a failed write never changes the verdict. Do not propose a ledger table or text in the row.
+128. **With no live registered harness process, a send's result line says the ledger cannot tell a Codex recipient, whose mail waits for its `buddy inbox` (D-160).** Only a Claude hook registers one; the ledger records no harness. Do not propose inferring the harness from the id, or a schema column, without new evidence.
 
 ## Environment facts (measured, do not re-derive)
 

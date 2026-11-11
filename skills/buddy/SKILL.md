@@ -186,8 +186,9 @@ end a turn that something else will end:
 
 - `buddy msg <target> "<text>"` queues a message for the recipient. It arrives
   in bounded batches with their tool calls and prompts, so a long queue can
-  take more than one. The result line reports what the ledger knows about the
-  recipient (idle, gone, ended) and gives the message's `#id`. It is signed
+  take more than one (a Codex recipient's waits for its own `buddy inbox`).
+  The result line reports what the ledger knows about the recipient (idle,
+  gone, ended) and gives the message's `#id`. It is signed
   with your label; `buddy msg <target> --from <tag>` adds a tag after it, and
   `buddy msg <target> --dry-run` resolves the target and measures the body
   without sending.

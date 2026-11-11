@@ -188,7 +188,13 @@ func cmdAuthority(args []string, env Env) error {
 		if err := st.AuthorityAdd(n); err != nil {
 			return fencedErr(err)
 		}
-		fmt.Fprintf(env.Stdout, "watching %s: sessions are told once, on their next tool call, when it changes after they started\n", fence.Line(n, 512))
+		// Only beat consumes the notice (authorityNotice's one caller), and
+		// under Codex beat is refused (D-069): "sessions are told once, on
+		// their next tool call" was never true of a Codex session. Its gate
+		// and lifecycle hooks run but deliver no notice (Codex code pass:
+		// "no buddy hook runs" was too broad). Its `buddy status` carries
+		// the AUTHORITY block (B4's sibling).
+		fmt.Fprintf(env.Stdout, "watching %s: a Claude Code session is told once, on its next tool call, when it changes after it started; a Codex session is not told (no Codex hook delivers this notice): its `buddy status` shows it\n", fence.Line(n, 512))
 		return nil
 	case len(args) == 2 && args[0] == "rm":
 		// Held, not strict: rm may name a legacy absolute row so that it

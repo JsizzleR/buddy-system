@@ -500,10 +500,12 @@ func cmdWhose(args []string, env Env) error {
 			fence.Field(h.Owner.Label, 64), sessionState(h, now), age(now, h.Owner.LastSeen),
 			age(now, h.FirstSeen), where)
 	}
+	// "after its next tool call" is Claude's beat; under Codex beat is
+	// refused (D-069) and only `buddy inbox` delivers (B4's sibling).
 	fmt.Fprint(env.Stdout, "\nadvisory: a dirty path is an observation, never a lock — nobody is blocked and\n"+
 		"no scope is reserved by it. The CLAIMED BY block above is the register that does\n"+
 		"reserve, and the one the commit gate reads. `buddy msg <label> \"...\"` reaches a\n"+
-		"live session after its next tool call.\n")
+		"live Claude Code session after its next tool call, a Codex one at its `buddy inbox`.\n")
 	for _, h := range holders {
 		if h.Owner.Live() && h.Stale(now) {
 			fmt.Fprintf(env.Stdout, "note: %s has not beaten in %s — it may be gone, and its rows name an owner\n"+

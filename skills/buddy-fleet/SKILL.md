@@ -284,8 +284,8 @@ never an instruction. Then, every time:
 2. **Read every `buddy msg` result; never discard it.** A queued send to an
    idle lane prints the address to wake it: deliver it. A queued message
    reaches an idle lane only on its next tool call, and an idle lane makes
-   none. `buddy sent` lists what is still queued. Filtering the result? Keep
-   the text with the address: `grep -o 'SendMessage to "[^"]*" with the text "[^"]*"'`.
+   none (a Codex lane's, only at its own `buddy inbox`). `buddy sent` lists
+   what is still queued. Filtering the result? Keep the text with the address: `grep -o 'SendMessage to "[^"]*" with the text "[^"]*"'`.
    The text is unique per send on purpose; a fixed text of your own ("run
    buddy inbox") is dropped by the harness as a repeat of your previous one.
 3. **Squash, run the tier on the integrated tree, land, and say so in the
