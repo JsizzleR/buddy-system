@@ -1704,6 +1704,10 @@ func cmdHello(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	// The copy of each watched file this session starts with (D-167): a
+	// later checkout of the same bytes, in this tree or a worktree it makes,
+	// is then not announced as a change. Best-effort, like the notice.
+	authorityBaseline(st, top, si)
 
 	// Digest: this goes into the session's context at SessionStart.
 	now := nowOf(env)
@@ -2283,7 +2287,14 @@ func cmdBeat(args []string, env Env) error {
 	// the worktree root on EVERY tool call, Bash included.
 	auth, commitAuth := "", func() error { return nil }
 	if rc.top != "" && known && me.Live() && !sub {
-		auth, commitAuth = authorityNotice(st, rc.top, me, nowOf(env))
+		// The session's own write of a watched file is not news to it
+		// (D-167): rel is the path this call named, and a write tool's
+		// PostToolUse runs after the write landed.
+		own := ""
+		if dirtyingTools[h.ToolName] {
+			own = rel
+		}
+		auth, commitAuth = authorityNotice(st, rc.top, me, nowOf(env), own)
 	}
 	// And a declared wait that has LANDED (D-033): one line, once per
 	// declaration, marked after the write exactly like the authority notice.

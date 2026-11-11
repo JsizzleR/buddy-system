@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // The id register's verb surface (D-029): every refusal named, every answer
@@ -117,5 +118,76 @@ func TestIDsRefusesTrailingArgumentsAndOddNames(t *testing.T) {
 	}
 	if _, _, code := f.run(t, f.repo, "", "ids", "take", "top", "1", "--session", "sess-a"); code == 0 {
 		t.Fatal("take above MaxInt64 must refuse")
+	}
+}
+
+// Token-overhead report 3b (D-167): `ids ls` printed every block since the
+// space was seeded (7,090 B, 51 blocks, the oldest 27 days). Blocks taken
+// more than 3d ago fold into one count line per space, as the roster folds
+// its dead rows (D-091); --all lists them, on either side of the space.
+func TestIDsListFoldsOldBlocks(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, _, code := f.run(t, f.repo, "", "ids", "seed", "record", "100"); code != 0 {
+		t.Fatal("seed")
+	}
+	take := func(n, note string) {
+		t.Helper()
+		if _, errw, code := f.run(t, f.repo, "", "ids", "take", "record", n, "--session", "sess-a", "--note", note); code != 0 {
+			t.Fatalf("take: %s", errw)
+		}
+	}
+	take("2", "old one")
+	take("3", "old two")
+	f.clock = f.clock.Add(72*time.Hour + time.Minute)
+	take("1", "fresh")
+	const fold = "  (+ 2 block(s) taken more than 3d ago, still held — not listed: buddy ids ls --all)"
+	for _, args := range [][]string{{"ls"}, {"ls", "record"}} {
+		out, errw, code := f.run(t, f.repo, "", append([]string{"ids"}, args...)...)
+		if code != 0 || !strings.Contains(out, "fresh") || strings.Contains(out, "old one") || strings.Contains(out, "old two") ||
+			!strings.Contains(out, fold+"\n") || !strings.Contains(out, "ceiling 106") {
+			t.Fatalf("%v folds the old blocks: %d %s\n%s", args, code, errw, out)
+		}
+	}
+	for _, args := range [][]string{{"ls", "--all"}, {"ls", "record", "--all"}, {"ls", "--all", "record"}} {
+		out, errw, code := f.run(t, f.repo, "", append([]string{"ids"}, args...)...)
+		if code != 0 || !strings.Contains(out, "old one") || !strings.Contains(out, "old two") || !strings.Contains(out, "fresh") ||
+			strings.Contains(out, "not listed") {
+			t.Fatalf("%v lists every block: %d %s\n%s", args, code, errw, out)
+		}
+	}
+	// Nothing old: no fold line (the control that the line is the fold's).
+	f.clock = f.clock.Add(-72 * time.Hour)
+	if out, _, _ := f.run(t, f.repo, "", "ids", "ls"); strings.Contains(out, "not listed") {
+		t.Fatalf("nothing older than 3d, nothing folded:\n%s", out)
+	}
+	// An unknown flag and a second positional are refused, never ignored.
+	for _, bad := range [][]string{{"ls", "--every"}, {"ls", "record", "other"}, {"ls", "record", "--all", "other"}} {
+		_, errw, code := f.run(t, f.repo, "", append([]string{"ids"}, bad...)...)
+		if code == 0 || !strings.Contains(errw, "usage: buddy ids") {
+			t.Fatalf("%v must refuse with the usage: %d %q", bad, code, errw)
+		}
+	}
+	if out, _, code := f.run(t, f.repo, "", "ids", "ls", "--help"); code != 0 || !strings.Contains(out, "buddy ids ls [space] [--all]") {
+		t.Fatalf("ls --help: %d\n%s", code, out)
+	}
+}
+
+// Codex code pass on D-167: after `--` every argument is positional, so a
+// trailing `--all` is a stray, refused, and not read as the flag.
+func TestIDsListHonoursTheFlagTerminator(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, _, code := f.run(t, f.repo, "", "ids", "seed", "record", "1"); code != 0 {
+		t.Fatal("seed")
+	}
+	if _, errw, code := f.run(t, f.repo, "", "ids", "ls", "--", "record", "--all"); code == 0 || !strings.Contains(errw, "refused:") {
+		t.Fatalf("a stray after -- must refuse: %d %q", code, errw)
+	}
+	// Control: `--` then the space alone lists it.
+	if out, errw, code := f.run(t, f.repo, "", "ids", "ls", "--", "record"); code != 0 || !strings.Contains(out, "ceiling 1") {
+		t.Fatalf("ls -- record: %d %q\n%s", code, errw, out)
 	}
 }

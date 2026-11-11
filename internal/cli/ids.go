@@ -11,6 +11,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/store"
@@ -18,9 +19,20 @@ import (
 
 const idsUsage = "usage: buddy ids seed <space> <n>          declare the space's measured high-water mark (create or RAISE; never lower)\n" +
 	"       buddy ids take <space> <count> [--note <text>] [--session <id>]   a contiguous block above the ceiling, recorded to you\n" +
-	"       buddy ids ls [space]                 every block: who holds which numbers, since when\n" +
+	"       buddy ids ls [space] [--all]         who holds which numbers, since when: blocks taken in the last 3d, older ones counted (--all lists them)\n" +
 	"       buddy ids status <space> <n>         reserved here / above the ceiling / at-or-below and unreserved here\n" +
 	"       (no return verb: a returned id is a claim about intent, take from the ceiling — ids are free)"
+
+// idsListWindow is how far back `ids ls` lists blocks; older ones fold into
+// one count line per space, as the roster folds its dead rows (D-091). The
+// token-overhead report (D-167): `ids ls` printed the register since it was
+// seeded, 7,090 B and 51 blocks on the live ledger on 2026-11-11, the oldest
+// 27 days old, on 54 calls in 14 days; 10 of those blocks were under a day
+// old, none 1 to 3 days, 41 older. A block's age says nothing about whether
+// its numbers are used (they never return), so the fold line says they are
+// still held, and `status` answers for any one number whatever its age. The
+// fold line and the usage say "3d": change all three together.
+const idsListWindow = 72 * time.Hour
 
 func cmdIDs(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
@@ -89,11 +101,29 @@ func cmdIDs(args []string, env Env) error {
 		fmt.Fprintf(env.Stdout, "took %s %d..%d for %s\n", fence.Field(space, 64), lo, hi, fence.Field(si.Label, 64))
 		return nil
 	case "ls":
+		// One optional space, and --all on either side of it: Go's parser
+		// stops at the first positional, so the flags after it are parsed
+		// again, and anything still left is refused, never ignored (D-031).
+		fs := flag.NewFlagSet("ids ls", flag.ContinueOnError)
+		all := fs.Bool("all", false, "list every block, the old ones too")
+		if help, err := parseFlags(fs, args[1:], idsUsage, env); help || err != nil {
+			return err
+		}
 		space := ""
-		if len(args) == 2 {
-			space = args[1]
-		} else if len(args) > 2 {
-			return errors.New(idsUsage)
+		if fs.NArg() > 0 {
+			space = fs.Arg(0)
+			// After a `--` every argument is positional: parsed again, a
+			// trailing --all would be read as the flag (Codex code pass).
+			rest := fs.Args()[1:]
+			if used := len(args[1:]) - fs.NArg(); used > 0 && args[used] == "--" && len(rest) > 0 {
+				return usageRefusal(fmt.Sprintf("ids ls takes one space, got %s after it", strconv.Quote(fence.Line(rest[0], 64))), idsUsage)
+			}
+			if help, err := parseFlags(fs, rest, idsUsage, env); help || err != nil {
+				return err
+			}
+			if err := noStray("ids ls <space>", fs, idsUsage); err != nil {
+				return err
+			}
 		}
 		spaces, err := st.IDSpaces()
 		if err != nil {
@@ -116,11 +146,19 @@ func cmdIDs(args []string, env Env) error {
 			// "space " in front, so a space NAMED "BUDDY:" cannot open a line
 			// that reads as a notice in a tool result (Codex code pass).
 			fmt.Fprintf(env.Stdout, "space %s  ceiling %d  (%s)\n", fence.Field(sp.Space, 64), sp.Ceiling, nextBlock(sp.Ceiling))
+			folded := 0
 			for _, b := range blocks {
 				if b.Space != sp.Space {
 					continue
 				}
+				if !*all && now.Sub(b.Taken) > idsListWindow {
+					folded++
+					continue
+				}
 				fmt.Fprintf(env.Stdout, "  %d..%-8d %-24s taken %-4s %s\n", b.Lo, b.Hi, fence.Field(b.Label, 64), age(now, b.Taken), fence.Line(b.Note, 512))
+			}
+			if folded > 0 {
+				fmt.Fprintf(env.Stdout, "  (+ %d block(s) taken more than 3d ago, still held — not listed: buddy ids ls --all)\n", folded)
 			}
 		}
 		if shown == 0 {

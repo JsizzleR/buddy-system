@@ -41,32 +41,37 @@ func TestAuthorityListFoldsAndBounds(t *testing.T) {
 	}
 }
 
-func TestAuthorityWarnIsOncePerIncarnationPathAndMtime(t *testing.T) {
+func TestAuthorityLastIsTheNewestRecordPerIncarnationAndPath(t *testing.T) {
 	st, _ := openTest(t)
-	pending := func(inc string, mtime int64) bool {
+	last := func(inc string) (int64, bool) {
 		t.Helper()
-		p, err := st.AuthorityWarnPending("sess-a", inc, "CLAUDE.md", mtime)
+		k, ok, err := st.AuthorityLast("sess-a", inc, "CLAUDE.md")
 		if err != nil {
 			t.Fatal(err)
 		}
-		return p
+		return k, ok
 	}
-	if !pending("inc1", 100) {
-		t.Fatal("never warned: pending")
+	if _, ok := last("inc1"); ok {
+		t.Fatal("nothing recorded: no key")
 	}
-	if err := st.MarkAuthorityWarned("sess-a", "inc1", "claude.md", 100); err != nil {
+	if err := st.AuthorityRecord("sess-a", "inc1", "claude.md", 100); err != nil {
 		t.Fatal(err)
 	}
-	if pending("inc1", 100) {
-		t.Fatal("warned at this mtime (folded spelling): not pending")
+	if k, ok := last("inc1"); !ok || k != 100 {
+		t.Fatalf("recorded under the folded spelling: got %d %v", k, ok)
 	}
-	if !pending("inc1", 101) {
-		t.Fatal("a later mtime is a new change")
+	if _, ok := last("inc2"); ok {
+		t.Fatal("another incarnation knows nothing")
 	}
-	if !pending("inc2", 100) {
-		t.Fatal("a new incarnation has not been told")
-	}
-	if err := st.MarkAuthorityWarned("sess-a", "inc1", "CLAUDE.md", 100); err != nil {
-		t.Fatalf("marking twice is idempotent: %v", err)
+	// A, B, A: the newest is A again, which a set of seen keys would get
+	// wrong (B was announced after A, so the session's copy is B until A
+	// comes back).
+	for _, k := range []int64{200, 100} {
+		if err := st.AuthorityRecord("sess-a", "inc1", "CLAUDE.md", k); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := last("inc1"); got != k {
+			t.Fatalf("after recording %d the newest is %d", k, got)
+		}
 	}
 }

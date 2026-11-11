@@ -103,8 +103,7 @@ func TestWaitDeclareCheckLandOnceThenNoWait(t *testing.T) {
 	if got[1] != askLine {
 		t.Fatalf("the ask line (D-130):\n got %q\nwant %q", got[1], askLine)
 	}
-	if !strings.HasPrefix(got[2], "keep-alive: cache 1h tier (last written 0s ago). Arm it in THIS session: /loop buddy wait check") ||
-		!strings.Contains(got[2], "(50m on this tier)") || !strings.Contains(got[2], "fixed fallback: /loop 30m buddy wait check") {
+	if want := "keep-alive: cache 1h tier (last written 0s ago): /loop buddy wait check in THIS session, every 50m"; got[2] != want {
 		t.Fatalf("the arming line:\n%s", got[2])
 	}
 
@@ -209,15 +208,17 @@ func TestWaitTimerSaysHowItEnds(t *testing.T) {
 	w.turn(t, w.clock, 214_000, 1_200, 0, 1_200)
 
 	got := lines(w.ok(t, "sess-a", "wait", "--until", "90m", "--note", "own tier run"))
-	want := "a timer never lands: when something else wakes you first (a run's completion notice, a message, the operator), run `buddy wait clear`, and stop the /loop that runs the check"
+	want := "a timer never lands: it ends at its deadline or at `buddy wait clear`"
 	if len(got) != 3 || got[2] != want {
 		t.Fatalf("a timer declaration ends with how it ends:\n got %q\nwant %q", strings.Join(got, "\n"), want)
 	}
 	if !strings.HasPrefix(got[0], "WAITING on a timer (no claim named: it never lands, it expires) — deadline in 1h30m") {
 		t.Fatalf("the declaration line:\n%s", got[0])
 	}
-	if !strings.Contains(got[1], "each check is one tool call (a turn of about three cache reads)") {
-		t.Fatalf("the arming line must say what a check costs:\n%s", got[1])
+	// D-167: the line says the tier and the command; what a check costs is
+	// the skill's (D-123).
+	if !strings.HasPrefix(got[1], "keep-alive: cache 1h tier") || strings.Contains(got[1], "each check is") {
+		t.Fatalf("the arming line says facts only:\n%s", got[1])
 	}
 
 	// Re-declared on a claim, the same session is told nothing of the kind.
@@ -240,12 +241,11 @@ func TestWaitTimerWithNoTierObservedYet(t *testing.T) {
 	boundedParallel(t)
 	w := newWaitFx(t) // no turn: nothing observed
 	got := lines(w.ok(t, "sess-a", "wait", "--until", "90m"))
-	if len(got) != 3 || !strings.HasPrefix(got[1], "keep-alive: no cache tier observed for this session yet.") ||
-		!strings.Contains(got[1], "each check is one tool call (a turn of about three cache reads)") {
+	if len(got) != 3 || got[1] != "keep-alive: no cache tier observed for this session yet: /loop buddy wait check in THIS session" {
 		t.Fatalf("the no-tier arming line:\n%s", strings.Join(got, "\n"))
 	}
-	if !strings.HasPrefix(got[2], "a timer never lands") || !strings.HasSuffix(got[2], ", and stop the /loop that runs the check") {
-		t.Fatalf("with no tier observed the loop was advised, so the advice includes it:\n%s", got[2])
+	if got[2] != "a timer never lands: it ends at its deadline or at `buddy wait clear`" {
+		t.Fatalf("the timer's line:\n%s", got[2])
 	}
 }
 
@@ -261,7 +261,7 @@ func TestWaitTimerAdviceDeclaredForAnotherSession(t *testing.T) {
 	w.ok(t, "sess-b", "wait", "--until", "2h") // the declarer's own timer: must survive
 
 	got := lines(w.ok(t, "sess-b", "wait", "--session", "sess-a", "--until", "90m"))
-	want := "a timer never lands: when something else wakes alpha first (a run's completion notice, a message, the operator), `buddy wait clear --session sess-a` clears it — pass this on, and stop the /loop that runs the check"
+	want := "a timer never lands: it ends at its deadline or at `buddy wait clear --session sess-a`"
 	if len(got) != 3 || got[2] != want {
 		t.Fatalf("a timer declared for another session:\n got %q\nwant %q", strings.Join(got, "\n"), want)
 	}
@@ -360,28 +360,25 @@ func TestWaitArmsNothingOffTheHourTier(t *testing.T) {
 			w.turn(t, w.clock, 214_000, 1_200, tc.e5m, tc.e1h)
 			decl := lines(w.ok(t, "sess-a", "wait", "--on", "api-work"))[2] // after the ask line (D-130)
 			check := lines(w.ok(t, "sess-a", "wait", "check"))[0]
-			armed := strings.Contains(decl, "Arm it in THIS session: /loop buddy wait check")
+			armed := strings.Contains(decl, "/loop buddy wait check in THIS session")
 			paced := strings.Contains(check, "next check in 50m")
 			if armed != tc.pays || paced != tc.pays {
 				t.Fatalf("pays=%v: armed=%v paced=%v\n%s\n%s", tc.pays, armed, paced, decl, check)
 			}
-			if !tc.pays && (!strings.HasPrefix(decl, "keep-alive: NONE") || !strings.Contains(check, "no next check:")) {
+			if !tc.pays && (!strings.HasPrefix(decl, "keep-alive: none: the last observed cache write") || !strings.Contains(check, "no next check:")) {
 				t.Fatalf("off the hour tier both lines must say why:\n%s\n%s", decl, check)
 			}
-			// A timer always says to clear it when woken first; "stop the
-			// loop" only where a loop was advised (D-054).
+			// A timer always names the verb that ends it early, on every
+			// tier; stopping a loop is the skill's (D-167).
 			timer := lines(w.ok(t, "sess-a", "wait", "--until", "90m"))
-			last := "" // the advice line; a "replaced your open wait" line follows it here
+			last := "" // the timer's line; a "replaced your open wait" line follows it here
 			for _, l := range timer {
 				if strings.HasPrefix(l, "a timer never lands") {
 					last = l
 				}
 			}
-			if !strings.Contains(last, "run `buddy wait clear`") {
-				t.Fatalf("pays=%v: a timer must say to clear it:\n%s", tc.pays, strings.Join(timer, "\n"))
-			}
-			if stop := strings.Contains(last, "stop the /loop"); stop != tc.pays {
-				t.Fatalf("pays=%v: told to stop a loop=%v\n%s", tc.pays, stop, last)
+			if last != "a timer never lands: it ends at its deadline or at `buddy wait clear`" {
+				t.Fatalf("pays=%v: a timer must name its clear:\n%s", tc.pays, strings.Join(timer, "\n"))
 			}
 		})
 	}
@@ -734,11 +731,11 @@ func TestTheArmingLineNamesTheSessionThatMustArmIt(t *testing.T) {
 	boundedParallel(t)
 	w := newWaitFx(t)
 	out := w.ok(t, "sess-b", "wait", "--session", "sess-a", "--until", "1h")
-	if !strings.Contains(out, "Arm it in session alpha (a check speaks only for the session whose harness runs it): /loop buddy wait check") ||
+	if !strings.Contains(out, "/loop buddy wait check in session alpha") ||
 		strings.Contains(out, "THIS session") {
 		t.Fatalf("declared for alpha from bravo's shell:\n%s", out)
 	}
-	if out := w.ok(t, "sess-a", "wait", "--until", "1h"); !strings.Contains(out, "Arm it in THIS session: /loop buddy wait check") {
+	if out := w.ok(t, "sess-a", "wait", "--until", "1h"); !strings.Contains(out, "/loop buddy wait check in THIS session") {
 		t.Fatalf("control: alpha's own declaration:\n%s", out)
 	}
 }

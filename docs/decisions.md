@@ -11338,3 +11338,92 @@ after a zero code layer, which survived until the Codex code pass found it)
 and 4 survive as equivalent (dropping `!nolist`, adding `self` or `other` to
 the bare set, moving the bare line above the returns: no row reaches them).
 Review: lite (self + codex@xhigh code: 2 raised, 2 fixed, 1 reproduced).
+
+## D-167 — The authority notice keys on content and skips the session's own write; a wait declaration's keep-alive and timer lines say facts; `ids ls` folds blocks older than 3d (token-overhead report 2b, 3a, 3b; amends D-028, D-054, D-123)
+
+2026-11-11 · token-overhead report (Fable lane, shasum 05156aec), stop-doing 6 and
+findings 3a, 3b. OPERATOR DECIDED 2026-11-11 ("do them all", in orc-19's pane at
+about 14:12Z): that word is the decision for each amendment below.
+
+**2b, the failure.** Of 193 changed-on-disk notices in 14 days, 85 rode the
+session's own git tree operation and 17 its own edit of the file; 20 fired within
+120 s of start (a worktree made after `hello`). D-028 keyed the notice on the
+file's mtime against the session's start and recorded "no content fingerprint: a
+hash per tool call is a cost this hook does not pay for a case nobody has
+measured". It is measured now. Reproduced first: `TestAuthorityNoticeSkipsTheSessionsOwnAct`
+(an own Edit of CLAUDE.md; an own `git worktree add` writing the same bytes)
+drew the notice on 1b0e87f, both arms.
+
+**2b, what shipped.** The dedup key is the CONTENT: the first eight bytes of the
+file's SHA-256 (its mtime in nanoseconds when it cannot be read, the old key). It
+lives in `authority_warned.mtime_ns`, an existing INTEGER column (no schema
+change was authorised, and none was needed): `hello` records the copy of each
+watched file the session starts with; `beat`, for a file whose mtime postdates
+the start, compares the bytes on disk with the incarnation's NEWEST row (by
+rowid; `INSERT OR REPLACE` moves a re-recorded key to the top, so A, B, A is
+last known as A) and announces only a difference. A write tool of the session's
+own call (Edit, Write, NotebookEdit, MultiEdit) naming the file records its new
+bytes and says nothing: PostToolUse runs after the write, so those bytes are the
+ones in its context. A subagent's write is not the session's (D-099's guard
+stands), and the main thread is told. A git operation of its own that brings in
+OTHER bytes (a merge, a pull) is announced: the copy in its context really is
+stale. Positive controls: a peer's change after the own edit is announced, a
+revert to the own text after that notice is announced, and other bytes in the
+new worktree are announced. The hash runs only for a file whose mtime already
+postdates the start (at most 2 + 8 files; CLAUDE.md is about 40 KB), and at
+`hello`.
+
+**2b, what it still does not do.** `status`/`who`'s AUTHORITY line stays the
+mtime fact (a pull view; its "may be stale" wording already hedges); keying it
+too would need it to tell a baseline row from an announced one, which the
+column cannot. A row an older binary wrote holds an mtime, which never equals a
+hash in practice: a mixed ledger costs one more notice. Two parallel tool calls
+can both announce one change (the at-least-once D-028 accepts). Rejected: a new
+column for the baseline (unauthorised, and the newest-row rule needs none); an
+ever-seen set of keys (A, B, A would hide the revert, the case D-028 named).
+
+**3a.** `keepAliveAdvice` (289 B) and `timerEndAdvice` (173 B) printed on each of
+119 declarations what the core skill's "Before you park" already says: what a
+check costs, what it does, a fixed-interval fallback, and "when something else
+wakes you first, clear it and stop the loop". D-123's rule (views say facts, the
+skill says why) now applies here. The keep-alive line says the tier observed,
+its age, and the command in the session that must run it, with the period
+(`keep-alive: cache 1h tier (last written 2m ago): /loop buddy wait check in THIS
+session, every 50m`), or `keep-alive: none: …` off the hour tier, or that no
+tier is observed yet. The timer line says `a timer never lands: it ends at its
+deadline or at `buddy wait clear``, naming `--session <id>` when declared for
+another session (D-054's measured failure: a bare clear there cleared the
+declarer's). The fleet skill already tells a coordinator to tell the lane. About
+45 KB in 14 days, an estimate (bytes times declarations).
+
+**3b.** `buddy ids ls` printed every block since the space was seeded: 7,090 B
+and 51 blocks on the live ledger today, the oldest 27 days, 54 calls in 14 days;
+10 blocks were under a day old, none 1 to 3 days, 41 older. Blocks taken more
+than 3 days ago fold into one line per space, `(+ N block(s) taken more than 3d
+ago, still held — not listed: buddy ids ls --all)`, as the roster folds its dead
+rows (D-091); `--all` (a new flag, either side of the space) lists them.
+"Still held": a block's age says nothing about whether its numbers are used, and
+`ids status` answers for any one number whatever its age. Unlike the roster, a
+caller's own old block is not kept listed: a block is not a session's row.
+About 80 KB in 14 days, an estimate.
+
+**What the code review changed** (Codex, one pass, folded once). A watched path
+made a FIFO with no writer hung `beat` at the open, before its output and the
+inbox (the mtime key never opened anything): only a regular file of at most
+1 MiB is hashed, opened `O_NONBLOCK` and re-checked after the open; anything
+else is keyed by its mtime. A second `hello` on a live incarnation (a hand-run
+`hello --session`, a resume) recorded a peer's unseen change as the baseline:
+`hello` records only where the incarnation has no row. `ids ls -- record --all`
+read the `--all` after `--` as the flag: it is refused. Each reproduced first
+(`TestAuthorityNoticeNeverBlocksOnANonRegularFile`,
+`TestARepeatedHelloDoesNotAcknowledgeAPeersChange`,
+`TestIDsListHonoursTheFlagTerminator`).
+
+**Open, answered** (recorded, not folded: the round ceiling is one). A peer that
+overwrites the file between the session's own Write and that call's PostToolUse
+hook (milliseconds) has its bytes recorded as the session's own, and is not
+announced while they stand; nothing in the hook binds the bytes to the write.
+Two beats racing three peer writes (B announced, C announced, B's record landing
+after C's) leave B as the newest row, so B restored later is not announced; a
+compare-and-set record would close it. Both need a peer write inside one hook's
+window.

@@ -1354,11 +1354,16 @@ tool call**:
 BUDDY: CLAUDE.md changed on disk 10m ago, AFTER this session started (2h ago) — the copy in your context may be stale; re-read it before quoting or acting on it.
 ```
 
-`buddy status` carries the same as an `AUTHORITY` line. It is an advisory
-about the file on disk — its modification time is later than your start —
-and nothing more: not that the contents differ from what you read, not that
-you have not re-read it since, and in a linked worktree not that `main` has
-moved, since the file there changes only when that worktree pulls.
+The notice fires when the file's modification time is later than your start
+AND its contents are not the copy you are last known to hold: the one `hello`
+found when you started, the one your own Edit or Write of it left, or the one
+the last notice announced (D-167). So a checkout or worktree that writes the
+same bytes says nothing, and neither does your own edit; a merge or pull of
+your own that brings in other bytes is announced, because your copy is then
+stale. `buddy status` carries an `AUTHORITY` line that says only the first
+half: the modification time is later than your start. Neither says you have
+not re-read it since, nor, in a linked worktree, that `main` has moved, since
+the file there changes only when that worktree pulls.
 
 ## Waiting without going cold — `buddy wait`
 
@@ -1366,7 +1371,7 @@ moved, since the file there changes only when that worktree pulls.
 buddy wait --on api-work --until 3h --note "then: rebase, run check.sh"
 # WAITING on claim "api-work" (held by repo/s-4856919d, seen 3m ago) — deadline in 3h0m; note: then: rebase, run check.sh
 # the holder is not told of this wait: ask it now what it is running, how long it has left, and to release as soon as it is done — buddy msg api-work "<ask>"
-# keep-alive: cache 1h tier (last written 2m ago). Arm it in THIS session: /loop buddy wait check — each check is one tool call (a turn of about three cache reads) …
+# keep-alive: cache 1h tier (last written 2m ago): /loop buddy wait check in THIS session, every 50m
 /loop buddy wait check               # typed in the WAITING session: its own scheduler, self-paced
 # STILL WAITING on claim "api-work" (held by …, seen 3m ago) — 1h12m so far, deadline in 1h48m; next check in 50m (3000s from now)
 # last observed request 50m ago read 398k, wrote 1k (mostly read from the cache)
@@ -1428,8 +1433,8 @@ operator are all parked on nothing buddy holds. The timer form covers them:
 ```sh
 buddy wait --until 2h --note "own tier run, ~80 min"   # no --on: expires at the deadline, never lands
 # WAITING on a timer (no claim named: it never lands, it expires) — deadline in 2h0m; note: own tier run, ~80 min
-# keep-alive: cache 1h tier (…). Arm it in THIS session: /loop buddy wait check — …
-# a timer never lands: when something else wakes you first (a run's completion notice, a message, the operator), run `buddy wait clear`, and stop the /loop that runs the check
+# keep-alive: cache 1h tier (…): /loop buddy wait check in THIS session, every 50m
+# a timer never lands: it ends at its deadline or at `buddy wait clear`
 /loop buddy wait check
 # … the run's completion notice (or a message, or the operator) wakes the session first:
 buddy wait clear                                        # and stop the loop
@@ -1737,7 +1742,8 @@ and is not built.
 ```sh
 buddy ids seed record 1704            # the artifact's MEASURED high-water mark; raise, never lower
 buddy ids take record 5 --note "cve"  # took record 1705..1709 for repo/s-16c16a94
-buddy ids ls                          # record  ceiling 1709  (next block starts at 1710)
+buddy ids ls                          # record  ceiling 1709  (next block starts at 1710); blocks of the last 3d
+buddy ids ls --all                    # every block: older ones fold into one "(+ N block(s) …)" line without it
 buddy ids status record 1706          # RESERVED here by … / above the ceiling / not available
 ```
 

@@ -249,13 +249,13 @@ ledger row entered through the CLI (D-006).
     current-incarnation idle report only when one exists (D-016: absence says nothing), as
     GIVEN 35's observation, never a prediction.
 
-31. **Authority files are watched by mtime, announced ONCE per change on the next tool
-    call, and the wording is an advisory (D-028).** The list is in the ledger (`buddy
+31. **Authority files are watched by mtime, announced ONCE per new content on the next
+    tool call, and the wording is an advisory (D-028, D-167).** The list is in the ledger (`buddy
     authority`, at most 8 configured paths; `CLAUDE.md` and `AGENTS.md` always), never git config on the hot path. The
-    check is `os.Stat` mtime > session `started`; dedup key is (session, incarnation,
-    folded path, mtime ns). It says the file on disk changed after the session started —
-    not that contents differ, not that the session has not re-read them, not that main
-    moved. No fingerprint, no `> last notice`, no git.
+    notice needs `os.Stat` mtime > session `started` AND a content key (SHA-256's first 8
+    bytes, in `authority_warned.mtime_ns`: no schema change) unlike the incarnation's newest
+    row: hello's copy, its own write tool's, or the last announced. Status's AUTHORITY line
+    is the mtime half only. Neither says the session has not re-read, nor that main moved. No git.
 
 32. **The id register never parses prose, never reissues, and does not know the artifact
     (D-029).** `buddy ids seed <space> <n>` is mandatory before `take` (create or RAISE the
@@ -1163,6 +1163,7 @@ ledger row entered through the CLI (D-006).
 127. **Every Codex pass leaves one counts-only row in `<git-common-dir>/codex-passes.tsv` (D-146).** `codex-review.sh` writes it (a pass it saw finish, or busy), `cost-report.sh` aggregates it; numbers, fixed words or `[A-Za-z0-9._+-]{1,64}`, never review text; a failed write never changes the verdict. Do not propose a ledger table or text in the row.
 128. **With no live registered harness process, a send's result line says the ledger cannot tell a Codex recipient, whose mail waits for its `buddy inbox` (D-160).** Only a Claude hook registers one; the ledger records no harness. Do not propose inferring the harness from the id, or a schema column, without new evidence.
 129. **Counts are owed on a lite or full receipt's panel, design, code, cross-check and reverify layers after D-163's cut (2026-11-11 14:12Z), until the operator's panel-size decision (D-163, amends D-141).** `receipt-check.sh` reports `owes counts on <kind>`, exits 0 and refuses nothing; `self`, `other` and a chore's reason owe none. Do not propose making it refuse, holding history before the cut, or an expiry in the script, without new evidence.
+130. **A wait declaration's keep-alive and timer lines say facts, and `ids ls` folds blocks taken over 3d ago into a count that `--all` lists (D-167).** The why is the skill's (D-123); a folded block is still held. Do not propose restoring the advice to the line.
 
 ## Environment facts (measured, do not re-derive)
 

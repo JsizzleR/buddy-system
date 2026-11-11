@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -81,8 +82,10 @@ func TestBeatAnnouncesAChangedAuthorityFileOnce(t *testing.T) {
 				t.Fatalf("the notice must not repeat:\n%s", ctx)
 			}
 			// A second change is a second notice; the same mtime is not.
+			// Other bytes: since D-167 the key is the content, and a rewrite
+			// of the same bytes is not a change.
 			f.clock = f.clock.Add(time.Hour)
-			touch(t, changedPath, f.clock)
+			write(t, changedPath, "rules, corrected again\n", f.clock)
 			if ctx := beat(); !strings.Contains(ctx, name+" changed on disk 0s ago") {
 				t.Fatalf("a second change warns again:\n%s", ctx)
 			}
@@ -339,5 +342,144 @@ func TestAuthorityListingAndAllClearDoNotOverclaim(t *testing.T) {
 	out, _, _ = f.run(t, f.repo, "", "status", "--session", "sess-a")
 	if !strings.Contains(out, "(2 watched path(s) could not be read") {
 		t.Fatalf("one read, two not:\n%s", out)
+	}
+}
+
+// write puts body at p with the mtime at.
+func write(t *testing.T, p, body string, at time.Time) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Token-overhead report 2b (D-167, amending D-028): of 193 notices in 14
+// days, 85 rode the session's own git tree operation and 17 its own edit of
+// the file. Both are the session's own act, and neither leaves its copy
+// stale: the edit is in its context, and a checkout that writes the same
+// bytes changes nothing it read. A change by anyone else must still be
+// announced (the positive control at the end of each case).
+func TestAuthorityNoticeSkipsTheSessionsOwnAct(t *testing.T) {
+	notice := func(t *testing.T, f *fixture, cwd, tool, path string) string {
+		t.Helper()
+		out, errw, code := f.run(t, cwd, hookJSON("sess-a", cwd, tool, path), "beat")
+		if code != 0 {
+			t.Fatalf("beat: %s", errw)
+		}
+		return additionalContext(t, out)
+	}
+	t.Run("own edit", func(t *testing.T) {
+		boundedParallel(t)
+		f := newFixture(t)
+		p := filepath.Join(f.repo, "CLAUDE.md")
+		write(t, p, "rules v1\n", f.clock.Add(-time.Hour))
+		f.initAndHello(t)
+		f.clock = f.clock.Add(time.Hour)
+		// The session's own Edit: PostToolUse runs after the write.
+		write(t, p, "rules v2, by this session\n", f.clock)
+		if ctx := notice(t, f, f.repo, "Edit", p); strings.Contains(ctx, "changed on disk") {
+			t.Fatalf("the session's own edit is not a change it missed:\n%s", ctx)
+		}
+		if ctx := notice(t, f, f.repo, "Bash", ""); strings.Contains(ctx, "changed on disk") {
+			t.Fatalf("nor on the next tool call:\n%s", ctx)
+		}
+		// Positive control: a peer's edit after it is announced, also on a
+		// tool call that NAMES the file without writing it (a Read): only a
+		// write tool's call is the session's own write (mutation check).
+		f.clock = f.clock.Add(time.Minute)
+		write(t, p, "rules v3, by a peer\n", f.clock)
+		if ctx := notice(t, f, f.repo, "Read", p); !strings.Contains(ctx, "CLAUDE.md changed on disk") {
+			t.Fatalf("a peer's change must still be announced:\n%q", ctx)
+		}
+		// A peer reverting it to the session's own text is a change too: the
+		// copy it was last told of is v3.
+		f.clock = f.clock.Add(time.Minute)
+		write(t, p, "rules v2, by this session\n", f.clock)
+		if ctx := notice(t, f, f.repo, "Bash", ""); !strings.Contains(ctx, "CLAUDE.md changed on disk") {
+			t.Fatalf("a revert after a notice is announced:\n%q", ctx)
+		}
+	})
+	t.Run("own worktree add", func(t *testing.T) {
+		boundedParallel(t)
+		f := newFixture(t)
+		write(t, filepath.Join(f.repo, "CLAUDE.md"), "rules\n", f.clock.Add(-time.Hour))
+		gitIn(t, f.repo, "add", "CLAUDE.md")
+		gitIn(t, f.repo, "commit", "-q", "-m", "rules")
+		f.initAndHello(t)
+		// The session makes a worktree after it started and works there: git
+		// writes CLAUDE.md with a fresh mtime and the same bytes.
+		wt := filepath.Join(filepath.Dir(f.repo), "wtNew")
+		gitIn(t, f.repo, "worktree", "add", "-q", wt)
+		f.clock = f.clock.Add(time.Minute)
+		if ctx := notice(t, f, wt, "Bash", ""); strings.Contains(ctx, "changed on disk") {
+			t.Fatalf("a checkout of the same bytes is not a change:\n%s", ctx)
+		}
+		// Positive control: the same file with other bytes is announced.
+		write(t, filepath.Join(wt, "CLAUDE.md"), "rules, corrected\n", time.Now())
+		if ctx := notice(t, f, wt, "Bash", ""); !strings.Contains(ctx, "CLAUDE.md changed on disk") {
+			t.Fatalf("a real change must still be announced:\n%q", ctx)
+		}
+	})
+}
+
+// Codex code pass on D-167. A watched path that is a FIFO with no writer must
+// not block the hook (the old mtime key never opened the file), and a file
+// past the hash cap is keyed by its mtime instead of read whole.
+func TestAuthorityNoticeNeverBlocksOnANonRegularFile(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, errw, code := f.run(t, f.repo, "", "authority", "add", "docs/rules"); code != 0 {
+		t.Fatal(errw)
+	}
+	p := filepath.Join(f.repo, "docs", "rules")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.clock = f.clock.Add(time.Hour)
+	done := make(chan string, 1)
+	go func() {
+		out, _, _ := f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
+		done <- out
+	}()
+	select {
+	case out := <-done:
+		// Positive control that the path was looked at: its mtime postdates
+		// the start (the fixture clock is in the past), so it is announced
+		// once by its mtime key.
+		if ctx := additionalContext(t, out); !strings.Contains(ctx, "docs/rules changed on disk") {
+			t.Fatalf("the FIFO is announced by its mtime:\n%q", ctx)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("beat blocked opening a FIFO")
+	}
+}
+
+// Codex code pass on D-167: a second hello on a live incarnation (a hand-run
+// `hello --session`, a resume) must not record a peer's change the session
+// never saw as its baseline.
+func TestARepeatedHelloDoesNotAcknowledgeAPeersChange(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	p := filepath.Join(f.repo, "CLAUDE.md")
+	write(t, p, "rules A\n", f.clock.Add(-time.Hour))
+	f.initAndHello(t)
+	f.clock = f.clock.Add(time.Hour)
+	write(t, p, "rules B, by a peer\n", f.clock)
+	if _, errw, code := f.run(t, f.repo, "", "hello", "--session", "sess-a"); code != 0 {
+		t.Fatal(errw)
+	}
+	out, _, _ := f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
+	if ctx := additionalContext(t, out); !strings.Contains(ctx, "CLAUDE.md changed on disk") {
+		t.Fatalf("the peer's change must still be announced:\n%q", ctx)
 	}
 }

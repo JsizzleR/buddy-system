@@ -409,7 +409,8 @@ ceiling on review rounds. Run what it owes:
   the operator seeds the space with `buddy ids seed <space> <n>`. You take a
   block with `buddy ids take <space> <count> --note "<what for>"`. Ids are never
   reissued, and there is no return. `buddy ids ls` shows who holds which
-  numbers; `buddy ids status <space> <n>` says whether one is reserved here.
+  numbers (blocks older than 3 days fold into a count: `--all` lists them);
+  `buddy ids status <space> <n>` says whether one is reserved here.
 - **A BUDDY line that says a file changed on disk after you started** (such as
   CLAUDE.md or AGENTS.md, both always watched) is an advisory about the file
   on disk. The copy in your context may be stale. Read the file again before

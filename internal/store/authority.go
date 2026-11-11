@@ -66,26 +66,42 @@ func (s *Store) AuthorityRemove(path string) (bool, error) {
 	return n > 0, nil
 }
 
-// AuthorityWarnPending reports whether this incarnation has yet to be told
-// about path at this modification time. The mtime is the dedup key, in
-// nanoseconds so two writes in one second are two changes: a file changed
-// twice warns twice, a file changed once warns once, and a file restored to
-// an OLDER mtime — or rewritten with the same one — is not detected, which
-// the advisory wording states (D-028).
-func (s *Store) AuthorityWarnPending(sessionID, incarnation, path string, mtimeNS int64) (bool, error) {
-	var one int
-	err := s.db.QueryRow(`SELECT 1 FROM authority_warned WHERE session_id=? AND incarnation=? AND folded=? AND mtime_ns=?`,
-		sessionID, incarnation, fold(path), mtimeNS).Scan(&one)
+// AuthorityLast is the key of the newest authority_warned row for this
+// incarnation and path: the copy of the file the session is last known to
+// hold, as hello found it, its own write left it, or a notice announced it.
+// ok is false when there is no row.
+//
+// THE COLUMN IS mtime_ns, AND SINCE D-167 IT HOLDS A CONTENT KEY. The table
+// keyed the one-shot notice on the file's mtime (D-028), and the token-overhead
+// report found 102 of 193 notices in 14 days were the session's own act: its
+// own edit, or its own checkout writing the same bytes with a fresh mtime.
+// Keying on content needs a value per (incarnation, file) and nothing else;
+// this column is one, so no schema bump (none was authorised). internal/cli
+// computes the key (a hash of the bytes, or the mtime where the file cannot
+// be read); this side stores an int64 and compares it. A row an older binary
+// wrote holds an mtime, which never equals a hash in practice, so the only
+// cost of a mixed ledger is one more notice.
+//
+// NEWEST BY ROWID, not by `warned`: that is a Unix second, and a notice and
+// the session's own write can land in the same one. AuthorityRecord's
+// INSERT OR REPLACE gives a re-recorded key a new rowid, so a file that went
+// A, B, A is last known as A, not B.
+func (s *Store) AuthorityLast(sessionID, incarnation, path string) (key int64, ok bool, err error) {
+	err = s.db.QueryRow(`SELECT mtime_ns FROM authority_warned WHERE session_id=? AND incarnation=? AND folded=? ORDER BY rowid DESC LIMIT 1`,
+		sessionID, incarnation, fold(path)).Scan(&key)
 	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
+		return 0, false, nil
 	}
-	return false, err
+	return key, err == nil, err
 }
 
-// MarkAuthorityWarned records the notice as delivered. Called only after
-// the write that carried it succeeded (at-least-once, like the inbox).
-func (s *Store) MarkAuthorityWarned(sessionID, incarnation, path string, mtimeNS int64) error {
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO authority_warned (session_id, incarnation, folded, mtime_ns, warned) VALUES (?,?,?,?,?)`,
-		sessionID, incarnation, fold(path), mtimeNS, s.now().Unix())
+// AuthorityRecord makes key the newest known copy of path for this
+// incarnation. Called at hello (the copy the session started with), after a
+// session's own write of the file, and after the hook output that announced a
+// change was written (at-least-once, like the inbox): a lost record repeats
+// the notice once and costs nothing else.
+func (s *Store) AuthorityRecord(sessionID, incarnation, path string, key int64) error {
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO authority_warned (session_id, incarnation, folded, mtime_ns, warned) VALUES (?,?,?,?,?)`,
+		sessionID, incarnation, fold(path), key, s.now().Unix())
 	return err
 }

@@ -171,7 +171,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 	where, self := "THIS session", true
 	nativeID, nativeSource, nativeErr := nativeSession(env)
 	if nativeErr != nil || nativeID != si.SessionID {
-		where, self = "session "+fence.Line(si.Label, 64)+" (a check speaks only for the session whose harness runs it)", false
+		where, self = "session "+fence.Line(si.Label, 64), false
 	}
 	fmt.Fprintf(env.Stdout, "WAITING on %s — deadline in %s%s%s\n", targetsPhrase(now, w.Targets), span(w.Deadline.Sub(now)), readyPhrase(w), notePhrase(w))
 	if ask := askHolderLine(st, env, now, w, nativeID); ask != "" {
@@ -191,11 +191,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 		// declaring shell reads; measured, nothing said it anywhere, and a
 		// forgotten timer checks on until its deadline and shows the session
 		// as waiting while it works.
-		_, pays, _ := cacheTier(c, observed)
-		if codex {
-			pays = false
-		}
-		fmt.Fprintln(env.Stdout, timerEndAdvice(pays, self, si))
+		fmt.Fprintln(env.Stdout, timerEndAdvice(self, si))
 	}
 	if replaced != nil {
 		fmt.Fprintf(env.Stdout, "replaced your open wait on %s (declared %s ago)\n", targetsPhrase(now, replaced.Targets), span(now.Sub(replaced.Since)))
@@ -720,42 +716,39 @@ func nextCheck(now, deadline time.Time, c store.ContextSample, observed bool) st
 	return fmt.Sprintf("next check in %s (%ds from now%s)", span(d), int(d.Seconds()), why)
 }
 
-// timerEndAdvice is a timer declaration's third line (D-054). Two things
-// vary. Off the hour tier no loop was advised, so there is none to stop, but
-// the wait still wants clearing: an open timer keeps the roster, `who` and
-// `msg` saying "waiting" about a session that is working. Declared with
-// `--session` from another shell (an orchestrator parking a lane), the reader
-// is not the parked session: "wakes you" would send it to clear its OWN wait
-// (measured: a bare `wait clear` there cleared the declarer's, and the lane's
-// timer stayed open), so the line names the session and the flag, to pass on.
-func timerEndAdvice(pays, self bool, si store.SessionInfo) string {
-	wake, clear := "you", "run `buddy wait clear`"
+// timerEndAdvice is a timer declaration's third line (D-054): that it never
+// lands, and the verb that ends it early. ONE FACT SINCE D-167 (D-123's rule,
+// views say facts and the skill says why): it was 173 B on each of 119
+// declarations in 14 days saying what the core skill's "Before you park"
+// already says (woken first: clear it and stop the loop). Declared with
+// `--session` from another shell (an orchestrator parking a lane), the verb
+// names the session: a bare `wait clear` there cleared the DECLARER's wait,
+// measured, and the lane's timer stayed open; the fleet skill says to tell
+// the lane.
+func timerEndAdvice(self bool, si store.SessionInfo) string {
+	clear := "`buddy wait clear`"
 	if !self {
-		wake, clear = fence.Line(si.Label, 64), "`buddy wait clear --session "+si.SessionID+"` clears it — pass this on"
+		clear = "`buddy wait clear --session " + fence.Line(si.SessionID, 128) + "`"
 	}
-	line := "a timer never lands: when something else wakes " + wake + " first (a run's completion notice, a message, the operator), " + clear
-	if pays {
-		line += ", and stop the /loop that runs the check"
-	}
-	return line
+	return "a timer never lands: it ends at its deadline or at " + clear
 }
 
-// keepAliveAdvice is the declaration's second line: whether to arm the
-// keep-alive, and exactly how. A check is one tool call inside a turn of
-// about three requests, each reading the whole prompt from cache (measured
-// over 20 fires: median 3, mean 4.05, D-054); "one tool call" alone read as
-// one read, and the cost table built on it priced a check at a third of its
-// cost (on Opus 5 a four-hour wait saves 40%, not the 80% it printed).
+// keepAliveAdvice is the declaration's second line: the cache tier observed,
+// whether a keep-alive check pays on it, and the command, in the session that
+// must run it (a check speaks only for its own harness's session). FACTS
+// SINCE D-167 (D-123): it was 289 B on each of 119 declarations, carrying
+// what a check costs (a turn of about three cache reads, D-054), what it
+// does, and a fixed-interval fallback, all of which the core skill's "Before
+// you park" holds; the check itself says when the next is due.
 func keepAliveAdvice(now time.Time, c store.ContextSample, observed bool, where string) string {
 	label, pays, known := cacheTier(c, observed)
 	switch {
 	case !pays:
-		return fmt.Sprintf("keep-alive: NONE — the last observed cache write (%s ago) was on the %s tier, where keeping the cache warm costs more than re-writing it. The wait is recorded; the roster, `who` and `msg` show it, and a check run by hand still reports it",
-			age(now, c.TierAt), label)
+		return fmt.Sprintf("keep-alive: none: the last observed cache write (%s ago) was on the %s tier", age(now, c.TierAt), label)
 	case !known:
-		return "keep-alive: no cache tier observed for this session yet. Arm it in " + where + ": /loop buddy wait check — each check is one tool call (a turn of about three cache reads) that refreshes the cache and delivers the inbox, and it says which tier it found and when the next is due; fixed fallback: /loop 30m buddy wait check"
+		return "keep-alive: no cache tier observed for this session yet: /loop buddy wait check in " + where
 	default:
-		return fmt.Sprintf("keep-alive: cache %s tier (last written %s ago). Arm it in %s: /loop buddy wait check — each check is one tool call (a turn of about three cache reads) that refreshes the cache and delivers the inbox, and it says when the next is due (%s on this tier); fixed fallback: /loop 30m buddy wait check",
+		return fmt.Sprintf("keep-alive: cache %s tier (last written %s ago): /loop buddy wait check in %s, every %s",
 			label, age(now, c.TierAt), where, span(keepAlivePeriod))
 	}
 }
