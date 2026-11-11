@@ -1718,7 +1718,9 @@ sides. What the operator sees, and where each fact lives:
   prints no description. The run shows as a second claim.
 - **`buddy who <run>`** is the batch: every lane that declared `--ready`, at
   which commit, and every lane that said it is not ready yet, in its own
-  words.
+  words. A chore or lite lane has no row: it parks its item in the run at
+  READY and ends (D-161); `buddy ls` shows the item `PARKED in run <run>`,
+  and its READY message names the commit.
 - **A handoff moves the claims, not their ids**: the outgoing orchestrator
   runs `buddy release <run> orc-<project> <parked riders> --to <successor>` (D-063,
   D-093), all or nothing. Riders stay READY on `who <run>` and land on the successor's

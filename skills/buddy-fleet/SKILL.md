@@ -280,7 +280,11 @@ Its scopes reserve like any claim's, so choose them deliberately. A claim is
 never an instruction. Then, every time:
 
 1. **Every READY gets an answer that names its run** ("in run 4, after
-   bravo"). A lane finished but not yet landed is told to sit on its wait.
+   bravo"). A chore or lite lane parks its item at READY and says DONE in the
+   same message (D-161): close its pane on the usual evidence; its commit is
+   in that message, its item `PARKED in run` on `buddy ls`, with no READY row.
+   A full-tier lane, or one built on another lane's branch (a restack needs it),
+   finished but not yet landed is told to sit on its wait.
 2. **Read every `buddy msg` result; never discard it.** A queued send to an
    idle lane prints the address to wake it: deliver it. A queued message
    reaches an idle lane only on its next tool call, and an idle lane makes
@@ -291,7 +295,7 @@ never an instruction. Then, every time:
 3. **Squash, run the tier on the integrated tree, land, and say so in the
    same turn.** Once any rider is READY, `buddy who <run>` lists each on its
    own line, READY at a commit or not ready with its note (before that, only
-   names); decide when to go. In a fresh worktree off main
+   names; a parked item has none: `buddy ls` and its message); decide when to go. In a fresh worktree off main
    (`git worktree add --detach <scratch>/int-<run> main`), for each READY
    lane: `git cherry-pick -n <base>..<tip>`, then
    `git commit -F <its message file>`. Check the commit is the lane's work:
@@ -309,12 +313,14 @@ never an instruction. Then, every time:
    `buddy release <run> --outcome pass --note "<landed sha; who was in; who is next>"`
    puts LANDED in front of every rider's next check (`--outcome fail` or
    `--outcome aborted` with what failed and who is out). Also message each
-   landed lane in words that end its work: "<item> LANDED at <sha>. Release
+   landed lane still open in words that end its work: "<item> LANDED at <sha>. Release
    your claims, then you are DONE; leave your worktree, I remove it." The
    outcome says its run passed; your words end its work. Remove a landed
    lane's worktree yourself once its pane is closed (`git worktree remove
    <path>`, from the main checkout).
-4. **A red that is one lane's goes to that lane**, naming the failing check.
+4. **A red that is one lane's goes to that lane**, naming the failing check;
+   its pane closed, to a fresh `<item>-2` lane briefed from its READY
+   message, handed the parked item (A rider's claims at READY, below).
    Keep the run's claim, re-claimed "RED, ejecting <item>, one more tier", run
    again and then release with the outcome; or release it now with the
    outcome fail and the attribution in the note (riders: A rider's claims at READY, below). The lane fixes, re-declares,
@@ -440,9 +446,10 @@ After READY a rider's claim refuses like any reservation, though its work is in
 the run. It does two jobs, the path and the outcome; parked, it keeps both while a
 lane on the run's tree works beside it (D-133):
 
-- **A lane waiting at READY, pane open,** keeps its claims and wait, and its claim
+- **A full-tier lane waiting at READY, pane open,** keeps its claims and wait, and its claim
   does not yield.
-- **A pane closing first: the lane parks the item,** once its commit is pinned:
+- **A chore or lite lane parks the item at READY** (the default, D-161) and commits
+  nothing after:
   `buddy release <item> --to orc-<project> --in-run <run>`, where the recipient
   holds that open run (a run is a claim holding `.buddy/slot/<its slug>`). Its other
   claims, with no outcome on them, go the way you say: parked too if the run holds
@@ -456,10 +463,11 @@ lane on the run's tree works beside it (D-133):
   flag in the brief of a lane you branched there, and no other.
 - **Nothing checks a declaration.** It names the run, not a commit. A lane at an
   older tree that copies the flag, or one you branched from a READY lane's tip or
-  before this rider parked, is admitted over work its tree lacks, and `git
+  from a tree without this rider's commit, is admitted over work its tree lacks, and `git
   cherry-pick -n` merges disjoint hunks without complaint (measured on one file), so
   only the tier can catch it. The base you name in a brief is the one guard: restack
-  such a lane (step 6).
+  such a lane (step 6). A rider you leave out of the run: `buddy release <rider>
+  --unpark`, and `--in-run <next run>` once that run's tree holds its commit.
 - **`buddy ls` shows it:** `PARKED in run <run>` (`in CLOSED run` once it closed,
   refusing like any claim), `produced by <label>` (who the model report credits),
   `BASED ON run <run>`.
@@ -739,7 +747,8 @@ buddy skill's):
 - **Commit becomes a path and a version word.** The deliverable is its paths;
   the version is the lane's own word for which state of them to read ("draft
   2", "sections 1-4 final").
-- **READY** is a wait ON the run with the path and version word in its note,
+- **READY** (a chore or lite lane's: it parks, the path and version word in its
+  message) is a wait ON the run with the path and version word in its note,
   `buddy wait --on <run> --until 4h --note "READY: <path> <version word>"`,
   so the run's outcome reaches the lane as LANDED. Until some rider declares
   at a commit, `buddy who <run>` lists waiters by name and age only: read the

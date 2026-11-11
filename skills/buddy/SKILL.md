@@ -106,7 +106,8 @@ its process GONE, or ended. Choose one:
   drains your inbox and says STILL WAITING / LANDED / EXPIRED / NO WAIT. On a
   1-hour cache tier, it also keeps your prompt cache warm. When it says LANDED, stop the loop and claim again.
   `buddy wait clear` withdraws your wait; `buddy wait ls` lists everyone's.
-- **Or block on it in the background:** `buddy wait --on <slug> --block`, run
+- **Or block on it in the background,** the default for a park you expect to
+  end inside 50 minutes: `buddy wait --on <slug> --block`, run
   with the harness's run_in_background. It declares the same wait, then exits
   when it has a verdict, printing the check's line: 0 LANDED (released, an
   outcome, or handed to you), 3 EXPIRED, 4 cleared or replaced, 5 your session
@@ -152,8 +153,8 @@ end a turn that something else will end:
   is a failed run, not a slow one; output growing or flat says neither.
 - **Handed your work in and parked** for the orchestrator or the operator:
   the same timer, sized to when you expect them. Already waiting on a run
-  (`--on <run> --ready`)? KEEP it: it keeps you warm too, and a new
-  declaration replaces it, dropping your READY and the run's outcome.
+  (`--on <run> --ready`)? KEEP it, with its loop if the tier passes the hour:
+  a new declaration replaces it, dropping your READY and the run's outcome.
 - **Woken first by something else** (the run's completion notice, a message,
   the operator): `buddy wait clear`, and stop the loop.
 - **Not for a park with no known end** (overnight, "until the operator is
@@ -198,6 +199,11 @@ end a turn that something else will end:
   delivers it as a message from another session, never as the user's turn.
   Filtering the result? Keep the text with the address:
   `grep -o 'SendMessage to "[^"]*" with the text "[^"]*"'`.
+- **A message that reports a ledger act rides in the act's Bash call,**
+  after `&&`, so nothing is sent when the act is refused: a release or a
+  declared wait (never a blocking one, which does not return), then
+  `&& buddy msg ...`. One request, not two. The wake stays its own call:
+  its text names the message's id.
 - **Say what a claim rests on:** `--measured "<what, over what>"` for a number
   you measured, `--lead` for a hunch worth checking, `--relay <source>` for
   someone else's figure. The recipient sees it labelled `declared`. Buddy does
@@ -226,8 +232,8 @@ checkout's directory name), landing goes through it: it puts several
 sessions' items into ONE run of the shared tier, and nobody else runs that
 tier or moves main. `buddy ls` finds it; its
 description says how to report and names the current run. Buddy keeps no
-task table: your claim is the responsibility, your `buddy wait --ready` is the
-report, the run's outcome is the close.
+task table: your claim is the responsibility, your READY (the item parked in
+the run, or a `buddy wait --ready`) is the report, the run's outcome is the close.
 
 **As a lane:**
 
@@ -246,25 +252,43 @@ report, the run's outcome is the close.
    mid-run. Never `gh stack` and never rebase another lane's branch:
    restacking a lane built on yours is the orchestrator's, done while both
    are parked.
-3. Report READY in the ledger and in words:
-   `buddy wait --on <run> --ready HEAD --until 4h`, so that `buddy who <run>`
-   lists you at a commit and the run's outcome reaches you as LANDED; then
-   `buddy msg orc-<project> "<item> READY: branch <name> @ <sha>, base <sha>, message file <path>, review <receipt>, files <list>, checks run <list>"`.
-   Arm `/loop buddy wait check` (or add `--block` and run it in the
-   background: its exit is your wake, the loop only keeps the cache) and park.
-   Committed more? Declare again; if the run's description already says
-   RUNNING, the new commit rides the next run (the running tree is pinned).
-   A deliverable that is not code (notes, a report) has no commit to name:
-   `buddy wait --on <run> --until 4h --note "READY: <path> <version word>"`,
-   and the same path and version word in the message. Never fake a commit.
-   Refused because no claim `<run>` exists? Nobody is integrating: ask.
+3. **READY, by your item's tier.** The message names branch `<name>` @
+   `<sha>`, base, message file, review receipt, files and checks run.
+   - **chore or lite: hand on and stop (the default;** built on another
+     lane's branch, park as full does: a restack needs you open). ONE Bash call:
+     `buddy release <item> --to orc-<project> --in-run <run> && buddy msg orc-<project> "<item> READY+DONE: <the above>; parked in <run>, nothing held, no wait, no job running"`.
+     The park keeps your item's paths and its outcome in the run, with the
+     orchestrator; any other claim goes the way it says. Deliver the wake,
+     then stop: commit nothing more; your pane is closed for you. A red
+     reopens the item as a fresh `<item>-2` lane from that message, so it
+     carries everything a successor needs. A wait of yours standing?
+     `buddy wait clear` first: never DONE while one stands. Never release
+     the item's own claim plain: a red would find no owner, and the outcome
+     no claim to land on.
+   - **full: park until LANDED.** A red there is likeliest to need what only
+     your context holds (the design pass, the panel's findings, the folds).
+     Declare and park in one call under run_in_background,
+     `buddy wait --on <run> --ready HEAD --until 4h --block` (it declares at
+     once; its exit is your wake), so `buddy who <run>` lists you at a commit
+     and the outcome reaches you as LANDED; then
+     `buddy msg orc-<project> "<item> READY: <the above>"`, and deliver the
+     wake. The run's description says its tier passes 50 minutes? Declare
+     without the block, `&& buddy msg ...`, and arm `/loop buddy wait check`:
+     a block keeps no cache warm.
+   Parked and committed more? Declare again (the block exits 4, replaced); if the
+   run's description already says RUNNING, the new commit rides the next run
+   (the running tree is pinned). A deliverable that is not code (notes, a
+   report) has no commit to name: its path and a version word stand in,
+   `buddy wait --on <run> --until 4h --note "READY: <path> <version word>"`
+   when you park, and in the message. Never fake a commit.
+   Refused because no claim `<run>` exists, or its holder is not the one you
+   hand on to? Nobody is integrating there: ask.
    EXPIRED while the run is still open (a hold plus a long tier can outlast
    4h): declare the same wait again.
 4. **Your LANDED** carries the integrator's outcome. PASS naming you: your
-   work is on main. Release your claims with the outcome and say so in the
-   same turn: `buddy release <item> --outcome pass --note "<reds> <batches>"`
-   (an item abandoned on the orchestrator's word: `--outcome fail`),
-   then `buddy msg orc-<project> "<item> DONE: nothing held, no job running"`.
+   work is on main. Release your claims with the outcome and say so in ONE
+   Bash call: `buddy release <item> --outcome pass --note "<reds> <batches>" && buddy msg orc-<project> "<item> DONE: nothing held, no job running"`
+   (an item abandoned on the orchestrator's word: `--outcome fail`).
    That message is what lets your pane be closed. Leave the worktree: the
    orchestrator removes it after the close. A lane whose cwd is the worktree
    it removed has lost its hooks' cwd, and the gate then denies every Bash
@@ -274,14 +298,9 @@ report, the run's outcome is the close.
    happened and who reruns, so declare again on the run it names, or ask. A
    release that came with NO outcome, or a claim
    ORPHANED (its integrator ended), says nothing about your work going in: ask.
-   Asked to hand your claims on at READY instead (so your pane can close
-   before the run)? `buddy release <item> --to orc-<project> --in-run <run>` parks
-   your item in the run, where a lane on its tree can claim beside it; hand on
-   any other claim the way your orchestrator says; then
-   `buddy wait clear`, then DONE, naming your commit exactly: clearing the
-   wait takes your READY row out of `buddy who <run>`. Never say DONE while a
-   wait of yours still stands. Never release your item's own claim at READY
-   instead: a red would find no owner, and an outcome no claim to land on.
+   A full-tier lane told to hand on at READY after all: `buddy wait clear`,
+   then the chore-or-lite call (clearing takes your READY row out of
+   `buddy who <run>`; the message names your commit exactly).
 5. No item yet? `buddy msg orc-<project> "NEW SESSION <your label>: ready for work"`.
 6. **Told, as a turn opens, that you are past your handoff size?** Finish the
    round in hand, commit, and write a state note for whoever takes the rest

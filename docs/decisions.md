@@ -11179,6 +11179,83 @@ Codex session's `buddy inbox`. USAGE's msg section and its two LANDED one-shot
 lines, and the core and fleet skills' message lines, say the same.
 docs/DEMO-RUN.md, a captured run, is left as captured.
 
+## D-161 — A chore or lite lane parks its item in the run at READY and ends; a full-tier lane parks to LANDED (token-overhead finding 1, 4a; amends D-133, D-049, D-062)
+
+2026-11-11 · the operator's "do them all" on the token-overhead report (in orc-19's pane, about
+14:12Z), finding 1.
+
+**What was wrong.** D-049 and D-062 had every lane park on its run's wait until LANDED, then
+release with the outcome and say DONE. D-133 built the hand-on-at-READY recipe and the skill
+taught it only as the orchestrator's ask. The report measured the tail (transcripts, 14 days to
+2026-11-11): after its last edit or commit a lane made a median 12 requests (p90 18), 864 in all,
+190.8 M token-reads, 11.2% of all cache reads, kept warm against a red. Item outcomes: 0 fail of
+63 (`model-report.sh`; it misses a red a lane fixed before its release); 4 of 26 run claims carry
+RED in their description, an upper hint.
+
+**The rule.** The core skill's READY step splits by tier. **chore or lite (the default):** ONE
+Bash call, `buddy release <item> --to orc-<project> --in-run <run> && buddy msg orc-<project>
+"<item> READY+DONE: ..."`, the message naming branch, commit, base, message file, receipt, files
+and checks; deliver the wake; stop. The lane commits nothing after the park, declares no wait (a
+wait declared and cleared in the same call records nothing anyone reads, and one left standing
+fails the operator's close test), and its pane is closed by its orchestrator on the usual
+evidence, now met at READY. A red reopens the item as a fresh `<item>-2` lane briefed from the
+READY message (or by resuming the lane), handed the parked claim (`release <item> --to <item>-2`,
+D-133's withdrawal). **full, or a lane built on another lane's branch** (a restack needs both
+lanes READY on `who <run>` and idle, then a re-report): today's park to LANDED, then release with
+the outcome and DONE in one call. Why full keeps it (a judgement, not measured): its items change what the gate allows, the schema, the fence or an
+invariant, where a red is likeliest to be the item's own, and its fix needs the design pass, the
+panel's findings and the folds the lane's context holds and no message carries.
+
+**Amends D-133:** the park moves from "after inclusion is pinned" to READY. A parked rider can
+now sit in an open run whose tree does not yet hold its commit; a lane `--based-on` that run
+would be admitted over it, D-133's recorded residual (nothing checks a declaration). The fleet
+skill says to `--unpark` a rider left out of the run and re-park it in the next once that tree
+holds it. **Amends D-049 and D-062** where they say READY is always `wait --ready` and LANDED
+always reaches the lane: for a chore or lite item the outcome lands on the parked claim, which
+the orchestrator holds, and `who <run>` lists no READY row for it (`buddy ls` shows it
+`PARKED in run`). The orchestrator's duties stand; "words that end the lane's work" go to lanes
+still open.
+
+**Saving (estimated, the report's figures, I):** 6 to 9 of 12 tail requests at about 221k each,
+72 lanes: 95 to 140 M token-reads per 14 days in lanes, plus up to 50 M of orchestrator message
+turns; about 15 M per 10-lane run. Cost of a red: if each of the 4 red runs named one lane, 4 cold
+restarts, about 19 M token-reads in all.
+
+**One Bash call (finding 7(i)).** A message that reports a ledger act rides in the act's call,
+`&&` so nothing is sent when the act is refused: `release` with `msg`, `wait` with `msg`. The
+report counts 131 `msg` calls followed by a request that only sent the wake (29.7 M); the wake
+stays its own call, because its text names the message's id (D-041, D-059 unchanged).
+
+**Codex code pass (xhigh, lite), five raised, five folded once:** closing a dependent lane left
+the restack recipe without its READY rows (the branch exception above); declaring, messaging and
+then re-declaring with `--block` could land the block on a run re-formed under the slug between
+the calls (the block now declares, the message follows); the non-code READY and the integration
+step's `who <run>` inventory now name the parked form; and GIVENs are topical (D-116), so this
+amends GIVENs 65 and 96 instead of adding two.
+
+**Considered and cut.** Keeping the `wait --ready` declaration standing at DONE so `who <run>`
+shows the commit until the pane closes: the close test needs no wait, and the pane's bye clears
+it anyway. Closing full-tier lanes at READY too: not measured to pay where a red costs most.
+
+## D-162 — A READY park blocks in the background by default; the keep-alive loop only when the run's tier passes 50 minutes (token-overhead finding 4, 4b; amends D-054, D-095)
+
+2026-11-11 · the operator's "do them all" (as D-161), finding 4.
+
+**What was wrong.** The skill's READY step said to arm `/loop buddy wait check`, `--block` as the
+alternative. Measured in the report: 58 of 73 lanes loaded the `loop` skill (8,063 B) at a median
+209.5k context; the median tail lasted 915 s, far inside the hour's cache. 51 wait-check fires,
+3 requests each, 34.0 M token-reads, 41 of which ran nothing else. D-054's measurement was of
+parks past an hour; these were not.
+
+**The rule.** A park on a claim (a full-tier READY, a refused claim) runs `buddy wait --on <slug>
+--block` under run_in_background: it declares at once, its exit is the wake, and the READY message
+follows in the next call. The loop is armed only when the run's
+description says its tier will pass 50 minutes, or for a timer (`--block` refuses one, D-095).
+A block keeps no cache warm (D-095 stands), so a park that does pass the hour wakes cold once,
+accepted. No verb changes. **Saving (I):** the Skill request, the first check and its
+ScheduleWakeup, about 174 requests, 38 M token-reads per 14 days, up to 60 M with the fires.
+Most of it overlaps D-161, which removes most lane parks.
+
 ## D-163 — Counts are owed on a receipt's panel, cross-check and Codex layers for a measuring period; `receipt-check.sh` reports a layer without them after a cut (token-overhead finding 2; amends D-141)
 
 2026-11-11. The token-overhead report's finding 2 (section 4d; Fable lane, as

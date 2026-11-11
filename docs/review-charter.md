@@ -558,8 +558,10 @@ ledger row entered through the CLI (D-006).
     The orchestrator holds a durable coordination claim (`orc-<project>`, D-101; its description
     the published note, D-030) AND a per-run claim on `.buddy/slot/<run>` and `.buddy/slot/main`
     (D-049), formed again the moment one is released; a lane waits on the RUN, never on the
-    coordination claim. READY is `wait --on <run> --ready HEAD` plus a message carrying what the
-    ledger does not hold; LANDED is the release's outcome plus words that end the lane's work.
+    coordination claim. A full-tier lane's READY is `wait --on <run> --ready HEAD` plus a message carrying what the
+    ledger does not hold; LANDED is the release's outcome plus words that end the lane's work. A chore or
+    lite lane ends at READY: `release <item> --to orc-<project> --in-run <run> && msg` READY+DONE, no wait;
+    a red reopens it as `<item>-2` from that message (D-161, amending D-133's park after the pin).
     The orchestrator owes an answer to every READY, every `msg` result's wake line delivered,
     the landing said in the same turn, a red routed to its lane, the new main to every lane
     still working, and `who` on every lane before handoff.
@@ -829,7 +831,8 @@ ledger row entered through the CLI (D-006).
     EXPIRED, 4 cleared or replaced, 5 session ended; the check's own line; the row closed after
     the write. Autocommit reads every 15 s: never a check, never a keep-alive, no lock across a
     sleep (the one write is cleanupEnded's, only for an ended holder). Buddy still wakes nothing:
-    the harness's completion notice is the wake. Do not propose having it wake, schedule, or
+    the harness's completion notice is the wake. A READY park blocks by default, the `/loop` only
+    past 50 minutes (D-162, amending D-054). Do not propose having it wake, schedule, or
     bump the check counters.
 
 97. **The handoff notice speaks once per 25k step past `BUDDY_HANDOFF_AT`, on a turn of any
