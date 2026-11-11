@@ -10,9 +10,9 @@
 # RAISE only on the operator's word: edit the key's line, the date and the reason in `set`/`why`, in
 # the commit that needs the room. A lane never raises one; it names the overage in READY.
 # LOWER freely: a lane that trims a text lowers its line to the new formula value in the same commit.
-every-request	40960	2026-10-29 prose-trim (D-122), lowered	class total: every CLAUDE.md, rules, @ includes, skill descriptions; rides every request; 35,975 at landing (after D-122)
-CLAUDE.md	40960	2026-10-29 prose-trim (D-122)	rules + topical index; 34,277 at landing (after D-122; gotchas rule + D-number); the formula still gives 40,960
-CLAUDE.md#Decisions	12288	2026-10-28 index-topical (D-118), lowered	the index, topical lines naming D-numbers (D-118); 8,223 at landing; a new decision amends a line
+every-request	36864	2026-11-11 claude-md-fold (D-165), lowered	class total: every CLAUDE.md, rules, @ includes, skill descriptions; rides every request; 33,146 at landing (after D-165)
+CLAUDE.md	36864	2026-11-11 claude-md-fold (D-165), lowered	rules + the index (subject, numbers, must-obey rules); 31,448 at landing (after D-165)
+CLAUDE.md#Decisions	12288	2026-10-28 index-topical (D-118), lowered	the index: a line per subject, its D-numbers and only the rules a session must obey unread (D-165); 7,668 at D-165, the formula still gives 12,288; a new decision adds its number to a line
 skills/buddy/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 543 at landing
 skills/buddy-fleet/SKILL.md:description	4096	2026-10-28 operator (D-116)	every session's skills listing; 542 at landing
 skills/buddy-lead/SKILL.md:description	4096	2026-10-29 buddy-lead (D-121)	every session's skills listing; 613 at landing

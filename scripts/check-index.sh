@@ -18,7 +18,7 @@
 #   forward  every `## D-NNN` heading in docs/decisions.md has its number on
 #            some line INSIDE CLAUDE.md's "## Decisions already made" section,
 #            bounded from that heading to the next `## ` heading or EOF. A
-#            number elsewhere in CLAUDE.md does not count: "Operating rules"
+#            number elsewhere in CLAUDE.md does not count: the gotchas
 #            and the invariants cite D-numbers as REASONS for a rule, and a
 #            citation there is not the index saying the subject is settled.
 #   reverse  every D-number on a line of that section has a `## D-NNN`
@@ -131,7 +131,7 @@ grep -q 'XD-999' "$tmp/c1" || fail "clause 'planted heading': the near-misses di
 expect "planted heading" "$real_un" "$(unindexed "$tmp/d1" "$tmp/c1")" "D-999"
 
 # Clause 2: the same number cited OUTSIDE the section is still flagged: it is
-# not counted. Planted twice, just above the heading (where "Operating rules"
+# not counted. Planted twice, just above the heading (where a rule section
 # would cite it) and in a section appended after it, so both bounds are armed.
 awk -v h="$SECTION" -v p='- a rule citing D-999 above the index' "$ISHEAD { print p; print \"\" } { print }" "$INDEX" > "$tmp/c2"
 printf '\n## A later section\n\n- a rule citing D-999 below the index\n' >> "$tmp/c2"

@@ -1009,16 +1009,16 @@ ledger row entered through the CLI (D-006).
 112. **Every lane runs on the default lane model, full tier included; Fable is for reviews only (D-111, amends D-104).** Do not propose: "strongest model" wording, a lane on Fable the operator did not name, a verb or check reading a lane's model. (full text: `CODEX_CHARTER=process`)
 
 113. **`CLAUDE.md` holds the rules a session obeys and a topical decision index; each
-    decision's record is in `docs/decisions.md` (D-112, D-118, D-122).** The operator, 2026-10-28:
+    decision's record is in `docs/decisions.md` (D-112, D-118, D-122, D-165).** The operator, 2026-10-28:
     the file is loaded on every request and had grown to 69,690 bytes (~8% of a buddy-system
     prompt; cache reads are 71% of spend), most of it long decision bullets duplicating the
     record. It keeps what this is, read-first, repo map, commands, the 14 invariants
     VERBATIM, style and the review tiers, every environment gotcha (as its rule and a
-    D-number, its measurement in the record: D-122), a short "Operating rules
-    carried by decisions" section, and the index: one line per SUBJECT, saying what stands
-    now and ending with every D-number that made it, every decision's number on some line
-    (D-118 amends D-112's line per decision, which grew with every decision and could hold no
-    ceiling). A new decision amends its subject's line and adds its number; only a new
+    D-number, its measurement in the record: D-122), and the index: one line per SUBJECT
+    naming every D-number that made it and only the rules a session must obey without opening
+    an entry, every decision's number on some line; what stands is read in the entries by
+    heading (D-165 folds the operating-rules section into the lines and amends D-118's "what
+    stands now", which amended D-112's line per decision). A new decision amends its subject's line and adds its number; only a new
     subject adds a line. A decision's absence from the long form is not its absence: its
     number on a line and its record entry are the decision. Do not propose moving or
     rewording the invariants, a second always-loaded file (it saves nothing), dropping a

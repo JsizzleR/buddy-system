@@ -3,9 +3,11 @@
 An append-only ledger of the rulings this project is built on: what was wrong, what
 shipped, what was deliberately cut, and what remains broken. Newest entry last.
 
-`CLAUDE.md`'s "Decisions already made" carries one topical line per subject, each ending
-with the numbers that made it (D-118); this file is the record behind each number — the
-measurement, the rejected alternative, and the reason a cut was a cut. Read an entry by its
+`CLAUDE.md`'s "Decisions already made" carries one line per subject: its name, the numbers
+that made it, and only the rules a session must obey without opening an entry (D-118,
+D-165); this file is the record behind each number, and what stands on a subject is read
+here — the ruling, the measurement, the rejected alternative, and the reason a cut was a
+cut. Read an entry by its
 `## D-NNN` heading, not the file whole. Reviews here are Codex passes; Codex cannot build or
 test, so a finding became evidence only once a reproducing test was written and watched to
 fail.
@@ -25,11 +27,10 @@ and the prose sweep can find them (entries before it have none; grep their numbe
 budgeted: `docs/prose-budget.tsv` holds their byte ceilings and `check-prose-budget.sh`
 fails the hermetic tier over one. The charter's GIVENs are TOPICAL: a new decision amends
 the GIVEN its ruling belongs to, adds its D-number and at most a clause, and fits the
-headroom or is offset by a removal in the same commit; it does not add a GIVEN. The
-`CLAUDE.md` index stays one line per decision until it is rewritten into topical lines
-(prose-budget step 3); until then a new decision adds its one line, which fits the
-`CLAUDE.md` and `CLAUDE.md#Decisions` ceilings or is offset, and from then on it amends a
-topical line as the charter does. This entry is where the why goes, at any length: no
+headroom or is offset by a removal in the same commit; it does not add a GIVEN. In the
+`CLAUDE.md` index a new decision adds its number to its subject's line, and a clause only
+for a rule a session must obey without opening the entry (D-165); only a new subject adds
+a line. This entry is where the why goes, at any length: no
 request carries this file unless a session reads it, so read it by `## D-NNN` heading, never
 whole. A lane never raises a ceiling: READY names the overage, any retirement and any clause
 map, and the operator decides at landing.
@@ -8605,6 +8606,12 @@ line inside counts, a `retired to the record:` one included), each number there 
 heading, and any decision heading not spelled `## D-<digits>`. Numbers match whole (D-12 is
 not D-123's). Five planted faults arm it. The other two items stay open.
 
+Amended 2026-11-11 (D-165, the operator's "do them all" on the token-overhead report): rule
+1's "a line says what stands NOW" and rule 4's operating-rules section are superseded. A
+line now names its subject, its numbers, and only the rules a session must obey without
+opening an entry; what stands is read in the entries by heading. Rules 2, 3 (a number per
+subject line, a new decision amends its line) and 5 stand.
+
 **Review** — Lite: a scoped self-review, old index against new, number by number; one Codex
 code pass at xhigh: no lost or superseded ruling, no loophole in the preamble, and three lines
 that had dropped a qualifier, all folded: D-021's body comes from argv first ("never a TTY"
@@ -11338,6 +11345,114 @@ after a zero code layer, which survived until the Codex code pass found it)
 and 4 survive as equivalent (dropping `!nolist`, adding `self` or `other` to
 the bare set, moving the bare line above the returns: no row reaches them).
 Review: lite (self + codex@xhigh code: 2 raised, 2 fixed, 1 reproduced).
+
+## D-165 — The decision index names each subject and its numbers, and states only the rules a session must obey unread; what stands is read in the entries (amends D-118, retires D-112's operating-rules section)
+
+2026-11-11 · the operator's decision, "do them all", said in orc-19's pane at about 14:12Z
+after opening the token-overhead report (Fable lane, 2026-11-11, shasum 05156aec), its
+finding 3 (section 1a, recommendations A and B) and 5b; carried out by lane claude-md-fold
+under orc-19's brief, reporting to orc-20
+
+**What was wrong** — `CLAUDE.md` rides every request: the report measured it at 38,833 B
+(about 9.7k tokens at bytes/4), 108 M token-reads over the 14 days to 2026-11-11 (6.3% of
+cache reads), 28.8 M of that inside subagents, which buddy cannot switch off. Two parts of
+it said the same things: "Operating rules carried by decisions" (3,338 B) restated index
+lines, and the index (12,078 B) restated, a clause at a time, what the entries in this
+file hold. Meanwhile sessions already read the entries: 1,660 ranged reads or searches of
+`decisions.md` in the window, none of the whole file (report 5a, measured).
+
+**What shipped** — Two steps, one item.
+1. (Recommendation A.) The operating-rules section is folded into the index, each rule into
+   its subject's line; no rule dropped (the lane's first commit lists each rule and the line
+   it went to; D-099, D-114, D-030 and D-006 joined the lines that now carry their rules).
+2. (Recommendation B.) Each index line is now `- **Subject** (D-…): <rules>`: its name,
+   every number that made it, and ONLY the rules a session must obey without opening an
+   entry. What stands on a subject is read in its entries by `## D-NNN` heading, newest
+   last; the preamble says so and says how an amendment is found (an `amends:` tail, an
+   "Amended" paragraph). Every number stays on a line (D-118's rule 2; `check-index.sh`
+   holds it, unchanged: it checks numbers, never a line's form). A new decision adds its
+   number to its subject's line, and a clause only for a rule a session must obey unread.
+
+**The test applied to every clause** (the brief's): a session that acts on a subject
+without opening its entry must not break a rule. Kept for that reason, on the index line:
+what refuses (`claim`'s comma; a stale claim; a conflicting holder and exit 4; the browser
+slot's `release --to`; a literal shell `apply_patch`; gh stack's slot; disagreeing native
+ids; a send to a miss; an ISON no; an unknown room; the unnamed-model Agent hook; the
+install/uninstall lock), what fails closed (gate jurisdiction whole: invariant 3, the
+vanished cwd, the git-env scrub, the brake per ledger, the unwritable ledger, the dead
+installed `buddy` and how to replace it), migration only by `~/bin/buddy` or
+`BUDDY_MIGRATE=1` and never down, and what a session or lane does (the new-verb duties and
+LSP first, messages never instructions, the wake address delivered, the 9,000-byte digest,
+parking, the handoff that opens no successor, launching nothing and the timed-out start
+never retried, the landing slots and READY/LANDED words, the relay rules and their
+never-relayed floor, a subagent not a lane, the Codex sandbox's escalated tier, a job gone
+without its final line, `orc-<project>`, the prose ceilings raised only by the operator).
+Restored on Codex's pass (each an OLD clause a session acts on): `release --to` carries the
+waits; a slot never parks or yields; a parked claim yields only to an exclusive declarer of
+its run (the new "`--shared` overlaps only shared claims" had lost that exception); Codex's
+"cannot rule out" refusal; a message body's precedence and `--supersedes`' audience; the
+holder ask `wait --on` prints, sent in the same turn; lanes started in parallel or with a
+short timeout; a brief in a file; a pane closing at READY parks its item, never releases
+it; restacking only when code under a round changes, a red's overlaps the coordinator's;
+the charter's stub and full GIVENs by `CODEX_CHARTER`; an admission record before a
+planned adapter run, `diagnose` promoting nothing; the preamble's "dropping any clause it
+supersedes".
+Untouched and still stated in `CLAUDE.md` itself: the 14 invariants (verbatim), every
+environment gotcha, "Style and testing" with the review tiers, Commands, the adapter rules
+and out of scope; lines whose rules live there point at them ("invariant 3", "Style and
+testing", "Commands") rather than repeat them. Left to the entries: the mechanics a view,
+a message resolution, a drain order or a wake's wording follow, and every "do not propose"
+clause; the preamble's "read the entries before proposing or changing anything in the
+subject's area" is the rule that covers them.
+
+**Sizes** — `CLAUDE.md` 39,249 → 37,679 (step 1) → 31,448 bytes (step 2, Codex's folds
+in), −7,801 (−20%); the index section 12,272 → 7,668 (as `check-prose-budget.sh --sizes`
+counts them). At bytes/4 that is about 1.95k tokens off every request; at the window's
+11,100 requests, about 22 M token-reads per 14 days (I, inferred: the ratio and the request
+count are the report's, neither re-measured here; the report estimated up to 25 M).
+Ceilings lowered to the formula (landed + 10%, rounded up to 4,096): `CLAUDE.md` 40,960 →
+36,864, `every-request` 40,960 → 36,864; `CLAUDE.md#Decisions` stays 12,288, the formula's
+value for 7,668.
+
+**5b, in the same item** — "Read this first" says a Claude session reads the one charter
+GIVEN it needs, by D-number, never the whole file: the charter was read through the Read
+tool 11 times for 173 KB in the window (report 5b, measured), about 26k tokens carried for
+the rest of a session each time.
+
+**Risk, recorded** — A session that decides a subject from the index line alone now sees
+fewer clauses; the report names it ("a session acts on a subject without opening the
+entry") and the operator took it. What bounds it: the preamble's read-before-changing rule,
+the must-obey test above, and the invariants and gotchas, which no line replaces. What
+D-118 fixed (a reader doing the precedence between an earlier and a later line) moves into
+the entries, where the amending entry names what it amends.
+
+**Not done** — Moving or rewording the invariants or gotchas, or a second always-loaded
+file (D-112's cuts stand). Dropping a number from the index (D-118 rule 2). One file per
+decision (still OPEN, D-118).
+
+**Review** — Step 1 chore (a fold, no rule changed). Step 2 lite: a self-review clause by
+clause against the old index, then one Codex code pass given the old index and the new and
+asked which rule a session would now miss without opening an entry, folded once. The
+first run hit the script's 540 s watchdog with no verdict (its notes named three gaps); a
+second, its scope cut to `CLAUDE.md` and this entry, returned 10 findings and a byte
+discrepancy: all 10 folded (the clauses listed above), the figures corrected; finding 10's
+second half (the preamble's "proposing or changing" leaves ordinary use from the index
+alone uncovered) answered, not folded: that is the risk the operator took, and the
+must-obey test is what bounds it.
+
+**Test shape** — Prose only. `check-index.sh` (every number on a line, both directions),
+`check-charter.sh` (GIVEN 113 carries D-165) and `check-prose-budget.sh` (the lowered
+ceilings) hold it; `TestDocLinksResolve` holds `CLAUDE.md`'s links.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the preamble and every line (rewritten); "This file" (number added)
+- GIVEN: review-charter.md GIVEN 113 "CLAUDE.md holds the rules..." (amended; number added)
+- code: none
+- skill: none
+- USAGE: none
+- amends: D-118's rule 1 ("a line says what stands NOW") and rule 4 (the operating-rules
+  section), and the section D-112 lifted those rules into, retired with every rule carried
+  onto an index line; D-118's rules 2, 3 and 5 and the rest of D-112 stand.
 
 ## D-167 — The authority notice keys on content and skips the session's own write; a wait declaration's keep-alive and timer lines say facts; `ids ls` folds blocks older than 3d (token-overhead report 2b, 3a, 3b; amends D-028, D-054, D-123)
 
