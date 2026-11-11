@@ -1067,7 +1067,12 @@ ledger row entered through the CLI (D-006).
     FAIL only, nothing written or signalled, and it repeats nothing `install.sh`, `buddy init`
     or `buddy diagnose` report. `install-skill.sh` installs every `skills/*/SKILL.md` from the
     directory, floor three. Do not propose a `buddy doctor` verb, a check that applies a fix,
-    or the operator's personal machine layout as a shipped check.
+    or the operator's personal machine layout as a shipped check. The fleet skill's six
+    read-once sections (restack, handoff, fleet of fleets, model pick, non-code, Codex lanes)
+    are reference files beside its SKILL.md, which names each with when to read it and keeps
+    the rules that refuse or lose work one line each; a skill is every file in its directory,
+    installed reference files first with a manifest that removes a file the checkout dropped,
+    and uninstalled file by file (D-171).
 
 116. **A brief names a review-round ceiling (D-115).** Lite: one code pass folded once; full: at most two re-verify rounds; at the ceiling, fold narrowly and record the rest open (D-106's folds regressed). Do not propose: re-verifying "until it accepts" without a named ceiling. (full text: `CODEX_CHARTER=process`)
 

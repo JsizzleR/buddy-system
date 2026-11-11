@@ -11668,3 +11668,118 @@ dropped, a separator line skipped though it parses, the closed-file state droppe
 - skill: none
 - USAGE: § Measuring context cost (startup-report's default, cost-report's skip line)
 - amends: D-116's red ceiling on the read-first total and on `docs/decisions.md` and `docs/USAGE.md` whole (now report-only, an entry cap each); its "Not done" item "a ceiling on docs/decisions.md beyond what its place in the startup list requires" (the entry cap is that ceiling). The rest of D-116 stands.
+
+## D-171 — The fleet skill's read-once sections move to reference files beside its SKILL.md, installed and removed with it (token-overhead finding 5, 1c, and finding 8, 4e; amends D-114)
+
+2026-11-11 · the operator's "do them all" (in orc-19's pane at about 14:12Z, relayed by orc-20's
+brief), findings 5 and 8 of the token-overhead report (Fable lane, as of 2026-11-11, shasum
+05156aec), carried out by lane fleet-split.
+
+**What was wrong.** A skill body rides every later request of the session that loaded it
+(D-114). The report measured `buddy-fleet` (58,246 B then) loaded in 10 of 88 sessions, and six
+of its sections read at one moment each: "Restacking a dependent lane" 7,257 B, "Handing off a
+coordinator" 6,487, "A fleet of fleets" 5,108, "Picking the model from what past items
+measured" 2,451, "When the deliverable is not code" 2,072 and "Codex lanes and adapters" 1,235,
+24.6 KB a coordinator re-read on every request between those moments. Its saving, about 9 M
+token-reads per 14 days, is the report's ESTIMATE (I), not a measurement.
+
+**The rule.**
+1. The six sections move verbatim, each into its own file beside the fleet SKILL.md:
+   `restack.md`, `handoff.md`, `fleet-of-fleets.md`, `model-pick.md`, `not-code.md`,
+   `codex-lanes.md`, each opening with a line saying when to read it. Moved bytes (the section
+   as it stood at 215acad, heading to the next heading): 7,256, 6,486, 5,107, 2,450, 2,150 and
+   1,234. The SKILL.md keeps each heading, a pointer naming the file and when to read it ("Before
+   you restack a lane ... read `restack.md` beside this file"), and, one line each, the rules a
+   coordinator must obey before it would open the file: hand off before you are full, and launch
+   coordinators in a herdr tab with the size, never `claude --bg`, and a new batch past the
+   operator's batch-boundary size gets a fresh coordinator (D-117); start no background job you
+   will not see finish; hand every claim on in one `release --to`, never a run released and
+   claimed afresh; never hand on `.buddy/slot/browser`; account for every job before DONE; never
+   `gh stack` from a lane, only the coordinator, one at a time, holding `.buddy/slot/gh-stack`,
+   the recipe's four commands, network denied; never `--remote self`, `alias` or a `gs` wrapper;
+   restack only while both lanes are READY and idle, never resolve a conflict in a lane's
+   worktree; nothing lands until a restacked lane re-reports; a full-tier item stays on the
+   default lane model and the pick never lands on a review model; the `model=<id> class=<word>`
+   claim start; the model-report export before each `buddy sweep`; an item released with its
+   outcome, never bare; a non-code deliverable's directory must be a git repository, and one
+   written through an MCP tool is claimed anyway; `buddy diagnose` exit 0 is a report, never
+   readiness; a fleet of fleets sends in the recipient's ledger, nothing to a foreign
+   registration, and pauses a coordinated ledger only on the operator's word. Sections that
+   were not moved keep their own rules (never close a pane holding `.buddy/slot/browser`,
+   Assigning, waiting, ending). Fleet SKILL.md 59,203 → 38,813 bytes; the per-session class
+   (core, fleet, lead) 94,158 → 73,768.
+2. Finding 8, one line under Handing off a coordinator, a habit the operator may take up, not a
+   rule: on a cold first prompt of the day with no run in flight, starting a fresh orchestrator
+   is the cheapest moment, the warm cache a handoff forfeits being already gone. It names no
+   time, size or model, and changes neither the handoff size (D-142) nor D-117's batch boundary.
+3. **A skill is every file in its directory** (amends D-114's and D-121's "every
+   `skills/*/SKILL.md`"). `install-skill.sh` installs each skill's regular, non-dot files, the
+   reference files before their SKILL.md (a SKILL.md refreshed first could name a file a stop
+   left absent), all destinations checked before any is written: a file name that is not a plain
+   `[A-Za-z0-9._-]` word, anything but a regular file in a skill directory, and a destination
+   that is a symlink or not a regular file each refuse the whole install. Each destination keeps
+   `.install-skill.files`, one `<cksum> <bytes> <name>` line per file installed; a name in it the
+   checkout no longer ships is removed when its bytes still match (the copy written) and kept as
+   `<name>.bak` when they do not; a file it does not name is never touched, and a line not of
+   that shape refuses the install (a name with a slash would reach outside the directory). The
+   manifest is written last, by rename. `uninstall.sh` plans every file the checkout ships for a
+   skill (SKILL.md first), each removed only byte-identical, then the manifest, then the
+   directory when empty, naming it when not.
+
+**What it amends.** D-114's split by reader, its no-model-no-date rule and its installer
+refusals stand; its "the fleet skill is `skills/buddy-fleet/SKILL.md`" becomes that file and
+the reference files beside it. D-121's "installs every `skills/*/SKILL.md`" becomes every file
+of each such skill. No verb, flag, row or schema.
+
+**Not done.** The core skill's Codex and adapter sections (the report's 3 M): it said leave the
+core. A prose-budget row per reference file: `check-prose-budget.sh` has no class for a doc read
+on demand, its enumeration (budget-reports' file) puts only `skills/*/SKILL.md` in per-session,
+so a reference file needs no line and has none. Removing a whole skill directory a later
+checkout stops shipping: the manifest is per destination, and no skill has been dropped.
+
+**Test shape.** `skillFiles` (internal/cli) lists the three SKILL.md and the six reference
+files; `TestSkillFilesAreEveryShippedFile` holds it to `skills/*/*`, so a file added there or
+dropped from the list fails (mutated: `restack.md` dropped from the list, the test died naming
+it). `TestSkillNamesOnlyWhatHelpAnswers` and `TestSkillTeachesEveryVerbAndFlag` read every
+listed file, each parsed on its own, a reference file's floor 5 names; `TestDocLinksResolve`
+reads the same list; `TestSkillSplitPointsAtTheFleetSkill` holds that each reference file has a
+"`<file>` beside this file" pointer in the fleet SKILL.md and every such pointer names a file
+that ships; `TestSkillsTeachTheDeadJobCheck` reads the fleet skill whole (`handoff.md` holds its
+job lines). `check-skill.sh` QA-1/2 count every file, and the fleet SKILL.md is its skill's
+last; QA-14 drops two files from a copied checkout: the unedited one is removed, the edited one
+kept as `.bak`, a file nobody installed left, a manifest line naming `../buddy/SKILL.md` and a
+subdirectory each refuse with the core unrefreshed, so does a dropped file whose `.bak` is a
+symlink (nothing written through it), a manifest line in another case leaves the shipped file
+in place on a case-insensitive volume, then the control install refreshes the core.
+`check-uninstall.sh` holds every shipped file, the manifest and the two non-core directories
+gone (U-4, its manifest present first), and U-9r an edited reference file and its directory
+left and named while the rest of the fleet skill goes.
+
+**Codex code pass (xhigh, lite), six raised, five folded once, each now a fixture arm or a
+mutant:** a dropped file's `.bak` and the temp and manifest-temp paths were written unchecked,
+so a symlinked `.bak` moved an edited file outside the destination (each `.bak` is now refused
+in preflight, the temps removed before use); on a case-insensitive volume a manifest line
+spelling `RESTACK.md` named the shipped `restack.md` as stale and deleted it (a stale name that
+`-ef` a shipped file is skipped); the handoff pointer's "when" missed the successor, whose
+parked-rider exception is in `handoff.md` ("take over from a coordinator" added);
+`TestSkillsTeachTheDeadJobCheck`'s forbidden-growth phrases still read only the fleet SKILL.md;
+the inventory test counted a dotfile the installer skips. **Answered, open:** an interrupted
+upgrade can leave new reference files under the old SKILL.md (a file another new file needs not
+yet written). The order bounds it (SKILL.md last) and the header says the set is checked
+together, not transactional; a staged directory swap would be a redesign of D-114's installer,
+not a fold. Residual questions answered: a well-formed hand-edited manifest line can authorise
+removing a file whose bytes match it (the ledger's machine-user trust, invariant 6: the manifest
+is the installer's own file, and a forged line is the user's act); an uninstall that leaves an
+edited SKILL.md removes its identical reference files, as specified file by file, and names the
+SKILL.md it left.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Skills" line (amended; number added)
+- GIVEN: review-charter.md GIVEN 115 (amended; number added)
+- code: scripts/install-skill.sh, scripts/uninstall.sh, scripts/check-skill.sh QA-1/2/14,
+  scripts/check-uninstall.sh U-4/U-9r, internal/cli/discover_help_test.go, doclinks_test.go,
+  deadjob_test.go
+- skill: fleet, six sections moved to reference files beside it; core and lead unchanged
+- USAGE: none
+- amends: D-114 (the fleet skill is its SKILL.md and the files beside it), D-121 (every file of
+  each skill installed)

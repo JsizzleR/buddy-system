@@ -164,95 +164,19 @@ nobody authorised.
 
 ## Handing off a coordinator
 
-- **Hand off before you are full.** Launch coordinators, and their successors,
-  in a herdr tab with `herdr tab create … --env BUDDY_HANDOFF_AT=<the operator's size>` (or the
-  operator sets it for every session in the settings `env` block, which reaches
-  the first orchestrator too), never with `claude --bg`: a background lane runs in the
-  daemon's environment, and the size never reaches it. A
-  prompt that opens a turn tells you once when your last observed prompt
-  reaches it, and again at each 25k past it, not every turn (D-096; the
-  optional `busy` hook must be wired, and a size must have been observed); your row in `buddy sessions` shows it any time (`prompt 521k`). Then:
-  1. Finish the round. Start nothing new, and no background job you will not
-     see finish: a job you start is a child of YOUR session, and nothing hands
-     it to your successor. A watcher on anything long (a remote run, a nightly)
-     writes its result to a file; one that only echoes reports to a session
-     about to close.
-  2. Write a handoff file, where your repo keeps them. What the ledger cannot
-     hold goes first, under these headings, each present even when it says
-     "none":
-     - **Running jobs:** every background job of yours still running: its
-       command, pid and start time (`ps -p <pid> -o lstart=`), the file its output lands in, the line that says it
-       finished, and who reads it next. A browser job is one too, with no pid to
-       check: its owner answers for it.
-     - **Timers and external runs:** whatever finishes or fires with nobody
-       here watching (a nightly, a remote grader): when, and how to read it.
-     - **Owed:** what you promised the operator or a lane and have not delivered.
+Before you hand off, take over from a coordinator, close down with no
+successor, or hand off at a batch boundary, read `handoff.md` beside this file: the handoff file's three
+registers, the successor's brief, the one-call hand-on, re-pointing your
+lanes, the close-down claim. Kept here, since each refuses or loses work
+before you would open it:
 
-     Then the role, the loop you run, the traps you measured, each lane's state
-     and what is next, and the ledger as it stands: paste `buddy status`,
-     `buddy sent`, and `buddy who <run>` for each run you hold. Point your
-     coordination claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
-     them, and `buddy who <slug>` prints every one, uncut), never the handoff file in their place:
-     `buddy claim orc-<project> --desc "HANDOFF: read <file>" --scope <each path you hold>`.
-  3. Open the successor the same way, in a herdr tab carrying the same size,
-     with the brief "You are the next orchestrator, taking over from <your
-     label>. Read <file>, then buddy inbox. For every running job it lists with a pid,
-     check that its pid is still that job and that you can read its output; one
-     gone without its final line failed, whatever the file says. Say what you
-     found. I will hand you my claims."
-     It treats a failed job under a run as Landing's step 4 does, once it holds
-     the run (D-131). A `buddy wait --on` on a claim it is about to be handed is
-     not refused, and its check reads LANDED, handed to it (D-093).
-  4. `buddy msg` it anything since the file, and wake it. When it answers,
-     hand it every claim you hold in ONE call (all or nothing, one notice):
-     `buddy release <run> orc-<project> <parked riders> --to <its label>`. Each claim stays open with
-     its scopes, and every wait on it follows it: riders keep waiting, stay
-     READY on `buddy who <run>`, and land on the successor's outcome. The
-     result line tells the successor with one message and ends with the address
-     to wake it: deliver it. It refreshes each description by claiming again
-     with the SAME scopes, a parked rider's excepted: a re-claim withdraws it. Never release a run and have it claimed afresh: a
-     new claim is a new claim id, so every rider's wait lands with no outcome
-     and its READY is lost (D-063).
-     Then re-point your lanes: their briefs name YOU, by label and session id,
-     as the coordinator whose relays they take, and nothing in the ledger
-     changes that. While you are still live, `buddy msg` each lane you
-     launched or inherited: "<successor label> (session <full id>) is your
-     coordinator from now; it relays the same decisions I did."
-     **Never `.buddy/slot/browser`:** tabs and a running browser job do not move
-     with a claim. Keep it, list it under Running jobs (a later handoff carries
-     it on), and stay open: the successor closes no pane that holds it. Browser
-     work over, release it and `buddy msg orc-<project> "<your label> DONE:
-     browser work over, nothing held, no job running"`: the slug reaches whoever
-     coordinates by then, who closes you on the usual evidence. Refused, or its
-     result says ended: nobody does, so say so in your pane (D-134).
-  5. **Account for every running job before you say you are done:** finished,
-     handed over (its output file is in the handoff and the successor says it
-     is alive and readable), stopped, or a browser job you stay open for. `buddy status`'s EXIT and JOBS lines see the
-     ledger and the shells directly under your harness process, not a job that
-     exec'd into another program: they check your list, never replace it (D-065).
-     Then tell the
-     operator you are done, naming any job still running and any browser slot you keep; they end your
-     session, or your successor does once it holds your claims (Ending a lane).
-
-  Closing down with no successor: point the coordination claim at your
-  handoff file and leave it open for the operator to release, by re-claiming
-  it with the same scopes:
-  `buddy claim orc-<project> --desc "CLOSED: read <file>" --scope <each path you hold>`.
-  A released claim is shown to nobody's `hello`.
-
-  Compaction (`/compact`, `claude --autocompact <size>`) is the other road; hand
-  off when it would lose what the next coordinator must know.
-
-- **Hand off at a batch boundary too.** A new batch of lanes gets a fresh
-  coordinator when your last observed prompt is past the operator's
-  batch-boundary size (their standing decisions; none set means this bullet
-  does not fire) and the batch is independent of this conversation: the
-  handoff file's three registers written and empty or handed, the batch's
-  decisions in files, the successor saying it has read the file. A fold
-  round on a lane you briefed is not independent: its brief names you. The
-  recipe is the same. What is keyed to your session id does not carry over, so finish it
-  first: drain `buddy inbox` and relay what is open, `buddy wait clear`, stop
-  your loop, account for every job (step 5; D-117).
+- **Hand off before you are full**, at the operator's handoff size: a prompt that opens a turn says when you reach it (the optional `busy` hook), and your `buddy sessions` row shows it (`prompt 521k`). A new batch of lanes past the operator's batch-boundary size, if they set one, gets a fresh coordinator too (D-117).
+- Launch a coordinator, and its successor, in a herdr tab, `herdr tab create … --env BUDDY_HANDOFF_AT=<the operator's size>`, never `claude --bg`: the size never reaches a background session.
+- Start no background job you will not see finish: a job you start is your session's child, and nothing hands it to a successor.
+- Hand every claim on in ONE `buddy release <run> orc-<project> <parked riders> --to <successor>`; never release a run to have it claimed afresh: a new claim id lands every rider's wait with no outcome and loses its READY (D-063).
+- Never hand on `.buddy/slot/browser`: keep it, list it, and stay open until its work is over (D-134).
+- Account for every running job before you say you are done (D-065).
+- A habit the operator may take up, not a rule: on a cold first prompt of the day with no run in flight, starting a fresh orchestrator is the cheapest moment, since the warm cache a handoff forfeits is already gone.
 
 ## Landing several lanes through one run
 
@@ -577,296 +501,48 @@ that item for it (D-104, D-111).
 
 ### Picking the model from what past items measured
 
-For the orchestrator, at the start of each run, and only among the models
-the operator's cap for that run allows (for example "lanes on these two
-models; never that one"). A full-tier item stays on the default lane model,
-as above, and the pick never lands on a model kept for reviews. For the rest:
+At the start of each run, before you pick any item's model other than the
+default by what past items measured, read `model-pick.md` beside this file.
+Kept here:
 
-- **An auto-mode lane needs a model that has auto mode** (Opening lanes).
-- **Before each sweep, run `sh scripts/model-report.sh --export <tsv>`**,
-  into the file your repo keeps for it, and read the report at the start of
-  each run. A plain `buddy sweep` deletes released claims, with their
-  descriptions and outcomes, after 24 hours; the export is the only record
-  that outlives it. Its `<tsv>.receipts` keeps each commit receipt's layer
-  counts, by tier: tune a tier on those numbers, never before they exist.
-- **Pick by class.** Default to the cap's cheaper model for a class where
-  the report shows its rework rate and its fail rate no worse than the other
-  model's. Escalate one step where either rate is clearly worse. In a cell
-  below the floor, use the model the cap names as its default, or, if it
-  names none, the default lane model, and infer nothing. The floor and "clearly worse" are the
-  operator's numbers, set with the cap; until they are set, the proposal is
-  10 items per cell and twice the other model's rate. The report prints the
-  observed rates, so either number can be revised.
-- **Record the pick where the report reads it back:** the item's claim
-  description begins with two tokens, `model=<id> class=<word> `, each once,
-  then the description. `<word>` is one of `docs`, `code`, `test`,
-  `research`, `ops`; a missing, repeated or unlisted token is counted as
-  unknown and never printed. The lane makes the claim, so its brief gives the
-  exact start:
-  `buddy claim <item> --desc "model=<id> class=docs <what and why>" --scope <path>`.
-- **The item's outcome is its own release.** A RED along the way keeps the
-  claim: the lane fixes and declares again. Only a finished or abandoned item
-  is released, and with its outcome, so a lane's release after LANDED PASS is
-  `buddy release <item> --outcome pass --note "<reds> <batches>"`, never a bare
-  one; an abandoned item is `--outcome fail`. A handover is
-  `buddy release <item> --to <target>`, which keeps the claim open. A claim
-  of the same slug after a release is how the report counts rework.
+- A full-tier item stays on the default lane model, and the pick never lands on a model kept for reviews.
+- Every item's claim description begins `model=<id> class=<word> `, `<word>` one of `docs`, `code`, `test`, `research`, `ops`: the brief gives the lane that exact start.
+- Before each `buddy sweep`, run `sh scripts/model-report.sh --export <tsv>`: a plain sweep deletes released claims, with their outcomes, after 24 hours.
+- A finished or abandoned item is released with its outcome, `buddy release <item> --outcome pass|fail --note <what>`, never bare; a handover is `buddy release <item> --to <target>`.
 
 ## Restacking a dependent lane (gh stack)
 
-Start dependent work on the tree it needs now (step 6 of Landing several
-lanes), and restack only if the code under it changes: lane B was built on
-lane A's branch, and A's fold (an amend or rebase after its review) moved A,
-so B still carries A's old commits. Moving B is one rebase, in B's worktree,
-onto A from A's old tip (the sha of A's earlier READY); `gh stack` (GitHub's
-CLI extension) runs it and finds A's old tip itself. B built on a run's tree
-with an item since ejected has no branch A: use the plain line at the end,
-once B is READY and idle (step 2) and the rebuilt tree is pinned, its sha
-for `<A>` and B's current base for `<A's old tip>`. Either way the restack is
-yours, done while both lanes are parked, and landing is unchanged (Landing
-several lanes, step 3).
+Before you restack a lane (B built on lane A's branch, and A's fold moved
+A), read `restack.md` beside this file: what gh stack does as measured, the
+six-step recipe, the plain-git line. Kept here:
 
-What it does, as measured in throwaway repositories (D-108, D-122):
-
-- `gh stack rebase --no-trunk <B>` rewrites B's branch IN B's worktree: a
-  clean lane's checkout moves under it; one with uncommitted changes
-  (untracked files included) is refused ("uncommitted changes in worktree")
-  and nothing is rewritten.
-- **No gate checks what a restack produced.** Git runs no pre-commit hook on
-  a rebase or a plain cherry-pick, and the commit gate only warns by default
-  anyway. The tool-call gate sees no path in a `gh stack` or `git rebase`
-  line; for `gh stack` it consults only the slot (step 1). Nothing checks
-  the result but the lane's own re-run (step 6), or nobody.
-- **It reads GitHub even when it pushes nothing**: `init` and `rebase` send
-  read-only API queries carrying the operator's token. With the network
-  denied (step 3's sandbox) each command does the same local work and exits
-  0. A plain `gh stack rebase` FETCHES origin and can fast-forward local
-  main; `push`, `submit`, `sync`, `merge`, `link` and a bare `unstack` act on
-  GitHub.
-- **A conflict stops in B's worktree** (exit 3), detached mid-rebase, and
-  locks the stack catalog (`<git-common-dir>/gh-stack`, shared by every
-  worktree) for EVERY stack ("a rebase operation is already in progress")
-  until `gh stack rebase --abort`. While it is pending, `<git-common-dir>/gh-stack-rebase-state` exists and B's worktree
-  reads `## HEAD (no branch)` in `git status --short --branch`; `gh stack
-  view` does not show it.
-
-The recipe:
-
-1. **Claim the slot first**, one restack at a time, because the catalog is one
-   per checkout:
-   `buddy claim gh-stack --desc "restacking <B> on <A>" --scope .buddy/slot/gh-stack`.
-   Hold it until the restack is over: until any abort (or continue) has
-   finished, `<git-common-dir>/gh-stack-rebase-state` is gone, and B's
-   worktree reads `## <B>` again. Then release it with its outcome (steps 4
-   and 5). The tool-call gate refuses gh stack's rewriting subcommands
-   (rebase, sync, push, submit, merge, link, unstack/delete, init, add,
-   modify, checkout and alias; no flag is read, so `unstack --local`,
-   `rebase --abort` and `rebase --continue` too) to a Bash call whose session
-   does not hold `.buddy/slot/gh-stack` in every ledger the command reaches,
-   and names the holder (D-108); `view` and the navigation commands pass. It
-   reads the literal command only: a dynamic word (`gh stack "$op"`), a `gs`
-   alias and a script file pass it, so the rule above is yours to keep, and
-   the network discipline below is the recipe's, not the gate's.
-2. Only when A and B have each reported READY in their own words
-   (`buddy wait --on <run> --ready`, so `buddy who <run>` lists both at a
-   commit) AND each shows `idle` on its first line in `buddy who <lane>`. No
-   `idle` there is not idle: the Stop hook may not be wired, and no row means
-   unknown (D-016), so treat that lane as busy and wait. A lane mid-turn has
-   its tree moved while it works.
-3. In ONE Bash call, every command with the network denied and the update
-   check off (branch names copied from `git branch`: `init` creates a branch
-   for a name that does not exist):
-
-       off='(version 1)(allow default)(deny network*)'
-       export GH_STACK_NO_UPDATE_NOTIFIER=1
-       (cd <main checkout> &&
-         sandbox-exec -p "$off" gh stack init --base main <A> <B> </dev/null &&
-         sandbox-exec -p "$off" gh stack rebase --no-trunk <B> </dev/null) &&
-       (cd <B's worktree> && sandbox-exec -p "$off" gh stack unstack --local </dev/null)
-
-   Chained, so the first refusal stops it (`init` of a stack already
-   recorded exits 5, a conflicting rebase 3), and in subshells, so your own
-   cwd stays put. The unstack runs from B's worktree because, run from the
-   main checkout with two stacks recorded, it refuses ("branch main belongs
-   to multiple stacks"). Check the result:
-   `git log --oneline <A>..<B>` lists only B's own commits.
-4. **A conflict: abort, report, and stop here.** `gh stack rebase --abort` at
-   once, in the same sandbox (an unstack before it is refused, exit 7, while
-   the rebase is pending), then the unstack in B's worktree. B is back at its
-   own sha. Once step 1's test passes,
-   `buddy release gh-stack --outcome aborted --note "<B> conflicted on <A> @ <sha>"`,
-   and tell B: "restacking you onto <A> @
-   <sha> conflicted and was aborted; your branch is unchanged. Rebase onto it
-   yourself, resolve, re-run your checks, and report READY again." Never
-   resolve a conflict in a lane's worktree. Skip step 5; step 6 still holds.
-5. Clean: `buddy release gh-stack --outcome pass --note "<B> now <new sha>"`,
-   then tell B in words: "restacked onto <A>
-   @ <sha>; your branch is now <new sha>. Check it out, re-run your checks,
-   and report READY again." A is untouched.
-6. **Nothing lands until every restacked lane has re-reported.** B checks out
-   its new tip (after a clean restack its worktree already holds it: confirm
-   with `git log -1`), re-runs its item's checks, and declares READY on it,
-   `buddy wait --on <run> --ready HEAD --until 4h`, with a READY message in
-   its own words naming the new sha and the checks. Its earlier READY named a
-   commit that no longer exists on its branch, and no gate looked at the new
-   one.
-
-Never `gh stack` from a lane, and never any of it but the four commands
-above. Never `gh stack rebase --remote self`: it rewrites A's checkout too,
-adds a remote every worktree shares, and still reads GitHub (D-122). Never `gh stack
-alias`, and never a `gs` wrapper or any other alias for it: the gate refuses
-`alias`, and a `gs` command line is invisible to it. A subagent runs under
-its parent's session id (D-099), so one of yours inherits your slot and may
-run the restack for you; a lane's subagent holds what the lane holds, which
-is no slot.
-
-With gh stack missing or the catalog locked, the plain line does
-the same rebase under the same rules, except the slot (it touches no
-catalog): B's worktree must print nothing for
-`git -C <B's worktree> status --porcelain --untracked-files=all`, then, in
-the same sandbox and with the same two settings, so that no other branch
-moves and nothing is stashed,
-`sandbox-exec -p "$off" git -C <B's worktree> -c rebase.updateRefs=false -c rebase.autoStash=false rebase --onto <A> <A's old tip> <B> </dev/null`.
-A conflict there: `git -C <B's worktree> rebase --abort`, then step 4's
-report.
+- Never `gh stack` from a lane: the coordinator restacks, one at a time, holding `.buddy/slot/gh-stack` (the gate refuses gh stack's rewriting subcommands without it; D-108), and only the recipe's four commands, network denied: a plain `gh stack rebase` fetches origin and can move local main.
+- Never `gh stack rebase --remote self`, never `gh stack alias`, never a `gs` wrapper.
+- Restack only while both lanes are READY and `idle`; never resolve a conflict in a lane's worktree: abort and tell the lane.
+- Nothing lands until every restacked lane has re-reported READY on its new tip.
 
 ## When the deliverable is not code
 
-Research notes, a report, a runbook, configuration: a claim is a reservation
-on a path, and nothing in the ledger asks what the path holds. Everything
-above carries over, with four words translated (the lane's READY form is the
-buddy skill's):
+When a lane's deliverable is notes, a report, a runbook or configuration,
+read `not-code.md` beside this file: how commit, READY, the shared tier and
+main translate. Kept here:
 
-- **The directory must be a git repository; commits are optional.** Outside
-  one, every verb answers "not a git repository", and the session has no row,
-  no inbox and no brake. For a notes directory, run `git init` and then
-  `buddy init` there, once (the operator's call for a directory they keep:
-  it puts a `.git` in it). With no commit everything works except what needs
-  one: `BASE` reads `(none recorded)`, and `buddy wait --ready HEAD` is
-  refused.
-- **Commit becomes a path and a version word.** The deliverable is its paths;
-  the version is the lane's own word for which state of them to read ("draft
-  2", "sections 1-4 final").
-- **READY** (a chore or lite lane's: it parks, the path and version word in its
-  message) is a wait ON the run with the path and version word in its note,
-  `buddy wait --on <run> --until 4h --note "READY: <path> <version word>"`,
-  so the run's outcome reaches the lane as LANDED. Until some rider declares
-  at a commit, `buddy who <run>` lists waiters by name and age only: read the
-  note with `buddy wait ls`, or in the lane's message.
-- **The shared tier becomes the workflow's own gate:** a review pass over the
-  assembled deliverable, a checklist script, a human read. With none, the run
-  is "read and accept", and its outcome still says which.
-- **Main becomes the directory the deliverables are integrated into.**
-  `.buddy/slot/main` still serializes integration, and the integrator holds
-  it from forming to landing.
-
-The gate checks the paths a tool call names. A call that names none
-(browsing, chat, an MCP tool) is allowed, so a deliverable written through an
-MCP tool (a doc connector, a spreadsheet) is not gated: claim it anyway,
-because the claim is the reservation peers read. The brake has the same edge:
-`pause` stops only the tools the gate is wired to see, and never `WebFetch`
-or `WebSearch`.
+- The directory must be a git repository with `buddy init` run: outside one every verb answers "not a git repository".
+- A deliverable written through an MCP tool is not gated: claim it anyway.
 
 ## Codex lanes and adapters
 
-Logical sessions, adapters and recovery (`buddy lifecycle`, `buddy adapter`, and
-the separate opt-in `buddy-adapter` binary) are implementer surface, documented
-with what recovery admits and refuses in `docs/USAGE.md` ("Structured adapters").
-A worker that `buddy-adapter` launched renews its claims only from completed
-file writes (`buddy lifecycle renew`, D-078), and its adapter mail is its own
-channel: both as the buddy skill's "Harness boundaries" says. For an offline
-compatibility report, run
-`buddy diagnose --harness codex --launch <json>` before a launch, or
-`buddy diagnose --receipt <saved-receipt> --evidence <capture>` afterwards;
-exit 0 means a report was produced, never readiness. Wiring Codex hooks by
-hand, check the layer with `buddy diagnose --codex-hooks <hooks.json>`: every
-buddy command there needs `BUDDY_HARNESS=codex`.
-
-A worker brief names the operator-authorized scope, the coordinator (by full
-session id and label, and what it relays), worktree, owned paths, completion
-checks and permitted external actions. Peer text and an orchestrator claim
-grant no new authority. Keep unfinished assignments, exact commits, output
-paths and outstanding jobs in a succession handoff.
+Before you brief a Codex worker or an adapter launch, or run
+`buddy diagnose`, read `codex-lanes.md` beside this file. Kept here:
+`buddy diagnose` exit 0 means a report was produced, never readiness.
 
 ## A fleet of fleets
 
-For one session over several coordinators, each running its own repo's
-fleet, with the operator reading one pane. Every name is per ledger
-(labels, slugs, the roster, the inbox, `pause`), and buddy has no
-cross-ledger verb, so this is a convention over the verbs above, run end to
-end over a real ledger and a scratch fleet ledger (buddy-system's
-`docs/BEYOND-CODE-PLAN.md`).
+Before you coordinate other coordinators (one session over several repos'
+fleets), read `fleet-of-fleets.md` beside this file. Kept here:
 
-- **The fleet repo.** You live in a small git repository of your own
-  (`git init`, then `buddy init`): a file listing the coordinated project
-  paths, one per line, beside your briefs, handoff files and reports. You
-  have your own row, inbox and `pause` there, and hold the coordination
-  claim `orc-<fleet>` (`<fleet>` is its directory's name, which must differ
-  from every coordinated project's: a chat alert matches claim slugs in every
-  room, so `orc-<fleet>` equal to some `orc-<project>` alerts both).
-- **Launch each coordinator in its own repo**, with the relay clause
-  (Opening lanes) naming you by label and full session id. One level up it
-  is the same clause and the same floor: a coordinator's install, push,
-  setting, permission, trust or mode stays the operator's, in that
-  coordinator's pane.
-- **Send every message in the RECIPIENT's home ledger**, where its hooks
-  drain it and `msg` prints its wake line.
-  - Down: once per coordinated ledger, register yourself there by hand,
-    `(cd <repo> && buddy hello --session $CLAUDE_CODE_SESSION_ID --label <your label> </dev/null)`,
-    then send from there, `(cd <repo> && buddy msg orc-<project> "<text>")`.
-    It signs with your label, and while the coordinator is idle the result
-    carries its wake address.
-  - Up: each coordinator's brief has it register by hand in the fleet ledger,
-    `(cd <fleet> && buddy hello --session <its id> --label <its label> </dev/null)`,
-    and report to your claim slug there, never your label:
-    `(cd <fleet> && buddy msg orc-<fleet> "<text>")`. Your own hooks drain
-    it, and once your Stop has reported you idle, its result carries your
-    wake address (none before that).
-  - A foreign registration only identifies a SENDER. Send nothing TO one: no
-    hook of its session runs in that ledger, so mail queued there is never
-    drained, and `msg` takes it without refusing ("registered … and not seen
-    since").
-- **Keep your own cwd in the fleet repo**: run each foreign command in a
-  subshell, `(cd <repo> && buddy <verb> …)`, so your hooks keep beating your own
-  ledger. A row your hooks have beaten is bound to your process, and a `bye`
-  of a bound row while you are alive is refused (`stays live`).
-- **Read each fleet on a timer wait of your own**
-  (`buddy wait --until <dur> --note "<the fleets>"` in the fleet repo, then
-  the `/loop`): `(cd <repo> && buddy who orc-<project>)`, and
-  `buddy who <run>` there. A read moves only your row's `seen` in that
-  ledger, so your foreign rows read STALE only when you have not looked for
-  30 minutes.
-- **Wear a label that is yours alone, numbered per successor** (`top-1`,
-  `top-2`, as coordinators are `orc-<n>`), and have peers address the claim
-  slug. A successor helloes while you are still live, and two LIVE wearers
-  make `buddy msg <label>` ambiguous; an ended wearer yields to a live one
-  (D-139). A claim slug
-  resolves to its one live holder past an ended lane's label, and moves with
-  `release --to`.
-- **Hand off** as Handing off a coordinator says, and in each coordinated ledger, while
-  you are live and in this order: `(cd <repo> && buddy msg orc-<project> "<successor label> (session <id>) is your coordinator from now; it relays the same decisions I did.")`,
-  then `(cd <repo> && buddy bye $CLAUDE_CODE_SESSION_ID </dev/null)`, which
-  ends your unregistered-process row there (no output, exit 0). After the
-  bye a send from you there signs `unregistered s-<8hex>` (D-105). Your
-  successor's first act in each is its own hand `hello`. In the fleet repo,
-  one `buddy release orc-<fleet> <run> --to <successor>` hands every claim
-  on.
-- **A coordinator's handoff retires its fleet row too**, and its brief says
-  so: `(cd <fleet> && buddy bye <its id> </dev/null)` at its own handoff,
-  after it has told you who succeeds it. A coordinator whose hooks ever ran
-  in the fleet ledger is bound there, and that `bye` is refused while it
-  lives (`stays live`): then it is a plain `bye` once its process has
-  exited, run by you or its successor.
-- **What the one window cannot do.** A tool approval waits in the pane that
-  asked for it; a reply typed in yours is not that approval. `pause` is per
-  ledger: pausing yourself pauses no coordinator and no lane. Stopping
-  everything is the operator's `buddy pause all --note "<why>"`, run in each
-  listed ledger from a bare shell. Whether you may run `pause` in a
-  coordinated ledger on the operator's relayed word is the operator's to
-  decide; until they say, do not.
-- **Your view is counts and exceptions**, not rosters concatenated: two
-  fleets' rosters together already pass the 9,000-byte digest budget. The
-  full roster is one `cd` away.
+- Send every message in the RECIPIENT's home ledger, and nothing TO a foreign registration: no hook of its session drains mail there.
+- `pause` in a coordinated ledger only on the operator's word.
 
 ## Upgrading buddy itself
 

@@ -71,6 +71,7 @@ func TestAKilledRunReclaimedForARerunKeepsItsRiders(t *testing.T) {
 // Each clause fails if the check, its outcome or the JOBS limit is dropped.
 func TestSkillsTeachTheDeadJobCheck(t *testing.T) {
 	bodies := readSkills(t)
+	fleet := fleetSkill(bodies) // its reference files too: handoff.md holds the handoff's job lines (D-171)
 	read := func(path string) string {
 		t.Helper()
 		b, err := os.ReadFile(path)
@@ -83,7 +84,7 @@ func TestSkillsTeachTheDeadJobCheck(t *testing.T) {
 	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 	// The one rule the design struck: nothing may teach growth as a healthy sign.
-	for where, text := range map[string]string{"fleet skill": bodies[1], "core skill": bodies[0], "USAGE": read("../../docs/USAGE.md")} {
+	for where, text := range map[string]string{"fleet skill": fleet, "core skill": bodies[0], "USAGE": read("../../docs/USAGE.md")} {
 		for _, gone := range []string{"output is still growing", "output growing;", "must still be growing", "is growing"} {
 			if strings.Contains(flat(text), gone) {
 				t.Errorf("%s still teaches growth as evidence: %q", where, gone)
@@ -92,21 +93,21 @@ func TestSkillsTeachTheDeadJobCheck(t *testing.T) {
 	}
 
 	for _, c := range []struct{ where, text, want string }{
-		{"fleet skill", bodies[1], "Without it: a FAILED run, not a slow one"},
-		{"fleet skill", bodies[1], `--outcome aborted --note "<what happened, who reruns>"`},
-		{"fleet skill", bodies[1], "since a re-claim tells nobody"},
-		{"fleet skill", bodies[1], "shows what is present when sampled, never what died"},
-		{"fleet skill", bodies[1], "check that its pid is still that job and that you can read its output"},
-		{"fleet skill", bodies[1], "So check on a schedule, whatever your cache tier"},
-		{"fleet skill", bodies[1], "`ps -p <pid> -o lstart= -o command=`"},
-		{"fleet skill", bodies[1], "its command, pid and start time"},
-		{"fleet skill", bodies[1], "`buddy claim <run> --desc <its note> --scope <every scope it holds> --job <pid>`"},
-		{"fleet skill", bodies[1], "Name the tier's own process and never a wrapper's"},
-		{"fleet skill", bodies[1], "Only two things tell you anything"},
-		{"fleet skill", bodies[1], "which says only that it ended, so look for that line"},
-		{"fleet skill", bodies[1], "A pid not running when declared is granted and reads GONE"},
-		{"fleet skill", bodies[1], "a finished job reads this too"},
-		{"fleet skill", bodies[1], "Output growing or flat says neither"},
+		{"fleet skill", fleet, "Without it: a FAILED run, not a slow one"},
+		{"fleet skill", fleet, `--outcome aborted --note "<what happened, who reruns>"`},
+		{"fleet skill", fleet, "since a re-claim tells nobody"},
+		{"fleet skill", fleet, "shows what is present when sampled, never what died"},
+		{"fleet skill", fleet, "check that its pid is still that job and that you can read its output"},
+		{"fleet skill", fleet, "So check on a schedule, whatever your cache tier"},
+		{"fleet skill", fleet, "`ps -p <pid> -o lstart= -o command=`"},
+		{"fleet skill", fleet, "its command, pid and start time"},
+		{"fleet skill", fleet, "`buddy claim <run> --desc <its note> --scope <every scope it holds> --job <pid>`"},
+		{"fleet skill", fleet, "Name the tier's own process and never a wrapper's"},
+		{"fleet skill", fleet, "Only two things tell you anything"},
+		{"fleet skill", fleet, "which says only that it ended, so look for that line"},
+		{"fleet skill", fleet, "A pid not running when declared is granted and reads GONE"},
+		{"fleet skill", fleet, "a finished job reads this too"},
+		{"fleet skill", fleet, "Output growing or flat says neither"},
 		{"core skill", bodies[0], "Whatever the tier, schedule a check"},
 		{"core skill", bodies[0], "Gone with no final status line is a failed run, not a slow one; output growing or flat says neither"},
 		{"core skill", bodies[0], "ABORTED: that run landed nothing"},

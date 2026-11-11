@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -160,9 +161,53 @@ func TestHelloHelpLineTeachesTheTimerWait(t *testing.T) {
 
 // skillFiles are the shipped skills (D-114, D-121): the core every session
 // loads, the fleet skill only a coordinator loads, and the lead skill a
-// first-time user's helper loads. A name any one teaches must exist, and every
-// verb and flag must be taught by at least one of them.
-var skillFiles = []string{"../../skills/buddy/SKILL.md", "../../skills/buddy-fleet/SKILL.md", "../../skills/buddy-lead/SKILL.md"}
+// first-time user's helper loads, the three SKILL.md first in that order; then
+// the fleet skill's reference files (D-171), the read-once sections its
+// SKILL.md names and says when to read. A name any file teaches must exist,
+// and every verb and flag must be taught by at least one of them: a verb
+// taught only in a reference file is taught, and a stale name there is caught.
+// The list is written out, and TestSkillFilesAreEveryShippedFile holds it to
+// what skills/ ships, so a file added there or dropped from here fails.
+var skillFiles = []string{
+	"../../skills/buddy/SKILL.md", "../../skills/buddy-fleet/SKILL.md", "../../skills/buddy-lead/SKILL.md",
+	"../../skills/buddy-fleet/codex-lanes.md",
+	"../../skills/buddy-fleet/fleet-of-fleets.md",
+	"../../skills/buddy-fleet/handoff.md",
+	"../../skills/buddy-fleet/model-pick.md",
+	"../../skills/buddy-fleet/not-code.md",
+	"../../skills/buddy-fleet/restack.md",
+}
+
+// Every file under skills/<name>/ is installed with its skill
+// (install-skill.sh's files(): its regular, non-dot files), so every one is a
+// file a session may read and the skill tests must read it too.
+func TestSkillFilesAreEveryShippedFile(t *testing.T) {
+	all, err := filepath.Glob("../../skills/*/*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A dotfile (a Finder .DS_Store) is skipped by the installer's glob, so
+	// here too (Codex code pass).
+	var shipped []string
+	for _, f := range all {
+		if !strings.HasPrefix(filepath.Base(f), ".") {
+			shipped = append(shipped, f)
+		}
+	}
+	for _, f := range shipped {
+		if !slices.Contains(skillFiles, f) {
+			t.Errorf("%s ships with its skill and is not in skillFiles: the skill tests do not read it", f)
+		}
+	}
+	for _, f := range skillFiles {
+		if !slices.Contains(shipped, f) {
+			t.Errorf("skillFiles names %s, which skills/ does not ship", f)
+		}
+	}
+	if len(shipped) < 9 {
+		t.Fatalf("the glob found %d files under skills/; it is aimed at the wrong root", len(shipped))
+	}
+}
 
 // readSkills returns each skill's text, in skillFiles' order. Each is parsed
 // on its own: a flags-only span belongs to the verb most recently named, and
@@ -180,13 +225,32 @@ func readSkills(t *testing.T) []string {
 	return bodies
 }
 
+// fleetSkill is the fleet skill whole: its SKILL.md, then each reference
+// file beside it (D-171), for a test that asks whether the fleet skill still
+// teaches a rule wherever in it the rule now lives.
+func fleetSkill(bodies []string) string {
+	all := bodies[1]
+	for i, f := range skillFiles {
+		if i >= 3 && strings.HasPrefix(f, "../../skills/buddy-fleet/") {
+			all += "\n" + bodies[i]
+		}
+	}
+	return all
+}
+
 func TestSkillNamesOnlyWhatHelpAnswers(t *testing.T) {
 	for i, body := range readSkills(t) {
 		errs, checked := checkNamedVerbs(body, helpUsage)
 		for _, e := range errs {
 			t.Errorf("%s: %s", skillFiles[i], e)
 		}
-		if checked < 20 {
+		// A SKILL.md names dozens; a reference file is one section, and the
+		// smallest (codex-lanes.md) names 13.
+		floor := 20
+		if i >= 3 {
+			floor = 5
+		}
+		if checked < floor {
 			t.Fatalf("checked only %d names in %s; the parser no longer reads it", checked, skillFiles[i])
 		}
 	}
@@ -199,8 +263,8 @@ func TestSkillNamesOnlyWhatHelpAnswers(t *testing.T) {
 // frontmatter would leave the pointer naming nothing.
 func TestSkillSplitPointsAtTheFleetSkill(t *testing.T) {
 	bodies := readSkills(t)
-	if len(bodies) != 3 {
-		t.Fatalf("skillFiles lists %d skills; this test knows the three that ship (core, fleet, lead)", len(bodies))
+	if len(bodies) < 3 {
+		t.Fatalf("skillFiles lists %d files; this test knows the three skills that ship (core, fleet, lead) first", len(bodies))
 	}
 	for i, want := range []string{"name: buddy\n", "name: buddy-fleet\n", "name: buddy-lead\n"} {
 		if !strings.HasPrefix(bodies[i], "---\n"+want) {
@@ -222,7 +286,27 @@ func TestSkillSplitPointsAtTheFleetSkill(t *testing.T) {
 	// parse error or a comment (Codex code pass: the fleet skill's first
 	// description held "one item: a lane"), and a loader that rejects the
 	// frontmatter loses the one line that decides who loads the skill.
-	for i, body := range bodies {
+	// Each fleet reference file is named in the fleet SKILL.md with when to
+	// read it ("read `restack.md` beside this file"), and every file such a
+	// pointer names exists: a renamed file would leave the pointer naming
+	// nothing, and a file nothing names is never opened (D-171).
+	pointer := regexp.MustCompile("`([A-Za-z0-9._-]+\\.md)` beside this file")
+	named := map[string]bool{}
+	for _, m := range pointer.FindAllStringSubmatch(bodies[1], -1) {
+		named[m[1]] = true
+		if _, err := os.Stat("../../skills/buddy-fleet/" + m[1]); err != nil {
+			t.Errorf("the fleet skill points at %s beside it, which does not ship: %v", m[1], err)
+		}
+	}
+	for _, f := range skillFiles[3:] {
+		if dir, base := filepath.Split(f); dir == "../../skills/buddy-fleet/" && !named[base] {
+			t.Errorf("%s ships beside the fleet skill and its SKILL.md has no \"`%s` beside this file\" pointer saying when to read it", f, base)
+		}
+	}
+	if len(named) < 6 {
+		t.Errorf("the fleet skill names %d reference files beside it, want the six it moved out (D-171)", len(named))
+	}
+	for i, body := range bodies[:3] {
 		for _, line := range strings.Split(body, "\n")[1:4] {
 			v, ok := strings.CutPrefix(line, "description: ")
 			if ok && (strings.Contains(v, ": ") || strings.Contains(v, " #") || strings.ContainsAny(v[:1], "'\"&*!|>%@`[]{}")) {
@@ -360,8 +444,8 @@ func TestSkillTeachesEveryVerbAndFlag(t *testing.T) {
 		checkNamedVerbsInto(body, helpUsage, taught)
 	}
 	for _, m := range untaught(taught) {
-		t.Errorf("%s is in the usage table and neither skill teaches it: add it to skills/buddy/SKILL.md "+
-			"(what a lane does) or skills/buddy-fleet/SKILL.md (what a coordinator does) in a backticked "+
+		t.Errorf("%s is in the usage table and no skill file teaches it: add it to skills/buddy/SKILL.md "+
+			"(what a lane does) or skills/buddy-fleet/SKILL.md or a reference file beside it (what a coordinator does) in a backticked "+
 			"`buddy <verb> --flag` (then re-run scripts/install-skill.sh), or exempt it in skillExempt WITH a reason", m)
 	}
 	// The exemptions must name things that exist, or a renamed verb would

@@ -13,7 +13,9 @@
 # skills/*/SKILL.md ships (D-114, D-121: the core, buddy-fleet and buddy-lead
 # today), installed together or not at all; the installer takes the list from
 # the directory, with a floor of three, and the count here is read the same
-# way so a fourth skill is covered the day it lands.
+# way so a fourth skill is covered the day it lands. Every FILE of a skill
+# ships with it (D-171: the fleet skill's reference files), counted the same
+# way, and QA-14 holds the manifest that removes a file the repo dropped.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -38,18 +40,28 @@ LSRC=skills/buddy-lead/SKILL.md
 # something.
 N=$(set -- skills/*/SKILL.md; echo $#)
 [ "$N" -ge 3 ] || fail "found $N skills under skills/, want at least 3"
+# F is every file they ship, the installer's files() enumeration; the floor
+# is the control that the fleet skill's reference files are counted.
+F=$(set -- skills/*/*; echo $#)
+[ "$F" -ge $((N + 6)) ] || fail "found $F skill files under skills/, want the $N SKILL.md and the fleet skill's six reference files"
 
 # QA-1: a fresh install creates every directory, each with an identical copy:
 # the fleet and lead skills beside the core by default, no knob of theirs set.
 out=$(BUDDY_SKILL_DIR="$DIR" sh scripts/install-skill.sh) || fail "QA-1: install failed"
-[ "$(echo "$out" | grep -c '^install-skill: installed ')" -eq "$N" ] || fail "QA-1: want $N installed lines: $out"
+[ "$(echo "$out" | grep -c '^install-skill: installed ')" -eq "$F" ] || fail "QA-1: want $F installed lines: $out"
 cmp -s "$SRC" "$DIR/SKILL.md" || fail "QA-1: the installed core differs from the repo's"
+for f in skills/buddy-fleet/*; do
+	cmp -s "$f" "$FDIR/${f##*/}" || fail "QA-1: $f was not installed beside the fleet SKILL.md"
+done
+# The reference files land BEFORE their SKILL.md: a SKILL.md refreshed first
+# would name files a stop could leave absent.
+[ "$(echo "$out" | grep '/buddy-fleet/' | tail -1)" = "install-skill: installed $FDIR/SKILL.md" ] || fail "QA-1: the fleet SKILL.md was not the fleet skill's last file: $out"
 cmp -s "$FSRC" "$FDIR/SKILL.md" || fail "QA-1: the fleet skill was not installed beside the core"
 cmp -s "$LSRC" "$LDIR/SKILL.md" || fail "QA-1: the lead skill was not installed beside the core"
 
 # QA-2: a re-run over identical copies says current N times and writes no backup.
 out=$(BUDDY_SKILL_DIR="$DIR" sh scripts/install-skill.sh) || fail "QA-2: re-run failed"
-[ "$(echo "$out" | grep -c ' is current$')" -eq "$N" ] || fail "QA-2: $out"
+[ "$(echo "$out" | grep -c ' is current$')" -eq "$F" ] || fail "QA-2: $out"
 [ ! -e "$DIR/SKILL.md.bak" ] && [ ! -e "$FDIR/SKILL.md.bak" ] && [ ! -e "$LDIR/SKILL.md.bak" ] || fail "QA-2: a current copy must not be backed up"
 
 # QA-3: a stale copy is replaced, and the stale one is kept as .bak. The stale
@@ -150,7 +162,62 @@ cmp -s "$SRC" "$SPD/SKILL.md" || fail "QA-13: the core was not installed into th
 [ ! -e "$SPD/.install-skill.lock" ] && [ ! -e "$WORK/with space/buddy-lead/.install-skill.lock" ] || fail "QA-13: a lock was left behind in a spaced destination"
 BUDDY_SKILL_DIR="$SPD" sh scripts/install-skill.sh >/dev/null || fail "QA-13: the re-run into the spaced path was refused (a stranded lock)"
 
+# QA-14: a file the checkout no longer ships is removed from where it was
+# installed, by the manifest; an edited one is kept as .bak; a file nobody
+# installed is left; a manifest line that is not the installer's (a name with
+# a slash) and a subdirectory in a skill refuse the whole install. The
+# checkout is a copy, so files can be dropped from it. The control for each
+# removal is the file the same run keeps installed.
+CO="$WORK/co"; mkdir -p "$CO/scripts"
+cp scripts/install-skill.sh "$CO/scripts/"; cp -R skills "$CO/skills"
+MD="$WORK/m/buddy"; MF="$WORK/m/buddy-fleet"
+BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" >/dev/null || fail "QA-14: the copy did not install"
+grep -qx '[0-9]* [0-9]* restack.md' "$MF/.install-skill.files" || fail "QA-14: the manifest does not list restack.md"
+printf 'my own notes\n' > "$MF/mine.md"
+rm "$CO/skills/buddy-fleet/restack.md" "$CO/skills/buddy-fleet/handoff.md"
+printf 'my edit\n' >> "$MF/handoff.md"
+out=$(BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh") || fail "QA-14: the refresh failed: $out"
+[ ! -e "$MF/restack.md" ] || fail "QA-14: a file the checkout dropped was left installed"
+echo "$out" | grep -qxF "install-skill: removed $MF/restack.md (this checkout no longer ships it)" || fail "QA-14: the removal is not reported: $out"
+[ ! -e "$MF/handoff.md" ] && grep -q 'my edit' "$MF/handoff.md.bak" || fail "QA-14: an edited dropped file was not kept as .bak"
+[ "$(cat "$MF/mine.md")" = "my own notes" ] || fail "QA-14: a file the installer never wrote was touched"
+cmp -s "$CO/skills/buddy-fleet/model-pick.md" "$MF/model-pick.md" || fail "QA-14: a file still shipped went with the dropped ones"
+! grep -q 'restack.md' "$MF/.install-skill.files" || fail "QA-14: the manifest still lists the dropped file"
+printf '1 2 ../buddy/SKILL.md\n' >> "$MF/.install-skill.files"
+printf 'stale core\n' > "$MD/SKILL.md"
+if out=$(BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" 2>&1); then fail "QA-14: a manifest line naming a path outside its directory must refuse"; fi
+echo "$out" | grep -q 'holds a line this script did not write' || fail "QA-14: refused, but not for the manifest: $out"
+[ "$(cat "$MD/SKILL.md")" = "stale core" ] || fail "QA-14: the refused install refreshed the core"
+sed '$d' "$MF/.install-skill.files" > "$WORK/mf" && cat "$WORK/mf" > "$MF/.install-skill.files"
+# A dropped file whose .bak is a symlink refuses the install before anything is
+# written (the move would write through it). The control: the .bak above was
+# a plain path, and the move went there.
+cp "$CO/skills/buddy-fleet/not-code.md" "$WORK/not-code.md"
+rm "$CO/skills/buddy-fleet/not-code.md"; printf 'edited\n' >> "$MF/not-code.md"
+printf 'outside\n' > "$WORK/outside"; ln -s "$WORK/outside" "$MF/not-code.md.bak"
+if out=$(BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" 2>&1); then fail "QA-14: a symlinked .bak must refuse"; fi
+echo "$out" | grep -q 'not-code.md.bak is a symlink or not a regular file' || fail "QA-14: refused, but not naming the .bak: $out"
+[ "$(cat "$WORK/outside")" = outside ] && [ "$(cat "$MD/SKILL.md")" = "stale core" ] || fail "QA-14: the refused install wrote something"
+rm "$MF/not-code.md.bak"; cp "$WORK/not-code.md" "$CO/skills/buddy-fleet/"
+# On a case-insensitive volume (macOS's default) a manifest line spelling a
+# shipped file in another case names that same file: it must survive. Where
+# the volume tells the spellings apart the case cannot arise, and is skipped.
+if [ "$MF/model-pick.md" -ef "$MF/MODEL-PICK.md" ]; then
+	sed 's/ model-pick\.md$/ MODEL-PICK.md/' "$MF/.install-skill.files" > "$WORK/mf" && cat "$WORK/mf" > "$MF/.install-skill.files"
+	grep -q ' MODEL-PICK.md$' "$MF/.install-skill.files" || fail "QA-14: the case-alias fixture did not plant its line"
+	BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" >/dev/null || fail "QA-14: the case-alias install failed"
+	cmp -s "$CO/skills/buddy-fleet/model-pick.md" "$MF/model-pick.md" || fail "QA-14: a manifest line in another case deleted a shipped file"
+	printf 'stale core\n' > "$MD/SKILL.md"
+fi
+mkdir "$CO/skills/buddy-fleet/extra"
+if out=$(BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" 2>&1); then fail "QA-14: a subdirectory in a skill must refuse"; fi
+echo "$out" | grep -q 'extra is a symlink or not a regular file' || fail "QA-14: refused, but not naming the subdirectory: $out"
+[ "$(cat "$MD/SKILL.md")" = "stale core" ] || fail "QA-14: the refused install refreshed the core"
+rmdir "$CO/skills/buddy-fleet/extra"
+BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" >/dev/null || fail "QA-14: with the manifest line and the subdirectory gone, the install still refuses"
+cmp -s "$CO/skills/buddy/SKILL.md" "$MD/SKILL.md" || fail "QA-14: the control install did not refresh the core"
+
 # QA-4: setup-clone.sh runs it — the step is wired, not merely available.
 grep -q 'scripts/install-skill.sh' scripts/setup-clone.sh || fail "QA-4: setup-clone.sh does not run install-skill.sh"
 
-echo "check-skill: GREEN (QA-1 fresh install of all $N, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + others added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob + lead beside the core, QA-8 a refused fleet dir installs none, QA-9 one dir for two refused, QA-10 fleet lock, QA-11 core dir named as another skill refused, QA-12 a short checkout refused, QA-13 a spaced destination releases its locks)"
+echo "check-skill: GREEN (QA-1 fresh install of all $N, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + others added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob + lead beside the core, QA-8 a refused fleet dir installs none, QA-9 one dir for two refused, QA-10 fleet lock, QA-11 core dir named as another skill refused, QA-12 a short checkout refused, QA-13 a spaced destination releases its locks, QA-14 every file of a skill with a manifest: a dropped file removed, an edited one kept, a foreign one left, a bad manifest line and a subdirectory refused)"

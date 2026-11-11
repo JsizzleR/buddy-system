@@ -134,7 +134,16 @@ $out"; done; }
 there() { for f in "$@"; do [ -e "$f" ] || fail "$label: $f should be left:
 $out"; done; }
 bins="$R/bin/buddy $R/bin/buddylist $R/co/bin/buddy $R/co/bin/buddylist $R/daemon/buddylist"
-skillmds="$R/skills/buddy/SKILL.md $R/skills/buddy-fleet/SKILL.md $R/skills/buddy-lead/SKILL.md"
+# Every file each skill ships, as installed (D-171: the fleet skill's
+# reference files beside its SKILL.md), read from skills/ as the installer
+# does, so a file added there is held here the day it lands; the floor is the
+# control that the reference files were counted.
+skillmds=""
+for f in skills/*/*; do skillmds="$skillmds $R/$f"; done
+skillmds=${skillmds# }
+[ "$(set -- $skillmds; echo $#)" -ge 9 ] || fail "found $(set -- $skillmds; echo $#) skill files under skills/, want the three SKILL.md and the fleet skill's six reference files"
+# The core's directory keeps the SKILL.md.bak setup plants, so it stays.
+skilldirs="$R/skills/buddy-fleet $R/skills/buddy-lead"
 plist() { printf '%s' "$R/home/Library/LaunchAgents/$AGENT.plist"; }
 # The calls file must exist (the plan always asks print) or "no call but
 # print" is vacuous (the panel).
@@ -190,9 +199,10 @@ $out"
 # U-4: the full run, the control for every STOPPED case below.
 label=U-4
 setup
+[ -f "$R/skills/buddy-fleet/.install-skill.files" ] || fail "U-4: the install wrote no manifest beside the fleet skill, so its removal below is vacuous"
 out=$(un 2>&1) || fail "U-4: uninstall failed:
 $out"
-gone $bins $skillmds
+gone $bins $skillmds $skilldirs
 grep -qx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" || fail "U-4: no bootout:
 $(cat "$FAKE/calls")"
 [ ! -e "$FAKE/loaded" ] || fail "U-4: the job is still loaded"
@@ -301,6 +311,21 @@ gone "$R/co/bin/buddy" "$R/skills/buddy/SKILL.md"
 echo "$out" | grep -qF "buddy: left: $R/bin/buddy is not this project's buddy" || fail "U-9: the foreign buddy is not named:
 $out"
 echo "$out" | grep -qF "skill: left: $R/skills/buddy-fleet/SKILL.md differs" || fail "U-9: the edited skill is not named:
+$out"
+
+# U-9r: an edited REFERENCE file is left and named, and so is its directory;
+# the fleet skill's other files and its manifest go. U-4 is the control: the
+# same files unedited all go, directory too.
+label=U-9r
+setup
+printf 'my edit\n' >> "$R/skills/buddy-fleet/restack.md"
+out=$(un 2>&1) || fail "U-9r: uninstall failed:
+$out"
+there "$R/skills/buddy-fleet/restack.md"
+gone "$R/skills/buddy-fleet/SKILL.md" "$R/skills/buddy-fleet/handoff.md" "$R/skills/buddy-fleet/.install-skill.files"
+echo "$out" | grep -qF "skill: left: $R/skills/buddy-fleet/restack.md differs" || fail "U-9r: the edited reference file is not named:
+$out"
+echo "$out" | grep -qxF "uninstall: skill: left: $R/skills/buddy-fleet, which still holds files this checkout did not install or that differ" || fail "U-9r: the directory left is not named:
 $out"
 
 # U-9c: a directory at the hooks' buddy path passes README's `[ -x ]` and then
@@ -762,4 +787,4 @@ $out"
 esac
 
 [ ! -e "$GUARD/reached" ] || fail "the REAL launchctl was reached: $(cat "$GUARD/reached")"
-echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left)"
+echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left)"

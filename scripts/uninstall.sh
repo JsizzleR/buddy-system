@@ -67,8 +67,10 @@
 #
 # NEVER TOUCHED, REPORTED: settings files (the hook lines to remove by hand),
 # MCP registrations, Codex's hooks.json, every ledger and the chat journal
-# (data), SKILL.md.bak and any installed SKILL.md that is not byte-identical to
-# this checkout's (an edit, or another release's), core.hooksPath, the
+# (data), SKILL.md.bak and any installed skill file (a SKILL.md or, D-171, a
+# reference file beside it) that is not byte-identical to this checkout's (an
+# edit, or another release's), a file in a skill directory this checkout does
+# not ship (the directory is then left too), core.hooksPath, the
 # Agent-model hook copy (D-120), other com.buddy-system.* launchd agents (the
 # chat SERVER, not buddy's), a buddylist process launchd does not own (never
 # signalled), and any file not identified as ours.
@@ -372,7 +374,7 @@ if [ -n "$plist_ok" ]; then
 elif [ -f "$PLIST" ] && [ -z "$plist_other" ]; then
 	say "daemon: left: $PLIST (its program is not a buddylist, or it cannot be read here)"
 fi
-rm_lists="" rm_skills="" rm_buddies=""
+rm_lists="" rm_skills="" rm_skill_dirs="" rm_buddies=""
 plan_bin() { # plan_bin <path> <cmd>: prints the line; status 0 when it goes
 	if [ -L "$1" ] && [ ! -e "$1" ]; then
 		say "$2: left: $1 is a symlink to nothing; remove it by hand: rm $(shq "$1")"
@@ -389,19 +391,41 @@ plan_bin() { # plan_bin <path> <cmd>: prints the line; status 0 when it goes
 }
 for b in $lists; do ! plan_bin "$b" buddylist || rm_lists="$rm_lists$NL$b"; done
 if [ -z "$chat_only" ]; then
+	# Every file the checkout ships for a skill (install-skill.sh's files():
+	# its regular, non-dot files; D-171), SKILL.md first so the skill stops
+	# loading before its reference files go. Names come from the checkout,
+	# never from the destination, so nothing this checkout does not ship is
+	# planned; the manifest install-skill.sh keeps goes too, and then the
+	# directory if it is empty.
 	for n in $skill_names; do
 		d=$(dest "$n")
-		if [ -L "$d/SKILL.md" ] || { [ -e "$d/SKILL.md" ] && [ ! -f "$d/SKILL.md" ]; }; then
-			say "skill: left: $d/SKILL.md is a symlink or not a regular file"
-		elif [ ! -e "$d/SKILL.md" ]; then
-			:
-		elif cmp -s "$ROOT/skills/$n/SKILL.md" "$d/SKILL.md"; then
-			say "skill: $w $d/SKILL.md"
-			rm_skills="$rm_skills$NL$d"
-		else
-			say "skill: left: $d/SKILL.md differs from this checkout's skills/$n/SKILL.md (an edit, or another release's copy); if it is yours to remove: rm $(shq "$d/SKILL.md")"
+		fl=SKILL.md
+		set +f
+		for s in "$ROOT/skills/$n"/*; do
+			b=${s##*/}
+			case $b in SKILL.md | *[!A-Za-z0-9._-]*) continue ;; esac
+			[ -f "$s" ] && [ ! -L "$s" ] || continue
+			fl="$fl$NL$b"
+		done
+		set -f
+		for b in $fl; do
+			if [ -L "$d/$b" ] || { [ -e "$d/$b" ] && [ ! -f "$d/$b" ]; }; then
+				say "skill: left: $d/$b is a symlink or not a regular file"
+			elif [ ! -e "$d/$b" ]; then
+				:
+			elif cmp -s "$ROOT/skills/$n/$b" "$d/$b"; then
+				say "skill: $w $d/$b"
+				rm_skills="$rm_skills$NL$d/$b"
+			else
+				say "skill: left: $d/$b differs from this checkout's skills/$n/$b (an edit, or another release's copy); if it is yours to remove: rm $(shq "$d/$b")"
+			fi
+			[ ! -e "$d/$b.bak" ] || say "skill: left: $d/$b.bak (an earlier copy install-skill.sh kept, perhaps your edit)"
+		done
+		if [ -f "$d/.install-skill.files" ] && [ ! -L "$d/.install-skill.files" ]; then
+			say "skill: $w $d/.install-skill.files (install-skill.sh's list of what it installed there)"
+			rm_skills="$rm_skills$NL$d/.install-skill.files"
 		fi
-		[ ! -e "$d/SKILL.md.bak" ] || say "skill: left: $d/SKILL.md.bak (an earlier copy install-skill.sh kept, perhaps your edit)"
+		rm_skill_dirs="$rm_skill_dirs$NL$d"
 	done
 	# The checkout's copy before the hooks' (the order $buddies holds): a stop
 	# between them leaves the hooks' buddy working, and a ~/bin/buddy that is a
@@ -434,9 +458,10 @@ if [ -z "$dry" ]; then
 	# link only, and one whose target went first is still unlinked.
 	unlink_one() { rm -f -- "$1" || die "could not remove $1; what follows it in the plan is left"; say "removed: $1"; }
 	for b in $rm_lists; do unlink_one "$b"; done
-	for d in $rm_skills; do
-		unlink_one "$d/SKILL.md"
-		rmdir -- "$d" 2>/dev/null || true
+	for f in $rm_skills; do unlink_one "$f"; done
+	for d in $rm_skill_dirs; do
+		[ -d "$d" ] || continue
+		rmdir -- "$d" 2>/dev/null || say "skill: left: $d, which still holds files this checkout did not install or that differ"
 	done
 	if [ -n "$rm_buddies" ]; then
 		in_flight $rm_buddies
