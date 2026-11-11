@@ -13,8 +13,10 @@ A GIVEN ending `(full text: `CODEX_CHARTER=adapter`)` or `(full text:
 `CODEX_CHARTER=process`)` is a one-line stub: its rule, D-numbers and fences bind as
 written; its full text, which only adapter code or only process text rests on, is
 `docs/review-charter-adapter.md` or `docs/review-charter-process.md`, appended under that
-value (D-128, D-147). If your finding needs a stubbed GIVEN's detail and you were handed
-only the stub, say so; do not re-derive it.
+value (D-128, D-147). A stub ending `(full text: part `install`)` or `part `testinfra``
+has its full text sent unless the pass's `CODEX_DIFF` has no path in that area (D-158). If
+your finding needs a stubbed GIVEN's detail and you were handed only the stub, say so; do
+not re-derive it.
 
 ## What this project is
 
@@ -456,32 +458,7 @@ ledger row entered through the CLI (D-006).
     "first GO wins"; all were cut. The skill must teach
     every verb and flag in the usage table, or exempt it with a reason (a hermetic test).
 
-53. **`scripts/install.sh` is the one install and upgrade path (D-050).** It rebuilds every buddy
-    binary the machine runs, found by where it is run from (`~/bin`, the launchd daemon's plist
-    program, the checkout's `bin/`), runs each once, installs the skill, `kickstart -k`s the
-    daemon, runs setup-clone, and REPORTS hook wiring. Every sub-step's status is the install's.
-    It edits settings only under the operator's opt-in `--wire-hooks` (D-135; `buddy update
-    --wire-hooks` forwards it to an install.sh carrying the line `# buddy-install-accepts:
-    --wire-hooks`): before step 1 a preflight refuses a file it would refuse to write; at step 6
-    `scripts/wire-hooks.py` APPENDS, as new entries, exactly the tokens the report's grep named
-    missing in a snapshot the file must still match, plus the #71 browser beats
-    `gate-hook.py`'s `browser_gone` names, each spelled by `gate-hook.py`'s table (README's and
-    USAGE's blocks held to it); a text splice verified to decode to the old document plus those
-    entries, a 0600 backup, a same-directory temp renamed over it; refused, nothing written: a
-    symlink, a hard link, another user's or a read-only file, over 1 MiB, not UTF-8 JSON, a
-    duplicate key, a non-object `hooks`, a non-list event or a non-hook entry, `disableAllHooks`,
-    and (before step 1) a `$BUDDY_BIN_DIR` that is not `~/bin`, which the lines run. No harness environment is refused (the operator's choice:
-    the write set is fixed, and `env -u` defeats a check); settings are never relayed. Do not
-    propose it rewrite, reorder, "fix" or remove an entry, touch another key or file, or wire the
-    Agent-model hook; nor `cp` for the binaries. It also REPORTS, and never installs or fails on, the Agent-model hook
-    (D-120): whether `$BUDDY_BIN_DIR/agent-model-gate.py` is byte-identical to
-    `scripts/hooks/agent-model-gate.py` (naming the `cp` when not), and whether settings wire
-    a PreToolUse command naming it under a matcher selecting `Agent`, decoded with
-    `gate-hook.py`'s matcher reading; a wired path with no file is said loudly (python3 exits 2,
-    which blocks every Agent call). Do not propose that it copy the script: the hook is the
-    operator's opt-in (D-117). It stamps each buddy with its chat posture and keeps it while
-    `BUDDY_CHAT` is unset (D-124: `off`/`on` switch, anything else refused, no stamp is on); do
-    not propose reading the posture from settings, which is `hello`'s knob.
+53. **`scripts/install.sh` is the one install and upgrade path (D-050); it edits settings only under the operator's `--wire-hooks` (D-135), which appends exactly the buddy lines its report named missing; it reports the Agent-model hook, never installs it (D-120, D-117), and stamps the chat posture (D-124).** Do not propose: it rewrite, reorder or remove a settings entry, touch another key or file, copy or wire the Agent-model hook, `cp` the binaries, refuse a harness environment, or read the posture from settings. (full text: part `install`)
 
 54. **`buddy init` says whether this repo's main languages have a language server (D-051).** Per
     language that is at least 10% of tracked source: the server on PATH (absolute entries,
@@ -493,18 +470,7 @@ ledger row entered through the CLI (D-006).
     `scripts/startup-report.sh` measures it, counts only. Do not propose a SessionStart line, auto-install, `claude plugin list`, a committed code map, or
     counting untracked files.
 
-55. **A test binary that outlives its `go test` is ended from outside (D-053, #43).**
-    `internal/testguard.Arm()` opens `internal/cli`'s TestMain: an in-process `Getppid` poll
-    exits a healthy orphan with 3 in about a second; a watchdog process (the same binary
-    re-exec'd, pipe EOF for the target's exit, pid + kernel start time for identity) ends one
-    still orphaned three polls later, or at twice `-test.timeout`, with a symbolized `sample`
-    to `$TMPDIR`, SIGQUIT, then SIGKILL, and reports on stderr LAST (it may be the dead pipe).
-    MEASURED: the timeout panic exits fine on a dead stderr; a stop-the-world waiting on an
-    unpreemptible goroutine reproduces #43 and runs no Go code at all (so no in-process wall
-    can fire); Go drops SIGXCPU and darwin sent no SIGKILL at the hard RLIMIT_CPU; `go test`
-    binaries have no symbol table. Do not propose RLIMIT_CPU, an in-process AfterFunc wall,
-    or `SetTraceback("crash")` (it would SIGABRT every panicking test). #43's cause is
-    unknown; the watchdog's sample will name it.
+55. **A test binary that outlives its `go test` is ended from outside (D-053, #43): `testguard.Arm()` opens `internal/cli`'s TestMain; a ppid poll exits an orphan with 3, and a re-exec'd watchdog samples, SIGQUITs and SIGKILLs one still orphaned.** Do not propose: RLIMIT_CPU, an in-process AfterFunc wall, or `SetTraceback("crash")`. (full text: part `testinfra`)
 
 56. **A park with no claim to name keeps warm on a TIMER wait, and is told so before it parks
     (D-054, #44, #45).** MEASURED: wakes past an hour mostly come back cold, and the costly parks
@@ -581,15 +547,7 @@ ledger row entered through the CLI (D-006).
     not propose waiting in `idle` for the reply (1 of 20 within the 100 ms budget), a detached
     writer, reading `last_assistant_message` (text, no usage), or a clock threshold for freshness.
 
-63. **A `-race` forkExec can leave its child stuck before exec, and the watchdog ends it (D-061,
-    #53).** MEASURED: the child spins in ThreadSanitizer's slot lock, held by a parent thread
-    at fork, and never execs. The parent waits in `readlen` to the timeout. It is `-race` only (measured), not
-    git, PATH or the hook. The child keeps the watchdog's pipe
-    (close-on-exec acts only at exec), so the watchdog has a holder arm. Target gone and pipe held
-    means it ends the target's same-binary children, orphaned, same start time, in its own
-    process group, seen while the target lived, never itself. It holds its executable's fd so
-    the sample symbolizes after go test deletes the binary. Do not propose a retry loop, a
-    timeout knob, a box-wide process scan, or treating D-053's stop-the-world toy as the cause.
+63. **A `-race` forkExec child stuck before exec is ended by the watchdog (D-061, #53): target gone and pipe held, it ends the target's orphaned same-binary children in its process group, never itself.** Do not propose: a retry loop, a timeout knob, a box-wide process scan, or treating D-053's stop-the-world toy as the cause. (full text: part `testinfra`)
 
 64. **The `-race` forkExec hang is golang/go#79804, fixed in Go 1.26.5 (D-061, #55).** `go.mod`
     pins `toolchain go1.26.8`; under `GOTOOLCHAIN=auto` every build, CI included, uses it.
@@ -1043,20 +1001,7 @@ ledger row entered through the CLI (D-006).
 
 110. **A relayed operator decision may carry the item's content and scope (D-109, amends D-083).** Each such message marks it said in the coordinator's pane, with the time; unmarked, it is advice; the never-relayed floor is unchanged. Do not propose: a verb, flag or row for it. (full text: `CODEX_CHARTER=process`)
 
-111. **`buddy update` runs install.sh in the checkout install.sh stamped into buddy, after a
-    local report (D-110).** The operator chose install only: it never fetches or pulls, and
-    `buddy` stays network-free. The checkout is an `-ldflags -X` stamp, not a record file
-    (a file drifts from the bytes it describes); a missing, relative, gone or foreign-module
-    stamp, or a non-regular `scripts/install.sh`, refuses naming install.sh, never a guess.
-    The installed commit is the vcs stamp of `$BUDDY_BIN_DIR/buddy`, the file the hooks run,
-    not the running process's. origin/main is "as of the last fetch", dated by FETCH_HEAD only
-    when it records origin's main, else by the ref's reflog entry. The report's git reads run
-    no filter, fsmonitor, lazy fetch or submodule. Dirty or off-main WARNS and installs; one
-    case refuses: an installed commit in the checkout that
-    HEAD does not contain (a downgrade is D-037's machine-wide deny); shallow or unknown
-    history says it cannot place it. install.sh runs with no stdin, its status the verb's.
-    Not a hook verb, opens no ledger, never delegable (D-083). Do not propose a pull, a
-    `--check` alias, or refusing a dirty or off-main tree.
+111. **`buddy update` runs install.sh in the checkout install.sh stamped into buddy, after a local report, and never fetches (D-110).** A bad stamp refuses naming install.sh; dirty or off-main warns and installs; only an installed commit HEAD lacks refuses (D-037); not a hook verb, opens no ledger, never delegable (D-083). Do not propose: a pull, a `--check` alias, or refusing a dirty or off-main tree. (full text: part `install`)
 
 112. **Every lane runs on the default lane model, full tier included; Fable is for reviews only (D-111, amends D-104).** Do not propose: "strongest model" wording, a lane on Fable the operator did not name, a verb or check reading a lane's model. (full text: `CODEX_CHARTER=process`)
 
@@ -1141,21 +1086,7 @@ ledger row entered through the CLI (D-006).
     apart from "none" (D-065), "untrusted", every fence, verdict and EXIT/JOBS clause. Do not
     propose restoring an explanation the skill holds, or cutting a claim's description in hello.
 
-119. **Removal is `scripts/uninstall.sh [--chat] [--dry-run]`, which `buddy uninstall` runs in
-    the stamped checkout as update runs install.sh (D-125).** Never a knob of install. Order:
-    the daemon through launchd only (`print` by label, 113 is absent, any other status stops
-    the run before anything goes; `bootout`, confirmed), its plist MOVED to ~/.buddylist, the
-    buddylist copies, the skills identical to the checkout's, buddy LAST by one unlink, so a
-    stop leaves the claims half working and a re-run finishes. Ours is a build-info `path`
-    line in the bytes, never a run. A full run that leaves an executable at
-    `$BUDDY_BIN_DIR/buddy` exits INCOMPLETE. `--chat` first runs the installed buddy's
-    `BUDDY_CHAT=off buddy update` and removes chat only once D-124's stamp reads off. Settings,
-    MCP registrations, Codex hooks, ledgers, the journal, core.hooksPath, `.bak`, an edited
-    skill and the Agent-model copy are reported, never touched. Install and uninstall hold ONE
-    lock for their whole run (D-126): `$BUDDY_BIN_DIR/.buddy-install.lock`, a symlink naming
-    the holder's pid and start time, a dead or reused pid taken over; not HOME-keyed, not a
-    mkdir'd directory. Do not propose a `--purge`, editing settings, killing a daemon, or
-    removing buddy before chat.
+119. **Removal is `scripts/uninstall.sh [--chat] [--dry-run]`, which `buddy uninstall` runs as update runs install.sh (D-125): chat first through launchd, buddy last by one unlink; `--chat` removes chat once D-124's stamp reads off; install and uninstall hold one lock (D-126).** Settings, ledgers, the journal and the rest are reported, never touched. Do not propose: a `--purge`, editing settings, killing a daemon, or removing buddy before chat. (full text: part `install`)
 
 120. **hello obeys the chat posture install.sh stamped, below an explicit `BUDDY_CHAT` (D-127,
     amends D-124).** `BUDDY_CHAT` (trimmed, store.Fold) `off` mutes the hint and `on` prints it
@@ -1172,9 +1103,12 @@ ledger row entered through the CLI (D-006).
     them); the header prints `charter=<bytes>B(core)` or `(core+adapter)`; an unknown or empty
     value, or any but `core` beside `CODEX_NO_CHARTER=1`, refuses. D-147 adds `process` (104,
     110, 112, 116: process text only; no code change can violate them) and `all`; every GIVEN
-    a script, hook or verb reads stays in full, and each GIVEN is in exactly one part. Do not
-    propose choosing the parts from the prompt text, a separate file with no stubs, or moving
-    a GIVEN by number range.
+    a script, hook or verb reads stays in full, and each GIVEN is in exactly one part. D-158
+    adds the code-area parts `install` (53, 111, 119) and `testinfra` (55, 63), sent unless
+    `CODEX_DIFF=<rev>|<a>..<b>` names a diff with no path in the area; unnamed, they ride
+    (fail safe), and a diff git cannot read or that names no path refuses; 59 and 64 stay in
+    core. Do not propose choosing the parts from the prompt text, guessing the diff (a base, a
+    merge-base), a separate file with no stubs, or moving a GIVEN by number range.
 
 122. **`wait --on` prints whom to ask, never sends it (D-130, amends D-033).** Its second line
     names one `buddy msg <target> "<ask>"` per claim, pasted only when the target resolves now

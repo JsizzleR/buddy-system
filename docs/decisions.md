@@ -11043,6 +11043,112 @@ the p90 (431 s), is still unmeasured.
 whether to change it on these two runs is the operator's call. A re-run is a
 backgrounded pass and needs the operator's authorization as this one had.
 
+## D-158 — The charter's install and test-watchdog GIVENs ride as stubs plus a full-text part sent on every pass, dropped only when `CODEX_DIFF` names a diff with no path in the part's area (the rest of Codex report A4; amends D-147)
+
+2026-11-11. The operator, in orc-19's pane at about 05:01Z, "do the open items", answering
+orc-19's list, which named D-147's open clause: code-area parts for the install and
+test-infrastructure GIVENs would save about 5 KB more. The brief (relayed by orc-19, lite
+tier): move GIVENs whose only subject is the install path (53 111 119) or the test
+infrastructure (55 59 63 64), each checked against what code outside its area could
+violate, keeping any in doubt; decide the selector; and a review prompt that omits a part
+a diff needed is a review that misses a rule, so the default fails safe (include, not omit).
+
+**The rule**
+1. **Moved, each because its mechanism lives in one area's files** (its fences ride in its
+   stub, which binds as written, D-128 rule 2):
+   - `install` (`docs/review-charter-install.md`): **53** (D-050, D-135, D-120, D-117, D-124:
+     `install.sh`, `wire-hooks.py`, `gate-hook.py`'s table, `update.go`'s forwarding),
+     **111** (D-110: `update.go`), **119** (D-125, D-126: `uninstall.sh`, `uninstall.go`,
+     `install-lock.sh`).
+   - `testinfra` (`docs/review-charter-testinfra.md`): **55** (D-053: `internal/testguard`,
+     `Arm()` in `internal/cli/cli_test.go`'s TestMain, the only caller), **63** (D-061:
+     the watchdog's holder arm, `internal/testguard`).
+2. **Kept in full:** **59** (D-057): `ScrubGitEnv` belongs in the TestMain of every
+   git-running package, and `check.sh`, `lib.sh` and the pre-push hook carry the list, so
+   a new test file anywhere can violate it, and an area of every `*_test.go` would carry
+   the part on nearly every code pass. **64** (D-061): its fences (no retry loop, no
+   timeout knob, no dropping the `-race` legs) bind any test change, and its full text is
+   about the size a stub would be.
+3. **The selector: by the diff's paths, from a diff the caller NAMES.**
+   `CODEX_DIFF=<rev>` (that revision against the working tree) or `<a>..<b>`, read with
+   `git diff --name-only -z --no-renames` under `diff.relative=false`, plus the untracked
+   files (they only add). A part is dropped only when no path is in its area; unset, both
+   ride. The script cannot read the diff unnamed: it is handed a prompt file (D-128's
+   rejection), and any base it chose (main, a merge-base, HEAD) misses a diff that is not
+   this checkout's tree, such as a review run from the main checkout over another lane's
+   patch. Every fault sends or stops, never omits: set but empty, a leading `-` (git would
+   read `--output=<file>` as an option and write it), a revision git cannot read, outside a
+   checkout, a diff naming no path, or `CODEX_NO_CHARTER=1` beside it, refuses before a
+   slot is checked, ending `refused: <reason>`. A stderr line names the paths counted and
+   each part's verdict; the header and record word say which parts went in, appended in
+   the order core, adapter, install, testinfra, process (`charter=<bytes>B(core+install+testinfra)`
+   with no knob). `CODEX_CHARTER` is unchanged: adapter and process stay the caller's.
+4. **The areas** (`in_install`, `in_testinfra` in the script): the files each part's
+   GIVENs describe (a submodule at an area's root by its bare path), their tests and the
+   part file; plus, by CONTENT, a changed line (either side) of the charter, README, USAGE
+   or CLAUDE.md that carries the part's stub mark (an edited stub is judged against its
+   full text) or names its subject (`install`, `wire-hooks`, `launchd`, `BUDDY_BIN_DIR`, ...;
+   `testguard`, `watchdog`, `TestMain`, `forkexec`, `symboliz`, ...: the script's two
+   lists). That line read is top-anchored, color off, text forced; a touched file that
+   yields no changed line sends both parts. As PATHS the prose would carry the parts on
+   most passes. Measured over main's last 100 commits (each a landed item): code paths
+   alone keep the install part on 15 and testinfra on 2; with the prose terms, 25 and 6;
+   with README and USAGE as paths, install on 44; with CLAUDE.md and the charter as paths
+   too, 63 and 56, which sends more bytes than before the split. Recorded open: a
+   restatement in other words than the lists' escapes them, and its stub binds alone.
+5. **The mark** is `(full text: part `install`)` / `(full text: part `testinfra`)`, not a
+   `CODEX_CHARTER=` value, since no value asks for them. `check-charter.sh` pairs each
+   part with the charter by D-128's check under its mark (the planted pair re-run under
+   each, which now also reports `stubbed N`: a part-file GIVEN carrying any mark, a
+   pointer whose full text is another pointer), and `unknownpart` now compares the WHOLE mark with the four marks PARTS gives, so a
+   real name under the wrong kind (`CODEX_CHARTER=install`, `part `adapter``) fails, planted.
+   The real-tree pairing, cross-check and fold all take their files from PARTS.
+   `check-prose-budget.sh` reads `CHARTER_INSTALL=` and `CHARTER_TESTINFRA=` (one line each)
+   into the codex-pass class, since a pass with no knob loads them, and asserts each part's
+   class on its planted tree. `check-codex-review.sh` runs twenty-one picks in a temp
+   repository (each area, neither, both, a range, a rename's old end, a working-tree change,
+   an untracked file, a tracked-only change, prose with and without the terms, a mode-only prose change (both ride), a submodule gitlink, a charter
+   change with and without a mark, a removed stub, an edited stub read from a
+   subdirectory, under forced color and under a `-diff` attribute, a subdirectory under
+   `diff.relative=true`), one commit per area path (23, the list being the spec), and six
+   refusals, each prompt compared byte for byte.
+
+**Rejected**
+- *New `CODEX_CHARTER` values for these parts.* A forgotten value omits the part: the
+  failure the default exists to prevent.
+- *The script guessing the diff* (rule 3).
+- *CLAUDE.md, README, USAGE and the charter as area paths* (rule 4): measured, the parts
+  would ride on most passes and the split would cost bytes. *Leaving the prose out
+  entirely* (this lane's first cut): Codex named five one-line prose additions a stub-only
+  reviewer would pass wrong, one per moved GIVEN; the terms catch all five.
+- *Moving 59 or 64* (rule 2).
+
+**Bytes** (`wc -c`, this tree): the main charter 106,077 before, 101,834 after (the five
+full texts out, their stubs, the head's mark note and GIVEN 121's D-158 clause in). The
+install part is 5,298, the testinfra part 2,204. A pass with no `CODEX_DIFF` loads 109,340
+(`core+install+testinfra`), 3,263 more than before: the cost of failing safe, until
+callers name their diff. One naming a diff in neither area loads 101,834 (4,243 less);
+install only 107,134; testinfra only 104,040. Over the 100-commit mix, a pass naming its
+diff averages about 103,300, about 2,800 less than before. codex-pass (AGENTS.md, the
+charter and the two parts) is 114,560 of its 114,688 ceiling; the charter's own ceiling
+(110,592) is unchanged, the formula giving more.
+
+**Review** — lite (D-104, D-115). A scoped self-review; twenty mutants in a private copy,
+three survivors (the real-tree fold and cross-check named the part files a second time,
+and the budget's planted tree could not tell a part filed in the wrong class), each fixed
+by taking the list from PARTS or asserting the class. One Codex code pass (xhigh), asked of
+each moved GIVEN whether a diff outside its area can violate it and whether any selector
+path omits a part: no stub misstated, no duplicate or hostile-value path; four findings,
+folded once: the stub-line read missed an edited stub from a subdirectory, under
+`color.diff=always` and under a `-diff` attribute (top-anchored, color off, text forced, and
+an empty read sends both); prose left out of every area (the content terms, rule 4); a
+submodule at an area's root (its bare path); and two unarmed mutations (the per-path loop,
+and `stubbed`). Fourteen mutants over the folds: every fold's test watched to fail
+except two arms with no fixture (an empty line read sending both parts; `stubbed` for a mark
+not the part's own), both then planted, and the real-tree fold and cross-check narrowed by
+respelling their file list, which no test sees: deriving that list from PARTS is what
+holds it, recorded open.
+
 ## D-160 — A send's result line says when the ledger cannot tell a Codex recipient, whose mail waits for its own `buddy inbox` (Codex report B4's siblings)
 
 **The failure.** `buddy msg`'s result line ended every live arm in "delivery

@@ -100,7 +100,7 @@ printf 'Quoted header:\nmodel: gpt-6-astra\nreasoning effort: xhigh\n' > "$T/quo
 
 # The caller's own CODEX_* knobs must not reach the cases: CODEX_EFFORT=high would make
 # the positive control fail on correct code, CODEX_WAIT would change the busy timing.
-CLEAN="-u CODEX_MODEL -u CODEX_EFFORT -u CODEX_TIER -u CODEX_BUDGET -u CODEX_SLOTS -u CODEX_WAIT -u CODEX_CHARTER -u CODEX_NO_CHARTER"
+CLEAN="-u CODEX_MODEL -u CODEX_EFFORT -u CODEX_TIER -u CODEX_BUDGET -u CODEX_SLOTS -u CODEX_WAIT -u CODEX_CHARTER -u CODEX_NO_CHARTER -u CODEX_DIFF"
 fails=0
 fail() { echo "check-codex-review: FAIL $*" >&2; fails=$((fails + 1)); }
 
@@ -124,6 +124,23 @@ rows() { if [ -f "$REC" ]; then grep -c . "$REC"; else echo 0; fi; }
 lastrow() { tail -1 "$REC" | awk -F '\t' -v want="$*" 'BEGIN { n = split(want, w, " ") } { for (i = 1; i <= n; i++) printf "%s%s", $w[i], (i < n ? " " : "\n") }'; }
 has() { grep -qF -- "$2" "$1"; }
 stale() { echo "SENTINEL-7f3a old verdict from an earlier pass" > "$1"; echo "SENTINEL-7f3a old transcript" > "$1.transcript"; }
+# charter_of <parts-word> — the charter those parts make, unfolded, in the script's order
+# (adapter, install, testinfra, process; D-128, D-147, D-158).
+charter_of() {
+  cat "$ROOT/docs/review-charter.md"
+  for _pt in adapter install testinfra process; do
+    case +$1+ in *+$_pt+*) printf '\n\n'; cat "$ROOT/docs/review-charter-$_pt.md" ;; esac
+  done
+}
+# prefix_is <name> <parts-word> — the prompt begins with EXACTLY that charter, folded, then
+# the reviewer line: presence and heading order alone would pass a part sent twice or cut
+# short (Codex code pass, D-147).
+prefix_is() {
+  { charter_of "$2"; printf '\n\nYou are a constrained review pass, and the charter above'; } |
+    python3 -I -B "$ROOT/scripts/ascii-fold.py" > "$T/want.prompt"
+  head -c "$(wc -c < "$T/want.prompt")" "$T/log.prompt" | cmp -s - "$T/want.prompt" ||
+    fail "$1: the prompt does not begin with exactly the charter $2, its parts in order, then the reviewer line"
+}
 
 # --- ok: the positive control, with the real charter prepended ---
 O=$T/out/ok.txt; stale "$O"
@@ -140,7 +157,7 @@ has "$O.transcript" "# Review charter" || fail "ok: the charter did not reach co
 awk '/^# Review charter/ { c = NR } /^You are a constrained review pass, and the charter above/ { l = NR } /^Review this. Do not explore./ { p = NR } END { exit !(c && l && p && c < l && l < p) }' "$T/log.prompt" || fail "ok: the reviewer line is not between the charter and the prompt"
 st=$(tail -1 "$O")
 case $st in "codex-review: status rc=0 exit=0 "*) ;; *) fail "ok: last line is '$st', want the status line" ;; esac
-for k in "header=ok" "model=gpt-6-astra" "effort=xhigh" "tokens=12345" "B(core)" "prompt=" "elapsed="; do
+for k in "header=ok" "model=gpt-6-astra" "effort=xhigh" "tokens=12345" "B(core+install+testinfra)" "prompt=" "elapsed="; do
   case $st in *"$k"*) ;; *) fail "ok: status line lacks '$k': $st" ;; esac
 done
 [ "$(tail -1 "$O.transcript")" = "$st" ] || fail "ok: the transcript does not end with the status line"
@@ -149,8 +166,9 @@ cmp -s "$O" "$T/stdout.ok" || fail "ok: stdout is not the out-file's content"
 # 7 header 8 charter 9 charter_bytes 10 prompt_bytes 11 tokens 12 commands
 # 13 charter_reads 14 session. The stub ran one command, `cat CLAUDE.md`.
 [ "$(rows)" = 1 ] || fail "ok: the record has $(rows) rows, want 1"
-cb=$(wc -c < "$ROOT/docs/review-charter.md" | tr -d ' ')
-[ "$(lastrow 2 3 5 6 7 8 9 11 12 13 14)" = "0 0 gpt-6-astra xhigh ok core $cb 12345 1 1 00000000-0000-0000-0000-000000000001" ] ||
+# No knob: the code-area parts ride (D-158).
+cb=$(charter_of core+install+testinfra | wc -c | tr -d ' ')
+[ "$(lastrow 2 3 5 6 7 8 9 11 12 13 14)" = "0 0 gpt-6-astra xhigh ok core+install+testinfra $cb 12345 1 1 00000000-0000-0000-0000-000000000001" ] ||
   fail "ok: record row is '$(lastrow 2 3 5 6 7 8 9 11 12 13 14)'"
 [ "$(awk -F '\t' '{ print NF }' "$REC")" = 14 ] || fail "ok: the record row does not have 14 fields"
 tail -1 "$REC" | awk -F '\t' '$1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/ && $4 ~ /^[0-9]+$/ && $10 ~ /^[0-9]+$/ { ok = 1 } END { exit !ok }' ||
@@ -232,7 +250,7 @@ has "$T/log.prompt" "You are a constrained review pass" && fail "knobs-ok: the r
 # --- the charter's parts (D-128, D-147): each value sends exactly its files, in order,
 # and says so in the status line and the record. In the loop above, `process` and `all`
 # refused beside run()'s CODEX_NO_CHARTER=1; here they run, the positive control. ---
-for v in core:core adapter:core+adapter process:core+process all:core+adapter+process; do
+for v in core:core+install+testinfra adapter:core+adapter+install+testinfra process:core+install+testinfra+process all:core+adapter+install+testinfra+process; do
   val=${v%%:*} parts=${v#*:}
   O=$T/out/parts-$val.txt; stale "$O"
   run "parts-$val" 0 "$O" CODEX_NO_CHARTER=0 CODEX_CHARTER=$val
@@ -243,17 +261,126 @@ for v in core:core adapter:core+adapter process:core+process all:core+adapter+pr
   has "$T/log.prompt" "# Review charter: process GIVENs (full text)" && p=1
   case $parts in *adapter*) [ $a = 1 ] || fail "parts-$val: the adapter file did not reach codex" ;; *) [ $a = 0 ] || fail "parts-$val: the adapter file reached codex unasked" ;; esac
   case $parts in *process) [ $p = 1 ] || fail "parts-$val: the process file did not reach codex" ;; *) [ $p = 0 ] || fail "parts-$val: the process file reached codex unasked" ;; esac
-  # EXACTLY its files, whole, once each, in order, then the reviewer line: the prompt
-  # must begin with the folded concatenation. Presence and heading order alone would
-  # pass a part sent twice or cut short (Codex code pass).
-  { cat "$ROOT/docs/review-charter.md"
-    case $parts in *adapter*) printf '\n\n'; cat "$ROOT/docs/review-charter-adapter.md" ;; esac
-    case $parts in *process) printf '\n\n'; cat "$ROOT/docs/review-charter-process.md" ;; esac
-    printf '\n\nYou are a constrained review pass, and the charter above'
-  } | python3 -I -B "$ROOT/scripts/ascii-fold.py" > "$T/want.prompt"
-  head -c "$(wc -c < "$T/want.prompt")" "$T/log.prompt" | cmp -s - "$T/want.prompt" ||
-    fail "parts-$val: the prompt does not begin with exactly the charter, its parts in order, then the reviewer line"
+  prefix_is "parts-$val" "$parts"
 done
+
+# --- the code-area parts (D-158): CODEX_DIFF drops a part only when git names the diff's
+# paths and none is in its area; everything else sends the part or refuses. Each case is
+# a commit (or a working-tree change) in its own repository, so the paths are exactly
+# known. The positive controls: one path in each area keeps that part (and the case with
+# neither drops both, proving a dropped part is reachable at all). ---
+D=$T/drepo; mkrepo "$D"
+mkdir -p "$D/scripts/hooks" "$D/internal/store" "$D/internal/testguard" "$D/internal/cli" "$D/sub" "$D/docs"
+for f in scripts/install.sh internal/store/x.go internal/testguard/w.go internal/cli/cli_test.go sub/n.txt README.md CLAUDE.md docs/USAGE.md; do echo v1 > "$D/$f"; done
+printf '1. **A core GIVEN.**\n\n53. **An install stub.** (full text: part `install`)\n\n55. **A testinfra stub.** (full text: part `testinfra`)\n' > "$D/docs/review-charter.md"
+git -C "$D" add -A && git -C "$D" commit -qm base
+dcommit() { for f; do echo "v-$f-$(date +%s%N)" >> "$D/$f"; done; git -C "$D" add -A; git -C "$D" commit -qm "$*"; }
+# diffcase <name> <want-parts> <CODEX_DIFF> [VAR=value ...]
+diffcase() {
+  _dn=$1 _dp=$2 _dd=$3; shift 3
+  O=$T/out/diff-$_dn.txt; stale "$O"
+  RUNDIR=${DRUN:-$D}; run "diff-$_dn" 0 "$O" CODEX_NO_CHARTER=0 "CODEX_DIFF=$_dd" "$@"; RUNDIR=
+  has "$O" "B($_dp) " || fail "diff-$_dn: status line lacks B($_dp): $(tail -1 "$O")"
+  prefix_is "diff-$_dn" "$_dp"
+  has "$T/stderr.diff-$_dn" "codex-review: CODEX_DIFF=$_dd:" || fail "diff-$_dn: no stderr line naming the pick"
+}
+dcommit internal/store/x.go
+diffcase none core HEAD~1..HEAD
+diffcase none-adapter core+adapter HEAD~1..HEAD CODEX_CHARTER=adapter
+dcommit scripts/install.sh
+diffcase install core+install HEAD~1..HEAD
+dcommit internal/testguard/w.go
+diffcase testinfra core+testinfra HEAD~1..HEAD
+diffcase both-range core+install+testinfra HEAD~3..HEAD CODEX_CHARTER=core
+# The prose that restates these GIVENs is not in an area (D-158: it rests on the stubs).
+dcommit README.md CLAUDE.md docs/USAGE.md
+diffcase prose core HEAD~1..HEAD
+# ...unless a changed line names the part's subject (Codex code pass's counterexamples).
+echo 'Installation fails when the optional hook is missing.' >> "$D/README.md"; git -C "$D" commit -qam prose-install
+diffcase prose-install core+install HEAD~1..HEAD
+echo "The watchdog's hard deadline is the test timeout." >> "$D/CLAUDE.md"; git -C "$D" commit -qam prose-testinfra
+diffcase prose-testinfra core+testinfra HEAD~1..HEAD
+# A touched prose file with no changed line (a mode change) cannot say which part it
+# touched, so both ride (mutation: dropping that arm sent neither).
+chmod +x "$D/README.md"; git -C "$D" commit -qam prose-mode
+diffcase prose-mode core+install+testinfra HEAD~1..HEAD
+# A changed charter line carrying a part's mark is that stub edited: the part rides. A
+# charter change elsewhere does not bring one (the control).
+printf '\n2. **A new core GIVEN.**\n' >> "$D/docs/review-charter.md"; git -C "$D" commit -qam charter-core
+diffcase charter-core core HEAD~1..HEAD
+sed 's/An install stub/An install stub, edited/' "$D/docs/review-charter.md" > "$D/rc.tmp" && mv "$D/rc.tmp" "$D/docs/review-charter.md"; git -C "$D" commit -qam charter-install
+diffcase charter-install core+install HEAD~1..HEAD
+grep -v 'testinfra stub' "$D/docs/review-charter.md" > "$D/rc.tmp" && mv "$D/rc.tmp" "$D/docs/review-charter.md"; git -C "$D" commit -qam charter-testinfra-gone
+diffcase charter-removed core+testinfra HEAD~1..HEAD
+# The stub-line read survives a subdirectory cwd, forced color and a `-diff` attribute,
+# each of which hid the edited stub (Codex code pass).
+stubedit() { sed "s/An install stub[^.]*/An install stub, edited $1/" "$D/docs/review-charter.md" > "$D/rc.tmp" && mv "$D/rc.tmp" "$D/docs/review-charter.md"; git -C "$D" commit -qam "stub $1"; }
+stubedit sub; DRUN=$D/sub; diffcase charter-subdir core+install HEAD~1..HEAD; DRUN=
+git -C "$D" config color.diff always; git -C "$D" config color.ui always
+stubedit color; diffcase charter-color core+install HEAD~1..HEAD
+git -C "$D" config --unset color.diff; git -C "$D" config --unset color.ui
+printf 'docs/review-charter.md -diff\n' > "$D/.gitattributes"; git -C "$D" add .gitattributes; git -C "$D" commit -qm attr
+stubedit binary; diffcase charter-binary core+install HEAD~1..HEAD
+git -C "$D" rm -q .gitattributes; git -C "$D" commit -qm unattr
+# A submodule at an area's root: git names the gitlink by its bare path (Codex code pass).
+# A gitlink written straight into the index, so no clone and no network.
+E=$T/erepo; mkrepo "$E"; echo a > "$E/f"; git -C "$E" add f; git -C "$E" commit -qm one
+git -C "$E" update-index --add --cacheinfo "160000,$(git -C "$E" rev-parse HEAD),internal/testguard"; git -C "$E" commit -qm link
+# (`commit -a` would drop the gitlink: it has no directory in the working tree.)
+echo b > "$E/f"; git -C "$E" add f; git -C "$E" commit -qm two
+git -C "$E" update-index --cacheinfo "160000,$(git -C "$E" rev-parse HEAD),internal/testguard"; git -C "$E" commit -qm bump
+DRUN=$E; diffcase gitlink core+testinfra HEAD~1..HEAD; DRUN=
+# Every area path, one commit each: the list is the spec, so dropping a path from the
+# script's area is a red here (Codex code pass: deleting update.go went unseen).
+for ap in install:scripts/install.sh install:scripts/uninstall.sh install:scripts/install-lock.sh install:scripts/wire-hooks.py \
+  install:scripts/gate-hook.py install:scripts/install-skill.sh install:scripts/setup-clone.sh install:scripts/codex-gate-row.sh \
+  install:scripts/check-install.sh install:scripts/check-uninstall.sh install:scripts/check-gate-line.sh \
+  install:scripts/check-setup-clone.sh install:scripts/hooks/agent-model-gate.py install:internal/cli/update.go \
+  install:internal/cli/update_test.go install:internal/cli/uninstall.go install:internal/cli/uninstall_test.go \
+  install:internal/cli/browser_test.go install:docs/review-charter-install.md \
+  testinfra:internal/testguard/testguard.go testinfra:internal/testguard/sub/x.go testinfra:internal/cli/cli_test.go \
+  testinfra:docs/review-charter-testinfra.md; do
+  mkdir -p "$D/$(dirname "${ap#*:}")"; dcommit "${ap#*:}"
+  diffcase "area-$(printf '%s' "${ap#*:}" | tr -c 'A-Za-z0-9.' '_')" "core+${ap%%:*}" HEAD~1..HEAD
+done
+# A rename's OLD end is a path in the area: --no-renames names both ends.
+git -C "$D" mv scripts/install.sh sub/renamed.sh && git -C "$D" commit -qm rename
+diffcase rename core+install HEAD~1..HEAD
+# A single rev is that rev against the working tree: an uncommitted change counts, and so
+# does an untracked new file (a new file in an area must not hide).
+echo dirty >> "$D/internal/cli/cli_test.go"
+diffcase worktree core+testinfra HEAD
+git -C "$D" checkout -q -- internal/cli/cli_test.go
+echo new > "$D/scripts/hooks/new.py"
+echo dirty >> "$D/sub/n.txt"
+diffcase untracked core+install HEAD
+rm "$D/scripts/hooks/new.py"
+diffcase tracked-only core HEAD
+git -C "$D" checkout -q -- sub/n.txt
+# Paths are the top's, whatever the cwd and the repository's diff.relative: run from sub/
+# with diff.relative=true, a change outside sub/ is still seen.
+git -C "$D" config diff.relative true
+dcommit internal/testguard/w.go
+DRUN=$D/sub; diffcase relative core+testinfra HEAD~1..HEAD; DRUN=
+git -C "$D" config --unset diff.relative
+# Refusals: before any run, nothing launched, the out-file names the refusal, and a
+# leading-dash value writes no file (git would take --output=<file> as an option).
+for kv in CODEX_DIFF= CODEX_DIFF=--output=$T/injected CODEX_DIFF=no-such-rev CODEX_DIFF=HEAD..HEAD; do
+  n=refuse-diff-$(printf '%s' "${kv#CODEX_DIFF=}" | tr -c 'A-Za-z0-9.' '_')
+  O=$T/out/$n.txt; stale "$O"
+  RUNDIR=$D; run "$n" 1 "$O" CODEX_NO_CHARTER=0 "$kv"; RUNDIR=
+  has "$O" "refused: " || fail "$n: out-file does not name the refusal"
+  has "$O" "refused: CODEX_DIFF with CODEX_NO_CHARTER" && fail "$n: refused for the wrong reason"
+  [ "$launched" -eq 0 ] || fail "$n: stub launched $launched times, want 0"
+done
+[ ! -e "$T/injected" ] || fail "refuse-diff: a leading-dash CODEX_DIFF reached git as an option and wrote a file"
+O=$T/out/refuse-diff-nocharter.txt; stale "$O"
+RUNDIR=$D; run refuse-diff-nocharter 1 "$O" CODEX_DIFF=HEAD~1..HEAD; RUNDIR=
+has "$O" "refused: CODEX_DIFF with CODEX_NO_CHARTER=1" || fail "refuse-diff-nocharter: out-file does not name the refusal"
+mkdir -p "$T/nogit2"
+O=$T/out/refuse-diff-nogit.txt; stale "$O"
+RUNDIR=$T/nogit2; run refuse-diff-nogit 1 "$O" CODEX_NO_CHARTER=0 CODEX_DIFF=HEAD; RUNDIR=
+has "$O" "refused: CODEX_DIFF outside a git checkout" || fail "refuse-diff-nogit: out-file does not name the refusal"
 
 # A missing prompt, after the out-file is armed.
 O=$T/out/noprompt.txt; stale "$O"
@@ -332,4 +459,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"
+echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts, 21 CODEX_DIFF picks + 23 area paths + 6 refusals, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"

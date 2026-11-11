@@ -48,7 +48,9 @@
 #                  ONE level of closure (a named file's own "read ... first"
 #                  section joins; that file's list does not recurse);
 #   codex-pass     AGENTS.md and the charter codex-review.sh prepends (the path
-#                  is read from its CHARTER= line, not assumed).
+#                  is read from its CHARTER= line, not assumed), plus the code-area
+#                  parts it appends to every pass with no CODEX_DIFF (its
+#                  CHARTER_INSTALL= and CHARTER_TESTINFRA= lines, D-158).
 # Two more enumerated paths are in NO class: the adapter and process charters
 # codex-review.sh appends only under CODEX_CHARTER=adapter|process|all (its
 # CHARTER_ADAPTER= and CHARTER_PROCESS= lines, D-128, D-147). Each needs its own
@@ -235,10 +237,13 @@ members() {
 		fi
 		# Exactly one assignment: with two, the script appends the last and `head -1`
 		# would budget the first (Codex code pass).
-		for v in CHARTER_ADAPTER CHARTER_PROCESS; do
+		# The code-area parts ride a pass with no knob set, so codex-pass counts them; the
+		# flagged ones ride only when asked, so no class does (D-158).
+		for v in CHARTER_ADAPTER:flagged CHARTER_PROCESS:flagged CHARTER_INSTALL:codex-pass CHARTER_TESTINFRA:codex-pass; do
+			to=${v#*:} v=${v%%:*}
 			c=$(sed -n "s#^$v=.*/\\(docs/[A-Za-z0-9_./-]*\\.md\\)\".*\$#\\1#p" "$R/scripts/codex-review.sh")
 			if [ -z "$c" ] || [ "$(grep -c "^[[:space:]]*$v=" "$R/scripts/codex-review.sh")" != 1 ]; then echo "scripts/codex-review.sh#$v=" >> "$O/unparsed"
-			elif [ -f "$R/$c" ]; then echo "$c" >> "$O/flagged"
+			elif [ -f "$R/$c" ]; then echo "$c" >> "$O/$to"
 			else echo "scripts/codex-review.sh->$c" >> "$O/dangling"
 			fi
 		done
@@ -419,7 +424,9 @@ printf '# sneak\n' > "$FX/docs/sneak.md"
 printf '# charter\n' > "$FX/docs/review-charter.md"
 printf '# adapter charter\n' > "$FX/docs/review-charter-adapter.md"
 printf '# process charter\n' > "$FX/docs/review-charter-process.md"
-printf 'CHARTER="$(pwd)/docs/review-charter.md"\nCHARTER_ADAPTER="$(pwd)/docs/review-charter-adapter.md"\nCHARTER_PROCESS="$(pwd)/docs/review-charter-process.md"\n' > "$FX/scripts/codex-review.sh"
+printf '# install charter\n' > "$FX/docs/review-charter-install.md"
+printf '# testinfra charter\n' > "$FX/docs/review-charter-testinfra.md"
+printf 'CHARTER="$(pwd)/docs/review-charter.md"\nCHARTER_ADAPTER="$(pwd)/docs/review-charter-adapter.md"\nCHARTER_PROCESS="$(pwd)/docs/review-charter-process.md"\nCHARTER_INSTALL="$(pwd)/docs/review-charter-install.md"\nCHARTER_TESTINFRA="$(pwd)/docs/review-charter-testinfra.md"\n' > "$FX/scripts/codex-review.sh"
 printf -- '---\nname: s\ndescription: |\n  a planted skill\n\n  past the blank line, a continuation long enough to cross its ceiling\n---\n\nBody of the planted skill, longer than its class allows.\n' > "$FX/skills/s/SKILL.md"
 printf 'a new always-loaded rules file nobody budgeted\n' > "$FX/.claude/rules/new.md"
 {
@@ -440,13 +447,23 @@ printf 'a new always-loaded rules file nobody budgeted\n' > "$FX/.claude/rules/n
 	printf 'docs/gone.md\t1000\tfixture\tvanished\n'
 } > "$FX/table.tsv"
 got=$(judge "$FX" "$FX/table.tsv" | sed -n 's/^FAIL //p' | sort | tr '\n' ';' || true)
-want='directive CLAUDE.md:12;over CLAUDE.md;over per-session;over skills/s/SKILL.md:description;unbudgeted .claude/rules/new.md;unbudgeted docs/c.md;unbudgeted docs/e.md;unbudgeted docs/f.md;unbudgeted docs/i2.md;unbudgeted docs/review-charter-adapter.md;unbudgeted docs/review-charter-process.md;vanished docs/gone.md;'
+want='directive CLAUDE.md:12;over CLAUDE.md;over per-session;over skills/s/SKILL.md:description;unbudgeted .claude/rules/new.md;unbudgeted docs/c.md;unbudgeted docs/e.md;unbudgeted docs/f.md;unbudgeted docs/i2.md;unbudgeted docs/review-charter-adapter.md;unbudgeted docs/review-charter-install.md;unbudgeted docs/review-charter-process.md;unbudgeted docs/review-charter-testinfra.md;vanished docs/gone.md;'
 [ "$got" = "$want" ] || fail "the judge reported '$got' on its planted tree, want '$want' — the gate is broken, not the tree"
+# The class each charter part lands in: the code-area parts ride a pass with no knob, so
+# codex-pass counts them; the flagged ones no class does. The judge above reports both
+# kinds as `unbudgeted` alike, so it cannot tell a part filed under the wrong one
+# (mutation, D-158).
+MW=$(mktemp -d -t prose-budget.XXXXXX); members "$FX" "$MW"
+for f in install testinfra; do grep -qx "docs/review-charter-$f.md" "$MW/codex-pass" && ! grep -qx "docs/review-charter-$f.md" "$MW/flagged" ||
+	fail "docs/review-charter-$f.md is not in the codex-pass class alone on the planted tree — the gate is broken, not the tree"; done
+for f in adapter process; do grep -qx "docs/review-charter-$f.md" "$MW/flagged" && ! grep -qx "docs/review-charter-$f.md" "$MW/codex-pass" ||
+	fail "docs/review-charter-$f.md is not flagged alone on the planted tree — the gate is broken, not the tree"; done
+rm -rf "$MW"
 [ "$(formula 3723)" = 4096 ] && [ "$(formula 3724)" = 8192 ] || fail "the formula gave $(formula 3723) and $(formula 3724) for 3,723 and 3,724 bytes, want 4096 and 8192"
 
 if out=$(judge . "$TABLE"); then
 	echo "$out" | sed 's/^OK /  /'
-	echo "check-prose-budget: GREEN (planted tree: 12 failures found, 0 false; $(echo "$out" | grep -c '^OK ') keys under their ceilings)"
+	echo "check-prose-budget: GREEN (planted tree: 14 failures found, 4 part classes, 0 false; $(echo "$out" | grep -c '^OK ') keys under their ceilings)"
 else
 	echo "$out" | grep -v '^OK ' >&2
 	echo "check-prose-budget: FAIL — $(echo "$out" | grep -c '^FAIL ') line(s) above; nothing here is a warning" >&2

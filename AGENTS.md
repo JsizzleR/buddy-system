@@ -18,7 +18,9 @@ The operator's request determines the role, not the model name:
   review of adapter code (`internal/harness`, `cmd/buddy-adapter`, the
   qualify/check `.py` scripts, `docs/admissions/`) sets `CODEX_CHARTER=adapter`
   (D-128); one of process text (the skills, CLAUDE.md, this file, the review
-  docs) sets `process`, and one of both `all` (D-147). A pass through that script has the charter in its prompt: it opens
+  docs) sets `process`, and one of both `all` (D-147). Name the diff under review
+  as `CODEX_DIFF=<rev>|<a>..<b>`: unnamed, the install and test-infrastructure
+  parts ride every pass (D-158). A pass through that script has the charter in its prompt: it opens
   none of CLAUDE.md, docs/DESIGN.md and docs/review-charter.md unless its
   prompt asks (the read line above is for changing the repository).
 

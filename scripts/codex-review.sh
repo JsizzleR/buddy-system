@@ -44,8 +44,8 @@
 #     (Codex report A7): under Claude Code, call this with a 600000 ms Bash tool timeout,
 #     since a Bash call that outlives the tool's 120 s default is moved to the background,
 #     and the pass then runs backgrounded. Last measured in D-157: on Codex
-#     0.166.0 one 11 s backgrounded pass completed, and a minutes-long one was not
-#     measured, so the rule stands. On that version codex's stdout is not empty while it
+#     0.166.0 one real-size backgrounded pass completed; the foreground rule stands.
+#     On that version codex's stdout is not empty while it
 #     runs (header and echoed prompt within 1 s); only the reply comes at the end. This
 #     script still writes the out-file (reply and status) and <out-file>.transcript
 #     (codex's captured stdout and stderr) only after codex exits.
@@ -78,12 +78,18 @@
 #     the GIVENs only process text rests on (the skills, CLAUDE.md, AGENTS.md, a brief,
 #     the review docs), which no code change can violate; their code-level fences ride in
 #     the stubs (D-147, Codex report A4). `all` appends both, adapter first. Unset or
-#     `core` is the stub-only charter. Any other value REFUSES, set but empty included
+#     `core` asks for neither. Any other value REFUSES, set but empty included
 #     (an unset shell variable spliced in for `adapter`), and so does any value but
 #     `core` beside CODEX_NO_CHARTER=1: a caller who asked for more must never silently
-#     get less. The run header says which parts went in (`charter=<bytes>B(core)`,
-#     `(core+adapter)`, `(core+process)`, `(core+adapter+process)`), so a receipt can
-#     prove it.
+#     get less. Two CODE-AREA parts are not the caller's to ask for: the install GIVENs
+#     (docs/review-charter-install.md) and the test-watchdog ones
+#     (docs/review-charter-testinfra.md) ride EVERY pass, after adapter and before
+#     process, unless CODEX_DIFF=<rev>|<a>..<b> names the diff under review and no path
+#     in it is in that part's area; a CODEX_DIFF git cannot read, or that names no path,
+#     refuses, so a fault sends the part or stops, never omits it (D-158). The run header
+#     says which parts went in (`charter=<bytes>B(core+install+testinfra)` for a pass
+#     with no knobs, down to `(core)` when the named diff misses both areas, up to
+#     `(core+adapter+install+testinfra+process)`), so a receipt can prove it.
 #     Rejected: guessing the parts from the prompt text (the script sees a prompt file,
 #     not the diff), and a separate file with no stubs (a reviewer not handed it would not
 #     know the fences exist).
@@ -190,20 +196,128 @@ record() { # <rc> <exit> <elapsed> <header> <charter> <charter_bytes> <prompt_by
 }
 
 # (7) Which charter parts, decided BEFORE anything runs or waits for a slot, so a typo
-# costs nothing and is never a pass on the wrong charter (D-128, D-147). One word per
-# part set, not a list to parse: four values are all there are.
+# costs nothing and is never a pass on the wrong charter (D-128, D-147, D-158). One word
+# per caller-chosen part set, not a list to parse: four values are all there are.
+P_ADAPTER=0 P_PROCESS=0
 case ${CODEX_CHARTER-core} in
-  core) PARTS=core ;;
-  adapter) PARTS=core+adapter ;;
-  process) PARTS=core+process ;;
-  all) PARTS=core+adapter+process ;;
+  core) ;;
+  adapter) P_ADAPTER=1 ;;
+  process) P_PROCESS=1 ;;
+  all) P_ADAPTER=1 P_PROCESS=1 ;;
   *) die "CODEX_CHARTER='${CODEX_CHARTER}' is not core, adapter, process or all
   refused: unknown CODEX_CHARTER value" ;;
 esac
-if [ "${CODEX_NO_CHARTER:-0}" = "1" ] && [ "$PARTS" != core ]; then
+if [ "${CODEX_NO_CHARTER:-0}" = "1" ] && [ "${CODEX_CHARTER-core}" != core ]; then
   die "CODEX_CHARTER=${CODEX_CHARTER} asks for charter GIVENs and CODEX_NO_CHARTER=1 for no charter
   refused: CODEX_CHARTER=${CODEX_CHARTER} with CODEX_NO_CHARTER=1"
 fi
+# The code-area parts (D-158, the rest of Codex report A4): the GIVENs only install code
+# (53 111 119) or only the test watchdog (55 63) rests on. They are NOT caller-chosen: a
+# caller who forgets a flag gets a review that misses a rule, so each rides EVERY pass by
+# default, and only a diff the caller NAMES can drop one: CODEX_DIFF=<rev> (that rev
+# against the working tree) or <a>..<b>, read with git, the part dropped when no path in
+# it is in the part's area below. The script cannot read the diff unnamed: it is handed a
+# prompt file, and any base it picked (main, a merge-base, HEAD) misses a diff that is not
+# this checkout's tree, e.g. a review run from the main checkout of another lane's patch.
+# So every failure here REFUSES or SENDS, never omits: unset sends both; set but empty, a
+# leading `-` (git would read an option: `--output=<file>` writes one), a rev git cannot
+# read, outside a git checkout, or a diff naming no path refuses (an empty diff is a range
+# that is not the one under review); untracked files are added to the paths (a new file
+# in an area must not hide), and only ever add. A part's AREA is every file its GIVENs'
+# mechanism lives in and the part file itself, plus two rules by content: a changed line of
+# docs/review-charter.md carrying the part's stub mark (a stub edited is judged against its
+# full text). A path split by a newline in a name only adds a non-matching fragment.
+# The prose that restates these GIVENs (README, USAGE, CLAUDE.md) is in an area by
+# CONTENT, not path: a changed line naming the part's subject (the terms below). As
+# paths they would carry the parts on most passes. Measured over main's last 100 commits
+# (D-158): code paths alone keep the install part on 15 and the testinfra part on 2;
+# with the prose terms, 25 and 6 (about 2.8 KB less a pass than before the split); with
+# README and USAGE as paths, install on 44; with CLAUDE.md and the charter as paths too,
+# 63 and 56, MORE bytes than before the split.
+# Rejected: new CODEX_CHARTER values for these parts (a forgotten value omits them, the
+# failure the default exists to prevent), and guessing the diff (above).
+in_install() {
+  case $1 in
+    scripts/install.sh | scripts/uninstall.sh | scripts/install-lock.sh | scripts/wire-hooks.py | \
+    scripts/gate-hook.py | scripts/install-skill.sh | scripts/setup-clone.sh | scripts/codex-gate-row.sh | \
+    scripts/check-install.sh | scripts/check-uninstall.sh | scripts/check-gate-line.sh | \
+    scripts/check-setup-clone.sh | scripts/hooks | scripts/hooks/* | internal/cli/update.go | internal/cli/update_test.go | \
+    internal/cli/uninstall.go | internal/cli/uninstall_test.go | internal/cli/browser_test.go | \
+    docs/review-charter-install.md) return 0 ;;
+  esac
+  return 1
+}
+in_testinfra() {
+  case $1 in
+    internal/testguard | internal/testguard/* | internal/cli/cli_test.go | docs/review-charter-testinfra.md) return 0 ;;
+  esac
+  return 1
+}
+P_INSTALL=1 P_TESTINFRA=1
+if [ -n "${CODEX_DIFF+set}" ]; then
+  [ "${CODEX_NO_CHARTER:-0}" != "1" ] || die "CODEX_DIFF picks charter parts and CODEX_NO_CHARTER=1 asks for no charter
+  refused: CODEX_DIFF with CODEX_NO_CHARTER=1"
+  case $CODEX_DIFF in
+    '') die "CODEX_DIFF is set but empty (an unset variable spliced in?)
+  refused: empty CODEX_DIFF" ;;
+    -*) die "CODEX_DIFF='$CODEX_DIFF' starts with '-', which git would read as an option
+  refused: CODEX_DIFF is not a revision" ;;
+  esac
+  git rev-parse --git-dir > /dev/null 2>&1 || die "CODEX_DIFF names a diff and this is not a git checkout
+  refused: CODEX_DIFF outside a git checkout"
+  DIFF_PATHS=$(mktemp "${TMPDIR:-/tmp}/codex-review-paths.XXXXXX")
+  # --no-renames: a rename's old end is a path too; diff.relative off: paths from the top.
+  if ! git -c diff.relative=false -c core.fsmonitor=false diff --name-only -z --no-renames "$CODEX_DIFF" -- > "$DIFF_PATHS" 2> /dev/null; then
+    rm -f "$DIFF_PATHS"; die "git cannot read the diff CODEX_DIFF='$CODEX_DIFF' names
+  refused: CODEX_DIFF is not a diff git can read"
+  fi
+  if [ ! -s "$DIFF_PATHS" ]; then
+    rm -f "$DIFF_PATHS"; die "CODEX_DIFF='$CODEX_DIFF' names no changed path (a committed tip against itself?)
+  refused: CODEX_DIFF names an empty diff"
+  fi
+  git -c core.fsmonitor=false ls-files -z --others --exclude-standard --full-name -- "$(git rev-parse --show-toplevel)" >> "$DIFF_PATHS" 2> /dev/null || true
+  P_INSTALL=0 P_TESTINFRA=0 npaths=0 charter_hit=0
+  while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    npaths=$((npaths + 1))
+    if in_install "$_p"; then P_INSTALL=1; fi
+    if in_testinfra "$_p"; then P_TESTINFRA=1; fi
+    case $_p in docs/review-charter.md | README.md | docs/USAGE.md | CLAUDE.md) charter_hit=1 ;; esac
+  done <<EOF
+$(tr '\000' '\n' < "$DIFF_PATHS")
+EOF
+  rm -f "$DIFF_PATHS"
+  # By content, for the charter and the prose that restates these GIVENs (README, USAGE,
+  # CLAUDE.md): a changed line (either side) carrying a part's stub mark is that stub
+  # edited, and one naming the part's subject is a restatement a stub-only reviewer could
+  # pass wrong (Codex code pass: "the install lock is a directory under HOME" in CLAUDE.md,
+  # "the watchdog's deadline is -test.timeout"). The terms are words, so a restatement
+  # in other words still escapes: the residual D-158 records. Unreadable here is a
+  # refusal, not a miss: the paths above already read this diff. The pathspecs are
+  # top-anchored (`:/`: from scripts/ a bare one names scripts/docs/...), color is off and
+  # the text forced (color.diff=always or a `-diff` attribute hid every line; Codex), and a
+  # change that yields no changed line at all sends both parts: it cannot say which did.
+  if [ $charter_hit = 1 ]; then
+    _cl=$(git -c diff.relative=false -c core.fsmonitor=false -c color.ui=false diff -U0 --no-color --text --no-renames --no-ext-diff --no-textconv "$CODEX_DIFF" -- \
+      ':/docs/review-charter.md' ':/README.md' ':/docs/USAGE.md' ':/CLAUDE.md' 2> /dev/null) ||
+      die "git cannot read the charter's or the prose's lines in CODEX_DIFF='$CODEX_DIFF'
+  refused: CODEX_DIFF is not a diff git can read"
+    _cl=$(printf '%s\n' "$_cl" | grep -E '^[-+]' | grep -Ev '^(\+\+\+|---) ' || true)
+    if [ -z "$_cl" ]; then P_INSTALL=1 P_TESTINFRA=1; fi
+    case $_cl in *'(full text: part `install`)'*) P_INSTALL=1 ;; esac
+    case $_cl in *'(full text: part `testinfra`)'*) P_TESTINFRA=1 ;; esac
+    if printf '%s\n' "$_cl" | grep -Eiq 'install|wire-hooks|buddy update|launchd|kickstart|BUDDY_BIN_DIR|gate-hook|agent-model|setup-clone'; then P_INSTALL=1; fi
+    if printf '%s\n' "$_cl" | grep -Eiq 'testguard|watchdog|TestMain|forkexec|orphan|symboliz|test\.timeout|go test'; then P_TESTINFRA=1; fi
+  fi
+  _w() { if [ "$1" = 1 ]; then echo sent; else echo "stub only"; fi; }
+  echo "codex-review: CODEX_DIFF=$CODEX_DIFF: $npaths path(s); install part $(_w $P_INSTALL), testinfra part $(_w $P_TESTINFRA) (D-158)" >&2
+fi
+# The header word, in the order the parts are appended.
+PARTS=core
+[ $P_ADAPTER = 0 ] || PARTS=$PARTS+adapter
+[ $P_INSTALL = 0 ] || PARTS=$PARTS+install
+[ $P_TESTINFRA = 0 ] || PARTS=$PARTS+testinfra
+[ $P_PROCESS = 0 ] || PARTS=$PARTS+process
 
 # (5) Refuse to stack runs. Kill by PID, never `pkill -f` (see 4).
 #
@@ -298,18 +412,30 @@ if [ "$SRC" = "-" ]; then cat > "$TMP/raw"; else [ -f "$SRC" ] || die "no such p
 CHARTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter.md"
 CHARTER_ADAPTER="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-adapter.md"
 CHARTER_PROCESS="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-process.md"
+CHARTER_INSTALL="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-install.md"
+CHARTER_TESTINFRA="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/docs/review-charter-testinfra.md"
 REVIEWER_LINE='You are a constrained review pass, and the charter above is already in this prompt: do not open CLAUDE.md, docs/DESIGN.md or docs/review-charter.md unless the review below asks for one of them (AGENTS.md says to read them before CHANGING the repository; a review changes nothing). Read only what the review below asks for.'
 if [ "${CODEX_NO_CHARTER:-0}" != "1" ]; then
   [ -f "$CHARTER" ] || die "docs/review-charter.md is missing (CODEX_NO_CHARTER=1 to skip)"
   cat "$CHARTER" > "$TMP/charter"
-  case $PARTS in *+adapter*)
+  if [ $P_ADAPTER = 1 ]; then
     [ -f "$CHARTER_ADAPTER" ] || die "docs/review-charter-adapter.md is missing; CODEX_CHARTER=${CODEX_CHARTER} asked for it"
-    { printf '\n\n'; cat "$CHARTER_ADAPTER"; } >> "$TMP/charter" ;;
-  esac
-  case $PARTS in *+process)
+    { printf '\n\n'; cat "$CHARTER_ADAPTER"; } >> "$TMP/charter"
+  fi
+  # A missing code-area part refuses like a missing asked-for one: it rides by default
+  # because a review without it misses a rule (D-158).
+  if [ $P_INSTALL = 1 ]; then
+    [ -f "$CHARTER_INSTALL" ] || die "docs/review-charter-install.md is missing (it rides every pass whose CODEX_DIFF does not leave it out)"
+    { printf '\n\n'; cat "$CHARTER_INSTALL"; } >> "$TMP/charter"
+  fi
+  if [ $P_TESTINFRA = 1 ]; then
+    [ -f "$CHARTER_TESTINFRA" ] || die "docs/review-charter-testinfra.md is missing (it rides every pass whose CODEX_DIFF does not leave it out)"
+    { printf '\n\n'; cat "$CHARTER_TESTINFRA"; } >> "$TMP/charter"
+  fi
+  if [ $P_PROCESS = 1 ]; then
     [ -f "$CHARTER_PROCESS" ] || die "docs/review-charter-process.md is missing; CODEX_CHARTER=${CODEX_CHARTER} asked for it"
-    { printf '\n\n'; cat "$CHARTER_PROCESS"; } >> "$TMP/charter" ;;
-  esac
+    { printf '\n\n'; cat "$CHARTER_PROCESS"; } >> "$TMP/charter"
+  fi
   # One fixed line after the charter (Codex report A1): of 97 surviving out-files, 84
   # passes opened CLAUDE.md, 84 docs/DESIGN.md and 80 the charter itself, because
   # AGENTS.md (which codex loads on every run) says to read them before changing the
