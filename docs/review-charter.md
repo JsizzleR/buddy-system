@@ -1088,13 +1088,16 @@ ledger row entered through the CLI (D-006).
     operator's, not taken. Do not propose failing it closed, `_FORCE=1`, or a buddy verb for a
     batch.
 
-118. **buddy's views say their facts; the why is in the skill (D-123).** hello's chat and help
+118. **buddy's views say their facts; the why is in the skill (D-123, D-167).** hello's chat and help
     lines, an ended roster row (no context note; D-091's 24-hour window unchanged), the
     `who`/`status` suffixes, the `msg` wake clause and the plain inbox header were cut to words
     only. Kept: every help-line name (D-046), the claims list and its descriptions uncut (a
     hand-off path rides them), the wake address and "stays queued" (D-041, D-052), "cannot say"
     apart from "none" (D-065), "untrusted", every fence, verdict and EXIT/JOBS clause. Do not
     propose restoring an explanation the skill holds, or cutting a claim's description in hello.
+    D-167: a wait declaration's keep-alive and timer lines say facts too, and `ids ls` folds blocks
+    taken over 3d ago into a count that `--all` lists; a folded block is still held. Do not propose
+    restoring the advice to the line.
 
 119. **Removal is `scripts/uninstall.sh [--chat] [--dry-run]`, which `buddy uninstall` runs as update runs install.sh (D-125): chat first through launchd, buddy last by one unlink; `--chat` removes chat once D-124's stamp reads off; install and uninstall hold one lock (D-126).** Settings, ledgers, the journal and the rest are reported, never touched. Do not propose: a `--purge`, editing settings, killing a daemon, or removing buddy before chat. (full text: part `install`)
 
@@ -1150,9 +1153,13 @@ ledger row entered through the CLI (D-006).
     refusal without new evidence.
 
 124. **A receipt layer may carry what it found; a count not written is not recorded, never zero
-    (D-141, amends D-104).** `<layer>: <n> raised, <n> fixed, <n> answered, <n> reproduced`, each once;
+    (D-141, amends D-104; D-163).** `<layer>: <n> raised, <n> fixed, <n> answered, <n> reproduced`, each once;
     `model-report.sh` sums them per tier x layer from the receipts. Do not propose tuning a tier before
-    the counts exist, or reading a missing count as 0.
+    the counts exist, or reading a missing count as 0. After D-163's cut (2026-11-11 14:12Z), until
+    the operator's panel-size decision, counts are OWED on a lite or full receipt's panel, design,
+    code, cross-check and reverify layers: `receipt-check.sh` reports `owes counts on <kind>`, exits 0
+    and refuses nothing (126); `self`, `other` and a chore's reason owe none. Do not propose making
+    it refuse, holding history before the cut, or an expiry in the script, without new evidence.
 125. **Only the hooks' binary migrates an existing ledger, after a verified backup (D-136).** An
     existing older ledger (version not exactly 0, or 0 with tables) migrates only when the running
     executable is `os.SameFile` as `$HOME/bin/buddy`, or under `BUDDY_MIGRATE=1` exactly; else
@@ -1169,8 +1176,6 @@ ledger row entered through the CLI (D-006).
     epoch. Do not propose making it refuse without new evidence.
 127. **Every Codex pass leaves one counts-only row in `<git-common-dir>/codex-passes.tsv` (D-146).** `codex-review.sh` writes it (a pass it saw finish, or busy), `cost-report.sh` aggregates it; numbers, fixed words or `[A-Za-z0-9._+-]{1,64}`, never review text; a failed write never changes the verdict. Do not propose a ledger table or text in the row.
 128. **With no live registered harness process, a send's result line says the ledger cannot tell a Codex recipient, whose mail waits for its `buddy inbox` (D-160).** Only a Claude hook registers one; the ledger records no harness. Do not propose inferring the harness from the id, or a schema column, without new evidence.
-129. **Counts are owed on a lite or full receipt's panel, design, code, cross-check and reverify layers after D-163's cut (2026-11-11 14:12Z), until the operator's panel-size decision (D-163, amends D-141).** `receipt-check.sh` reports `owes counts on <kind>`, exits 0 and refuses nothing; `self`, `other` and a chore's reason owe none. Do not propose making it refuse, holding history before the cut, or an expiry in the script, without new evidence.
-130. **A wait declaration's keep-alive and timer lines say facts, and `ids ls` folds blocks taken over 3d ago into a count that `--all` lists (D-167).** The why is the skill's (D-123); a folded block is still held. Do not propose restoring the advice to the line.
 
 ## Environment facts (measured, do not re-derive)
 
