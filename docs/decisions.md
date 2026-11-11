@@ -11178,3 +11178,86 @@ notice, so a Codex session is never told; the line now says so and names its
 Codex session's `buddy inbox`. USAGE's msg section and its two LANDED one-shot
 lines, and the core and fleet skills' message lines, say the same.
 docs/DEMO-RUN.md, a captured run, is left as captured.
+
+## D-163 — Counts are owed on a receipt's panel, cross-check and Codex layers for a measuring period; `receipt-check.sh` reports a layer without them after a cut (token-overhead finding 2; amends D-141)
+
+2026-11-11. The token-overhead report's finding 2 (section 4d; Fable lane, as
+of 2026-11-11); the operator's "do them all" on that report (orc-19's pane,
+about 14:12Z), relayed by orc-19. Amends D-141, whose counts were optional.
+
+**The failure.** D-141 let a layer carry what it found and changed no tier
+"until two or three weeks of counts exist". Three weeks on they do not: read by
+`model-report.sh` over HEAD at `1b0e87f`, 168 receipts, 320 layers, counts
+recorded on 5, all lite code passes (17 raised, 13 fixed, 9 reproduced); 21
+full-tier panel layers and 17 full cross-checks, 0 with counts. The report
+measured review subagents at 263.6 M tokens read in 14 days, 43% of all cache
+writes and about 26% of weighted cost (D-141 measured 29%), and put a 4-lens
+panel at about the cost of the lane it reviews (I: 4 x 0.5 M against 2.3 M
+input-equivalents). Optional counts were not written, so the panel's yield is
+unknown by construction and its size cannot be decided on numbers. One
+receipt (`f2cf235`) did write counts, after the closing parenthesis, where the
+reader (D-141, D-143) does not look.
+
+**The rule.** From the cut on, a `lite` or `full` receipt's panel, design,
+code, cross-check and reverify layers each OWE a count group inside the layer
+list (`codex@xhigh code: 2 raised, 2 fixed`; `0 raised` when it found
+nothing). A `self` layer's counts stay optional, a chore's parenthesis is its
+reason and owes none, and a layer the reader cannot place (`other`) owes none.
+`receipt-check.sh` reports `<tier>  owes counts on <kind>` once per kind
+lacking a group; a MALFORMED group is its own finding already and is not
+reported twice; a skip note names no layer that ran and owes nothing. It is
+still a report that exits 0 and refuses nothing (D-143): the grammar, the
+reader (`scripts/receipts.awk`, unchanged) and `model-report.sh` are as D-141
+left them. The core skill's "Your review", the fleet skill's review
+paragraph and CLAUDE.md's Review line say counts are owed, inside the
+parenthesis.
+
+**The cut** is the committer epoch of the operator's word, 2026-11-11
+14:12:00Z (1794406320), as D-143's cuts are epochs: main's last commit before
+it is `1b0e87f` (05:48Z that day), so no landed commit is held for counts, and
+every lane commit or landing squash after it is. A commit at the cut is not
+held.
+
+**The period, and what decides its end.** Counts are owed while the panel's
+size is measured: until the later of 2026-12-02 (three weeks from the cut,
+D-141's own horizon) and the day `model-report.sh`'s `full panel` row shows at
+least 10 in its `recorded` column (about two weeks of full items at the rate
+since D-104: 21 panel layers in 16 days). The coordinator reads that row at
+the start of each run; when both hold, it puts the panel-size decision to the
+operator. That decision is the operator's, amends D-104, and says whether
+counts stay owed. Until it is taken, counts stay owed and the check keeps
+reporting: nothing in the script expires on a date, because a report that
+quietly stopped would read the same as one with nothing to say.
+
+**Saving.** None claimed for this entry; the report's estimate rests on the
+later panel decision, and is a lead (I) until then.
+
+- **Not done.** Sizing the panel (the later decision above). Owing counts on a
+  `self` layer, or on a chore's voluntary second-model pass (the chore's
+  parenthesis is read as its reason; "no code changed" would read as a code
+  layer). Reading counts written after the parenthesis (`f2cf235`'s shape):
+  the skills now say where they go, and widening the reader would read a
+  scope note's numbers as a layer's.
+
+**Tests** — `check-receipt-check.sh` plants 20 more commits: one lite at the
+cut (not held) and the same one second later (`owes counts on code`); a full
+counted on every layer (clean) beside five fulls each missing one kind's
+counts, each held for exactly that kind, and a full with none (five findings);
+`self` and `other` layers uncounted, a chore whose reason names code, a
+counted full with a skip note, and a full whose code wrote `0 raised` (all
+clean), beside a full counted 0 on every layer whose re-verify ran uncounted
+(`owes counts on reverify`: the re-verify is not owed after a zero, but one
+that ran owes its counts; Codex code pass); a malformed group after the cut
+(one finding, malformed); counts after the parenthesis, words after a layer's
+colon (`code: none raised`) and two code layers with one counted (each `owes
+counts on code`, once); a list-less full (only `has no layer list`). The D-141
+fixtures moved to an epoch between the D-141 and D-163 cuts, so they keep
+their meaning. Mutants, each in a private copy: 22, of which 18 die on their
+own fixture (the cut as `>=`, as D-141's, one second later; any tier held; a
+malformed group read as bare; each of the five kinds dropped from the bare set
+and from the calls; the reader reading words after a colon as a group, which
+survived until `code: none raised` was planted; a re-verify's counts dropped
+after a zero code layer, which survived until the Codex code pass found it)
+and 4 survive as equivalent (dropping `!nolist`, adding `self` or `other` to
+the bare set, moving the bare line above the returns: no row reaches them).
+Review: lite (self + codex@xhigh code: 2 raised, 2 fixed, 1 reproduced).

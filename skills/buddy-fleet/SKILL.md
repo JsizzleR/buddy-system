@@ -520,8 +520,11 @@ one.
   `review: full (panel + <second>@<effort> design + <second>@<effort> code + <third model> + <second>@<effort> reverify)`.
   A layer the tier owes is skipped only on the operator's word (the cap), and
   the receipt then names it with the reason; a lane never skips one on its
-  own (D-104). Each layer may end in its counts, as the core skill teaches
-  (`: 3 raised, 1 reproduced`); one not written is not recorded, never zero.
+  own (D-104). On a lite or full receipt, each panel, cross-check and
+  second-model layer owes its counts, as the core skill teaches
+  (`: 3 raised, 1 reproduced`; D-163): a brief says so, and the repo's
+  receipt check reports a layer without them. One not written is not
+  recorded, never zero.
 - **The operator caps the tier per run** (for example "lite at most,
   optional, no second model family"), and the brief carries the cap. A lane
   never raises its own tier above it, and never lowers the brief's.

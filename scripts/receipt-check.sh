@@ -34,11 +34,27 @@
 # of the three, a lite or full with no layer list, and, after D-141, a layer
 # whose count group is MALFORMED.
 #
+# COUNTS OWED (D-163, amends D-141). D-141 made a layer's count group
+# optional and deferred any tier change until counts existed; three weeks on,
+# 5 of 320 layers at 1b0e87f carried one and no panel layer did, so a panel's yield was
+# unknown by construction. From D-163's cut on, a lite or full receipt's
+# panel, design, code, cross-check and reverify layers each owe a count group
+# (`0 raised` when the layer found nothing): one with none is reported as
+# `owes counts on <kind>`, once per kind. A `self` layer, a kind the reader
+# cannot place (`other`) and a chore's parenthesis (its reason, not layers;
+# a reason such as "no code" would read as a code layer) owe none. A MALFORMED
+# group is already its own finding, so it is not reported twice. A skip-note
+# row names no layer that ran, so it owes nothing either.
+#
 # WHAT IS NEVER HELD. A commit committed at or before D-104 (0e1a5d9, epoch
 # 1793074046) is counted and not read: its receipt predates the rule. The
 # count grammar is held only after D-141 (ffaf5bf, epoch 1794322479); one
 # older receipt reads MALFORMED by that grammar (dc1b37a) and is not a
-# finding. The cut is the COMMITTER epoch, not an ancestor test, so it
+# finding. Counts are owed only after D-163's cut, the operator's "do them
+# all" on the token-overhead report (2026-11-11 14:12:00Z, epoch 1794406320):
+# main's last commit before it is 1b0e87f (05:48Z that day), and a lane's
+# commit or a landing squash is committed after it, so history is never held
+# for counts. Each cut is the COMMITTER epoch, not an ancestor test, so it
 # survives a rewritten main; a landing squash commits at landing time.
 #
 # The reader is scripts/receipts.awk, the one model-report.sh uses, so the
@@ -67,10 +83,10 @@ git rev-parse -q --git-dir >/dev/null 2>&1 || { echo "receipt-check: not a git c
 n=$(git rev-list --count --end-of-options "$range" 2>/dev/null) || {
 	echo "receipt-check: git cannot read that range" >&2; exit 1; }
 
-echo "Receipt check (D-104, D-143): a tier's owed layers the receipt does not name; a report, it refuses nothing"
+echo "Receipt check (D-104, D-143, D-163): a tier's owed layers, and owed counts, the receipt does not name; a report, it refuses nothing"
 git log --no-color --format='%x00%H %ct%n%B' --end-of-options "$range" | tr '\001' ' ' | tr '\000' '\001' |
 	LC_ALL=C awk -v OFS='\t' -v check=1 -f "$awkf" |
-	LC_ALL=C awk -F'\t' -v n="$n" -v d104=1793074046 -v d141=1794322479 '
+	LC_ALL=C awk -F'\t' -v n="$n" -v d104=1793074046 -v d141=1794322479 -v d163=1794406320 '
 function owe(s, t, k) {
 	if (k == "reverify" && zero[s]) return
 	if (!((s, k) in has)) find(s, t "  owes " k)
@@ -84,7 +100,11 @@ function find(s, w) { F[s, ++nf[s]] = w; nfind++ }
 	has[s, $5] = 1
 	if ($5 == "code" && $6 == "recorded" && $7 == "0") zero[s] = 1
 	if ($6 == "malformed") mal[s]++
+	# D-163: a layer that ran and wrote no count group. Rows of layer# 0
+	# (no list, a skip note) returned above, so this is a listed layer.
+	if ($6 == "none" && ($5 == "panel" || $5 == "design" || $5 == "code" || $5 == "cross-check" || $5 == "reverify")) bare[s, $5] = 1
 }
+function counts(s, t, k) { if ((s, k) in bare) find(s, t "  owes counts on " k) }
 END {
 	for (i = 1; i <= ns; i++) {
 		s = order[i]; t = tier[s]
@@ -100,6 +120,9 @@ END {
 		else if (t == "full") { owe(s, t, "panel"); owe(s, t, "design"); owe(s, t, "code"); owe(s, t, "cross-check"); owe(s, t, "reverify") }
 		else if (t == "lite") { owe(s, t, "self"); owe(s, t, "code") }
 		if (mal[s] && ct[s] > d141) find(s, r "  " mal[s] " malformed count group(s)")
+		if (ct[s] > d163 && (t == "lite" || t == "full") && !nolist[s]) {
+			counts(s, t, "panel"); counts(s, t, "design"); counts(s, t, "code"); counts(s, t, "cross-check"); counts(s, t, "reverify")
+		}
 		if (nf[s]) nc++
 	}
 	printf "commits: %d; before D-104, not held: %d; held: %d, with a finding: %d (%d finding(s))\n", n, old, held, nc, nfind

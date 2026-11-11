@@ -3,8 +3,8 @@
 # the D-104 receipt check, and for what it added to scripts/receipts.awk.
 #
 # HERMETIC: sh, git. Every commit is planted in a throwaway repo with a
-# chosen COMMITTER epoch, because the check's two cuts (D-104, D-141) are
-# epochs. It never reads this checkout's history: over real history the
+# chosen COMMITTER epoch, because the check's three cuts (D-104, D-141,
+# D-163) are epochs. It never reads this checkout's history: over real history the
 # check is a report (a red there would refuse every push, for a commit
 # nobody can fix), so only planted commits can hold it.
 #
@@ -26,6 +26,16 @@
 #     held, the same before it is not;
 #   - a receipt in the subject's paragraph is read (#87), and a subject line
 #     `review: …` alone is not;
+#   - counts owed (D-163): after its cut, a lite or full layer of kind
+#     panel, design, code, cross-check or reverify with no count group is
+#     held, once per kind, each kind alone beside a receipt counted on
+#     every layer; the same uncounted receipt AT the cut is not; a `self`
+#     layer, an `other` layer, a chore's reason ("no code changed"), a skip
+#     note and a list-less full owe none; `0 raised` is a count, and a
+#     re-verify that ran owes its counts even when code raised 0; a
+#     malformed group is reported once, as malformed; counts written after
+#     the closing parenthesis are not read, so that layer owes them, and
+#     words after a layer's colon (`code: none raised`) are not counts;
 #   - a range limits what is read; an option-shaped range is refused before
 #     git sees it (exit 2, no file written), and so are two ranges;
 #   - no planted text reaches the output, and every line is a known shape.
@@ -43,8 +53,12 @@ R="$WORK/repo"
 mkrepo "$R"
 D104=1793074046
 D141=1794322479
+D163=1794406320
 MID=$((D104 + 100000))
-NEW=$((D141 + 100000))
+# NEW lies between D-141 and D-163: held for the count grammar, not for
+# counts owed, so the D-141 fixtures keep their meaning.
+NEW=$((D141 + 1000))
+LATE=$((D163 + 100000))
 CAN=RCPTcnry5q
 
 # c <name> <epoch> <message> — one empty commit at that committer epoch; its
@@ -141,6 +155,68 @@ c subj-only $MID "review: lite (self + codex@xhigh code)"
 c canary $MID "a canary $CAN
 
 review: lite ($CAN self + codex@xhigh code $CAN; $CAN skipped $CAN)"
+# D-163: counts owed after its cut. FULLC is a full counted on every layer.
+FULLC='review: full (panel@opus: 2 raised, 1 fixed + codex@xhigh design: 1 raised + codex@xhigh code: 3 raised, 3 fixed, 2 reproduced + fable: 0 raised + codex@xhigh reverify: 1 raised, 1 fixed)'
+c at-d163 $D163 "at the counts cut
+
+review: lite (self + codex@xhigh code)"
+c after-d163 $((D163 + 1)) "one second after the counts cut
+
+review: lite (self + codex@xhigh code)"
+c late-fullc $LATE "a full counted on every layer
+
+$FULLC"
+c late-nopanelc $LATE "panel uncounted
+
+review: full (panel@opus + codex@xhigh design: 1 raised + codex@xhigh code: 3 raised + fable: 0 raised + codex@xhigh reverify: 1 raised)"
+c late-nodesignc $LATE "design uncounted
+
+review: full (panel@opus: 2 raised + codex@xhigh design + codex@xhigh code: 3 raised + fable: 0 raised + codex@xhigh reverify: 1 raised)"
+c late-nocodec $LATE "code uncounted
+
+review: full (panel@opus: 2 raised + codex@xhigh design: 1 raised + codex@xhigh code + fable: 0 raised + codex@xhigh reverify: 1 raised)"
+c late-nofablec $LATE "cross-check uncounted
+
+review: full (panel@opus: 2 raised + codex@xhigh design: 1 raised + codex@xhigh code: 3 raised + fable + codex@xhigh reverify: 1 raised)"
+c late-noreverifyc $LATE "reverify uncounted
+
+review: full (panel@opus: 2 raised + codex@xhigh design: 1 raised + codex@xhigh code: 3 raised + fable: 0 raised + codex@xhigh reverify)"
+c late-fullbare $LATE "a full with no counts at all
+
+$FULL"
+c late-selfbare $LATE "self uncounted, code counted zero
+
+review: lite (self + codex@xhigh code: 0 raised)"
+c late-other $LATE "an other layer uncounted
+
+review: lite (self + codex@xhigh code: 1 raised, 1 fixed + notes)"
+c late-chore $LATE "a chore whose reason names code
+
+review: chore (no code changed)"
+c late-skip $LATE "a counted full with a skip note
+
+review: full (panel@opus: 2 raised + codex@xhigh design: 1 raised + codex@xhigh code: 3 raised + codex@xhigh reverify: 1 raised; fable cross-check skipped on the operator's cap)"
+c late-zero $LATE "code counted zero, no re-verify
+
+review: full (panel@opus: 1 raised + codex@xhigh design: 0 raised + codex@xhigh code: 0 raised + fable: 0 raised)"
+c late-zerorv $LATE "everything zero, a re-verify that ran uncounted
+
+review: full (panel@opus: 0 raised + codex@xhigh design: 0 raised + codex@xhigh code: 0 raised + fable: 0 raised + codex@xhigh reverify)"
+c late-mal $LATE "a malformed group after the counts cut
+
+review: lite (self + codex@xhigh code: 2 raised, two fixed)"
+c late-trail $LATE "counts written after the closing parenthesis
+
+review: lite (self + codex@xhigh code); codex@xhigh code: 2 raised, 2 fixed"
+c late-twocode $LATE "two code layers, one counted
+
+review: lite (self + codex@xhigh code: 1 raised + codex@xhigh code)"
+c late-words $LATE "words after the colon, not counts
+
+review: lite (self + codex@xhigh code: none raised)"
+c late-nolist $LATE "a list-less full after the counts cut
+
+review: full — panel x3 + codex@xhigh design (on drafted code) + codex@xhigh code"
 git -C "$R" log --format=%B | grep -q "$CAN" || fail "the planting control failed: the canary is not in the planted commits"
 
 run() { ( cd "$R" && sh "$ROOT/scripts/receipt-check.sh" "$@" ) </dev/null 2>&1; }
@@ -151,9 +227,9 @@ OUT="$WORK/out.txt"
 grep -q "$CAN" "$OUT" && fail "planted text reached the output:
 $(cat "$OUT")"
 odd=$(grep -vE \
-	-e '^Receipt check \(D-104, D-143\): a tier.s owed layers the receipt does not name; a report, it refuses nothing$' \
+	-e '^Receipt check \(D-104, D-143, D-163\): a tier.s owed layers, and owed counts, the receipt does not name; a report, it refuses nothing$' \
 	-e '^commits: [0-9]+; before D-104, not held: [0-9]+; held: [0-9]+, with a finding: [0-9]+ \([0-9]+ finding\(s\)\)$' \
-	-e '^  [0-9a-f]{12}  (full|lite|chore|-)  (owes (self|panel|design|code|cross-check|reverify)|has no layer list|gives no reason|no receipt line|no tier word \(lite, full or chore\)|[0-9]+ malformed count group\(s\))$' \
+	-e '^  [0-9a-f]{12}  (full|lite|chore|-)  (owes (self|panel|design|code|cross-check|reverify)|owes counts on (panel|design|code|cross-check|reverify)|has no layer list|gives no reason|no receipt line|no tier word \(lite, full or chore\)|[0-9]+ malformed count group\(s\))$' \
 	"$OUT" || true)
 [ -z "$odd" ] || fail "a line of no known shape:
 $odd"
@@ -204,13 +280,29 @@ clean ok-new
 has subj-para 'lite  owes code'; nfind subj-para 1
 has subj-only '-  no receipt line'
 clean canary
+clean at-d163
+has after-d163 'lite  owes counts on code'; nfind after-d163 1
+clean late-fullc
+has late-nopanelc 'full  owes counts on panel'; nfind late-nopanelc 1
+has late-nodesignc 'full  owes counts on design'; nfind late-nodesignc 1
+has late-nocodec 'full  owes counts on code'; nfind late-nocodec 1
+has late-nofablec 'full  owes counts on cross-check'; nfind late-nofablec 1
+has late-noreverifyc 'full  owes counts on reverify'; nfind late-noreverifyc 1
+for k in panel design code cross-check reverify; do has late-fullbare "full  owes counts on $k"; done; nfind late-fullbare 5
+clean late-selfbare; clean late-other; clean late-chore; clean late-skip; clean late-zero
+has late-zerorv 'full  owes counts on reverify'; nfind late-zerorv 1
+has late-mal 'lite  1 malformed count group\(s\)'; nfind late-mal 1
+has late-trail 'lite  owes counts on code'; nfind late-trail 1
+has late-twocode 'lite  owes counts on code'; nfind late-twocode 1
+has late-words 'lite  owes counts on code'; nfind late-words 1
+has late-nolist 'full  has no layer list'; nfind late-nolist 1
 # The totals last, so a mutant dies on the fixture it breaks, not here.
-want_line '^commits: 29; before D-104, not held: 3; held: 26, with a finding: 18 \(23 finding\(s\)\)$'
+want_line '^commits: 49; before D-104, not held: 3; held: 46, with a finding: 31 \(40 finding\(s\)\)$'
 
 # A range: only what it names is read.
 run "$(sha ok-new)..HEAD" >"$WORK/range.txt" || fail "a range exited non-zero"
-grep -qE '^commits: 3; before D-104, not held: 0; held: 3, with a finding: 2 ' "$WORK/range.txt" ||
-	fail "the range $(sha ok-new)..HEAD: want 3 commits, 2 with a finding:
+grep -qE '^commits: 23; before D-104, not held: 0; held: 23, with a finding: 15 ' "$WORK/range.txt" ||
+	fail "the range $(sha ok-new)..HEAD: want 23 commits, 15 with a finding:
 $(cat "$WORK/range.txt")"
 
 # Refusals, each beside the control that the same call shape runs.

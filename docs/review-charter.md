@@ -1159,6 +1159,7 @@ ledger row entered through the CLI (D-006).
     epoch. Do not propose making it refuse without new evidence.
 127. **Every Codex pass leaves one counts-only row in `<git-common-dir>/codex-passes.tsv` (D-146).** `codex-review.sh` writes it (a pass it saw finish, or busy), `cost-report.sh` aggregates it; numbers, fixed words or `[A-Za-z0-9._+-]{1,64}`, never review text; a failed write never changes the verdict. Do not propose a ledger table or text in the row.
 128. **With no live registered harness process, a send's result line says the ledger cannot tell a Codex recipient, whose mail waits for its `buddy inbox` (D-160).** Only a Claude hook registers one; the ledger records no harness. Do not propose inferring the harness from the id, or a schema column, without new evidence.
+129. **Counts are owed on a lite or full receipt's panel, design, code, cross-check and reverify layers after D-163's cut (2026-11-11 14:12Z), until the operator's panel-size decision (D-163, amends D-141).** `receipt-check.sh` reports `owes counts on <kind>`, exits 0 and refuses nothing; `self`, `other` and a chore's reason owe none. Do not propose making it refuse, holding history before the cut, or an expiry in the script, without new evidence.
 
 ## Environment facts (measured, do not re-derive)
 
