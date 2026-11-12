@@ -872,7 +872,30 @@ func TestClaudeReviewBlockedApprovalCanCancelAndClose(t *testing.T) {
 	go func() {
 		approved <- c.Approve(ctx, ApprovalDecision{ID: json.RawMessage(`"request"`), NativeSessionID: "native", TurnID: "turn", Decision: "allow"})
 	}()
-	<-entered
+	// Approve checks its context before it reaches the write, and the 30 ms
+	// deadline is the stimulus this test cancels with, so it is not liveBound.
+	// A starved goroutine reaching Approve after that deadline returns
+	// ErrNotSubmitted without ever writing; a bare <-entered then waited for
+	// an entry that never comes, until go test's 10 m panic (#91). The write's
+	// entry is the precondition, so its absence fails here as itself. The
+	// cancel-after-entry alternative would remove that load red but swap the
+	// deadline for a cancel, and the real transport reads the deadline
+	// (process.go's WriteContext); the 30 ms deadline stays the stimulus.
+	// A descheduled test goroutine can find both ready (the write entered, then
+	// honoured its deadline), and select picks either: entered is checked again
+	// before failing, and the result goes back for the promptness wait below.
+	select {
+	case <-entered:
+	case err := <-approved:
+		select {
+		case <-entered:
+			approved <- err
+		default:
+			t.Fatalf("Approve returned before entering its native write, so the blocked-write path never ran (a deadline that expired first, under load, does this): %v", err)
+		}
+	case <-time.After(liveBound):
+		t.Fatal("waiting for Approve to enter its native write")
+	}
 	returned := false
 	select {
 	case <-approved:
@@ -889,12 +912,22 @@ func TestClaudeReviewBlockedApprovalCanCancelAndClose(t *testing.T) {
 	}
 	// Free the old implementation as well, so a regression fails cleanly
 	// instead of wedging the whole test binary and hiding the actual finding.
+	// The drains are bounded too: a regression that blocks on something other
+	// than unblock would otherwise wedge here instead of reporting below.
 	once.Do(func() { close(unblock) })
 	if !returned {
-		<-approved
+		select {
+		case <-approved:
+		case <-time.After(liveBound):
+			t.Fatalf("blocked approval prevented context cancellation, and Approve still had not returned after the write was unblocked")
+		}
 	}
 	if !closedPromptly {
-		<-closed
+		select {
+		case <-closed:
+		case <-time.After(liveBound):
+			t.Fatalf("blocked approval prevented Close, and Close still had not returned after the write was unblocked")
+		}
 	}
 	if !returned || !closedPromptly {
 		t.Fatalf("blocked approval prevented context cancellation=%v or Close=%v", !returned, !closedPromptly)
