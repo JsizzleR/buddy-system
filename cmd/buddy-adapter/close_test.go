@@ -12,12 +12,11 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestAdapterReportsEscapedToolAtClose(t *testing.T) {
 	f := newEntryFixture(t, "")
-	fake := strings.Replace(fakeCodex, "tool = subprocess.Popen(['sleep', '300'])", "tool = subprocess.Popen(['sleep', '300'], start_new_session=True)", 1)
+	fake := strings.Replace(fakeCodex, "tool = subprocess.Popen(['sleep', '600'])", "tool = subprocess.Popen(['sleep', '600'], start_new_session=True)", 1)
 	if fake == fakeCodex {
 		t.Fatal("fixture patch did not apply")
 	}
@@ -35,7 +34,7 @@ func TestAdapterReportsEscapedToolAtClose(t *testing.T) {
 		t.Fatalf("control: the fixture's tool %d did not leave the worker's group (%d, %d; %v %v)", tool, toolGroup, workerGroup, err1, err2)
 	}
 	_ = a.stdin.Close()
-	_ = a.waitExit(t, 15*time.Second)
+	_ = a.waitExit(t, liveBound)
 	msg := a.stderr.String()
 	for _, want := range []string{"worker closed (close): 1 escaped descendant(s) captured", fmt.Sprintf("1 still running (pid %d;", tool), "not signalled", "descendants never observed: unknown"} {
 		if !strings.Contains(msg, want) {
@@ -45,7 +44,7 @@ func TestAdapterReportsEscapedToolAtClose(t *testing.T) {
 	if syscall.Kill(tool, 0) != nil {
 		t.Fatalf("the escaped tool %d was signalled", tool)
 	}
-	if !pidGone(worker, 5*time.Second) {
+	if !pidGone(worker, liveBound) {
 		t.Fatalf("the worker %d outlived the close", worker)
 	}
 	b, err := os.ReadFile(f.receipt + ".proc")

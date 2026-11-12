@@ -92,6 +92,17 @@ for line in sys.stdin:
 // short deadline.
 const liveBound = 2 * time.Minute
 
+// wantRefusal fails unless err is the refusal want names. A refusal test that
+// accepted any error also passed when its fake stopped answering, on the
+// deadline's own error; liveBound made that pass take two minutes instead of
+// five seconds, and it was never the refusal under test (#90).
+func wantRefusal(t *testing.T, err error, want string) {
+	t.Helper()
+	if err == nil || want == "" || !strings.Contains(err.Error(), want) {
+		t.Fatalf("want the refusal %q, got: %v", want, err)
+	}
+}
+
 func claudeFixture(t *testing.T) (Backend, Launch, context.Context) {
 	t.Helper()
 	dir := t.TempDir()
@@ -237,23 +248,23 @@ func TestClaudeLaunchCompatibility(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		change func(*Launch)
+		want   string
 	}{
-		{"unknown mods", func(l *Launch) { l.Hooks.Mods = "unknown" }},
-		{"missing mod profile", func(l *Launch) { l.Hooks.Mods = "" }},
-		{"legacy no mods assertion", func(l *Launch) { l.Hooks.NoMods = "observed_absent" }},
-		{"old hook version", func(l *Launch) { l.HarnessVersion = "2.1.287" }},
-		{"future version", func(l *Launch) { l.HarnessVersion = "2.1.292" }},
-		{"missing settings", func(l *Launch) { l.HookConfig = "" }},
-		{"bypass permissions", func(l *Launch) { l.PermissionMode = "bypassPermissions" }},
-		{"auto permissions", func(l *Launch) { l.PermissionMode = "auto" }},
-		{"invalid native ID", func(l *Launch) { l.NativeSessionID = "made-up-id" }},
+		{"unknown mods", func(l *Launch) { l.Hooks.Mods = "unknown" }, "unsupported Claude Mod profile"},
+		{"missing mod profile", func(l *Launch) { l.Hooks.Mods = "" }, "unsupported Claude Mod profile"},
+		{"legacy no mods assertion", func(l *Launch) { l.Hooks.NoMods = "observed_absent" }, "unsupported Claude no_mods assertion"},
+		{"old hook version", func(l *Launch) { l.HarnessVersion = "2.1.287" }, "no admission record for claude \"2.1.287\""},
+		{"future version", func(l *Launch) { l.HarnessVersion = "2.1.292" }, "no admission record for claude \"2.1.292\""},
+		{"missing settings", func(l *Launch) { l.HookConfig = "" }, "requires an explicit absolute hook settings path"},
+		{"bypass permissions", func(l *Launch) { l.PermissionMode = "bypassPermissions" }, "unsupported Claude permission mode"},
+		{"auto permissions", func(l *Launch) { l.PermissionMode = "auto" }, "unsupported Claude permission mode"},
+		{"invalid native ID", func(l *Launch) { l.NativeSessionID = "made-up-id" }, "Claude native session id must be a UUID"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			b, launch, ctx := claudeFixture(t)
 			test.change(&launch)
-			if _, err := b.Start(ctx, launch, testAuthorization(t)); err == nil {
-				t.Fatal("incompatible launch accepted")
-			}
+			_, err := b.Start(ctx, launch, testAuthorization(t))
+			wantRefusal(t, err, test.want)
 		})
 	}
 	// A caller's version declaration is not evidence of the executable's version.
@@ -262,8 +273,9 @@ func TestClaudeLaunchCompatibility(t *testing.T) {
 	if err := os.WriteFile(c.executable, []byte("#!/bin/sh\nprintf '2.1.288 (Claude Code)\\n'\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Start(ctx, launch, testAuthorization(t)); err == nil {
-		t.Fatal("declared version hid the installed mismatch")
+	_, err := b.Start(ctx, launch, testAuthorization(t))
+	if AdmissionCode(err) != "version_mismatch" {
+		t.Fatalf("declared version hid the installed mismatch: %v", err)
 	}
 }
 
@@ -307,6 +319,16 @@ func TestClaudeVersionProfileBinding(t *testing.T) {
 					if (err != nil) != (fault.kind != "") {
 						t.Fatalf("fault %q: %v", fault, err)
 					}
+					switch fault.kind {
+					case "profile":
+						wantRefusal(t, err, "unsupported Claude Mod profile: require builtin-only-"+version)
+					case "executable":
+						if AdmissionCode(err) != "version_mismatch" {
+							t.Fatalf("fault %q: want version_mismatch, got %v", fault, err)
+						}
+					case "inventory":
+						wantRefusal(t, err, "Claude Mod inventory contains an unqualified plugin identity")
+					}
 					if err == nil {
 						want := "unsupported"
 						if version == "2.1.290" || version == "2.1.291" {
@@ -332,9 +354,8 @@ func TestClaudeUnqualifiedExactVersionRefused(t *testing.T) {
 			if err := os.WriteFile(b.(*claudeBackend).executable, []byte(fake), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := b.Start(ctx, launch, testAuthorization(t)); err == nil {
-				t.Fatal("unqualified version/profile pair admitted")
-			}
+			_, err := b.Start(ctx, launch, testAuthorization(t))
+			wantRefusal(t, err, "no admission record for claude "+strconv.Quote(version))
 		})
 	}
 }
@@ -346,25 +367,25 @@ func TestClaudeUnqualifiedExactVersionRefused(t *testing.T) {
 // bounded profile does not infer privileges from an arbitrary plugin's name.
 func TestClaudeNativeModProfileBeforeInput(t *testing.T) {
 	const baseline = `{'plugins':[{'name':'cc-plugin-agents-md','path':'builtin','source':'cc-plugin-agents-md@builtin'},{'name':'cc-plugin-plugin-authoring','path':'builtin','source':'cc-plugin-plugin-authoring@builtin'}],'error_count':0,'mcpServers':[]}`
-	for _, test := range []struct{ name, mutate string }{
-		{"missing inventory", `body.pop('plugins')`},
-		{"null inventory", `body['plugins']=None`},
-		{"empty inventory", `body['plugins']=[]`},
-		{"missing builtin", `body['plugins'].pop()`},
-		{"duplicate builtin", `body['plugins'][1]=body['plugins'][0]`},
-		{"unknown builtin", `body['plugins'][0]['name']='cc-plugin-unknown'`},
-		{"lookalike path", `body['plugins'][0]['path']='/tmp/builtin'`},
-		{"missing source", `body['plugins'][0].pop('source')`},
-		{"different source", `body['plugins'][0]['source']='cc-plugin-agents-md@example'`},
-		{"unknown plugin field", `body['plugins'][0]['mod']=True`},
-		{"extra observer", `body['plugins'].append({'name':'observer','path':'/tmp/observer','source':'observer@fixture'})`},
-		{"reload errors", `body['error_count']=1`},
-		{"missing error count", `body.pop('error_count')`},
-		{"null error count", `body['error_count']=None`},
-		{"negative error count", `body['error_count']=-1`},
-		{"held reload", `body['held']=True`},
-		{"unknown MCP state", `body.pop('mcpServers')`},
-		{"plugin MCP", `body['mcpServers']=[{'name':'plugin:observer:server'}]`},
+	for _, test := range []struct{ name, mutate, want string }{
+		{"missing inventory", `body.pop('plugins')`, "differs from the qualified builtin profile"},
+		{"null inventory", `body['plugins']=None`, "differs from the qualified builtin profile"},
+		{"empty inventory", `body['plugins']=[]`, "differs from the qualified builtin profile"},
+		{"missing builtin", `body['plugins'].pop()`, "differs from the qualified builtin profile"},
+		{"duplicate builtin", `body['plugins'][1]=body['plugins'][0]`, "unqualified plugin identity"},
+		{"unknown builtin", `body['plugins'][0]['name']='cc-plugin-unknown'`, "unqualified plugin identity"},
+		{"lookalike path", `body['plugins'][0]['path']='/tmp/builtin'`, "unqualified plugin identity"},
+		{"missing source", `body['plugins'][0].pop('source')`, "unqualified plugin identity"},
+		{"different source", `body['plugins'][0]['source']='cc-plugin-agents-md@example'`, "unqualified plugin identity"},
+		{"unknown plugin field", `body['plugins'][0]['mod']=True`, "differs from the qualified builtin profile"},
+		{"extra observer", `body['plugins'].append({'name':'observer','path':'/tmp/observer','source':'observer@fixture'})`, "differs from the qualified builtin profile"},
+		{"reload errors", `body['error_count']=1`, "missing, malformed, held or has errors"},
+		{"missing error count", `body.pop('error_count')`, "missing, malformed, held or has errors"},
+		{"null error count", `body['error_count']=None`, "missing, malformed, held or has errors"},
+		{"negative error count", `body['error_count']=-1`, "missing, malformed, held or has errors"},
+		{"held reload", `body['held']=True`, "missing, malformed, held or has errors"},
+		{"unknown MCP state", `body.pop('mcpServers')`, "requires an observed empty native MCP server set"},
+		{"plugin MCP", `body['mcpServers']=[{'name':'plugin:observer:server'}]`, "requires an observed empty native MCP server set"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			b, launch, ctx := claudeFixture(t)
@@ -375,9 +396,8 @@ func TestClaudeNativeModProfileBeforeInput(t *testing.T) {
 			if err := os.WriteFile(b.(*claudeBackend).executable, []byte(fake), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := b.Start(ctx, launch, testAuthorization(t)); err == nil {
-				t.Fatal("unqualified native Mod profile admitted")
-			}
+			_, err := b.Start(ctx, launch, testAuthorization(t))
+			wantRefusal(t, err, test.want)
 		})
 	}
 	t.Run("observed builtin profile", func(t *testing.T) {
@@ -389,11 +409,12 @@ func TestClaudeNativeModProfileBeforeInput(t *testing.T) {
 }
 
 func TestClaudeEffectiveSettingsRecheckedAfterPluginReload(t *testing.T) {
-	for _, mutation := range []string{
-		`body['effective']['disableAllHooks']=True`,
-		`body['effective']['enabledPlugins']={'override@fixture':True}`,
-		`body['errors']=[{'message':'managed settings were skipped'}]`,
+	for _, test := range []struct{ mutation, want string }{
+		{`body['effective']['disableAllHooks']=True`, "Claude hook compatibility refuses disableAllHooks"},
+		{`body['effective']['enabledPlugins']={'override@fixture':True}`, "refuses enabled plugins or mods"},
+		{`body['errors']=[{'message':'managed settings were skipped'}]`, "Claude effective settings contain skipped or unknown configuration errors"},
 	} {
+		mutation := test.mutation
 		t.Run(mutation, func(t *testing.T) {
 			b, launch, ctx := claudeFixture(t)
 			fake := strings.Replace(claudeFake, "active=None", "active=None\nreloaded=False", 1)
@@ -403,9 +424,8 @@ func TestClaudeEffectiveSettingsRecheckedAfterPluginReload(t *testing.T) {
 			if err := os.WriteFile(b.(*claudeBackend).executable, []byte(fake), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := b.Start(ctx, launch, testAuthorization(t)); err == nil {
-				t.Fatal("plugin reload changed settings after the only compatibility check")
-			}
+			_, err := b.Start(ctx, launch, testAuthorization(t))
+			wantRefusal(t, err, test.want)
 		})
 	}
 }
@@ -418,15 +438,16 @@ func TestClaudeEffectiveSettingsBeforeInput(t *testing.T) {
 		name        string
 		body        string
 		inheritGate bool
+		want        string
 	}{
-		{"missing effective", `{}`, false},
-		{"null effective", `{"effective":null}`, false},
-		{"missing gate", `{"effective":{}}`, false},
-		{"hooks disabled", `{"effective":{"disableAllHooks":true}}`, true},
-		{"only managed hooks", `{"effective":{"allowManagedHooksOnly":true}}`, true},
-		{"enabled plugin", `{"effective":{"enabledPlugins":{"override@example":true}}}`, true},
-		{"unqualified module order", `{"effective":{"prependPlugins":["override"]}}`, true},
-		{"wrong gate", `{"effective":{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"/usr/bin/true"}]}]}}}`, false},
+		{"missing effective", `{}`, false, "response is missing or malformed"},
+		{"null effective", `{"effective":null}`, false, "Claude hook settings must be one JSON object"},
+		{"missing gate", `{"effective":{}}`, false, "Claude launch requires configured PreToolUse gate hooks"},
+		{"hooks disabled", `{"effective":{"disableAllHooks":true}}`, true, "refuses disableAllHooks"},
+		{"only managed hooks", `{"effective":{"allowManagedHooksOnly":true}}`, true, "refuses allowManagedHooksOnly"},
+		{"enabled plugin", `{"effective":{"enabledPlugins":{"override@example":true}}}`, true, "refuses enabled plugins or mods"},
+		{"unqualified module order", `{"effective":{"prependPlugins":["override"]}}`, true, `unsupported Claude adapter settings key "prependPlugins"`},
+		{"wrong gate", `{"effective":{"hooks":{"PreToolUse":[{"matcher":".*","hooks":[{"type":"command","command":"/usr/bin/true"}]}]}}}`, false, "Claude PreToolUse command differs from the captured gate command"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			b, launch, ctx := claudeFixture(t)
@@ -455,9 +476,8 @@ func TestClaudeEffectiveSettingsBeforeInput(t *testing.T) {
 			if err := os.WriteFile(c.executable, []byte(fake), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := b.Start(ctx, launch, testAuthorization(t)); err == nil {
-				t.Fatal("launch accepted incompatible native effective settings")
-			}
+			_, err := b.Start(ctx, launch, testAuthorization(t))
+			wantRefusal(t, err, test.want)
 		})
 	}
 	t.Run("native gate positive control", func(t *testing.T) {
@@ -1006,8 +1026,9 @@ func TestClaudeReviewOrdinaryEventBackpressureCannotHideEOF(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	err = c.Approve(ctx, ApprovalDecision{ID: json.RawMessage(`"request"`), NativeSessionID: "native", TurnID: "turn", Decision: "allow"})
-	if err == nil {
-		t.Error("pending approval reached native input after stdout EOF")
+	// The closed transport's refusal, not the 1 s context's (Codex, #90).
+	if err == nil || !strings.Contains(err.Error(), "native transport closed") {
+		t.Errorf("pending approval reached native input after stdout EOF: %v", err)
 	}
 	select {
 	case <-p.done:

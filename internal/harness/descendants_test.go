@@ -472,7 +472,7 @@ func (w *processWatch) snapshot() (targets []int, steps []string) {
 // session and group, as Claude Code's tool shells do (setsid), publishes its
 // pid to a file by rename, then sleeps or waits for a file to appear.
 func escapedChild(pidFile, until string) string {
-	wait := "time.sleep(60)"
+	wait := "time.sleep(" + helperSleep + ")" // a survivor must outlast the liveBound steps that look for it
 	if until != "" {
 		wait = fmt.Sprintf("[time.sleep(0.01) for _ in iter(lambda: os.path.exists(%q), True)]", until)
 	}
@@ -482,7 +482,7 @@ func escapedChild(pidFile, until string) string {
 
 func readPIDFile(t *testing.T, path string) int {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(liveBound); ; time.Sleep(10 * time.Millisecond) {
 		if b, err := os.ReadFile(path); err == nil {
 			if pid, err := strconv.Atoi(string(b)); err == nil && pid > 1 {
 				t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
@@ -497,7 +497,7 @@ func readPIDFile(t *testing.T, path string) int {
 
 func waitRecorded(t *testing.T, auth *LaunchAuthorization, want func([]int) bool, what string) []int {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(liveBound); ; time.Sleep(20 * time.Millisecond) {
 		if _, err := os.Stat(auth.rec.path()); err == nil {
 			if got := recordedPIDs(t, auth); want(got) {
 				return got
@@ -527,7 +527,7 @@ func TestJSONProcessRecordsAndReportsEscapedDescendants(t *testing.T) {
 	dir := t.TempDir()
 	stay, leave, goFile := filepath.Join(dir, "stay"), filepath.Join(dir, "leave"), filepath.Join(dir, "go")
 	// The leader stays a shell (no exec), so it reaps the child that ends.
-	script := escapedChild(stay, "") + escapedChild(leave, goFile) + ` sleep 60 </dev/null >/dev/null 2>&1 & echo "{\"ingroup\":$!}"; while :; do sleep 1; done`
+	script := escapedChild(stay, "") + escapedChild(leave, goFile) + ` sleep ` + helperSleep + ` </dev/null >/dev/null 2>&1 & echo "{\"ingroup\":$!}"; while :; do sleep 1; done`
 	auth := testAuthorization(t)
 	p, err := StartJSONProcess(context.Background(), auth, "/bin/sh", []string{"-c", script}, dir, nil)
 	if err != nil {
@@ -567,7 +567,7 @@ func TestJSONProcessRecordsAndReportsEscapedDescendants(t *testing.T) {
 	if !alive(stayPID) {
 		t.Fatalf("escaped survivor %d is gone after Close", stayPID)
 	}
-	if !waitGone(v.InGroup, 2*time.Second) {
+	if !waitGone(v.InGroup, liveBound) {
 		t.Fatalf("in-group child %d survived the group kill", v.InGroup)
 	}
 	targets, _ := w.snapshot()
@@ -600,7 +600,7 @@ func TestJSONProcessFinalCaptureJoinsTheSampler(t *testing.T) {
 	readJSONLine(t, p, &v)
 	select {
 	case <-inScan:
-	case <-time.After(5 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("control: the sampler never scanned")
 	}
 	closed := make(chan struct{})
@@ -614,7 +614,7 @@ func TestJSONProcessFinalCaptureJoinsTheSampler(t *testing.T) {
 	close(release)
 	select {
 	case <-closed:
-	case <-time.After(terminateGrace + 5*time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("Close did not finish once the sampler was released")
 	}
 }
@@ -651,7 +651,7 @@ func TestJSONProcessShutdownCapturesBeforeStdinCloses(t *testing.T) {
 			}
 			select {
 			case <-p.done:
-			case <-time.After(terminateGrace + 5*time.Second):
+			case <-time.After(liveBound):
 				t.Fatal("the transport did not finish")
 			}
 			_, steps := w.snapshot()

@@ -179,6 +179,11 @@ func TestControllerStalledLedgerCannotWedgeShutdown(t *testing.T) {
 			}
 			if exit == "bound" {
 				c.ledgerTimeout = 100 * time.Millisecond
+			} else {
+				// Only Close may end the call: the production 10 s ledger
+				// bound would also end it inside the liveBound waits below,
+				// and a Close that never cancelled would pass (Codex, #90).
+				c.ledgerTimeout = helperLife
 			}
 			l.stall.Store(true)
 			type result struct {
@@ -194,7 +199,7 @@ func TestControllerStalledLedgerCannotWedgeShutdown(t *testing.T) {
 			}()
 			select {
 			case <-l.entered:
-			case <-time.After(2 * time.Second):
+			case <-time.After(liveBound):
 				t.Fatal("observation never reached the ledger")
 			}
 			closed := make(chan struct{})
@@ -204,7 +209,7 @@ func TestControllerStalledLedgerCannotWedgeShutdown(t *testing.T) {
 			var got result
 			select {
 			case got = <-observed:
-			case <-time.After(2 * time.Second):
+			case <-time.After(liveBound): // the stall never ends by itself, so only the bound or Close can end the call
 				close(l.release)
 				got = <-observed
 				t.Fatalf("a stalled ledger call held the controller (%s)", exit)
@@ -215,7 +220,7 @@ func TestControllerStalledLedgerCannotWedgeShutdown(t *testing.T) {
 			if exit == "close" {
 				select {
 				case <-closed:
-				case <-time.After(2 * time.Second):
+				case <-time.After(liveBound):
 					t.Fatal("Close did not return")
 				}
 			}

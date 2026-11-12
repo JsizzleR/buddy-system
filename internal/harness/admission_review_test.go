@@ -215,7 +215,9 @@ func TestReviewRenameBeforeProbeStartsNoWorker(t *testing.T) {
 			}
 			continue
 		}
-		if err == nil || executions(t, marker) > 1 || c.proc != nil {
+		// The swap's own refusal: a stalled probe also leaves one execution
+		// and no worker, and its deadline error passed the old check (#90).
+		if err == nil || !strings.Contains(err.Error(), "native harness executable changed between its version check and launch") || executions(t, marker) > 1 || c.proc != nil {
 			t.Fatalf("replaced before the probe: %v with %d executions, worker %v", err, executions(t, marker), c.proc)
 		}
 	}

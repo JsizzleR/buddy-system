@@ -144,12 +144,12 @@ func TestClaudeHookTimeoutFloorExceedsWrapperBudget(t *testing.T) {
 // The fake writes the effective object's raw bytes, so duplicate keys survive.
 func TestClaudeEffectiveSettingsUseStrictAdmission(t *testing.T) {
 	gateHook := `"type":"command","command":"` + settingsGate + `"`
-	for _, test := range []struct{ name, effective string }{
-		{"case-variant command", settingsWith("", `"type":"command","command":"true","Command":"`+settingsGate+`"`)},
-		{"exact-list matcher missing NotebookEdit", settingsWith(`"matcher":"Edit|Write"`, "")},
-		{"timeout below floor", settingsWith("", gateHook+`,"timeout":1`)},
-		{"duplicate event", `{"hooks":{"PreToolUse":[],"PreToolUse":[{"matcher":".*","hooks":[{` + gateHook + `}]}]}}`},
-		{"positive control", ""},
+	for _, test := range []struct{ name, effective, want string }{
+		{"case-variant command", settingsWith("", `"type":"command","command":"true","Command":"`+settingsGate+`"`), `unsupported Claude gate hook key "Command"`},
+		{"exact-list matcher missing NotebookEdit", settingsWith(`"matcher":"Edit|Write"`, ""), "does not name NotebookEdit exactly"},
+		{"timeout below floor", settingsWith("", gateHook+`,"timeout":1`), "Claude gate timeout must be a number of seconds from 10 to 600"},
+		{"duplicate event", `{"hooks":{"PreToolUse":[],"PreToolUse":[{"matcher":".*","hooks":[{` + gateHook + `}]}]}}`, `duplicate key "PreToolUse"`},
+		{"positive control", "", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			b, launch, ctx := claudeFixture(t)
@@ -177,9 +177,7 @@ func TestClaudeEffectiveSettingsUseStrictAdmission(t *testing.T) {
 				}
 				return
 			}
-			if err == nil {
-				t.Fatal("launch admitted effective settings the native harness reads differently")
-			}
+			wantRefusal(t, err, test.want)
 		})
 	}
 }

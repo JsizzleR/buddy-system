@@ -7,12 +7,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/store"
 	"github.com/JsizzleR/buddy-system/internal/testguard"
 )
+
+// buildBound bounds a test's `go build` of a real binary: cmd/buddy-adapter's
+// builtBinaries has had three minutes for two builds. Like liveBound it detects
+// a wedge, not a slow toolchain: a cold cache on a starved -race machine is the
+// case it is sized for.
+const buildBound = 3 * time.Minute
 
 func TestMain(m *testing.M) {
 	testguard.ScrubGitEnv()
@@ -29,13 +36,17 @@ func TestCLILedgerRealBinaryCapturedQueueAndLifecycle(t *testing.T) {
 	}
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "buddy")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "./cmd/buddy")
+	// The build has its own bound and every later step liveBound (#90): one
+	// 30 s context over both made a starved build eat the CLI calls' budget.
+	buildCtx, cancelBuild := context.WithTimeout(context.Background(), buildBound)
+	defer cancelBuild()
+	build := exec.CommandContext(buildCtx, "go", "build", "-o", binary, "./cmd/buddy")
 	build.Dir = root
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build Buddy: %v %s", err, out)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), liveBound)
+	defer cancel()
 	repo := filepath.Join(dir, "repo")
 	if err := os.Mkdir(repo, 0700); err != nil {
 		t.Fatal(err)
@@ -136,21 +147,24 @@ func TestCLILedgerRealBinaryCapturedQueueAndLifecycle(t *testing.T) {
 	if err := l.Event(ctx, worker, "end"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Inspect(ctx, worker); err == nil {
-		t.Fatal("ended receipt passed live inspection")
+	// Each refusal below names its reason: a call the liveBound context
+	// killed is also an error, and passed these checks when they took any (#90).
+	if _, err := l.Inspect(ctx, worker); err == nil || !strings.Contains(err.Error(), "Buddy receipt is not the captured live identity") {
+		t.Fatalf("ended receipt passed live inspection: %v", err)
 	}
 	next, err := st.BeginLogical(worker.SessionID, "", repo, worker.Incarnation)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := l.Event(ctx, worker, "busy"); err == nil {
-		t.Fatal("late bridge event acquired successor token")
+	const stale = "logical session identity refused"
+	if err := l.Event(ctx, worker, "busy"); err == nil || !strings.Contains(err.Error(), stale) {
+		t.Fatalf("late bridge event acquired successor token: %v", err)
 	}
-	if _, err := l.Renew(ctx, worker, []string{filepath.Join(repo, "pkg", "a.go")}); err == nil {
-		t.Fatal("late bridge renewal acquired successor token")
+	if _, err := l.Renew(ctx, worker, []string{filepath.Join(repo, "pkg", "a.go")}); err == nil || !strings.Contains(err.Error(), stale) {
+		t.Fatalf("late bridge renewal acquired successor token: %v", err)
 	}
-	if _, err := l.Queued(ctx, worker, last-1); err == nil {
-		t.Fatal("late bridge inbox read acquired successor token")
+	if _, err := l.Queued(ctx, worker, last-1); err == nil || !strings.Contains(err.Error(), stale) {
+		t.Fatalf("late bridge inbox read acquired successor token: %v", err)
 	}
 	current := worker
 	current.Incarnation = next.Incarnation

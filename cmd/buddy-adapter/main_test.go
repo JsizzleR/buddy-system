@@ -33,6 +33,20 @@ var built struct {
 	err                 error
 }
 
+// liveBound bounds a step an entry test expects to SUCCEED: a receipt the
+// adapter publishes, its exit once told to, a worker or tool it ends. It is
+// internal/harness's liveBound (claude_test.go holds the measurement), here
+// because a test package cannot import another's: a wedge detector sized for a
+// starved -race machine, not a latency claim, and well inside go test's 10 m
+// timeout. At 1-20 s these steps were bets on that machine's scheduler (#90).
+// A window in which nothing may happen, and a bound whose expiry is the
+// assertion, keep their own.
+const liveBound = 2 * time.Minute
+
+// buildBound bounds a test's `go build` of a real binary, as builtBinaries has
+// for its two.
+const buildBound = 3 * time.Minute
+
 // builtBinaries builds buddy and buddy-adapter once per test binary.
 func builtBinaries(t *testing.T) (string, string) {
 	t.Helper()
@@ -51,7 +65,7 @@ func builtBinaries(t *testing.T) (string, string) {
 			built.err = err
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), buildBound)
 		defer cancel()
 		// The adapter alone is built with the admission fixture tag, so the
 		// entry tests can admit their fake Codex by record (admission_test.go).
@@ -93,7 +107,9 @@ if '--version' in sys.argv:
     record(kind='version', inherited=operator_fd())
     print('codex-cli 0.160.0')
     sys.exit(0)
-tool = subprocess.Popen(['sleep', '300'])
+# 600 s, not 300: the tool must outlast the liveBound steps that look for it
+# after the adapter ends (an await, waitExit, pidGone; #90). Cleanup kills it.
+tool = subprocess.Popen(['sleep', '600'])
 record(kind='app-server', pid=os.getpid(), tool=tool.pid, inherited=operator_fd())
 def emit(v):
     sys.stdout.write(json.dumps(v) + '\n')
@@ -253,7 +269,7 @@ func (f *entryFixture) start(t *testing.T, extra []*os.File, args []string, env 
 
 func (a *runningAdapter) await(t *testing.T, what string, match func(map[string]any) bool) map[string]any {
 	t.Helper()
-	deadline := time.After(15 * time.Second)
+	deadline := time.After(liveBound)
 	var skipped []map[string]any
 	for {
 		select {
@@ -401,7 +417,7 @@ func TestAdapterOperatorDescriptorAdmission(t *testing.T) {
 			}
 			a := f.start(t, extra, []string{"--operator-fd", fd})
 			a.stdin.Close()
-			err := a.waitExit(t, 20*time.Second)
+			err := a.waitExit(t, liveBound)
 			if err == nil {
 				t.Fatalf("adapter accepted %s as the operator descriptor", bad)
 			}
@@ -462,7 +478,7 @@ func TestAdapterOperatorDescriptorAdmission(t *testing.T) {
 			t.Fatalf("approval did not reach exactly the intended request: pending %v", pending)
 		}
 		a.stdin.Close()
-		if err := a.waitExit(t, 10*time.Second); err != nil {
+		if err := a.waitExit(t, liveBound); err != nil {
 			t.Fatalf("adapter exit: %v; stderr: %s", err, a.stderr)
 		}
 		var responses []map[string]any
@@ -507,11 +523,11 @@ func TestAdapterSignalEndsWorkerTree(t *testing.T) {
 			if err := a.cmd.Process.Signal(sig); err != nil {
 				t.Fatal(err)
 			}
-			_ = a.waitExit(t, 10*time.Second)
+			_ = a.waitExit(t, liveBound)
 			if !strings.Contains(a.stderr.String(), "received") {
 				t.Fatalf("adapter did not shut down through its handler: %s", a.stderr)
 			}
-			if !pidGone(worker, 3*time.Second) || !pidGone(tool, 3*time.Second) {
+			if !pidGone(worker, liveBound) || !pidGone(tool, liveBound) {
 				t.Fatalf("worker %d or its tool %d outlived the adapter", worker, tool)
 			}
 		})
@@ -566,13 +582,13 @@ func TestAdapterBrokenControlOutputEndsWorkerTree(t *testing.T) {
 	go func() { exited <- cmd.Wait() }()
 	select {
 	case <-exited:
-	case <-time.After(10 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatalf("a broken control output did not stop the adapter; stderr: %s", stderr)
 	}
 	if !strings.Contains(stderr.String(), "control output unavailable") {
 		t.Fatalf("the adapter did not shut down through Close: %s", stderr)
 	}
-	if !pidGone(worker, 3*time.Second) || !pidGone(tool, 3*time.Second) {
+	if !pidGone(worker, liveBound) || !pidGone(tool, liveBound) {
 		t.Fatalf("worker %d or its tool %d outlived the adapter", worker, tool)
 	}
 }
@@ -603,7 +619,7 @@ func TestAdapterStdinEOFWithStalledLedgerExits(t *testing.T) {
 	}
 	// The turn's first event (busy) now reaches a ledger call that stalls.
 	f.release(t)
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(liveBound)
 	var stalledPID, holderPID int
 	for holderPID == 0 && time.Now().Before(deadline) {
 		if raw, err := os.ReadFile(stalled); err == nil {
@@ -616,8 +632,8 @@ func TestAdapterStdinEOFWithStalledLedgerExits(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = syscall.Kill(stalledPID, syscall.SIGKILL); _ = syscall.Kill(holderPID, syscall.SIGKILL) })
 	a.stdin.Close()
-	_ = a.waitExit(t, 10*time.Second)
-	if !pidGone(stalledPID, 3*time.Second) {
+	_ = a.waitExit(t, liveBound)
+	if !pidGone(stalledPID, liveBound) {
 		t.Fatalf("the stalled ledger child %d outlived the adapter", stalledPID)
 	}
 }
@@ -668,7 +684,7 @@ func TestAdapterSignalClosesWorkerWithFullStartupOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(liveBound)
 	for {
 		if _, err := os.Stat(f.receipt); err == nil {
 			break
@@ -695,12 +711,12 @@ func TestAdapterSignalClosesWorkerWithFullStartupOutput(t *testing.T) {
 	go func() { exited <- cmd.Wait() }()
 	select {
 	case <-exited:
-	case <-time.After(5 * time.Second):
+	case <-time.After(liveBound):
 		_ = cmd.Process.Kill()
 		<-exited
 		t.Fatal("full startup stdout prevented signal cleanup")
 	}
-	if !strings.Contains(stderr.String(), "received") || !pidGone(worker, 3*time.Second) || !pidGone(tool, 3*time.Second) {
+	if !strings.Contains(stderr.String(), "received") || !pidGone(worker, liveBound) || !pidGone(tool, liveBound) {
 		t.Fatalf("full stdout bypassed orderly worker cleanup: %s", stderr.String())
 	}
 }
@@ -761,13 +777,13 @@ func TestReceiptEmitterCancelsAnEstablishedBlockedWrite(t *testing.T) {
 	go func() { emit(harness.Receipt{Schema: harness.Schema}, nil); close(returned) }()
 	select {
 	case <-w.entered: // Positive control: Encode really is inside the blocked Write.
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("receipt never reached the output writer")
 	}
 	cancel()
 	select {
 	case <-returned:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("cancellation could not interrupt receipt publication")
 	}
 }

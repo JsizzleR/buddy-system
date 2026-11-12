@@ -69,7 +69,7 @@ func killWorkerTree(t *testing.T, worker, tool int) {
 	_ = syscall.Kill(-worker, syscall.SIGKILL)
 	_ = syscall.Kill(tool, syscall.SIGKILL)
 	_ = syscall.Kill(worker, syscall.SIGKILL)
-	if !pidGone(worker, 5*time.Second) || !pidGone(tool, 5*time.Second) {
+	if !pidGone(worker, liveBound) || !pidGone(tool, liveBound) {
 		t.Fatalf("control: could not end the first worker %d / tool %d", worker, tool)
 	}
 }
@@ -88,7 +88,7 @@ func sigkillAdapterMidTurn(t *testing.T, f *entryFixture) (worker, tool int) {
 	if err := a.cmd.Process.Signal(syscall.SIGKILL); err != nil {
 		t.Fatal(err)
 	}
-	_ = a.waitExit(t, 10*time.Second)
+	_ = a.waitExit(t, liveBound)
 	time.Sleep(300 * time.Millisecond)
 	if syscall.Kill(worker, 0) != nil || syscall.Kill(tool, 0) != nil {
 		t.Fatalf("control: after the adapter's SIGKILL the worker %d or its tool %d is not alive; the experiment no longer models A-02", worker, tool)
@@ -116,7 +116,7 @@ func TestAdapterResumeRefusesWhileRecordedWorkerLives(t *testing.T) {
 		t.Fatalf("refusal does not name the live leader and the wait option: %q", reason)
 	}
 	_ = b.stdin.Close()
-	if err := b.waitExit(t, 10*time.Second); err == nil {
+	if err := b.waitExit(t, liveBound); err == nil {
 		t.Fatal("refused resume exited 0")
 	}
 	if syscall.Kill(worker, 0) != nil || syscall.Kill(tool, 0) != nil {
@@ -138,7 +138,7 @@ func TestAdapterResumeRefusesWhileRecordedWorkerLives(t *testing.T) {
 		t.Fatalf("control: resume refused after the prior worker was gone: error=%v second=%v thread/resume=%v; stderr: %s", got["error"], second, resumed, c.stderr)
 	}
 	_ = c.stdin.Close()
-	_ = c.waitExit(t, 10*time.Second)
+	_ = c.waitExit(t, liveBound)
 }
 
 // --wait-prior is passive: the resume waits, signalling nothing, until the
@@ -149,7 +149,10 @@ func TestAdapterResumeWaitPrior(t *testing.T) {
 			f := newEntryFixture(t, "")
 			resumableFake(t, f)
 			worker, tool := sigkillAdapterMidTurn(t, f)
-			bound := "20s"
+			// The admitting bound is the adapter's own timer, running from
+			// its start, and the await below must end inside it, after the
+			// window and the kill: so the cap, not 20 s (#90).
+			bound := waitPriorCap.String()
 			if outcome == "refuses-at-bound" {
 				bound = "1500ms"
 			}
@@ -167,7 +170,7 @@ func TestAdapterResumeWaitPrior(t *testing.T) {
 				// The bound refuses before a controller exists, so, like every
 				// pre-controller refusal, it is reported on stderr with exit 1
 				// and no receipt; the worker is untouched.
-				if err := b.waitExit(t, 10*time.Second); err == nil {
+				if err := b.waitExit(t, liveBound); err == nil {
 					t.Fatal("resume exited 0 at its --wait-prior bound")
 				}
 				if second, resumed := secondWorker(t, f, worker); second != nil || resumed {
@@ -192,7 +195,7 @@ func TestAdapterResumeWaitPrior(t *testing.T) {
 				t.Fatalf("wait did not admit once the worker was gone: error=%v second=%v; stderr: %s", got["error"], second, b.stderr)
 			}
 			_ = b.stdin.Close()
-			_ = b.waitExit(t, 10*time.Second)
+			_ = b.waitExit(t, liveBound)
 		})
 	}
 }
@@ -214,7 +217,7 @@ func TestAdapterWaitPriorFlagBounds(t *testing.T) {
 			f := newEntryFixture(t, "")
 			a := f.start(t, nil, tc.args)
 			a.stdin.Close()
-			if err := a.waitExit(t, 20*time.Second); err == nil {
+			if err := a.waitExit(t, liveBound); err == nil {
 				t.Fatalf("adapter accepted %v", tc.args)
 			}
 			if rows := nativeLog(t, f.marker); len(rows) != 0 {

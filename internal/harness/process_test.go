@@ -60,7 +60,7 @@ func TestJSONProcessHelper(t *testing.T) {
 	}
 	if os.Getenv("BUDDY_PROCESS_MODE") == "eof" {
 		os.Stdout.Close()
-		time.Sleep(10 * time.Second)
+		time.Sleep(helperLife) // the EOF must arrive before this exit, not with it
 		os.Exit(0)
 	}
 	if mode := os.Getenv("BUDDY_PROCESS_MODE"); mode == "approval-eof" || mode == "flood-eof" {
@@ -89,7 +89,7 @@ func TestJSONProcessHelper(t *testing.T) {
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"thread": os.Getenv("CODEX_THREAD_ID"), "token": os.Getenv("CLAUDE_CODE_MESSAGING_TOKEN")})
 	if os.Getenv("BUDDY_PROCESS_MODE") == "blocked" {
-		time.Sleep(10 * time.Second)
+		time.Sleep(helperLife) // Close must end it, not this exit
 		os.Exit(0)
 	}
 	var v any
@@ -123,7 +123,7 @@ func TestClaudeProcessKeepsExactExecutableAndRecognizableArgv(t *testing.T) {
 			if json.Unmarshal(raw, &got) != nil || got["argv0"] != want {
 				t.Errorf("Claude=%v: argv0=%s, want %q", claude, raw, want)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(liveBound):
 			t.Fatal("helper did not report its process name")
 		}
 	}
@@ -143,7 +143,7 @@ func TestJSONProcessEOFStopsWritesWhileChildWaitsForInput(t *testing.T) {
 	defer p.Close()
 	select {
 	case <-p.Read():
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("helper did not become ready")
 	}
 	if err := p.Write(map[string]string{"control": "close stdout"}); err != nil {
@@ -154,7 +154,7 @@ func TestJSONProcessEOFStopsWritesWhileChildWaitsForInput(t *testing.T) {
 		if ok {
 			t.Fatal("unexpected native frame")
 		}
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("EOF not observed")
 	}
 	if err := p.WriteContext(context.Background(), map[string]string{"approval": "allow"}); err == nil {
@@ -162,7 +162,7 @@ func TestJSONProcessEOFStopsWritesWhileChildWaitsForInput(t *testing.T) {
 	}
 	select {
 	case <-p.done:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Error("EOF left owned process unreaped")
 	}
 	if _, err := os.Stat(effect); !os.IsNotExist(err) {
@@ -186,7 +186,7 @@ func TestJSONProcessOutputOverflowClosesWithoutConsumer(t *testing.T) {
 	// to hide terminal transport state behind a second bounded queue.
 	select {
 	case <-p.stop:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Error("native frame backpressure left write admission enabled")
 	}
 	if err := p.WriteContext(context.Background(), map[string]string{"approval": "allow"}); err == nil {
@@ -198,7 +198,7 @@ func TestJSONProcessOutputOverflowClosesWithoutConsumer(t *testing.T) {
 	_ = p.Close()
 	select {
 	case <-p.done:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Error("overflowed owned process did not stop")
 	}
 	if _, err := os.Stat(effect); !os.IsNotExist(err) {
@@ -221,7 +221,7 @@ func TestJSONProcessEOFPrecedesProcessExit(t *testing.T) {
 		if ok {
 			t.Fatal("unexpected native output")
 		}
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("native stdout EOF hidden until process exit")
 	}
 }
@@ -244,7 +244,7 @@ func TestJSONProcessBlockedWriteHonorsContextAndCloses(t *testing.T) {
 	}
 	select {
 	case <-p.done:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("uncertain partial write left process alive")
 	}
 }
@@ -271,7 +271,7 @@ func TestJSONProcessOwnsLifetimeAndScrubsParentIdentity(t *testing.T) {
 		if v["thread"] != "" || v["token"] != "" {
 			t.Fatal("parent identity inherited")
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("no helper output")
 	}
 	if err = p.Write(map[string]string{"still": "live"}); err != nil {
@@ -282,7 +282,7 @@ func TestJSONProcessOwnsLifetimeAndScrubsParentIdentity(t *testing.T) {
 		if string(raw) != `{"still":"live"}` {
 			t.Fatalf("worker lost: %s", raw)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("worker disappeared")
 	}
 }
@@ -298,12 +298,26 @@ func readJSONLine(t *testing.T, p *JSONProcess, v any) {
 		if err := json.Unmarshal(line, v); err != nil {
 			t.Fatalf("frame %s: %v", line, err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("no native frame")
 	}
 }
 
 func alive(pid int) bool { return pid > 0 && syscall.Kill(pid, 0) == nil }
+
+// helperLife is how long a helper process sleeps when a liveBound step must
+// see it still running, or must finish before the helper exits by itself
+// (#90). Such a helper's own exit is the wrong reason for the step to pass:
+// a transport that never closed still sees EOF once the last holder of its
+// stdout exits, and a group kill that never came still finds its target gone.
+// At 2-10 s the helpers outlived the old 1-5 s steps but not a liveBound one.
+// Ten minutes is go test's default -test.timeout, so no sequence of liveBound
+// steps that the timeout lets finish outlasts it. Each one is SIGKILLed in its
+// test's cleanup, or ends with its group, so a pass costs nothing.
+const helperLife = 10 * time.Minute
+
+// helperSleep is helperLife as a sleep(1)/time.sleep argument, in seconds.
+var helperSleep = strconv.Itoa(int(helperLife / time.Second))
 
 // waitGone polls until pid no longer exists (or is a zombie we do not own:
 // a reparented zombie is reaped by launchd within milliseconds).
@@ -329,7 +343,12 @@ func TestJSONProcessCloseEndsDescendants(t *testing.T) {
 	// Close's TERM usually landed before the trap and ended the tool on its
 	// own; with the group SIGKILL deleted this test then still passed, and
 	// caught the deletion in 3 of 20 runs (verification audit, 2026-10-07).
-	script := fmt.Sprintf(`(trap '' TERM; : > %q; sleep 2; echo late > %q) </dev/null >/dev/null 2>&1 & echo "{\"tool_pid\":$!}"; exec sleep 300`, armed, marker)
+	//
+	// The tool's write used to come 2 s after its trap, and Close had to land
+	// its KILL inside those 2 s; on a starved machine it need not (#90). It now
+	// waits helperLife, so a tool that survived Close is still there for
+	// waitGone to find, and the marker can only appear if it was never killed.
+	script := fmt.Sprintf(`(trap '' TERM; : > %q; sleep %s; echo late > %q) </dev/null >/dev/null 2>&1 & echo "{\"tool_pid\":$!}"; exec sleep %s`, armed, helperSleep, marker, helperSleep)
 	p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", script}, dir, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -339,7 +358,7 @@ func TestJSONProcessCloseEndsDescendants(t *testing.T) {
 	}
 	readJSONLine(t, p, &v)
 	t.Cleanup(func() { _ = syscall.Kill(v.PID, syscall.SIGKILL) })
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(liveBound); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := os.Stat(armed); err == nil {
 			break
 		}
@@ -355,19 +374,18 @@ func TestJSONProcessCloseEndsDescendants(t *testing.T) {
 	go func() { _ = p.Close(); close(closed) }()
 	select {
 	case <-closed:
-	case <-time.After(terminateGrace + 5*time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("Close did not return")
 	}
 	select {
 	case <-p.done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("transport did not finish")
 	}
-	if !waitGone(v.PID, 2*time.Second) {
+	if !waitGone(v.PID, liveBound) {
 		_ = syscall.Kill(v.PID, syscall.SIGKILL)
 		t.Fatalf("descendant %d of the closed worker survived Close", v.PID)
 	}
-	time.Sleep(2500 * time.Millisecond)
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatalf("descendant of the closed native worker wrote %s after Close", marker)
 	}
@@ -451,7 +469,7 @@ func TestJSONProcessCloseFinishesDespiteStdoutHolders(t *testing.T) {
 				// setpgid(0,0) is what job control or a daemonizing server does.
 				leave = "os.setpgid(0,0); "
 			}
-			start := `python3 -c 'import os,sys,time; ` + leave + `sys.stdout.write("{\"holder\":%d}\n" % os.getpid()); sys.stdout.flush(); time.sleep(30)' & exec sleep 300`
+			start := `python3 -c 'import os,sys,time; ` + leave + `sys.stdout.write("{\"holder\":%d}\n" % os.getpid()); sys.stdout.flush(); time.sleep(` + helperSleep + `)' & exec sleep ` + helperSleep
 			p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", start}, dir, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -467,10 +485,10 @@ func TestJSONProcessCloseFinishesDespiteStdoutHolders(t *testing.T) {
 			_ = p.Close()
 			select {
 			case <-p.done:
-			case <-time.After(5 * time.Second):
+			case <-time.After(liveBound):
 				t.Fatal("after Close, a descendant holding native stdout kept the transport reader (and the unreaped child) alive")
 			}
-			if holder == "in-group" && !waitGone(v.Holder, 2*time.Second) {
+			if holder == "in-group" && !waitGone(v.Holder, liveBound) {
 				t.Fatalf("in-group stdout holder %d survived the group kill", v.Holder)
 			}
 			// The documented limit, observed rather than assumed: a process
@@ -486,7 +504,7 @@ func TestJSONProcessCloseFinishesDespiteStdoutHolders(t *testing.T) {
 // holding stdout used to keep the transport open (no EOF, no Events close)
 // until a consumer happened to call Close.
 func TestJSONProcessLeaderExitEndsGroup(t *testing.T) {
-	p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", `sleep 30 & echo "{\"tool\":$!}"; exit 0`}, t.TempDir(), nil)
+	p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", `sleep ` + helperSleep + ` & echo "{\"tool\":$!}"; exit 0`}, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,10 +516,10 @@ func TestJSONProcessLeaderExitEndsGroup(t *testing.T) {
 	t.Cleanup(func() { _ = syscall.Kill(v.Tool, syscall.SIGKILL) })
 	select {
 	case <-p.done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("leader exit left its tool process holding the transport open")
 	}
-	if !waitGone(v.Tool, 2*time.Second) {
+	if !waitGone(v.Tool, liveBound) {
 		t.Fatalf("tool process %d outlived its exited harness", v.Tool)
 	}
 }
@@ -515,7 +533,7 @@ func TestJSONProcessLeaderExitEndsGroup(t *testing.T) {
 func TestJSONProcessLeaderExitReleasesTransportDespiteEscapedHolder(t *testing.T) {
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "holder-ready")
-	holder := fmt.Sprintf(`python3 -c 'import os,sys,time; os.setpgid(0,0); sys.stdout.write("{\"holder\":%%d}\n" %% os.getpid()); sys.stdout.flush(); open(%q,"w").close(); time.sleep(30)' & while [ ! -e %q ]; do sleep 0.01; done; exit 0`, ready, ready)
+	holder := fmt.Sprintf(`python3 -c 'import os,sys,time; os.setpgid(0,0); sys.stdout.write("{\"holder\":%%d}\n" %% os.getpid()); sys.stdout.flush(); open(%q,"w").close(); time.sleep(%s)' & while [ ! -e %q ]; do sleep 0.01; done; exit 0`, ready, helperSleep, ready)
 	auth := testAuthorization(t)
 	p, err := StartJSONProcess(context.Background(), auth, "/bin/sh", []string{"-c", holder}, dir, nil)
 	if err != nil {
@@ -529,12 +547,12 @@ func TestJSONProcessLeaderExitReleasesTransportDespiteEscapedHolder(t *testing.T
 	t.Cleanup(func() { _ = syscall.Kill(v.Holder, syscall.SIGKILL) })
 	select {
 	case <-p.exited:
-	case <-time.After(5 * time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("control: the leader did not exit by itself")
 	}
 	select {
 	case <-p.done:
-	case <-time.After(terminateGrace + 6*time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("the leader exited, and an escaped descendant holding native stdout kept the transport open with nobody calling Close")
 	}
 	// Released, not signalled: the holder left the group and is not ours.
@@ -558,13 +576,13 @@ func TestJSONProcessLeaderExitDrainIsBounded(t *testing.T) {
 	t.Cleanup(func() { processTestHooks.Store(nil) })
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "holder-ready")
-	holder := fmt.Sprintf(`python3 -c 'import os,sys,time; os.setpgid(0,0); sys.stdout.write("{\"holder\":%%d}\n" %% os.getpid()); sys.stdout.flush(); open(%q,"w").write(str(os.getpid())); time.sleep(30)' & while [ ! -s %q ]; do sleep 0.01; done; exit 0`, ready, ready)
+	holder := fmt.Sprintf(`python3 -c 'import os,sys,time; os.setpgid(0,0); sys.stdout.write("{\"holder\":%%d}\n" %% os.getpid()); sys.stdout.flush(); open(%q,"w").write(str(os.getpid())); time.sleep(%s)' & while [ ! -s %q ]; do sleep 0.01; done; exit 0`, ready, helperSleep, ready)
 	p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", holder}, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { close(release); _ = p.Close() })
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(liveBound); ; time.Sleep(10 * time.Millisecond) {
 		if b, err := os.ReadFile(ready); err == nil {
 			if pid, err := strconv.Atoi(string(b)); err == nil && pid > 1 {
 				t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
@@ -575,6 +593,9 @@ func TestJSONProcessLeaderExitDrainIsBounded(t *testing.T) {
 			t.Fatal("control: the holder never started")
 		}
 	}
+	// drainCap+5 s stays: the poll's EXPIRY is the assertion that the drain is
+	// bounded near drainCap (a 60 s drain would pass a liveBound poll), and the
+	// drain's timer runs in this binary, starved as much as the poll is.
 	for deadline := time.Now().Add(drainCap + 5*time.Second); ; time.Sleep(50 * time.Millisecond) {
 		if err := p.Err(); err != nil && strings.Contains(err.Error(), "still held unread output") {
 			return
@@ -601,7 +622,7 @@ func TestJSONProcessLeaderExitDrainsWhatItWrote(t *testing.T) {
 	defer p.Close()
 	select {
 	case <-p.exited:
-	case <-time.After(5 * time.Second):
+	case <-time.After(liveBound):
 		close(release)
 		t.Fatal("control: the leader did not exit")
 	}
@@ -612,7 +633,7 @@ func TestJSONProcessLeaderExitDrainsWhatItWrote(t *testing.T) {
 		if !ok || string(line) != `{"last":1}` {
 			t.Fatalf("the exited leader's last frame was lost: %q open=%v err=%v", line, ok, p.Err())
 		}
-	case <-time.After(drainCap):
+	case <-time.After(liveBound):
 		t.Fatal("no frame and no close")
 	}
 }
@@ -624,7 +645,7 @@ func TestJSONProcessOversizedFrameFailsVisiblyAndEndsTree(t *testing.T) {
 	for _, size := range []int{nativeFrameLimit - 64, nativeFrameLimit + 1024} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
 			dir := t.TempDir()
-			script := fmt.Sprintf(`sleep 60 & echo "{\"tool\":$!}"; python3 -c 'import sys; sys.stdout.write("{\"x\":\"" + "a"*%d + "\"}\n"); sys.stdout.flush()'; exec sleep 60`, size-10)
+			script := fmt.Sprintf(`sleep %s & echo "{\"tool\":$!}"; python3 -c 'import sys; sys.stdout.write("{\"x\":\"" + "a"*%d + "\"}\n"); sys.stdout.flush()'; exec sleep %s`, helperSleep, size-10, helperSleep)
 			p, err := StartJSONProcess(context.Background(), testAuthorization(t), "/bin/sh", []string{"-c", script}, dir, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -653,7 +674,7 @@ func TestJSONProcessOversizedFrameFailsVisiblyAndEndsTree(t *testing.T) {
 				if ok {
 					t.Fatal("an oversized frame was delivered or replaced")
 				}
-			case <-time.After(10 * time.Second):
+			case <-time.After(liveBound):
 				t.Fatal("transport did not close on an oversized frame")
 			}
 			if err := p.Err(); err == nil || !strings.Contains(err.Error(), "transport bound") || !strings.Contains(err.Error(), "unknown") {
@@ -664,10 +685,10 @@ func TestJSONProcessOversizedFrameFailsVisiblyAndEndsTree(t *testing.T) {
 			}
 			select {
 			case <-p.done:
-			case <-time.After(5 * time.Second):
+			case <-time.After(liveBound):
 				t.Fatal("worker not reaped after an oversized frame")
 			}
-			if !waitGone(v.Tool, 2*time.Second) {
+			if !waitGone(v.Tool, liveBound) {
 				t.Fatalf("worker's child %d survived the transport failure", v.Tool)
 			}
 		})

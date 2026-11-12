@@ -308,7 +308,9 @@ func TestClaudeWakeRefusalsBeforeTransportAreNotSubmitted(t *testing.T) {
 			}
 			_, err := c.Send(ctx, target, "peer hint")
 			if name == "write-failed" {
-				if err == nil || errors.Is(err, ErrNotSubmitted) || writes != 1 {
+				// The write's own error, not any: a Send that ignored it ran
+				// to the deadline, which is not ErrNotSubmitted either (#90).
+				if err == nil || errors.Is(err, ErrNotSubmitted) || !strings.Contains(err.Error(), "broken pipe after a partial frame") || writes != 1 {
 					t.Fatalf("a failed write was classified as not submitted: %v writes=%d", err, writes)
 				}
 				return
@@ -347,7 +349,7 @@ func TestCodexWakeRefusalsBeforeTransportAreNotSubmitted(t *testing.T) {
 			before := len(p.allWrites())
 			_, err := c.Send(ctx, target, text)
 			if name == "write-failed" {
-				if err == nil || errors.Is(err, ErrNotSubmitted) {
+				if err == nil || errors.Is(err, ErrNotSubmitted) || !strings.Contains(err.Error(), "broken pipe after a partial frame") {
 					t.Fatalf("a failed write was classified as not submitted: %v", err)
 				}
 				return

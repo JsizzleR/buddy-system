@@ -76,8 +76,8 @@ func TestNativeExecutableIsAbsoluteAndResolvedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer late.Close()
-	if _, err := late.Start(ctx, launch, testAuthorization(t)); err == nil {
-		t.Fatal("control: the re-pointed link should have failed the version check")
+	if _, err := late.Start(ctx, launch, testAuthorization(t)); AdmissionCode(err) != "version_mismatch" {
+		t.Fatalf("control: the re-pointed link should have failed the version check: %v", err)
 	}
 }
 

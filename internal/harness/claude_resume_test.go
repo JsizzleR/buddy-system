@@ -151,7 +151,18 @@ func TestClaudeResumeExactNativeSession(t *testing.T) {
 }
 
 func TestClaudeResumeRechecksAdmission(t *testing.T) {
-	for _, name := range []string{"changed-session", "bad-uuid", "version", "permission", "missing-gate", "effective-gate", "mod-inventory", "native-session-mismatch"} {
+	for _, test := range []struct{ name, want string }{
+		{"changed-session", "Claude resume differs from captured native session"}, {"bad-uuid", "Claude resume differs from captured native session"},
+		{"version", "version_mismatch"}, {"permission", "unsupported Claude permission mode"},
+		{"missing-gate", "Claude PreToolUse gate does not cover Edit"}, {"effective-gate", "Claude hook compatibility refuses disableAllHooks"},
+		{"mod-inventory", "Claude Mod inventory contains an unqualified plugin identity"},
+		// The reader ends the transport on the foreign session id, and the
+		// pending initialize sees it either as "disconnected" or as "closed
+		// before native acknowledgment", by a race; either is the transport's
+		// end, which a deadline's error is not.
+		{"native-session-mismatch", "Claude transport"},
+	} {
+		name := test.name
 		t.Run(name, func(t *testing.T) {
 			b, launch, ctx := claudeFixture(t)
 			impl := b.(*claudeBackend)
@@ -180,9 +191,8 @@ func TestClaudeResumeRechecksAdmission(t *testing.T) {
 			if err := os.WriteFile(impl.executable, []byte(fake), 0700); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := b.Resume(ctx, launch, id, testAuthorization(t)); err == nil {
-				t.Fatal("incompatible resume admitted")
-			}
+			_, err := b.Resume(ctx, launch, id, testAuthorization(t))
+			wantRefusal(t, err, test.want)
 		})
 	}
 }

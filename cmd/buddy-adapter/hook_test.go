@@ -40,15 +40,19 @@ func TestReceiptBoundHookExecutable(t *testing.T) {
 	dir := t.TempDir()
 	buddy := filepath.Join(dir, "buddy")
 	adapter := filepath.Join(dir, "buddy-adapter")
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
+	// The builds have their own bound and every later step liveBound (#90):
+	// one 40 s context over both made a starved build eat the hooks' budget.
+	buildCtx, cancelBuild := context.WithTimeout(context.Background(), buildBound)
+	defer cancelBuild()
 	for _, target := range []struct{ out, pkg string }{{buddy, "./cmd/buddy"}, {adapter, "./cmd/buddy-adapter"}} {
-		cmd := exec.CommandContext(ctx, "go", "build", "-o", target.out, target.pkg)
+		cmd := exec.CommandContext(buildCtx, "go", "build", "-o", target.out, target.pkg)
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build %s: %v\n%s", target.pkg, err, out)
 		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), liveBound)
+	defer cancel()
 	repo := filepath.Join(dir, "repo")
 	if err := os.Mkdir(repo, 0700); err != nil {
 		t.Fatal(err)

@@ -297,7 +297,7 @@ func TestStartJSONProcessRefusesUnauthorizedLaunch(t *testing.T) {
 					t.Fatalf("control: minted authorization refused: %v", err)
 				}
 				defer p.Close()
-				for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+				for deadline := time.Now().Add(liveBound); ; time.Sleep(10 * time.Millisecond) {
 					if _, err := os.Stat(marker); err == nil {
 						break
 					}
@@ -757,7 +757,9 @@ func TestNewControllerAfterPrior(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			bound := 5 * time.Second
+			// The admitting cases must admit before the bound: a positive
+			// step, so liveBound (#90). Only "timeout" asserts the expiry.
+			bound := liveBound
 			if name == "timeout" {
 				bound = 700 * time.Millisecond
 			}
@@ -796,7 +798,7 @@ func TestNewControllerAfterPrior(t *testing.T) {
 			var r result
 			select {
 			case r = <-done:
-			case <-time.After(bound + 2*time.Second):
+			case <-time.After(bound + liveBound):
 				t.Fatal("wait did not return at its bound")
 			}
 			if r.c != nil {
@@ -904,7 +906,7 @@ func TestProbeGroupZombieOnlyIsNotAbsence(t *testing.T) {
 	defer cmd.Wait()
 	// Positive control first: while it may still run, the group has members
 	// or is already zombie-only; it is never absent before the reap.
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(liveBound)
 	for {
 		g, err := probeGroup(pid)
 		if g == groupEmpty {
