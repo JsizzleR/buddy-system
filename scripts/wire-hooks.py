@@ -5,6 +5,10 @@ nothing else (D-135, amending D-050 and D-120).
 
     python3 -I -B scripts/wire-hooks.py check <settings.json>
     python3 -I -B scripts/wire-hooks.py wire <settings.json> <snapshot|-> [<token> ...]
+    python3 -I -B scripts/wire-hooks.py unwire plan|dry|write <settings.json> <sha256|-> <token> ...
+
+`unwire` is uninstall.sh's (D-173), the same table read in reverse; its
+section below says what it removes, what it leaves, and how it writes.
 
 `check` is install.sh's preflight, before step 1: every refusal below that the
 file can earn now, writing nothing. `wire` is step 6: <snapshot> holds the bytes
@@ -21,7 +25,7 @@ that left the operator pasting JSON by hand for every line the report named. The
 operator's decision (2026-11-09) keeps the reason and narrows the rule: an
 opt-in flag that can only ADD, and only what the report already names.
 
-WHAT IT NEVER DOES. Remove, reorder or rewrite an existing entry; touch a key but
+WHAT `wire` NEVER DOES. Remove, reorder or rewrite an existing entry; touch a key but
 the hook arrays it appends to (or the `hooks` object / event key it creates when
 absent); judge a present-but-different entry (a token the report's grep finds
 anywhere, a legacy gate or a permissions rule included, is present: never added,
@@ -384,7 +388,10 @@ def wire(path, snapshot, tokens):
         signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
 
 
-def _publish(path, raw, st, data, adds, gateless):
+def _publish(path, raw, st, data, adds, gateless, tag="hooks: --wire-hooks", said=None):
+    """Write data over path (or create it when raw is None), all or nothing.
+    `said` is the list of lines to print once the rename is done; None prints
+    wire's "added" lines for `adds`. `tag` heads every line (unwire's differs)."""
     backup = leftover = None
     if raw is None:
         d = os.path.dirname(os.path.abspath(path))
@@ -419,16 +426,18 @@ def _publish(path, raw, st, data, adds, gateless):
                 os.unlink(tmp)
             os.unlink(backup)
             raise
-    for t, ev, e in adds:
-        print("hooks: --wire-hooks added %s on %s%s in %s" % (
+    if said is None:
+        said = ["hooks: --wire-hooks added %s on %s%s in %s" % (
             "buddy beat (browser tools, #71)" if t.startswith("browser ") else t,
-            ev, " (matcher %s)" % json.dumps(e["matcher"]) if "matcher" in e else "", path))
+            ev, " (matcher %s)" % json.dumps(e["matcher"]) if "matcher" in e else "", path) for t, ev, e in adds]
+    for line in said:
+        print(line)
     if backup:
-        print("hooks: --wire-hooks kept the previous file as %s" % backup)
+        print("%s kept the previous file as %s" % (tag, backup))
     rc = _gateless(path) if gateless else 0
     if leftover:
-        print("hooks: --wire-hooks WROTE %s, but its temp %s, a second link to it, could not be removed (%s): remove it, "
-              "or the next run refuses the file" % ((path,) + leftover))
+        print("%s WROTE %s, but its temp %s, a second link to it, could not be removed (%s): remove it, "
+              "or the next run refuses the file" % ((tag, path) + leftover))
         rc = 1
     try:
         dfd = os.open(os.path.dirname(os.path.abspath(path)), os.O_RDONLY)
@@ -437,8 +446,8 @@ def _publish(path, raw, st, data, adds, gateless):
         finally:
             os.close(dfd)
     except OSError as e:
-        print("hooks: --wire-hooks WROTE %s, but its directory's fsync failed (%s): durable only once the system "
-              "flushes it" % (path, e))
+        print("%s WROTE %s, but its directory's fsync failed (%s): durable only once the system "
+              "flushes it" % (tag, path, e))
         return 1
     return rc
 
@@ -466,6 +475,225 @@ def check(path):
     return 0
 
 
+# --- unwire: `uninstall.sh`'s removal of the lines for what it removes (D-173) ---
+#
+# THE SAME TABLE IN REVERSE. A hook is buddy's only when its `type` is
+# "command" and its `command` EQUALS, byte for byte once decoded, the command
+# gate-hook.py's line_for gives a token: the one spelling README shows and
+# --wire-hooks writes. Its other keys may only be the ones a paste of README's
+# line carries or adds without changing what runs: `timeout`, `statusMessage`,
+# `onFailure` (the developing machine's eight lines carry the first two,
+# measured 2026-11-11, so exact object equality would have removed none of
+# them). A hook naming a token in any other spelling (the legacy fail-open
+# gate, an absolute path, an `if`, `shell` or `async` key) is not judged: it
+# is left and named, since a guess that removed a hand-wired line would be the
+# edit D-050 refused to risk.
+#
+# WHAT GOES. Each buddy hook of a token being removed, wherever it sits. An
+# entry whose hooks are ALL buddy hooks (README's PostToolUse entry carries
+# beat and alert, its SessionEnd one bye and presence) loses those hooks, and
+# the entry goes with its last one; `--chat` leaves the beat and bye where they
+# were. An entry holding a buddy hook beside anything else (a hook that is not
+# buddy's, a key but `matcher` and `hooks`) is left whole and named: removing
+# part of an entry someone else also wrote is an edit of theirs. An event
+# array left empty stays as `[]`, which runs nothing: deleting its key too
+# would be one more edit for no change in behavior.
+#
+# HOW IT WRITES: as wire does, a text splice verified against the decoded
+# document (the old one minus exactly those hooks and entries), every cut
+# holding only the removed values, commas and whitespace; then wire's backup,
+# temp and rename (_publish), under wire's refusals (load, parse, shape). The
+# plan and the write read one version: `plan` prints the bytes' sha256, and
+# `write` refuses bytes that hash otherwise.
+_MENTION = {}
+_COSMETIC = {"timeout", "statusMessage", "onFailure"}
+
+
+def _is(h, want):
+    """h is the table's hook `want` (see above)."""
+    return (isinstance(h, dict) and h.get("type") == "command" and h.get("command") == want["command"]
+            and set(h) <= {"type", "command"} | _COSMETIC)
+
+
+def _mentions(cmd, token):
+    rx = _MENTION.get(token)
+    if rx is None:
+        b, v = token.split(" ")
+        # The install report's three greps, on the decoded string: `buddy" gate`,
+        # `/buddy gate`, `; buddy gate`. buddy never matches inside buddylist.
+        rx = _MENTION[token] = re.compile(r'(?:^|[/"; ])%s"? %s(?![\w-])' % (re.escape(b), re.escape(v)))
+    return bool(rx.search(cmd))
+
+
+def _where(ev, i, j=None):
+    e = ev if re.fullmatch(r"[A-Za-z]+", ev) else json.dumps(ev)
+    return "hooks.%s[%d]%s" % (e, i, "" if j is None else ".hooks[%d]" % j)
+
+
+def unplan(doc, tokens, gh):
+    """([(event, entry index, [hook indices] or None for the whole entry,
+    [tokens])], [left lines]) for removing `tokens`' buddy hooks from doc."""
+    known = [t for t, _ in gh.TOKENS if not t.startswith("browser ")]
+    for t in tokens:
+        if t not in known:
+            raise Refused("token %s is not one the report names" % json.dumps(t))
+    hook = {t: gh.line_for(t)[1]["hooks"][0] for t in known}
+
+    def buddys(h):
+        return any(_is(h, w) for w in hook.values())
+    cuts, left = [], []
+    for ev, es in (doc.get("hooks") or {}).items():
+        for i, e in enumerate(es):
+            hs = e.get("hooks") or []
+            hit, names = [], []
+            for j, h in enumerate(hs):
+                t = next((t for t in tokens if _is(h, hook[t])), None)
+                if t:
+                    hit.append(j)
+                    names.append(t)
+                    continue
+                c = h.get("command")
+                for t in tokens:
+                    if isinstance(c, str) and _mentions(c, t) and not buddys(h):
+                        left.append("left: %s runs %s in a spelling that is not README's (gate-hook.py's); "
+                                    "remove it by hand" % (_where(ev, i, j), t))
+            if not hit:
+                continue
+            extra = sorted(set(e) - {"hooks", "matcher"})
+            if extra or not all(buddys(h) for h in hs):
+                left.append("left: %s holds %s beside %s that is not a buddy line, so the entry is left whole; "
+                            "remove the buddy hook from it by hand" % (
+                                _where(ev, i), " and ".join(names),
+                                "a key (%s)" % ", ".join(json.dumps(k) for k in extra) if extra else "a hook"))
+                continue
+            cuts.append((ev, i, None if len(hit) == len(hs) else hit, names))
+    return cuts, left
+
+
+def _drop(arr, drop):
+    """Spans [(start, end)] cutting the elements whose indices are in `drop`
+    out of the array node `arr`, with the commas between them."""
+    items = arr[3]
+    n = len(items)
+    if len(drop) == n:
+        return [(items[0][1], items[-1][2])]
+    spans, k = [], 0
+    while k < n:
+        if k not in drop:
+            k += 1
+            continue
+        a = k
+        while k + 1 < n and k + 1 in drop:
+            k += 1
+        b = k
+        # A run with an element after it is cut up to that element's start; one
+        # that ends the array, from the end of the element before it.
+        spans.append((items[a][1], items[b + 1][1]) if b + 1 < n else (items[a - 1][2], items[b][2]))
+        k += 1
+    return spans
+
+
+def unsplice_cut(text, cuts):
+    """(new text, spans) with each cut's hooks or entries taken out."""
+    root, _ = _value(text, 0)
+    hooks = _member(root, "hooks")
+    spans, values = [], []
+    for ev in dict.fromkeys(c[0] for c in cuts):
+        arr = _member(hooks, ev)
+        mine = [c for c in cuts if c[0] == ev]
+        whole = {i for _, i, js, _ in mine if js is None}
+        if whole:
+            spans += _drop(arr, whole)
+            values += [arr[3][i] for i in whole]
+        for _, i, js, _ in mine:
+            if js is not None:
+                inner = _member(arr[3][i], "hooks")
+                spans += _drop(inner, set(js))
+                values += [inner[3][j] for j in js]
+    spans.sort()
+    for (a, b), (c, _) in zip(spans, spans[1:]):
+        if c < b:
+            raise Refused("two cuts overlap (a bug here); nothing written")
+    # Each cut holds removed values, commas and whitespace, and nothing else.
+    for a, b in spans:
+        rest = list(text[a:b])
+        for v in values:
+            if a <= v[1] and v[2] <= b:
+                rest[v[1] - a:v[2] - a] = [" "] * (v[2] - v[1])
+        if "".join(rest).strip(" \t\r\n,"):
+            raise Refused("a cut would remove more than buddy's lines (a bug here); nothing written")
+    out, at = [], 0
+    for a, b in spans:
+        out.append(text[at:a])
+        at = b
+    out.append(text[at:])
+    return "".join(out), spans
+
+
+def unexpected(doc, cuts):
+    want = copy.deepcopy(doc)
+    for ev in dict.fromkeys(c[0] for c in cuts):
+        es = want["hooks"][ev]
+        mine = [c for c in cuts if c[0] == ev]
+        for _, i, js, _ in mine:
+            if js is not None:
+                es[i]["hooks"] = [h for j, h in enumerate(es[i]["hooks"]) if j not in js]
+        whole = {i for _, i, js, _ in mine if js is None}
+        want["hooks"][ev] = [e for i, e in enumerate(es) if i not in whole]
+    return want
+
+
+def unwire(mode, path, snapshot, tokens):
+    """plan|dry: print what a write would remove and leave, then `snapshot
+    <sha256>` (or `snapshot -`, no file). write: do it, if the bytes still hash
+    to <snapshot>. Exit 0 done or nothing to do, 1 refused (nothing written)."""
+    import hashlib
+    gh = gate_hook()
+    raw, st = load(path)
+    if mode == "write":
+        if raw is None:
+            print("settings: no %s, so no hook line to remove" % path)
+            return 0
+        if snapshot == "-" or hashlib.sha256(raw).hexdigest() != snapshot:
+            raise Refused("changed after the plan read it; run again")
+    if raw is None:
+        if mode != "write":
+            print("snapshot -")
+        return 0
+    text, doc = parse(raw)
+    cuts, left = unplan(doc, tokens, gh)
+    data = None
+    if cuts:
+        new, _ = unsplice_cut(text, cuts)
+        if decode(new) != unexpected(doc, cuts) or new == text:
+            raise Refused("the cut text did not verify (a bug here); nothing written")
+        data = new.encode("utf-8")
+    lines = []
+    for ev, i, js, names in cuts:
+        verb = {"plan": "will remove", "dry": "would remove", "write": "removed"}[mode]
+        if js is None:
+            lines.append("settings: %s %s: the entry %s, all of it" % (verb, " and ".join(names), _where(ev, i)))
+        else:
+            lines.append("settings: %s %s from %s (its other hooks are buddy's and stay)" % (
+                verb, " and ".join(names), _where(ev, i)))
+    if mode != "write":
+        for line in lines + ["settings: " + x for x in left]:
+            print(line)
+        if lines:
+            print("settings: %s in %s with a backup beside it; nothing else in the file changes" % (
+                "these are cut" if mode == "plan" else "a real run cuts these", path))
+        print("snapshot %s" % hashlib.sha256(raw).hexdigest())
+        return 0
+    if not cuts:
+        return 0
+    old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HELD)
+    try:
+        return _publish(path, raw, st, data, [], False, tag="settings:",
+                        said=["%s in %s" % (x, path) for x in lines])
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+
+
 def _stop(signum, frame):
     # HUP (a pane closing) or TERM would end Python with its buffered lines
     # unsaid; raised, they are flushed. In the write itself they are held
@@ -483,6 +711,15 @@ def main(argv):
             return check(argv[1])
         if len(argv) >= 3 and argv[0] == "wire":
             return wire(argv[1], argv[2], argv[3:])
+        if len(argv) >= 4 and argv[0] == "unwire" and argv[1] in ("plan", "dry", "write"):
+            try:
+                return unwire(argv[1], argv[2], argv[3], argv[4:])
+            except (Refused, OSError) as e:
+                print("settings: left: %s unedited, refused: %s" % (argv[2], e))
+                return 1
+            except (ValueError, TypeError, AttributeError, KeyError, RecursionError) as e:
+                print("settings: left: %s unedited, refused: a shape it cannot read (%s)" % (argv[2], type(e).__name__))
+                return 1
     except Refused as e:
         print("hooks: --wire-hooks REFUSED, nothing written: %s: %s" % (argv[1], e))
         return 1

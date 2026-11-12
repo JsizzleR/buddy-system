@@ -137,9 +137,13 @@ buddy uninstall              # everything install.sh put in place, buddy last
 
 It runs `scripts/uninstall.sh` in the checkout `buddy` was installed from (or
 run that script from any clone). The chat daemon is booted out through launchd
-and its plist moved to `~/.buddylist`; settings, MCP registrations, ledgers
-and the chat journal are never touched, and it names the hook lines and MCP
-entries left for you to remove ([docs/USAGE.md](docs/USAGE.md#buddy-uninstall--remove-it-or-only-the-chat-half-d-125)).
+and its plist moved to `~/.buddylist`. The hook lines for what it removed come
+out of `~/.claude/settings.json` (README's spelling only, with a backup beside
+it), `claude mcp remove` drops each `buddylist` registration that ran a
+removed binary, and the pinned AIM server's agent goes the daemon's way.
+Ledgers, the chat journal, other settings and anything it cannot prove is
+buddy's are never touched, and it names each thing it leaves for you
+([docs/USAGE.md](docs/USAGE.md#buddy-uninstall--remove-it-or-only-the-chat-half-d-125)).
 
 #### Claims-only: no chat stack
 

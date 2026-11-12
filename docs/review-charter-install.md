@@ -54,10 +54,19 @@ stub of each binds as written; this is the full text (D-158).
     stop leaves the claims half working and a re-run finishes. Ours is a build-info `path`
     line in the bytes, never a run. A full run that leaves an executable at
     `$BUDDY_BIN_DIR/buddy` exits INCOMPLETE. `--chat` first runs the installed buddy's
-    `BUDDY_CHAT=off buddy update` and removes chat only once D-124's stamp reads off. Settings,
-    MCP registrations, Codex hooks, ledgers, the journal, core.hooksPath, `.bak`, an edited
-    skill and the Agent-model copy are reported, never touched. Install and uninstall hold ONE
+    `BUDDY_CHAT=off buddy update` and removes chat only once D-124's stamp reads off. By
+    default it also removes (D-173) the buddy hook lines whose `$HOME/bin` binary it removed
+    (`wire-hooks.py unwire`: gate-hook.py's one table, a hook buddy's only when its command is
+    that table's exactly, a verified splice, backup, rename; LAST, after buddy's unlink; a
+    refusal named, never a stop; an entry shared with a foreign hook left whole), the
+    `buddylist` MCP registrations whose command it removed (`claude mcp remove`, in each
+    project's physical path, read back; `~/.claude.json` never written), and
+    `com.buddy-system.oscar` when its program's bytes are get-oscar.sh's pinned build
+    (bootout confirmed, plist moved). Other settings, ergo (no doc names its build), Codex
+    hooks, ledgers, the journal, core.hooksPath, `.bak`, an edited skill and the Agent-model
+    copy and line are reported, never touched; processes are never signalled. Install and uninstall hold ONE
     lock for their whole run (D-126): `$BUDDY_BIN_DIR/.buddy-install.lock`, a symlink naming
     the holder's pid and start time, a dead or reused pid taken over; not HOME-keyed, not a
-    mkdir'd directory. Do not propose a `--purge`, editing settings, killing a daemon, or
-    removing buddy before chat.
+    mkdir'd directory. Do not propose a `--purge`, editing settings beyond those lines or
+    `~/.claude.json` directly, killing a daemon or a `buddylist` process, or removing buddy
+    before chat.

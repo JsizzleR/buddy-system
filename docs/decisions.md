@@ -9333,7 +9333,8 @@ runs when the installed buddy cannot (D-107). Every run prints its whole plan fi
   executable at `$BUDDY_BIN_DIR/buddy` (`[ -x ]`, the gate line's own test, so a directory too)
   ends `INCOMPLETE`, exit 1: README's gate line runs it, and one that cannot run refuses every
   gated call. A path to act on holding a newline is refused before anything is planned.
-- **Never touched, named:** settings (the hook lines and `BUDDY_CHAT` env), MCP registrations
+- **Never touched, named** (*amended by D-173*: the hook lines, MCP registrations and the oscar
+  agent provably for what a run removes now go, by default)**:** settings (the hook lines and `BUDDY_CHAT` env), MCP registrations
   (decoded per project from `~/.claude.json`, one `cd … && claude mcp remove buddylist --scope
   local` each), Codex's `hooks.json` (no `[ -x ]` guard: it refuses once buddy is gone), a
   pre-commit holding README step 4's `commit-gate` line (not enumerable), every ledger and the
@@ -10063,7 +10064,7 @@ storing what is open: the slot's description is that, in the holder's words.
 
 **The rule** — `sh scripts/install.sh --wire-hooks`; `buddy update --wire-hooks` forwards it only to an install.sh carrying the line `# buddy-install-accepts: --wire-hooks` (an older one ignored argv: it would install, wire nothing, exit 0). Unflagged, nothing changes; any other argument is refused first.
 - Which: the tokens step 6's grep names missing, in a snapshot the file must still match, and the #71 beats `browser_gone` names; never the Agent-model hook (D-120: wired without its copy, python3 exits 2, blocking every Agent call). One spelling, `gate-hook.py`'s table: `check-readme` holds README's block and USAGE's to it, `check-install.sh` the `wanted` list.
-- How (`scripts/wire-hooks.py`): each line a new entry after its event's last; a text splice, verified to decode to the old document plus exactly those entries (`json.dumps` would respell CRLF, `\u0061`, `1e0`); a 0600 backup, fsynced; a same-directory temp, the original's mode, renamed over it. One rename, so a refusal leaves the file as it was, and no failure leaves the gate's entry less wired (one after the rename, a directory fsync, says WROTE). A token present anywhere (a legacy gate, a permissions rule) is never added or fixed; a gate token outside any PreToolUse hook is said and fails the wiring.
+- How (`scripts/wire-hooks.py`; *D-173 reads the same table in reverse, `unwire`, for uninstall*): each line a new entry after its event's last; a text splice, verified to decode to the old document plus exactly those entries (`json.dumps` would respell CRLF, `\u0061`, `1e0`); a 0600 backup, fsynced; a same-directory temp, the original's mode, renamed over it. One rename, so a refusal leaves the file as it was, and no failure leaves the gate's entry less wired (one after the rename, a directory fsync, says WROTE). A token present anywhere (a legacy gate, a permissions rule) is never added or fixed; a gate token outside any PreToolUse hook is said and fails the wiring.
 - Refused, nothing written: a symlink, a hard link, another user's or a read-only file, a non-hook entry, a bin dir not `~/bin`, over 1 MiB before or after, not UTF-8 JSON, a duplicate key, NaN, a non-object top or `hooks`, a non-list event, `disableAllHooks`, a changed snapshot. A preflight before step 1 stops a doomed wiring with nothing installed; a refusal at step 6 fails the install at the end.
 
 **No harness refusal** — the write set is buddy's own lines, so a run nobody asked for adds only what the report names; `env -u` defeats an environment check; a lane not running install is the lane rule, never relayed. A terminal, `!`, or a session on the operator's word.
@@ -11783,3 +11784,120 @@ SKILL.md it left.
 - USAGE: none
 - amends: D-114 (the fleet skill is its SKILL.md and the files beside it), D-121 (every file of
   each skill installed)
+
+## D-173 — `buddy uninstall [--chat]` also removes, by default, the hook lines, MCP registrations and oscar agent provably for what it removes; processes and data stay (amends D-125, D-135)
+
+2026-11-12 · the operator, in orc-20's pane at about 16:10Z on 2026-11-11: shown a
+`buddy uninstall --chat --dry-run` that left five steps by hand (the chat hook lines, three
+projects' MCP registrations, the ergo and oscar agents, live buddylist processes, `~/.buddylist`),
+"shouldnt we fix buddy system so we're not left with steps to do by hand?", then, on orc-20's
+proposal to automate the first three, "yes open the lane, default-on". Lane uninstall-clean,
+under orc-20's brief.
+
+**The rule.** Each removal is planned (every dry run prints it, changing nothing) and acted on
+only when provably for what the same run removes:
+1. **Hook lines** (`scripts/wire-hooks.py unwire plan|dry|write`). Tokens: buddylist's two on
+   `--chat`, every buddy token on a full run, each only once the `$HOME/bin/<binary>` its line
+   runs is gone, so only where the bin dir resolves to `~/bin` (D-135's test). A hook is buddy's
+   when its `type` is `command`, its command equals gate-hook.py's for a token exactly, and its
+   other keys are among `timeout`, `statusMessage`, `onFailure`: the developing machine's eight
+   lines carry the first two (measured 2026-11-11), so exact object equality would have removed
+   none. An entry whose hooks are all buddy's loses the ones going and goes with its last (README's
+   shared PostToolUse and SessionEnd entries keep `beat` and `bye` under `--chat`); an entry
+   holding one beside a foreign hook or another key is left whole and named, and so is a token's
+   line in any other spelling. An emptied event stays `[]`. The write is wire's: a text splice
+   whose result must decode to the old document minus exactly those hooks and entries, each cut
+   holding only those values, commas and whitespace; a 0600 backup; a same-directory temp,
+   renamed; wire's refusals (load, parse, shape); the plan's sha256 must still match. **Last**:
+   after buddy's unlink, so a stop anywhere leaves buddy installed and its gate wired. **A refused
+   or failed edit is named and the run goes on** (the decision the brief left to the lane): every
+   README line is guarded (`[ -x ] … exit 0`), so a line over a binary that is gone runs nothing,
+   while a stop would keep binaries the refusal had nothing to do with. The Agent-model line is
+   not a token (D-120).
+2. **MCP registrations.** Each `buddylist` one decoded from `~/.claude.json` whose command is
+   absolute and, as a string, a buddylist this run removes or a candidate already gone (a re-run
+   finishes; a `samefile` match removed a registration naming a kept link's target, Codex):
+   `claude mcp remove buddylist --scope local` in that project, `--scope user` for the
+   user-wide one, stdin closed, each read back from the file. Only where the project's key is its
+   directory's physical path (`pwd -P`): claude keys by its own cwd, so run through a link it
+   could act on another project's registration. Only where the file read is the one claude
+   writes, `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`. Read again just before claude runs: the
+   same command, and its program gone, or left (the plan reads it before the bootout).
+   `~/.claude.json` is never written here. Another command, a project gone or reached through a link, no `claude`
+   (`BUDDY_CLAUDE`, a knob so the check can name a fake), or a read-back still finding it: left
+   and named with its command. The checkout's `.mcp.json` stays by hand: a project file.
+3. **`com.buddy-system.oscar`.** Provenance: the operator wrote both chat-server plists by hand on
+   2026-08-14 (the IRC switch, PLAN.md at 2ad9c3b, removed from the public tree at 57ab493);
+   nothing in `scripts/` writes either. Oscar's runs `.cache/oscar-server`, which
+   `scripts/get-oscar.sh` builds from a pinned clone, so its bytes carry
+   `path\tgithub.com/mk6i/open-oscar-server/cmd/server` and `build\tvcs.revision=<PIN>`, PIN read
+   from get-oscar.sh (measured on the developing machine's copy). Both lines, in the loaded job's
+   program (the whole `program = ` value) AND in the plist's program (`Program` when set, else
+   `ProgramArguments:0`, read with every byte kept) under that Label, whichever exist, make it
+   ours: then `bootout`, `print` reading 113 within 10 s, and the plist moved to
+   `~/.buddylist/<label>.plist.removed-<UTC>` with the restore command (D-125's daemon
+   discipline). An unreadable `print`, a program whose bytes miss either line, a plist naming
+   another program or Label, a symlinked or unreadable plist (no PlistBuddy off macOS), or a
+   failed or unconfirmed bootout: left and named, never a stop, since nothing this run removes
+   runs it. A program already gone is NOT provable (the daemon's gone-program arm is for a job
+   under buddy's own label respawn-failing on a binary this project installs; the server's binary
+   is the checkout's cache, not install's). **ergo is never provable**: its program on the
+   developing machine is `~/.buddylist/ergo-bin`, built as `command-line-arguments` (its build
+   info names no module path a doc of ours names), and README says only `ergo run`. It is left
+   with every other `com.buddy-system.*` plist, named with its bootout and move.
+
+**Unchanged** (D-125): processes are never signalled (after the bootout they are live sessions'
+MCP servers and presence, D-122); ledgers, the journal and `~/.buddylist` stay (no `--purge`);
+settings outside those lines (`BUDDY_CHAT` included) stay. A full run also leaves, named:
+Codex's `hooks.json` (Codex's file, its hooks trusted by content in Codex's `/hooks`, so an edit
+is a trust change uninstall never makes), a pre-commit holding README's commit-gate line (any
+repo's `.git/hooks`: not enumerable), and `core.hooksPath` (who set it cannot be known).
+
+**Not covered.** A settings write inside the plan-to-rename window is refused only when it
+lands before the final read (D-135's window, the same); `claude mcp remove` has no timeout here
+(macOS ships none; it reads stdin from /dev/null); claude's own read of its file after the
+`still` check (seconds; no lock exists to take); the final `done` line does not
+count what the new steps left (each is its own `left:` line above it).
+
+**Test shape.** `check-uninstall.sh`, a fake `claude` beside the fake `launchctl` (each logging
+argv, the claude one its physical cwd; a guard `claude` and `launchctl` first on PATH, never to
+be reached), `$HOME/bin` linked to the case's bin dir, a settings fixture built from
+gate-hook.py's table (every line, two with a paste's keys, the Agent-model line, a foreign entry,
+an entry holding a buddy and a foreign hook), registrations ours (project and user), ours under
+a gone project, foreign twice, and an oscar program carrying the pin. U-4 reads each back: the
+settings equal the fixture minus buddy's lines, a 0600 backup of the old bytes, exactly two
+claude calls, oscar booted out and its plist kept in `~/.buddylist`; U-5's re-run changes and
+runs nothing; U-1 and U-2 plan each and run no claude; U-3b (`--chat`) leaves the beat and bye;
+U-9 (a foreign buddy left) removes the chat lines only. Refusals and leave-its, each beside
+U-4: U-14a a symlinked settings file refused, named, the run done; U-14b a bin dir not `~/bin`
+leaves the file byte-identical; U-14c no claude, U-14d a claude that removes nothing (read
+back); U-14h settings changed between plan and write (by the fake claude, which runs in that
+window) refused with the changed bytes kept; U-14e another revision's oscar, U-14f a plist naming
+another program, U-14g a failed bootout; from the code pass, U-14i a `BUDDY_CLAUDE_JSON` claude
+does not write, U-14j a registration rewritten at the bootout, U-14k one naming a kept hard
+link, U-14l a program path holding ` = `, U-14m a plist's `Program`, U-14n a Label ending in a
+newline. Every stop's snapshot holds the settings and `~/.claude.json`. Mutants, in a private
+copy: 16 of 17, then 6 of 7 on the folds, each survivor then killed by an added assertion (U-3b:
+`--chat` never judges buddy's lines; U-14k: the plan's own match, the act's recheck behind it).
+
+**Review** — lite (D-104): a scoped self-review, then one Codex code pass at xhigh, folded once
+(D-115). Five raised, all fixed: the read-back read `BUDDY_CLAUDE_JSON` while claude edits its own
+file (P1); a registration rewritten between plan and act was removed unchecked (P1); `awk -F' = '`
+judged the part of a program path before ` = ` (P2, in the daemon's D-125 line too); a plist's
+`Program` was ignored for `ProgramArguments:0` (P2, the daemon's too); a substitution stripped a
+Label's or program's trailing newline (P2, the daemon's too). Taken from its notes: `samefile`
+dropped. No settings half-edit or dry-run change found. Its open question, a case-variant project
+key on a case-insensitive volume: `pwd -P` returns the on-disk spelling (measured: `cd /PRIVATE/TMP
+&& pwd -P` prints `/private/tmp`), so a key spelled otherwise is left, not run.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number added)
+- GIVEN: review-charter.md GIVEN 119 and its install part (amended: the default removals, the
+  "do not propose" list narrowed to other settings and processes)
+- code: scripts/uninstall.sh 1b-1d and the act, scripts/wire-hooks.py `unwire`,
+  scripts/check-uninstall.sh U-1..U-5, U-9, U-3b, U-14a-h
+- skill: fleet, the uninstall paragraph; core and lead unchanged (no verb or flag; a knob,
+  `BUDDY_CLAUDE`)
+- USAGE: `buddy uninstall`, "What it also removes"; README "Uninstall"
+- amends: D-125's "Never touched" (the three removals), D-135 (its one table now also read in
+  reverse)

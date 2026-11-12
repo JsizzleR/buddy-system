@@ -65,15 +65,52 @@
 # so it is MOVED out of LaunchAgents (to ~/.buddylist), never deleted: left in
 # place it is RunAtLoad at the next login on a program that is gone.
 #
-# NEVER TOUCHED, REPORTED: settings files (the hook lines to remove by hand),
-# MCP registrations, Codex's hooks.json, every ledger and the chat journal
-# (data), SKILL.md.bak and any installed skill file (a SKILL.md or, D-171, a
-# reference file beside it) that is not byte-identical to this checkout's (an
-# edit, or another release's), a file in a skill directory this checkout does
-# not ship (the directory is then left too), core.hooksPath, the
-# Agent-model hook copy (D-120), other com.buddy-system.* launchd agents (the
-# chat SERVER, not buddy's), a buddylist process launchd does not own (never
-# signalled), and any file not identified as ours.
+# WHAT IT ALSO UNDOES, BY DEFAULT (D-173: the operator, 2026-11-11, "yes open
+# the lane, default-on", over a --chat dry run that left five steps by hand):
+#   - the buddy hook lines for what this run removes, in the settings file:
+#     buddylist's two on --chat, every buddy line on a full run, and only when
+#     the binary a line runs ($HOME/bin/<it>) is gone after the run. The edit
+#     is wire-hooks.py's `unwire`: gate-hook.py's ONE table read in reverse
+#     (D-135), a verified text splice, a 0600 backup, a same-directory temp
+#     renamed over the file, --wire-hooks' refusals. It runs LAST, after buddy's
+#     unlink, so a stop anywhere before leaves buddy installed AND its gate
+#     wired. A refused edit is named and the run goes on: every README line is
+#     guarded ([ -x ] ... exit 0), so a line left over a binary that is gone
+#     runs nothing, while stopping would leave the binaries a refused edit had
+#     nothing to do with. An entry holding a buddy line beside anything else is
+#     left whole and named; so is a line in any other spelling. Never the
+#     Agent-model hook's line (D-120): it is not install's.
+#   - the buddylist MCP registrations whose command is a buddylist this run
+#     removes: `claude mcp remove buddylist --scope local` run inside each
+#     project ~/.claude.json names (only where that path is the directory's
+#     physical one, which is what claude keys it by), `--scope user` for the
+#     user-wide one. ~/.claude.json is read, never written: claude writes it.
+#     Each removal is read back. A registration running anything else is left
+#     and named; with no claude to run, every command is named as before.
+#   - com.buddy-system.oscar, the AIM server README's TOC backend runs, when it
+#     is provably buddy's: the Label, AND a program whose bytes carry
+#     open-oscar-server's cmd/server build path and get-oscar.sh's pinned
+#     vcs.revision (the job's program and the plist's both, when present).
+#     Booted out as the daemon is (print 0, bootout, print 113 within 10 s) and
+#     its plist MOVED to ~/.buddylist with the restore command. Anything less
+#     is left and named, and never stops the run: nothing removed here runs it.
+#     com.buddy-system.ergo is never provable: its plist was written by hand
+#     (2026-08-14, before the public tree) for an ergo build no doc of ours
+#     names (README says only `ergo run`), so it is left and named.
+#
+# NEVER TOUCHED, REPORTED: settings outside those lines (BUDDY_CHAT in env
+# included), the checkout's .mcp.json, Codex's hooks.json (Codex's file, its
+# trust keyed to its contents by Codex's /hooks review: an edit here would be a
+# change of trust this never makes), a pre-commit holding README's commit-gate
+# line (not enumerable: any repo's .git/hooks), core.hooksPath (who set it
+# cannot be known here), every ledger and the chat journal (data; a --purge is
+# out of scope), SKILL.md.bak and any installed skill file (a SKILL.md or,
+# D-171, a reference file beside it) that is not byte-identical to this
+# checkout's (an edit, or another release's), a file in a skill directory this
+# checkout does not ship (the directory is then left too), the Agent-model
+# hook copy (D-120), other com.buddy-system.* launchd agents, a buddylist
+# process (never signalled: after the bootout they are live sessions' MCP
+# servers, D-122), and any file not identified as ours.
 #
 # ONE LOCK WITH install.sh (D-126): an install STARTED after this one's checks
 # republished what it removed (D-125's Open), so both hold
@@ -88,8 +125,11 @@
 #
 # KNOBS: install.sh's, with the same defaults: BUDDY_BIN_DIR, BUDDY_SKILL_DIR,
 # BUDDY_FLEET_SKILL_DIR, BUDDY_PLIST, BUDDY_LAUNCHCTL, BUDDY_REPO_BIN=off,
-# BUDDY_SETTINGS, BUDDY_CLAUDE_JSON, BUDDY_MCP_JSON. Every other path it
-# reports is under $HOME (~/.buddylist, ~/.codex), which the done-check moves.
+# BUDDY_SETTINGS, BUDDY_CLAUDE_JSON, BUDDY_MCP_JSON, BUDDY_PYTHON; and
+# BUDDY_CLAUDE, the claude it runs `mcp remove` with (default: claude on PATH),
+# so the done-check can name a fake as it names launchctl's. Every other path
+# it reports is under $HOME (~/.buddylist, ~/.codex) or beside $BUDDY_PLIST
+# (the oscar agent), which the done-check moves.
 set -eu
 CDPATH= cd -- "$(dirname -- "$0")/.."
 NL='
@@ -120,6 +160,9 @@ SETTINGS=${BUDDY_SETTINGS:-$HOME/.claude/settings.json}
 AGENT=com.buddy-system.buddylistd
 PLIST=${BUDDY_PLIST:-$HOME/Library/LaunchAgents/$AGENT.plist}
 LAUNCHCTL=${BUDDY_LAUNCHCTL:-launchctl}
+CLAUDE=${BUDDY_CLAUDE:-claude}
+PY=${BUDDY_PYTHON:-python3}
+OSCAR=com.buddy-system.oscar
 CLAUDE_JSON=${BUDDY_CLAUDE_JSON:-$HOME/.claude.json}
 MCP_JSON=${BUDDY_MCP_JSON:-$ROOT/.mcp.json}
 SKILL_DIR=${BUDDY_SKILL_DIR:-$HOME/.claude/skills/buddy}
@@ -266,7 +309,7 @@ else
 	job=$(LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$AGENT" 2>/dev/null) && prc=0 || prc=$?
 	case $prc in
 	0)
-		svc_prog=$(printf '%s\n' "$job" | LC_ALL=C awk -F' = ' '/^\tprogram = /{print $2; exit}')
+		svc_prog=$(printf '%s\n' "$job" | LC_ALL=C awk '/^\tprogram = /{sub(/^\tprogram = /, ""); print; exit}')
 		# No program line is a print format this cannot read: UNCERTAIN, not a
 		# foreign job (the Fable cross-check).
 		[ -n "$svc_prog" ] || die "launchctl print gui/$uid/$AGENT names no program, so whose job it is cannot be said; nothing was removed."
@@ -283,10 +326,27 @@ else
 	*) die "launchctl print gui/$uid/$AGENT exited $prc, so whether the chat daemon is loaded cannot be said; nothing was removed (a loaded KeepAlive job whose program is removed respawn-fails for good)." ;;
 	esac
 fi
+# pb <key> <plist>: PlistBuddy's value into pb_val, its own newline off and
+# every other byte kept: a substitution dropped a value's trailing newline,
+# so a Label "<label><NL>" read as the label (Codex, D-173's code pass).
+pb() {
+	pb_val=$(/usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null && echo x) || { pb_val=""; return 0; }
+	pb_val=${pb_val%x}
+	pb_val=${pb_val%"$NL"}
+}
+# pb_exec <plist>: the program launchd runs: `Program` when the plist sets
+# one (ProgramArguments[0] is then only argv[0]; Codex, D-173), else
+# ProgramArguments[0].
+pb_exec() {
+	pb Program "$1"
+	[ -n "$pb_val" ] || pb ProgramArguments:0 "$1"
+}
 plist_prog="" plist_ok="" plist_other=""
 if [ -f "$PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
-	plabel=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)
-	plist_prog=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$PLIST" 2>/dev/null || true)
+	pb Label "$PLIST"
+	plabel=$pb_val
+	pb_exec "$PLIST"
+	plist_prog=$pb_val
 	case $plist_prog in
 	*"$NL"*) ;; # a program path with a newline is no install's (see above)
 	*/buddylist) if [ "$plabel" = "$AGENT" ]; then plist_ok=1; else plist_other=${plabel:-(none)}; fi ;;
@@ -433,6 +493,197 @@ if [ -z "$chat_only" ]; then
 	for b in $buddies; do ! plan_bin "$b" buddy || rm_buddies="$rm_buddies$NL$b"; done
 fi
 
+# 1b. The AIM server's agent (see the header). Asked by label, as the daemon
+# is, but nothing here runs its program, so an answer this cannot read leaves
+# it, named, and never stops the run.
+OSCAR_PLIST=$(dirname -- "$PLIST")/$OSCAR.plist
+pin=$(LC_ALL=C sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' "$ROOT/scripts/get-oscar.sh" 2>/dev/null | head -n 1)
+oscar_ours() {
+	[ -n "$pin" ] && [ -f "$1" ] &&
+		LC_ALL=C grep -a -q "^.*path${TAB}github\\.com/mk6i/open-oscar-server/cmd/server\$" "$1" &&
+		LC_ALL=C grep -a -q "^.*build${TAB}vcs\\.revision=$pin\$" "$1"
+}
+osc=absent osc_prog="" osc_why=""
+if command -v "$LAUNCHCTL" >/dev/null 2>&1; then
+	job=$(LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$OSCAR" 2>/dev/null) && prc=0 || prc=$?
+	case $prc in
+	0)
+		osc_prog=$(printf '%s\n' "$job" | LC_ALL=C awk '/^\tprogram = /{sub(/^\tprogram = /, ""); print; exit}')
+		if [ -n "$osc_prog" ] && oscar_ours "$osc_prog"; then
+			osc=loaded
+		else
+			osc=left osc_why="its loaded job runs ${osc_prog:-no program print names}, whose bytes are not the pinned server get-oscar.sh builds"
+		fi
+		;;
+	113) ;;
+	*) osc=left osc_why="launchctl print gui/$uid/$OSCAR exited $prc, so whether it is loaded cannot be said" ;;
+	esac
+fi
+osc_plist=""
+if [ -f "$OSCAR_PLIST" ] || [ -L "$OSCAR_PLIST" ]; then
+	op_label="" op_prog=""
+	if [ ! -L "$OSCAR_PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
+		pb Label "$OSCAR_PLIST"
+		op_label=$pb_val
+		pb_exec "$OSCAR_PLIST"
+		op_prog=$pb_val
+	fi
+	case $op_prog in *"$NL"*) op_prog="" ;; esac
+	if [ "$op_label" = "$OSCAR" ] && [ -n "$op_prog" ] && oscar_ours "$op_prog"; then
+		osc_plist=1
+	elif [ "$osc" != left ]; then
+		osc=left osc_why="its plist $OSCAR_PLIST is a symlink, cannot be read here, or names ${op_prog:-no program} under the Label ${op_label:-(none)}, not the pinned server under $OSCAR"
+	fi
+fi
+if [ "$osc" = left ]; then
+	say "chat server: left: $OSCAR, since $osc_why; to stop it: launchctl bootout gui/$uid/$OSCAR, then move $(shq "$OSCAR_PLIST") out of LaunchAgents"
+else
+	[ "$osc" != loaded ] || say "chat server: $w the launchd job $OSCAR (launchctl bootout; it runs $osc_prog, the server get-oscar.sh pins)"
+	[ -z "$osc_plist" ] || say "chat server: $w its plist $OSCAR_PLIST from LaunchAgents (moved to $STATE_DIR, not deleted)"
+fi
+
+# 1c. MCP registrations in ~/.claude.json, decoded (the Fable lens, D-125):
+# one line per registration, its scope, its project, and whether its command
+# is a buddylist this run removes. A path with a control character is never
+# printed raw (invariant 9) and never acted on.
+MCP_PY='
+import json, os, sys
+mode, path, rest = sys.argv[1], sys.argv[2], sys.argv[3:]
+try:
+    d = json.load(open(path, encoding="utf-8"))
+except (OSError, ValueError, RecursionError):
+    sys.exit(1)
+if not isinstance(d, dict):
+    sys.exit(1)
+def reg(v):
+    m = v.get("mcpServers") if isinstance(v, dict) else None
+    return m.get("buddylist") if isinstance(m, dict) else None
+def at(scope, p):
+    pr = d.get("projects")
+    return d if scope == "user" else pr.get(p) if isinstance(pr, dict) else None
+if mode == "has":
+    sys.exit(0 if reg(at(rest[0], rest[1])) is not None else 3)
+if mode == "still":
+    # 0: still the registration the plan approved, and its program gone; 4: it
+    # changed since; 5: its program is still there.
+    r = reg(at(rest[0], rest[1]))
+    cmd = r.get("command") if isinstance(r, dict) else None
+    if json.dumps(cmd) != rest[2]:
+        sys.exit(4)
+    sys.exit(5 if os.path.lexists(cmd) else 0)
+regs = [("user", "-", reg(d))] if reg(d) is not None else []
+pr = d.get("projects")
+for p, v in (pr.items() if isinstance(pr, dict) else []):
+    if reg(v) is not None:
+        regs.append(("local", p, reg(v)))
+for scope, p, r in regs:
+    if any(ord(c) < 32 or ord(c) == 127 for c in p):
+        print("odd\t%s\t-\t-" % scope)
+        continue
+    cmd = r.get("command") if isinstance(r, dict) else None
+    ours = isinstance(cmd, str) and os.path.isabs(cmd) and cmd in [x for x in rest if x]
+    print("%s\t%s\t%s\t%s" % ("ours" if ours else "other", scope, p, json.dumps(cmd)))
+'
+mcp_plan="" mrc=0
+if [ -f "$CLAUDE_JSON" ] && grep -q '"buddylist"[[:space:]]*:' "$CLAUDE_JSON"; then
+	if command -v "$PY" >/dev/null 2>&1; then
+		# The buddylists this run removes, and a candidate already gone (a
+		# re-run finishing what a stopped one left: every step skips what is
+		# absent). Split on newlines (IFS), one argument per path.
+		mcp_ours=$rm_lists
+		for b in $lists; do ! gone_for_sure "$b" || mcp_ours="$mcp_ours$NL$b"; done
+		mcp_plan=$("$PY" -I -B -c "$MCP_PY" list "$CLAUDE_JSON" $mcp_ours 2>/dev/null) && mrc=0 || mrc=$?
+	else
+		mrc=127
+	fi
+	# Decoded with no registration (the grep met the name elsewhere): nothing.
+	[ "$mrc" -eq 0 ] || say "mcp: left: a buddylist MCP server is registered in $CLAUDE_JSON, which $PY cannot decode here; remove it with claude mcp remove buddylist, in each project it was added to"
+fi
+have_claude=""
+command -v "$CLAUDE" >/dev/null 2>&1 && have_claude=1
+# claude edits ITS file, ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json, whatever
+# this read: a BUDDY_CLAUDE_JSON elsewhere approved one file's registration
+# and claude removed another's (Codex, D-173's code pass).
+claude_file=${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json
+mcp_mine=""
+{ [ "$CLAUDE_JSON" = "$claude_file" ] || [ "$CLAUDE_JSON" -ef "$claude_file" ]; } && mcp_mine=1
+mcp_go=""
+for l in $mcp_plan; do
+	kind=${l%%"$TAB"*} r=${l#*"$TAB"}
+	scope=${r%%"$TAB"*} r=${r#*"$TAB"}
+	pj=${r%%"$TAB"*} cmd=${r#*"$TAB"}
+	if [ "$scope" = user ]; then
+		where="user-wide in $CLAUDE_JSON" how="claude mcp remove buddylist --scope user"
+	else
+		where="for $pj in $CLAUDE_JSON" how="cd $(shq "$pj") && claude mcp remove buddylist --scope local"
+	fi
+	case $kind in
+	odd) say "mcp: left: buddylist is registered for a project whose path holds a control character in $CLAUDE_JSON; remove it from inside that project: claude mcp remove buddylist --scope local" ;;
+	other) say "mcp: left: buddylist is registered $where with the command $cmd, which is not a buddylist this run removes; if it is yours to remove: $how" ;;
+	ours)
+		# claude keys a local registration by its own cwd, the PHYSICAL path:
+		# run from a directory whose physical path is another key, it would
+		# act on that other project's registration.
+		if [ "$scope" = local ] && [ "$( (CDPATH= cd -- "$pj" 2>/dev/null && pwd -P) && echo x)" != "$pj${NL}x" ]; then
+			say "mcp: left: buddylist is registered $where, but that is not a directory's physical path here (gone, or reached through a link), so claude run there could act on another project's; if it is yours to remove, from that project: claude mcp remove buddylist --scope local"
+		elif [ -z "$have_claude" ]; then
+			say "mcp: left: buddylist is registered $where, and there is no $CLAUDE here to remove it with: $how"
+		elif [ -z "$mcp_mine" ]; then
+			say "mcp: left: buddylist is registered $where, but claude writes $claude_file, not that file, so claude run here would act on another file's registration: $how, with claude pointed at it"
+		else
+			say "mcp: $w buddylist registered $where (its command $cmd is removed above): $how"
+			mcp_go="$mcp_go$NL$scope$TAB$pj$TAB$cmd"
+		fi
+		;;
+	esac
+done
+
+# 1d. The hook lines for what this run removes (see the header). A line runs
+# $HOME/bin/<binary>, so it is this run's only when the bin dir is that one
+# (install.sh's --wire-hooks test, D-135) and the binary is gone after it.
+real_dir() { (CDPATH= cd -- "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"; printf x; }
+bin_home=""
+[ "$(real_dir "$BIN_DIR")" != "$(real_dir "$HOME/bin")" ] || bin_home=1
+goes() { # goes <path> <planned list>: absent now, or planned to be removed
+	{ [ ! -e "$1" ] && [ ! -L "$1" ]; } || case "$NL$2$NL" in *"$NL$1$NL"*) return 0 ;; *) return 1 ;; esac
+}
+CHAT_TOKENS="buddylist alert${NL}buddylist presence"
+BUDDY_TOKENS="buddy hello${NL}buddy gate${NL}buddy beat${NL}buddy idle${NL}buddy bye${NL}buddy busy"
+hook_toks="" hook_snap=""
+if [ -f "$SETTINGS" ] || [ -L "$SETTINGS" ]; then
+	if [ -z "$bin_home" ]; then
+		say "settings: left: the hook lines in $SETTINGS run \$HOME/bin/..., and this run's bin dir is $BIN_DIR, so they run nothing it removes; remove them by hand if they are yours"
+	else
+		if goes "$BIN_DIR/buddylist" "$rm_lists"; then
+			hook_toks=$CHAT_TOKENS
+		else
+			say "settings: left: buddylist's hook lines, since $BIN_DIR/buddylist stays (above)"
+		fi
+		if [ -z "$chat_only" ]; then
+			if goes "$BIN_DIR/buddy" "$rm_buddies"; then
+				hook_toks="$BUDDY_TOKENS${hook_toks:+$NL$hook_toks}"
+			else
+				say "settings: left: buddy's hook lines, since $BIN_DIR/buddy stays (above): the gate line still runs it"
+			fi
+		fi
+	fi
+	if [ -n "$hook_toks" ] && ! command -v "$PY" >/dev/null 2>&1; then
+		say "settings: left: no $PY here to decode $SETTINGS, so its hook lines are left as they are (named below)"
+		hook_toks=""
+	elif [ -n "$hook_toks" ]; then
+		pm=plan
+		[ -z "$dry" ] || pm=dry
+		# One argument per token: IFS is a newline here.
+		hp_out=$("$PY" -I -B "$ROOT/scripts/wire-hooks.py" unwire "$pm" "$SETTINGS" - $hook_toks 2>&1) && hp_rc=0 || hp_rc=$?
+		for l in $hp_out; do
+			case $l in "snapshot "*) hook_snap=${l#snapshot } ;; *) say "$l" ;; esac
+		done
+		# A refusal (named above) leaves the file to the report below.
+		[ "$hp_rc" -eq 0 ] && [ -n "$hook_snap" ] || hook_toks=""
+		[ "$hook_snap" != - ] || hook_toks=""
+	fi
+fi
+
 # 2. Act. Nothing above has changed anything but --chat's posture.
 if [ -z "$dry" ]; then
 	if [ "$svc" = loaded ]; then
@@ -458,6 +709,67 @@ if [ -z "$dry" ]; then
 	# link only, and one whose target went first is still unlinked.
 	unlink_one() { rm -f -- "$1" || die "could not remove $1; what follows it in the plan is left"; say "removed: $1"; }
 	for b in $rm_lists; do unlink_one "$b"; done
+	# The AIM server (1b): never a stop, since nothing removed here runs it.
+	if [ "$osc" = loaded ]; then
+		if LC_ALL=C "$LAUNCHCTL" bootout "gui/$uid/$OSCAR"; then
+			i=0
+			while :; do
+				LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$OSCAR" >/dev/null 2>&1 && prc=0 || prc=$?
+				[ "$prc" -ne 113 ] || break
+				if [ "$i" -ge 10 ]; then osc=left; break; fi
+				sleep 1
+				i=$((i + 1))
+			done
+		else
+			prc=bootout osc=left
+		fi
+		if [ "$osc" = left ]; then
+			say "chat server: left: launchctl bootout gui/$uid/$OSCAR did not take ($prc after 10s), so its plist stays too; see: launchctl print gui/$uid/$OSCAR"
+		else
+			say "removed: the launchd job $OSCAR (booted out)"
+		fi
+	fi
+	if [ -n "$osc_plist" ] && [ "$osc" != left ]; then
+		if mkdir -p "$STATE_DIR" && kept=$STATE_DIR/$OSCAR.plist.removed-$(date -u +%Y%m%dT%H%M%SZ) && mv -- "$OSCAR_PLIST" "$kept"; then
+			say "removed: $OSCAR_PLIST (kept at $kept; to restore: mv $(shq "$kept") $(shq "$OSCAR_PLIST") && launchctl bootstrap gui/$uid $(shq "$OSCAR_PLIST"))"
+		else
+			say "chat server: left: $OSCAR_PLIST could not be moved to $STATE_DIR; move it out of LaunchAgents by hand"
+		fi
+	fi
+	# The MCP registrations (1c), each read back: claude's exit status says
+	# what it tried, the file says what is there.
+	for l in $mcp_go; do
+		scope=${l%%"$TAB"*} r=${l#*"$TAB"}
+		pj=${r%%"$TAB"*} cmd=${r#*"$TAB"}
+		# Read again just before claude runs: the plan read it before the
+		# bootout, and a registration rewritten since was removed unchecked
+		# (Codex, D-173's code pass). Left open: claude's own read after this.
+		"$PY" -I -B -c "$MCP_PY" still "$CLAUDE_JSON" "$scope" "$pj" "$cmd" 2>/dev/null && src=0 || src=$?
+		if [ "$src" -ne 0 ]; then
+			[ "$scope" = user ] && what="the user-wide buddylist MCP registration" || what="the buddylist MCP registration for $pj"
+			case $src in
+			5) why="its command $cmd is still there" ;;
+			*) why="it changed since the plan read it (or could not be read)" ;;
+			esac
+			say "mcp: left: $what, since $why; nothing was run for it"
+			continue
+		fi
+		if [ "$scope" = user ]; then
+			how="claude mcp remove buddylist --scope user"
+			(CDPATH= cd -- "$HOME" && "$CLAUDE" mcp remove buddylist --scope user </dev/null >/dev/null 2>&1) && crc=0 || crc=$?
+			what="the user-wide buddylist MCP registration"
+		else
+			how="cd $(shq "$pj") && claude mcp remove buddylist --scope local"
+			(CDPATH= cd -- "$pj" && "$CLAUDE" mcp remove buddylist --scope local </dev/null >/dev/null 2>&1) && crc=0 || crc=$?
+			what="the buddylist MCP registration for $pj"
+		fi
+		"$PY" -I -B -c "$MCP_PY" has "$CLAUDE_JSON" "$scope" "$pj" 2>/dev/null && hrc=0 || hrc=$?
+		if [ "$hrc" -eq 3 ]; then
+			say "removed: $what ($how)"
+		else
+			say "mcp: left: $what is still in $CLAUDE_JSON (claude exited $crc); remove it by hand: $how"
+		fi
+	done
 	for f in $rm_skills; do unlink_one "$f"; done
 	for d in $rm_skill_dirs; do
 		[ -d "$d" ] || continue
@@ -466,6 +778,20 @@ if [ -z "$dry" ]; then
 	if [ -n "$rm_buddies" ]; then
 		in_flight $rm_buddies
 		for b in $rm_buddies; do unlink_one "$b"; done
+	fi
+	# The hook lines (1d), LAST: a stop above left buddy installed and its gate
+	# wired. Only the tokens whose binary is now gone, from the bytes the plan
+	# read (the write refuses others). A refusal is named and the run goes on.
+	if [ -n "$hook_toks" ]; then
+		toks=""
+		for t in $hook_toks; do
+			b=$BIN_DIR/${t%% *}
+			[ -e "$b" ] || [ -L "$b" ] || toks="$toks$NL$t"
+		done
+		if [ -n "$toks" ]; then
+			hw_out=$("$PY" -I -B "$ROOT/scripts/wire-hooks.py" unwire write "$SETTINGS" "$hook_snap" $toks 2>&1) || true
+			for l in $hw_out; do say "$l"; done
+		fi
 	fi
 fi
 
@@ -476,7 +802,11 @@ if command -v ps >/dev/null 2>&1; then
 	# daemon started by hand: each keeps its old binary until it ends.
 	[ -z "$pids" ] || say "left: buddylist processes still run (pid ${pids% }): live sessions' MCP servers or presence, or a daemon launchd does not own; never signalled here (D-122): they end with their sessions, or end them yourself"
 fi
-if [ -f "$SETTINGS" ]; then
+# The settings report: the report's grep (install.sh's), after the edit, so
+# it names what is still there for whatever reason (a line left above, a
+# refusal, a spelling not README's). A dry run's plan already said what goes
+# and stays, so it greps only where no plan ran.
+if [ -f "$SETTINGS" ] && { [ -z "$dry" ] || [ -z "$hook_snap" ]; }; then
 	wanted="buddylist alert buddylist presence"
 	[ -n "$chat_only" ] || wanted="buddy hello buddy gate buddy beat buddy idle buddy bye buddy busy $wanted"
 	found=""
@@ -490,7 +820,7 @@ if [ -f "$SETTINGS" ]; then
 		fi
 	done
 	if [ -n "$found" ]; then
-		say "settings: $SETTINGS still wires:$found; remove those hook lines by hand (this never edits settings). README's lines are guarded ([ -x ] ... exit 0), so until then they do nothing"
+		say "settings: $SETTINGS still wires:$found; remove those hook lines by hand (why each is left is said above). README's lines are guarded ([ -x ] ... exit 0), so over a binary that is gone they do nothing"
 	fi
 	if grep -q '"BUDDY_CHAT"' "$SETTINGS" && [ -z "$chat_only" ]; then
 		say "settings: $SETTINGS sets BUDDY_CHAT in env; it does nothing without buddy, remove it by hand if you like"
@@ -503,44 +833,11 @@ if [ -f "$SETTINGS" ]; then
 		[ "$sc" != on ] || say "settings: $SETTINGS declares BUDDY_CHAT=on to every session, which outranks buddy's claims-only stamp, so each session's hello still prints the chat hint; remove it from settings (D-127)"
 	fi
 fi
-# MCP registrations. ~/.claude.json keeps a local-scope one under each
-# project, and `claude mcp remove` must run inside that project, so the
-# projects are named when python3 can decode the file (the Fable lens); a
-# grep for the key is the fallback, and says only that one is there.
+# The checkout's own .mcp.json is a file of the project (often checked in),
+# not a registration claude removes: named, never edited. ~/.claude.json's
+# registrations are 1c's.
 if [ -f "$MCP_JSON" ] && grep -q '"buddylist"[[:space:]]*:' "$MCP_JSON"; then
 	say "mcp: $MCP_JSON registers a buddylist MCP server (project scope); remove its \"buddylist\" entry by hand"
-fi
-if [ -f "$CLAUDE_JSON" ] && grep -q '"buddylist"[[:space:]]*:' "$CLAUDE_JSON"; then
-	projs=""
-	if command -v python3 >/dev/null 2>&1; then
-		projs=$(python3 -I - "$CLAUDE_JSON" 2>/dev/null <<'PY' || true
-import json, sys
-try:
-    d = json.load(open(sys.argv[1], encoding="utf-8"))
-except (OSError, ValueError, RecursionError):
-    sys.exit(1)
-if isinstance(d, dict):
-    if isinstance(d.get("mcpServers"), dict) and "buddylist" in d["mcpServers"]:
-        print("(user scope)")
-    for p, v in (d.get("projects") or {}).items() if isinstance(d.get("projects"), dict) else []:
-        if isinstance(v, dict) and isinstance(v.get("mcpServers"), dict) and "buddylist" in v["mcpServers"]:
-            # One line per project: a path with a control character in it is
-            # named as such, never printed raw into a listing (invariant 9).
-            print("(a project whose path holds a control character)" if any(ord(c) < 32 or ord(c) == 127 for c in p) else p)
-PY
-)
-	fi
-	if [ -z "$projs" ]; then
-		say "mcp: a buddylist MCP server is registered in $CLAUDE_JSON; remove it with claude mcp remove buddylist, in each project it was added to"
-	else
-		printf '%s\n' "$projs" | while IFS= read -r pj; do
-			case $pj in
-			"(user scope)") say "mcp: buddylist is registered user-wide in $CLAUDE_JSON: claude mcp remove buddylist --scope user" ;;
-			"(a project whose path"*) say "mcp: buddylist is registered for $pj in $CLAUDE_JSON; remove it from inside that project: claude mcp remove buddylist --scope local" ;;
-			*) say "mcp: buddylist is registered for $pj in $CLAUDE_JSON: cd $(shq "$pj") && claude mcp remove buddylist --scope local" ;;
-			esac
-		done
-	fi
 fi
 if [ -z "$chat_only" ]; then
 	for f in "$HOME/.codex/hooks.json" "$ROOT/.codex/hooks.json"; do
@@ -561,8 +858,9 @@ set +f
 for p in "$(dirname -- "$PLIST")"/com.buddy-system.*.plist; do
 	[ -f "$p" ] || continue
 	[ "$p" != "$PLIST" ] || continue
+	[ "$p" != "$OSCAR_PLIST" ] || continue # 1b says what became of it
 	l=$(basename -- "$p" .plist)
-	say "left: $p, a launchd agent that is not buddy's daemon (a chat server?); to stop it: launchctl bootout gui/$uid/$l"
+	say "left: $p, a launchd agent this cannot prove is buddy's (only $AGENT and the pinned $OSCAR are); to stop it: launchctl bootout gui/$uid/$l, then move the plist out of LaunchAgents"
 done
 set -f
 if [ -n "$dry" ]; then

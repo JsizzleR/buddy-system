@@ -1099,7 +1099,7 @@ ledger row entered through the CLI (D-006).
     taken over 3d ago into a count that `--all` lists; a folded block is still held. Do not propose
     restoring the advice to the line.
 
-119. **Removal is `scripts/uninstall.sh [--chat] [--dry-run]`, which `buddy uninstall` runs as update runs install.sh (D-125): chat first through launchd, buddy last by one unlink; `--chat` removes chat once D-124's stamp reads off; install and uninstall hold one lock (D-126).** Settings, ledgers, the journal and the rest are reported, never touched. Do not propose: a `--purge`, editing settings, killing a daemon, or removing buddy before chat. (full text: part `install`)
+119. **Removal is `scripts/uninstall.sh [--chat] [--dry-run]`, which `buddy uninstall` runs as update runs install.sh (D-125): chat first through launchd, buddy last by one unlink; `--chat` removes chat once D-124's stamp reads off; install and uninstall hold one lock (D-126); by default it also removes the hook lines, MCP registrations and oscar agent provably for what it removed, the settings edit last (D-173).** Other settings, ledgers, the journal and the rest are reported, never touched. Do not propose: a `--purge`, editing other settings, killing a daemon or a process, or removing buddy before chat. (full text: part `install`)
 
 120. **hello obeys the chat posture install.sh stamped, below an explicit `BUDDY_CHAT` (D-127,
     amends D-124).** `BUDDY_CHAT` (trimmed, store.Fold) `off` mutes the hint and `on` prints it

@@ -559,15 +559,50 @@ the same work.
   later `buddy update` does not bring it back. An exported `BUDDY_CHAT` that
   is not `off` would override that on a later run, so `--chat` stops before
   anything while one is exported.
-- **What it never touches, and names:** settings files (the hook lines left to
-  remove by hand; README's lines are guarded, so they do nothing meanwhile),
-  MCP registrations (one `cd <project> && claude mcp remove buddylist --scope
-  local` per project in `~/.claude.json`), Codex's `hooks.json` (its gate line
-  has no `[ -x ]` guard, so it refuses once buddy is gone), a pre-commit you
-  added README's `commit-gate` line to, every ledger and the chat journal,
+- **What it also removes, by default (D-173),** each only when it is provably
+  for what the run removed, and each in the plan first:
+  - *Hook lines* in `~/.claude/settings.json` (`BUDDY_SETTINGS`): the two
+    `buddylist` lines on `--chat`, every buddy line on a full run, once the
+    `$HOME/bin` binary the line runs is gone (so the bin dir must be `~/bin`).
+    A hook is buddy's when its command is README's, exactly (gate-hook.py's
+    table; `timeout`, `statusMessage` and `onFailure` beside it are fine).
+    README's shared entries lose only the hook going (`--chat` keeps `beat`
+    and `bye` in theirs); an entry holding a buddy hook beside a hook of yours
+    is left whole and named, and so is a line in any other spelling. The edit
+    is `--wire-hooks`' in reverse: a text splice verified to decode to the old
+    file minus exactly those hooks, a `0600` backup beside it, a temp renamed
+    over it, and the same refusals (a symlink, a hard link, a duplicate key, a
+    file changed since the plan read it, …). It is the run's LAST step, after
+    buddy's unlink, so a stop anywhere leaves buddy installed and its gate
+    wired; a refused edit is named and the run goes on, since README's lines
+    are guarded and run nothing once their binary is gone. The Agent-model
+    hook's line is never touched (D-120).
+  - *MCP registrations*: each `buddylist` one in `~/.claude.json` whose
+    command is a `buddylist` this run removes (or one already gone), by
+    `claude mcp remove buddylist --scope local` run inside that project
+    (only where its path is the directory's physical one, which is what claude
+    keys it by, and only when the file read is the one claude writes,
+    `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`) and `--scope user` for a
+    user-wide one, each checked again just before and read back after.
+    `~/.claude.json` is never written by uninstall itself. One running another
+    program is left and named; with no `claude` (`BUDDY_CLAUDE`) to run, each
+    command is named for you.
+  - *The AIM server's agent*, `com.buddy-system.oscar`, when its loaded job's
+    program and its plist's are both the server `scripts/get-oscar.sh` builds
+    (its bytes carry open-oscar-server's `cmd/server` path and the pinned
+    `vcs.revision`): booted out as the daemon is and its plist moved to
+    `~/.buddylist`, with the restore command. Anything less is left and named,
+    and never stops the run.
+- **What it never touches, and names:** other settings (`BUDDY_CHAT` in `env`
+  included), the checkout's `.mcp.json`, Codex's `hooks.json` (Codex's file,
+  trusted by its contents in Codex's `/hooks`; its gate line has no `[ -x ]`
+  guard, so it refuses once buddy is gone), a pre-commit you added README's
+  `commit-gate` line to (any repo's), every ledger and the chat journal,
   `core.hooksPath`, `SKILL.md.bak` and any edited skill, the Agent-model hook's
-  copy, other `com.buddy-system.*` launchd agents (the chat server), and any
-  `buddylist` process launchd does not own (never signalled, D-122).
+  copy, `com.buddy-system.ergo` and any other `com.buddy-system.*` agent it
+  cannot prove is buddy's (no doc names an ergo build), and every `buddylist`
+  process (never signalled, D-122: after the bootout they are live sessions'
+  MCP servers, and end with them).
 - **What is ours** is read from the file's bytes (Go's build-info `path`
   line), never by running it. A file that is not ours is left, with the `rm`
   that removes it; a full run that leaves an executable at `~/bin/buddy` ends

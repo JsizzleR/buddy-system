@@ -21,7 +21,7 @@ set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
 CDPATH= cd -- "$ROOT"
-unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON
+unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON CLAUDE_CONFIG_DIR
 
 fail() { echo "check-uninstall: FAIL — $*" >&2; exit 1; }
 WORK=$(mktemp -d) || fail "mktemp failed"
@@ -47,14 +47,19 @@ for f in "$P/bin/buddy" "$P/bin/buddylist" "$P/skills/buddy/SKILL.md" "$P/skills
 	[ -f "$f" ] || fail "the prototype install left no $f"
 done
 
-# The fakes. launchctl: `print` answers loaded (with the daemon's program)
-# while $FAKE/loaded exists, else 113, or FAKE_PRINT_RC; `bootout` removes
-# the marker unless FAKE_BOOTOUT_FAIL. Every call is logged.
+# The fakes. launchctl: `print` answers loaded (with the job's program)
+# while its marker exists ($FAKE/loaded for the daemon, $FAKE/loaded.<label>
+# for any other label), else 113, or FAKE_PRINT_RC; `bootout` removes the
+# marker unless FAKE_BOOTOUT_FAIL (every label) or FAKE_BOOTOUT_FAIL_LABEL
+# names it. Every call is logged.
 FAKE=$WORK/fake GUARD=$WORK/guard
 mkdir -p "$FAKE" "$GUARD"
 cat > "$FAKE/launchctl" <<'EOF'
 #!/bin/sh
 echo "$*" >> "$FAKE_DIR/calls"
+lbl=${2##*/}
+m=$FAKE_DIR/loaded
+[ "$lbl" = com.buddy-system.buddylistd ] || m=$FAKE_DIR/loaded.$lbl
 case $1 in
 print)
 	# FAKE_ON_PRINT: a script run once, at the first print, which uninstall
@@ -63,26 +68,116 @@ print)
 		sh "$FAKE_ON_PRINT" > "$FAKE_DIR/on-print.out" 2>&1 && echo 0 > "$FAKE_DIR/on-print.rc" || echo $? > "$FAKE_DIR/on-print.rc"
 	fi
 	[ -z "${FAKE_PRINT_RC:-}" ] || exit "$FAKE_PRINT_RC"
-	[ -f "$FAKE_DIR/loaded" ] || exit 113
+	[ -f "$m" ] || exit 113
 	[ -z "${FAKE_NO_PROGRAM:-}" ] || { printf 'gui/501/x = {\n\tstate = running\n}\n'; exit 0; }
-	printf 'gui/501/x = {\n\tpath = x.plist\n\tprogram = %s\n\tstate = running\n\t\tstate = active\n}\n' "$(cat "$FAKE_DIR/loaded")" ;;
-bootout) [ -z "${FAKE_BOOTOUT_FAIL:-}" ] || exit 5; rm -f "$FAKE_DIR/loaded" ;;
+	printf 'gui/501/x = {\n\tpath = x.plist\n\tprogram = %s\n\tstate = running\n\t\tstate = active\n}\n' "$(cat "$m")" ;;
+bootout)
+	[ -z "${FAKE_BOOTOUT_FAIL:-}" ] || exit 5
+	[ "${FAKE_BOOTOUT_FAIL_LABEL:-}" != "$lbl" ] || exit 5
+	# FAKE_ON_BOOTOUT: a script run at each bootout, between uninstall's plan
+	# and its act (U-14j: a registration rewritten in that window).
+	[ -z "${FAKE_ON_BOOTOUT:-}" ] || sh "$FAKE_ON_BOOTOUT"
+	rm -f "$m" ;;
 *) echo "fake launchctl: unexpected: $*" >&2; exit 64 ;;
 esac
 EOF
-printf '#!/bin/sh\necho "$*" >> "%s/reached"\nexit 1\n' "$GUARD" > "$GUARD/launchctl"
-chmod +x "$FAKE/launchctl" "$GUARD/launchctl"
+# claude: `mcp remove buddylist --scope local|user`, logged with its PHYSICAL
+# cwd (real claude keys a local registration by it), does what claude does to
+# $FAKE_CLAUDE_JSON, and exits 1 when there was nothing to remove, as claude
+# does; FAKE_CLAUDE_NOOP exits 0 having removed nothing (the read-back's case),
+# and FAKE_TOUCH appends a byte to that file first: claude runs between the
+# settings plan and its write, so it is the edit that window can meet.
+cat > "$FAKE/claude" <<'EOF'
+#!/bin/sh
+echo "$(pwd -P)|$*" >> "$FAKE_DIR/claude-calls"
+[ "$*" = "mcp remove buddylist --scope local" ] || [ "$*" = "mcp remove buddylist --scope user" ] || { echo "fake claude: unexpected: $*" >&2; exit 64; }
+[ -z "${FAKE_TOUCH:-}" ] || printf ' ' >> "$FAKE_TOUCH"
+[ -z "${FAKE_CLAUDE_NOOP:-}" ] || exit 0
+exec python3 -I -c '
+import json, sys
+path, scope, cwd = sys.argv[1:]
+d = json.load(open(path))
+v = d if scope == "user" else d.get("projects", {}).get(cwd, {})
+if "buddylist" not in v.get("mcpServers", {}):
+    print("No MCP server found with name: buddylist", file=sys.stderr)
+    sys.exit(1)
+del v["mcpServers"]["buddylist"]
+json.dump(d, open(path, "w"))
+' "$FAKE_CLAUDE_JSON" "$5" "$(pwd -P)"
+EOF
+printf '#!/bin/sh\necho "launchctl $*" >> "%s/reached"\nexit 1\n' "$GUARD" > "$GUARD/launchctl"
+printf '#!/bin/sh\necho "claude $*" >> "%s/reached"\nexit 1\n' "$GUARD" > "$GUARD/claude"
+chmod +x "$FAKE/launchctl" "$FAKE/claude" "$GUARD/launchctl" "$GUARD/claude"
+
+# The settings fixture, from gate-hook.py's own table (the one spelling,
+# D-135), so it is README's lines whatever they become: every buddy line, two
+# with the keys a hand paste adds (timeout, statusMessage: the developing
+# machine's own, D-173), the Agent-model hook's line (never install's, D-120),
+# an entry that is not buddy's, and an entry holding a buddy line beside a
+# hook that is not (left whole). The cases that edit it read it back.
+python3 -I -B - "$ROOT/scripts/gate-hook.py" "$WORK/settings.fixture.json" <<'PY' || fail "the settings fixture did not build"
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("gh", sys.argv[1]); gh = importlib.util.module_from_spec(spec); spec.loader.exec_module(gh)
+h = {t: gh.line_for(t)[1]["hooks"][0] for t, _ in gh.TOKENS if not t.startswith("browser ")}
+hello = dict(h["buddy hello"], timeout=10, statusMessage="buddy: hello")
+alert = dict(h["buddylist alert"], timeout=10, statusMessage="buddylist: alert")
+doc = {"env": {"BUDDY_CHAT": "on"}, "hooks": {
+    "SessionStart": [{"hooks": [hello]}],
+    "PreToolUse": [gh.ENTRY,
+                   {"matcher": "Agent|Task", "hooks": [{"type": "command", "command": "python3 $HOME/bin/agent-model-gate.py"}]},
+                   {"matcher": "Bash", "hooks": [{"type": "command", "command": "my-own-hook"}]},
+                   gh.BROWSER_HOOKS["PreToolUse"][0]],
+    "PostToolUse": [{"matcher": "*", "hooks": [h["buddy beat"], alert]}],
+    "SessionEnd": [{"hooks": [h["buddy bye"], h["buddylist presence"]]}],
+    "Stop": [{"hooks": [h["buddy idle"], {"type": "command", "command": "say done"}]}],
+    "UserPromptSubmit": [{"hooks": [h["buddy busy"]]}]}}
+open(sys.argv[2], "w").write(json.dumps(doc, indent=1) + "\n")
+PY
+# hooks_now <file>: the decoded file, one line, to compare with want_hooks.
+hooks_now() { python3 -I -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), sort_keys=True))' "$1"; }
+# want_hooks <mode>: the fixture as a run must leave it. full: every buddy
+# line gone, the Agent-model and foreign entries kept, the Stop entry holding
+# a foreign hook left whole; chat: buddylist's two hooks out of README's
+# shared entries, the beat and bye kept where they were.
+want_hooks() {
+	python3 -I - "$WORK/settings.fixture.json" "$1" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); hk = d["hooks"]
+if sys.argv[2] == "chat":
+    hk["PostToolUse"][0]["hooks"].pop(1); hk["SessionEnd"][0]["hooks"].pop(1)
+elif sys.argv[2] == "full":
+    hk["SessionStart"] = []; hk["PreToolUse"] = hk["PreToolUse"][1:3]; hk["PostToolUse"] = []
+    hk["SessionEnd"] = []; hk["UserPromptSubmit"] = []
+print(json.dumps(d, sort_keys=True))
+PY
+}
+# mcp_now <file>: "<scope> <project> <command>" per buddylist registration.
+mcp_now() {
+	python3 -I -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+if "buddylist" in d.get("mcpServers", {}): print("user - " + d["mcpServers"]["buddylist"].get("command"))
+for p, v in sorted(d.get("projects", {}).items()):
+    if "buddylist" in v.get("mcpServers", {}): print("local " + p + " " + v["mcpServers"]["buddylist"].get("command"))
+' "$1"
+}
+PIN=$(sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' scripts/get-oscar.sh)
+[ -n "$PIN" ] || fail "no PIN= line in scripts/get-oscar.sh, so the oscar cases cannot be built"
+OSCAR=com.buddy-system.oscar
 
 # setup: a fresh case at $R from the prototype, with the chat daemon's plist
 # and program, the checkout's bin/ copies, and every file uninstall must leave
 # byte-identical. cp to NEW paths only (never over a running Mach-O).
 R=$WORK/case
 setup() {
-	rm -rf "$R" "$FAKE/calls" "$FAKE/loaded" "$FAKE/on-print.rc" "$FAKE/on-print.out"
+	rm -rf "$R" "$FAKE/calls" "$FAKE/claude-calls" "$FAKE/loaded" "$FAKE/loaded."* "$FAKE/on-print.rc" "$FAKE/on-print.out"
 	cp -Rp "$P" "$R"
 	LA=$R/home/Library/LaunchAgents
-	mkdir -p "$R/co/scripts" "$R/co/bin" "$R/daemon" "$LA" "$R/home/.buddylist" "$R/home/.codex"
-	cp scripts/uninstall.sh scripts/install-lock.sh "$R/co/scripts/"
+	mkdir -p "$R/co/scripts" "$R/co/bin" "$R/daemon" "$LA" "$R/home/.buddylist" "$R/home/.codex" "$R/proj" "$R/proj3" "$R/oscar"
+	# The hook lines run $HOME/bin/...: this bin dir is that one, as on a
+	# machine (D-173 edits only lines that run what the run removes).
+	ln -s ../bin "$R/home/bin"
+	cp scripts/uninstall.sh scripts/install-lock.sh scripts/wire-hooks.py scripts/gate-hook.py scripts/get-oscar.sh "$R/co/scripts/"
 	cp -R skills "$R/co/skills"
 	mkrepo "$R/co"
 	git -C "$R/co" config core.hooksPath .githooks
@@ -98,20 +193,37 @@ setup() {
 EOF
 	printf '<plist><dict><key>Label</key><string>com.buddy-system.ergo</string></dict></plist>\n' > "$LA/com.buddy-system.ergo.plist"
 	printf '%s' "$R/daemon/buddylist" > "$FAKE/loaded"
-	# The never-touched set.
-	cat > "$R/settings.json" <<'EOF'
-{"env": {"BUDDY_CHAT": "on"}, "hooks": {
- "SessionStart": [{"hooks": [{"command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" hello 2>/dev/null; exit 0"}]}],
- "PostToolUse": [{"hooks": [{"command": "[ -x \"$HOME/bin/buddylist\" ] && \"$HOME/bin/buddylist\" alert 2>/dev/null; exit 0"}]}]
-}}
+	# The AIM server, as get-oscar.sh builds it: bytes carrying the build path
+	# and the pinned revision (nothing runs it), loaded, with its plist.
+	printf 'elf\npath\tgithub.com/mk6i/open-oscar-server/cmd/server\nbuild\tvcs.revision=%s\nmore\n' "$PIN" > "$R/oscar/oscar-server"
+	cat > "$LA/$OSCAR.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>Label</key><string>$OSCAR</string>
+  <key>ProgramArguments</key><array><string>$R/oscar/oscar-server</string></array>
+</dict></plist>
 EOF
-	printf '{"projects": {"/x": {"mcpServers": {"buddylist": {"command": "b"}}}}}\n' > "$R/home/.claude.json"
+	printf '%s' "$R/oscar/oscar-server" > "$FAKE/loaded.$OSCAR"
+	cp "$WORK/settings.fixture.json" "$R/settings.json"
+	# MCP: ours in a project (keyed by its physical path, as claude keys it)
+	# and user-wide; ours under a project that is gone; another program's
+	# under a real project and under /x. Only the first two go.
+	PJ=$(cd "$R/proj" && pwd -P) PJ3=$(cd "$R/proj3" && pwd -P)
+	cat > "$R/home/.claude.json" <<EOF
+{"mcpServers": {"buddylist": {"type": "stdio", "command": "$R/bin/buddylist", "args": ["mcp"]}},
+ "projects": {"/x": {"mcpServers": {"buddylist": {"command": "b"}}},
+  "$PJ": {"mcpServers": {"buddylist": {"type": "stdio", "command": "$R/bin/buddylist", "args": ["mcp", "--profile", "core"]}, "other": {"command": "o"}}},
+  "$R/gone-proj": {"mcpServers": {"buddylist": {"command": "$R/bin/buddylist"}}},
+  "$PJ3": {"mcpServers": {"buddylist": {"command": "/usr/local/bin/not-ours"}}}}}
+EOF
 	printf 'journal bytes\n' > "$R/home/.buddylist/journal.db"
 	printf '{"hooks": {"PreToolUse": [{"hooks": [{"command": "/abs/buddy gate"}]}]}}\n' > "$R/home/.codex/hooks.json"
 	printf 'a fixture ledger, never opened\n' > "$R/co/.git/buddy.db"
 	printf 'copy\n' > "$R/bin/agent-model-gate.py"
 	printf 'an earlier copy\n' > "$R/skills/buddy/SKILL.md.bak"
-	KEEP="$R/settings.json $R/home/.claude.json $R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.ergo.plist"
+	# settings.json and .claude.json are edited now (D-173): the cases that
+	# edit them read them back, and every stop's snapshot holds them.
+	KEEP="$R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.ergo.plist"
 	keep_sum=$(cksum $KEEP)
 }
 # snap: every file and link under the case, with its checksum.
@@ -126,6 +238,7 @@ un() {
 	env HOME="$R/home" PATH="$GUARD:$PATH" GOCACHE="$gocache" GOMODCACHE="$gomodcache" \
 		BUDDY_BIN_DIR="$R/bin" BUDDY_SKILL_DIR="$R/skills/buddy" BUDDY_SETTINGS="$R/settings.json" \
 		BUDDY_PLIST="$R/home/Library/LaunchAgents/$AGENT.plist" BUDDY_LAUNCHCTL="$FAKE/launchctl" \
+		BUDDY_CLAUDE="$FAKE/claude" FAKE_CLAUDE_JSON="$R/home/.claude.json" \
 		BUDDY_CLAUDE_JSON="$R/home/.claude.json" BUDDY_MCP_JSON="$R/co/.mcp.json" FAKE_DIR="$FAKE" \
 		${XENV:-} sh "${CO:-$R/co}/scripts/uninstall.sh" "$@"
 }
@@ -174,6 +287,20 @@ echo "$out" | grep -qF "would remove the launchd job $AGENT" || fail "U-1: the p
 $out"
 [ -z "$macos" ] || echo "$out" | grep -qF "would remove its plist $(plist)" || fail "U-1: the plan does not name the plist:
 $out"
+for want in "settings: would remove buddy hello: the entry hooks.SessionStart[0], all of it" \
+	"settings: would remove buddy beat and buddylist alert: the entry hooks.PostToolUse[0], all of it" \
+	"settings: left: hooks.Stop[0] holds buddy idle beside a hook that is not a buddy line" \
+	"mcp: would remove buddylist registered for $PJ in $R/home/.claude.json" \
+	"mcp: would remove buddylist registered user-wide in $R/home/.claude.json"; do
+	echo "$out" | grep -qF "$want" || fail "U-1: the plan does not say '$want':
+$out"
+done
+[ -z "$macos" ] || echo "$out" | grep -qF "chat server: would remove the launchd job $OSCAR" || fail "U-1: the plan does not name the oscar job:
+$out"
+[ ! -e "$FAKE/claude-calls" ] || fail "U-1: a dry run ran claude: $(cat "$FAKE/claude-calls")"
+# Every line its own path: the full run's report is not a dry run's.
+echo "$out" | grep -q 'still wires' && fail "U-1: a dry run whose plan ran also printed the report's grep:
+$out"
 echo "$out" | tail -1 | grep -qx 'uninstall: dry run: nothing was removed' || fail "U-1: no dry-run last line:
 $out"
 
@@ -195,6 +322,11 @@ echo "$out" | grep -q '^install: ' && fail "U-2: a dry run ran install.sh:
 $out"
 echo "$out" | grep -qxF "uninstall: buddy: would remove $R/bin/buddy" && fail "U-2: --chat plans to remove buddy:
 $out"
+echo "$out" | grep -qF "settings: would remove buddylist alert from hooks.PostToolUse[0] (its other hooks are buddy's and stay)" || fail "U-2: the plan does not name the chat line:
+$out"
+echo "$out" | grep -qF "settings: would remove buddy " && fail "U-2: --chat plans to remove a buddy line:
+$out"
+[ ! -e "$FAKE/claude-calls" ] || fail "U-2: a dry run ran claude"
 
 # U-4: the full run, the control for every STOPPED case below.
 label=U-4
@@ -213,8 +345,43 @@ $out"
 fi
 there "$R/skills/buddy/SKILL.md.bak" "$R/co/.git/buddy.db"
 kept U-4
-for want in "settings: $R/settings.json still wires: buddy hello buddylist alert" \
-	"mcp: buddylist is registered for /x in $R/home/.claude.json: cd /x && claude mcp remove buddylist --scope local" \
+# The settings: every buddy line gone, and only those (want_hooks says what
+# stays: the Agent-model hook's, a foreign entry, the Stop entry holding a
+# foreign hook beside buddy's); the old bytes kept beside it, 0600.
+[ "$(hooks_now "$R/settings.json")" = "$(want_hooks full)" ] || fail "U-4: the settings are not the fixture minus buddy's lines:
+$(hooks_now "$R/settings.json")
+$out"
+bk=$(ls "$R/settings.json.buddy-backup-"* 2>/dev/null | head -n 1)
+[ -n "$bk" ] && cmp -s "$bk" "$WORK/settings.fixture.json" || fail "U-4: no backup holding the old settings:
+$out"
+[ "$(ls -l "$bk" | cut -c1-10)" = "-rw-------" ] || fail "U-4: the backup is not 0600: $(ls -l "$bk")"
+# MCP: ours removed, by claude, in its project and user-wide; the rest kept.
+[ "$(mcp_now "$R/home/.claude.json")" = "$(printf 'local %s %s\nlocal %s %s\nlocal %s %s' /x b "$PJ3" /usr/local/bin/not-ours "$R/gone-proj" "$R/bin/buddylist" | LC_ALL=C sort -k2,2)" ] ||
+	fail "U-4: the MCP registrations left are not the foreign ones and the gone project's:
+$(mcp_now "$R/home/.claude.json")
+$out"
+[ "$(cat "$FAKE/claude-calls")" = "$(cd "$R/home" && pwd -P)|mcp remove buddylist --scope user
+$PJ|mcp remove buddylist --scope local" ] || fail "U-4: claude was not run exactly twice, in the project and for user scope:
+$(cat "$FAKE/claude-calls")"
+if [ -n "$macos" ]; then
+	grep -qx "bootout gui/$(id -u)/$OSCAR" "$FAKE/calls" || fail "U-4: the oscar job was not booted out:
+$(cat "$FAKE/calls")"
+	gone "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	ls "$R/home/.buddylist/$OSCAR.plist.removed-"* >/dev/null 2>&1 || fail "U-4: the oscar plist was not kept in ~/.buddylist:
+$out"
+else
+	echo "$out" | grep -qF "chat server: left: $OSCAR" || fail "U-4: an oscar plist that cannot be read here is not named left:
+$out"
+fi
+there "$R/oscar/oscar-server"
+for want in "settings: $R/settings.json still wires: buddy idle" \
+	"settings: removed buddy gate: the entry hooks.PreToolUse[0], all of it in $R/settings.json" \
+	"settings: left: hooks.Stop[0] holds buddy idle beside a hook that is not a buddy line" \
+	"removed: the buddylist MCP registration for $PJ (cd $PJ && claude mcp remove buddylist --scope local)" \
+	"removed: the user-wide buddylist MCP registration (claude mcp remove buddylist --scope user)" \
+	"mcp: left: buddylist is registered for /x in $R/home/.claude.json with the command \"b\", which is not a buddylist this run removes; if it is yours to remove: cd /x && claude mcp remove buddylist --scope local" \
+	"mcp: left: buddylist is registered for $PJ3 in $R/home/.claude.json with the command \"/usr/local/bin/not-ours\"" \
+	"mcp: left: buddylist is registered for $R/gone-proj in $R/home/.claude.json, but that is not a directory's physical path here" \
 	"codex: $R/home/.codex/hooks.json names buddy" \
 	"left: core.hooksPath = .githooks in $R/co" \
 	"left: $R/bin/agent-model-gate.py" \
@@ -233,6 +400,9 @@ out=$(un 2>&1) || fail "U-5: the re-run failed:
 $out"
 echo "$out" | grep -q '^uninstall: removed' && fail "U-5: the re-run removed something:
 $out"
+[ "$(wc -l < "$FAKE/claude-calls")" -eq 2 ] || fail "U-5: the re-run ran claude again:
+$(cat "$FAKE/claude-calls")"
+[ "$(hooks_now "$R/settings.json")" = "$(want_hooks full)" ] || fail "U-5: the re-run changed the settings"
 echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-5: no done line:
 $out"
 
@@ -312,6 +482,13 @@ echo "$out" | grep -qF "buddy: left: $R/bin/buddy is not this project's buddy" |
 $out"
 echo "$out" | grep -qF "skill: left: $R/skills/buddy-fleet/SKILL.md differs" || fail "U-9: the edited skill is not named:
 $out"
+# The gate line still runs what is at $R/bin/buddy: buddy's lines stay, the
+# chat lines (their buddylist is gone) do not.
+[ "$(hooks_now "$R/settings.json")" = "$(want_hooks chat)" ] || fail "U-9: with buddy left, only the chat lines may go:
+$(hooks_now "$R/settings.json")
+$out"
+echo "$out" | grep -qF "settings: left: buddy's hook lines, since $R/bin/buddy stays (above): the gate line still runs it" || fail "U-9: the buddy lines left are not named:
+$out"
 
 # U-9r: an edited REFERENCE file is left and named, and so is its directory;
 # the fleet skill's other files and its manifest go. U-4 is the control: the
@@ -358,7 +535,7 @@ setup
 printf '/usr/bin/true' > "$FAKE/loaded"
 out=$(un 2>&1) || fail "U-11: uninstall failed:
 $out"
-grep -qs '^bootout' "$FAKE/calls" && fail "U-11: a job that is not ours was booted out"
+grep -qsx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" && fail "U-11: a job that is not ours was booted out"
 there "$(plist)" "$R/bin/buddylist" "$R/daemon/buddylist" "$R/co/bin/buddylist"
 gone "$R/bin/buddy" $skillmds
 echo "$out" | grep -qF "daemon: left: the loaded job $AGENT runs /usr/bin/true" || fail "U-11: the foreign job is not named:
@@ -372,7 +549,7 @@ setup
 printf '%s' "$R/gone/buddylist" > "$FAKE/loaded"
 out=$(un 2>&1) || fail "U-11d: uninstall failed:
 $out"
-grep -q '^bootout' "$FAKE/calls" || fail "U-11d: a job whose program is gone was not booted out"
+grep -qx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" || fail "U-11d: a job whose program is gone was not booted out"
 echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-11d: no done line:
 $out"
 # U-11f: a foreign program in a directory this user cannot search is not
@@ -389,7 +566,7 @@ else
 	chmod 700 "$R/priv"
 	[ "$rc" -eq 0 ] || fail "U-11f: uninstall failed:
 $out"
-	grep -qs '^bootout' "$FAKE/calls" && fail "U-11f: a job whose program could not be read was booted out:
+	grep -qsx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" && fail "U-11f: a job whose program could not be read was booted out:
 $out"
 	echo "$out" | grep -qF "daemon: left: the loaded job $AGENT runs $R/priv/buddylist" || fail "U-11f: the job is not named left:
 $out"
@@ -404,7 +581,7 @@ $out"
 	chmod 700 "$R/priv"
 	[ "$rc" -eq 0 ] || fail "U-11g: uninstall failed:
 $out"
-	grep -qs '^bootout' "$FAKE/calls" && fail "U-11g: a job whose program sits behind an unsearchable symlink was booted out:
+	grep -qsx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" && fail "U-11g: a job whose program sits behind an unsearchable symlink was booted out:
 $out"
 fi
 # U-11e: a loaded job whose print names no program is uncertain: a stop.
@@ -418,7 +595,7 @@ mkdir -p "$R/foreign"; printf '#!/bin/sh\nexit 0\n' > "$R/foreign/buddylist"
 printf '%s' "$R/foreign/buddylist" > "$FAKE/loaded"
 out=$(un 2>&1) || fail "U-11c: uninstall failed:
 $out"
-grep -qs '^bootout' "$FAKE/calls" && fail "U-11c: a job running a foreign buddylist was booted out"
+grep -qsx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" && fail "U-11c: a job running a foreign buddylist was booted out"
 there "$R/foreign/buddylist" "$R/bin/buddylist"
 echo "$out" | grep -qF "daemon: left: the loaded job $AGENT runs $R/foreign/buddylist" || fail "U-11c: the foreign job is not named:
 $out"
@@ -431,6 +608,147 @@ if [ -n "$macos" ]; then
 $out"
 	there "$(plist)" "$R/daemon/buddylist" "$R/bin/buddylist"
 	echo "$out" | grep -qF "daemon: left: $(plist) names $R/daemon/buddylist under the Label com.example.other" || fail "U-11b: the other agent's plist is not named:
+$out"
+fi
+
+# U-14: the D-173 removals' refusals and leave-it cases; U-4 (and U-3b for
+# --chat) is the positive control of each, the same fixture removed.
+# U-14a: a settings file that is a symlink is refused, named, its target
+# byte-identical, and the rest of the run goes on to done.
+label=U-14a; setup
+mv "$R/settings.json" "$R/settings.real.json"; ln -s settings.real.json "$R/settings.json"
+out=$(un 2>&1) || fail "U-14a: a refused settings edit must not fail the run:
+$out"
+cmp -s "$R/settings.real.json" "$WORK/settings.fixture.json" && [ -L "$R/settings.json" ] || fail "U-14a: a symlinked settings file was edited:
+$out"
+echo "$out" | grep -qF "settings: left: $R/settings.json unedited, refused: a symlink" || fail "U-14a: the refusal is not named:
+$out"
+ls "$R/settings.real.json.buddy-backup-"* "$R/settings.json.buddy-backup-"* >/dev/null 2>&1 && fail "U-14a: a refused edit left a backup"
+gone $bins
+echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-14a: no done line:
+$out"
+# U-14b: a bin dir that is not ~/bin: its lines run nothing this run removes,
+# so the file is left byte-identical, and said.
+label=U-14b; setup; rm "$R/home/bin"
+out=$(un 2>&1) || fail "U-14b: uninstall failed:
+$out"
+cmp -s "$R/settings.json" "$WORK/settings.fixture.json" || fail "U-14b: settings were edited for a bin dir that is not ~/bin"
+echo "$out" | grep -qF "settings: left: the hook lines in $R/settings.json run \$HOME/bin/..., and this run's bin dir is $R/bin" || fail "U-14b: the reason is not named:
+$out"
+# U-14c: no claude to run: every registration named with its command, the
+# file byte-identical.
+label=U-14c; setup; cp "$R/home/.claude.json" "$WORK/cj"
+XENV=BUDDY_CLAUDE=$WORK/no-claude
+out=$(un 2>&1) || fail "U-14c: uninstall failed:
+$out"
+XENV=
+cmp -s "$R/home/.claude.json" "$WORK/cj" || fail "U-14c: ~/.claude.json changed with no claude to run"
+echo "$out" | grep -qF "mcp: left: buddylist is registered for $PJ in $R/home/.claude.json, and there is no $WORK/no-claude here to remove it with: cd $PJ && claude mcp remove buddylist --scope local" || fail "U-14c: the command is not named:
+$out"
+# U-14d: claude says it removed it and did not: the read-back names it.
+label=U-14d; setup; XENV=FAKE_CLAUDE_NOOP=1
+out=$(un 2>&1) || fail "U-14d: uninstall failed:
+$out"
+XENV=
+echo "$out" | grep -qF "mcp: left: the buddylist MCP registration for $PJ is still in $R/home/.claude.json (claude exited 0)" || fail "U-14d: the read-back did not catch it:
+$out"
+echo "$out" | grep -qF "removed: the buddylist MCP registration" && fail "U-14d: a registration still there was said removed:
+$out"
+# U-14h: the settings change after the plan read them (here, while claude
+# runs): the write refuses, names it, and leaves the changed bytes as they are.
+label=U-14h; setup; XENV=FAKE_TOUCH=$R/settings.json
+out=$(un 2>&1) || fail "U-14h: a refused settings write must not fail the run:
+$out"
+XENV=
+echo "$out" | grep -qF "settings: left: $R/settings.json unedited, refused: changed after the plan read it" || fail "U-14h: the changed file is not refused:
+$out"
+[ "$(cat "$WORK/settings.fixture.json"; printf '  ')" = "$(cat "$R/settings.json")" ] || fail "U-14h: the changed settings were edited anyway"
+# U-14i: a BUDDY_CLAUDE_JSON that is not the file claude writes: claude is
+# never run (it would remove from its own file what this one approved).
+label=U-14i; setup; cp "$R/home/.claude.json" "$WORK/other.json"; XENV=BUDDY_CLAUDE_JSON=$WORK/other.json
+out=$(un 2>&1) || fail "U-14i: uninstall failed:
+$out"
+XENV=
+[ ! -e "$FAKE/claude-calls" ] || fail "U-14i: claude ran for a file it does not write: $(cat "$FAKE/claude-calls")"
+echo "$out" | grep -qF "but claude writes $R/home/.claude.json, not that file" || fail "U-14i: the mismatch is not named:
+$out"
+# U-14j: the user-wide registration rewritten between plan and act (at the
+# daemon's bootout): not removed, said; the project's still goes.
+label=U-14j; setup
+cat > "$WORK/rewrite.sh" <<EOF
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); d["mcpServers"]["buddylist"]["command"]="/opt/foreign"; json.dump(d,open(sys.argv[1],"w"))' "$R/home/.claude.json"
+EOF
+XENV=FAKE_ON_BOOTOUT=$WORK/rewrite.sh
+out=$(un 2>&1) || fail "U-14j: uninstall failed:
+$out"
+XENV=
+[ "$(cat "$FAKE/claude-calls")" = "$PJ|mcp remove buddylist --scope local" ] || fail "U-14j: claude was run for a registration that changed:
+$(cat "$FAKE/claude-calls")"
+mcp_now "$R/home/.claude.json" | grep -qx 'user - /opt/foreign' || fail "U-14j: the rewritten registration is gone"
+echo "$out" | grep -qF "mcp: left: the user-wide buddylist MCP registration, since it changed since the plan read it" || fail "U-14j: the change is not named:
+$out"
+# U-14k: a registration naming a hard link of a removed buddylist, kept in
+# place: the same file once, but a program still there after the run.
+label=U-14k; setup; mkdir -p "$R/kept"; ln "$R/bin/buddylist" "$R/kept/buddylist"
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); d["projects"][sys.argv[2]]["mcpServers"]["buddylist"]["command"]=sys.argv[3]; json.dump(d,open(sys.argv[1],"w"))' "$R/home/.claude.json" "$PJ3" "$R/kept/buddylist"
+out=$(un 2>&1) || fail "U-14k: uninstall failed:
+$out"
+grep -qF "$PJ3|" "$FAKE/claude-calls" && fail "U-14k: a registration of a program still there was removed"
+mcp_now "$R/home/.claude.json" | grep -qxF "local $PJ3 $R/kept/buddylist" || fail "U-14k: the kept program's registration is gone"
+# The plan's own match, not only the act's recheck behind it (mutation round 2).
+echo "$out" | grep -qF "mcp: left: buddylist is registered for $PJ3 in $R/home/.claude.json with the command \"$R/kept/buddylist\", which is not a buddylist this run removes" || fail "U-14k: the plan matched the hard link as ours:
+$out"
+# U-14l: a loaded program whose path holds " = ": the whole path is judged,
+# never the part before it (Codex: awk -F' = ' read the pinned one's bytes).
+label=U-14l; setup
+printf 'not the server\n' > "$R/oscar/oscar-server = foreign"
+printf '%s' "$R/oscar/oscar-server = foreign" > "$FAKE/loaded.$OSCAR"
+out=$(un 2>&1) || fail "U-14l: uninstall failed:
+$out"
+grep -q "^bootout gui/$(id -u)/$OSCAR" "$FAKE/calls" && fail "U-14l: a job running '$R/oscar/oscar-server = foreign' was booted out"
+echo "$out" | grep -qF "since its loaded job runs $R/oscar/oscar-server = foreign," || fail "U-14l: the whole path is not named:
+$out"
+if [ -n "$macos" ]; then
+	# U-14m: a plist whose Program is another executable, its
+	# ProgramArguments[0] the pinned server: launchd runs Program, so left.
+	label=U-14m; setup; rm -f "$FAKE/loaded.$OSCAR"
+	sed "s#<key>ProgramArguments</key>#<key>Program</key><string>/usr/bin/true</string><key>ProgramArguments</key>#" "$R/home/Library/LaunchAgents/$OSCAR.plist" > "$WORK/op" && cat "$WORK/op" > "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	out=$(un 2>&1) || fail "U-14m: uninstall failed:
+$out"
+	there "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	# U-14n: a Label with a trailing newline is another Label.
+	label=U-14n; setup; rm -f "$FAKE/loaded.$OSCAR"
+	sed "s#<string>$OSCAR</string>#<string>$OSCAR\&\#10;</string>#" "$R/home/Library/LaunchAgents/$OSCAR.plist" > "$WORK/op" && cat "$WORK/op" > "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	grep -qF "$OSCAR&#10;" "$R/home/Library/LaunchAgents/$OSCAR.plist" || fail "U-14n: the fixture's Label was not rewritten"
+	out=$(un 2>&1) || fail "U-14n: uninstall failed:
+$out"
+	there "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	# U-14e: an oscar whose bytes are another revision is not provably ours:
+	# never booted out, its plist kept, named.
+	label=U-14e; setup
+	printf 'elf\npath\tgithub.com/mk6i/open-oscar-server/cmd/server\nbuild\tvcs.revision=%s\n' 0000000000000000000000000000000000000000 > "$R/oscar/oscar-server"
+	out=$(un 2>&1) || fail "U-14e: uninstall failed:
+$out"
+	grep -q "^bootout gui/$(id -u)/$OSCAR" "$FAKE/calls" && fail "U-14e: an oscar not provably ours was booted out"
+	there "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	echo "$out" | grep -qF "chat server: left: $OSCAR, since its loaded job runs $R/oscar/oscar-server, whose bytes are not the pinned server" || fail "U-14e: the foreign oscar is not named:
+$out"
+	# U-14f: ours, loaded, under a plist naming ANOTHER program: left whole.
+	label=U-14f; setup
+	sed "s#$R/oscar/oscar-server#/usr/bin/true#" "$R/home/Library/LaunchAgents/$OSCAR.plist" > "$WORK/op" && cat "$WORK/op" > "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	out=$(un 2>&1) || fail "U-14f: uninstall failed:
+$out"
+	grep -q "^bootout gui/$(id -u)/$OSCAR" "$FAKE/calls" && fail "U-14f: an oscar job whose plist runs something else was booted out"
+	there "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	# U-14g: a bootout that fails is named; the plist stays; the run is done.
+	label=U-14g; setup; XENV=FAKE_BOOTOUT_FAIL_LABEL=$OSCAR
+	out=$(un 2>&1) || fail "U-14g: a failed oscar bootout must not fail the run:
+$out"
+	XENV=
+	there "$R/home/Library/LaunchAgents/$OSCAR.plist"
+	echo "$out" | grep -qF "chat server: left: launchctl bootout gui/$(id -u)/$OSCAR did not take" || fail "U-14g: the failed bootout is not named:
+$out"
+	echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-14g: no done line:
 $out"
 fi
 
@@ -686,7 +1004,7 @@ $out"
 	echo "$out" | grep -qF "records no chat posture after the update" || fail "U-3: the stop does not say why:
 $out"
 	[ "$(cksum "$R/bin/buddylist" "$R/daemon/buddylist" "$R/co/bin/buddylist")" = "$before_bins" ] || fail "U-3: a stopped --chat removed chat"
-	grep -qs '^bootout' "$FAKE/calls" && fail "U-3: a stopped --chat booted the daemon out"
+	grep -qsx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" && fail "U-3: a stopped --chat booted the daemon out"
 fi
 # The stub: a Go binary built as this module's cmd/buddy, with D-124's -X
 # first in its -ldflags, whose `update` records BUDDY_CHAT and exits STUB_RC.
@@ -722,9 +1040,17 @@ $out"
 grep -qx 'BUDDY_CHAT=off' "$WORK/stub.log" || fail "U-3b: update was not run with BUDDY_CHAT=off"
 gone "$R/bin/buddylist" "$R/daemon/buddylist" "$R/co/bin/buddylist"
 there "$R/bin/buddy" "$R/co/bin/buddy" $skillmds
-grep -q '^bootout' "$FAKE/calls" || fail "U-3b: the daemon was not booted out"
+grep -qx "bootout gui/$(id -u)/$AGENT" "$FAKE/calls" || fail "U-3b: the daemon was not booted out"
 [ -z "$macos" ] || gone "$(plist)"
 kept U-3b
+[ "$(hooks_now "$R/settings.json")" = "$(want_hooks chat)" ] || fail "U-3b: --chat must remove buddylist's two hooks and nothing else:
+$(hooks_now "$R/settings.json")
+$out"
+echo "$out" | grep -qF "settings: left: buddy's hook lines" && fail "U-3b: --chat judged buddy's own hook lines:
+$out"
+[ "$(wc -l < "$FAKE/claude-calls")" -eq 2 ] || fail "U-3b: --chat did not remove the two MCP registrations:
+$(cat "$FAKE/claude-calls" 2>/dev/null)"
+[ -z "$macos" ] || grep -qx "bootout gui/$(id -u)/$OSCAR" "$FAKE/calls" || fail "U-3b: --chat did not boot the oscar job out"
 echo "$out" | grep -qF "settings: $R/settings.json declares BUDDY_CHAT=on to every session, which outranks buddy's claims-only stamp" || fail "U-3b: settings declaring on are not named (the fixture's env says on; D-127):
 $out"
 echo "$out" | tail -1 | grep -qx 'uninstall: done: the chat half is removed and buddy stays, claims-only' || fail "U-3b: no done line:
@@ -772,7 +1098,7 @@ case $ROOT in
 	setup; before=$(snap)
 	out=$(env HOME="$R/home" PATH="$GUARD:$PATH" BUDDY_BIN_DIR="$R/bin" BUDDY_SKILL_DIR="$R/skills/buddy" \
 		BUDDY_SETTINGS="$R/settings.json" BUDDY_PLIST="$(plist)" BUDDY_LAUNCHCTL="$FAKE/launchctl" \
-		BUDDY_CLAUDE_JSON="$R/home/.claude.json" BUDDY_MCP_JSON="$R/co/.mcp.json" BUDDY_REPO_BIN=off FAKE_DIR="$FAKE" \
+		BUDDY_CLAUDE="$FAKE/claude" BUDDY_CLAUDE_JSON="$R/home/.claude.json" BUDDY_MCP_JSON="$R/co/.mcp.json" BUDDY_REPO_BIN=off FAKE_DIR="$FAKE" \
 		"$R/bin/buddy" uninstall --dry-run </dev/null 2>&1) || fail "U-10: buddy uninstall --dry-run failed:
 $out"
 	echo "$out" | head -1 | grep -qF "running: sh $ROOT/scripts/uninstall.sh --dry-run" || fail "U-10: the verb does not run this checkout's script:
@@ -786,5 +1112,5 @@ $out"
 	;;
 esac
 
-[ ! -e "$GUARD/reached" ] || fail "the REAL launchctl was reached: $(cat "$GUARD/reached")"
+[ ! -e "$GUARD/reached" ] || fail "the REAL launchctl or claude was reached: $(cat "$GUARD/reached")"
 echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left)"
