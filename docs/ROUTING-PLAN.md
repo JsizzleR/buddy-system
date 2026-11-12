@@ -303,7 +303,8 @@ no-op is a cost with no use (F2).
   a literal beside a comment that names CLAUDE.md's full-tier classes, and
   the cap cannot shrink it (F5). Ruled since (section 10.2): eligibility is
   also an allow-list of prose files, held at the pick, the export and the
-  READY diff alike. Not built.
+  READY diff alike. Built at the pick (D-180); the export and the READY
+  diff: not built.
 - **The diff is checked as well as the claim.** A claim names what a lane
   reserved, not what it edited: a lane holding `docs/README.md` can still
   write an unclaimed fence file (Codex P1). At READY, the coordinator runs
@@ -637,13 +638,13 @@ What the counts say:
   that repository's lanes, so the rule would be edited under itself (F6). The
   allow-list needs no layout: an extension it does not list is ineligible.
 - **One predicate at three points** (Fable F1): the pick (`router.py pick
-  --touch`), the export's flag, and the READY diff. Today the pick does not
-  hold it. `router.py`'s shipped names (`ROUTER-SKILL-PLAN.md` section 6)
-  protect neither the code entries nor `docs/decisions.md`. So a buddy line
-  with `assign=writing:<id>` and `tiers=lite` would route `--touch
-  docs/decisions.md` off the default. No `route-cap` line is in the
-  operator's file today, so nothing routes. The fix is owed before one is
-  written.
+  --touch`), the export's flag, and the READY diff. Until D-180 the pick
+  did not hold it: `router.py`'s shipped names (`ROUTER-SKILL-PLAN.md`
+  section 6) protected neither the code entries nor `docs/decisions.md`, so
+  a buddy line with `assign=writing:<id>` and `tiers=lite` would have routed
+  `--touch docs/decisions.md` off the default. No `route-cap` line was in
+  the operator's file, so nothing routed. The pick holds it now (10.4 step
+  1), and is stricter than the predicate above (what step 2, now dropped, would have owed; 10.4).
 - **Both cells alike** (F4). The READY diff check runs on every item of an
   opened class, baseline and trial alike; otherwise the baseline is judged
   by claims and the trial by diffs. An ejection leaves both cells and is
@@ -708,24 +709,62 @@ is not volume but events, and none of the 531 outcomes is a fail.
 
 ### 10.4 What a build lane does
 
-Not built. In this order, at the full tier, since each changes what the
-router may route, as phases 2 and 3 do:
+Step 1 built (D-180). Steps 2-4 (router-pool) are DROPPED, not deferred:
+the operator, in orc-22's pane at about 22:26Z on 2026-11-12, "yes land
+router-gate, drop router-pool, run the audit". They stay below as planned;
+nothing builds toward them. As planned, in this order, at the full tier,
+since each changes what the router may route, as phases 2 and 3 do:
 
 1. `router.py pick` applies section 5's list and the allow-list on any line
    with `tiers=` (10.2, F1). This lands before any buddy `route-cap` line is
-   written.
+   written. **Built (D-180).** On such a line each `--touch` is judged,
+   and one failing touch gives the default:
+   - no touch at all: `why=no-touch`, for every class;
+   - not one path of 1 to 512 bytes of `A-Za-z0-9._/-` (a list, a glob,
+     a space, a backslash, a `~`, a non-ASCII name): `why=bad-touch`,
+     judged before any file is looked at; so is a path the system cannot
+     resolve (a symlink loop, a refused search, a component that is a
+     file), and a file with a second hard link;
+   - phase 2's shipped names and `protect=`, a directory, the cap file
+     itself, then the literal list as `model-report.sh` holds it,
+     overlapping in either direction: `why=protected`;
+   - the allow-list's clauses: `why=not-prose`, with `..` anywhere in the
+     touch, an absolute one included (Codex design pass).
+
+   Every reading of a touch must pass: as given, and its lexical and
+   resolved paths relative to every enclosing root (or the whole path when
+   none encloses it), each from every component on, so a root not on disk
+   yet cannot hide a row. A linked worktree stops the climb only at
+   `.claude/worktrees/<name>` or with no repository above it.
+   `check-model-report.sh` proves the two copies of the list equal, row
+   for row and probe by probe through the real report. Residual: a link
+   INTO prose from a protected name (`AGENTS.md -> docs/rules.md`) is not
+   followed backwards (D-180). A line without `tiers=` keeps phase 2's rule,
+   so a caller who types `--tier none` for a tiered item gets that rule
+   (R5's residual: a false tier statement).
 2. The export gains appended columns: the allow-list flag, the predicate's
    digest, and the ejection token (10.2). `router.py` prints a line's
-   additions in canonical form for it.
+   additions in canonical form for it. Dropped (above). It would have owed
+   (Codex design pass, D-180): the pick is stricter than 10.2's predicate,
+   so the flag would apply the pick's whole predicate to each stored scope,
+   not only the literal list and the allow-list: the shipped names (a
+   sensitive substring makes `docs/tokens.md` default), `protect=`, the
+   charset, the cap file. Otherwise an item the pick defaulted exports as
+   eligible and sits on the default inside the trial's window. What the
+   pick read from the file system (a directory, a link's target) cannot be
+   rebuilt from a stored scope string, so the step would retain that
+   evidence or export the item as unknown, dropped from both cells, its
+   digest naming these semantics.
 3. `model-pick.md` runs the READY diff check on every opened-class item,
-   and records an ejection as that token, never as `fail`.
+   and records an ejection as that token, never as `fail`. Dropped (above).
 4. Phase 3's `router.py report` reads several labelled exports. It
    stratifies, prints and abstains as 10.1 says. The label-quoting line in
    `model-pick.md` lands in the same commit, not before the reader exists.
+   Dropped (above).
 
 A usable baseline starts only once 2 and 3 have landed (Codex design pass
 4). Rows exported before then lack the flag and the ejection token, so they
-belong to no cell.
+belong to no cell. With 2 and 3 dropped, none starts.
 
 ### 10.5 Left open at the round ceiling
 

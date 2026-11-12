@@ -159,6 +159,10 @@ The first rule that matches answers:
      or a line without `tiers=` and a tier other than `none`;
    - `protected`: a touched path is protected;
    - `no-touch`: an editing class (code, writing, data, ops) named with no paths.
+
+   On a line with `tiers=`, after `tier-not-listed`, these instead, each judged over all the
+   touches at once: `no-touch` for any class; `bad-touch`, a path it cannot judge;
+   `protected`, the literal list too; `not-prose`, a path outside the allow-list (below).
 4. `pick=<id>[@<effort>] by=assign`.
 
 **Protected paths** are matched on every path component: a relative path as given, and every
@@ -177,6 +181,26 @@ which can only protect more. The shipped list:
 
 A `protect=` prefix matches any component suffix, of the absolute path too: `internal` covers
 `/x/repo/internal/a.go`.
+
+**On a line with `tiers=`** every class needs at least one touch, and every touch must be a
+prose file outside a second, literal list, or the pick is the default. A tiered workflow
+claims its paths relative to a repository root, and this is its report's list, matched there:
+- `cmd/`, `internal/`, `scripts/`, `.githooks/`, `.claude/`, `.github/`, `go.mod`, `go.sum`;
+- `CLAUDE.md`, `AGENTS.md`, `skills/`;
+- every path starting `docs/review-charter`, `docs/decisions.md`, `docs/prose-budget.tsv`.
+
+A touch overlaps a row in either direction: `docs` overlaps `docs/decisions.md`. A prose file
+ends in `.md`, `.markdown`, `.rst`, `.adoc` or `.org`, has no component starting with `.`
+(`..` included), and its name does not start `claude` or `agents` (`CLAUDE.local.md`). Every
+reading must pass: the touch as given, and its lexical and resolved paths relative to every
+enclosing root (or the whole path when no root encloses it), each read from every component
+on: `b/docs/decisions.md` is protected, and so is `docs/cmd/a.md`. A linked worktree stops the
+climb only at `.claude/worktrees/<name>` or with no repository above it. The cap file itself
+is protected. `bad-touch` is a touch that is not one path of 1 to 512 bytes of `A-Za-z0-9._/-`
+(a list, a glob, a `$VAR`, a space, a backslash, a `~`, a non-ASCII name), a path the system
+cannot resolve (a symlink loop, a directory it may not search, a component that is a file), or
+a file with a second hard link; an empty touch value, or one starting with two dashes, is a
+usage refusal (exit 2). A path not made yet is judged by its name, so a task can name the file it will write.
 
 ## The table
 

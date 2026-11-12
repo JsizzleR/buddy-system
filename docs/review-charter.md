@@ -1075,7 +1075,8 @@ ledger row entered through the CLI (D-006).
     and uninstalled file by file (D-171). A fourth, `skills/model-router/`, routes for any user
     (D-177): a counts-only scan of their own sessions (no message text; an id named only as
     their `route-cap` names it, or pre-cap at most 8 leading 10+ tasks), an undated draft, and a
-    pick never wider than their line. Do not propose a text mode, a subagent pick before a pin
+    pick never wider than their line; on a `tiers=` line, only prose outside the model
+    report's literal list routes, and what it cannot judge defaults (D-180). Do not propose a text mode, a subagent pick before a pin
     is measured, or a draft that routes.
 
 116. **A brief names a review-round ceiling (D-115).** Lite: one code pass folded once; full: at most two re-verify rounds; at the ceiling, fold narrowly and record the rest open (D-106's folds regressed). Do not propose: re-verifying "until it accepts" without a named ceiling. (full text: `CODEX_CHARTER=process`)

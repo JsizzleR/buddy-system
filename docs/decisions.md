@@ -12531,3 +12531,210 @@ fixed. codex@xhigh re-verify 2 (the ceiling): 1 raised, 1 fixed.
 - amends: D-178 rule 2 ("names the model router's state and leaves it"; now removed, as above)
   and its "Not done" item; D-173 "Unchanged" (the router's state is no longer among the data
   left)
+
+## D-180 — On a `route-cap` line with `tiers=`, `router.py pick` routes only when every touch is a prose file outside the model report's protected list; no touch, a path it cannot judge, or any other path is the default (ROUTING-PLAN 10.4 step 1; amends D-177)
+
+2026-11-12 · ROUTING-PLAN 10.4 step 1. The operator said "yes" to router-forks' proposed build
+lane in orc-21's pane at about 21:05Z, and orc-21 split it: this is step 1, steps 2-4 were to
+follow in another lane, and the operator has since dropped them (below). The operator called the
+router "critical" at about 05:40Z: Fable at effort high or above, Opus at xhigh. Lane
+router-gate (Opus 5.5 at xhigh), run-i105.
+
+**What was wrong.** D-177's pick protected only its shipped names (instruction files, hook and
+CI directories, sensitive substrings) and the line's `protect=` prefixes. Neither covered the
+code directories or `docs/decisions.md`. So a tiered line
+`route-cap default=<id> assign=writing:<id2> tiers=lite decided=<date>` would have routed
+`--class writing --tier lite --touch docs/decisions.md` to `<id2>` (ROUTING-PLAN 10.2, F1).
+A research or qa item named with no touch routed too: only an editing class needed one. No
+`route-cap` line is in the operator's file, so nothing routed. This lands before one is written.
+
+**The rule.** A line without `tiers=` keeps D-177's rule, the worktree stop below aside. On a
+line with `tiers=`, after the class and tier clauses, the pick is the default unless every
+clause below passes. They are checked over all the touches together, in this order, so the
+reason printed does not depend on the touches' order:
+1. **`why=no-touch`:** no `--touch` at all, for EVERY class.
+2. **`why=bad-touch`:** a touch that is not one path of 1 to 512 bytes (invariant 9's path cap)
+   of `A-Za-z0-9._/-`, decided by its string before any file is looked at; or a path the kernel
+   cannot resolve (`stat` failing other than "no such file": a symlink loop, a directory it may
+   not search, a component that is a file); or a regular file with a second hard link. A path
+   not made yet, or a link to one, is judged by its names, so a lane can declare the file it is
+   about to write. An empty `--touch`, or one starting `--`, is a usage refusal at the parse
+   (exit 2), before any pick.
+3. **`why=protected`:** D-177's shipped names and `protect=`; `.` or a trailing `/.` (a
+   directory, as a trailing `/` already was); the cap file itself, by device and inode; then
+   `TIERED_PROTECTED`: the literal list exactly as `scripts/model-report.sh` holds it (D-175,
+   14 rows, `docs/review-charter` the one prefix row), matched as that SQL matches it: inside a
+   row, or a parent directory of one.
+4. **`why=not-prose`:** 10.2's allow-list. The last component, folded, ends in `.md`,
+   `.markdown`, `.rst`, `.adoc` or `.org`, and does not start `claude` or `agents`. No component
+   starts with `.`, and `..` anywhere in the touch fails, an absolute touch included.
+
+Every reading of a touch must pass 3 and 4: the touch as given when relative, and its lexical
+and its resolved path relative to EVERY enclosing root (innermost first, as D-177 places paths),
+or the whole path where no root encloses it; and every component suffix of each of those. A
+reading holding a non-ASCII component (a link's target can bring one) is `bad-touch`. The climb
+stops at a linked worktree only where one is placed as one: no root above it, or the next root
+above holds it at `.claude/worktrees/<name>`. That is `enclosing_roots`, so D-177's shipped
+names get it too. In the pick it only adds roots, so it only protects more. The scan takes its
+roots from a session's cwd, so a path that the old stop left with no root there is now read
+relative to its repository, as the pick reads it: `<d>/auth/r/README.md`, edited from a
+worktree at `<d>/auth/r/w`, was protected by `auth` and is not (Codex code pass F3).
+
+**Why these shapes.**
+- **ASCII only is a policy, not a parse** (Codex design pass Q3). For ASCII, `lower()` is
+  invariant 13's whole fold, so no spelling (NFD, a compatibility form, a long s, a Kelvin sign)
+  can name a protected file that the fold misses. D-177's two fold variants make that likely,
+  not proven. The cost: a real non-ASCII prose name gets the default.
+- **One path per touch, by its bytes** (Fable lens P1-A, panel): `docs/notes.md,cmd/x.go,README.md`
+  in one word was judged as one path by its first component and its last extension, and
+  routed; so did a glob or an unexpanded `$VAR`. A backslash is a name byte on this platform,
+  not a separator, and the workflow's scopes fold it to `/`; ` docs/decisions.md` claimed the
+  protected file in a store that trims, while it was judged here as another file; this script
+  expands no `~`. The charset refuses all of them, and every non-ASCII byte.
+- **Every component suffix** (Fable lens P1-B): a root not on disk yet is no root, so with a
+  worktree about to be added under a repository, `<outer>/new-wt/docs/decisions.md` read as
+  `new-wt/docs/decisions.md`, and a relative `b/docs/decisions.md` (a diff's prefix) routed. It
+  over-protects `docs/cmd/a.md` and `/home/u/.config/n.md`, the safe side. Above an enclosing
+  root nothing is judged, so a linked worktree under `.claude/worktrees/` stays routable.
+- **The worktree stop** (Fable lens P1-C): a `.git` file is anyone's to write. One planted at
+  `<repo>/docs/.git`, naming a directory that holds a `commondir`, stopped the climb there, so
+  an absolute `<repo>/docs/decisions.md` read as `decisions.md`.
+- **The cap file** (Fable lens P2): a lane that edits it rewrites its own route. `read_cap`
+  refuses a cap inside any work tree, so no root-relative reading names it, and one outside
+  `.claude` read as prose.
+- **A hard link** (panel): its edit changes a second name that no reading names.
+- **Resolution first** (panel): a 1,100-link chain made `realpath`, in `touch_protected`, exit
+  3 before the resolution check ran, and the reason printed hung on which list caught a touch
+  first.
+- **`..` in an absolute touch** (Codex design pass P2): an absolute touch has no as-given
+  reading, and both `normpath` and `realpath` erase the climb. `/r/docs/../README.md` routed
+  while `docs/../README.md` defaulted.
+- **A failed resolution defaults** (design pass Q3): a non-strict `realpath` returns a looping
+  link unresolved, so its name alone would have been judged.
+- **Parity by a test, not one file.** `router.py` is installed alone, where
+  `scripts/model-report.sh` does not exist. `check-model-report.sh` evaluates each copy with its
+  own interpreter: the report's block by `sqlite3`, the one the report RUNS (the line after its
+  `items.sql` heredoc opens, each line found once), and `TIERED_PROTECTED` by importing the
+  module. Each row renders with its type (parity lens: `p || '|' || pre` read `('cmd', '0')` as
+  the row it spells): `quote()` in SQL, a str and an int 0 or 1 in Python. Both must equal the
+  14 rows the check pins as a third copy, and each other (Fable cross-check: a same-count change
+  made to both, `skills` to `skillszz`, passed a row-count floor, and the shipped names hid it
+  from every row case). Eleven controls must fail: a report row dropped; one renamed (the same
+  count, so only the equality test can see it; design pass P3); a router row dropped; the same
+  row dropped from both, and the same row renamed in both (only the pin sees them, so a change
+  to both copies at once fails: F5); a report pre and a router pre that are the string `'0'`; a
+  correct block with its own opener before a shrunk live one, and one after (either half of the
+  exactly-once guard, alone, takes the decoy); a line between the heredoc and the block; a
+  second opener. The rows are not the behaviour (parity lens: a second CTE or a `CASE` in `hit`
+  passed them), so a probe leg claims each probe once, in a ledger of its own, with the real
+  binary, runs the real report's `--export`, and compares its protected column with
+  `_literal_hit`, probe by probe, 1s and 0s both: every row as itself, a file in it and four
+  levels down, run on, upper-cased, and each parent, then near misses (78 probes). The probes
+  are finite (Codex code pass, Fable cross-check): a clause in `hit` naming one more literal
+  (`OR s.folded = 'docs/design.md'`) passes both legs, the report then protecting more than the
+  pick; review holds `hit`.
+- **Keyed on `tiers=`**, the plan's wording (F1). Applying the list to every line would protect
+  a drop-in user's own `scripts/`, `cmd/` and `internal/`. The residual: a tiered workflow's
+  operator writes a line without `tiers=`, and a caller types `--tier none` for its item. That
+  is R5's residual, a false tier statement (ROUTER-SKILL-PLAN section 14).
+
+**Steps 2-4 dropped.** The operator, in orc-22's pane at about 22:26Z: "yes land router-gate,
+drop router-pool, run the audit". Router-pool was ROUTING-PLAN 10.4 steps 2-4 (the export's
+flag and digest, the READY diff check, the labelled reader): dropped, not deferred. So nothing
+compares the pick with the export, and nothing checks a declared touch against the diff: the
+pick trusts the touches it is given. What step 2 would have owed (Codex design pass P2) stays a
+note in 10.4: the pick is stricter than 10.2's predicate as written (the shipped names, so a
+sensitive substring makes `docs/tokens.md` default; `protect=`; the charset; resolution; the
+cap file), so a flag applying only the literal list and the allow-list would have exported an
+item the pick defaulted as eligible.
+
+**Residuals, recorded.**
+- **A link into prose from a protected name** (Fable lens P1-D): with `AGENTS.md ->
+  docs/rules.md`, `docs/rules.md` is an instruction file, and a touch of it routes. Catching it
+  means resolving every row under every root and every link inside a protected directory, on
+  every pick. This repository tracks no symlink.
+- **A hard-wrapped cap line** reads as untiered, the `--tier none` residual above.
+- **The file system as it stands** (D-005's window; Fable cross-check): a link made after the
+  pick is not seen, nor a missing component before `..` that a later directory or link fills.
+  `notes/a.md -> missing/../../chain/l0.md` routes on Python 3.14 and is `bad-touch` on 3.9 and
+  3.12; no file is writable through it while `missing` is absent.
+- **A worktree held at `<R>/.claude/worktrees/<name>`, R inside an outer repository's protected
+  directory** (a clone under `internal/` with worktrees of its own, or a planted marker): judged
+  relative to itself (Fable cross-check). Git treats that directory as a nested repository, so
+  no file in it is the outer repository's.
+- **An alias that hides the directories above, with a planted marker at its target** (macOS
+  `/.vol/<dev>/<ino>/decisions.md` beside a planted `docs/.hg`): the alias reads as a root of
+  its own and routes. Without the plant the dot rule defaults it. Two hostile steps.
+- **A declaration that drops a prefix** (`decisions.md` for `docs/decisions.md`) names another
+  file and routes; with steps 2-4 dropped, nothing checks a declaration against the diff.
+- **Outside the change:** on an untiered line, D-177's `touch_protected` still exits 3 on a
+  1,100-link chain under a recursive realpath (Python 3.9 through 3.12): an internal error and
+  no pick line, so nothing routes.
+- **The cap-file rule is the tiered line's.** The untiered line keeps D-177's rule exactly; a
+  cap named `CLAUDE.md` or under `.claude` is protected there by its name.
+
+**Not done.** A trial is still not built: a trial class defaults before every path clause, and
+`pick_one`'s docstring says a later trial route sets its target and falls through the clauses,
+never returning before them.
+
+**Test shape.** `router.py --self-test` gains `t_tiered`, `t_tiered_fs` and `t_tiered_canary`,
+run from a fixture repository whose cap assigns every routable class, so no `not-assigned` or
+`trial-not-built` can mask a path clause; its temp dir must be a plain path, else one under
+`/tmp` (Codex code pass F2: a TMPDIR with a space or a dot-named directory went red). Every
+reason is asserted exactly: `go.mod` defaults on its extension alone, so only `why=protected`
+proves the list ran. Cases: every literal row at a prose path only it protects where one exists
+(five rows are shipped names too, so their row cases cannot see the row dropped: the parity
+check does), folded, both directions; reasons ranked over every list at once (a link to a
+non-ASCII name beside `skills/a.md`); a deleted cwd on a tiered line; prose picked (the
+controls: every extension, near misses such as `docs/decisions-notes.md`, a 512-byte path of
+legal components); not-prose; both touch orders; no touch for writing, research and qa;
+bad-touch (a list, a glob, `$VAR`, a space, a backslash, `~`, a control byte, DEL, a tab,
+non-ASCII, a lone surrogate, a long s, 513 bytes); links into the list (live and dangling), to
+prose, to a non-ASCII target, a loop, a 1,100-link chain (and behind a missing component: exit 3
+on Python 3.9 before the fold), a hard link, a file used as a directory, a directory link, a
+mode-000 directory; a nested clone's own `internal/` and one under `internal/`; linked worktrees
+under `.claude/worktrees/`, under `internal/` and with no root above, and a planted `.git` file;
+a root not on disk yet; the cap file and a link to it; paths no root encloses; `protect=` on a
+tiered line; `--all`; the untiered line unchanged. A canary in every branch's touch reaches
+neither stdout nor stderr. `t_pick_rules`' tiered qa case now defaults with no touch. 500
+checks. Mutants, each watched to die: 37 in `router.py` (the list check, two rows, the prefix
+row, the reverse direction, the extension, `.txt` admitted, the dot rule, the instruction
+starts, `..`, no touch failing open, the realpath, the normpath, the root and the as-given
+readings, the innermost root only, the no-root whole path, the suffixes, the charset, the
+charset widened to printable ASCII, the length cap by one, the ASCII check on a reading, the
+resolution check, resolution after the lists, the realpath probe, the hard link, the trailing
+`/.`, the shipped names and `protect=` on the tiered branch, the shipped names answering before
+the readings, the deleted-cwd guard, the whole tiered branch, the rank, the first touch only,
+the cap file, the worktree stop always held and never held); 14 in `check-model-report.sh` (a
+router row dropped, a row renamed, the router's reverse direction, a report row added, the
+report's prefix match made exact, its reverse direction dropped, a shadowing subquery, a depth
+limit in `hit`, the equality test, the pin, the heredoc binding, the exactly-once guard by its
+first and by its last match, the untyped rendering; the report's two `hit` mutants die first on
+D-175's fixture, the depth limit and the shadow only on the probe leg), with the unmutated copy
+passing.
+
+**Review** — full tier, round ceiling D-115's (design, code, two re-verifies); two sessions
+(router-gate to its handoff size, then router-gate-2). Codex (`codex-review.sh`, xhigh,
+`CODEX_CHARTER=process`) design pass: 4 raised (absolute `..`, the pick stricter than the
+export, a same-count parity control, unresolvable paths), 3 fixed, 1 answered (recorded as step
+2's, which the operator later dropped). Panel, three read-only lenses: fail-closed (Opus,
+xhigh) 8 raised, 8 fixed; list parity (Opus, xhigh) 9 raised, 8 fixed, 1 answered; can any
+input route a protected item (Fable, xhigh) 8 raised, 6 fixed, 2 answered, its inbound-link
+half of P1-D recorded as a residual. Codex code pass: 6 raised (F1-F4, probe depth, row cases
+masked by the shipped names), 5 fixed, 1 answered, 2 reproduced (F1 exit 3 on Python 3.9, F2
+red under a dot-named TMPDIR). Fable cross-check (xhigh, fresh context): 17 raised, 11 fixed, 6
+answered (each a residual above), 4 reproduced. Codex re-verify round 1, scoped to the fixes:
+1 raised (a doc's `-` for `--`), 1 fixed; the second round was not spent.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Skills" line (number added)
+- code: skills/model-router/router.py (`TIERED_PROTECTED`, `tiered_why` and its helpers,
+  `enclosing_roots`, `pick_one`, the header; the self-tests); scripts/check-model-report.sh (the
+  D-180 block)
+- docs: skills/model-router/reference.md "The pick", skills/model-router/SKILL.md (one
+  sentence); ROUTING-PLAN sections 5, 10.2 and 10.4; docs/USAGE.md "Model routing" (one
+  sentence); docs/review-charter.md, the skills GIVEN (one clause); docs/prose-budget.tsv,
+  `codex-pass` raised from 118,784 to the formula value 131,072 at 118,903, the operator's
+  "okay" (20:04Z)
+- amends: D-177 (the pick on a tiered line: two new reasons, `no-touch` for every class, a
+  second protected list)

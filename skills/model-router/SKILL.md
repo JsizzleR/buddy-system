@@ -45,7 +45,8 @@ session for a task:
 2. Run `python3 -I router.py pick --cap <the file the user's instructions name> --role main --class <c> --tier <t> --touch <path>`,
    with one touch for each path the task will edit. The tier is the task's review tier where
    the user's workflow has tiers, else `none`. An editing class (code, writing, data, ops)
-   named with no paths gets the default.
+   named with no paths gets the default. On a line with `tiers=` every class does, and only
+   prose files outside its protected list route (`reference.md`).
 3. A `pick=<id>@<effort> by=...` line: open the session on that model id, and with that effort
    only when the pick carries one. A `no pick: <reason>` line: choose as the user's
    instructions say.

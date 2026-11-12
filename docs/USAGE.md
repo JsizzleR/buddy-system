@@ -2082,7 +2082,9 @@ and refuses any target inside a work tree.
 Under buddy, a coordinator passes the item's review tier as `router.py pick --tier`,
 as the router's own SKILL.md teaches (the fleet skill names no pick recipe).
 A full-tier item, an omitted tier, a protected path and a review all keep the
-default. No subagent is routed in this version.
+default. On a line with `tiers=`, so does an item with no `--touch`, and any touch
+that is not a prose file outside the model report's protected list (D-180).
+No subagent is routed in this version.
 
 The reference is `skills/model-router/reference.md`: the grammar, each refusal,
 the pick rules, the class rule, the signals and their version ranges, the table

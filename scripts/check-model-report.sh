@@ -2,12 +2,12 @@
 # check-model-report.sh — done-check for scripts/model-report.sh
 # (docs/BEYOND-CODE-PLAN.md 5.2(a), step 4).
 #
-# HERMETIC: sh, git, go (to build buddy), sqlite3, jq. The ledger is a
+# HERMETIC: sh, git, go (to build buddy), sqlite3, jq, python3. The ledger is a
 # throwaway repo's, written by the REAL buddy binary (hello, beat, claim,
 # release), so the fixture has the shapes the verbs store and not the ones a
 # hand-written INSERT would guess at; the transcripts sit in a throwaway
 # CLAUDE_PROJECTS_DIR. Nothing under ~/.claude or this checkout's ledger is
-# read. Without sqlite3 or jq this says NOT RUN, as check-wake-report.sh does.
+# read. Without sqlite3, jq or python3 this says NOT RUN, as check-wake-report.sh does.
 #
 # What must hold, each with the control that proves the assertion could fire:
 #   - INVARIANT 9, the whole design: a label with a raw newline, a 600-byte
@@ -50,7 +50,11 @@
 #     name and a scope note never reaches the report or the receipts
 #     register; --export appends every commit once, leaves the register
 #     byte-identical the second time, counts a planted row and refuses a
-#     foreign header.
+#     foreign header;
+#   - D-180: the model router's tiered list (router.py's TIERED_PROTECTED)
+#     equals this report's protected list, each side evaluated, typed, with
+#     the controls below that must fail; and the report's protected column
+#     equals router.py's literal match, probe by probe, 1s and 0s both.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -58,7 +62,7 @@ CDPATH= cd -- "$ROOT"
 
 fail() { echo "check-model-report: FAIL — $*" >&2; exit 1; }
 
-for c in sqlite3 jq; do
+for c in sqlite3 jq python3; do
 	command -v "$c" >/dev/null 2>&1 || { echo "check-model-report: NOT RUN — no $c on PATH" >&2; exit 0; }
 done
 
@@ -67,6 +71,121 @@ done
 WORK=$(mktemp -d) || fail "mktemp failed"
 WORK=$(CDPATH= cd -- "$WORK" && pwd -P)
 trap 'rm -rf "$WORK"' EXIT INT TERM
+
+# --- D-180: the model router's tiered list is this report's, row for row -----
+# skills/model-router/router.py applies the protected list on a route-cap line
+# with tiers= (ROUTING-PLAN 10.4 step 1). It is installed alone, where this
+# script does not exist, so the two copies cannot share a file; this proves
+# them equal. Each side is EVALUATED by its own interpreter, never grepped:
+# the report's block by sqlite3 (a respelt literal, 'c' || 'md', counts as
+# what it means), router.py's TIERED_PROTECTED by importing the module (-B:
+# no __pycache__ beside it, D-178). The block read is the one the report RUNS:
+# the line right after its items.sql heredoc opens, each of the two lines
+# found exactly once (Codex design pass: a decoy beside the live block must
+# not be the one compared). Both sides must equal the 14 rows pinned below,
+# so a change made to BOTH copies at once still fails (F5), and an extraction
+# that found nothing cannot compare equal. Each row renders with its type
+# (parity lens: `p || '|' || pre` read ('cmd', '0') and a blob p as the row
+# they spell): SQL's quote() on one side, a str and an int 0 or 1 checked on
+# the other. The controls, each of which must FAIL, and each copy differing
+# from its original: a report row dropped; a report row renamed (the same
+# count, which only the equality test sees); a router row dropped; the same
+# row dropped from both; the same row renamed in both (only the pin sees it);
+# a report pre and a router pre that are the string '0'; a correct block with
+# its own opener before the shrunk live one, and one after (either half of the
+# exactly-once guard, alone, takes the decoy); a line between the heredoc and
+# the block; a second opener (the case guard is what keeps $((h + 1)) from
+# ending this shell). The VALUES are not the behaviour: the probe leg at the
+# end compares what each side's match DOES.
+prot_report() { # prot_report <model-report.sh>: its list as sorted p|pre rows
+	h=$(grep -n -x -F "cat >\"\$work/items.sql\" <<'SQL'" "$1" | cut -d: -f1)
+	m=$(grep -n -x -F 'WITH prot(p, pre) AS (VALUES' "$1" | cut -d: -f1)
+	case $h:$m in *[!0-9:]* | :* | *:) return 1 ;; esac
+	[ "$m" -eq $((h + 1)) ] || return 1
+	awk -v m="$m" 'NR >= m { print; if ($0 == "),") exit }' "$1" >"$WORK/prot.cte"
+	[ "$(tail -n 1 "$WORK/prot.cte")" = ")," ] || return 1
+	{ sed '$d' "$WORK/prot.cte"; echo ")"; echo "SELECT quote(p) || '|' || quote(pre) FROM prot;"; } >"$WORK/prot.sql"
+	sqlite3 :memory: <"$WORK/prot.sql" >"$WORK/prot.raw" || return 1
+	LC_ALL=C sort "$WORK/prot.raw"
+}
+prot_router() { # prot_router <router.py>: its list as sorted p|pre rows
+	python3 -I -B -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("router_under_check", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+for p, pre in mod.TIERED_PROTECTED:
+    if type(p) is not str or type(pre) is not int or pre not in (0, 1):
+        sys.exit("a row that is not (str, 0 or 1)")
+    print("'"'"'%s'"'"'|%d" % (p, pre))
+' "$1" >"$WORK/prot.raw" 2>"$WORK/prot.err" || return 1
+	LC_ALL=C sort "$WORK/prot.raw"
+}
+# The rows, pinned here as a third copy (Fable cross-check): a same-count change
+# made to BOTH copies, ('skills', 0) to ('skillszz', 0), kept them equal and
+# 14 rows, and router.py's shipped names hid it from every row case, while the
+# report stopped marking skills/ protected. A change to the list is three edits.
+cat >"$WORK/prot.pin" <<'PIN'
+'.claude'|0
+'.githooks'|0
+'.github'|0
+'agents.md'|0
+'claude.md'|0
+'cmd'|0
+'docs/decisions.md'|0
+'docs/prose-budget.tsv'|0
+'docs/review-charter'|1
+'go.mod'|0
+'go.sum'|0
+'internal'|0
+'scripts'|0
+'skills'|0
+PIN
+prot_same() { # prot_same <model-report.sh> <router.py>
+	: >"$WORK/prot.a"
+	: >"$WORK/prot.b"
+	: >"$WORK/prot.err"
+	prot_report "$1" >"$WORK/prot.a" || return 1
+	prot_router "$2" >"$WORK/prot.b" || return 1
+	cmp -s "$WORK/prot.a" "$WORK/prot.pin" || return 1
+	cmp -s "$WORK/prot.a" "$WORK/prot.b"
+}
+R=skills/model-router/router.py
+prot_same scripts/model-report.sh "$R" ||
+	fail "D-180: $R's TIERED_PROTECTED and scripts/model-report.sh's prot(p, pre) list are not the 14 rows pinned here (report: $(tr '\n' ' ' <"$WORK/prot.a" 2>/dev/null); router: $(tr '\n' ' ' <"$WORK/prot.b" 2>/dev/null)$(cat "$WORK/prot.err"))"
+sed "s/('cmd', 0), //" scripts/model-report.sh >"$WORK/prot-drop.sh"
+sed "s|('docs/decisions.md', 0)|('docs/decisions2.md', 0)|" scripts/model-report.sh >"$WORK/prot-rename.sh"
+sed "s/('cmd', 0), //" "$R" >"$WORK/prot-drop.py"
+sed "s/('cmd', 0), /('cmd', '0'), /" scripts/model-report.sh >"$WORK/prot-type.sh"
+sed "s/('cmd', 0), /('cmd', '0'), /" "$R" >"$WORK/prot-type.py"
+sed "s/('skills', 0)/('skillszz', 0)/" scripts/model-report.sh >"$WORK/prot-zz.sh"
+sed "s/('skills', 0)/('skillszz', 0)/" "$R" >"$WORK/prot-zz.py"
+# The decoys are the defeat itself: the live block shrunk, and a whole correct
+# block, opener and all, where the report never runs it: before the live one,
+# then after it.
+OPENER="cat >\"\$work/items.sql\" <<'SQL'"
+awk -v o="$OPENER" '$0 == o { on = 1 } on { print; if ($0 == "),") exit }' scripts/model-report.sh >"$WORK/prot-block"
+[ "$(wc -l <"$WORK/prot-block" | tr -d ' ')" = 7 ] || fail "D-180: the report's opener and block are not the 7 lines this check copies"
+awk -v o="$OPENER" -v b="$WORK/prot-block" '$0 == o { while ((getline l <b) > 0) print l; print "SQL" } { print }' "$WORK/prot-drop.sh" >"$WORK/prot-decoy-before.sh"
+{ cat "$WORK/prot-drop.sh"; cat "$WORK/prot-block"; echo SQL; } >"$WORK/prot-decoy-after.sh"
+sed "/^cat >\"\$work\/items.sql\" <<'SQL'\$/a\\
+-- a line between
+" scripts/model-report.sh >"$WORK/prot-gap.sh"
+{ cat scripts/model-report.sh; printf '%s\n' "$OPENER"; } >"$WORK/prot-opener2.sh"
+for x in prot-drop.sh:scripts/model-report.sh prot-rename.sh:scripts/model-report.sh prot-drop.py:"$R" \
+	prot-type.sh:scripts/model-report.sh prot-type.py:"$R" prot-zz.sh:scripts/model-report.sh prot-zz.py:"$R" \
+	prot-decoy-before.sh:scripts/model-report.sh \
+	prot-decoy-after.sh:scripts/model-report.sh prot-gap.sh:scripts/model-report.sh prot-opener2.sh:scripts/model-report.sh; do
+	! cmp -s "$WORK/${x%%:*}" "${x#*:}" || fail "D-180 control: $WORK/${x%%:*} is the same as ${x#*:}, so it controls nothing"
+done
+for x in prot-drop.sh:"$R" prot-rename.sh:"$R" scripts/model-report.sh:prot-drop.py prot-drop.sh:prot-drop.py \
+	prot-type.sh:"$R" scripts/model-report.sh:prot-type.py prot-zz.sh:prot-zz.py prot-decoy-before.sh:"$R" prot-decoy-after.sh:"$R" \
+	prot-gap.sh:"$R" prot-opener2.sh:"$R"; do
+	a=${x%%:*} b=${x#*:}
+	case $a in */*) ;; *) a=$WORK/$a ;; esac
+	case $b in */*) ;; *) b=$WORK/$b ;; esac
+	if prot_same "$a" "$b"; then fail "D-180 control: the parity check passed $a against $b"; fi
+done
 go build -o "$WORK/bin/buddy" ./cmd/buddy || fail "could not build buddy"
 unset CLAUDE_CODE_SESSION_ID BUDDY_SESSION BUDDY_LEDGER BUDDY_MODEL_FLOOR || true
 
@@ -718,5 +837,73 @@ echo 'sqlite3 "file:$ledger?mode=ro&immutable=1" "SELECT 1;" >/dev/null' >>"$WOR
 report "$WORK/opener.sh" >/dev/null || fail "the opener control exited non-zero"
 [ -n "$(grep -v '/buddy-model\.[^/|]*|' "$WORK/sqlite.log")" ] ||
 	fail "the witness's control failed: a report that opens the source passed it"
+
+# --- D-180: the protected column and router.py's literal match, probe by probe
+# The rows compared at the top are not the behaviour (parity lens: a second
+# CTE, a CASE in hit, a respelt live block beside an exact dead one all passed
+# them). Each probe is one closed claim in a ledger of its own, made by the
+# real binary; the real report's --export gives its protected column; and
+# router.py's _literal_hit judges the same string, folded as a scope is. The
+# probes: every row as itself, a file in it and one four levels down (Codex
+# code pass: a depth limit in hit passed shallow probes), the row run on (a
+# prefix row still matches), upper-cased, and each parent; then near misses. Without the
+# sqlite3 shim, so the stray-run audit above reads only its own runs.
+PPREPO="$WORK/parity-repo"
+mkrepo "$PPREPO"
+git -C "$PPREPO" commit -q --allow-empty -m init
+( cd "$PPREPO" && "$WORK/bin/buddy" init ) >/dev/null
+PS=f5f5f5f5-0000-4000-8000-0000000000f5
+printf '{"session_id":"%s","cwd":"%s"}' "$PS" "$PPREPO" | ( cd "$PPREPO" && "$WORK/bin/buddy" hello --label pp ) >/dev/null
+python3 -I -B -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("router_under_check", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+out = []
+for p, pre in mod.TIERED_PROTECTED:
+    out += [p, p + "/x.md", p + "/a/b/c/x.md", p + "x", p.upper()]
+    out += ["/".join(p.split("/")[:i]) for i in range(1, p.count("/") + 1)]
+out += ["docs/notes.md", "src/a.go", "docs/review", "doc", "cmdx/a.md", "internalx", "notes/cmd/a.md", "go"]
+for x in dict.fromkeys(out):
+    print(x)
+' "$R" >"$WORK/pp-probes" || fail "D-180: could not list the probes from $R"
+i=0
+while IFS= read -r pr; do
+	i=$((i + 1))
+	( cd "$PPREPO" && CLAUDE_CODE_SESSION_ID=$PS "$WORK/bin/buddy" claim "pp-$i" --desc "model=claude-opus-5-5 class=docs tier=lite p" --scope "$pr" &&
+		CLAUDE_CODE_SESSION_ID=$PS "$WORK/bin/buddy" release "pp-$i" --outcome pass ) >/dev/null 2>&1 ||
+		fail "D-180: the probe claim pp-$i on '$pr' was refused"
+done <"$WORK/pp-probes"
+[ "$i" -ge 60 ] || fail "D-180: only $i probes"
+( cd "$PPREPO" && CLAUDE_PROJECTS_DIR="$P" sh "$ROOT/scripts/model-report.sh" --export "$WORK/pp.tsv" ) >"$WORK/pp.txt" 2>&1 </dev/null ||
+	fail "D-180: the probe report exited non-zero: $(cat "$WORK/pp.txt")"
+sqlite3 -separator '	' "$PPREPO/.git/buddy.db" "SELECT slug, claim_id FROM claims WHERE slug GLOB 'pp-*'" >"$WORK/pp-ids" ||
+	fail "D-180: could not read the probe ledger"
+python3 -I -B -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("router_under_check", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+probes = open(sys.argv[2]).read().split("\n")[:-1]
+ids = dict(ln.split("\t") for ln in open(sys.argv[3]).read().split("\n") if ln)
+rows = [ln.split("\t") for ln in open(sys.argv[4]).read().split("\n")[1:] if ln]
+col = dict((r[0], r[17]) for r in rows if len(r) == 18)
+seen, bad = set(), []
+for i, p in enumerate(probes, 1):
+    got = col.get(ids.get("pp-%d" % i))
+    want = "1" if mod._literal_hit(mod.fold(p)) else "0"
+    seen.add(got)
+    if got != want:
+        bad.append("%s: report %s, router %s" % (p, got, want))
+if len(rows) != len(probes) or len(col) != len(probes):
+    bad.append("%d probes, %d export rows" % (len(probes), len(rows)))
+if seen != {"0", "1"}:
+    bad.append("the probes did not read both 0 and 1: %s" % sorted(map(str, seen)))
+for b in bad:
+    print(b)
+sys.exit(1 if bad else 0)
+' "$R" "$WORK/pp-probes" "$WORK/pp-ids" "$WORK/pp.tsv" >"$WORK/pp-diff" 2>&1 ||
+	fail "D-180: the report's protected column is not router.py's literal match:
+$(cat "$WORK/pp-diff")"
 
 echo "check-model-report: ok"

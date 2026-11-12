@@ -39,7 +39,9 @@
 # matches answers: no cap (or --role sub) -> no pick; a review -> no pick; then ONE eligibility
 # predicate (pick_one), checked before any assignment can be read, gives the default with a
 # reason from a fixed list; only then an assignment. Every non-default pick needs --tier, with
-# `none` for a user without tiers: an omitted --tier defaults, whatever the line says.
+# `none` for a user without tiers: an omitted --tier defaults, whatever the line says. On a line
+# with `tiers=`, the predicate also holds ROUTING-PLAN 10.2's (D-180): at least one touch, and
+# every touch a prose file outside the literal list (TIERED_PROTECTED), or the default.
 import datetime
 import hashlib
 import io
@@ -131,6 +133,28 @@ API_REQUEST_TYPES = frozenset(('api-request', 'api-request-blob', 'api-request-s
 # is the CI-and-hooks class the plan names. `protect=` adds prefixes and never removes one.
 PROTECTED_NAMES = frozenset(('claude.md', 'agents.md', '.claude', 'skills', '.githooks', '.git'))
 SENSITIVE = ('auth', 'crypto', 'secret', 'security', 'permission', 'sandbox', 'credential', 'password', 'token')
+
+# THE TIERED LINE'S LITERAL LIST (D-180; ROUTING-PLAN section 5 "Protected paths always run on the
+# default", 10.2 and 10.4 step 1). A line with `tiers=` is the tiered workflow the repository's
+# model report exports, and this is that report's list, row for row: scripts/model-report.sh's
+# `prot(p, pre)` VALUES. Lower-case and relative to a repository root; pre=1 is the one prefix row
+# (every charter part). Before it, the shipped names above protected neither the code directories
+# nor docs/decisions.md, so a tiered `assign=writing:` routed a touch of docs/decisions.md off the
+# default (F1). This file is installed alone, where that script does not exist, so the two cannot
+# share one file: the repository's check-model-report.sh evaluates both and fails on any
+# difference, a same-count one included. Never shrink it here (F5); `protect=` only adds.
+TIERED_PROTECTED = (
+    ('cmd', 0), ('internal', 0), ('scripts', 0), ('.githooks', 0), ('.claude', 0),
+    ('.github', 0), ('go.mod', 0), ('go.sum', 0),
+    ('claude.md', 0), ('agents.md', 0), ('skills', 0),
+    ('docs/review-charter', 1), ('docs/decisions.md', 0), ('docs/prose-budget.tsv', 0),
+)
+# 10.2's allow-list: a prose file's extensions (`.txt` is out: requirements.txt and CMakeLists.txt
+# are build inputs), and the instruction-file name starts its last component may not have.
+PROSE_EXT = ('.md', '.markdown', '.rst', '.adoc', '.org')
+INSTRUCTION_STARTS = ('claude', 'agents')
+MAX_TOUCH = 512          # invariant 9's path cap; a longer touch is not judged
+TOUCH_RE = re.compile(r'[A-Za-z0-9._/-]{1,%d}\Z' % MAX_TOUCH)  # a tiered touch: one path, these bytes
 
 # ---------------------------------------------------------------- refusals and the fence
 class Refused(Exception):
@@ -283,18 +307,31 @@ def _root_kind(d):
 def enclosing_roots(path):
     """Every work-tree root at or above `path`, innermost first, climbing past a nested clone or a
     submodule and stopping at a linked worktree (its outer repository is where it lives, not
-    what its files are). Returns [(dir, kind), ...]."""
+    what its files are). Returns [(dir, kind), ...].
+    The stop holds only where a worktree is placed as one: no root above it, or the next root
+    above it holds it at `.claude/worktrees/<name>` (D-180, Fable lens P1-C). A `.git` FILE is
+    anyone's to write, and one planted at `<repo>/docs/.git`, naming a directory that holds a
+    `commondir`, stopped the climb there, so an absolute `<repo>/docs/decisions.md` was read as
+    `decisions.md` alone. A worktree anywhere else inside a repository is climbed past like a
+    clone. In the pick that only adds roots, so it only protects more. The scan takes its roots
+    from a session's cwd, so a path the old stop left with no root there is now read relative
+    to its repository, as the pick reads it (D-180, Codex code pass F3)."""
     out = []
+    stop = None  # the index of a linked worktree whose stop is not yet decided
     p = path
     while True:
         k = _root_kind(p)
         if k:
+            if stop is not None:
+                if os.path.dirname(out[stop][0]) == os.path.join(p, '.claude', 'worktrees'):
+                    return out[:stop + 1]
+                stop = None
             out.append((p, k))
             if k == 'worktree':
-                return out
+                stop = len(out) - 1
         q = os.path.dirname(p)
         if q == p:
-            return out
+            return out  # a pending stop is the last entry: no root above it, so it holds
         p = q
 
 
@@ -772,12 +809,161 @@ def touch_protected(path, cwd, prefixes):
     return False
 
 
+# ---------------------------------------------------------------- the tiered line's predicate
+# ROUTING-PLAN 10.2's one predicate, held at the pick (D-180): on a line with `tiers=`, a touch is
+# eligible only when every reading of it is a prose file outside the literal list. It only ever
+# REMOVES eligibility, so where a reading cannot be made exactly the answer is the default. The
+# readings, each of which must pass: the touch as given (when relative), and its lexical and its
+# resolved path relative to EVERY enclosing root, as touch_protected judges them, or the whole
+# path where no root encloses it; and every component suffix of each of those. That
+# over-protects (`/home/u/.config/n.md` is not prose), the safe side. Above an enclosing root
+# nothing is judged, so a linked worktree under `.claude/worktrees/` stays routable.
+TIER_RANK = ('bad-touch', 'protected', 'not-prose')
+
+
+def _plain(s):
+    """Printable ASCII, so `lower()` is the whole fold (invariant 13's, for ASCII) and no Unicode
+    spelling (NFD, a compatibility form, a long s) can name a protected file a fold misses. A
+    policy, not a parse: a real non-ASCII name is refused for the same reason (design pass Q3)."""
+    return all(' ' <= c <= '~' for c in s)
+
+
+def _literal_hit(s):
+    """The literal list exactly as the report's SQL matches it, on a folded reading: inside a row
+    (or, for the prefix row, starting with it), or a parent directory of one (either direction)."""
+    for p, pre in TIERED_PROTECTED:
+        if s == p or s.startswith(p + '/') or (pre and s.startswith(p)) or p.startswith(s + '/'):
+            return True
+    return False
+
+
+def _reading_why(comps):
+    """One reading's first failing clause, or None. `comps`: its components, '' and '.' dropped."""
+    if not comps:
+        return 'not-prose'
+    if not all(_plain(c) for c in comps):
+        return 'bad-touch'  # a symlink's target can bring a byte the touch itself did not have
+    s = fold('/'.join(comps))
+    if _literal_hit(s):
+        return 'protected'
+    last = fold(comps[-1])
+    if any(c.startswith('.') for c in comps) or not last.endswith(PROSE_EXT) or last.startswith(INSTRUCTION_STARTS):
+        return 'not-prose'
+    return None
+
+
+def _unjudgeable(joined):
+    """True when no reading can say what an edit of the path changes. The kernel cannot resolve
+    it (design pass Q3): a symlink loop, a refused search, a component that is a file. Or it is a
+    regular file with a second name, a hard link, whose edit changes a path no reading names
+    (panel). A path not made yet, or a link to one, is judged by its names, so a lane can still
+    declare the file it is about to write.
+    Resolved here too (Codex code pass F1): `stat` stops at a missing component, so
+    `missing/../chain/l0.md` passed it, and a recursive realpath (Python 3.9 through 3.12) then
+    walked the chain past the recursion limit in touch_protected and exited 3."""
+    try:
+        os.path.realpath(joined)
+    except (RecursionError, OSError, ValueError):
+        return True
+    try:
+        st = os.stat(joined)
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return True
+    return stat.S_ISREG(st.st_mode) and st.st_nlink > 1
+
+
+def _touch_why(p, cwd):
+    """One placed, resolvable touch against the predicate's readings: its worst clause."""
+    joined = p if os.path.isabs(p) else os.path.join(cwd, p)
+    raw = _comps(p)
+    found = set()
+    # `..` anywhere in the touch fails the no-dot-component clause, absolute ones included: they
+    # have no as-given reading, and normpath and realpath erase the climb (Codex design pass P2:
+    # `/r/docs/../README.md` routed while `docs/../README.md` defaulted).
+    if '..' in raw:
+        found.add('not-prose')
+    readings = [] if os.path.isabs(p) else [raw]
+    for x in (os.path.normpath(joined), os.path.realpath(joined)):
+        roots = enclosing_roots(os.path.dirname(x))
+        if roots:
+            readings.extend(_comps(os.path.relpath(x, r)) for r, _ in roots)
+        else:
+            readings.append(_comps(x))
+    # Every component suffix of every reading (Fable lens P1-B): a root that is not on disk yet
+    # (a worktree about to be added, a clone about to be made) is no root, so the outer one read
+    # `<outer>/new-wt/docs/decisions.md` as `new-wt/docs/decisions.md`, and a relative
+    # `b/docs/decisions.md` (a diff's prefix) routed. Over-protects `docs/cmd/a.md`, the safe
+    # side; the export judges a scope from its start only, so the pick is the stricter.
+    for comps in readings:
+        for i in range(max(len(comps), 1)):  # an empty reading is still judged: not-prose
+            w = _reading_why(comps[i:])
+            if w:
+                found.add(w)
+    return next((w for w in TIER_RANK if w in found), None)
+
+
+def _is_cap(joined, cap_path):
+    """True when the touch is the cap file itself (Fable lens P2): a lane that edits it rewrites
+    its own route. read_cap refuses a cap inside any work tree, so no root-relative reading names
+    it, and one outside `.claude` read as prose. The same file by device and inode, so a second
+    spelling of it (case, a link) is caught; a path not made yet is not the cap."""
+    if not cap_path:
+        return False
+    try:
+        return os.path.samefile(joined, cap_path)
+    except (OSError, ValueError):
+        return False
+
+
+def tiered_why(touches, cwd, prefixes, cap_path=None):
+    """The predicate over every touch, clause by clause, so the answer does not depend on their
+    order. None only when there is at least one touch and every one is eligible. Fails closed: no
+    touch at all is `no-touch` for EVERY class (a research or qa item named with none would
+    otherwise route on nothing), and an unjudgeable touch is `bad-touch`, decided by its string
+    before any file is looked at. Refused by its string as well (panel): a backslash, which a
+    tiered workflow's scopes never hold (they fold it to `/`) and which on this platform is a
+    name byte, so reading it as a separator judged another file; a leading `~`, which this
+    script does not expand and a caller's shell may; and a leading or trailing space, which the
+    workflow's store trims before it folds a scope, so ` docs/decisions.md` claimed the
+    protected file while it was judged here as another one (panel)."""
+    if not touches:
+        return 'no-touch'
+    # One path per touch, in a path's own bytes (Fable lens P1-A): a comma or space list, a glob,
+    # an unexpanded `$VAR` held in one argv word was judged as one path by its first component and
+    # last extension, so `docs/notes.md,cmd/x.go,README.md` routed. The charset also refuses the
+    # backslash, the leading `~` and the padding named above.
+    if any(not TOUCH_RE.match(t) for t in touches):
+        return 'bad-touch'
+    if cwd is None and any(not os.path.isabs(t) for t in touches):
+        return 'protected'  # a relative touch cannot be placed; touch_protected says the same
+    # Resolution before any reading (panel): a link chain longer than Python's recursion limit
+    # made realpath, in touch_protected, exit 3, and the reason printed hung on which list
+    # caught a touch first.
+    if any(_unjudgeable(t if os.path.isabs(t) else os.path.join(cwd, t)) for t in touches):
+        return 'bad-touch'
+    # Every list at once, then the rank (Fable cross-check): returning `protected` for the shipped
+    # names before any reading ran made a link to a non-ASCII name answer `protected` beside
+    # `skills/a.md` and `bad-touch` beside `docs/decisions.md`.
+    found = set(_touch_why(t, cwd) for t in touches)
+    # A trailing `/.` names a directory as a trailing `/` does (panel); a directory is never prose.
+    if any(touch_protected(t, cwd, prefixes) or t == '.' or t.endswith('/.') for t in touches):
+        found.add('protected')
+    if any(_is_cap(t if os.path.isabs(t) else os.path.join(cwd, t), cap_path) for t in touches):
+        found.add('protected')
+    return next((w for w in TIER_RANK if w in found), None)
+
+
 # ---------------------------------------------------------------- the pick
-WHY = ('not-assigned', 'trial-not-built', 'full-tier', 'no-tier', 'tier-not-listed', 'protected', 'no-touch')
+WHY = ('not-assigned', 'trial-not-built', 'full-tier', 'no-tier', 'tier-not-listed', 'no-touch', 'bad-touch',
+       'protected', 'not-prose')
 
 
 def pick_one(cap, cls, tier, touches, cwd):
-    """Rule 3's ONE eligibility predicate, then rule 7, then rule 8. Returns (mid, by, why)."""
+    """Rule 3's ONE eligibility predicate, then rule 7, then rule 8. Returns (mid, by, why).
+    A route a later phase adds (a trial) sets `target` here and falls through every clause below;
+    it never returns before them."""
     if cls in cap.assign:
         target = cap.assign[cls]
     elif cls in cap.trial_classes:
@@ -791,7 +977,11 @@ def pick_one(cap, cls, tier, touches, cwd):
     if cap.tiers:
         if tier not in cap.tiers:
             return cap.default, 'default', 'tier-not-listed'
-    elif tier != 'none':
+        why = tiered_why(touches, cwd, cap.protect, cap.path)
+        if why:
+            return cap.default, 'default', why
+        return target, 'assign', None
+    if tier != 'none':
         return cap.default, 'default', 'tier-not-listed'
     if any(touch_protected(p, cwd, cap.protect) for p in touches):
         return cap.default, 'default', 'protected'
@@ -2382,7 +2572,10 @@ def t_pick_rules(t, fx):
         (p, 'code', 'none', ('lib/vendor/other/a.go',), 'by=assign'),
         (p, 'writing', 'none', ('a.md',), 'why=not-assigned'),
         (tr, 'qa', 'none', (), 'why=tier-not-listed'),
-        (tr, 'qa', 'lite', (), 'pick=claude-sonnet-5-5 by=assign'),
+        # A tiered line needs a touch for every class, qa included (D-180); a no-root absolute
+        # path, since this runs from the temp dir and every suffix of a no-root path is judged.
+        (tr, 'qa', 'lite', (), 'pick=claude-opus-5-5@high by=default why=no-touch'),
+        (tr, 'qa', 'lite', ('/zz-mr-norepo/a.md',), 'pick=claude-sonnet-5-5 by=assign'),
         (tr, 'qa', 'chore', (), 'why=tier-not-listed'),
         (tr, 'writing', 'lite', ('a.md',), 'pick=claude-opus-5-5@high by=default why=trial-not-built'),
     ]
@@ -3339,8 +3532,351 @@ def t_gaps(t, fx):
     t.ok(rc == 0 and len(cxr) == 1 and cxr[0][8] == '5', 'codex token_count: the largest total, in thousands')
 
 
+TIERED = ('route-cap default=claude-opus-5-5@high assign=code:claude-sonnet-5-5,writing:claude-sonnet-5-5,'
+          'research:claude-sonnet-5-5,data:claude-sonnet-5-5,ops:claude-sonnet-5-5,qa:claude-sonnet-5-5 '
+          'tiers=chore,lite decided=2026-11-01')
+PICKED = 'pick=claude-sonnet-5-5 by=assign'
+DEFAULTED = 'pick=claude-opus-5-5@high by=default why='
+
+
+def _tiered_fx(fx):
+    """A cap assigning EVERY routable class (so no earlier `not-assigned` or `trial-not-built` can
+    mask a path clause: design pass Q6) and a fixture repository with no `docs/` on disk (so a
+    touch of `docs` is judged by the list, not by being a directory)."""
+    cap = _cap(fx, TIERED, name='tiered-all.md')
+    repo = os.path.join(fx.base, 'trepo')
+    os.makedirs(os.path.join(repo, '.git'))
+    return cap, repo
+
+
+def t_tiered(t, fx):
+    """ROUTING-PLAN 10.4 step 1 (D-180): on a tiers= line, the literal list and the allow-list,
+    each refusal beside the positive control that the same shape picks. Exact reasons throughout:
+    `go.mod` defaults on its extension alone, so only `why=protected` proves the list ran."""
+    cap, repo = _tiered_fx(fx)
+    long512 = 'docs/' + 'a' * 250 + '/' + 'b' * 250 + '/cc.md'
+    long513 = 'docs/' + 'a' * 250 + '/' + 'b' * 250 + '/ccc.md'
+    P, D = PICKED, DEFAULTED
+    cases = [
+        # prose outside the list picks: the controls every refusal below is measured against
+        ('writing', ('docs/notes.md',), P),
+        ('writing', ('README.MD',), P),
+        ('writing', ('docs/a.markdown', 'b.rst', 'c.adoc', 'd.org'), P),
+        ('writing', ('docs/decisions-notes.md', 'docs/review.md', 'docs/charter.md'), P),
+        ('writing', ('docs/internal-notes.md', 'docs/cmd.md', 'scriptsx/a.md', 'notes/skillsets.md'), P),
+        ('writing', ('docs/my-notes_2.md',), P),
+        ('writing', ('docs/my notes.md',), D + 'bad-touch'),
+        ('writing', ('docs/notes.md,cmd/x.go,README.md',), D + 'bad-touch'),
+        ('writing', ('docs/notes.md cmd/x.go',), D + 'bad-touch'),
+        ('writing', ('docs/*.md',), D + 'bad-touch'),
+        ('writing', ('$REPO/docs/decisions.md',), D + 'bad-touch'),
+        ('writing', (long512,), P),
+        ('code', ('docs/notes.md',), P),
+        ('research', ('docs/notes.md',), P),
+        ('qa', ('docs/notes.md',), P),
+        ('writing', ('docs/notes.md', 'docs/other.md'), P),
+        # every literal row, at a prose path only that row protects where one exists
+        ('writing', ('cmd/README.md',), D + 'protected'),
+        ('writing', ('internal/a.md',), D + 'protected'),
+        ('writing', ('scripts/a.md',), D + 'protected'),
+        ('writing', ('.githooks/a.md',), D + 'protected'),
+        ('writing', ('.claude/a.md',), D + 'protected'),
+        ('writing', ('.github/a.md',), D + 'protected'),
+        ('writing', ('go.mod',), D + 'protected'),
+        ('writing', ('go.sum',), D + 'protected'),
+        ('writing', ('CLAUDE.md',), D + 'protected'),
+        ('writing', ('AGENTS.md',), D + 'protected'),
+        ('writing', ('skills/x/SKILL.md',), D + 'protected'),
+        ('writing', ('docs/review-charter.md',), D + 'protected'),
+        ('writing', ('docs/review-charter-extra.md',), D + 'protected'),
+        ('writing', ('docs/decisions.md',), D + 'protected'),
+        ('writing', ('docs/prose-budget.tsv',), D + 'protected'),
+        ('writing', ('Docs/Decisions.MD', ), D + 'protected'),
+        ('writing', ('INTERNAL/A.MD',), D + 'protected'),
+        ('writing', ('docs//./decisions.md',), D + 'protected'),
+        ('writing', ('docs/x.md/.',), D + 'protected'),
+        ('writing', ('docs/x.md/',), D + 'protected'),
+        ('writing', ('docs\\decisions.md',), D + 'bad-touch'),
+        ('writing', ('docs\\notes.md',), D + 'bad-touch'),
+        ('writing', ('~/proj/internal/a.md',), D + 'bad-touch'),
+        ('writing', ('~user/a.md',), D + 'bad-touch'),
+        ('writing', ('docs/~notes.md',), D + 'bad-touch'),
+        ('writing', (' docs/decisions.md',), D + 'bad-touch'),
+        ('writing', (' docs/notes.md',), D + 'bad-touch'),
+        ('writing', ('docs/notes.md ',), D + 'bad-touch'),
+        ('writing', (os.path.join(repo, 'docs', 'decisions.md'),), D + 'protected'),
+        # either direction: a parent of a row (not on disk, so no directory rule answers for it)
+        ('writing', ('docs',), D + 'protected'),
+        ('writing', ('docs/review-charter',), D + 'protected'),
+        # outside both lists
+        ('writing', ('src/a.go',), D + 'not-prose'),
+        ('writing', ('notes.txt',), D + 'not-prose'),
+        ('writing', ('requirements.txt',), D + 'not-prose'),
+        ('writing', ('README',), D + 'not-prose'),
+        ('writing', ('docs/a.md.bak',), D + 'not-prose'),
+        ('writing', ('docs/.x/a.md',), D + 'not-prose'),
+        ('writing', ('.notes.md',), D + 'not-prose'),
+        ('writing', ('docs/CLAUDE.local.md',), D + 'not-prose'),
+        ('writing', ('AGENTS.override.md',), D + 'not-prose'),
+        ('writing', ('docs/claude-notes.md',), D + 'not-prose'),
+        ('writing', ('docs/../README.md',), D + 'not-prose'),
+        ('writing', (os.path.join(repo, 'docs', '..', 'README.md'),), D + 'not-prose'),
+        ('writing', (os.path.join(repo, 'README.md'),), P),
+        # every component suffix (Fable lens P1-B): a root not on disk yet, a diff's prefix; and
+        # the over-protection that costs, beside the control that the same shape picks
+        ('writing', (os.path.join(repo, 'new-wt', 'docs', 'decisions.md'),), D + 'protected'),
+        ('writing', (os.path.join(repo, 'new-wt', 'internal', 'a.md'),), D + 'protected'),
+        ('writing', (os.path.join(repo, 'new-wt', 'docs', 'a.md'),), P),
+        ('writing', ('b/docs/decisions.md',), D + 'protected'),
+        ('writing', ('b/docs/a.md',), P),
+        ('writing', ('docs/cmd/a.md',), D + 'protected'),
+        ('writing', ('docs/cmdx/a.md',), P),
+        # one failing touch decides, in either order; protected outranks not-prose
+        ('writing', ('docs/notes.md', 'src/a.go'), D + 'not-prose'),
+        ('writing', ('src/a.go', 'docs/notes.md'), D + 'not-prose'),
+        ('writing', ('docs/notes.md', 'docs/decisions.md'), D + 'protected'),
+        ('writing', ('docs/decisions.md', 'docs/notes.md'), D + 'protected'),
+        ('writing', ('src/a.go', 'docs/decisions.md'), D + 'protected'),
+        ('writing', ('docs/decisions.md', 'src/a.go'), D + 'protected'),
+        # absent or unjudgeable: the default, for every class
+        ('writing', (), D + 'no-touch'),
+        ('research', (), D + 'no-touch'),
+        ('qa', (), D + 'no-touch'),
+        ('writing', ('docs/n\x01.md',), D + 'bad-touch'),
+        ('writing', ('docs/n\x7f.md',), D + 'bad-touch'),
+        ('writing', ('docs/n\t.md',), D + 'bad-touch'),
+        ('writing', ('docs/café.md',), D + 'bad-touch'),
+        ('writing', ('docs/\udcff.md',), D + 'bad-touch'),
+        ('writing', ('ſkills/a.md',), D + 'bad-touch'),
+        ('writing', (long513,), D + 'bad-touch'),
+        ('writing', ('docs/notes.md', 'docs/café.md'), D + 'bad-touch'),
+        ('writing', ('docs/café.md', 'docs/decisions.md'), D + 'bad-touch'),
+    ]
+    for cls, touch, want in cases:
+        rc, line = _pk(fx, cap, cls, touch, tier='lite', cwd=repo)
+        t.ok(rc == 0 and line.startswith(want) and (want != P or 'why=' not in line),
+             'tiered %s %s -> %s (got %s)' % (cls, [x[:40] for x in touch], want, line[:70]))
+    # The tier clauses still answer first, and chore is listed too.
+    for tier, want in (('none', D + 'tier-not-listed'), ('full', D + 'full-tier'), ('chore', P)):
+        rc, line = _pk(fx, cap, 'writing', ('docs/notes.md',), tier=tier, cwd=repo)
+        t.ok(line.startswith(want), 'tiered tier=%s -> %s (got %s)' % (tier, want, line[:70]))
+    rc, o, _ = fx.run(['pick', '--cap', cap, '--role', 'main', '--class', 'writing', '--touch', '/zz-mr-norepo/a.md'])
+    t.ok(o.splitlines()[-1].startswith(D + 'no-tier'), 'tiered: an omitted --tier defaults')
+    # No enclosing root: every component suffix is a reading (the self-test's temp dir is outside
+    # any work tree, so `/` is not one either).
+    for touch, want in (('/zz-mr-norepo/docs/a.md', P), ('/zz-mr-norepo/docs/decisions.md', D + 'protected'),
+                        ('/zz-mr-norepo/internal/a.md', D + 'protected'), ('/zz-mr-norepo/.cfg/a.md', D + 'not-prose')):
+        rc, line = _pk(fx, cap, 'writing', (touch,), tier='lite', cwd=repo)
+        t.ok(line.startswith(want), 'tiered, no root: %s -> %s (got %s)' % (touch, want, line[:70]))
+    # protect= on a tiered line still adds (panel: no tiered cap carried it, so dropping it survived).
+    tp = _cap(fx, TIERED.replace(' tiers=', ' protect=notes tiers='), name='tiered-protect.md')
+    for touch, want in (('notes/a.md', D + 'protected'), ('docs/a.md', P)):
+        rc, line = _pk(fx, tp, 'writing', (touch,), tier='lite', cwd=repo)
+        t.ok(line.startswith(want), 'tiered protect=: %s -> %s (got %s)' % (touch, want, line[:70]))
+    # A deleted cwd on a tiered line (Fable cross-check: the guard had no case, and without it the
+    # pick exited 3): a relative touch cannot be placed; an absolute one is still judged.
+    gone = os.path.join(fx.base, 'tgone')
+    os.makedirs(gone)
+    old = os.getcwd()
+    try:
+        os.chdir(gone)
+        os.rmdir(gone)
+        got = [fx.run(['pick', '--cap', cap, '--role', 'main', '--class', 'writing', '--tier', 'lite',
+                       '--touch', x]) for x in ('a.md', '/zz-mr-norepo/a.md')]
+    finally:
+        os.chdir(old)
+    t.ok([(rc, o.splitlines()[-1][:len(want)] if o else '') for (rc, o, _), want in zip(got, (D + 'protected', P))]
+         == [(0, D + 'protected'), (0, P)], 'tiered, a deleted cwd: relative protected, absolute judged')
+    # --all on a tiered line: no class has a touch, so none routes.
+    rc, o, _ = fx.run(['pick', '--cap', cap, '--role', 'main', '--all', '--tier', 'lite'])
+    rows = [ln for ln in o.splitlines() if ln.startswith('class=') and 'no pick' not in ln]
+    t.ok(rc == 0 and len(rows) == len(ROUTABLE) and all(r.endswith(' by=default why=no-touch') for r in rows),
+         'tiered --all: every class defaults, no-touch')
+    # The untiered line keeps phase 2's rule: a research item routes with no touch, and the
+    # literal list is not applied (a drop-in user's own internal/ stays routable).
+    un = _cap(fx, TIERED.replace(' tiers=chore,lite', ''), name='untiered-all.md')
+    for cls, touch, want in (('research', (), P), ('writing', ('internal/a.md',), P),
+                             ('writing', ('CLAUDE.md',), D + 'protected')):
+        rc, line = _pk(fx, un, cls, touch, tier='none', cwd=repo)
+        t.ok(line.startswith(want), 'untiered %s %s -> %s (got %s)' % (cls, touch, want, line[:70]))
+
+
+def t_tiered_fs(t, fx):
+    """The tiered predicate against the file system: links, roots, refused resolution."""
+    cap, repo = _tiered_fx(fx)
+    P, D = PICKED, DEFAULTED
+    _mk(os.path.join(repo, 'internal', 'x.md'))
+    _mk(os.path.join(repo, 'notes', 'plain.md'))
+    _mk(os.path.join(repo, 'notes', 'café.md'))
+    n = os.path.join(repo, 'notes')
+    os.symlink('../internal/x.md', os.path.join(n, 'l.md'))           # into the list
+    os.symlink('../internal/gone.md', os.path.join(n, 'dangling.md'))  # into it, not made yet
+    os.symlink('plain.md', os.path.join(n, 'v.md'))                   # control: a link to prose
+    os.symlink('café.md', os.path.join(n, 'u.md'))                # a non-ASCII target
+    os.symlink('loop2.md', os.path.join(n, 'loop1.md'))
+    os.symlink('loop1.md', os.path.join(n, 'loop2.md'))
+    os.symlink('../internal', os.path.join(n, 'dirlink'))
+    # A nested clone: its own internal/ is protected relative to IT, not only to the outer repo.
+    sub = os.path.join(repo, 'vendor', 'sub')
+    os.makedirs(os.path.join(sub, '.git'))
+    # The panel's witnesses, each of which only one reading catches, from a cwd that is a root:
+    # a nested clone UNDER internal/ (only the outer root's reading of an absolute touch); a
+    # linked worktree under internal/ (the climb no longer stops at it, D-180, so both its
+    # spellings are protected); a link out of internal/ to prose (only the lexical reading).
+    vc = os.path.join(repo, 'internal', 'vc')
+    os.makedirs(os.path.join(vc, '.git'))
+    _mk(os.path.join(repo, '.git', 'worktrees', 'iw', 'commondir'), '../..\n')
+    _mk(os.path.join(repo, 'internal', 'wt', '.git'), 'gitdir: %s\n' % os.path.join(repo, '.git', 'worktrees', 'iw'))
+    os.symlink('../notes/plain.md', os.path.join(repo, 'internal', 'out.md'))
+    # A hard link to a protected file, and a link chain past Python's recursion limit (panel:
+    # realpath exited 3 there), each beside the plain file that picks.
+    os.link(_mk(os.path.join(repo, 'internal', 'hx.md')), os.path.join(n, 'h.md'))
+    ch = os.path.join(repo, 'chain')
+    os.makedirs(ch)
+    _mk(os.path.join(ch, 'l1100.md'))
+    for i in range(1100):
+        os.symlink('l%d.md' % (i + 1), os.path.join(ch, 'l%d.md' % i))
+    # A linked worktree under .claude/worktrees/: a checkout, judged relative to its own root only.
+    proj = os.path.join(fx.base, 'tproj')
+    wt = os.path.join(proj, '.claude', 'worktrees', 'wt')
+    _mk(os.path.join(proj, '.git', 'worktrees', 'wt', 'commondir'), '../..\n')
+    _mk(os.path.join(wt, '.git'), 'gitdir: %s\n' % os.path.join(proj, '.git', 'worktrees', 'wt'))
+    # A `.git` file planted inside the repository (Fable lens P1-C), its gitdir a real worktree
+    # directory: no stop there, so `<repo>/docs/decisions.md` is read from the repository too.
+    _mk(os.path.join(repo, '.git', 'worktrees', 'pl', 'commondir'), '../..\n')
+    _mk(os.path.join(repo, 'docs', '.git'), 'gitdir: %s\n' % os.path.join(repo, '.git', 'worktrees', 'pl'))
+    # A linked worktree no root encloses (a sibling checkout): the stop holds, as it always did.
+    sib = os.path.join(fx.base, 'tsib')
+    _mk(os.path.join(proj, '.git', 'worktrees', 'sib', 'commondir'), '../..\n')
+    _mk(os.path.join(sib, '.git'), 'gitdir: %s\n' % os.path.join(proj, '.git', 'worktrees', 'sib'))
+    # The as-given reading's own witness: a cwd no root encloses, a clone below it under a
+    # directory named for a row. Only the touch as given names `internal`.
+    nr = os.path.join(fx.base, 'tnr')
+    os.makedirs(os.path.join(nr, 'internal', 'r2', '.git'))
+    # The cap file itself, a link to it, and a sibling that is not it (Fable lens P2).
+    cdir = os.path.dirname(cap)
+    os.symlink(os.path.basename(cap), os.path.join(cdir, 'cap-link.md'))
+    _mk(os.path.join(cdir, 'not-the-cap.md'))
+    cases = [
+        (repo, ('notes/plain.md',), P),
+        (repo, ('notes/v.md',), P),
+        (repo, ('notes/l.md',), D + 'protected'),
+        (repo, ('notes/dangling.md',), D + 'protected'),
+        (repo, ('notes/u.md',), D + 'bad-touch'),
+        # The rank over every list (Fable cross-check): a reading's bad-touch outranks a shipped
+        # name's protected and a not-prose, whichever touch comes first.
+        (repo, ('notes/u.md', 'skills/a.md'), D + 'bad-touch'),
+        (repo, ('skills/a.md', 'notes/u.md'), D + 'bad-touch'),
+        (repo, ('src/a.go', 'notes/u.md'), D + 'bad-touch'),
+        (repo, ('notes/loop1.md',), D + 'bad-touch'),
+        (repo, ('notes/plain.md/x.md',), D + 'bad-touch'),
+        (repo, ('notes/dirlink/y.md',), D + 'protected'),
+        (repo, ('notes',), D + 'protected'),
+        (repo, (os.path.join(vc, 'docs', 'a.md'),), D + 'protected'),
+        (repo, ('internal/wt/docs/a.md',), D + 'protected'),
+        (repo, (os.path.join(repo, 'internal', 'wt', 'docs', 'a.md'),), D + 'protected'),
+        (repo, (os.path.join(repo, 'docs', 'decisions.md'),), D + 'protected'),
+        (repo, (os.path.join(repo, 'docs', 'a.md'),), P),
+        (repo, (os.path.join(sib, 'docs', 'a.md'),), P),
+        (repo, (os.path.join(sib, 'internal', 'a.md'),), D + 'protected'),
+        (nr, ('internal/r2/docs/a.md',), D + 'protected'),
+        (nr, (os.path.join(nr, 'internal', 'r2', 'docs', 'a.md'),), P),
+        (repo, (cap,), D + 'protected'),
+        (repo, (os.path.join(cdir, 'cap-link.md'),), D + 'protected'),
+        (repo, (os.path.join(cdir, 'not-the-cap.md'),), P),
+        (repo, (os.path.join(repo, 'internal', 'out.md'),), D + 'protected'),
+        (repo, ('notes/h.md',), D + 'bad-touch'),
+        (repo, ('chain/l0.md',), D + 'bad-touch'),
+        # A missing component ahead of the chain (Codex code pass F1): stat stops there, so only
+        # the realpath probe sees the chain; a default either way (bad-touch where realpath is
+        # recursive, not-prose for the `..` where it is not), never exit 3.
+        (repo, ('missing/../chain/l0.md',), D),
+        (repo, ('chain/l1100.md',), P),
+        (repo, ('skills/a.md', 'chain/l0.md'), D + 'bad-touch'),
+        (repo, ('chain/l0.md', 'internal/a.md'), D + 'bad-touch'),
+        (repo, ('vendor/sub/docs/a.md',), P),
+        (repo, ('vendor/sub/internal/a.md',), D + 'protected'),
+        (repo, (os.path.join(sub, 'internal', 'a.md'),), D + 'protected'),
+        (repo, (os.path.join(sub, 'docs', 'a.md'),), P),
+        (sub, ('internal/a.md',), D + 'protected'),
+        (wt, ('docs/a.md',), P),
+        (wt, ('docs/decisions.md',), D + 'protected'),
+        (wt, (os.path.join(wt, 'docs', 'a.md'),), P),
+        (proj, ('.claude/worktrees/wt/docs/a.md',), D + 'protected'),
+    ]
+    if os.geteuid() != 0:  # root searches a mode-000 directory anyway
+        locked = os.path.join(repo, 'locked')
+        _mk(os.path.join(locked, 'a.md'))
+        os.chmod(locked, 0)
+        cases.append((repo, ('locked/a.md',), D + 'bad-touch'))
+    try:
+        for cwd, touch, want in cases:
+            rc, line = _pk(fx, cap, 'writing', touch, tier='lite', cwd=cwd)
+            t.ok(rc == 0 and line.startswith(want) and (want != P or 'why=' not in line),
+                 'tiered fs %s from %s -> %s (got %s)' % (touch, os.path.basename(cwd), want, line[:70]))
+    finally:
+        if os.geteuid() != 0:
+            os.chmod(os.path.join(repo, 'locked'), 0o700)
+
+
+def t_tiered_canary(t, fx):
+    """No touch string reaches any output, in any branch of the tiered predicate (the canary's
+    control: each touch below was given, and each branch's reason was printed)."""
+    cap, repo = _tiered_fx(fx)
+    os.makedirs(os.path.join(repo, 'n'))
+    os.symlink('%s-b.md' % CANARY, os.path.join(repo, 'n', '%s-a.md' % CANARY))
+    os.symlink('%s-a.md' % CANARY, os.path.join(repo, 'n', '%s-b.md' % CANARY))
+    shapes = [
+        (('docs/%s.md' % CANARY,), PICKED),
+        (('internal/%s.md' % CANARY,), DEFAULTED + 'protected'),
+        (('%s.go' % CANARY,), DEFAULTED + 'not-prose'),
+        (('docs/%s\n.md' % CANARY,), DEFAULTED + 'bad-touch'),
+        (('n/%s-a.md' % CANARY,), DEFAULTED + 'bad-touch'),
+        (('docs/%sé.md' % CANARY,), DEFAULTED + 'bad-touch'),
+    ]
+    old = os.getcwd()
+    try:
+        os.chdir(repo)
+        for touch, want in shapes:
+            argv = ['pick', '--cap', cap, '--role', 'main', '--class', 'writing', '--tier', 'lite']
+            for x in touch:
+                argv += ['--touch', x]
+            rc, o, e = fx.run(argv)
+            t.ok(o.splitlines()[-1].startswith(want), 'canary control: the %s branch ran' % want[-12:])
+            t.ok(CANARY not in o and CANARY not in e, 'a touch reached the output (%s)' % want[-12:])
+        rc, o, e = fx.run(['pick', '--cap', cap, '--role', 'main', '--class', 'writing', '--tier', 'lite',
+                           '--touch', '--%s' % CANARY])
+        t.ok(rc == 2 and CANARY not in o and CANARY not in e, 'an option-shaped touch is refused without its value')
+    finally:
+        os.chdir(old)
+
+
+def _plain_base(d):
+    """True when a prose file under `d` is eligible to the tiered predicate itself, and `d` leaves
+    room below it for a 512-byte touch (Codex code pass F2, Fable cross-check): a TMPDIR holding
+    a space, a dot-named directory, a row's name (`/scripts/`) or a sensitive substring
+    (`/home/author/`) turned the absolute fixture touches under it bad-touch, not-prose or
+    protected, and one past about 460 bytes put the 512-byte touch past PATH_MAX, so the
+    self-test went red on a correct checkout."""
+    if max(len(d), len(os.path.realpath(d))) > 256:
+        return False
+    return tiered_why([os.path.join(d, 'probe.md')], d, ()) is None
+
+
 def self_test(out):
     tmp = tempfile.mkdtemp(prefix='model-router-selftest-')
+    if not _plain_base(tmp):
+        os.rmdir(tmp)
+        try:
+            tmp = tempfile.mkdtemp(prefix='model-router-selftest-', dir='/tmp')
+        except OSError:
+            tmp = None
+        if tmp is None or not _plain_base(tmp):
+            if tmp:
+                os.rmdir(tmp)
+            out.write('FAIL the self-test temp dir is not a plain path (A-Za-z0-9._/-, no dot-named '
+                      'directory) and neither is one under /tmp; set TMPDIR to one\n')
+            return 1
     if in_work_tree(tmp):
         os.rmdir(tmp)
         out.write('FAIL the self-test temp dir is inside a work tree; set TMPDIR elsewhere\n')
@@ -3356,7 +3892,7 @@ def self_test(out):
     tests = [t_cap_refusals, t_work_tree, t_pick_rules, t_args, t_canary, t_canary_refusal, t_fence, t_internal_error,
              t_sources, t_vocab, t_table, t_dedup, t_signals, t_alias, t_scope_and_template, t_gate_at_parts,
              t_sources_eacces, t_protect_roots, t_protect_shapes, t_cap_file_more, t_scan_robust, t_naming_bound,
-             t_gaps, t_code_pass]
+             t_gaps, t_code_pass, t_tiered, t_tiered_fs, t_tiered_canary]
     try:
         for fn in tests:
             try:
