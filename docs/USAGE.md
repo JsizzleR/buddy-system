@@ -617,13 +617,31 @@ the same work.
     ~/Library/LaunchAgents/com.buddy-system.ergo.plist`. `buddy uninstall
     --chat --dry-run` then says `would remove the launchd job
     com.buddy-system.ergo`.
+  - *The model router's state* (D-179), on a full run once the
+    `model-router` skill's `SKILL.md` is gone (`--chat` keeps the skill, and
+    so its data): the directory router.py's `state_dir()` resolves,
+    `$XDG_STATE_HOME/model-router` when that is absolute, else
+    `~/.local/state/model-router`. Only router.py's own files go, by name:
+    `table.tsv` when it opens with the table's header and `refused.txt` when
+    it has the shape of its percent-encoded paths (lines of printable ASCII,
+    no space, none empty), each a regular file you own;
+    then the directory, once empty. Anything else leaves it whole, named with
+    the reason and its `rm -rf` (a path holding a newline is never
+    printed, so it gets neither), and the run goes on: a directory that is a
+    symlink, another user's, writable by group or others, unreadable, or in a
+    version-control work tree (router.py never writes there); a parent another
+    user owns, others can rename entries in (not sticky), or you cannot read,
+    write and search; a path that is relative or holds a newline; any other
+    file, subdirectory or link in it; a scan's temporary file (router.py takes
+    no lock, so a scan may be writing). Only a write, or a file that cannot be
+    removed (an immutable flag), met during the removal itself leaves it
+    part-emptied, and its line says so.
 - **What it never touches, and names:** other settings (`BUDDY_CHAT` in `env`
   included), the checkout's `.mcp.json`, Codex's `hooks.json` (Codex's file,
   trusted by its contents in Codex's `/hooks`; its gate line has no `[ -x ]`
   guard, so it refuses once buddy is gone), a pre-commit you added README's
   `commit-gate` line to (any repo's), every ledger and the chat journal, the
-  model router's table and refusal log (`$XDG_STATE_HOME/model-router` when
-  that is absolute, else `~/.local/state/model-router`; D-178), `core.hooksPath`, `SKILL.md.bak` and any edited skill, the Agent-model hook's
+  model router's state when it is left (above), `core.hooksPath`, `SKILL.md.bak` and any edited skill, the Agent-model hook's
   copy, any other `com.buddy-system.*` agent or one it cannot prove is
   buddy's (above), and every `buddylist`
   process (never signalled, D-122: after the bootout they are live sessions'

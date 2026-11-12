@@ -142,9 +142,10 @@ out of `~/.claude/settings.json` (README's spelling only, with a backup beside
 it), `claude mcp remove` drops each `buddylist` registration that ran a
 removed binary (each bounded by a timeout), and the chat servers' agents go
 the daemon's way when their program is the pinned build of `get-oscar.sh` or
-`get-ergo.sh`.
-Ledgers, the chat journal, the model router's table (`~/.local/state/model-router`),
-other settings and anything it cannot prove is buddy's are never touched, and
+`get-ergo.sh`. The model router's table and refusal log go with its skill
+(`~/.local/state/model-router`: only the router's own files, then the directory).
+Ledgers, the chat journal, other settings and anything it cannot prove is
+buddy's are never touched, and
 it names each thing it leaves for you
 ([docs/USAGE.md](docs/USAGE.md#buddy-uninstall--remove-it-or-only-the-chat-half-d-125)).
 

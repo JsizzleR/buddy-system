@@ -12360,3 +12360,174 @@ but the glob-named one above.
 - skill: none (no verb, flag or knob)
 - amends: D-171 (rule 3's subdirectory refusal, one named exception), D-173 ("Unchanged": the
   router's state named among the data left)
+
+## D-179 — `buddy uninstall` removes the model router's state with its skill: only router.py's own files, by name and bytes, on a directory descriptor; anything else leaves the directory whole, named (amends D-178, D-173)
+
+2026-11-12 · the operator, in orc-21's pane at about 20:04Z, on D-178's "names
+`~/.local/state/model-router/` and leaves it": "yes deleting it is ideal, full tier is ok".
+Lanes router-state-purge and router-state-purge-2 (its successor at handoff size), under
+orc-21's brief (run-i103, then run-i104).
+
+**What changed.** D-178 rule 2 named the directory and left it: no "provably ours" test of
+D-173's kind seemed to apply, and removing stored data was the operator's call. The operator
+made it. The test used is router.py's own: what it writes there, and what it would itself
+replace or delete.
+
+**The rule** (`scripts/uninstall.sh` step 1e, and the act right after the skills).
+1. **Where.** The directory `state_dir()` resolves, by its rule: `$XDG_STATE_HOME/model-router`
+   when `XDG_STATE_HOME` starts with `/`, else `$HOME/.local/state/model-router`.
+   `~/.local/state` itself is never touched. A file where the directory's parent should be
+   means there is no state, and no line (Fable).
+2. **When.** On a full run (its dry run plans it), and only once the `model-router` skill's
+   `SKILL.md` is gone: either this run plans to remove it, or it is absent under a searchable
+   ancestor. The test is `gone_for_sure`, not `[ -e ]` (Codex design pass: under an
+   unsearchable skill directory, `[ -e ]` reads absent). It is checked again at the act.
+   `--chat` leaves the skill, so it leaves the data and names nothing. A full run that leaves
+   an edited `SKILL.md` leaves the data too.
+3. **What goes.** `table.tsv` when its first 20 bytes are the table's magic (router.py's own
+   test before it replaces a table). `refused.txt` when it has the shape of `pct_path`'s
+   lines, by its bytes alone (not the `%XX` grammar; Accepted, below): every byte 0x21-0x7e, no
+   empty line, a final newline. Each must be a regular file owned by
+   the run's `id -u`. Then the directory, by `rmdir`, once it is empty.
+4. **What leaves it whole, never a stop.** Each case is named with its reason and the
+   `rm -rf` (a newline path gets neither: it is never printed):
+   - the directory is a symlink, is not a directory, is another user's, is writable by group
+     or others, or cannot be read;
+   - it is in a version-control work tree: any of router.py's `VCS_MARKERS` at the
+     directory's resolved path or above it, where router.py's `check_target` never writes
+     (the panel);
+   - its parent is another user's (root aside), is writable by group or others without the
+     sticky bit, or cannot be read, written and searched by this user. The final `rmdir`
+     names the directory's entry in the parent, so whoever can rename entries there could
+     swap in an empty directory of their own (Codex code pass). The parent is opened at the
+     plan, because the act's `rmdir` goes through a descriptor of it (the panel: a 0311
+     parent failed only at the act, after the files went);
+   - its path is relative (a relative `HOME`, read from the checkout) or holds a newline
+     (never judged or printed: D-178's fold);
+   - it holds any other name, a subdirectory, a link or other non-regular entry, or an entry
+     another user owns;
+   - its `table.tsv` or `refused.txt` fails rule 3;
+   - it holds a scan's mkstemp temp (`.model-router.<8>.tmp` or `.probe`);
+   - there is no Python to judge with;
+   - at the act, it holds a router file the plan did not name.
+
+   A planned file gone by the act is fine: a clean scan unlinks `refused.txt`. A write, or a
+   file that cannot be unlinked (an immutable flag), met during the removal itself leaves the
+   directory part-emptied; its line says "with what is still in it".
+5. **How.** A Python judge works through a descriptor. The directory is opened
+   `O_DIRECTORY|O_NOFOLLOW` and matched to its `lstat`. Each entry is `fstatat`'d without
+   following, and each file is opened `O_NOFOLLOW|O_NONBLOCK` by `dir_fd` and matched by
+   inode. At the act, the whole judgement runs again, then each name's inode is checked just
+   before its `unlinkat`, and the directory is removed by `rmdir` relative to its parent's
+   descriptor, once its inode there matches. A Python without `dir_fd` support is "left",
+   never a fallback to paths.
+6. **The report prints by `printf`.** `say()` used `echo`, which dash and macOS `/bin/sh`
+   expand: a backslash in a name or path printed `\n` as a line of its own (the panel). Every
+   name the judge prints is folded to printable ASCII with `\` as `?` (invariant 9).
+
+**The lock.** router.py takes none: no `fcntl`, no lock file. Its only transient files are the
+mkstemp temps, so a temp present is read as a scan that may be writing, and everything is
+left. A killed scan's leftover temp keeps the directory until it is removed by hand (the line
+names the `rm -rf`). No temp proves nothing: a scan that started before the uninstall and has
+not written yet recreates the directory when it does (`check_target`'s `makedirs`). That case
+is not covered.
+
+**Accepted, with the reasons.**
+- `refused.txt` carries no mark of its writer. It goes on its place, name, owner and shape.
+  router.py applies the same test, or a weaker one, when a clean scan unlinks it: any regular
+  `refused.txt` there (Codex design pass).
+- The window between the last `fstatat` and the `unlinkat` is open only to the directory's
+  owner. A directory writable by group or others is refused, so only the machine user (or
+  root) can swap an entry, and invariant 6 trusts that user. router.py replaces `table.tsv`
+  only with its own table. `rmdir` removes only an empty directory (Codex design pass).
+- An empty directory named `model-router` there that router.py did not make is removed: it
+  holds no data (the panel).
+- The state goes before the late in-flight stop, as the skills do (Codex code pass).
+- `refused.txt`'s test is its bytes, not `pct_path`'s exact grammar: `100%` passes, though
+  router.py writes `%` only as `%XX`. router.py's own clean scan deletes any regular
+  `refused.txt` there, so a tighter test protects nothing router.py does not already delete
+  (Fable).
+- Under a umask of 002, router.py's `makedirs` (or another program) leaves `~/.local/state`
+  0775, and the state is then left, named "others can rename entries in its parent
+  directory". That is common on Linux logins with user-private groups. The run fails toward
+  keeping the data, and the line names the `rm -rf` (Fable).
+- The `rm -rf` named after a refusal is the user's own act, if they like. After an unwritable
+  parent it empties the directory and fails on it, which is what the refusal spared them
+  (Fable).
+
+**Not covered.**
+- A table written elsewhere with `scan --out`.
+- A second install of the router skill in another skills directory, which shares this state.
+  USAGE's Codex recipe puts one in `~/.agents/skills`: a full run that removes the Claude copy
+  removes the state, and the other copy's next scan rebuilds the table (Fable).
+- A hard-linked `table.tsv`, unlinked like any file (its other name keeps the bytes).
+- An ACL that grants another user write (only the mode bits are read; macOS ACLs are not in
+  them).
+- The act's per-name inode recheck, its parent recheck and the parent-relative `rmdir` match:
+  no hermetic race reaches them. Neither does the parent's owner arm (no hermetic fixture can
+  make another user own a directory and not the state under it).
+- A skill directory that is itself a symlink (issue #94: uninstall's skills plan, not this
+  item; its own lane after this one lands).
+- `die` and the INCOMPLETE line still print by `echo` (lines older than this item; paths an
+  operator set, on stderr; Fable).
+- U-15k does not run on Linux CI (`protected_hardlinks`), so the per-file owner check runs on
+  macOS only. U-15x (`chflags`) is macOS only. The fold test's `a?b??c` assumes a UTF-8 or C
+  locale and a volume that does not decompose names (Fable).
+
+**Tests** (`scripts/check-uninstall.sh`; mutants in a private copy, never the worktree).
+- `setup` plants the state as router.py leaves it (`rs_plant`: a table and a refusal log, 0600,
+  in a 0700 directory). U-1's dry run plans the two files and the directory and changes nothing.
+  U-4's full run removes exactly those three and leaves `~/.local/state`. U-3b (`--chat`) names
+  nothing of the router and leaves the state. U-4r: an absolute `XDG_STATE_HOME` is planned and
+  removed there, with the home state untouched; a relative one falls back to `~/.local/state`; a
+  newline path is named without its path, left, and forges no report line.
+- U-15 runs each refusal on an uninstalled fixture: the state left byte for byte (`rs_snap`), the
+  reason named, the run finished. Then its positive control (the deviation undone) removes it,
+  so the guard is what left it. Cases: a symlink (a); not a directory (b); another user's, by a
+  fake `id`, on an empty directory (c); another name (d); a subdirectory (e); a table without
+  the magic (f); six refusal-log shapes (g); both temps (h); a link to a real table (i); 770 and
+  707 (j); another user's file hard-linked in (k, NOT RUN under Linux `protected_hardlinks` or
+  root); unreadable (l); the skill left, and its directory unsearchable (m); a work-tree marker
+  above it, and one reached only through a link (r); a relative `HOME` (s); a 0777 parent, with
+  1777 the control, and 0775 and 0757, one bit each (t); a 555 parent (u); a 0311 parent, named
+  as the parent's (v); a backslash in the path, printed as itself (w); an immutable table met
+  during the removal, so the refusal log goes and the rest is named left (x, macOS only); a
+  file where `~/.local/state` should be, with no line at all (y); no Python (n). Also a dry run
+  with the skill already gone, and a foreign name folded to one printable line. U-15-pin holds
+  RS_PY's markers and magic line for line with router.py's, and router.py's state-file names
+  and temps as it spells them. The check sets `umask 022`: under a caller's 002 it went red at
+  U-1 on a correct tree. U-15o, U-15q and U-15p meet the window between plan and act
+  (the fake bootout runs between them): a late router file, the skill back, a planned file
+  gone.
+- Mutants: d699b27's uninstall.sh is red at U-1. On b66a78e, 27 of 27 were killed. On fold 1,
+  those 27 were killed again, plus 14 aimed at its own pieces. e3678cc's tests killed 9 of the
+  14. The cases added after it killed 3 more: the resolved-path walk (U-15r through a link), the
+  plan's parent open (U-15v) and printf (U-15w). 2 survive, both named above as not covered: the
+  parent's owner arm and the act's parent recheck. Fold 2's 12 were all killed: the absent
+  parent (U-15y), the parent's reason (U-15v), the skill line (U-15m), each parent bit alone
+  (U-15t), the part-emptied report (U-15x), and six literal drifts, four in router.py and two in
+  RS_PY (U-15-pin). The check under umask 002 without its `umask 022` is red at U-1, and green
+  with it. On the landed tree all 53 ran again: 51 killed, the same 2 surviving.
+
+**Review** (full; counts per D-163). codex@xhigh design: 4 raised, 2 fixed, 2 answered. panel@opus,
+three lenses (what it can now delete that is not ours; the refusals and their controls;
+portability): 17 raised, 10 fixed, 7 answered (one out of scope, #94), 4 reproduced. Its one
+blocking finding was `say` by `echo`. codex@xhigh code: 5 raised, 3 fixed, 2 answered, 2
+reproduced. Its one blocking finding was the parent rename race. fable@xhigh cross-check: 15
+raised, 7 fixed, 8 answered, 2 reproduced, none blocking. codex@xhigh re-verify 1: 1 raised, 1
+fixed. codex@xhigh re-verify 2 (the ceiling): 1 raised, 1 fixed.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number added)
+- GIVEN: review-charter.md GIVEN 119's stub and review-charter-install.md's full text (one
+  clause each). The codex-pass total is 118,777 of 118,784, with no raise.
+- code: scripts/uninstall.sh (the header, `say`, 1e's `RS_PY` and plan, the act after the
+  skills; the report's D-178 line dropped); scripts/check-uninstall.sh (`rs_plant`, `rs_snap`,
+  U-1, U-4, U-3, U-3b, U-4r, U-15)
+- docs: README "Uninstall"; USAGE `buddy uninstall`, "What it also removes" and "What it never
+  touches"
+- skill: none (no verb, flag or knob; the router's SKILL.md and reference.md never said the data
+  survives)
+- amends: D-178 rule 2 ("names the model router's state and leaves it"; now removed, as above)
+  and its "Not done" item; D-173 "Unchanged" (the router's state is no longer among the data
+  left)

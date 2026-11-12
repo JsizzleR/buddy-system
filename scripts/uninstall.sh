@@ -100,6 +100,31 @@
 #     A Label and a program under ~/.buddylist/ prove nothing (anyone can put
 #     a file there), so an ergo built by hand (`command-line-arguments`, no
 #     module path) is left until it is rebuilt with get-ergo.sh.
+#   - the model router's state (D-179, amending D-178's "named and left": the
+#     operator, in orc-21's pane, 2026-11-12 about 20:04Z, "yes deleting it is
+#     ideal"): the directory router.py's state_dir() resolves, by its rule,
+#     $XDG_STATE_HOME/model-router when XDG_STATE_HOME is absolute, else
+#     ~/.local/state/model-router. A full run only, and only once the
+#     model-router skill's SKILL.md is gone (--chat leaves the skill, and so
+#     its data; so does a run that leaves an edited copy of it). Only what
+#     router.py itself writes and would itself replace or delete goes, by exact
+#     name: table.tsv when it starts with the table's magic, refused.txt when
+#     it has the shape of its percent-encoded paths (lines of printable ASCII,
+#     no space, none empty; its bytes, not the %XX grammar), each a regular
+#     file this user owns; then the directory, once empty. Anything else in it (another file,
+#     a subdirectory, a link, a file another user owns, a scan's mkstemp
+#     temp), or a directory that is a symlink, not this user's, writable by
+#     group or others, not listable, or in a version-control work tree
+#     (router.py never writes there, judged at the resolved path as it is),
+#     under a parent another user owns, others can rename entries in (not
+#     sticky), or this user cannot read, write and search, or on a path that
+#     is relative or holds a newline: the directory is left whole and named,
+#     never a stop. router.py takes no lock, so its temp file is the only sign
+#     of a scan in flight, and one present leaves everything (a scan that has
+#     not written yet recreates the directory when it does: not covered). The
+#     judge is Python on a directory descriptor (O_NOFOLLOW; unlinks by
+#     dir_fd), so the path swapped for a link after the check cannot redirect
+#     a removal; the act judges again and removes only what the plan named.
 #
 # NEVER TOUCHED, REPORTED: settings outside those lines (BUDDY_CHAT in env
 # included), the checkout's .mcp.json, Codex's hooks.json (Codex's file, its
@@ -111,10 +136,8 @@
 # D-171, a reference file beside it) that is not byte-identical to this
 # checkout's (an edit, or another release's), a file in a skill directory this
 # checkout does not ship (the directory is then left too), the Agent-model
-# hook copy (D-120), the model router's state directory (its table and
-# refusal log, `${XDG_STATE_HOME:-~/.local/state}/model-router`, router.py's
-# state_dir(); D-177, named since D-178: the user's data, written by the
-# skill, not by an install), other com.buddy-system.* launchd agents, a buddylist
+# hook copy (D-120), the model router's state when anything above leaves it,
+# and ~/.local/state itself, other com.buddy-system.* launchd agents, a buddylist
 # process (never signalled: after the bootout they are live sessions' MCP
 # servers, D-122), and any file not identified as ours.
 #
@@ -185,7 +208,10 @@ STATE_DIR=$HOME/.buddylist
 MODULE=github.com/JsizzleR/buddy-system
 TAB=$(printf '\t')
 
-say() { echo "uninstall: $*"; }
+# printf, not echo: dash and macOS /bin/sh expand `\n` and `\c` in echo's
+# argument, so a backslash in a name printed here forged a report line (the
+# panel, D-179).
+say() { printf 'uninstall: %s\n' "$*"; }
 die() { echo "uninstall: STOPPED — $*" >&2; exit 1; } # redefined below, once the lists are set up
 shq() {
 	case $1 in
@@ -755,6 +781,247 @@ if [ -f "$SETTINGS" ] || [ -L "$SETTINGS" ]; then
 	fi
 fi
 
+# 1e. The model router's state (see the header; D-179). The judge runs on a
+# descriptor of the directory, so nothing it removes is reached by a path a
+# link could redirect after the check. Every verdict but "goes" leaves the
+# directory as it is, named, and the run goes on: it is data, and nothing
+# else this run does depends on it. It prints `file <name>` for each file
+# that goes (plan), `removed <name>` and `rmdir` (act), or `left <why>`;
+# exit 0 goes or went, 3 absent, anything else left. Names it prints are
+# folded to printable ASCII: a foreign name is untrusted (invariant 9).
+# The owner is the run's `id -u` (the one launchd's domain uses), passed in so
+# the check can name another one: os.geteuid() could not be faked by a test.
+RS_PY='
+import errno, os, re, stat, sys
+MAGIC = b"#model-router-table\t"
+OWN = ("refused.txt", "table.tsv")
+TMP = re.compile(r"\.model-router\.[a-z0-9_]{8}\.(tmp|probe)\Z")
+LOG = bytes(range(0x21, 0x7f)) + b"\n"
+VCS = (".git", ".hg", ".svn", ".jj", ".bzr", "_darcs", ".fslckout", "_FOSSIL_")
+class Left(Exception):
+    pass
+def show(n):
+    s = "".join(c if " " <= c <= "~" and c != "\\" else "?" for c in n)
+    return s if len(s) <= 64 else s[:61] + "..."
+def need():
+    # No descriptor-relative call here, no removal: never a path fallback.
+    ok = all(f in os.supports_dir_fd for f in (os.stat, os.open, os.unlink, os.rmdir))
+    ok = ok and os.stat in os.supports_follow_symlinks and os.listdir in os.supports_fd
+    if not (ok and hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")):
+        raise Left("this Python cannot act through a directory descriptor")
+def router_wrote(fd, n, es):
+    # What router.py writes: table.tsv opens with its magic (its own test for
+    # a table it may replace); refused.txt is one pct_path line per path,
+    # every byte 0x21-0x7e. O_NONBLOCK: a FIFO swapped in cannot hang this.
+    f = os.open(n, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    try:
+        s = os.fstat(f)
+        if (s.st_dev, s.st_ino) != (es.st_dev, es.st_ino) or not stat.S_ISREG(s.st_mode):
+            return False
+        if n == "table.tsv":
+            head = b""
+            while len(head) < len(MAGIC):
+                c = os.read(f, len(MAGIC) - len(head))
+                if not c:
+                    break
+                head += c
+            return head == MAGIC
+        prev, size = b"\n", 0
+        while True:
+            c = os.read(f, 65536)
+            if not c:
+                break
+            if c.translate(None, LOG) or b"\n\n" in prev + c:
+                return False
+            prev, size = c[-1:], size + len(c)
+        return size > 0 and prev == b"\n"
+    finally:
+        os.close(f)
+def in_tree(p):
+    # router.py check_target(): no write in a directory at or under any
+    # version-control marker, judged at its resolved path (VCS_MARKERS there).
+    # So what is there was not written by router.py (the panel).
+    d = os.path.realpath(p)
+    while True:
+        if any(os.path.lexists(os.path.join(d, m)) for m in VCS):
+            return True
+        q = os.path.dirname(d)
+        if q == d:
+            return False
+        d = q
+def parent_ok(ps, uid):
+    # Its entry in the parent is what the final rmdir names: whoever can
+    # rename entries there could swap in an empty directory of their own
+    # between the check and the rmdir (Codex code pass, P2). Its owner or
+    # root only: a sticky directory keeps others from renaming ours.
+    if ps.st_uid not in (uid, 0):
+        raise Left("another user owns its parent directory")
+    if ps.st_mode & 0o022 and not ps.st_mode & stat.S_ISVTX:
+        raise Left("others can rename entries in its parent directory")
+def judge(p, uid):
+    if not os.path.isabs(p):
+        raise Left("its path is not absolute (HOME is relative)")
+    try:
+        st = os.lstat(p)
+    except (FileNotFoundError, NotADirectoryError):
+        # A missing directory, or one that cannot exist (a file where
+        # ~/.local/state should be): absent, so no line (Fable).
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        raise Left("it is a symlink")
+    if not stat.S_ISDIR(st.st_mode):
+        raise Left("it is not a directory")
+    if st.st_uid != uid:
+        raise Left("another user owns it")
+    # Only its owner can then add or swap an entry, so the window between a
+    # check below and its unlink is open to the machine user alone, whom the
+    # design trusts (invariant 6); router.py replaces only with its own table.
+    if st.st_mode & 0o022:
+        raise Left("its group or others can write to it")
+    if in_tree(p):
+        raise Left("it is in a version-control work tree, where router.py never writes")
+    try:
+        pfd = os.open(os.path.dirname(p), os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as e:
+        # The act removes the directory through this descriptor (a 0311
+        # parent): the reason names the parent, not the state (Fable).
+        raise Left("its parent directory could not be read (%s)" % e.strerror)
+    try:
+        parent_ok(os.fstat(pfd), uid)
+    finally:
+        os.close(pfd)
+    # Before anything goes, so a refusal leaves it whole (Codex code pass:
+    # its files went, then its rmdir failed under an unwritable parent).
+    if not os.access(os.path.dirname(p), os.W_OK | os.X_OK):
+        raise Left("its parent directory cannot be written, so it could not be removed")
+    fd = os.open(p, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        ft = os.fstat(fd)
+        if (ft.st_dev, ft.st_ino) != (st.st_dev, st.st_ino):
+            raise Left("it changed while it was read")
+        own = {}
+        for n in sorted(os.listdir(fd)):
+            es = os.stat(n, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISDIR(es.st_mode):
+                raise Left("it holds a subdirectory, %s" % show(n))
+            if not stat.S_ISREG(es.st_mode):
+                raise Left("it holds %s, which is not a regular file" % show(n))
+            if es.st_uid != uid:
+                raise Left("it holds %s, which another user owns" % show(n))
+            if TMP.match(n):
+                raise Left("it holds %s, the temporary file of a scan (one may be writing now, or a killed one left it)" % show(n))
+            if n not in OWN:
+                raise Left("it holds %s, a file the router never writes" % show(n))
+            if not router_wrote(fd, n, es):
+                raise Left("its %s is not one the router writes (%s)" % (n,
+                    "a table starts with its header" if n == "table.tsv" else "one percent-encoded path per line"))
+            own[n] = (es.st_dev, es.st_ino)
+        return fd, ft, own
+    except BaseException:
+        os.close(fd)
+        raise
+def act(p, fd, ft, own, planned, uid):
+    extra = sorted(set(own) - set(planned))
+    if extra:
+        raise Left("it changed since the plan read it (it now holds %s)" % extra[0])
+    # The parent as the rmdir will reach it, judged before anything goes.
+    pfd = os.open(os.path.dirname(p), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        parent_ok(os.fstat(pfd), uid)
+        b = os.path.basename(p)
+        bs = os.stat(b, dir_fd=pfd, follow_symlinks=False)
+        if (bs.st_dev, bs.st_ino) != (ft.st_dev, ft.st_ino):
+            raise Left("it was moved while it was judged")
+        for n in sorted(own):
+            es = os.stat(n, dir_fd=fd, follow_symlinks=False)
+            if (es.st_dev, es.st_ino) != own[n]:
+                raise Left("its %s changed while it was judged" % n)
+            os.unlink(n, dir_fd=fd)
+            print("removed " + n, flush=True)
+        bs = os.stat(b, dir_fd=pfd, follow_symlinks=False)
+        if (bs.st_dev, bs.st_ino) != (ft.st_dev, ft.st_ino):
+            raise Left("it was moved while it was emptied")
+        try:
+            os.rmdir(b, dir_fd=pfd)
+        except OSError as e:
+            if e.errno in (errno.ENOTEMPTY, errno.EEXIST):
+                raise Left("it holds a file again (a scan may have written one since)")
+            raise
+    finally:
+        os.close(pfd)
+    print("rmdir")
+def main(mode, p, uid, planned):
+    try:
+        need()
+        uid = int(uid)
+        j = judge(p, uid)
+        if j is None:
+            return 3
+        fd, ft, own = j
+        try:
+            if mode == "plan":
+                for n in sorted(own):
+                    print("file " + n)
+            else:
+                act(p, fd, ft, own, planned, uid)
+        finally:
+            os.close(fd)
+        return 0
+    except Left as e:
+        print("left " + str(e))
+    except OSError as e:
+        print("left it could not be %s (%s)" % ("read" if mode == "plan" else "read or emptied", e.strerror))
+    except Exception as e:
+        print("left the judge failed (%s)" % type(e).__name__)
+    return 1
+sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]))
+'
+# rs_why <rc> <output>: the judge's left line, or what its exit says.
+rs_why() {
+	rs_w=""
+	for l in $2; do case $l in "left "*) rs_w=${l#left } ;; esac; done
+	[ -n "$rs_w" ] || rs_w="the judge said nothing (exit $1)"
+	printf '%s\n' "$rs_w"
+}
+rs="" rs_skill="" rs_go="" rs_files=""
+if [ -z "$chat_only" ]; then
+	case ${XDG_STATE_HOME:-} in /*) rs=$XDG_STATE_HOME ;; *) rs=$HOME/.local/state ;; esac
+	rs=$rs/model-router
+	rs_skill=$(dest model-router)/SKILL.md
+	rs_hand="remove it by hand if you like: rm -rf $(shq "$rs")"
+	if case $rs in *"$NL"*) true ;; *) false ;; esac; then
+		# Never judged, never printed: a newline in XDG_STATE_HOME printed a
+		# line of its own (`uninstall: done`) inside the report (D-178).
+		[ ! -e "$rs" ] && [ ! -L "$rs" ] ||
+			say "data: left: the model router's state directory (its path holds a newline, so it is not printed here, and it is left)"
+	elif ! command -v "$PY" >/dev/null 2>&1; then
+		[ ! -e "$rs" ] && [ ! -L "$rs" ] ||
+			say "data: left: $rs (the model router's state), since there is no $PY here to judge it with; $rs_hand"
+	else
+		rs_out=$("$PY" -I -B -c "$RS_PY" plan "$rs" "$uid" 2>/dev/null) && rrc=0 || rrc=$?
+		if [ "$rrc" -eq 3 ]; then
+			:
+		elif ! gone_for_sure "$rs_skill" && ! case "$NL$rm_skills$NL" in *"$NL$rs_skill$NL"*) true ;; *) false ;; esac; then
+			# The skill stays (an edit, another release's copy, or a directory
+			# this cannot search), and so does its data, as under --chat.
+			say "data: left: $rs (the model router's state), since its skill stays ($rs_skill)"
+		elif [ "$rrc" -ne 0 ]; then
+			say "data: left: $rs (the model router's state), since $(rs_why "$rrc" "$rs_out"); $rs_hand"
+		else
+			for l in $rs_out; do
+				case $l in
+				"file table.tsv") say "data: $w $rs/table.tsv (the model router's table)" ;;
+				"file refused.txt") say "data: $w $rs/refused.txt (the model router's refusal log)" ;;
+				*) continue ;;
+				esac
+				rs_files="$rs_files$NL${l#file }"
+			done
+			say "data: $w $rs, the model router's state directory, once it is empty"
+			rs_go=1
+		fi
+	fi
+fi
+
 # 2. Act. Nothing above has changed anything but --chat's posture.
 if [ -z "$dry" ]; then
 	if [ "$svc" = loaded ]; then
@@ -857,6 +1124,29 @@ if [ -z "$dry" ]; then
 		[ -d "$d" ] || continue
 		rmdir -- "$d" 2>/dev/null || say "skill: left: $d, which still holds files this checkout did not install or that differ"
 	done
+	# The model router's state (1e), once its skill is gone for sure: judged
+	# again, and only what the plan named goes. Never a stop.
+	if [ -n "$rs_go" ]; then
+		if ! gone_for_sure "$rs_skill"; then
+			say "data: left: $rs (the model router's state), since its skill is still there ($rs_skill)"
+		else
+			rs_out=$("$PY" -I -B -c "$RS_PY" act "$rs" "$uid" $rs_files 2>/dev/null) && rrc=0 || rrc=$?
+			rs_some=""
+			for l in $rs_out; do
+				case $l in
+				"removed "*) say "removed: $rs/${l#removed }"; rs_some=1 ;;
+				rmdir) say "removed: $rs (the model router's state directory)" ;;
+				esac
+			done
+			if [ "$rrc" -eq 3 ]; then
+				:
+			elif [ "$rrc" -ne 0 ] && [ -n "$rs_some" ]; then
+				say "data: left: $rs with what is still in it, since $(rs_why "$rrc" "$rs_out"); $rs_hand"
+			elif [ "$rrc" -ne 0 ]; then
+				say "data: left: $rs (the model router's state) as it was, since $(rs_why "$rrc" "$rs_out"); $rs_hand"
+			fi
+		fi
+	fi
 	if [ -n "$rm_buddies" ]; then
 		in_flight $rm_buddies
 		for b in $rm_buddies; do unlink_one "$b"; done
@@ -934,23 +1224,8 @@ if [ -z "$chat_only" ]; then
 	common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
 	[ -z "$common" ] || [ ! -e "$common/buddy.db" ] || say "data: left: this checkout's ledger $common/buddy.db"
 	say "data: left: every other repo's ledger (<git-common-dir>/buddy.db, wherever buddy init ran; not findable from here); each is inert without buddy"
-	# The model router's state (D-177's table and refusal log), found as
-	# router.py's state_dir() finds it: XDG_STATE_HOME when it is absolute,
-	# else ~/.local/state. Named, never removed (D-178): it is the user's
-	# data, which the skill wrote on its own scans, and a removal would be a
-	# --purge D-125 keeps out of scope. Named only on a full run: --chat
-	# leaves the skill, and so its data.
-	case ${XDG_STATE_HOME:-} in /*) rs=$XDG_STATE_HOME ;; *) rs=$HOME/.local/state ;; esac
-	rs=$rs/model-router
-	# A newline in XDG_STATE_HOME would print a line of its own (`uninstall:
-	# done`) inside this report (Codex code pass): named without the path then.
-	if [ ! -e "$rs" ] && [ ! -L "$rs" ]; then
-		:
-	elif case $rs in *"$NL"*) true ;; *) false ;; esac; then
-		say "data: left: the model router's table and refusal log under XDG_STATE_HOME/model-router (its path holds a newline, so it is not printed here)"
-	else
-		say "data: left: $rs (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $(shq "$rs"))"
-	fi
+	# The model router's state is 1e's and the act's: every verdict is said
+	# there (D-179; named and left here until then, D-178).
 fi
 [ ! -d "$STATE_DIR" ] || say "data: left: $STATE_DIR (the chat journal, log and any plist kept above)"
 set +f

@@ -21,10 +21,15 @@ set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
 CDPATH= cd -- "$ROOT"
-# XDG_STATE_HOME too: uninstall names the model router's state under it
-# when it is absolute (D-178), so a caller's own value would move the path
-# U-4r expects; U-4r (after U-5, which re-runs U-4's case) sets it per case.
+# XDG_STATE_HOME too: uninstall removes the model router's state under it
+# when it is absolute (D-178, D-179), so a caller's own value would move the
+# path U-4 and U-15 expect; U-4r (after U-5, which re-runs U-4's case) sets it
+# per case.
 unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON CLAUDE_CONFIG_DIR XDG_STATE_HOME
+# The umask too: under a caller's 002 the fixture's ~/.local/state is made
+# group-writable, and uninstall then leaves the model router's state (its
+# parent check), so U-1 went red on a correct tree (Fable).
+umask 022
 
 fail() { echo "check-uninstall: FAIL — $*" >&2; exit 1; }
 WORK=$(mktemp -d) || fail "mktemp failed"
@@ -184,6 +189,23 @@ EPIN=$(sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' scripts/get-ergo.sh)
 [ "$(echo "$EPIN" | wc -l)" -eq 1 ] && [ -n "$EPIN" ] || fail "want one PIN= line in scripts/get-ergo.sh, so the ergo cases can be built"
 ERGO=com.buddy-system.ergo
 
+# rs_plant <dir>: the model router's state as router.py leaves it: the
+# directory 0700 (its makedirs), a table opening with its magic, and a
+# refusal log of percent-encoded paths, one per line (both 0600).
+rs_plant() {
+	rm -rf "$1"
+	mkdir -p "$1"
+	chmod 700 "$1"
+	printf '#model-router-table\tmade=2026-11-12T00:00:00Z\nmain\tclaude-opus-5-5\t3\n' > "$1/table.tsv"
+	printf '/x/projects/a%%20b.jsonl\n/x/projects/c.jsonl\n' > "$1/refused.txt"
+	chmod 600 "$1/table.tsv" "$1/refused.txt"
+}
+# rs_snap: everything under ~/.local (links by their text, directories by
+# their mode, files by checksum; a name holding a newline, which find's lines
+# split, by its pieces: the same before and after): the router's state, and the targets U-15
+# links it to, so a case that leaves it can say it left it byte for byte.
+rs_snap() { (cd "$R/home/.local" 2>/dev/null && find . 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink "$f")"; elif [ -d "$f" ]; then printf 'dir %s %s\n' "$f" "$(ls -ldn "$f" | cut -c1-10)"; else cksum "$f" 2>/dev/null || printf 'name %s\n' "$f"; fi; done); }
+
 # setup: a fresh case at $R from the prototype, with the chat daemon's plist
 # and program, the checkout's bin/ copies, and every file uninstall must leave
 # byte-identical. cp to NEW paths only (never over a running Mach-O).
@@ -254,12 +276,13 @@ EOF
 	printf 'copy\n' > "$R/bin/agent-model-gate.py"
 	printf 'an earlier copy\n' > "$R/skills/buddy/SKILL.md.bak"
 	# The model router's state, where router.py's state_dir() puts it with
-	# XDG_STATE_HOME unset: the user's data, named and never touched (D-178).
-	mkdir -p "$R/home/.local/state/model-router"
-	printf '#model-router-table\t1\n' > "$R/home/.local/state/model-router/table.tsv"
+	# XDG_STATE_HOME unset, as its scans leave it: removed on a full run
+	# (D-179), kept by --chat; every stop's snapshot holds it.
+	RS=$R/home/.local/state/model-router
+	rs_plant "$RS"
 	# settings.json and .claude.json are edited now (D-173): the cases that
 	# edit them read them back, and every stop's snapshot holds them.
-	KEEP="$R/home/.local/state/model-router/table.tsv $R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.other.plist"
+	KEEP="$R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.other.plist"
 	keep_sum=$(cksum $KEEP)
 }
 # snap: every file and link under the case, with its checksum.
@@ -354,8 +377,12 @@ echo "$out" | grep -q 'still wires' && fail "U-1: a dry run whose plan ran also 
 $out"
 echo "$out" | tail -1 | grep -qx 'uninstall: dry run: nothing was removed' || fail "U-1: no dry-run last line:
 $out"
-echo "$out" | grep -qxF "uninstall: data: left: $R/home/.local/state/model-router (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $R/home/.local/state/model-router)" || fail "U-1: the plan does not name the model router's state as left:
+for want in "data: would remove $RS/refused.txt (the model router's refusal log)" \
+	"data: would remove $RS/table.tsv (the model router's table)" \
+	"data: would remove $RS, the model router's state directory, once it is empty"; do
+	echo "$out" | grep -qxF "uninstall: $want" || fail "U-1: the plan does not say '$want':
 $out"
+done
 
 # U-2: a --chat dry run runs no update and changes nothing.
 label=U-2
@@ -396,13 +423,18 @@ if [ -n "$macos" ]; then
 	ls "$R/home/.buddylist/$AGENT.plist.removed-"* >/dev/null 2>&1 || fail "U-4: the plist was not kept in ~/.buddylist:
 $out"
 fi
-there "$R/skills/buddy/SKILL.md.bak" "$R/co/.git/buddy.db" "$R/home/.local/state/model-router/table.tsv"
+there "$R/skills/buddy/SKILL.md.bak" "$R/co/.git/buddy.db" "$R/home/.local/state"
+# The model router's state (D-179): its two files, then its directory; the
+# XDG directory above it is not the router's and stays.
+gone "$RS/table.tsv" "$RS/refused.txt" "$RS"
 # The core's directory stays for its .bak, so its manifest is held by name
 # (Codex code pass: skilldirs excludes the core).
 gone "$R/skills/buddy/.install-skill.files"
 kept U-4
-echo "$out" | grep -qxF "uninstall: data: left: $R/home/.local/state/model-router (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $R/home/.local/state/model-router)" || fail "U-4: the model router's state is not named as left:
+for want in "removed: $RS/refused.txt" "removed: $RS/table.tsv" "removed: $RS (the model router's state directory)"; do
+	echo "$out" | grep -qxF "uninstall: $want" || fail "U-4: no line '$want':
 $out"
+done
 # The settings: every buddy line gone, and only those (want_hooks says what
 # stays: the Agent-model hook's, a foreign entry, the Stop entry holding a
 # foreign hook beside buddy's); the old bytes kept beside it, 0600.
@@ -477,38 +509,382 @@ echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-5: no done line:
 $out"
 
 # U-4r: the model router's state is found where router.py's state_dir() puts
-# it (D-178): under an ABSOLUTE XDG_STATE_HOME, and under ~/.local/state when
-# XDG_STATE_HOME is relative (router.py ignores it then). Dry runs: named,
-# nothing changed. With none there, no line: U-1/U-4 are the control that one
-# is named when it is there.
+# it (D-178, D-179): under an ABSOLUTE XDG_STATE_HOME, and under
+# ~/.local/state when XDG_STATE_HOME is relative (router.py ignores it then).
+# The dry run plans it and changes nothing; the real runs remove the one
+# found and leave the other byte for byte. A path holding a newline is left,
+# unprinted; with none there, no line (U-1/U-4 the control that one is named).
 label=U-4r
-setup; mkdir -p "$R/xdg/model-router"; printf 'table\n' > "$R/xdg/model-router/table.tsv"; before=$(snap)
+setup; rs_plant "$R/xdg/model-router"; before=$(snap)
 out=$(XENV="XDG_STATE_HOME=$R/xdg" un --dry-run 2>&1) || fail "U-4r: dry run failed:
 $out"
 [ "$(snap)" = "$before" ] || fail "U-4r: a dry run changed the tree"
-echo "$out" | grep -qxF "uninstall: data: left: $R/xdg/model-router (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $R/xdg/model-router)" || fail "U-4r: an absolute XDG_STATE_HOME's state is not named:
+echo "$out" | grep -qxF "uninstall: data: would remove $R/xdg/model-router/table.tsv (the model router's table)" || fail "U-4r: an absolute XDG_STATE_HOME's state is not planned:
 $out"
-echo "$out" | grep -qF "left: $R/home/.local/state/model-router" && fail "U-4r: under an absolute XDG_STATE_HOME the home path was named:
+echo "$out" | grep -qF "$RS" && fail "U-4r: under an absolute XDG_STATE_HOME the home path was named:
 $out"
-out=$(XENV="XDG_STATE_HOME=rel/state" un --dry-run 2>&1) || fail "U-4r: dry run failed:
+rb=$(rs_snap)
+out=$(XENV="XDG_STATE_HOME=$R/xdg" un 2>&1) || fail "U-4r: the run under an absolute XDG_STATE_HOME failed:
 $out"
-echo "$out" | grep -qF "data: left: $R/home/.local/state/model-router (" || fail "U-4r: a relative XDG_STATE_HOME must fall back to ~/.local/state:
+gone "$R/xdg/model-router"
+there "$R/xdg"
+[ "$(rs_snap)" = "$rb" ] || fail "U-4r: under an absolute XDG_STATE_HOME the home state changed:
 $out"
 # A newline in the path is never printed: it would forge a report line
-# (Codex code pass). Exported in a subshell: XENV splits on whitespace.
+# (D-178's Codex code pass), and it is never judged or removed. Exported in a
+# subshell: XENV splits on whitespace.
 NLX="$R/nl
 uninstall: done"
-mkdir -p "$NLX/model-router"
+rs_plant "$NLX/model-router"
+nlsum=$(cksum "$NLX/model-router/table.tsv" "$NLX/model-router/refused.txt")
+nlline="uninstall: data: left: the model router's state directory (its path holds a newline, so it is not printed here, and it is left)"
 out=$(export XDG_STATE_HOME="$NLX"; un --dry-run 2>&1) || fail "U-4r: dry run failed:
 $out"
-echo "$out" | grep -qxF "uninstall: data: left: the model router's table and refusal log under XDG_STATE_HOME/model-router (its path holds a newline, so it is not printed here)" || fail "U-4r: a state path with a newline is not named without it:
+echo "$out" | grep -qxF "$nlline" || fail "U-4r: a state path with a newline is not named without it:
 $out"
 [ "$(echo "$out" | grep -cx 'uninstall: done')" -eq 0 ] || fail "U-4r: a newline in XDG_STATE_HOME forged a report line:
 $out"
-rm -rf "$R/home/.local/state/model-router"
+out=$(export XDG_STATE_HOME="$NLX"; un 2>&1) || fail "U-4r: the run under a newline XDG_STATE_HOME failed:
+$out"
+echo "$out" | grep -qxF "$nlline" || fail "U-4r: the real run does not name the newline path left:
+$out"
+[ "$(cksum "$NLX/model-router/table.tsv" "$NLX/model-router/refused.txt")" = "$nlsum" ] || fail "U-4r: the state on a newline path was touched:
+$out"
+[ "$(echo "$out" | grep -cx 'uninstall: done')" -eq 1 ] || fail "U-4r: a newline in XDG_STATE_HOME forged a report line:
+$out"
+out=$(XENV="XDG_STATE_HOME=rel/state" un 2>&1) || fail "U-4r: the run under a relative XDG_STATE_HOME failed:
+$out"
+echo "$out" | grep -qxF "uninstall: removed: $RS (the model router's state directory)" || fail "U-4r: a relative XDG_STATE_HOME must fall back to ~/.local/state:
+$out"
+gone "$RS"
 out=$(un --dry-run 2>&1) || fail "U-4r: dry run failed:
 $out"
 echo "$out" | grep -qF "model router" && fail "U-4r: no state directory, yet one was named:
+$out"
+
+# The judge's literals are router.py's (Fable): were router.py to change its
+# table's magic, a state file's name, its temps or its markers, every real
+# state would be left with nothing here red (the safe way, but the feature
+# gone). The markers and the magic are compared line for line with RS_PY's
+# copies; the names and temps are pinned as router.py spells them (RS_PY's
+# side is held by U-1, U-4 and U-15h).
+label=U-15-pin
+for v in VCS_MARKERS:VCS TABLE_MAGIC:MAGIC; do
+	l=$(grep "^${v%%:*} = " skills/model-router/router.py | sed "s/^${v%%:*} /${v#*:} /; s/'/\"/g")
+	[ -n "$l" ] && grep -qxF -- "$l" scripts/uninstall.sh || fail "U-15-pin: router.py's ${v%%:*} and uninstall.sh's RS_PY ${v#*:} differ (want the line '$l'): change both"
+done
+for pin in "mkstemp(prefix='.model-router.', suffix='.probe', dir=d)" "mkstemp(prefix='.model-router.', suffix='.tmp', dir=d)" \
+	"os.path.join(sd, 'table.tsv')" "os.path.join(sd, 'refused.txt')"; do
+	grep -qF -- "$pin" skills/model-router/router.py || fail "U-15-pin: router.py no longer says $pin, which uninstall.sh's RS_PY copies (OWN, TMP): change both"
+done
+# U-15: the model router's state LEFT whole (D-179). Each case is a real run
+# on an uninstalled fixture (nothing else is left to remove) that leaves the
+# state byte for byte, says why, and still finishes; then its positive
+# control: the deviation undone, the same run removes it, so the guard is
+# what left it. U-15o and U-15p meet the window between plan and act.
+label=U-15
+setup
+out=$(un 2>&1) || fail "U-15: the first run failed:
+$out"
+gone "$RS"
+H="; remove it by hand if you like: rm -rf $RS"
+# rs_left <case> <the line's tail after "(the model router's state)">
+rs_left() {
+	label=$1
+	rb=$(rs_snap)
+	out=$(un 2>&1) || fail "$label: a run that leaves the model router's state must not fail:
+$out"
+	[ "$(rs_snap)" = "$rb" ] || fail "$label: the model router's state changed:
+$rb
+--- now:
+$(rs_snap)
+$out"
+	echo "$out" | grep -qxF "uninstall: data: left: $RS (the model router's state)$2" || fail "$label: the state is not named left with '$2':
+$out"
+	echo "$out" | grep -qF "removed: $RS" && fail "$label: part of the state was said removed:
+$out"
+	echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "$label: the run must finish (the state is never a stop):
+$out"
+}
+rs_goes() {
+	out=$(un 2>&1) || fail "$label: the control run failed:
+$out"
+	gone "$RS"
+	there "$R/home/.local/state"
+	echo "$out" | grep -qxF "uninstall: removed: $RS (the model router's state directory)" || fail "$label: the control left the state, so the case above proves nothing:
+$out"
+}
+# A dry run with the skill already gone (so only the dry-run gate holds it):
+# planned, and nothing changes (the panel: every other dry run had the skill).
+label=U-15-dry
+rs_plant "$RS"; rb=$(rs_snap)
+out=$(un --dry-run 2>&1) || fail "U-15-dry: dry run failed:
+$out"
+[ "$(rs_snap)" = "$rb" ] || fail "U-15-dry: a dry run changed the state:
+$out"
+echo "$out" | grep -qxF "uninstall: data: would remove $RS/table.tsv (the model router's table)" || fail "U-15-dry: the dry run did not plan the state:
+$out"
+# A foreign name is folded to one printable line: a newline, a non-ASCII
+# letter and a backslash each print as ? (invariant 9; echo would have
+# expanded the backslash, the panel).
+fn=$(printf 'a\nb\303\251\\c')
+printf 'x\n' > "$RS/$fn"
+rs_left U-15-fold ", since it holds a?b??c, a file the router never writes$H"
+rm "$RS/$fn"; rs_goes
+# U-15a: the directory is a symlink (to a directory holding the router's own
+# files): the link and its target are left.
+rs_plant "$R/home/.local/target"; ln -s ../target "$RS"
+rs_left U-15a ", since it is a symlink$H"
+rm "$RS"; mv "$R/home/.local/target" "$RS"; rs_goes
+# U-15b: not a directory.
+printf 'x\n' > "$RS"
+rs_left U-15b ", since it is not a directory$H"
+rm "$RS"; rs_plant "$RS"; rs_goes
+# U-15c: another user owns it. An EMPTY directory (Codex design pass: a
+# populated one also fails each file's owner check, so a mutant dropping this
+# one would still be left), owned by another uid as `id -u` says: a fake id
+# first on PATH. The control is the same empty directory, the real id.
+mkdir "$RS"; chmod 700 "$RS"
+printf '#!/bin/sh\n[ "$*" != -u ] || { echo %s; exit 0; }\nexec %s "$@"\n' "$(($(id -u) + 1))" "$(command -v id)" > "$GUARD/id"
+chmod +x "$GUARD/id"
+rs_left U-15c ", since another user owns it$H"
+rm "$GUARD/id"; rs_goes
+# U-15d: a file the router never writes, beside its own.
+rs_plant "$RS"; printf 'mine\n' > "$RS/notes.txt"
+rs_left U-15d ", since it holds notes.txt, a file the router never writes$H"
+rm "$RS/notes.txt"; rs_goes
+# U-15e: a subdirectory.
+rs_plant "$RS"; mkdir "$RS/sub"
+rs_left U-15e ", since it holds a subdirectory, sub$H"
+rmdir "$RS/sub"; rs_goes
+# U-15f: a table.tsv that does not open with the magic (a space for its tab).
+rs_plant "$RS"; printf '#model-router-table x\n' > "$RS/table.tsv"
+rs_left U-15f ", since its table.tsv is not one the router writes (a table starts with its header)$H"
+rs_plant "$RS"; rs_goes
+# U-15g: a refused.txt in no shape router.py writes: a space, a byte past
+# 0x7e, an empty line (first or later), no final newline, empty.
+for v in space high empty-line leading no-newline empty; do
+	rs_plant "$RS"
+	case $v in
+	space) printf '/a b\n' ;;
+	high) printf '/a\351\n' ;;
+	empty-line) printf '/a\n\n/b\n' ;;
+	leading) printf '\n/a\n' ;;
+	no-newline) printf '/a' ;;
+	empty) : ;;
+	esac > "$RS/refused.txt"
+	rs_left "U-15g ($v)" ", since its refused.txt is not one the router writes (one percent-encoded path per line)$H"
+done
+rs_plant "$RS"; rs_goes
+# U-15h: a scan's mkstemp temp, either kind: router.py takes no lock, so one
+# present may be a scan writing now (D-179's lock answer).
+for t in .model-router.abcd_123.tmp .model-router.k9x0q2zz.probe; do
+	rs_plant "$RS"; : > "$RS/$t"
+	rs_left "U-15h ($t)" ", since it holds $t, the temporary file of a scan (one may be writing now, or a killed one left it)$H"
+	rm "$RS/$t"
+done
+rs_goes
+# U-15i: a symlink named table.tsv, to a table: not a file router.py writes.
+rs_plant "$RS"; mv "$RS/table.tsv" "$R/home/.local/table-target"; ln -s "$R/home/.local/table-target" "$RS/table.tsv"
+[ -f "$RS/table.tsv" ] || fail "U-15i: the link dangles, so it is not a link to a table"
+rs_left U-15i ", since it holds table.tsv, which is not a regular file$H"
+rm "$RS/table.tsv" "$R/home/.local/table-target"; rs_plant "$RS"; rs_goes
+# U-15j: group or others can write to it, either bit.
+for m in 770 707; do
+	rs_plant "$RS"; chmod "$m" "$RS"
+	rs_left "U-15j ($m)" ", since its group or others can write to it$H"
+done
+chmod 700 "$RS"; rs_goes
+# U-15k: a file another user owns, hard-linked in under a name the router
+# writes (its bytes are not a table, so the line says which check spoke).
+rs_plant "$RS"; rm "$RS/table.tsv"
+if [ ! -O /etc/hosts ] && ln /etc/hosts "$RS/table.tsv" 2>/dev/null; then
+	rs_left U-15k ", since it holds table.tsv, which another user owns$H"
+	rm "$RS/table.tsv"
+else
+	echo "check-uninstall: U-15k NOT RUN — no file another user owns could be linked in here (Linux protected_hardlinks, or run as root)" >&2
+fi
+rs_plant "$RS"; rs_goes
+# U-15l: a directory this user cannot read.
+rs_plant "$RS"; chmod 000 "$RS"
+if [ -r "$RS" ]; then
+	echo "check-uninstall: U-15l NOT RUN — a mode-000 directory is readable here (root)" >&2
+else
+	rs_left U-15l ", since it could not be read (Permission denied)$H"
+fi
+chmod 700 "$RS"
+[ -f "$RS/table.tsv" ] && [ -f "$RS/refused.txt" ] || fail "U-15l: the files under the mode-000 directory are gone"
+rs_goes
+# U-15m: the skill stays (an edited SKILL.md the run leaves), so its data
+# does; and a skill directory this user cannot search is not "gone" (Codex
+# design pass: `[ -e ]` fails there and read as absent).
+rs_plant "$RS"; mkdir -p "$R/skills/model-router"; printf 'an edit\n' > "$R/skills/model-router/SKILL.md"
+rs_left U-15m ", since its skill stays ($R/skills/model-router/SKILL.md)"
+chmod 000 "$R/skills/model-router"
+if [ -x "$R/skills/model-router" ]; then
+	echo "check-uninstall: U-15m (unsearchable) NOT RUN — a mode-000 directory is searchable here (root)" >&2
+else
+	rs_left "U-15m (unsearchable)" ", since its skill stays ($R/skills/model-router/SKILL.md)"
+fi
+chmod 700 "$R/skills/model-router"; rm -rf "$R/skills/model-router"; rs_goes
+# U-15r: in a version-control work tree, where router.py never writes (its
+# check_target): a marker at an ancestor (the panel).
+rs_plant "$RS"; mkdir "$R/home/.local/.git"
+rs_left U-15r ", since it is in a version-control work tree, where router.py never writes$H"
+rmdir "$R/home/.local/.git"; rs_goes
+# Reached through a link into a work tree: judged at its resolved path, as
+# router.py's in_work_tree() judges it; walked as spelled, no marker is met.
+rs_plant "$RS"; mkdir -p "$R/home/.local/vcs/.git"; mv "$R/home/.local/state" "$R/home/.local/vcs/state"; ln -s vcs/state "$R/home/.local/state"
+rs_left "U-15r (through a link)" ", since it is in a version-control work tree, where router.py never writes$H"
+rmdir "$R/home/.local/vcs/.git"; rs_goes
+rm "$R/home/.local/state"; mv "$R/home/.local/vcs/state" "$R/home/.local/state"; rmdir "$R/home/.local/vcs"
+# U-15s: a relative HOME, so a relative path (it would be read from the
+# checkout, uninstall's cwd: the panel). A dry run: its plan is the verdict
+# the act obeys. Planted where the relative path lands.
+label=U-15s
+rs_plant "$R/co/relhome/.local/state/model-router"
+out=$(XENV="HOME=relhome" un --dry-run 2>&1) || fail "U-15s: dry run failed:
+$out"
+echo "$out" | grep -qxF "uninstall: data: left: relhome/.local/state/model-router (the model router's state), since its path is not absolute (HOME is relative); remove it by hand if you like: rm -rf relhome/.local/state/model-router" || fail "U-15s: a relative path is not refused:
+$out"
+rm -rf "$R/co/relhome"
+# U-15w: a backslash in its path prints as itself: say() is printf, where
+# echo in dash and macOS sh turns `\n` into a line of its own (the panel).
+# The check reads the output with printf for the same reason.
+label=U-15w
+XS="$R/home/.local/b\\nx"
+rs_plant "$XS/model-router"
+out=$(XENV="XDG_STATE_HOME=$XS" un --dry-run 2>&1) || fail "U-15w: dry run failed:
+$out"
+printf '%s\n' "$out" | grep -qxF "uninstall: data: would remove $XS/model-router/table.tsv (the model router's table)" || fail "U-15w: a backslash in the state's path did not print as itself:
+$out"
+rm -rf "$XS"
+# U-15t: its parent lets others rename entries (group or others can write,
+# not sticky; either bit alone, Fable): the final rmdir could meet a
+# directory swapped in (Codex code pass). The control is the same parent
+# sticky (1777), which keeps others from renaming ours.
+for m in 777 775 757; do
+	rs_plant "$RS"; chmod "$m" "$R/home/.local/state"
+	rs_left "U-15t ($m)" ", since others can rename entries in its parent directory$H"
+done
+chmod 1777 "$R/home/.local/state"; rs_goes
+chmod 755 "$R/home/.local/state"
+# U-15u: its parent cannot be written, so it could not be removed: left
+# whole, not emptied first (Codex code pass).
+rs_plant "$RS"; chmod 555 "$R/home/.local/state"
+if [ -w "$R/home/.local/state" ]; then
+	echo "check-uninstall: U-15u NOT RUN — a mode-555 directory is writable here (root)" >&2
+else
+	rs_left U-15u ", since its parent directory cannot be written, so it could not be removed$H"
+fi
+chmod 755 "$R/home/.local/state"; rs_goes
+# U-15v: its parent can be written and searched but not read: the act's
+# rmdir goes through a descriptor of the parent, which then cannot be
+# opened, so the plan opens one too and the state is left whole (the panel:
+# it failed only at the act).
+rs_plant "$RS"; chmod 311 "$R/home/.local/state"
+if [ -r "$R/home/.local/state" ]; then
+	echo "check-uninstall: U-15v NOT RUN — a mode-311 directory is readable here (root)" >&2
+else
+	rs_left U-15v ", since its parent directory could not be read (Permission denied)$H"
+fi
+chmod 755 "$R/home/.local/state"
+[ -f "$RS/table.tsv" ] && [ -f "$RS/refused.txt" ] || fail "U-15v: the files under the unreadable parent are gone"
+rs_goes
+# U-15x: a file that cannot be unlinked (an immutable flag) met during the
+# removal itself: what went is said, the rest is named left, the run goes on
+# (Fable: the one part-emptied path no race is needed for). refused.txt goes
+# first (the act removes by sorted name). chflags is macOS's; Linux's chattr
+# needs root.
+label=U-15x
+rs_plant "$RS"
+if command -v chflags >/dev/null 2>&1 && chflags uchg "$RS/table.tsv" 2>/dev/null; then
+	out=$(un 2>&1) && rc=0 || rc=$?
+	chflags nouchg "$RS/table.tsv"
+	[ "$rc" -eq 0 ] || fail "U-15x: a run that leaves part of the state must not fail:
+$out"
+	echo "$out" | grep -qxF "uninstall: removed: $RS/refused.txt" || fail "U-15x: the refusal log was not removed:
+$out"
+	echo "$out" | grep -qxF "uninstall: data: left: $RS with what is still in it, since it could not be read or emptied (Operation not permitted)$H" || fail "U-15x: the part-emptied state is not named left with what is in it:
+$out"
+	[ -f "$RS/table.tsv" ] && [ ! -e "$RS/refused.txt" ] || fail "U-15x: not exactly the immutable table is left:
+$out"
+	echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-15x: the run must finish:
+$out"
+else
+	echo "check-uninstall: U-15x NOT RUN — no chflags uchg here (Linux)" >&2
+fi
+rs_plant "$RS"; rs_goes
+# U-15y: a file where ~/.local/state should be: the state cannot exist, so
+# no line at all (Fable: it was named "could not be read (Not a directory)",
+# with an rm -rf of a path that is not there).
+label=U-15y
+rmdir "$R/home/.local/state"; printf 'x\n' > "$R/home/.local/state"
+out=$(un 2>&1) || fail "U-15y: uninstall failed:
+$out"
+echo "$out" | grep -qF "model router" && fail "U-15y: a state that cannot exist was named:
+$out"
+rm "$R/home/.local/state"; mkdir "$R/home/.local/state"; rs_plant "$RS"; rs_goes
+# U-15n: no Python to judge it with.
+rs_plant "$RS"; XENV="BUDDY_PYTHON=$WORK/no-python"
+rs_left U-15n ", since there is no $WORK/no-python here to judge it with$H"
+XENV=; rs_goes
+# U-15o: a router file the plan did not see, written between plan and act
+# (the bootout runs between them; the marker proves it ran): nothing goes.
+label=U-15o
+setup; rm "$RS/refused.txt"
+printf '[ -e %s ] && exit 0\nprintf "/x/late.jsonl\\n" > %s\n: > %s\n' "$WORK/late.done" "$RS/refused.txt" "$WORK/late.done" > "$WORK/late.sh"
+rm -f "$WORK/late.done"
+tsum=$(cksum < "$RS/table.tsv")
+XENV="FAKE_ON_BOOTOUT=$WORK/late.sh"
+out=$(un 2>&1) || fail "U-15o: uninstall failed:
+$out"
+XENV=
+[ -e "$WORK/late.done" ] || fail "U-15o: nothing was written between plan and act, so this case tests nothing:
+$out"
+echo "$out" | grep -qxF "uninstall: data: will remove $RS/table.tsv (the model router's table)" || fail "U-15o: the plan did not see the table:
+$out"
+echo "$out" | grep -qxF "uninstall: data: left: $RS (the model router's state) as it was, since it changed since the plan read it (it now holds refused.txt)$H" || fail "U-15o: the late file did not leave the state:
+$out"
+[ "$(cksum < "$RS/table.tsv")" = "$tsum" ] && [ -f "$RS/refused.txt" ] || fail "U-15o: the state was touched:
+$out"
+rs_goes
+# U-15q: the skill back between plan and act (the plan found it absent):
+# the act's own gate leaves the state (Codex code pass: only the plan's was
+# tested).
+label=U-15q
+setup; rm -rf "$R/skills/model-router"
+printf '[ -e %s ] && exit 0\nmkdir -p %s && printf "an edit\\n" > %s/SKILL.md\n: > %s\n' "$WORK/back.done" "$R/skills/model-router" "$R/skills/model-router" "$WORK/back.done" > "$WORK/back.sh"
+rm -f "$WORK/back.done"
+rb=$(rs_snap)
+XENV="FAKE_ON_BOOTOUT=$WORK/back.sh"
+out=$(un 2>&1) || fail "U-15q: uninstall failed:
+$out"
+XENV=
+[ -e "$WORK/back.done" ] || fail "U-15q: nothing put the skill back between plan and act, so this case tests nothing:
+$out"
+echo "$out" | grep -qxF "uninstall: data: will remove $RS, the model router's state directory, once it is empty" || fail "U-15q: the plan did not plan the state:
+$out"
+echo "$out" | grep -qxF "uninstall: data: left: $RS (the model router's state), since its skill is still there ($R/skills/model-router/SKILL.md)" || fail "U-15q: the act's skill gate did not leave the state:
+$out"
+[ "$(rs_snap)" = "$rb" ] || fail "U-15q: the state was touched:
+$out"
+rm -rf "$R/skills/model-router"; rs_goes
+# U-15p: a file the plan named, gone by the act (a clean scan removes its
+# refusal log): the rest goes, and the directory.
+label=U-15p
+setup
+printf 'rm -f %s\n' "$RS/refused.txt" > "$WORK/vanish.sh"
+XENV="FAKE_ON_BOOTOUT=$WORK/vanish.sh"
+out=$(un 2>&1) || fail "U-15p: uninstall failed:
+$out"
+XENV=
+echo "$out" | grep -qxF "uninstall: data: will remove $RS/refused.txt (the model router's refusal log)" || fail "U-15p: the plan did not see the refusal log:
+$out"
+gone "$RS"
+echo "$out" | grep -qxF "uninstall: removed: $RS/table.tsv" || fail "U-15p: the table was not removed:
+$out"
+echo "$out" | grep -qxF "uninstall: removed: $RS/refused.txt" && fail "U-15p: the refusal log was there at the act, so nothing removed it between plan and act:
 $out"
 
 # U-6..U-8: runs that STOP before removing anything (U-4 is their control).
@@ -1193,11 +1569,13 @@ real=""
 # stamp would otherwise flip this branch before any build carries one.
 go version -m "$P/bin/buddy" 2>/dev/null | grep -qF 'internal/cli.installedChat=' && real=1
 if [ -n "$real" ]; then
-	setup
+	setup; rb=$(rs_snap)
 	out=$(XENV="BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off" un --chat 2>&1) || fail "U-3: --chat failed:
 $out"
 	gone "$R/bin/buddylist" "$R/daemon/buddylist"
 	there "$R/bin/buddy" $skillmds "$R/co/bin/buddylist"
+	[ "$(rs_snap)" = "$rb" ] && [ -f "$RS/table.tsv" ] || fail "U-3: --chat touched the model router's state (D-179):
+$out"
 	"$R/bin/buddy" help >/dev/null 2>&1 || fail "U-3: the buddy left does not run"
 	echo "$out" | tail -1 | grep -qx 'uninstall: done: the chat half is removed and buddy stays, claims-only' || fail "U-3: no done line:
 $out"
@@ -1240,7 +1618,11 @@ done
 stub() { setup; rm "$R/bin/buddy"; cp "$S/buddy-$1" "$R/bin/buddy"; }
 label=U-3b
 stub off
+rb=$(rs_snap)
 out=$(XENV="STUB_LOG=$WORK/stub.log STUB_RC=0" un --chat 2>&1) || fail "U-3b: --chat over a buddy stamped off failed:
+$out"
+# --chat leaves the skills, and so the model router's state (D-179).
+[ "$(rs_snap)" = "$rb" ] && [ -f "$RS/table.tsv" ] || fail "U-3b: --chat touched the model router's state:
 $out"
 grep -qx 'BUDDY_CHAT=off' "$WORK/stub.log" || fail "U-3b: update was not run with BUDDY_CHAT=off"
 gone "$R/bin/buddylist" "$R/daemon/buddylist" "$R/co/bin/buddylist"
@@ -1320,4 +1702,4 @@ $out"
 esac
 
 [ ! -e "$GUARD/reached" ] || fail "the REAL launchctl or claude was reached: $(cat "$GUARD/reached")"
-echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left, every shipped skill's directory read from skills/, the model router's state named and kept)"
+echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left, every shipped skill's directory read from skills/, the model router's own files removed with its skill, its state left whole and named on every refusal, and kept by --chat)"

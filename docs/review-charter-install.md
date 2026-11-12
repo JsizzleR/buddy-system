@@ -65,8 +65,10 @@ stub of each binds as written; this is the full text (D-158).
     `~/.claude.json` never written), and `com.buddy-system.oscar` and `com.buddy-system.ergo`
     when the program's bytes are get-oscar.sh's or get-ergo.sh's pinned build (D-176: build
     path and `vcs.revision`; a Label and a program under ~/.buddylist prove nothing; bootout
-    confirmed, plist moved). Other settings, an unprovable server agent, Codex
-    hooks, ledgers, the journal, the model router's state (D-178), core.hooksPath, `.bak`, an edited skill and the Agent-model
+    confirmed, plist moved), and the model router's own files with its skill (D-179: by
+    name and bytes, on a dir fd; a refusal leaves it whole, named, never a stop). Other
+    settings, an unprovable server agent, Codex
+    hooks, ledgers, the journal, core.hooksPath, `.bak`, an edited skill and the Agent-model
     copy and line are reported, never touched; processes are never signalled. Install and uninstall hold ONE
     lock for their whole run (D-126): `$BUDDY_BIN_DIR/.buddy-install.lock`, a symlink naming
     the holder's pid and start time, a dead or reused pid taken over; not HOME-keyed, not a
