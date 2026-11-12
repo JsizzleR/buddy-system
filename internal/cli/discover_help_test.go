@@ -203,34 +203,174 @@ func isNoVerbSkill(f string) bool {
 	return false
 }
 
+// shippedSkillFiles is every entry install-skill.sh's files() takes up under
+// <skills>/<name>/, in the installer's own terms: its glob skips a dotfile (a
+// Finder .DS_Store; Codex code pass), and its ONE named exception (D-178)
+// skips a real DIRECTORY named exactly __pycache__, which Python writes beside
+// router.py whenever something imports it. Counting that one was a red on a
+// correct checkout that read as a missing skill file (#93). Everything else
+// is returned, a symlink named __pycache__, an ordinary subdirectory and a
+// regular FILE named __pycache__ included: the installer installs or refuses
+// each of those, so none may slip past the comparison below. The test is
+// Lstat, as the installer's `[ -d ] && [ ! -L ]` is: a Stat would follow a
+// symlink to a directory and skip what the installer refuses.
+func shippedSkillFiles(skills string) ([]string, error) {
+	all, err := filepath.Glob(filepath.Join(skills, "*", "*"))
+	if err != nil {
+		return nil, err
+	}
+	var shipped []string
+	for _, f := range all {
+		b := filepath.Base(f)
+		// Go's Glob matches a leading dot and sh's does not, at either
+		// level: the installer's skills/*/SKILL.md never takes up a
+		// .scratch/ skill directory (Codex code pass, #93).
+		if strings.HasPrefix(b, ".") || strings.HasPrefix(filepath.Base(filepath.Dir(f)), ".") {
+			continue
+		}
+		if b == "__pycache__" {
+			fi, err := os.Lstat(f)
+			if err != nil {
+				return nil, err
+			}
+			if fi.IsDir() {
+				continue
+			}
+		}
+		shipped = append(shipped, f)
+	}
+	return shipped, nil
+}
+
+// skillFilesMismatch is one error per shipped entry listed names no test
+// reads, and per listed name nothing ships.
+func skillFilesMismatch(shipped, listed []string) []string {
+	var errs []string
+	for _, f := range shipped {
+		if !slices.Contains(listed, f) {
+			errs = append(errs, fmt.Sprintf("%s ships with its skill and is not in skillFiles: the skill tests do not read it", f))
+		}
+	}
+	for _, f := range listed {
+		if !slices.Contains(shipped, f) {
+			errs = append(errs, fmt.Sprintf("skillFiles names %s, which skills/ does not ship", f))
+		}
+	}
+	return errs
+}
+
 // Every file under skills/<name>/ is installed with its skill
-// (install-skill.sh's files(): its regular, non-dot files), so every one is a
-// file a session may read and the skill tests must read it too.
+// (install-skill.sh's files()), so every one is a file a session may read and
+// the skill tests must read it too.
 func TestSkillFilesAreEveryShippedFile(t *testing.T) {
-	all, err := filepath.Glob("../../skills/*/*")
+	shipped, err := shippedSkillFiles("../../skills")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A dotfile (a Finder .DS_Store) is skipped by the installer's glob, so
-	// here too (Codex code pass).
-	var shipped []string
-	for _, f := range all {
-		if !strings.HasPrefix(filepath.Base(f), ".") {
-			shipped = append(shipped, f)
-		}
-	}
-	for _, f := range shipped {
-		if !slices.Contains(skillFiles, f) {
-			t.Errorf("%s ships with its skill and is not in skillFiles: the skill tests do not read it", f)
-		}
-	}
-	for _, f := range skillFiles {
-		if !slices.Contains(shipped, f) {
-			t.Errorf("skillFiles names %s, which skills/ does not ship", f)
-		}
+	for _, e := range skillFilesMismatch(shipped, skillFiles) {
+		t.Error(e)
 	}
 	if len(shipped) < 9 {
 		t.Fatalf("the glob found %d files under skills/; it is aimed at the wrong root", len(shipped))
+	}
+}
+
+// The installer's exception and nothing wider (#93, D-178), on a skills/ tree
+// this test makes, never the checkout's. A real __pycache__ directory (with a
+// .pyc in it, as Python leaves it), a dotfile and a dot-named skill directory
+// are skipped; the clean tree is the positive control that the comparison
+// passes at all. A directory named __PYCACHE__ (the installer's test is
+// case-exact; an EqualFold would skip it), a symlink named __pycache__,
+// dangling or to a directory (a Stat would call that one a directory), an
+// ordinary subdirectory and a regular file named __pycache__ must each be
+// reported.
+func TestShippedSkillFilesSkipsOnlyARealPycache(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		plant func(t *testing.T, dir string) string // the planted entry's path
+		fails bool
+	}{
+		{"clean tree", func(t *testing.T, dir string) string { return "" }, false},
+		{"real __pycache__ directory", func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, "__pycache__")
+			mustMkdir(t, p)
+			mustWrite(t, filepath.Join(p, "router.cpython-313.pyc"), "bytecode")
+			return p
+		}, false},
+		{"dotfile", func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, ".DS_Store")
+			mustWrite(t, p, "finder")
+			return p
+		}, false},
+		{"dot-named skill directory", func(t *testing.T, dir string) string {
+			p := filepath.Join(filepath.Dir(dir), ".scratch", "SKILL.md")
+			mustWrite(t, p, "x")
+			return p
+		}, false},
+		{"real directory named __PYCACHE__", func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, "__PYCACHE__")
+			mustMkdir(t, p)
+			return p
+		}, true},
+		{"dangling symlink named __pycache__", func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, "__pycache__")
+			if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), p); err != nil {
+				t.Fatal(err)
+			}
+			return p
+		}, true},
+		{"symlink named __pycache__ to a directory", func(t *testing.T, dir string) string {
+			target := filepath.Join(t.TempDir(), "elsewhere")
+			mustMkdir(t, target)
+			p := filepath.Join(dir, "__pycache__")
+			if err := os.Symlink(target, p); err != nil {
+				t.Fatal(err)
+			}
+			return p
+		}, true},
+		{"ordinary subdirectory", func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, "cache")
+			mustMkdir(t, p)
+			return p
+		}, true},
+		{"regular file named __pycache__", func(t *testing.T, dir string) string {
+			p := filepath.Join(dir, "__pycache__")
+			mustWrite(t, p, "not a directory")
+			return p
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			skills := t.TempDir()
+			dir := filepath.Join(skills, "model-router")
+			mustMkdir(t, dir)
+			listed := []string{filepath.Join(dir, "SKILL.md"), filepath.Join(dir, "router.py")}
+			for _, f := range listed {
+				mustWrite(t, f, "x")
+			}
+			planted := tc.plant(t, dir)
+			shipped, err := shippedSkillFiles(skills)
+			if err != nil {
+				t.Fatal(err)
+			}
+			errs := skillFilesMismatch(shipped, listed)
+			if !tc.fails {
+				if len(errs) != 0 {
+					t.Errorf("want no mismatch, got %q", errs)
+				}
+				return
+			}
+			want := planted + " ships with its skill and is not in skillFiles: the skill tests do not read it"
+			if len(errs) != 1 || errs[0] != want {
+				t.Errorf("want exactly %q, got %q", want, errs)
+			}
+		})
+	}
+}
+
+func mustMkdir(t *testing.T, p string) {
+	t.Helper()
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 
