@@ -8,7 +8,10 @@ and steps 3 and 4, are not built. Written by the `model-routing` lane
 read-only reports in section 0, the prior plans, one Fable consultation
 (section 7) and one Codex design pass (section 8). Base: main at c23b081.
 Nothing here is a decision. What becomes one is the operator's, and it takes
-its D-number when a step lands.
+its D-number when a step lands. Section 10 (2026-11-12, lane router-forks)
+answers the operator's question about activity across projects: four
+ledgers measured, and rulings on pooling them and on the protected list.
+None of it is built.
 
 The register is `CHEAPER-MODELS-PLAN.md`'s. Every part names the failure it
 answers, the number it rests on and how to re-run that number, the
@@ -298,7 +301,9 @@ no-op is a cost with no use (F2).
   claimed parent directory such as `docs/` overlaps `docs/decisions.md`. A
   shared companion claim counts as a claim too. The report holds the list as
   a literal beside a comment that names CLAUDE.md's full-tier classes, and
-  the cap cannot shrink it (F5).
+  the cap cannot shrink it (F5). Ruled since (section 10.2): eligibility is
+  also an allow-list of prose files, held at the pick, the export and the
+  READY diff alike. Not built.
 - **The diff is checked as well as the claim.** A claim names what a lane
   reserved, not what it edited: a lane holding `docs/README.md` can still
   write an unclaimed fence file (Codex P1). At READY, the coordinator runs
@@ -500,7 +505,243 @@ tier.
 - **Whether the protected list leaves any class worth a trial.** It excludes
   all code and every loaded-unasked text. What is left is plans, notes,
   `docs/` pages outside the charter and decisions, README and USAGE prose.
-  How many items a week that is: NOT MEASURED. Count it before step 2.
+  MEASURED since (section 10): over the last 10 days, across four ledgers,
+  16 items of docs, research or ops on the default model, about 1.6 a day.
+
+## 10. Several ledgers under one cap (2026-11-12)
+
+**The question.** The operator, 2026-11-12, about 20:04Z, in orc-21's pane,
+on route-cap volume: "are you sure we wont have enough activity here betwen
+our multiple projects?" Lane router-forks (Opus 5.5 at xhigh) measured and
+ruled. The rulings were read by the same Fable consultation and Codex design
+pass as the router's forks; `ROUTER-SKILL-PLAN.md` section 14 holds their
+counts.
+
+**What was measured.** Four ledgers on this machine: this repository's (A)
+and three other projects' (B, C, D). The operator's standing word keeps
+their names out of every committed text. orc-21 ran `model-report.sh` on
+each (`BUDDY_LEDGER`). A subagent then copied each ledger and read the copy
+immutable, as `model-report.sh` reads, with that script's item rule, class
+and tier rule, protected list and companion rule. It printed counts only.
+The run was at about 20:10Z. The allow-list (10.2) was re-measured at about
+20:30Z, when D held one item more.
+
+**On re-running** (Codex design pass 2). The SQL and its outputs stay in
+the lane's scratchpad, as the router's probe did, and the lane's READY names
+the path. Their sha256 prefixes:
+
+| file | sha256 |
+|---|---|
+| `ledger-sweep.sql` | `c19d0ba810f2` |
+| its output | `93d86bdbf65b` |
+| `ledger-sweep2.sql` (the re-measure) | `2e24b371452d` |
+| its output | `46f31fb65fa4` |
+
+The ledger copies were not retained, as `model-report.sh` says of its own
+copies. A re-run reads that day's ledgers, so it drifts, and a sweep
+removes rows for good (section 0). No route rests on these figures: a
+trial's numbers come only from retained exports (10.1).
+
+| ledger | items | created | items a day, last 7 full days | protected | unprotected | eligible, allow-list | eligible docs, research or ops on `claude-opus-5-5` |
+|---|---|---|---|---|---|---|---|
+| A, this one | 115 | 11-03..11-12; complete from about 11-05 (swept) | 13.1 | 109 | 6 | 6 | 5 |
+| B | 340 | 10-23..11-12 (no sweep seen) | 18.9 | 261 | 79 | 27 | 9 |
+| C | 270 | 11-10..11-12 (swept; its sessions go back to 08-14) | 8.6, truncated | 270 | 0 | 0 | 0 |
+| D | 27 | 10-29..11-12 (no sweep) | 1.6 | 2 | 25 | 2 | 2 |
+| all four | 752 | | about 42 | 642 | 110 | 35 | 16 |
+
+What the counts say:
+
+- **C's 270 of 270 is real, not an artefact.** The literal list matches C's
+  layout. Its code entries protect at least 215 of the 248 items protected
+  by their own scopes. `docs/decisions.md` also matches 62 of them,
+  overlapping those, and protects 22 more through a shared companion. No instructions file and no single shared
+  claim explains it: `CLAUDE.md` and `AGENTS.md` hit none, and the 22
+  companion-only items spread over 45 companions, at most 3 items each. It
+  is also one burst, not a rate: 210 of the 270 were created on 11-12, and
+  102 are still open.
+- **The list fails the other way in B and D.** It under-protects. 38 of B's
+  79 unprotected items and 19 of D's 25 are declared `code`, in paths the
+  list never names. Only the coordinator's class word keeps them out of a
+  prose trial, and the READY diff check would pass a mis-declared one.
+- **Two of the four were swept** (A and C). A live ledger cannot be re-run
+  (Codex P6).
+- **`tier=` appears on 11-12 only** (D-175): A 15 of 22 items that day, B 5
+  of 63, C 111 of 210, D 1 (on 10-29).
+- **No fails, and few reds written.** 0 fails in 531 outcomes across the
+  four (A 101, B 276, C 131, D 23). `reds=` is on 10 of A's outcomes, 8 of
+  B's and none of D's. C writes it on 88 of 131, and its docs items carry
+  0.47 reds each (n=32), all of them protected work.
+- **The eligible items are bursty.** A's 5 all fell on 11-12. B's 12 fell
+  on 11-03 (3), 11-04 (5), 11-10 (3) and 11-12 (1), and 3 of them ran on
+  other ids. D's 2 fell on 11-12.
+
+### 10.1 Pool the ledgers, from retained exports
+
+- **Why pool.** The cap line is global: one line, read by every
+  coordinator. The trial assigns every eligible item wherever it runs, so a
+  per-ledger report shows four parts of one experiment. And alone, A cannot
+  fill a cell inside a trial's 14-day window (10.3).
+- **Why exports, never live ledgers.** A sweep has already truncated two of
+  the four. The export is the retained input (Codex P6). Each repository's
+  coordinator owes its export before every sweep (`model-pick.md`), or that
+  history is gone. Whether the other three keep exports: NOT MEASURED.
+- **One reader.** Phase 3's `router.py report` takes several exports, read
+  only: the one parser (`ROUTER-SKILL-PLAN.md` section 6). `model-report.sh`
+  stays the exporter, one ledger per run, and never reads a cap.
+- **Labels, never paths** (Fable F2). The caller gives each input a label,
+  one capital letter. The operator keeps the map from label to file in
+  their own file beside the cap, outside every repository. The report
+  prints each input's label, rows, created range and sha256. It prints no
+  path for any input, wherever it runs, and its refusals name the label
+  (Codex design pass 1: a rule keyed to the cwd's repository would print
+  B's path for a run made from inside B). So a figure quoted in a brief or
+  a receipt names no repository, and it still re-runs against the same
+  bytes. `model-pick.md`'s "quote that line too" becomes "quote the label
+  and the sha256" in the commit that lands the labelled reader.
+- **A fixed input set** (F3). The baseline's freeze records the labels. A
+  run over a different set abstains: an omitted export would otherwise read
+  as a smaller experiment. Claim ids dedup within one file only, so a claim
+  id found in two inputs refuses, since the same export passed twice would
+  count twice.
+- **Within each input first, then pooled** (F7). Each input's trial cell is
+  compared with its own baseline, then the results are combined. Pooling
+  unstratified cells compares repository mixes, not models. The share guard
+  the draft proposed is cut: abstaining when an input's share of the two
+  cells differs by more than half. At cells of 10 it abstains about 40% of
+  the time on sampling noise alone.
+- **No choice per item, checked** (F8). Items of an opened class that ran on
+  a third model fall out of both cells, and nothing else sees them. The
+  report prints their count for each cell's window and abstains above 0.
+  Measured: B ran 8 of its 82 docs, research and ops items on other ids.
+
+### 10.2 No per-repository list: one predicate, the same everywhere
+
+- **The literal list stays as it is** (section 5). Nothing shrinks it (F5).
+- **An allow-list is added.** An item is eligible only when it has at least
+  one scope, and every scope it holds, and every scope of a shared companion
+  (section 5's rule), passes all of these:
+  - it ends in `.md`, `.markdown`, `.rst`, `.adoc` or `.org`. `.txt` is out,
+    since `requirements.txt` and `CMakeLists.txt` are build inputs;
+  - no component begins with `.`;
+  - its last component, folded, does not begin `claude` or `agents`. That
+    catches `CLAUDE.local.md` and `AGENTS.override.md`;
+  - section 5's list does not protect it.
+
+  A directory scope is never eligible, since it may hold code.
+- **It only removes eligibility.** Measured: the 110 unprotected items fall
+  to 35. A and C are unchanged; B falls from 79 to 27, and D from 25 to 2.
+- **Why not a list per repository.** C shows the literal list working. B and
+  D show it failing, and a list per repository fixes that only where each
+  list is written right. A list declared inside a repository is edited by
+  that repository's lanes, so the rule would be edited under itself (F6). The
+  allow-list needs no layout: an extension it does not list is ineligible.
+- **One predicate at three points** (Fable F1): the pick (`router.py pick
+  --touch`), the export's flag, and the READY diff. Today the pick does not
+  hold it. `router.py`'s shipped names (`ROUTER-SKILL-PLAN.md` section 6)
+  protect neither the code entries nor `docs/decisions.md`. So a buddy line
+  with `assign=writing:<id>` and `tiers=lite` would route `--touch
+  docs/decisions.md` off the default. No `route-cap` line is in the
+  operator's file today, so nothing routes. The fix is owed before one is
+  written.
+- **Both cells alike** (F4). The READY diff check runs on every item of an
+  opened class, baseline and trial alike; otherwise the baseline is judged
+  by claims and the trial by diffs. An ejection leaves both cells and is
+  counted apart. It is never `--outcome fail`: taught that way today, each
+  ejection is a fail charged to the trial, against a baseline with 0 fails
+  in 531, and the trial would read worse because of policy. A claim flag
+  cannot see an ejection: an item claiming only `docs/notes.md` that edited
+  a code path still exports as eligible (Codex design pass 4). So the
+  ejection is recorded as a counts-only token of its release note, read in
+  SQL the way `reds=` is. The export carries it, and both cells drop the
+  item.
+- **Additions** (F5) go through the cap's `protect=`. They are global and
+  additive, they sit outside every repository, and they over-protect the
+  other repositories, which is the safe side. The export never parses the
+  cap (one parser). The route in (Codex design pass 3): `router.py`, the one
+  parser, prints the line's additions in canonical form with their digest.
+  The coordinator passes that list to the export as its arguments. The
+  export applies it to the scopes it still holds, and records the digest on
+  every row. The comparison drops, from both cells, a row whose digest is
+  missing or differs from the cap's. So changing `protect=` restarts the
+  baseline.
+- **Residual.** A prose file that another repository loads unasked, under a
+  name no list holds, is admitted. Its fix is a `protect=` prefix in the
+  operator's own file.
+
+### 10.3 Days to the floor, honestly
+
+The floor is per cell: one class at one tier (section 6). Each estimate
+counts from the day 10.4's steps 2 and 3 land. It assumes `tier=` on every
+brief and `reds=` on every outcome from then on, and the last 10 days'
+rate. That rate counts claims only; eligibility judged on
+diffs is NOT MEASURED.
+
+- **Research at lite, pooled: about 8 days per cell.** That is about 1.3
+  items a day, if every research item is lite. The baseline cell fills
+  before `starts=`, and the trial cell fills after it, so both take about
+  16 days. Fable, reading the same counts, put both floors at 12-18 days.
+- **Alone:** A, about 20 days per research cell, longer than a trial's
+  14-day window (`ROUTER-SKILL-PLAN.md`, D5), so A alone can never fill a
+  trial cell. B, about 12 days, inside the window only at its best rate. D,
+  about 50 days for a docs cell. C, never.
+- **Docs:** about 0.3 a day pooled, so about 33 days per cell. No docs cell
+  fills inside the window, even pooled. **Ops:** none in any ledger.
+- **The event floor decides, not the item floor.** `events=` counts fails
+  and reds over both cells (section 3; `model-pick.md`).
+  - Fails: 0 in 531 puts the rate under about 0.6% (the rule of three), so
+    five expected fails need about 890 items. Never.
+  - Reds: at C's rates (0.30-0.47 an item, the higher on docs), two cells of
+    10 hold 6-9, and the floor is met. Written as A and B write them today, there are none.
+
+  So unless every outcome writes `reds=` and prose work reds, a first trial
+  ends INCONCLUSIVE, however long it waits.
+
+**The answer to the operator.** Yes, pooled there is enough activity for
+the item floor in one cell, research at lite, in about two to three weeks
+for both cells. No other cell fills inside a trial's window, and no single
+ledger fills one alone except B at its best. Across the four, about 42
+items a day were claimed over the last seven full days, and about 1.6 a day
+over the last 10 were eligible docs, research or ops on the default model.
+Of the 752 items the ledgers still hold, 16 (2%) are. What decides a trial
+is not volume but events, and none of the 531 outcomes is a fail.
+
+### 10.4 What a build lane does
+
+Not built. In this order, at the full tier, since each changes what the
+router may route, as phases 2 and 3 do:
+
+1. `router.py pick` applies section 5's list and the allow-list on any line
+   with `tiers=` (10.2, F1). This lands before any buddy `route-cap` line is
+   written.
+2. The export gains appended columns: the allow-list flag, the predicate's
+   digest, and the ejection token (10.2). `router.py` prints a line's
+   additions in canonical form for it.
+3. `model-pick.md` runs the READY diff check on every opened-class item,
+   and records an ejection as that token, never as `fail`.
+4. Phase 3's `router.py report` reads several labelled exports. It
+   stratifies, prints and abstains as 10.1 says. The label-quoting line in
+   `model-pick.md` lands in the same commit, not before the reader exists.
+
+A usable baseline starts only once 2 and 3 have landed (Codex design pass
+4). Rows exported before then lack the flag and the ejection token, so they
+belong to no cell.
+
+### 10.5 Left open at the round ceiling
+
+- Whether `events=` must be met in the trial cell itself (Fable F6). A
+  baseline larger than the trial cell can meet the pooled floor alone, and
+  the stop rule caps the trial cell at `floor=` items. Phase 3's design pass
+  decides.
+- Eligibility judged on diffs, in any ledger: NOT MEASURED.
+- Whether the other three repositories' coordinators keep exports: NOT
+  MEASURED.
+- Where the measurements' scripts are kept (Codex design pass 2, answered
+  in part: the digests are above). A lane scratchpad does not outlive the
+  machine's temporary-file cleanup. Keeping counts-only copies under
+  `docs/findings-probes/` is the router probe's open question (F22), and the
+  same one here. A copy would hold no other repository's name or path: the
+  SQL names none, and the ledgers' paths sit only in its uncommitted driver.
 
 ## Appendix: the counts-only queries (M4, M5)
 

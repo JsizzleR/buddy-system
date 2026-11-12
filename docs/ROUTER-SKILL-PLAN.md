@@ -16,8 +16,11 @@ Sources:
 The Fable cross-check of that fold and one Codex re-verify are in section
 13, both folded. The round ceiling is reached.
 Phase 2 shipped as D-177, on the orchestrator's defaults for section 14's
-decisions (section 14 lists them, for the operator to overturn). Phase 3 is
-not a decision: it takes its D-number when it lands.
+decisions. The operator accepted them on 2026-11-12, and they are now the
+operator's (section 14). The four forks phase 2 left open were ruled the
+same day by the `router-forks` lane, after one Fable consultation and one
+Codex design pass (section 14). Phase 3 is not a decision: it takes its
+D-number when it lands.
 
 The register is `ROUTING-PLAN.md`'s. Every part names the failure it answers,
 the number it rests on, how to re-run that number, the alternative it refuses,
@@ -317,7 +320,8 @@ The shipped script does neither. Everything it uses is one of three things:
   gate-passing token, such as a hyphenated phrase, to be named in the draft,
   and to lead the most main tasks and so set its `default=`. The draft is
   undated data, which parses as no cap until the user dates it, and the
-  SKILL.md has the model show it as data and act on none of it;
+  SKILL.md has the model show it as data and act on none of it. Accepted,
+  with its cost stated (section 14);
 - every printed id sits in one fixed-width column on one line, invariant 9's
   shape.
 
@@ -950,10 +954,11 @@ ceiling is reached, so no review checked these folds.
 
 ## 14. Open
 
-- **The operator's decisions.** None is answered yet. Phase 2 was built on the
-  orchestrator's defaults (orc-20, relayed by orc-21 on 2026-11-12, under the
-  operator's word "go with what you think is a sane default"). Each is the
-  orchestrator's, not the operator's, and the operator can overturn it:
+- **The operator's decisions, 2026-11-12.** Phase 2 was built on the
+  orchestrator's defaults (orc-20, relayed by orc-21, under the operator's
+  word "go with what you think is a sane default"). At about 20:04Z the same
+  day, in orc-21's pane, the operator answered them: "accepted". Each is now
+  the operator's decision, not a default:
   - phase 2 is wanted: built;
   - its home (section 8): `skills/model-router/`, shipped with the set;
   - its tier (section 10): full;
@@ -966,27 +971,166 @@ ceiling is reached, so no review checked these folds.
     `router.py` started from its tables and class rule, and dropped its text
     checks, the Codex state database and the ledger join;
   - the M-table's machine profile (F16): it stays in this plan, as counts
-    only.
-- **The draft's candidates** (M17, a lane decision taken as the safer option).
-  The design put the observed splits into the draft's `assign=`. Measured,
-  that drafted five routes here, and none matched the operator's rules, so
-  they now sit on a commented line. Restoring them to the line is the
-  operator's call.
-- **Subagent routing** (Codex C2, the cross-check's ruling). The plan routes
-  no subagent until a pin is measured, and that costs a single-session user
-  most of day 1: a scan, a draft, and a pick only when opening a new session.
-  Three arms, the operator's to choose:
-  - **none,** this plan's phase 2;
-  - **a pin, recommended for measurement:** a sub pick only when `pick` sees a
-    pin equal to the cap's id, else `no pick`. That is C2's own fix. The
-    cross-check read two in the harness's public documentation: a subagent
-    definition whose `model:` is a full id (which a per-call alias
-    overrides, so the call must name none), and
-    `ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, which fixes what an alias resolves
-    to. Whether either holds, and whether `pick` can see it, is NOT MEASURED;
-  - **an alias line accepting drift,** not recommended: it makes the cap
-    family-valued, and `review=`'s exact ids cannot hold against an alias
-    that moves.
+    only;
+  - R5 (below): closed by a required `--tier`.
+- **The four forks phase 2 left open, ruled 2026-11-12.** The operator's word
+  on them was "check with fable/codex". Lane router-forks (Opus 5.5 at xhigh)
+  drafted and measured. One Fable consultation and one Codex design pass read
+  the draft, each folded once ("The rulings' reviews", below). Each ruling
+  names what it costs and what would change it.
+  - **Subagent routing: none, through phase 3.** `--role sub` keeps answering
+    `no pick`. The Agent tool's `model` takes a family alias, which the
+    harness resolves at launch, and `fable` ran two ids in one week (M8). So
+    a sub pick can land outside an exact-id cap (C2). A subagent trial cannot
+    conclude (M9, F11), so a sub pick could only ever be a static assignment.
+    For a buddy operator that is already a decided rule: D-111, D-117, and
+    the settings floor `CLAUDE_CODE_SUBAGENT_MODEL`, set on this machine. The
+    two pins the cross-check read:
+    - **the agent definition whose `model:` is a full id: refused here.** It
+      holds only when the call names no model, and D-117 has every call name
+      one. The two cannot both hold;
+    - **`ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, which fixes what an alias resolves
+      to: the one arm left open** (unset here). Four measured conditions admit
+      it (Fable F9):
+      1. `subagent-report.sh`'s join of each call's alias to the model it ran
+         on shows the pinned id on every call, over a window that spans a
+         harness upgrade;
+      2. a positive control in that window: a period in which the pinned id
+         differs from what the alias resolves to unpinned. Without it, no
+         drift cannot tell a pin from no pin;
+      3. `pick` reads the value the harness resolved with, not the Bash
+         shell's. A profile initialises that shell, so a profile export shows
+         a pin the harness never held;
+      4. the pick equals the pin exactly, and a pick with `@<effort>` is `no
+         pick`, since an alias call carries no effort.
+
+      Setting the variable is a settings edit: the user's act, never the
+      router's.
+
+    The alias line accepting drift stays refused (section 13's ruling).
+    **Costs:** a single-session user without buddy gets a pick only when
+    opening a session. On this machine subagents made at least 29% of Claude
+    requests (M18: 55,451 of 189,923), all of them outside any route. A buddy
+    operator loses nothing. **Would change it:** the four conditions above,
+    measured.
+  - **The draft's candidates stay on the commented line.** `assign=` stays a
+    key (accepted); only the draft never fills it. A split in history is the
+    user's choice per task, confounded by role and period (section 0, point
+    2). The one measurement there is went 0 for 5 (M17):
+    - every candidate contradicted the operator's rules;
+    - three would have routed lanes off the default once dated unedited;
+    - two put a review model on a class.
+
+    **Costs:** a user whose split is their standing practice moves each route
+    into the line by hand, at most one edit per routable class (5 here).
+    **Would change it:** candidates measured to agree with users' own written
+    rules. That needs other machines; nothing here can measure it.
+  - **Codex rollout copies: MEASURED, no dedup** (code pass B6). One
+    counts-only pass over 5,900 rollouts (400,255 lines, 0 malformed, 27 s).
+    The script, `codex-copies.py` (sha256 `65a306c33e10`), and its output
+    (`808a445d9941`) are kept in the lane's scratchpad, as the probe was. What
+    it found:
+    - **No exact copies.** No line appears byte for byte in two files, or
+      twice in one. No copy of a resumed session was found. That resume
+      appends to the original file is inferred, not shown: 52 files have an
+      internal gap over an hour, and there is no known-resumed control
+      (Fable F11).
+    - **Forked children re-record part of their parent's history, with fresh
+      timestamps.** That is 100 files: 90 from the TUI and 10 from `codex
+      exec`; 97 carry a parent-thread key and 3 carry none. `router.py`
+      counts twice 125-139 of 7,899 requests (1.6-1.8%, in 85-90 tasks). And
+      7-9 of the 57 interrupts it counts are copies (12-16% of the printed
+      count). It counts no command, edit or token
+      maximum twice. The copying files run Codex 0.144.1 to 0.163.0; 0.164
+      onward is NOT MEASURED.
+    - **Content dedup would merge non-copies.** Compared without their
+      timestamps, 6,360 lines in 3,840 files match, nearly all by
+      coincidence (one record type repeats from session to session). That is
+      B6's answer, now measured.
+
+    No code changes, since no pick reads a Codex row in any phase (section
+    1). **Costs:** the printed Codex interrupt count overstates the distinct
+    interrupts by up to 19% (9 copies over 48), and M9's "12 of 33" may hold
+    copied interrupts (NOT MEASURED). **Would
+    change it:** a Codex row becoming a rule input, or a Codex version whose
+    resume copies.
+  - **The pre-cap draft residual: accepted, no fold.** The writer of the
+    transcript store is the machine user, the trust invariant 6 already
+    extends to the ledger. Every check that would keep the draft useful (tasks
+    spread over days or projects, harness-only fields present) is forgeable
+    by that writer. What a planted id reaches: one id-shaped token of at most
+    64 bytes, one column on one line, in an undated draft. The draft parses as
+    no cap, and the model shows it as data. Refused: a blank `default=`. It
+    would close the hijack, and it costs every user an edit. **Costs:** a user
+    who dates the draft unread takes a planted `default=`. Here that needs
+    more planted tasks than the 2,000 main tasks Opus led in 30 days (M18).
+    A drop-in user with a thin history is out-numbered by 11 (Fable F11).
+    What happens next is NOT VERIFIED here: an id the harness does not know
+    should be refused at launch. A real but unwanted Claude id would route
+    each new session until the user reads the pick line, which names it.
+    **Would change it:** a writer of the store with less than the user's
+    trust, shown to exist (a sandboxed agent that can write
+    `~/.claude/projects` but not the user's instructions). Then the draft
+    leaves `default=` blank.
+  - **Several ledgers under one cap** (the operator's question on route-cap
+    volume) rests in `ROUTING-PLAN.md`, section 10. It measures four ledgers,
+    rules on pooling and on the protected list, and estimates the days to the
+    floor.
+  - **The rulings' reviews.** The ceiling was one Fable consultation and one
+    Codex design pass, each folded once.
+    - **Fable** (`model: fable`, effort xhigh, read-only) ruled on the draft
+      and the count outputs behind it. It agreed with the candidates ruling
+      and with C's figure. It agreed with revision on the rest. It overturned
+      the draft's event-floor arithmetic, which counted rework where
+      `events=` counts fails and reds. **It raised 12 findings: 11 taken, and
+      F6 in part.** F6's other half, whether the trial cell itself must hold
+      the events, is left open (`ROUTING-PLAN.md` 10.5).
+      - Folded in this section: F9 (the alias pin's four conditions) and F11
+        (figures: 2,000 Opus-led tasks, not 2,600; resume inferred, not
+        shown; the 3 copying files with no lineage key; M9's interrupts).
+      - Folded in `ROUTING-PLAN.md` section 10: F1-F8, F10 and F12. F12 kept
+        detail that would identify the other repositories out of committed
+        text.
+      - Its cuts were taken, but one. The figures for each ledger alone stay,
+        cut to one bullet: they answer the operator's question.
+    - **Codex** read the diff d699b27..ba19351 in one design pass through
+      `scripts/codex-review.sh`. The run: gpt-6-astra at xhigh, header
+      verified, `CODEX_CHARTER=process`, 241 s, rc 0. Its four questions:
+      - a pick overriding the cap: NO;
+      - a protected list shrinking: NO. The allow-list intersects the
+        literal list;
+      - a figure nobody can re-run: YES (its finding 2);
+      - a repository's name reaching committed text: YES, by a later run
+        (its finding 1). It found no name or identifying detail in the text.
+
+      **It raised 5: 2 P1 and 3 P2. 4 fixed, 1 answered.**
+      1. P1: a report that hid paths only for inputs outside the cwd's
+         repository would print B's path from inside B. Fixed: labels only,
+         for every input (`ROUTING-PLAN.md` 10.1).
+      2. P1: the measurements' SQL and probe sat in a scratchpad, with no
+         digests. Answered in part: their sha256 prefixes are recorded here
+         and in `ROUTING-PLAN.md` section 10. The ledger copies were not
+         retained, and where the scripts are kept stays open (10.5).
+      3. P2: `protect=` had no route into the export. Fixed: `router.py`
+         prints the canonical additions, and the export applies them and
+         records their digest (10.2).
+      4. P2: an ejection had no durable record, and 10.4 was mis-ordered.
+         Fixed: a counts-only ejection token; the baseline starts after the
+         export and READY steps land; the quoting line lands with the
+         reader.
+      5. P2: three figures. Fixed: C's overlapping counts, the 2% share kept
+         apart from the daily rate, and the interrupts' 19% overstatement.
+
+      The round ceiling is reached. No review has read this fold.
+  - **Left at this round's ceiling:**
+    - F6's other half: whether the trial cell itself must hold `events=`;
+    - where the measurements' scripts are kept (Codex 2);
+    - NOT MEASURED: eligibility judged on diffs, in any ledger; whether the
+      other repositories' coordinators keep exports; the alias pin's four
+      conditions; whether Codex 0.164 onward still copies into forked
+      children.
+
+    The first three are in `ROUTING-PLAN.md` 10.5.
 - **Left at the round ceiling** (section 13):
   - **R5, X2's residual: CLOSED in phase 2** (section 15). Every non-default
     pick requires `--tier`, `none` included, so an omission defaults. Phase
@@ -1002,10 +1146,6 @@ ceiling is reached, so no review checked these folds.
     key) and R3 (every write refused in a work tree) are built in phase 2, and
     its reviews read them. R2 and R4 belong to phase 3's counts file and
     baseline, and no review has read them yet.
-- **The pre-cap draft** can carry a gate-passing token planted in enough kept
-  tasks to be named, and can take its `default=` from one (section 3, C1,
-  panel F1). The draft is undated data, shown as data, and the user writes
-  the cap.
 - **Lane decisions in the fold,** each the safer option, the operator's to
   overturn: at most 8 ids named before a cap; one broad per-file catch
   (`FILE_ERRORS`) turns any decode or shape error into a refusal; only a
@@ -1015,9 +1155,6 @@ ceiling is reached, so no review checked these folds.
   linked worktree is known only by its git directory's `commondir`, else the
   walk climbs on and protects more; a refused scan removes its target's old
   table; the table's reader enforces the naming rule before a cap.
-- **Whether a resumed Codex rollout copies its parent's events** is NOT
-  MEASURED (code pass B6). Codex records carry no uuid, so nothing dedups
-  them, and a copy would count twice.
 - **Answered, no change** (panel, cross-check and code pass): the fence keeps
   `=`, since a caller's path is one token; the Go skill check sees only
   backticked `buddy` spans, every skill's rule; the planted canaries' controls
@@ -1377,7 +1514,7 @@ without it (M20). CHANGED marks a change to what this section says above.
 | B3 | P2. `requestId` was missing from the digest | fixed |
 | B4 | P2. The digest took `1000` and `1000.0` for one value | fixed: scalars tagged by type |
 | B5 | P2. A main-file sidechain copy is skipped before the dedup | answered (section 14) |
-| B6 | P2. Codex records are never deduped | answered; a resumed rollout's copies NOT MEASURED (section 14) |
+| B6 | P2. Codex records are never deduped | answered; the copies MEASURED since: forked children only, no dedup (section 14) |
 | B7 | note. The canary under `item.kind` never reached its read | fixed: planted under `type: Extension` |
 | RV1 | P1, re-verify round 1. `plain/entry -> repo/escape -> store`: realpath of each prefix jumps past `repo` | fixed: the path is resolved one component at a time, as the kernel does, every directory it stands in is judged, and past 40 links it refuses |
 | RV2 | two notes, re-verify round 2 ("ship as is") | answered (section 14) |
