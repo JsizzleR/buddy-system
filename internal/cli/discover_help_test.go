@@ -167,7 +167,8 @@ func TestHelloHelpLineTeachesTheTimerWait(t *testing.T) {
 // and every verb and flag must be taught by at least one of them: a verb
 // taught only in a reference file is taught, and a stale name there is caught.
 // The list is written out, and TestSkillFilesAreEveryShippedFile holds it to
-// what skills/ ships, so a file added there or dropped from here fails.
+// what skills/ ships, so a file added there or dropped from here fails. Last
+// come the files of a skill that names no buddy verb (noVerbSkills).
 var skillFiles = []string{
 	"../../skills/buddy/SKILL.md", "../../skills/buddy-fleet/SKILL.md", "../../skills/buddy-lead/SKILL.md",
 	"../../skills/buddy-fleet/codex-lanes.md",
@@ -176,6 +177,30 @@ var skillFiles = []string{
 	"../../skills/buddy-fleet/model-pick.md",
 	"../../skills/buddy-fleet/not-code.md",
 	"../../skills/buddy-fleet/restack.md",
+	"../../skills/model-router/SKILL.md",
+	"../../skills/model-router/reference.md",
+	"../../skills/model-router/router.py",
+}
+
+// noVerbSkills are the shipped skills that work with no buddy installed at
+// all (D-177): the model router is dropped into a machine that may never have
+// run buddy, so it must teach no buddy verb. Its files are held to the
+// checker's OTHER half, not exempted from it: no error (a misspelt verb, a
+// bare backticked flag, which the checker already reports as "a flag with no
+// verb named before it") AND exactly zero names checked. The floor the buddy
+// skills keep cannot apply to them, and dropping it alone would be a wholesale
+// exemption by another name (the Codex design pass's Q6), so the positive
+// control is a wrong name planted in each such file, which the same checker
+// must report, and a right one, which the zero-name rule must refuse.
+var noVerbSkills = []string{"../../skills/model-router/"}
+
+func isNoVerbSkill(f string) bool {
+	for _, d := range noVerbSkills {
+		if strings.HasPrefix(f, d) {
+			return true
+		}
+	}
+	return false
 }
 
 // Every file under skills/<name>/ is installed with its skill
@@ -239,10 +264,30 @@ func fleetSkill(bodies []string) string {
 }
 
 func TestSkillNamesOnlyWhatHelpAnswers(t *testing.T) {
+	noVerb := 0
 	for i, body := range readSkills(t) {
 		errs, checked := checkNamedVerbs(body, helpUsage)
 		for _, e := range errs {
 			t.Errorf("%s: %s", skillFiles[i], e)
+		}
+		if isNoVerbSkill(skillFiles[i]) {
+			noVerb++
+			if checked != 0 {
+				t.Errorf("%s names %d buddy name(s); a skill that ships to machines without buddy names none (D-177)", skillFiles[i], checked)
+			}
+			// The controls, each on this file's own text: a wrong verb and a
+			// bare flag are reported, so the file is read under the rule and
+			// "0 checked" is not "never parsed"; a right verb is counted, so
+			// the zero-name rule above is armed.
+			for _, plant := range []string{"`buddy no-such-verb`", "`--no-such-flag`"} {
+				if errs, _ := checkNamedVerbs(body+"\n"+plant+"\n", helpUsage); len(errs) == 0 {
+					t.Errorf("with %s planted in %s, the checker reported nothing: the file is not read under the rule", plant, skillFiles[i])
+				}
+			}
+			if _, n := checkNamedVerbs(body+"\n`buddy claim`\n", helpUsage); n != 1 {
+				t.Errorf("with `buddy claim` planted in %s, the checker counted %d names, want 1: the zero-name rule is not armed", skillFiles[i], n)
+			}
+			continue
 		}
 		// A SKILL.md names dozens; a reference file is one section, and the
 		// smallest (codex-lanes.md) names 13.
@@ -253,6 +298,9 @@ func TestSkillNamesOnlyWhatHelpAnswers(t *testing.T) {
 		if checked < floor {
 			t.Fatalf("checked only %d names in %s; the parser no longer reads it", checked, skillFiles[i])
 		}
+	}
+	if noVerb < 3 {
+		t.Errorf("held %d file(s) to the no-verb rule, want the model router's three: noVerbSkills is aimed at the wrong directory", noVerb)
 	}
 }
 
@@ -306,13 +354,28 @@ func TestSkillSplitPointsAtTheFleetSkill(t *testing.T) {
 	if len(named) < 6 {
 		t.Errorf("the fleet skill names %d reference files beside it, want the six it moved out (D-171)", len(named))
 	}
-	for i, body := range bodies[:3] {
+	// Every SKILL.md, not only the first three: a fourth skill's frontmatter
+	// is read by the same loader (D-177). Its name is its directory, which is
+	// what install-skill.sh installs it as.
+	skills := 0
+	for i, body := range bodies {
+		dir, base := filepath.Split(skillFiles[i])
+		if base != "SKILL.md" {
+			continue
+		}
+		skills++
+		if want := "---\nname: " + filepath.Base(dir) + "\n"; !strings.HasPrefix(body, want) {
+			t.Errorf("%s does not open with frontmatter %q, the directory it is installed as", skillFiles[i], want)
+		}
 		for _, line := range strings.Split(body, "\n")[1:4] {
 			v, ok := strings.CutPrefix(line, "description: ")
 			if ok && (strings.Contains(v, ": ") || strings.Contains(v, " #") || strings.ContainsAny(v[:1], "'\"&*!|>%@`[]{}")) {
 				t.Errorf("%s: the description is not a valid YAML plain scalar (\": \", \" #\" or a leading indicator): %.80s", skillFiles[i], v)
 			}
 		}
+	}
+	if skills < 4 {
+		t.Errorf("read %d SKILL.md frontmatters, want the four that ship", skills)
 	}
 }
 

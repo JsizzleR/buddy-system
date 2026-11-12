@@ -1,7 +1,9 @@
 # A drop-in model router skill: routes from a user's own past sessions, counts only
 
-Status: PLAN, nothing built (2026-11-12). Written by the `router-skill` lane
-(Opus 5.5, xhigh) under orc-20's brief. Base: main at 03da68d.
+Status: phase 2 BUILT (2026-11-12, D-177): `skills/model-router/`, measured in
+section 16. Phase 3 is still a plan. Written by the `router-skill` lane (Opus
+5.5, xhigh) under orc-20's brief, base main at 03da68d; phase 2 by the
+`model-router` lanes under orc-21's.
 
 Sources:
 - the operator's request;
@@ -13,9 +15,9 @@ Sources:
 
 The Fable cross-check of that fold and one Codex re-verify are in section
 13, both folded. The round ceiling is reached.
-Nothing here is a decision and no skill ships with it. The operator decides
-from this plan, and what becomes a decision takes its D-number when a phase
-lands.
+Phase 2 shipped as D-177, on the orchestrator's defaults for section 14's
+decisions (section 14 lists them, for the operator to overturn). Phase 3 is
+not a decision: it takes its D-number when it lands.
 
 The register is `ROUTING-PLAN.md`'s. Every part names the failure it answers,
 the number it rests on, how to re-run that number, the alternative it refuses,
@@ -302,13 +304,20 @@ The shipped script does neither. Everything it uses is one of three things:
   id prints as `(other)`. Repetition is not approval: ten planted transcripts
   repeating one id gain nothing (Codex C1, against F14's count floor);
 - the one exception is the user's draft. Before a cap exists, `scan`'s print
-  and `cap-template` name ids that pass the gate and are seen in at least 10
-  tasks, since the user needs them to write the cap. The table names ids by
-  the same rule. A pick or a report reads only a table scanned under its own
-  cap (rule 4 checks the cap's sha256), so a draft-era id never reaches either.
-  **Residual:** a gate-passing token, such as a hyphenated phrase, planted in
-  10 transcripts could reach a draft the user reads. The SKILL.md has the
-  model show the draft as data and act on none of it;
+  and `cap-template` name ids that pass the gate and lead 10 or more of the
+  tasks the table keeps (main and subagent, in scope, not dropped as a
+  conflict), at most 8 of them, the most-used first, since the user needs
+  them to write the cap. CHANGED in the fold (panel F1): the floor first
+  counted every task, so one file could hold all 10, and nothing bounded how
+  many ids a planted store got named. The table names ids by the same rule,
+  and its reader enforces it (code pass B1). A pick or a report reads only a
+  table scanned under its own cap (rule 4 checks the cap's sha256), so a
+  draft-era id never reaches either.
+  **Residual:** a writer of the transcript store can plant enough tasks for a
+  gate-passing token, such as a hyphenated phrase, to be named in the draft,
+  and to lead the most main tasks and so set its `default=`. The draft is
+  undated data, which parses as no cap until the user dates it, and the
+  SKILL.md has the model show it as data and act on none of it;
 - every printed id sits in one fixed-width column on one line, invariant 9's
   shape.
 
@@ -420,7 +429,8 @@ answers (F17):
    line ROUTING-PLAN can read carries no `assign=`, so there `tiers=` keeps
    its meaning: the trial's tiers. **Residual:** a coordinator calling with
    neither `--tier` nor a `tiers=` line looks the same as a user without
-   buddy. The fleet skill's pick recipe always passes `--tier`.
+   buddy. A coordinator passes `--tier` as the router's SKILL.md teaches;
+   the fleet skill names no pick recipe.
 4. **A trial that cannot be checked** (phase 3). Rules 4-6 apply only to a
    class opened in the trial with today inside `starts=`..`ends=` (X3). For
    such a class, any of these gives `pick=<default> by=no-fresh-table`:
@@ -684,8 +694,9 @@ from a per-task call that names its paths (F4).
    confounded; and which signals are live for this user.
 3. It runs `router.py cap-template` and shows the draft:
    - `default=` is the user's most-used main model at its most-used effort;
-   - `assign=` lists each class where the user already ran a second model at
-     least 10 times (here, qa: 71);
+   - a commented `assign=` candidate for each class where the user already
+     ran a second model at least 10 times (here, 5 classes: M17), left out of
+     the line for the user to move in (section 15);
    - `review=` and `trial=` are blank, with the models seen listed beside
      them;
    - `decided=` is blank.
@@ -939,15 +950,28 @@ ceiling is reached, so no review checked these folds.
 
 ## 14. Open
 
-- **The operator's decisions:**
-  - whether phase 2 is wanted;
-  - its home (section 8);
-  - its tier (section 10);
-  - `assign=` (section 6);
-  - subagent routing (below);
-  - one parser for ROUTING-PLAN step 4 (section 6);
-  - whether the probe is kept in the repository (section 0);
-  - whether the M-table's machine profile stays in a public plan (F16).
+- **The operator's decisions.** None is answered yet. Phase 2 was built on the
+  orchestrator's defaults (orc-20, relayed by orc-21 on 2026-11-12, under the
+  operator's word "go with what you think is a sane default"). Each is the
+  orchestrator's, not the operator's, and the operator can overturn it:
+  - phase 2 is wanted: built;
+  - its home (section 8): `skills/model-router/`, shipped with the set;
+  - its tier (section 10): full;
+  - `assign=` (section 6): yes. The draft lists candidates and never routes
+    one (M17);
+  - subagent routing (below): the "none" arm;
+  - one parser for ROUTING-PLAN step 4 (section 6): yes. `router.py`'s parser
+    is that parser, and step 4 has not adopted it yet;
+  - the probe in the repository (section 0): yes, as phase 2's starting point.
+    `router.py` started from its tables and class rule, and dropped its text
+    checks, the Codex state database and the ledger join;
+  - the M-table's machine profile (F16): it stays in this plan, as counts
+    only.
+- **The draft's candidates** (M17, a lane decision taken as the safer option).
+  The design put the observed splits into the draft's `assign=`. Measured,
+  that drafted five routes here, and none matched the operator's rules, so
+  they now sit on a commented line. Restoring them to the line is the
+  operator's call.
 - **Subagent routing** (Codex C2, the cross-check's ruling). The plan routes
   no subagent until a pin is measured, and that costs a single-session user
   most of day 1: a scan, a draft, and a pick only when opening a new session.
@@ -964,19 +988,53 @@ ceiling is reached, so no review checked these folds.
     family-valued, and `review=`'s exact ids cannot hold against an alias
     that moves.
 - **Left at the round ceiling** (section 13):
-  - **R5, X2's residual.** A full-tier call that omits `--tier`, against a
-    line with no `tiers=` and with an `assign=`, gets the assignment. The
-    closure, for phase 2's own design pass: every non-default pick requires
-    `--tier`, with a `none` value for a user without tiers, so an omission
-    defaults. It is not folded here, because no review round is left to check
-    a new value in the grammar.
-  - R1-R4 were folded after the last review round, so no review has read
-    them.
-- **The pre-cap draft** can carry a gate-passing token planted in 10
-  transcripts (section 3, C1). The draft is shown as data, and the user writes
+  - **R5, X2's residual: CLOSED in phase 2** (section 15). Every non-default
+    pick requires `--tier`, `none` included, so an omission defaults. Phase
+    2's design pass read the closure. The residual is now a false statement:
+    a full-tier item typed `--tier none`.
+  - **Phase 2's re-verify, round 2 (the ceiling), two notes answered:** the
+    work-tree walk continues past a component that is a regular file
+    (`file/../repo/../store`), so it can refuse a path the kernel would refuse
+    anyway with ENOTDIR: it refuses more, never less. A relative path named
+    to `scan` or `cap-template` from a deleted cwd exits 3 (the type only, as
+    every internal error); nothing is read or written.
+  - R1-R4 were folded after the last review round. R1 (`eligible` in the row
+    key) and R3 (every write refused in a work tree) are built in phase 2, and
+    its reviews read them. R2 and R4 belong to phase 3's counts file and
+    baseline, and no review has read them yet.
+- **The pre-cap draft** can carry a gate-passing token planted in enough kept
+  tasks to be named, and can take its `default=` from one (section 3, C1,
+  panel F1). The draft is undated data, shown as data, and the user writes
   the cap.
-- **How many of the 112 duplicate records conflict** is NOT MEASURED (section
-  2). Phase 2 measures it.
+- **Lane decisions in the fold,** each the safer option, the operator's to
+  overturn: at most 8 ids named before a cap; one broad per-file catch
+  (`FILE_ERRORS`) turns any decode or shape error into a refusal; only a
+  `--claude` or `--codex` NAMED inside a work tree is refused, so a default
+  `~/.claude` kept in git still scans; a group-writable cap is accepted
+  (a umask of 002 makes every file one) and a world-writable one refused; a
+  linked worktree is known only by its git directory's `commondir`, else the
+  walk climbs on and protects more; a refused scan removes its target's old
+  table; the table's reader enforces the naming rule before a cap.
+- **Whether a resumed Codex rollout copies its parent's events** is NOT
+  MEASURED (code pass B6). Codex records carry no uuid, so nothing dedups
+  them, and a copy would count twice.
+- **Answered, no change** (panel, cross-check and code pass): the fence keeps
+  `=`, since a caller's path is one token; the Go skill check sees only
+  backticked `buddy` spans, every skill's rule; the planted canaries' controls
+  prove each file was read; a FIFO named `*.jsonl`, a dead automount and a
+  symlinked project directory are skipped as not regular files or not
+  directories; the version ranges are harness versions, not a default; the
+  fixture ids are test data. B5: a main-file record marked `isSidechain` is
+  skipped before any field is read, so it is no counted copy and cannot
+  conflict, and moving the skip after the dedup would let it shadow the
+  subagent file's equal copy. B6: content dedup would merge genuinely repeated
+  events (above).
+- **How many of the 112 duplicate records conflict:** MEASURED in phase 2
+  (M16). 16 of the 28 duplicated uuids conflict, and they take 5 subagent
+  tasks out of every cell.
+- **A stop reason is never printed.** It feeds only `abandoned`'s count. So
+  the mutation run's "a raw stop reason leaks" mutant has no print to reach
+  (section 16).
 - **The class rule's accuracy** was measured on 38 buddy items only: 71%
   agreement, and the misses are activity against intent (M13). For a
   non-buddy user's work it is NOT MEASURED.
@@ -990,3 +1048,436 @@ ceiling is reached, so no review checked these folds.
 - **The record formats are internal to each harness.** The version ranges
   turn a renamed field into "not comparable", not into a zero. A harness
   release can still retire a field the router needs.
+
+## 15. Phase 2 build plan (for the design pass)
+
+Written by the `model-router` lane before any code, for the Codex design
+pass. The orchestrator defaulted section 14's decisions; the lane's READY
+records each one. What this section fixes that sections 1-14 left open is
+marked **NEW**; a departure from them is marked **CHANGED**, with the reason.
+
+**Files.** `skills/model-router/`, installed with the set by the existing
+`install-skill.sh` and removed by `uninstall.sh` (both enumerate
+`skills/*/`, so neither changes):
+
+- `SKILL.md`: frontmatter `name: model-router` and a description of about
+  400 bytes that triggers on a `route-cap` line or an explicit ask. The body,
+  at most 4,096 bytes, is section 7's "what the SKILL.md tells the model". It
+  names no model, date or operator default (D-114), and no buddy verb (below).
+- `router.py`: Python 3.8+, stdlib only, run as `python3 -I`. It starts from
+  the phase 1 probe's tables and class rule (section 0, sha256 `1cf1b61f…`),
+  so M4-M7 reproduce by the same rules. It drops the probe's text-prefix
+  checks, the Codex state database, the ledger join and the cut signals.
+- `reference.md`: the grammar, each refusal, the pick rules, the class rule,
+  the signals and their version ranges, the table format, the files and
+  modes, the exit codes. About 8 KB, read on demand.
+
+**Verbs, arguments, exit codes.** NEW: arguments are parsed by hand, not by
+`argparse`. `argparse` echoes a bad value in its error (`invalid choice:
+'<value>'`), and a value here is model-written input. A refusal names the
+flag, never the value.
+
+```
+router.py scan [--claude <dir>] [--codex <dir>] [--out <file>] [--cap <file>] [--cwd-under <dir>]
+router.py cap-template [--table <file>]
+router.py pick --cap <file> --role main|sub (--class <c> [--touch <path>]... | --all) [--tier chore|lite|full|none]
+router.py --self-test
+```
+
+- Exit 0: a table written, a draft printed, or a `pick=` line.
+- Exit 1: a `no pick: <reason>` line, or a self-test failure.
+- Exit 2: a refusal (a usage error, an unreadable source, a write target in
+  a work tree, a refused table). It writes no table.
+- Exit 3: an internal error. It prints `router.py: internal error <type>`,
+  the exception's type and never its message (F15).
+- `report` is phase 3 and refuses as an unknown verb.
+
+**The grammar, exactly.** A cap line is any line of the `--cap` file that
+begins at column 0 with `route-cap` followed by a space, a tab or the end of
+the line. A line that only starts `route-cap` and is malformed is refused,
+not skipped. No other line is parsed or printed.
+
+```
+line    = "route-cap" 1*(" " token)       ; bytes 0x20-0x7e only, at most 1,024; one trailing CR stripped
+token   = key "=" value                    ; each key at most once
+mid     = id ["@" effort]                  ; split at the LAST "@" only when the suffix is an effort
+id      = 1*64 of [a-z0-9._:@-], containing "claude" and a digit
+effort  = low | medium | high | xhigh | max
+class   = code | writing | research | data | ops | qa  (docs reads as writing, test as code)
+roles=   main | sub | main,sub              ; absent: main. Phase 2: any value naming sub refuses
+default= mid                               ; required
+assign=  class ":" mid *("," class ":" mid)
+trial=   mid, with classes= class *("," class), floor= events= 1..1000, worse= 1..1000 "x", starts= ends= date
+review=  id *("," id)                      ; no @effort: a review model is excluded whatever its effort
+tiers=   tier *("," tier), tier = chore | lite
+protect= prefix *("," prefix)              ; 1..256 of [A-Za-z0-9._/-], no ".." component, folded to lower case
+decided= date                              ; YYYY-MM-DD, a real calendar date; blank is undated
+```
+
+Each of these means no cap, and each gets a refusal test with its positive
+control: no cap line; two cap lines; a duplicate or unknown key; a byte
+outside 0x20-0x7e, or a line over 1,024 bytes; an empty element (`assign=,`);
+a number outside 1..1000; an id failing the gate (an alias, a Codex id, a
+`[1m]` suffix); `default=` missing; `decided=` missing, blank or not a date;
+`roles=` naming `sub`, or any other word; an `assign=` class outside the
+list, `review` among them, or assigned twice; the trial group incomplete;
+`trial=` equal to `default=` as model at effort, or naming the same id
+without `@<effort>` on both sides (D4); `starts=` after `ends=`, or more than
+14 days before it (D5); an id with a `latest` component (D6); a class both assigned and in
+`classes=`; a `review=` id in `default=`, `assign=` or `trial=` (compared by
+id, whatever the effort); `tiers=` naming `full`, `none` or another word; a
+date after `ends=` (today, UTC); a cap file that is not a regular file, is
+over 1 MiB, or resolves inside a git work tree (section 6).
+
+- NEW: the id gate needs a digit as well as `claude`. Every alias the
+  harness takes (`opus`, `sonnet`, `haiku`, `fable`, `inherit`) already fails
+  on `claude`; the digit also refuses a family name such as `claude-opus`.
+  The one gate serves the cap, the scan and the table.
+- NEW: the trial group parses under its refusals, because the grammar is
+  ROUTING-PLAN step 4's too. In phase 2, a class opened in a trial answers
+  `pick=<default> by=default why=trial-not-built`, and `scan` builds no
+  counts file and freezes no baseline. A user who writes a trial line sees
+  that it is not running.
+- NEW: the cap's sha256 is over the cap line's own bytes, not the whole file.
+  An edit elsewhere in the user's `CLAUDE.md` must not change the cap's
+  identity. That matters in phase 3, where the counts file is keyed by it.
+
+**The pick, phase 2 (rules 1-3, 7 and 8).** First match answers.
+
+1. `no pick: <reason>`. The reasons are `--role sub` (the Agent tool cannot
+   pin an exact id), no cap file given, and the cap file unreadable, too
+   large, not regular, or in a work tree. A cap line missing, refused or
+   past `ends=` gives one too. The reason comes from a fixed list and never
+   quotes the file.
+2. `--class review`: `no pick: review`.
+3. The eligibility predicate. One function, checked before rule 7. Its first
+   failing clause answers `pick=<default> by=default why=<clause>`, from a
+   fixed list:
+   - `not-assigned`, or `trial-not-built`;
+   - `full-tier`: `--tier full`;
+   - `no-tier`: `--tier` omitted;
+   - `tier-not-listed`: a line with `tiers=` and a `--tier` it does not
+     list, `none` included; or a line without `tiers=` and a `--tier` other
+     than `none`;
+   - `protected`: a `--touch` path matches the shipped list or `protect=`.
+     Each path is matched as given and as its resolved real path, on every
+     component, after `\` folds to `/` and invariant 13's NFC lower case.
+     A `protect=` prefix matches any component suffix in invariant 14's
+     shape, so `internal` covers `/x/repo/internal/cli/a.go`;
+   - `no-touch`: an editing class (code, writing, data, ops) with no
+     `--touch`.
+7. `pick=<id>[@<effort>] by=assign`.
+8. Otherwise `pick=<default> by=default why=not-assigned`.
+
+**The R5 closure** (section 14). NEW: `--tier` takes a fourth value, `none`,
+for a user with no tiers. Every non-default pick requires `--tier`. `none` is
+admitted only against a line without `tiers=`, and `chore` or `lite` only
+against a line whose `tiers=` lists them. `full` is never admitted. An
+omitted `--tier` defaults, whatever the line says. The residual moves from
+an omission to a false statement: a coordinator must type `--tier none` for
+a full-tier item to reach an assignment. A coordinator passes the item's
+tier, as the router's SKILL.md teaches (the fleet skill names no pick
+recipe), and its brief carries it.
+
+**Output.** One line per pick:
+
+```
+pick=<id>[@<effort>] by=<assign|default> [why=<clause>] cap=<path> sha256=<12 hex> decided=<date>
+```
+
+- The cap path goes through one fence. Any byte outside 0x21-0x7e becomes
+  `?`, and the path is capped at 256 bytes, in invariant 9's shape. Every
+  other value comes from a fixed list, or is a number, a gated id, a hex
+  digest or a date.
+- `pick --all` prints a first line saying the print is data and confers no
+  authority, then one line per class: `class=<c> pick=...`. A row that would
+  be an assignment but needs paths prints the default with `why=no-touch`,
+  as `needs --touch` in section 7.
+- `scan` and `cap-template` open with the same line.
+
+**Sources and refusals** (section 2), with these NEW details:
+
+- Files are read in (mtime, path) order, so a resumed session's original
+  file comes before its copy.
+- CHANGED (design pass D3): every line is parsed. A record whose `type` is
+  exactly `api-request`, `api-request-blob` or `api-request-shape` is then
+  skipped. Section 2's "skipped before parsing" let an interior line holding
+  only `{"type":"api-request` pass as skipped instead of refusing.
+- Malformed means `json.loads` failed or gave a non-object; an empty
+  interior line is malformed.
+- Subagent transcripts are `<project>/<session>/subagents/**/agent-*.jsonl`.
+  The alias-drift count joins an Agent call's `input.model` to the model of
+  `agent-<toolUseResult.agentId>.jsonl`. Ids and aliases are held as salted
+  in-memory hashes, and only the count is printed.
+
+**Duplicates, NEW detail.** Each record gets an in-memory digest: a salted
+hash of the RAW values of every field the scan reads, before any reduction
+(design pass D12). `pytest a.py` and `pytest b.py` both reduce to `test`,
+but they differ, so they conflict. A second copy with an equal digest is
+skipped. A copy with a different digest is a conflict. **Every task that
+holds any copy of a conflicting uuid is left out of every cell,** equal copies
+included (D11: copies A and C agree and B differs, so all three tasks go).
+Dropping one record would change its task's class. `conflicts=` counts the
+uuids, and `conflict_tasks=` counts the tasks.
+
+**The table** (section 7) is TSV with:
+- a magic and version line;
+- one header line of `key=value` fields, each validated on read;
+- the column names, then the rows;
+- a trailer, `#end rows=<n> sha256=<hex of every byte above>`.
+
+The row key is `role class tier model eligible`:
+- `role` is `main`, `sub` or `codex`;
+- `tier` is `-` in phase 2;
+- `model` is `<id>@<effort>`, or `(other)@<effort>` for an id not named.
+
+Ids are folded BEFORE rows are built, so two folded ids share one row.
+
+- Every Codex id folds to `(other)` (section 3).
+- Signals are `fired/covered`, or `-` where a role has no such field.
+  Subagents have no interrupt and no end state (M9). Codex has no
+  `user_reject` and no `policy_denied`.
+- `covered` counts the tasks whose every record falls inside the field's
+  shipped version range. The ranges come from section 0's coverage table
+  (`interruptedMessageId` 2.1.292 to 2.1.322; `permissionDecision` and
+  `toolDenialKind` 2.1.296 to 2.1.322). A newer harness reads as not
+  covered until the ranges are re-shipped. Phase 2 only prints signals, so
+  that costs a display.
+
+**`cap-template`** reads the table (validated, never re-scanned) and prints:
+- a draft line with `decided=` blank, which parses as no cap;
+- `default=` set to the main model and effort of the most main tasks;
+- CHANGED after measurement (M17): a `# assign= candidates` line, never
+  `assign=` in the draft line itself. For each routable class it names the
+  most-used non-default main model with at least 10 tasks in that class, and
+  the user moves in only the routes they choose. Dated unedited, the draft
+  routes nothing off the default;
+- a `#` line naming the ids the naming rule names (CHANGED, section 3: 10
+  or more kept tasks, at most 8), as candidates for `review=`;
+- one `#` line per candidate, with its counts and "confounded: chosen per
+  task".
+
+A candidate can name a model the user keeps for reviews. Moved into the line,
+it refuses (a `review=` id in `assign=`) once the user fills in `review=`,
+which is the safe direction. Here, 2 of 5 candidates did (M17).
+
+**Writes.** The state dir is `${XDG_STATE_HOME:-~/.local/state}/model-router/`.
+- It is created 0700, and an `XDG_STATE_HOME` that is not absolute is
+  ignored.
+- Each target's directory is resolved and refused inside a work tree,
+  before any byte is written. That covers the table, `refused.txt` and the
+  `--out` file.
+- An existing target that is a symlink or not a regular file is refused.
+- A write goes to a temp file in the same directory (0600), is fsynced,
+  renamed over the target, and the directory is fsynced.
+
+**The skill tests** (section 8). In `internal/cli/discover_help_test.go`:
+- `skillFiles` gains the three files.
+- Each file gets a kind:
+  - a buddy skill keeps its floor: 20 names for a SKILL.md, 5 for a
+    reference file;
+  - a **no-verb** skill (`model-router`) must report no error AND check
+    exactly 0 buddy names. A drop-in that works without buddy names no
+    buddy verb, and a bare backticked `--flag` is already an error ("a flag
+    with no verb named before it"), so its flags are written inside
+    `router.py ...` spans.
+- The no-verb rule's positive control: the same checker, run on each of
+  those files with a planted `buddy no-such-verb` span and a planted bare
+  `--flag` span, must report both. So "0 checked" means the file was read
+  under the rule, not skipped.
+- The YAML plain-scalar description check covers every SKILL.md, not only
+  the first three.
+- `check.sh`: the compile sweep and the `assert` scan cover `skills/*/*.py`,
+  and the hermetic tier runs `python3 -I -B skills/model-router/router.py
+  --self-test`.
+
+**`--self-test`** runs in process, against fixtures it writes under
+`tempfile.mkdtemp()`. It refuses to run if that directory is inside a work
+tree. It covers every case in section 10's phase 2 row, each refusal with
+its positive control. The canary is an upper-case token, so no fixed list
+and no id gate can pass it. It is planted in every text and enum-shaped
+field: message text, tool inputs, commands, paths, cwd, session ids, uuids,
+`model`, `effort`, `stop_reason`, `turnOrigin`, the `permissionDecision`
+fields, `toolDenialKind`, `version`, the Agent `model` input, and the Codex
+fields. The test fails if the canary reaches stdout, stderr or the table.
+`refused.txt` holds paths by design, so the test checks it holds only the
+refused files' paths. A lower-case gate-passing id planted in 12 tasks is the
+stated residual: it is named in the pre-cap draft, and as `(other)` under a
+cap.
+
+**Prose budget.** Two keys at the formula: `skills/model-router/SKILL.md`
+and `skills/model-router/SKILL.md:description`. The every-request class has
+3,566 bytes of headroom (33,298 of 36,864) and the per-session class 7,984
+(73,936 of 81,920), measured at `1f4fc58`.
+
+**Records.**
+- D-177, the next free number. The `decision` ids space's ceiling, 145,
+  trails the file, and seeding it is the operator's act.
+- CLAUDE.md: the skills line gains the number, and the repo map's skills
+  paragraph names the fourth skill.
+- `docs/README.md`: this plan's row.
+- `docs/USAGE.md`: a short section pointing at `reference.md`.
+- This plan: status, the measurements (M14 onward), and what stays open.
+
+**The Codex design pass on this section.** One pass on 1f4fc58..2ca9f22,
+through `scripts/codex-review.sh`: gpt-6-astra at xhigh, header verified,
+`CODEX_CHARTER=process`, 497 s, rc 0. Verdict: "build with the listed
+fixes". It answered Q2 (cap widening) and Q6 (the test change) NO defect, Q4
+(R5) sound. **It raised 12: 6 P2 and 6 notes. 10 were fixed in the design,
+and 2 are answered.** The code follows the fixes.
+
+| # | finding | taken |
+|---|---|---|
+| D1 | P2. A refusal "names the flag", so an unknown argv token holding a newline could be echoed into a fake output line | fixed: every refusal is a constant string; a flag is named only from the parser's own table |
+| D2 | note. The `refused.txt` location could carry a newline from `XDG_STATE_HOME` | fixed: that path goes through the same fence as the cap path |
+| D3 | P2. The `api-request` prefix skip let a torn interior line pass | fixed: every line is parsed, then skipped by exact `type` (above) |
+| D4 | P2. An effort trial with no `@` on `default=` parsed (section 6) | fixed: when `trial=` and `default=` name one id, both carry `@<effort>` and the efforts differ |
+| D5 | P2. `starts=` after `ends=`, or a window past 14 days, parsed (section 5, F19) | fixed: `starts=` <= `ends=`, at most 14 days apart |
+| D6 | note. `claude-example-1-latest` passes the gate; a harness alias of that shape would be pinned to nothing | in part: an id with a `latest` component refuses. A moving alias of another shape is a residual (section 14) |
+| D7 | note. `route-cap` followed by a tab is recognized, which section 6's literal `route-cap ` was not | fixed, CHANGED: recognized so that it refuses, rather than being silently ignored |
+| D8 | note. A single pick printed no "confers no authority" line (section 7) | fixed: every print opens with that line, a pick included |
+| D9 | note. `check-skill.sh` and `uninstall.sh` were outside the reads it was allowed | answered: the hermetic tier runs both against the fourth directory |
+| D10 | note. Section 10's measurements must be in the acceptance list | answered: they are M14 onward, below |
+| D11 | P2. Three copies of one uuid, A and C equal and B different: "both tasks" leaves C counted | fixed: every task holding any copy goes (above) |
+| D12 | P2. Reduced-label equality is weaker than section 2's "every field the scan reads" | fixed: the digest is over raw values (above) |
+
+**The fold: panel, cross-check, code pass, re-verify.** The panel read
+005c4ed: four read-only lenses, three on Opus at xhigh (the fence and the
+canary, the cap's refusals, portability) and one on Fable at xhigh
+(injection through transcripts into a model's context, and privacy). The
+Fable cross-check read the same at xhigh. The Codex code pass read 35a9212
+as two scoped passes (A: refusals, fences and the pick, 348 s; B: the table
+reader, the scan and the tests, 319 s). The re-verify read each round's
+fixes (203 s and 206 s). Every Codex pass ran gpt-6-astra at xhigh, header
+verified, `CODEX_CHARTER=process`, rc 0. Each fix has a test watched to fail
+without it (M20). CHANGED marks a change to what this section says above.
+
+| # | finding | taken |
+|---|---|---|
+| G1 | P1, cross-check. An `@` suffix outside the effort list (`@ultra`, `@x@high`) stayed in the id, so `review=` missed it: `assign=qa:claude-fable-5-2@ultra review=claude-fable-5-2` picked the review model | fixed, CHANGED: every `@` part holds a digit, and `review=` compares ids by the part before the first `@`, in the cap and in the table's review class |
+| O1 | P1, cross-check. An EACCES read as absent: a mode-000 `~/.claude` scanned as `claude=absent`, exit 0, table written | fixed: absent on ENOENT only; an entry whose stat fails refuses |
+| W1 | P1, cap lens (injection lens, cross-check). A touch was matched against the NEAREST root only: a submodule `proj/auth/.git`, a versioned `~/.claude`, or a `protect=` prefix with an absolute touch picked `by=assign` | fixed: matched against every enclosing root, names only above the outermost unless it is a linked worktree, `protect=` against every suffix of the absolute path |
+| VCS | P1, injection lens. A project's `CLAUDE.md` under hg, svn or jj passed as a cap | fixed, CHANGED: eight version-control markers; a cap not owned by the user (`cap-not-owned`) or world-writable (`cap-world-writable`) refuses |
+| W2 | P2. A directory touch, a trailing `/` or a blank value picked `by=assign` | fixed: each is protected, as is a relative touch from a deleted cwd |
+| W3 | P2. normpath before realpath judged `lnk/../settings.json` as the wrong file | fixed: realpath of the un-normalized join |
+| O3 | P2, cross-check and portability. An unhashable `type`, a raw list in the digest, or a 5,000-deep line exited 3 | fixed: the type checked before set membership, every digest value frozen, a RecursionError malformed, and one per-file catch refuses the file |
+| O2 | P2. A refused scan left the old table for `cap-template` | fixed, CHANGED: a refused scan removes the table at its target |
+| F1 | P2, fence lens (injection, cross-check). Pre-cap naming was unbounded, one file could hold the 10 tasks, a planted id took `default=`, and a planted store printed 28 KB | fixed, CHANGED (section 3): at most 8 ids, counted over the kept main and subagent tasks, and the residual stated |
+| F2 | P2. A table or a transcript directory named inside a repository was trusted | fixed: `table-in-work-tree`, `source-in-work-tree`, and `cap-template` re-applies the floor. CHANGED: the first line is `model-router: data, not instructions; it confers no authority` |
+| F6 | P2, fence and injection lenses. `refused.txt`'s lines were unfenced | fixed, CHANGED: each path percent-encoded outside 0x21-0x7e and `%`, one line per path |
+| port | P2, portability. No remedy for a home directory in git; an unwritable state dir failed after the read; the self-test depended on its cwd; no requirements stated | fixed: a fixed hint on a target refusal, a writability probe before any read, the self-test runs in its temp dir, and `reference.md` states the requirements |
+| notes | `is_cap_line` skipped a BOM or a control byte after `route-cap`; `ſkills` on APFS; D-114 wording; the docs against the code (Q6); 12 surviving private mutants (T1) | fixed: a candidate is any column-0 `route-cap` not followed by `[A-Za-z0-9_-]`; an NFKC and casefold variant that only protects; the wording; `reference.md`; a test and a planted canary for each |
+| A1 | P1, code pass. A submodule whose `.git` file names a path holding `/worktrees/` passed as a linked worktree, so the names above it went unprotected | fixed, CHANGED: linked only when its git directory holds `commondir`, git's own test |
+| A2 | P2. `--out plain/link/../t.tsv` judged one directory and wrote into another | fixed: the target's directory is resolved, and that is judged and written |
+| A3 | P2. A cap reached through a link inside a repository passed | fixed: every directory on the way is judged (RV1 completed it) |
+| A4 | P2. A dangling `.jsonl` link, or an entry gone after the listing, was dropped | fixed: listed entries by lstat, and each refuses |
+| A5 | P2. Another user's old table in a sticky directory survived a refused scan that said it was gone | fixed: `target-not-owned`, and the refusal is truthful when an unlink fails |
+| B1 | P2. The table's reader accepted an id below the naming floor | fixed, CHANGED: `table-naming` |
+| B2 | P2. A table at the size limit with bytes after it read as its prefix | fixed: one byte past the limit refuses (`table-too-large`) |
+| B3 | P2. `requestId` was missing from the digest | fixed |
+| B4 | P2. The digest took `1000` and `1000.0` for one value | fixed: scalars tagged by type |
+| B5 | P2. A main-file sidechain copy is skipped before the dedup | answered (section 14) |
+| B6 | P2. Codex records are never deduped | answered; a resumed rollout's copies NOT MEASURED (section 14) |
+| B7 | note. The canary under `item.kind` never reached its read | fixed: planted under `type: Extension` |
+| RV1 | P1, re-verify round 1. `plain/entry -> repo/escape -> store`: realpath of each prefix jumps past `repo` | fixed: the path is resolved one component at a time, as the kernel does, every directory it stands in is judged, and past 40 links it refuses |
+| RV2 | two notes, re-verify round 2 ("ship as is") | answered (section 14) |
+
+The lenses raised 19, counted from the lane's triage list (some raised by
+more than one lens), and the cross-check 9: all fixed. The code pass raised
+12: 10 fixed, 2 answered. Round 1 raised 1, fixed, and accepted B5's and
+B6's answers. Round 2 raised 2 notes, both answered: the round ceiling.
+
+## 16. Phase 2: what was measured
+
+`router.py` as built, on this machine, 2026-11-12. Two scans ran minutes
+apart: the shipped `scan` (its print and table), and a counts-only harness
+over the same `Scan` object, for the numbers the print does not carry
+(`measure.py` in the lane's scratchpad, as the probe was; F22's repository
+copy stays OPEN), and a sum over the table's own rows for the per-cell
+figures (`agg.py`, beside it). Both print integers and ids the script itself names, and no
+text. The window moves between runs (M2), so a figure drifts by a few tasks.
+
+```sh
+XDG_STATE_HOME=<dir> /usr/bin/time -l python3 -I skills/model-router/router.py scan --out <dir>/table.tsv
+python3 -I skills/model-router/router.py cap-template --table <dir>/table.tsv
+python3 -I skills/model-router/router.py pick --cap <file outside any work tree> --role main --all --tier none
+python3 -I -B skills/model-router/router.py --self-test
+```
+
+| # | figure |
+|---|---|
+| M14 | **Version ranges,** measured for the shipped `CLAUDE_RANGES`: `interruptedMessageId` 2.1.292 to 2.1.322; `permissionDecision` and `toolDenialKind` 2.1.296 to 2.1.322; Codex `turn_aborted` interrupts 0.144.3 to 0.166.0, in rollouts 0.136.0 to 0.166.0. Every Claude user record carries a version |
+| M15 | **Read cost and print sizes,** at the lane's tip after every fold (b130a28). One scan: 60.0 s wall, 45.1 s user and 3.5 s system, peak RSS 283 MB, at a 1-minute load of 9.6 (12 CPUs). It parses every line, `api-request` records included (D3), and is still faster than the probe's 88-197 s (M3), which also read the Codex state database and the ledger. (The build's run, before the fold: 61.7 s wall at a load of 51.) The print is **1,770 bytes**, a 137-byte table path among them (section 9 estimated at most 2 KB). The table is 10,367 bytes, 135 rows. `cap-template` prints 1,334 bytes, one `pick` 296 and `pick --all` 702, each with a 136-byte cap path. The self-test: 345 checks; 103 runs of it took 13.9 s on 4 workers (M20) |
+| M16 | **Duplicates.** 28 uuids carry the **112** extra copies section 2 counted. **16 of the 28 conflict** on raw values (D12), unchanged by the fold's `requestId` and typed values (B3, B4). They take **5 tasks** out of every cell (`conflict_tasks=5`), all of them subagent tasks: 0 of 2,621 main, 5 of 2,007 sub, 0 of 5,807 Codex |
+| M17 | **The draft against the operator's actual rules** (`~/.claude/CLAUDE.md`, `~/.claude/fleet-decisions.md`: every lane on the default lane model at high effort unless the operator names one; Fable for reviews only; Sonnet or Opus for side work). `default=claude-opus-5-5@high` matches the lane rule. Section 15's rule drafted **five assignments** into the line: code, research and qa to `claude-sonnet-5-5` (19 of 732, 19 of 101 and 71 of 450 main tasks), and writing and ops to `claude-fable-5-1` (21 of 579, 85 of 427). **None of the five matches the operator's rules.** Two put a review model on a class, so the line refuses once `review=` names it, which is the safe direction. The other three would have routed lanes off the default. So the candidates moved out of the line (section 15, CHANGED): the line now drafts `default=` alone, and the five sit on a `# assign= candidates` line |
+| M18 | **M4-M7 reproduced** (the tip's run; the probe's figure in parentheses). M4, main requests: `claude-opus-5-5` 127,864 of 134,472 (95.1%; probe 124,306 of 130,902), `claude-fable-5-1` 3,204 (3,204), `claude-fable-5-2` 1,255 (1,243), `claude-sonnet-5-5` 696 (696), `(other)` 1,453, which is the probe's `opus-4-7` 817 plus `opus-4-8` 636, each under the naming floor. Subagents: 43,401, 7,648, 2,880 and 1,522 (42,820, 7,638, 2,844 and 1,182). M5: 1,125 main files, 2,621 episodes, 2,007 subagent tasks and 5,807 Codex rollouts (1,097, 2,585, 1,967, 5,742). M6, main cells: code opus 698, sonnet 19, fable-5-2 10; writing opus 542, fable-5-1 21, fable-5-2 12; qa opus 342, sonnet 71, fable-5-1 35; ops opus 340, fable-5-1 85; research opus 78, sonnet 19. Each is within a few tasks of the probe. Codex by class (ids `(other)`): qa 5,032, research 501, ops 98, code 85, writing 65. M7: main requests on tasks led by opus-5-5, high 123,875 and xhigh 3,930 (120,750, 3,556). Episodes on opus-5-5, high vs xhigh: code 671 vs 27, writing 508 vs 34, qa 327 vs 15, ops 327 vs 13 |
+| M19 | **M8 and M9 signals reproduced** (main tasks, fired/covered; the probe's in parentheses): `interrupt` 4/2,322 (4), `user_reject` 10/2,306 (10), `policy_denied` 1,012/2,306 (968, over cells of 10 or more), `test_red_end` 6/1,313 (6 of 1,262), `test_masked` 813/1,313 (764), `abandoned` 251/2,325 (233). Calls per task: main 60.1, sub 32.1, Codex 4.2. `tested`: main 1,313, sub 606, Codex 207. Subagent interrupts are 0/0, so none are covered and none are read as zero (M9). Codex interrupts: code 18/75, writing 13/59, research 11/487, qa 5/4,833. Protected tasks (not eligible): main 244, sub 23, Codex 30 |
+| M20 | **Mutation** (each in a private copy, run from a cwd outside its fixtures; the self-test must fail): **103 of 103 killed** at the tip. At the build, 41 of 41. The first run, of 39, left ONE survivor, and the test was fixed: a `--class` value printed in its refusal. The planted argv value began with `--`, so it stopped at "needs a value" before any value check ran. A value without the dashes now reaches the `--class`, `--role` and `--tier` checks, and the second run adds the `--role` and `--tier` mutants. Before the run, a new `t_fence` test was written for the fence (a newline in the cap path, `--out` or `XDG_STATE_HOME`), and the fence-identity mutant dies on it. The fold's mutants then ran after each fold: 97 after the code pass's, with one survivor (a `--claude` judged at itself only), whose test was then written, 97 of 97; and 6 more for re-verify round 1's fix, 103 of 103. The lists follow the table |
+| M21 | **Context bytes** (`check-prose-budget.sh --sizes`, at the tip). Description 395 bytes, on every request once installed. Body 3,694 of its 4,096 ceiling, per session that loads it. `reference.md` about 11 KB, read on demand. The every-request class is 33,904 of 36,864, and per-session 77,630 of 81,920. Neither class is raised |
+
+The mutants, each as mutant -> the first check that failed:
+- **leaks:** a raw Claude effort or a raw Codex effort -> "no canary in any
+  output, error or table"; a `--class`, `--role` or `--tier` value, or an
+  unknown argv token, in its refusal -> "argv refusal is constant"; an
+  exception's message printed -> "an exception prints its type only"; the
+  fence made the identity -> "a newline in the cap path stays on the pick line".
+- **the id gate:** no digit required, or a `latest` component allowed (D6) ->
+  "cap refusal bad-id"; the naming floor applied under a cap (C1) -> "under a
+  cap, only the cap's ids are named".
+- **the table:** the trailer hash, the row count, the duplicate cell key or
+  the row vocabulary each left unchecked -> its own "table refusal" check.
+- **the cap:** `review-id-routed`, `roles-sub`, `bad-byte`, the 14-day trial
+  window (D5), `effort-trial-needs-both` (D4) or `class-assigned-and-trial`
+  removed -> its own "cap refusal" check; the file's work-tree refusal removed
+  -> "a cap in a work tree, named from outside it, refuses"; that refusal
+  judged at the cwd (C9) -> "cap file control picks"; two cap lines accepted ->
+  "cap file refusal two-cap-lines".
+- **the pick:** `no-tier` moved after the assignment, R5 reopened (an omitted
+  tier admitted), `full` admitted, `no-touch` removed, the realpath dropped,
+  protection on the last component only (F4), or `protect=` ignored -> the
+  pick case or symlink check that names that clause.
+- **sources:** an interior torn line accepted, or an unreadable file skipped
+  -> "a refused scan prints no canary and writes no table"; `api-request`
+  skipped before parsing (D3) -> "a torn api-request line (D3) exits 2"; an
+  unreadable source read as absent -> "a projects path that is not a
+  directory refuses".
+- **duplicates:** the later copies' owners dropped (D11), or the digest taken
+  over reduced labels (D12) -> "a raw-value conflict (same label) takes all
+  three copies' tasks out".
+- **signals and writes:** version coverage always true -> "a version outside a
+  range is not covered"; the target's work-tree refusal removed -> "a state
+  dir inside a work tree refuses before writing"; a symlinked target accepted
+  -> "a symlinked --out refuses"; the temp file at 0644 -> "refused.txt is
+  0600".
+
+The fold's 62 mutants, each killed by the fold's own test for it (the
+mutation script names the first failing check of each):
+- **the cross-check's and the panel's** (G1, O1-O3, W1-W3, F1, F2, F6):
+  the `@` rule back to effort words or removed, a punctuation first byte,
+  `review=` compared by string in the cap or in the scan; an OSError or a
+  dangling link read as absent, `lexists` or `isdir` back, an entry of
+  unknown kind skipped; the nearest root only, the names above the outermost
+  root unchecked, the linked-worktree exception removed, `protect=` not
+  matched on the absolute path or its tail re-applying the names, the climb
+  stopping at the first root, `.git` the only marker; a directory, a blank or
+  a trailing-slash touch routed; realpath of the normalized join; the NFKC
+  variant removed; an uncaught `getcwd`; the cap's lexical directory, owner
+  or world-writable check removed; `is_cap_line` narrowed to a space, tab, CR
+  or end, or the BOM kept; the `type` tested raw, a raw `sessionId` in the
+  digest, RecursionError uncaught, the per-file catch narrowed; a refused
+  scan keeping the old table; no bound on pre-cap names, out-of-scope tasks
+  counted, the scan's id gate removed; a `--claude`, `--codex` or `--table`
+  in a tree accepted, `cap-template` drafting any named id; `refused.txt`'s
+  paths raw; a non-table `--out` replaced, no writability probe, no remedy
+  hint; the lexical absolute touch dropped; the self-test not in its temp
+  dir.
+- **the code pass's** (A1-A5, B1-B4): a linked worktree by substring; the
+  target not resolved; the cap judged at its target and lexical ancestors,
+  or a `--claude` at itself; a dangling `.jsonl` or a vanished entry
+  skipped; an unowned target accepted; the reader's naming rule removed, or a
+  Codex row allowed to name an id; the size check removed, or the read capped
+  at the limit; `requestId` out of the digest; scalars untagged.
+- **re-verify round 1's** (RV1): each prefix resolved on its own again; an
+  absolute link target taken as relative; links not followed; `..` a lexical
+  no-op; the loop guard answering not-in-tree; a visited directory not
+  judged.

@@ -1072,7 +1072,11 @@ ledger row entered through the CLI (D-006).
     are reference files beside its SKILL.md, which names each with when to read it and keeps
     the rules that refuse or lose work one line each; a skill is every file in its directory,
     installed reference files first with a manifest that removes a file the checkout dropped,
-    and uninstalled file by file (D-171).
+    and uninstalled file by file (D-171). A fourth, `skills/model-router/`, routes for any user
+    (D-177): a counts-only scan of their own sessions (no message text; an id named only as
+    their `route-cap` names it, or pre-cap at most 8 leading 10+ tasks), an undated draft, and a
+    pick never wider than their line. Do not propose a text mode, a subagent pick before a pin
+    is measured, or a draft that routes.
 
 116. **A brief names a review-round ceiling (D-115).** Lite: one code pass folded once; full: at most two re-verify rounds; at the ceiling, fold narrowly and record the rest open (D-106's folds regressed). Do not propose: re-verifying "until it accepts" without a named ceiling. (full text: `CODEX_CHARTER=process`)
 

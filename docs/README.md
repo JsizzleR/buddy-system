@@ -30,7 +30,7 @@ the skill in step with them.
 | [CODEX-ORCHESTRATOR-PLAN.md](CODEX-ORCHESTRATOR-PLAN.md) | Codex orchestration work order and receipts: participation, adapters, isolated native mixed-fleet exercise and offline compatibility diagnostic implemented; real-provider and recovery qualification remain open |
 | [BEYOND-CODE-PLAN.md](BEYOND-CODE-PLAN.md) | Plan, nothing built: buddy for workflows that are not code, one session over several coordinators with the operator watching one pane, and a model pick per item from measured lanes; counts from this machine, four options with their cuts, a landing order, and one Codex design pass folded in |
 | [ROUTING-PLAN.md](ROUTING-PLAN.md) | Plan, nothing built: a model pick per lane printed inside the operator's cap, never a launcher; today's counts, the cap's grammar, a staged rollout, a Fable ruling and a Codex pass folded in |
-| [ROUTER-SKILL-PLAN.md](ROUTER-SKILL-PLAN.md) | Plan, nothing built: a drop-in skill routing models from a user's own past sessions, counts only; this machine's counts, Fable and Codex folded in |
+| [ROUTER-SKILL-PLAN.md](ROUTER-SKILL-PLAN.md) | Phase 2 built (D-177): a drop-in skill routing models from a user's own past sessions, counts only; this machine's counts, Fable and Codex folded in |
 
 ## Working notes, kept as history
 

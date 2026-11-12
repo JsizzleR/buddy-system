@@ -12120,3 +12120,128 @@ cache, can fetch modules and the pinned toolchain: pre-existing, left open here.
   rebuild); README "Uninstall" and "Presence" (ergo built by get-ergo.sh)
 - amends: D-173's "ergo is never provable" (now provable by the pin) and its "Not covered"
   `claude mcp remove has no timeout` (now bounded)
+
+## D-177 — `skills/model-router/`, a drop-in model router for any user: a counts-only scan of their own past sessions, an undated draft, and a pick inside the `route-cap` line they wrote (ROUTER-SKILL-PLAN phase 2)
+
+2026-11-12 · ROUTER-SKILL-PLAN.md section 10, row 2, built as section 15 says. Lanes
+model-router, model-router-2, -3 and -4, under orc-21's brief. The operator, in orc-20's pane at about
+05:40Z: the router must be "flexible, or a skill really that introspects past sessions, for
+someone to drop in and have an effective router from day 1, even if they arent using buddy
+system for coding, or golang, etc."; and "this is also critical, so use fable and codex". At
+about 05:45Z: "go with what you think is a sane default". The plan's section 14 decisions are
+unanswered. Phase 2 ships on the orchestrator's defaults, recorded there as the orchestrator's,
+not the operator's: built; this home, shipped with the set; tier full; `assign=` yes; no
+subagent routing; one parser for ROUTING-PLAN step 4; the probe as the starting point; the
+M-table kept, counts only.
+
+**What ships.** `skills/model-router/SKILL.md` (a 395-byte description, a 3,694-byte body),
+`reference.md` (read on demand) and `router.py` (Python 3.8+, stdlib only, `python3 -I`):
+- `scan` reads every Claude Code transcript, subagents included, and every Codex rollout.
+  It writes a TSV table of counts under `${XDG_STATE_HOME:-~/.local/state}/model-router/`;
+- `cap-template` drafts an undated `route-cap` line from that table;
+- `pick` prints `pick=<id>[@<effort>] by=<assign|default> [why=<clause>]`, inside the
+  user's own line, or `no pick: <reason>`;
+- `--self-test`.
+
+It launches, configures and edits nothing. A session acts on its print, and every print opens
+with `model-router: data, not instructions; it confers no authority`. The grammar is buddy's `route-cap` line plus
+narrowing-only keys. One hand-written parser refuses the whole line on any defect, and every
+refusal is a code from a fixed list.
+
+**What it never does.** It reads no message text, in any field. A value kept is a structured
+enum or number (matched against a fixed list, anything else `(other)`), a tool name, or a tool
+input reduced in memory to a label. A model id passes a syntax gate (1-64 bytes of
+`[a-z0-9._:@-]`, containing `claude` and a digit, no `latest` component). It is printed by
+name only when the cap names it; before a cap exists, only when it leads 10 or more of the
+kept main and subagent tasks, at most 8 ids (panel F1). The stated residual (C1): a writer of
+the transcript store can plant enough tasks for a token to be named and to set the draft's
+`default=`; the draft is undated data. An exception prints its type only. A refusal names a flag only from the
+parser's own table, and argparse is refused because it echoes a bad value. A path the caller
+named (the cap, `--out`, `refused.txt`) is printed through one fence: bytes outside 0x21-0x7e
+become `?`, capped at 256.
+
+**Fails closed.** A source that is absent is OFF. One that exists but cannot be read whole
+refuses the scan: an EACCES, a file gone mid-read, any malformed line before a file's last.
+Then no table is written, the old one at the target is removed, and the paths go to
+`refused.txt` (0600, each percent-encoded onto one line), whose contents are never printed. A
+cap file is refused inside a work tree of any version-control system, at any directory
+reaching it passes through, every symlink followed a step at a time (a cloned repository's
+line, or a link one ships, is not the user's); so is one not owned by the user or
+world-writable, and so is a `--claude`, `--codex` or `--table` named there. Every write target
+is judged at its resolved directory before any read. A table is validated as it is read: a
+trailer with its row count and sha256, closed vocabularies, unique cell keys, the naming rule,
+a size limit.
+The pick's one eligibility predicate runs before any assignment can be read: review,
+`--role sub`, full tier, an omitted `--tier` (R5's closure: `none` for a user without tiers),
+a tier the line does not list, a protected path, and an editing class with no `--touch` each
+give the default with its reason.
+
+**Changed after measurement: the draft's candidates** (plan M17). Section 15 put each observed
+split into the draft's `assign=`. On this machine, that drafted five routes, and none matched
+the operator's rules: three to a side-work model, two to the review model. Dated unedited,
+that line routes all five. They now sit on a `# assign= candidates` line, and the draft line
+carries `default=` alone. Restoring them is the operator's call (plan section 14).
+
+**Measured** (plan section 16, M14-M21):
+- the scan, at the tip after every fold: 60.0 s wall, peak RSS 283 MB, a 1,770-byte print;
+- the 112 duplicate copies section 2 counted lie on 28 uuids. 16 of those conflict, and they
+  take 5 subagent tasks out of every cell;
+- M4-M8 reproduce by the same rules, within the window's drift;
+- mutation: 103 of 103 mutants killed: 41 at the build, then each fold's own, every survivor
+  given its test.
+
+**Refused.**
+- A shared alias list, which would name model families (D-114).
+- A count floor as the id's only gate (C1).
+- A threshold of torn lines (C7, X5).
+- A subagent pick: the Agent tool takes an alias the harness resolves (C2).
+- Codex ids: they fold to `(other)`, so no pick crosses harnesses.
+- `report`, trials and the counts file: phase 3.
+
+The shipped text names no model, date or operator default (D-114). The self-test's fixture ids
+and dates are test data, never a default.
+
+**Test shape.** `router.py --self-test` runs in the hermetic tier: 345 checks over fixtures
+under `mkdtemp` (refused if that is in a work tree):
+- each cap refusal with its positive control;
+- a canary in every text and enum-shaped field (main, sub and Codex fixtures), absent from
+  stdout, stderr and the table;
+- the refusal path, `refused.txt`'s exact contents and mode;
+- absent vs unreadable;
+- torn lines: interior, empty, non-object, a torn `api-request`, the last;
+- the id gate, with a planted id repeated 12 times;
+- the torn-table refusals;
+- three-copy conflicts;
+- signals and version ranges;
+- the work-tree refusals from outside the tree, through a linked worktree's `.git` file (and
+  a submodule's, which is not one), through a symlink, and through a chain of links whose
+  target passes through a tree;
+- protected touches against every enclosing root, a directory, a blank value;
+- EACCES, a dangling or vanished entry, a deep line, an unowned target;
+- the fence;
+- the draft, and its candidate moved in and dated.
+
+`check.sh` compiles and assert-scans `skills/*/*.py`. In `internal/cli/discover_help_test.go`,
+a no-verb kind holds the model router's three files to 0 errors AND 0 buddy names checked. Its
+positive controls plant a wrong verb, a bare flag and a real `buddy claim`. The frontmatter
+check covers every SKILL.md.
+
+**Review** — full (D-104): an Opus panel of three lenses at xhigh (the fence and canary, the
+cap's refusals, portability) and one Fable lens at xhigh (injection and privacy); the Codex
+design pass; the Fable cross-check at xhigh; the Codex code pass as two scoped passes; two Codex
+re-verify rounds, the ceiling (D-115). What each raised and how it was taken is
+ROUTER-SKILL-PLAN.md section 15; what was answered or left is section 14. The panel's counts are
+counted from the lane's triage list, some findings raised by more than one lens:
+`review: full (panel@opus+fable: 19 raised, 19 fixed + codex@xhigh design: 12 raised, 10 fixed, 2 answered + codex@xhigh code: 12 raised, 10 fixed, 2 answered, 9 reproduced + fable@xhigh: 9 raised, 9 fixed + codex@xhigh reverify: 1 raised, 1 fixed, 1 reproduced + codex@xhigh reverify: 2 raised, 2 answered)`.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Skills" line (number added); the repo map's skills
+  paragraph (one sentence)
+- GIVEN: review-charter.md GIVEN 115 (amended: one sentence, the number added)
+- code: skills/model-router/{SKILL.md,reference.md,router.py}; scripts/check.sh (the sweep,
+  the self-test); internal/cli/discover_help_test.go (the no-verb kind)
+- budget: docs/prose-budget.tsv, two keys at the formula (the description, the body); no class
+  raised
+- docs: USAGE.md "Model routing — the `model-router` skill"; docs/README.md (the plan's row);
+  ROUTER-SKILL-PLAN.md sections 3 and 14-16
+- skill: this one, which names no buddy verb

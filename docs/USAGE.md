@@ -32,6 +32,7 @@ answer.
 - [Chat internals](#chat-internals)
 - [Language servers — what `buddy init` reports](#language-servers--what-buddy-init-reports)
 - [Measuring context cost](#measuring-context-cost)
+- [Model routing — the `model-router` skill](#model-routing--the-model-router-skill)
 - [Structured adapters (experimental)](#structured-adapters-experimental)
 - [Offline compatibility diagnostic](#offline-compatibility-diagnostic)
 
@@ -2042,6 +2043,32 @@ name, never argv; 50 rows unless `--all`. OWNED (an open session: tell it), STAL
 has ended), UNKNOWN (the operator's). It ends nothing; darwin withholds a
 platform binary's environment (`/bin/sh`), so such a process ties by cwd or not
 at all. Its header has the measurements.
+
+## Model routing — the `model-router` skill
+
+`skills/model-router/` is a drop-in skill for any Claude Code user, with buddy or
+without it (D-177). It installs with the other skills. Its `router.py` (Python
+3.8+, stdlib only, run as `python3 -I`) has three jobs:
+- scan the user's own past Claude Code and Codex sessions into a counts-only table;
+- draft a `route-cap` line for the user to edit, undated, with each split it saw
+  as a commented candidate;
+- print a model pick for a new session, inside the line the user wrote.
+
+It reads structure only: tool names, enum fields and counts, and tool inputs
+reduced in memory to labels. It never reads message text. Every print opens with
+a line saying it confers no authority. It launches, configures and edits nothing.
+It writes its table and `refused.txt` to `${XDG_STATE_HOME:-~/.local/state}/model-router/`,
+and refuses any target inside a work tree.
+
+Under buddy, a coordinator passes the item's review tier as `router.py pick --tier`,
+as the router's own SKILL.md teaches (the fleet skill names no pick recipe).
+A full-tier item, an omitted tier, a protected path and a review all keep the
+default. No subagent is routed in this version.
+
+The reference is `skills/model-router/reference.md`: the grammar, each refusal,
+the pick rules, the class rule, the signals and their version ranges, the table
+format and the exit codes. `docs/ROUTER-SKILL-PLAN.md` holds the design and the
+measurements. The hermetic tier runs `router.py --self-test`.
 
 ## Structured adapters (experimental)
 

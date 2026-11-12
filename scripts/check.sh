@@ -280,7 +280,9 @@ print(" ".join(p.rsplit("/", 1)[-1] for p in bad))
   pyhit=$(pysweep "$pyctl/a_parse.py" "$pyctl/b_compile.py" "$pyctl/c_clean.py" 2>/dev/null || true)
   rm -rf "$pyctl"
   [ "$pyhit" = "a_parse.py b_compile.py" ] || { echo "check.sh: the python sweep reported '$pyhit' of its control, want 'a_parse.py b_compile.py' — the gate is broken, not the tree" >&2; exit 1; }
-  pybad=$(pysweep scripts/*.py scripts/hooks/*.py)
+  # skills/*/*.py too (D-177): the model router's script ships to every
+  # install, and this sweep was the only compile check a .py file got.
+  pybad=$(pysweep scripts/*.py scripts/hooks/*.py skills/*/*.py)
   [ -z "$pybad" ] || { echo "check.sh: scripts that do not compile: $pybad" >&2; exit 1; }
   # NO `assert` STATEMENT IN scripts/*.py (F-39). `python -O` strips them, and
   # these were qualification GATES: measured, under -O qualify-codex trusted
@@ -308,7 +310,7 @@ print(" ".join(sorted(hits)))
   pyhit=$(pyasserts "$pyctl/a_bare.py" "$pyctl/b_text.py" "$pyctl/c_nested.py" 2>/dev/null || true)
   rm -rf "$pyctl"
   [ "$pyhit" = "a_bare.py:2 c_nested.py:3" ] || { echo "check.sh: the assert scan reported '$pyhit' of its control, want 'a_bare.py:2 c_nested.py:3' — the gate is broken, not the tree" >&2; exit 1; }
-  pyhit=$(pyasserts scripts/*.py scripts/hooks/*.py)
+  pyhit=$(pyasserts scripts/*.py scripts/hooks/*.py skills/*/*.py)
   [ -z "$pyhit" ] || { echo "check.sh: assert statements in scripts/ vanish under python -O; use an explicit check: $pyhit" >&2; exit 1; }
   # The self-tests that need nothing but python3: a fake child behind every
   # native proxy (plus TERM/HUP cleanup and owned-identity kills), the
@@ -332,6 +334,11 @@ print(" ".join(sorted(hits)))
   python3 -I -B scripts/check-interrupted.py --self-test
   python3 -I -B scripts/check-recovery.py --self-test
   python3 -I -B scripts/check-uncertain.py --self-test
+  # The model router (D-177): its refusals, each with its positive control, a
+  # canary in every text and enum-shaped field of fixture transcripts that must
+  # reach no output, the work-tree and torn-table refusals. Fixtures only: it
+  # never reads this machine's history.
+  python3 -I -B skills/model-router/router.py --self-test
   # The start-tier checkers (consensus "Harness version tracking", Codex P1):
   # the four suites a new harness version's admission record rests on, plus
   # the jobs suite under the D-077 narrow contract. Each refuses, on synthetic
