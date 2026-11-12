@@ -220,6 +220,25 @@ def report(path):
         return "gate: no %s; not checked" % path
     except (OSError, ValueError, RecursionError) as e:
         return "gate: %s is not JSON this report can read (%s); not checked" % (path, type(e).__name__)
+    # Decoded is not walkable (#95). Up to 3.13 json.load raised RecursionError
+    # at the interpreter's recursion limit (1000), so a deep file never got
+    # here. From 3.14 the decoder is bounded by the real C stack: a terminated
+    # [ * 100000 decodes when the stack has room (Homebrew's 3.14.7 at 8 MB,
+    # uv's 3.14.4 at 64 MB, measured; the ubuntu-26.04 runner's 3.14.4 read an
+    # unterminated one to its end) and not when it has less (uv's 3.14.4 at
+    # 8 MB). What decodes can still be too deep to
+    # serialize: json.dumps of a 100000-deep matcher raised RecursionError
+    # (3.14.7) and the report died in a traceback, which install printed as
+    # "could not run scripts/gate-hook.py". Caught here, it says what it is:
+    # not checked. Only the crash becomes a verdict; a walk that finishes
+    # decides exactly as it did.
+    try:
+        return _judged(path, settings)
+    except RecursionError:
+        return "gate: %s is nested deeper than this report can walk; not checked" % path
+
+
+def _judged(path, settings):
     found = list(gate_hooks(settings))
     if not found:
         return 'gate: no PreToolUse buddy gate hook in %s (README "Hook wiring")' % path

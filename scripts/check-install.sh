@@ -903,6 +903,21 @@ install: agent-model hook: not wired in $WORK/s14m.json" "installed, not wired"
 printf '{"hooks": \n' > "$WORK/s14bad.json"
 amg "$WORK/s14bad.json"; got=$(echo "$got" | tail -1)
 want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14bad.json is not JSON this report can read (JSONDecodeError)" "unparseable settings"
+# Deep nesting (#95): the verdict, never the exception that made it (3.13 and
+# older raise RecursionError at decode; 3.14 is bounded by the C stack, so an
+# unterminated nest fails as JSONDecodeError and a terminated one may decode).
+# Unterminated never decodes: not checked. Deep under the hook's matcher
+# decodes on a 3.14 stack with room, and the reader's json.dumps of it may then
+# run out of stack, which install catches as "could not read"; a custom entry,
+# not verified, is the other closed answer. Never wired, never "none".
+python3 -I -c 'import sys; open(sys.argv[1], "w").write("[" * 100000)' "$WORK/s14deep.json"
+amg "$WORK/s14deep.json"; got=$(echo "$got" | tail -1)
+case $got in "install: agent-model hook: wiring not checked"*) ;; *) fail "QA-14: an unterminated deep nest must be not checked: $(echo "$got" | cut -c1-300)" ;; esac
+python3 -I -c 'import sys; d = "{\"a\": " * 100000 + "1" + "}" * 100000
+open(sys.argv[1], "w").write(open(sys.argv[2]).read().replace("\"Agent|Task\"", d))' "$WORK/s14deep.json" "$WORK/s14wired.json"
+amg "$WORK/s14deep.json"; got=$(echo "$got" | tail -1)
+case $got in "install: agent-model hook: wiring not checked"* | "install: agent-model hook: custom PreToolUse entry naming agent-model-gate.py in "*"; not verified") ;;
+*) fail "QA-14: a deep matcher must be not checked or custom, not verified: $(echo "$got" | cut -c1-300)" ;; esac
 amg "$WORK/s14wired.json" BUDDY_PYTHON="$WORK/no-python"; got=$(echo "$got" | tail -1)
 want_l "$got" "install: agent-model hook: wiring not checked (no $WORK/no-python to decode $WORK/s14wired.json)" "no python"
 # (f) Wired with no copy behind it: python3 exits 2 on a missing script, and
@@ -1054,6 +1069,13 @@ refused("badtoken", b'{}', "is not one the report names", toks=("buddy rm",))
 refused("shape", b'{"hooks": {"PreToolUse": ["x"]}}', "not a hook object")
 refused("cmdint", b'{"hooks": {"PreToolUse": [{"hooks": [{"command": 5}]}]}}', "not a hook object")
 refused("deep", b'{"x": ' + b'[' * 500 + b']' * 500 + b'}', "a shape it cannot read")
+# 100000 levels (#95): refused on every Python, for a reason that
+# is the Python's, so the row names none (3.13 and older: "nested too deep to
+# read"; 3.14, bounded by the C stack: "not JSON" for the unterminated one, and
+# for the terminated one either that refusal or "a shape it cannot read" once it
+# decodes). refused() still holds one line, nothing written, and its control.
+refused("deep-open", b'[' * 100000, "")
+refused("deep-closed", b'{"x": ' + b'{"a": ' * 100000 + b'1' + b'}' * 100000 + b'}', "")
 if os.geteuid() != 0:
     refused("readonly", b'{}', "Permission denied", mode=0o555)
     # A file made read-only on purpose: a rename would replace it regardless (panel).
@@ -1092,6 +1114,16 @@ open(q, "w").write('{"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"c
 r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
 if r.stdout.count('runs buddy beat on matcher "Edit"') != 1 or r.stdout.count("\n") != 1:
     bad.append("browser-report beside an unreadable event: %r" % r.stdout)
+# Deep nesting (#95): advisory, never a traceback (its catch names
+# RecursionError). An unterminated nest never decodes, so it prints nothing: a
+# fall-through to an empty object would print the #71 line (Codex code pass).
+# A deep matcher decodes on a 3.14 stack with room: a line or none.
+for body, most in (('[' * 100000, 0), ('{"hooks": {"PostToolUse": [{"matcher": %s, "hooks": [{"command": "buddy beat"}]}]}}'
+                                        % ('{"a": ' * 100000 + '1' + '}' * 100000), 2)):
+    open(q, "w").write(body)
+    r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
+    if r.returncode != 0 or r.stderr or r.stdout.count("\n") > most:
+        bad.append("browser-report over a deep nest: rc=%d out=%r err=%r" % (r.returncode, r.stdout[:200], r.stderr[-200:]))
 # The report's snapshot must be the file's bytes now, absent included.
 d = os.path.join(w, "moved")
 os.mkdir(d)
