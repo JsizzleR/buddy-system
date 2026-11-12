@@ -140,7 +140,9 @@ run that script from any clone). The chat daemon is booted out through launchd
 and its plist moved to `~/.buddylist`. The hook lines for what it removed come
 out of `~/.claude/settings.json` (README's spelling only, with a backup beside
 it), `claude mcp remove` drops each `buddylist` registration that ran a
-removed binary, and the pinned AIM server's agent goes the daemon's way.
+removed binary (each bounded by a timeout), and the chat servers' agents go
+the daemon's way when their program is the pinned build of `get-oscar.sh` or
+`get-ergo.sh`.
 Ledgers, the chat journal, other settings and anything it cannot prove is
 buddy's are never touched, and it names each thing it leaves for you
 ([docs/USAGE.md](docs/USAGE.md#buddy-uninstall--remove-it-or-only-the-chat-half-d-125)).
@@ -342,13 +344,17 @@ register, and the commit gate.
 
 Run an [ergo] IRC server, a single Go binary, bound to loopback (the servers
 here run unauthenticated *because* they bind loopback; off loopback, turn auth
-on first), then `buddylist serve` ([docs/USAGE.md](docs/USAGE.md#chat-internals)):
+on first), then `buddylist serve` ([docs/USAGE.md](docs/USAGE.md#chat-internals)).
+Build it with `scripts/get-ergo.sh`, a pinned release, so `buddy uninstall
+--chat` can prove an agent running it is buddy's; one built another way is
+left for you ([rebuilding it](docs/USAGE.md#buddy-uninstall--remove-it-or-only-the-chat-half-d-125)):
 
 ```sh
-ergo defaultconfig > ergo.yaml
+sh scripts/get-ergo.sh                    # into .cache/ergo-server
+.cache/ergo-server defaultconfig > ergo.yaml
 # edit ergo.yaml: under server.listeners keep ONLY "127.0.0.1:6667" (and
 # remove the TLS listener unless you provision certs), then:
-ergo run --conf ergo.yaml
+.cache/ergo-server run --conf ergo.yaml
 ```
 
 Point any IRC client at the server ([Halloy] is a maintained, XChat-shaped

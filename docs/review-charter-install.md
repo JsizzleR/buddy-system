@@ -60,9 +60,12 @@ stub of each binds as written; this is the full text (D-158).
     that table's exactly, a verified splice, backup, rename; LAST, after buddy's unlink; a
     refusal named, never a stop; an entry shared with a foreign hook left whole), the
     `buddylist` MCP registrations whose command it removed (`claude mcp remove`, in each
-    project's physical path, read back; `~/.claude.json` never written), and
-    `com.buddy-system.oscar` when its program's bytes are get-oscar.sh's pinned build
-    (bootout confirmed, plist moved). Other settings, ergo (no doc names its build), Codex
+    project's physical path, read back, each bounded by `BUDDY_MCP_TIMEOUT` (D-176: past
+    it the process group is stopped and the registration named left, never a stop);
+    `~/.claude.json` never written), and `com.buddy-system.oscar` and `com.buddy-system.ergo`
+    when the program's bytes are get-oscar.sh's or get-ergo.sh's pinned build (D-176: build
+    path and `vcs.revision`; a Label and a program under ~/.buddylist prove nothing; bootout
+    confirmed, plist moved). Other settings, an unprovable server agent, Codex
     hooks, ledgers, the journal, core.hooksPath, `.bak`, an edited skill and the Agent-model
     copy and line are reported, never touched; processes are never signalled. Install and uninstall hold ONE
     lock for their whole run (D-126): `$BUDDY_BIN_DIR/.buddy-install.lock`, a symlink naming

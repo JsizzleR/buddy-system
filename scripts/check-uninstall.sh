@@ -93,6 +93,17 @@ echo "$(pwd -P)|$*" >> "$FAKE_DIR/claude-calls"
 [ "$*" = "mcp remove buddylist --scope local" ] || [ "$*" = "mcp remove buddylist --scope user" ] || { echo "fake claude: unexpected: $*" >&2; exit 64; }
 [ -z "${FAKE_TOUCH:-}" ] || printf ' ' >> "$FAKE_TOUCH"
 [ -z "${FAKE_CLAUDE_NOOP:-}" ] || exit 0
+# FAKE_CLAUDE_HANG: a wedged claude (U-14q). It ignores TERM, and so does the
+# child it leaves (claude is node, with children of its own), so only a KILL
+# to its process group ends both. Bounded at 60 s, so a mutant without the
+# bound fails the check's elapsed test instead of hanging it.
+if [ -n "${FAKE_CLAUDE_HANG:-}" ]; then
+	trap '' TERM
+	sleep 60 &
+	echo "$! $$" >> "$FAKE_DIR/hang-pids"
+	wait
+	exit 0
+fi
 exec python3 -I -c '
 import json, sys
 path, scope, cwd = sys.argv[1:]
@@ -164,20 +175,23 @@ for p, v in sorted(d.get("projects", {}).items()):
 PIN=$(sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' scripts/get-oscar.sh)
 [ -n "$PIN" ] || fail "no PIN= line in scripts/get-oscar.sh, so the oscar cases cannot be built"
 OSCAR=com.buddy-system.oscar
+EPIN=$(sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' scripts/get-ergo.sh)
+[ "$(echo "$EPIN" | wc -l)" -eq 1 ] && [ -n "$EPIN" ] || fail "want one PIN= line in scripts/get-ergo.sh, so the ergo cases can be built"
+ERGO=com.buddy-system.ergo
 
 # setup: a fresh case at $R from the prototype, with the chat daemon's plist
 # and program, the checkout's bin/ copies, and every file uninstall must leave
 # byte-identical. cp to NEW paths only (never over a running Mach-O).
 R=$WORK/case
 setup() {
-	rm -rf "$R" "$FAKE/calls" "$FAKE/claude-calls" "$FAKE/loaded" "$FAKE/loaded."* "$FAKE/on-print.rc" "$FAKE/on-print.out"
+	rm -rf "$R" "$FAKE/calls" "$FAKE/claude-calls" "$FAKE/hang-pids" "$FAKE/loaded" "$FAKE/loaded."* "$FAKE/on-print.rc" "$FAKE/on-print.out"
 	cp -Rp "$P" "$R"
 	LA=$R/home/Library/LaunchAgents
-	mkdir -p "$R/co/scripts" "$R/co/bin" "$R/daemon" "$LA" "$R/home/.buddylist" "$R/home/.codex" "$R/proj" "$R/proj3" "$R/oscar"
+	mkdir -p "$R/co/scripts" "$R/co/bin" "$R/daemon" "$LA" "$R/home/.buddylist" "$R/home/.codex" "$R/proj" "$R/proj3" "$R/oscar" "$R/ergo"
 	# The hook lines run $HOME/bin/...: this bin dir is that one, as on a
 	# machine (D-173 edits only lines that run what the run removes).
 	ln -s ../bin "$R/home/bin"
-	cp scripts/uninstall.sh scripts/install-lock.sh scripts/wire-hooks.py scripts/gate-hook.py scripts/get-oscar.sh "$R/co/scripts/"
+	cp scripts/uninstall.sh scripts/install-lock.sh scripts/wire-hooks.py scripts/gate-hook.py scripts/get-oscar.sh scripts/get-ergo.sh "$R/co/scripts/"
 	cp -R skills "$R/co/skills"
 	mkrepo "$R/co"
 	git -C "$R/co" config core.hooksPath .githooks
@@ -191,7 +205,8 @@ setup() {
   <key>ProgramArguments</key><array><string>$R/daemon/buddylist</string><string>serve</string></array>
 </dict></plist>
 EOF
-	printf '<plist><dict><key>Label</key><string>com.buddy-system.ergo</string></dict></plist>\n' > "$LA/com.buddy-system.ergo.plist"
+	# A com.buddy-system.* agent nothing here can prove: left and named.
+	printf '<plist><dict><key>Label</key><string>com.buddy-system.other</string></dict></plist>\n' > "$LA/com.buddy-system.other.plist"
 	printf '%s' "$R/daemon/buddylist" > "$FAKE/loaded"
 	# The AIM server, as get-oscar.sh builds it: bytes carrying the build path
 	# and the pinned revision (nothing runs it), loaded, with its plist.
@@ -204,6 +219,18 @@ EOF
 </dict></plist>
 EOF
 	printf '%s' "$R/oscar/oscar-server" > "$FAKE/loaded.$OSCAR"
+	# The IRC server, as get-ergo.sh builds it (D-176): ergo's main package is
+	# its module root, so the path line names the module itself. The plist has
+	# the hand-written agent's shape: ProgramArguments, the program, its args.
+	printf 'mach\npath\tgithub.com/ergochat/ergo\nmod\tgithub.com/ergochat/ergo\t(devel)\t\nbuild\tvcs.revision=%s\nbuild\tvcs.modified=false\n' "$EPIN" > "$R/ergo/ergo-server"
+	cat > "$LA/$ERGO.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>Label</key><string>$ERGO</string>
+  <key>ProgramArguments</key><array><string>$R/ergo/ergo-server</string><string>run</string><string>--conf</string><string>$R/home/.buddylist/ergo.yaml</string></array>
+</dict></plist>
+EOF
+	printf '%s' "$R/ergo/ergo-server" > "$FAKE/loaded.$ERGO"
 	cp "$WORK/settings.fixture.json" "$R/settings.json"
 	# MCP: ours in a project (keyed by its physical path, as claude keys it)
 	# and user-wide; ours under a project that is gone; another program's
@@ -223,7 +250,7 @@ EOF
 	printf 'an earlier copy\n' > "$R/skills/buddy/SKILL.md.bak"
 	# settings.json and .claude.json are edited now (D-173): the cases that
 	# edit them read them back, and every stop's snapshot holds them.
-	KEEP="$R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.ergo.plist"
+	KEEP="$R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.other.plist"
 	keep_sum=$(cksum $KEEP)
 }
 # snap: every file and link under the case, with its checksum.
@@ -296,6 +323,8 @@ for want in "settings: would remove buddy hello: the entry hooks.SessionStart[0]
 $out"
 done
 [ -z "$macos" ] || echo "$out" | grep -qF "chat server: would remove the launchd job $OSCAR" || fail "U-1: the plan does not name the oscar job:
+$out"
+[ -z "$macos" ] || echo "$out" | grep -qF "chat server: would remove the launchd job $ERGO (launchctl bootout; it runs $R/ergo/ergo-server, the server get-ergo.sh pins)" || fail "U-1: the plan does not name the ergo job:
 $out"
 [ ! -e "$FAKE/claude-calls" ] || fail "U-1: a dry run ran claude: $(cat "$FAKE/claude-calls")"
 # Every line its own path: the full run's report is not a dry run's.
@@ -374,6 +403,18 @@ else
 $out"
 fi
 there "$R/oscar/oscar-server"
+# ergo, proven by get-ergo.sh's pin (D-176): booted out, its plist kept.
+if [ -n "$macos" ]; then
+	grep -qx "bootout gui/$(id -u)/$ERGO" "$FAKE/calls" || fail "U-4: the ergo job was not booted out:
+$(cat "$FAKE/calls")"
+	[ ! -e "$FAKE/loaded.$ERGO" ] || fail "U-4: the ergo job is still loaded"
+	gone "$LA/$ERGO.plist"
+	echo "$out" | grep -qF "removed: $LA/$ERGO.plist (kept at $R/home/.buddylist/$ERGO.plist.removed-" || fail "U-4: the ergo plist's restore line is missing:
+$out"
+	ls "$R/home/.buddylist/$ERGO.plist.removed-"* >/dev/null 2>&1 || fail "U-4: the ergo plist was not kept in ~/.buddylist:
+$out"
+fi
+there "$R/ergo/ergo-server"
 for want in "settings: $R/settings.json still wires: buddy idle" \
 	"settings: removed buddy gate: the entry hooks.PreToolUse[0], all of it in $R/settings.json" \
 	"settings: left: hooks.Stop[0] holds buddy idle beside a hook that is not a buddy line" \
@@ -386,7 +427,7 @@ for want in "settings: $R/settings.json still wires: buddy idle" \
 	"left: core.hooksPath = .githooks in $R/co" \
 	"left: $R/bin/agent-model-gate.py" \
 	"data: left: this checkout's ledger" \
-	"left: $R/home/Library/LaunchAgents/com.buddy-system.ergo.plist"; do
+	"left: $R/home/Library/LaunchAgents/com.buddy-system.other.plist, a launchd agent this cannot prove is buddy's"; do
 	echo "$out" | grep -qF "$want" || fail "U-4: no report line '$want':
 $out"
 done
@@ -750,7 +791,107 @@ $out"
 $out"
 	echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-14g: no done line:
 $out"
+	# U-14o: the developing machine's own ergo (D-176): built by hand as
+	# `command-line-arguments`, at ~/.buddylist/ergo-bin, loaded, under the
+	# right Label. A Label and a program under ~/.buddylist prove nothing, so
+	# it is left, named with the rebuild, never booted out; oscar in the same
+	# run is booted out (the run's own control; U-4 is ergo's).
+	label=U-14o; setup
+	printf 'mach\npath\tcommand-line-arguments\ndep\tgithub.com/ergochat/irc-go\tv0.5.0\t\n' > "$R/home/.buddylist/ergo-bin"
+	sed "s#$R/ergo/ergo-server#$R/home/.buddylist/ergo-bin#" "$LA/$ERGO.plist" > "$WORK/ep" && cat "$WORK/ep" > "$LA/$ERGO.plist"
+	printf '%s' "$R/home/.buddylist/ergo-bin" > "$FAKE/loaded.$ERGO"
+	out=$(un 2>&1) || fail "U-14o: an unprovable ergo must not fail the run:
+$out"
+	grep -q "^bootout gui/$(id -u)/$ERGO" "$FAKE/calls" && fail "U-14o: an ergo not provably buddy's was booted out"
+	grep -qx "bootout gui/$(id -u)/$OSCAR" "$FAKE/calls" || fail "U-14o: oscar, provable, was not booted out in the same run:
+$(cat "$FAKE/calls")"
+	there "$LA/$ERGO.plist" "$FAKE/loaded.$ERGO" "$R/home/.buddylist/ergo-bin"
+	echo "$out" | grep -qF "chat server: left: $ERGO, since its loaded job runs $R/home/.buddylist/ergo-bin, whose bytes are not the pinned server get-ergo.sh builds (to make it provable: sh scripts/get-ergo.sh" || fail "U-14o: the unprovable ergo is not named with its rebuild:
+$out"
+	echo "$out" | grep -qF "launchctl bootout gui/$(id -u)/$ERGO, then move" || fail "U-14o: the by-hand bootout is not named:
+$out"
+	# U-14p: the pin is read from get-ergo.sh: a checkout without one proves
+	# no ergo, even one whose bytes carry the pin.
+	label=U-14p; setup; rm "$R/co/scripts/get-ergo.sh"
+	out=$(un 2>&1) || fail "U-14p: uninstall failed:
+$out"
+	grep -q "^bootout gui/$(id -u)/$ERGO" "$FAKE/calls" && fail "U-14p: ergo was booted out with no pin to prove it by"
+	there "$LA/$ERGO.plist"
+	echo "$out" | grep -qF "chat server: left: $ERGO, since its loaded job runs $R/ergo/ergo-server, which cannot be proved here: scripts/get-ergo.sh holds no PIN line" || fail "U-14p: the missing pin is not named:
+$out"
+	# U-14s: the loaded job is the pinned ergo, its plist names another
+	# program: left whole (the plist's half of the proof).
+	label=U-14s; setup
+	sed "s#<string>$R/ergo/ergo-server</string>#<string>/usr/bin/true</string>#" "$LA/$ERGO.plist" > "$WORK/ep" && cat "$WORK/ep" > "$LA/$ERGO.plist"
+	grep -qF /usr/bin/true "$LA/$ERGO.plist" || fail "U-14s: the fixture's program was not rewritten"
+	out=$(un 2>&1) || fail "U-14s: uninstall failed:
+$out"
+	grep -q "^bootout gui/$(id -u)/$ERGO" "$FAKE/calls" && fail "U-14s: an ergo job whose plist runs something else was booted out"
+	there "$LA/$ERGO.plist"
+	# U-14t: the pinned revision under another build path (a package inside
+	# ergo's module, a fork's): the path line is half the proof, so left.
+	label=U-14t; setup
+	printf 'mach\npath\tgithub.com/ergochat/ergo/cmd/other\nbuild\tvcs.revision=%s\n' "$EPIN" > "$R/ergo/ergo-server"
+	out=$(un 2>&1) || fail "U-14t: uninstall failed:
+$out"
+	grep -q "^bootout gui/$(id -u)/$ERGO" "$FAKE/calls" && fail "U-14t: an ergo whose build path is not the module's was booted out"
+	there "$LA/$ERGO.plist"
+	echo "$out" | grep -qF "chat server: left: $ERGO, since its loaded job runs $R/ergo/ergo-server, whose bytes are not the pinned server get-ergo.sh builds" || fail "U-14t: the wrong build path is not named:
+$out"
+	# U-14u: an unloaded plist naming a RELATIVE program, a pinned build at
+	# that name under the checkout (uninstall's cwd): launchd resolves it its
+	# own way, so it proves nothing and the plist stays (Codex, the code pass).
+	label=U-14u; setup; rm -f "$FAKE/loaded.$ERGO"
+	cp "$R/ergo/ergo-server" "$R/co/ergo-server"
+	sed "s#<string>$R/ergo/ergo-server</string>#<string>ergo-server</string>#" "$LA/$ERGO.plist" > "$WORK/ep" && cat "$WORK/ep" > "$LA/$ERGO.plist"
+	grep -qF '<string>ergo-server</string>' "$LA/$ERGO.plist" || fail "U-14u: the fixture's program was not rewritten"
+	out=$(un 2>&1) || fail "U-14u: uninstall failed:
+$out"
+	there "$LA/$ERGO.plist"
+	echo "$out" | grep -qF "chat server: left: $ERGO, since its plist $LA/$ERGO.plist is a symlink, cannot be read here, or names ergo-server under the Label $ERGO" || fail "U-14u: the relative program is not named:
+$out"
 fi
+# U-14q: a claude that hangs (ignoring TERM, with a child that does too) is
+# stopped at BUDDY_MCP_TIMEOUT, its process group with it, and named left;
+# the run goes on to done (D-176). U-4 is the control: the same removals,
+# claude exiting, both said removed.
+label=U-14q; setup; XENV="FAKE_CLAUDE_HANG=1 BUDDY_MCP_TIMEOUT=1"
+t0=$(date +%s)
+out=$(un 2>&1) || fail "U-14q: a hung claude must not fail the run:
+$out"
+t1=$(date +%s)
+XENV=
+[ $((t1 - t0)) -lt 40 ] || fail "U-14q: the run took $((t1 - t0))s with a 1 s bound on each claude: the bound did not hold"
+[ "$(wc -l < "$FAKE/claude-calls")" -eq 2 ] || fail "U-14q: claude was not tried for both registrations:
+$(cat "$FAKE/claude-calls")"
+for want in "mcp: left: the user-wide buddylist MCP registration, since claude mcp remove did not exit within 1s and was stopped (BUDDY_MCP_TIMEOUT); remove it by hand: claude mcp remove buddylist --scope user" \
+	"mcp: left: the buddylist MCP registration for $PJ, since claude mcp remove did not exit within 1s and was stopped"; do
+	echo "$out" | grep -qF "$want" || fail "U-14q: no line '$want':
+$out"
+done
+mcp_now "$R/home/.claude.json" | grep -qxF "user - $R/bin/buddylist" || fail "U-14q: the user-wide registration is gone though claude never removed it"
+gone $bins
+echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-14q: no done line:
+$out"
+# Every process the fake left is gone: the KILL went to the group.
+[ "$(wc -l < "$FAKE/hang-pids")" -eq 2 ] || fail "U-14q: the fake recorded $(wc -l < "$FAKE/hang-pids") hangs, want 2"
+for pid in $(cat "$FAKE/hang-pids"); do
+	i=0
+	while kill -0 "$pid" 2>/dev/null; do
+		[ "$i" -lt 20 ] || fail "U-14q: pid $pid of the hung claude's group is still alive"
+		sleep 0.1; i=$((i + 1))
+	done
+done
+# U-14r: a BUDDY_MCP_TIMEOUT that is not a positive whole number is refused
+# before anything (U-4, unset, is the control).
+for v in 0 abc 1.5 07; do
+	label="U-14r($v)"; setup; before=$(snap)
+	out=$(BUDDY_MCP_TIMEOUT=$v; export BUDDY_MCP_TIMEOUT; un 2>&1) && fail "$label: should have been refused:
+$out"
+	echo "$out" | grep -qF "refused: BUDDY_MCP_TIMEOUT=$v is not a whole number of seconds above 0" || fail "$label: the refusal does not name it:
+$out"
+	[ "$(snap)" = "$before" ] || fail "$label: a refused run changed the tree"
+done
 
 # U-12: a checkout path holding a space and a glob character, beside a clone
 # the unquoted glob would match: its own bin/ copies go, the decoy's stay.

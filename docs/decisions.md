@@ -12008,3 +12008,115 @@ sweep would need a row the ledger does not keep (a schema change, not this step'
   parked release and its two kept lines; the core skill's release after LANDED
 - USAGE: "Measuring context cost", the `model-report.sh` paragraph
 - amends: D-104 and D-111's pick lines, D-141's join (above)
+
+## D-176 — The ergo agent is provable by `scripts/get-ergo.sh`'s pin, so `buddy uninstall` boots it out as it does oscar's; each `claude mcp remove` is bounded (amends D-173)
+
+2026-11-12 · issue #88, from D-173's ergo paragraph and its "Not covered" list. The operator,
+in orc-20's pane at about 05:50Z on 2026-11-12: "anything youd open an issue for, just open a
+lane for it too"; at about 16:10Z on 2026-11-11, "default-on" for uninstall cleaning up after
+itself (D-173). Lane ergo-provable, under orc-20's brief.
+
+**The proof.** `scripts/get-ergo.sh` clones `https://github.com/ergochat/ergo`, fetches
+`TAG=v2.19.1`, refuses unless the tag names `PIN=63c743a70644f0f19109508ade8580bf37f7d23d` (the commit, read from
+upstream's peeled tag 2026-11-12), checks it out detached, refuses a tree that is not clean
+(`--ignored` too: an excluded file is compiled under a clean stamp; Codex), a checkout path
+holding a newline, and a directory at `.cache/ergo-server` (Codex),
+builds `.` (ergo's main package is its module root; it vendors its dependencies) with
+`-buildvcs=true` under `GOENV=off GOFLAGS= GOWORK=off` (self-review: an operator's GOFLAGS,
+in the env or in `go env -w`'s file, which an empty GOFLAGS falls back to, could carry
+`-overlay` or `-modfile`, and a `go.work` above the clone could replace a module, each
+building other source under a stamp still reading clean at the pin) beside `.cache/ergo-server`, verifies `go version -m` names
+`path github.com/ergochat/ergo`, `vcs.revision=<PIN>` and `vcs.modified=false` AND that the
+bytes pass uninstall's own predicate, then renames it in. v2.19.1 is the release the
+developing machine's hand-built `~/.buddylist/ergo-bin` carries (its bytes name `2.19.1`), so
+the rebuild changes the build, not the server. uninstall's 1b is now one function over both
+servers (`srv_plan`, `srv_act`): ours when the Label matches and the loaded job's program and
+the plist's (`Program`, else `ProgramArguments:0`) both carry the build path and the pin read
+from that server's script (`pin_of`: no `PIN=` line, nothing is provable, said so), each
+program an absolute path (a relative one launchd resolves its own way, so the file of that
+name under the checkout proves nothing; Codex). Every
+D-173 rule for oscar now holds for ergo unchanged: launchd only, `print` 113 within 10 s, the
+plist moved to `~/.buddylist` with its restore command, anything less left, named and never a
+stop. A left server's line now names the rebuild (`sh scripts/get-<server>.sh`).
+
+**Refused narrower proof.** A Label plus a program path under `~/.buddylist/` (the brief's
+example): anyone can put a file there, so it proves location, not provenance. Requiring
+`vcs.modified=false` in uninstall too was weighed: get-ergo.sh refuses to keep such a build,
+and oscar's proof never asked it, so uninstall keeps the two lines both servers share.
+
+**The operator's existing ergo stays unprovable** (`command-line-arguments`, no module path)
+until rebuilt: `sh scripts/get-ergo.sh`, then `rm ~/.buddylist/ergo-bin && cp
+.cache/ergo-server ~/.buddylist/ergo-bin` (rm first, D-107) and `launchctl kickstart -k
+gui/$UID/com.buddy-system.ergo`, or the plist's program (`Program`, else
+`ProgramArguments:0`) pointed at `.cache/ergo-server` and the agent reloaded with `bootout` and
+`bootstrap`, since a kickstart reruns the loaded definition (Codex) (USAGE, "Uninstall").
+Nothing here rebuilds it.
+
+**The bound.** Each `claude mcp remove` runs under a Python wrapper (`BOUND_PY`): its own
+process group (`start_new_session`), stdin and output `/dev/null`, at most
+`BUDDY_MCP_TIMEOUT` seconds (default 30; 0, a fraction, a leading zero or text refused with
+exit 2 before anything); past it, TERM to the group, 3 s, KILL to the group, at most 5 s more
+for the leader (one stuck in the kernel is given up on), `timeout` on the wrapper's stdout and
+exit 124. Python, already required by 1c, over a background job and a
+kill in sh: that signals one pid, not claude's node children, and a watchdog's `sleep`
+inherits and holds the run's stdout (a `buddy uninstall` reading it would wait the bound
+out). The wrapper's stdout is a pipe only it holds, so a child claude leaves cannot hold the
+substitution open. A timed-out removal is named `left` with its command when the read-back
+still finds it, and `removed … was stopped` when the read-back finds it gone (the file, not
+the exit, is the truth, as for every removal since D-173); never a stop.
+
+**Not covered.** A pid reused within the 3 s between a TERM and the group KILL (macOS
+allocates pids upward; the group's own members keep the pgid reserved while any lives). A
+claude killed mid-write of `~/.claude.json` (claude's own write discipline; the read-back
+then fails to decode it and names the registration left). get-ergo.sh trusts git's SHA-1
+commit id as the pin, as get-oscar.sh does.
+
+**Test shape.** `check-uninstall.sh`: the case fixture gains a pinned ergo, loaded, its plist
+in the hand-written agent's shape (ProgramArguments, program then args), and a
+`com.buddy-system.other` plist as the tail's unprovable agent. U-1 plans the ergo bootout;
+U-4 boots it out and keeps its plist with the restore line; U-14o (the developing machine's
+shape: `command-line-arguments` at `~/.buddylist/ergo-bin`) left, named with the rebuild, oscar
+booted out in the same run; U-14p no PIN line in get-ergo.sh, left; U-14s the plist naming
+another program, left; U-14q a claude that ignores TERM with a child that does too, at
+`BUDDY_MCP_TIMEOUT=1`: both registrations named left, still in the file, the run done in
+under 40 s, every pid of the group gone; U-14r four bad timeouts refused, the tree unchanged;
+U-14t the pinned revision under another build path, left; U-14u a relative program, left.
+`check-get-ergo.sh` (new, wired in check.sh): the shipped TAG, PIN, URL and MOD lines;
+`GIT_ALLOW_PROTOCOL=file` armed (G-0b); a fixture module served through `url.insteadOf` for
+the shipped URL; G-1 builds what uninstall's predicate proves, G-2 re-runs under an exported
+`GOFLAGS=-trimpath` and a `go.work` above the clone naming a missing module (neither reaches
+the build), then refused with
+no binary kept: a dirty tree (G-3), a moved tag (G-4), another origin's clone, a plain
+directory, a symlink (G-5a-c), a pinned commit of another module (G-6), an excluded file in
+the clone (G-3b), a checkout path ending in a newline beside a sibling, never written (G-8), a
+directory at the binary's path (G-9); G-7 an argument. Mutants, in a private copy: 18 of 20 on
+the first tree, then each later fix reverted alone (the go settings, the absolute path, the
+ignored file, the newline, the directory), each killed. The two survivors are belts behind
+earlier checks no fixture can pass: get-ergo.sh's own byte predicate (behind `go version -m`'s
+path and revision lines) and its `vcs.modified=false` check (behind the clean-tree refusal);
+kept, since each names in its own words what uninstall will prove.
+
+**Review** — lite (D-104): a self-review, then one Codex code pass at xhigh, folded once
+(D-115). The self-review found two, both fixed: the operator's go settings could reach the
+pinned build (G-2, watched to fail without it), and the KILL wait was unbounded. Codex raised
+five P2s, all fixed: a relative plist program judged against the checkout's file (U-14u); an
+ignored file compiled under a clean stamp (G-3b); a checkout path's trailing newline building
+into a sibling (G-8); a directory destination reported built (G-9); USAGE's plist edit
+"reloaded" by a kickstart (docs, no test). Its Q3 (a hung claude) and Q4 (network) found
+none in the diff; it noted that check-uninstall.sh's prototype install, on an empty module
+cache, can fetch modules and the pinned toolchain: pre-existing, left open here.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number added)
+- GIVEN: review-charter-install.md GIVEN 119 (amended: ergo provable, the bound; "ergo (no
+  doc names its build)" dropped from the never-touched list) and its stub in review-charter.md
+- code: scripts/get-ergo.sh (new), scripts/uninstall.sh 1b (`srv_plan`, `srv_act`,
+  `pin_of`) and 1c's act (`BOUND_PY`), scripts/check-get-ergo.sh (new),
+  scripts/check-uninstall.sh U-1, U-4, U-14o-s, scripts/check.sh (the wiring)
+- skill: none (no verb or flag; a knob, `BUDDY_MCP_TIMEOUT`)
+- charter file: review-charter-install.md, claimed shared by the lane (the brief named
+  review-charter.md; GIVEN 119's full text lives in its install part, D-158)
+- USAGE: `buddy uninstall`, "What it also removes" (the bound, the servers' agents, the
+  rebuild); README "Uninstall" and "Presence" (ergo built by get-ergo.sh)
+- amends: D-173's "ergo is never provable" (now provable by the pin) and its "Not covered"
+  `claude mcp remove has no timeout` (now bounded)

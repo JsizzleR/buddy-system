@@ -87,16 +87,19 @@
 #     user-wide one. ~/.claude.json is read, never written: claude writes it.
 #     Each removal is read back. A registration running anything else is left
 #     and named; with no claude to run, every command is named as before.
-#   - com.buddy-system.oscar, the AIM server README's TOC backend runs, when it
-#     is provably buddy's: the Label, AND a program whose bytes carry
-#     open-oscar-server's cmd/server build path and get-oscar.sh's pinned
-#     vcs.revision (the job's program and the plist's both, when present).
-#     Booted out as the daemon is (print 0, bootout, print 113 within 10 s) and
-#     its plist MOVED to ~/.buddylist with the restore command. Anything less
-#     is left and named, and never stops the run: nothing removed here runs it.
-#     com.buddy-system.ergo is never provable: its plist was written by hand
-#     (2026-08-14, before the public tree) for an ergo build no doc of ours
-#     names (README says only `ergo run`), so it is left and named.
+#   - the chat servers' agents, com.buddy-system.oscar (the AIM server
+#     README's TOC backend runs) and com.buddy-system.ergo (its IRC server),
+#     each when it is provably buddy's: the Label, AND a program whose bytes
+#     carry the build path and pinned vcs.revision of the script here that
+#     builds it (get-oscar.sh: open-oscar-server's cmd/server; get-ergo.sh,
+#     D-176: github.com/ergochat/ergo), the job's program and the plist's
+#     both, when present. Booted out as the daemon is (print 0, bootout, print
+#     113 within 10 s) and its plist MOVED to ~/.buddylist with the restore
+#     command. Anything less is left and named, with the rebuild that would
+#     make it provable, and never stops the run: nothing removed here runs it.
+#     A Label and a program under ~/.buddylist/ prove nothing (anyone can put
+#     a file there), so an ergo built by hand (`command-line-arguments`, no
+#     module path) is left until it is rebuilt with get-ergo.sh.
 #
 # NEVER TOUCHED, REPORTED: settings outside those lines (BUDDY_CHAT in env
 # included), the checkout's .mcp.json, Codex's hooks.json (Codex's file, its
@@ -127,9 +130,12 @@
 # BUDDY_FLEET_SKILL_DIR, BUDDY_PLIST, BUDDY_LAUNCHCTL, BUDDY_REPO_BIN=off,
 # BUDDY_SETTINGS, BUDDY_CLAUDE_JSON, BUDDY_MCP_JSON, BUDDY_PYTHON; and
 # BUDDY_CLAUDE, the claude it runs `mcp remove` with (default: claude on PATH),
-# so the done-check can name a fake as it names launchctl's. Every other path
-# it reports is under $HOME (~/.buddylist, ~/.codex) or beside $BUDDY_PLIST
-# (the oscar agent), which the done-check moves.
+# so the done-check can name a fake as it names launchctl's, and
+# BUDDY_MCP_TIMEOUT, the seconds each `claude mcp remove` may run (default 30,
+# D-176: a wedged claude hung the run; one past it is stopped, its process
+# group sent TERM then KILL, and named). Every other path it reports is under
+# $HOME (~/.buddylist, ~/.codex) or beside $BUDDY_PLIST (the chat servers'
+# agents), which the done-check moves.
 set -eu
 CDPATH= cd -- "$(dirname -- "$0")/.."
 NL='
@@ -163,6 +169,11 @@ LAUNCHCTL=${BUDDY_LAUNCHCTL:-launchctl}
 CLAUDE=${BUDDY_CLAUDE:-claude}
 PY=${BUDDY_PYTHON:-python3}
 OSCAR=com.buddy-system.oscar
+ERGO=com.buddy-system.ergo
+MCP_TIMEOUT=${BUDDY_MCP_TIMEOUT:-30}
+case $MCP_TIMEOUT in
+'' | 0* | *[!0-9]*) printf '%s\nuninstall: refused: BUDDY_MCP_TIMEOUT=%s is not a whole number of seconds above 0\n' "$usage" "$MCP_TIMEOUT" >&2; exit 2 ;;
+esac
 CLAUDE_JSON=${BUDDY_CLAUDE_JSON:-$HOME/.claude.json}
 MCP_JSON=${BUDDY_MCP_JSON:-$ROOT/.mcp.json}
 SKILL_DIR=${BUDDY_SKILL_DIR:-$HOME/.claude/skills/buddy}
@@ -493,54 +504,73 @@ if [ -z "$chat_only" ]; then
 	for b in $buddies; do ! plan_bin "$b" buddy || rm_buddies="$rm_buddies$NL$b"; done
 fi
 
-# 1b. The AIM server's agent (see the header). Asked by label, as the daemon
-# is, but nothing here runs its program, so an answer this cannot read leaves
-# it, named, and never stops the run.
+# 1b. The chat servers' agents (see the header), oscar's and ergo's. Each is
+# asked by label, as the daemon is, but nothing here runs its program, so an
+# answer this cannot read leaves it, named, and never stops the run.
 OSCAR_PLIST=$(dirname -- "$PLIST")/$OSCAR.plist
-pin=$(LC_ALL=C sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' "$ROOT/scripts/get-oscar.sh" 2>/dev/null | head -n 1)
-oscar_ours() {
-	[ -n "$pin" ] && [ -f "$1" ] &&
-		LC_ALL=C grep -a -q "^.*path${TAB}github\\.com/mk6i/open-oscar-server/cmd/server\$" "$1" &&
-		LC_ALL=C grep -a -q "^.*build${TAB}vcs\\.revision=$pin\$" "$1"
+ERGO_PLIST=$(dirname -- "$PLIST")/$ERGO.plist
+# The pin is read from the script that builds the server, so a re-pin there
+# moves the proof with it; no PIN line, nothing is provable.
+pin_of() { LC_ALL=C sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' "$ROOT/scripts/$1" 2>/dev/null | head -n 1; }
+# srv_ours <program> <build path, dots escaped> <pin>: both build-info lines,
+# whole lines, in the program's bytes.
+# Absolute only: launchd resolves a bare or relative program its own way, and
+# this would judge the file of that name under the checkout (Codex, D-176's
+# code pass: a plist naming "ergo" moved over a checkout's pinned ./ergo).
+srv_ours() {
+	case $1 in /*) ;; *) return 1 ;; esac
+	[ -n "$3" ] && [ -f "$1" ] &&
+		LC_ALL=C grep -a -q "^.*path${TAB}$2\$" "$1" &&
+		LC_ALL=C grep -a -q "^.*build${TAB}vcs\\.revision=$3\$" "$1"
 }
-osc=absent osc_prog="" osc_why=""
-if command -v "$LAUNCHCTL" >/dev/null 2>&1; then
-	job=$(LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$OSCAR" 2>/dev/null) && prc=0 || prc=$?
-	case $prc in
-	0)
-		osc_prog=$(printf '%s\n' "$job" | LC_ALL=C awk '/^\tprogram = /{sub(/^\tprogram = /, ""); print; exit}')
-		if [ -n "$osc_prog" ] && oscar_ours "$osc_prog"; then
-			osc=loaded
-		else
-			osc=left osc_why="its loaded job runs ${osc_prog:-no program print names}, whose bytes are not the pinned server get-oscar.sh builds"
+rebuild() { printf ' (to make it provable: sh scripts/%s, and run what it builds; docs/USAGE.md, Uninstall)' "$1"; }
+# srv_plan <label> <plist> <build path re> <pin> <script>: sets s_state
+# (absent, loaded or left), s_prog and s_plist (1: move it), and says so.
+srv_plan() {
+	s_state=absent s_prog="" s_why="" s_plist=""
+	s_not="whose bytes are not the pinned server $5 builds"
+	[ -n "$4" ] || s_not="which cannot be proved here: scripts/$5 holds no PIN line"
+	if command -v "$LAUNCHCTL" >/dev/null 2>&1; then
+		job=$(LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$1" 2>/dev/null) && prc=0 || prc=$?
+		case $prc in
+		0)
+			s_prog=$(printf '%s\n' "$job" | LC_ALL=C awk '/^\tprogram = /{sub(/^\tprogram = /, ""); print; exit}')
+			if [ -n "$s_prog" ] && srv_ours "$s_prog" "$3" "$4"; then
+				s_state=loaded
+			else
+				s_state=left s_why="its loaded job runs ${s_prog:-no program print names}, $s_not$(rebuild "$5")"
+			fi
+			;;
+		113) ;;
+		*) s_state=left s_why="launchctl print gui/$uid/$1 exited $prc, so whether it is loaded cannot be said" ;;
+		esac
+	fi
+	if [ -f "$2" ] || [ -L "$2" ]; then
+		sp_label="" sp_prog=""
+		if [ ! -L "$2" ] && [ -x /usr/libexec/PlistBuddy ]; then
+			pb Label "$2"
+			sp_label=$pb_val
+			pb_exec "$2"
+			sp_prog=$pb_val
 		fi
-		;;
-	113) ;;
-	*) osc=left osc_why="launchctl print gui/$uid/$OSCAR exited $prc, so whether it is loaded cannot be said" ;;
-	esac
-fi
-osc_plist=""
-if [ -f "$OSCAR_PLIST" ] || [ -L "$OSCAR_PLIST" ]; then
-	op_label="" op_prog=""
-	if [ ! -L "$OSCAR_PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
-		pb Label "$OSCAR_PLIST"
-		op_label=$pb_val
-		pb_exec "$OSCAR_PLIST"
-		op_prog=$pb_val
+		case $sp_prog in *"$NL"*) sp_prog="" ;; esac
+		if [ "$sp_label" = "$1" ] && [ -n "$sp_prog" ] && srv_ours "$sp_prog" "$3" "$4"; then
+			s_plist=1
+		elif [ "$s_state" != left ]; then
+			s_state=left s_why="its plist $2 is a symlink, cannot be read here, or names ${sp_prog:-no program} under the Label ${sp_label:-(none)}, not the pinned server $5 builds under $1$(rebuild "$5")"
+		fi
 	fi
-	case $op_prog in *"$NL"*) op_prog="" ;; esac
-	if [ "$op_label" = "$OSCAR" ] && [ -n "$op_prog" ] && oscar_ours "$op_prog"; then
-		osc_plist=1
-	elif [ "$osc" != left ]; then
-		osc=left osc_why="its plist $OSCAR_PLIST is a symlink, cannot be read here, or names ${op_prog:-no program} under the Label ${op_label:-(none)}, not the pinned server under $OSCAR"
+	if [ "$s_state" = left ]; then
+		say "chat server: left: $1, since $s_why; to stop it: launchctl bootout gui/$uid/$1, then move $(shq "$2") out of LaunchAgents"
+	else
+		[ "$s_state" != loaded ] || say "chat server: $w the launchd job $1 (launchctl bootout; it runs $s_prog, the server $5 pins)"
+		[ -z "$s_plist" ] || say "chat server: $w its plist $2 from LaunchAgents (moved to $STATE_DIR, not deleted)"
 	fi
-fi
-if [ "$osc" = left ]; then
-	say "chat server: left: $OSCAR, since $osc_why; to stop it: launchctl bootout gui/$uid/$OSCAR, then move $(shq "$OSCAR_PLIST") out of LaunchAgents"
-else
-	[ "$osc" != loaded ] || say "chat server: $w the launchd job $OSCAR (launchctl bootout; it runs $osc_prog, the server get-oscar.sh pins)"
-	[ -z "$osc_plist" ] || say "chat server: $w its plist $OSCAR_PLIST from LaunchAgents (moved to $STATE_DIR, not deleted)"
-fi
+}
+srv_plan "$OSCAR" "$OSCAR_PLIST" 'github\.com/mk6i/open-oscar-server/cmd/server' "$(pin_of get-oscar.sh)" get-oscar.sh
+osc=$s_state osc_plist=$s_plist
+srv_plan "$ERGO" "$ERGO_PLIST" 'github\.com/ergochat/ergo' "$(pin_of get-ergo.sh)" get-ergo.sh
+erg=$s_state erg_plist=$s_plist
 
 # 1c. MCP registrations in ~/.claude.json, decoded (the Fable lens, D-125):
 # one line per registration, its scope, its project, and whether its command
@@ -601,6 +631,44 @@ if [ -f "$CLAUDE_JSON" ] && grep -q '"buddylist"[[:space:]]*:' "$CLAUDE_JSON"; t
 fi
 have_claude=""
 command -v "$CLAUDE" >/dev/null 2>&1 && have_claude=1
+# BOUND_PY <secs> <dir> <argv...>: run argv in dir, stdin and output
+# /dev/null, in its own process group, for at most <secs>; past it, TERM the
+# group, 3 s for it to go, then KILL whatever is left (5 s more at most for
+# the leader: one stuck in the kernel is given up on), print "timeout" and
+# exit 124. Python, not timeout(1): macOS ships none (D-176). A background
+# job and a kill in sh was the alternative: it signals one pid, not claude's
+# node children, and a watchdog's own sleep held the run's stdout open.
+# Interrupted (^C), it stops the group the same way before it goes.
+BOUND_PY='
+import os, signal, subprocess, sys
+secs, cwd, argv = float(sys.argv[1]), sys.argv[2], sys.argv[3:]
+try:
+    p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+except OSError:
+    sys.exit(127)
+def stop():
+    for sig, grace in ((signal.SIGTERM, 3), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(p.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            p.wait(grace)
+        except subprocess.TimeoutExpired:
+            pass
+try:
+    rc = p.wait(secs)
+except subprocess.TimeoutExpired:
+    stop()
+    print("timeout")
+    sys.exit(124)
+except BaseException:
+    stop()
+    raise
+sys.exit(rc if rc >= 0 else 128 - rc)
+'
+
 # claude edits ITS file, ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json, whatever
 # this read: a BUDDY_CLAUDE_JSON elsewhere approved one file's registration
 # and claude removed another's (Codex, D-173's code pass).
@@ -709,33 +777,38 @@ if [ -z "$dry" ]; then
 	# link only, and one whose target went first is still unlinked.
 	unlink_one() { rm -f -- "$1" || die "could not remove $1; what follows it in the plan is left"; say "removed: $1"; }
 	for b in $rm_lists; do unlink_one "$b"; done
-	# The AIM server (1b): never a stop, since nothing removed here runs it.
-	if [ "$osc" = loaded ]; then
-		if LC_ALL=C "$LAUNCHCTL" bootout "gui/$uid/$OSCAR"; then
-			i=0
-			while :; do
-				LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$OSCAR" >/dev/null 2>&1 && prc=0 || prc=$?
-				[ "$prc" -ne 113 ] || break
-				if [ "$i" -ge 10 ]; then osc=left; break; fi
-				sleep 1
-				i=$((i + 1))
-			done
-		else
-			prc=bootout osc=left
+	# The chat servers (1b): never a stop, since nothing removed here runs them.
+	srv_act() { # srv_act <label> <plist> <state> <plist planned>
+		a_state=$3
+		if [ "$a_state" = loaded ]; then
+			if LC_ALL=C "$LAUNCHCTL" bootout "gui/$uid/$1"; then
+				i=0
+				while :; do
+					LC_ALL=C "$LAUNCHCTL" print "gui/$uid/$1" >/dev/null 2>&1 && prc=0 || prc=$?
+					[ "$prc" -ne 113 ] || break
+					if [ "$i" -ge 10 ]; then a_state=left; break; fi
+					sleep 1
+					i=$((i + 1))
+				done
+			else
+				prc=bootout a_state=left
+			fi
+			if [ "$a_state" = left ]; then
+				say "chat server: left: launchctl bootout gui/$uid/$1 did not take ($prc after 10s), so its plist stays too; see: launchctl print gui/$uid/$1"
+			else
+				say "removed: the launchd job $1 (booted out)"
+			fi
 		fi
-		if [ "$osc" = left ]; then
-			say "chat server: left: launchctl bootout gui/$uid/$OSCAR did not take ($prc after 10s), so its plist stays too; see: launchctl print gui/$uid/$OSCAR"
-		else
-			say "removed: the launchd job $OSCAR (booted out)"
+		if [ -n "$4" ] && [ "$a_state" != left ]; then
+			if mkdir -p "$STATE_DIR" && kept=$STATE_DIR/$1.plist.removed-$(date -u +%Y%m%dT%H%M%SZ) && mv -- "$2" "$kept"; then
+				say "removed: $2 (kept at $kept; to restore: mv $(shq "$kept") $(shq "$2") && launchctl bootstrap gui/$uid $(shq "$2"))"
+			else
+				say "chat server: left: $2 could not be moved to $STATE_DIR; move it out of LaunchAgents by hand"
+			fi
 		fi
-	fi
-	if [ -n "$osc_plist" ] && [ "$osc" != left ]; then
-		if mkdir -p "$STATE_DIR" && kept=$STATE_DIR/$OSCAR.plist.removed-$(date -u +%Y%m%dT%H%M%SZ) && mv -- "$OSCAR_PLIST" "$kept"; then
-			say "removed: $OSCAR_PLIST (kept at $kept; to restore: mv $(shq "$kept") $(shq "$OSCAR_PLIST") && launchctl bootstrap gui/$uid $(shq "$OSCAR_PLIST"))"
-		else
-			say "chat server: left: $OSCAR_PLIST could not be moved to $STATE_DIR; move it out of LaunchAgents by hand"
-		fi
-	fi
+	}
+	srv_act "$OSCAR" "$OSCAR_PLIST" "$osc" "$osc_plist"
+	srv_act "$ERGO" "$ERGO_PLIST" "$erg" "$erg_plist"
 	# The MCP registrations (1c), each read back: claude's exit status says
 	# what it tried, the file says what is there.
 	for l in $mcp_go; do
@@ -755,16 +828,22 @@ if [ -z "$dry" ]; then
 			continue
 		fi
 		if [ "$scope" = user ]; then
-			how="claude mcp remove buddylist --scope user"
-			(CDPATH= cd -- "$HOME" && "$CLAUDE" mcp remove buddylist --scope user </dev/null >/dev/null 2>&1) && crc=0 || crc=$?
+			how="claude mcp remove buddylist --scope user" dir=$HOME
 			what="the user-wide buddylist MCP registration"
 		else
-			how="cd $(shq "$pj") && claude mcp remove buddylist --scope local"
-			(CDPATH= cd -- "$pj" && "$CLAUDE" mcp remove buddylist --scope local </dev/null >/dev/null 2>&1) && crc=0 || crc=$?
+			how="cd $(shq "$pj") && claude mcp remove buddylist --scope local" dir=$pj
 			what="the buddylist MCP registration for $pj"
 		fi
+		# Bounded (D-176): a wedged claude hung the whole run. The wrapper's
+		# stdout is a pipe only it holds (claude's is /dev/null), so a child
+		# claude leaves behind cannot hold this substitution open.
+		bout=$("$PY" -I -B -c "$BOUND_PY" "$MCP_TIMEOUT" "$dir" "$CLAUDE" mcp remove buddylist --scope "$scope" 2>/dev/null) && crc=0 || crc=$?
 		"$PY" -I -B -c "$MCP_PY" has "$CLAUDE_JSON" "$scope" "$pj" 2>/dev/null && hrc=0 || hrc=$?
-		if [ "$hrc" -eq 3 ]; then
+		if [ "$bout" = timeout ] && [ "$hrc" -eq 3 ]; then
+			say "removed: $what ($how; claude did not exit within ${MCP_TIMEOUT}s and was stopped, and the read-back finds it gone)"
+		elif [ "$bout" = timeout ]; then
+			say "mcp: left: $what, since claude mcp remove did not exit within ${MCP_TIMEOUT}s and was stopped (BUDDY_MCP_TIMEOUT); remove it by hand: $how"
+		elif [ "$hrc" -eq 3 ]; then
 			say "removed: $what ($how)"
 		else
 			say "mcp: left: $what is still in $CLAUDE_JSON (claude exited $crc); remove it by hand: $how"
@@ -859,8 +938,9 @@ for p in "$(dirname -- "$PLIST")"/com.buddy-system.*.plist; do
 	[ -f "$p" ] || continue
 	[ "$p" != "$PLIST" ] || continue
 	[ "$p" != "$OSCAR_PLIST" ] || continue # 1b says what became of it
+	[ "$p" != "$ERGO_PLIST" ] || continue  # and of this one
 	l=$(basename -- "$p" .plist)
-	say "left: $p, a launchd agent this cannot prove is buddy's (only $AGENT and the pinned $OSCAR are); to stop it: launchctl bootout gui/$uid/$l, then move the plist out of LaunchAgents"
+	say "left: $p, a launchd agent this cannot prove is buddy's (only $AGENT and the pinned $OSCAR and $ERGO are); to stop it: launchctl bootout gui/$uid/$l, then move the plist out of LaunchAgents"
 done
 set -f
 if [ -n "$dry" ]; then

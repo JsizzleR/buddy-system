@@ -586,21 +586,44 @@ the same work.
     user-wide one, each checked again just before and read back after.
     `~/.claude.json` is never written by uninstall itself. One running another
     program is left and named; with no `claude` (`BUDDY_CLAUDE`) to run, each
-    command is named for you.
-  - *The AIM server's agent*, `com.buddy-system.oscar`, when its loaded job's
-    program and its plist's are both the server `scripts/get-oscar.sh` builds
-    (its bytes carry open-oscar-server's `cmd/server` path and the pinned
-    `vcs.revision`): booted out as the daemon is and its plist moved to
-    `~/.buddylist`, with the restore command. Anything less is left and named,
-    and never stops the run.
+    command is named for you. Each `claude mcp remove` gets
+    `BUDDY_MCP_TIMEOUT` seconds (default 30, D-176); past it, its process
+    group is sent TERM, then KILL 3 s later, and the registration is named
+    left with its command (or removed, when the read-back finds it gone), and
+    the run goes on.
+  - *The chat servers' agents*, `com.buddy-system.oscar` (AIM) and
+    `com.buddy-system.ergo` (IRC, D-176), each when its loaded job's program
+    and its plist's are both the server the checkout's script builds:
+    `scripts/get-oscar.sh` (bytes carrying open-oscar-server's `cmd/server`
+    path) or `scripts/get-ergo.sh` (`github.com/ergochat/ergo`), with that
+    script's pinned `vcs.revision`. Booted out as the daemon is and its plist
+    moved to `~/.buddylist`, with the restore command. Anything less is left
+    and named, with the rebuild that would make it provable, and never stops
+    the run. A Label and a program under `~/.buddylist/` prove nothing.
+    **An ergo you built another way** (`go build` of a file, whose build info
+    says `command-line-arguments`; `go version -m <program>` shows it) is left
+    until you rebuild it: `sh scripts/get-ergo.sh` (ergo v2.19.1 at its pinned
+    commit, into `.cache/ergo-server`; it refuses a moved tag or a dirty
+    tree), then point the agent at it, either by replacing the program the
+    plist names, `rm ~/.buddylist/ergo-bin && cp .cache/ergo-server
+    ~/.buddylist/ergo-bin` (`rm` first: a `cp` over a running Mach-O gets it
+    SIGKILLed, D-107), then `launchctl kickstart -k
+    gui/$UID/com.buddy-system.ergo`; or by setting the plist's program (its
+    `Program` when it sets one, else its first `ProgramArguments` string) to
+    `<checkout>/.cache/ergo-server` and reloading it, since a kickstart reruns
+    the loaded definition: `launchctl bootout gui/$UID/com.buddy-system.ergo &&
+    launchctl bootstrap gui/$UID
+    ~/Library/LaunchAgents/com.buddy-system.ergo.plist`. `buddy uninstall
+    --chat --dry-run` then says `would remove the launchd job
+    com.buddy-system.ergo`.
 - **What it never touches, and names:** other settings (`BUDDY_CHAT` in `env`
   included), the checkout's `.mcp.json`, Codex's `hooks.json` (Codex's file,
   trusted by its contents in Codex's `/hooks`; its gate line has no `[ -x ]`
   guard, so it refuses once buddy is gone), a pre-commit you added README's
   `commit-gate` line to (any repo's), every ledger and the chat journal,
   `core.hooksPath`, `SKILL.md.bak` and any edited skill, the Agent-model hook's
-  copy, `com.buddy-system.ergo` and any other `com.buddy-system.*` agent it
-  cannot prove is buddy's (no doc names an ergo build), and every `buddylist`
+  copy, any other `com.buddy-system.*` agent or one it cannot prove is
+  buddy's (above), and every `buddylist`
   process (never signalled, D-122: after the bootout they are live sessions'
   MCP servers, and end with them).
 - **What is ours** is read from the file's bytes (Go's build-info `path`
