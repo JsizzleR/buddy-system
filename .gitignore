@@ -19,3 +19,9 @@ docs/p0-facts.md
 # builds them on disk. Anything that ever does write there is this machine's
 # state, like the ledger beside it in the git common dir, never the repo's.
 /.buddy/
+
+# Python's bytecode cache, written beside any .py something imports (D-178):
+# never the repo's. install-skill.sh skips a real __pycache__ directory in a
+# skill, so a stray one no longer refuses every skill; this keeps it out of
+# a commit, where it would ship.
+__pycache__/

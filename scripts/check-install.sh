@@ -21,7 +21,12 @@ CDPATH= cd -- "$ROOT"
 # BUDDY_FLEET_SKILL_DIR inherited from the caller would send the fleet skill
 # to a REAL skills directory (Codex code pass): unset, so it goes beside the
 # fixture's core.
-unset BUDDY_FLEET_SKILL_DIR
+# BUDDY_CHAT inherited from the caller decides every case's chat posture
+# (install.sh obeys a run's BUDDY_CHAT over the stamp, D-124): a tier run from
+# a session opened with BUDDY_CHAT=off built no buddylist and went red on QA-1
+# "binaries missing" (#92, reproduced alone). The fixture owns its posture:
+# unset here, set per case (QA-7, QA-15), as check-uninstall.sh does.
+unset BUDDY_FLEET_SKILL_DIR BUDDY_CHAT
 
 fail() { echo "check-install: FAIL — $*" >&2; exit 1; }
 # Before ANY install runs: QA-14 checks the report wrote no __pycache__ into the

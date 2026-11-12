@@ -12245,3 +12245,118 @@ counted from the lane's triage list, some findings raised by more than one lens:
 - docs: USAGE.md "Model routing — the `model-router` skill"; docs/README.md (the plan's row);
   ROUTER-SKILL-PLAN.md sections 3 and 14-16
 - skill: this one, which names no buddy verb
+
+## D-178 — `install-skill.sh` skips a real `__pycache__` directory in a skill; `buddy uninstall` names the model router's state and leaves it; the install checks own their chat posture and read every skill from `skills/*/` (#92; amends D-171, D-173)
+
+2026-11-12 · issue #92, four gaps the model-router lane (D-177) found outside its item, opened
+as a lane on the operator's standing word ("anything youd open an issue for, just open a lane
+for it too", in orc-20's pane at about 05:50Z on 2026-11-12). Lane install-coverage, under
+orc-21's brief (run-i101).
+
+**What was wrong.**
+1. `check-install.sh` kept the caller's `BUDDY_CHAT`, and install.sh obeys a run's
+   `BUDDY_CHAT` over the stamp (D-124). So a hermetic tier run from a session opened with
+   `--env BUDDY_CHAT=off` built no buddylist and went red on QA-1 "binaries missing".
+   Reproduced alone at e362853 with `BUDDY_CHAT=off sh scripts/check-install.sh`.
+2. `check-uninstall.sh` listed the skill directories it holds gone by hand (fleet and lead).
+   `check-skill.sh` compared only the core, fleet and lead files. So the model router's
+   directory was held by neither check: it could be installed elsewhere, or left behind with a
+   file in it, and both stayed green.
+3. A `__pycache__` directory in `skills/model-router/` made `install-skill.sh` refuse every
+   skill, the core included, because D-171 refuses a subdirectory. Python writes one beside any
+   `.py` that something imports. Nothing in `.gitignore` covered it, so it could also be
+   committed and ship.
+4. `uninstall.sh` left `~/.local/state/model-router/` (D-177's table and refusal log) without
+   naming it.
+
+**The rule.**
+1. **A real directory named exactly `__pycache__` in a skill is skipped** (amends D-171's "anything but a regular file in a skill directory ... refuse[s] the
+   whole install"). It is not installed, not listed in the manifest and not refused. The
+   uninstall plan already names only regular files from the checkout, so it never plans one. A
+   symlink named `__pycache__` still refuses, and so does every other subdirectory. A regular
+   file of that name is a file like any other (Python never writes one), installed and listed. `.gitignore` names `__pycache__/`. **Why skip rather than make nothing write
+   it:** `-B` and `PYTHONDONTWRITEBYTECODE` bind only the runs this repo makes. A user's own
+   `import router`, a test runner or an editor would still write the directory and refuse every
+   skill again. Skipping holds whoever writes it, and it drops nothing a skill needs, since the
+   directory is bytecode Python rebuilds.
+2. **`buddy uninstall` names the model router's state and leaves it** (amends D-173's
+   "Unchanged ... ledgers, the journal and `~/.buddylist` stay"). The path is found as router.py's
+   `state_dir()` finds it: `$XDG_STATE_HOME/model-router` when `XDG_STATE_HOME` is absolute,
+   else `~/.local/state/model-router`. On a full run (its dry run included), when the path
+   exists, it prints `data: left: <path> (the model router's table and refusal log, written by
+   its scans; remove it by hand if you like: rm -rf <path>)`. `--chat` leaves the skill, so it
+   names no skill data. **Not deleted.** The directory is the user's data, written by the
+   skill's own scans and never by an install, so no "provably ours" test of D-173's kind can
+   apply. Removing it would be the `--purge` D-125 keeps out of scope, a full-tier change
+   (stored data), and the operator's decision. It is left open for the operator.
+3. **The install checks own their environment and read the skill list from the tree** (no
+   behaviour of a shipped script changes). `check-install.sh` unsets `BUDDY_CHAT` at entry, as
+   `check-uninstall.sh` already did, and every case that needs a posture sets one.
+   `check-uninstall.sh` also unsets `XDG_STATE_HOME`. Both checks now read every list of skills
+   from `skills/*/SKILL.md`, and every list of files from `skills/*/*` minus a real
+   `__pycache__`: the prototype's files, every non-core skill directory held gone, and each
+   shipped file compared at its installed destination (`check-skill.sh`'s `skills_each`). A
+   fifth skill is covered the day it lands.
+
+**Not done.**
+- `internal/cli/discover_help_test.go`'s `TestSkillFilesAreEveryShippedFile` globs
+  `skills/*/*` and still counts a local `__pycache__` as a shipped file nobody listed. Its file
+  was in the model-router lane's claim (run-i100), so it is named here and left for the
+  operator: a developer whose checkout has one sees that test red, naming the directory.
+- The model router's state is not removed (rule 2).
+- Nothing in `check.sh` runs `check-install.sh` under a hostile `BUDDY_CHAT`. The unset at its
+  entry is the fix, and the run under `BUDDY_CHAT=off` (this lane's own environment) is its
+  evidence.
+
+**Test shape.** Case 1: at e362853, `BUDDY_CHAT=off sh scripts/check-install.sh` fails QA-1
+"binaries missing". With the unset it is green, and with the unset dropped (the mutant) it
+fails again. Case 2, a defect each old check passed and each new one catches: model-router
+installed to another directory name (old `check-skill.sh` green, new red at QA-1's
+`skills_each`); uninstall leaving model-router's manifest, and so its directory (old
+`check-uninstall.sh` green, new red at U-4). Case 3: `check-skill.sh` QA-14 plants a
+`__pycache__` holding a `.pyc` in the copied checkout. The install must succeed, refresh the
+core, install and list none of it, and name none of it. The base installer fails there. The
+positive controls beside it: a symlink named `__pycache__` refuses, naming it, with the core
+unrefreshed (a mutant dropping the `-L` test dies there), and the existing `extra`
+subdirectory refusal (a mutant skipping every directory dies there). Case 4: `check-uninstall.sh`'s
+`setup` plants `~/.local/state/model-router/table.tsv` in `KEEP` (never touched). U-1's dry run
+and U-4's full run name it exactly; U-3b (`--chat`) names nothing of the router; U-4r, after
+U-5, finds it under an absolute `XDG_STATE_HOME`, falls back to the home path under a relative
+one, and names nothing when the directory is gone. Mutants killed: the line dropped (= the base
+uninstall), `XDG_STATE_HOME` ignored, a relative one obeyed, the directory deleted, and the line
+printed under `--chat`.
+
+**Review** — lite (D-104): a scoped self-review (skills_each's comment claimed a check it did
+not make, and its `__pycache__` skip was not the installer's predicate: both fixed), then one
+Codex code pass at xhigh on e362853..75b6d97, folded once (D-115). Four findings and four
+coverage gaps. Fixed: QA-14's `mkdir` failed on a checkout that already holds a `__pycache__`
+(reproduced: the pre-fold check-skill.sh dies there in a copy that has one); this record and the
+installer's header said a regular file named `__pycache__` refuses, when it is installed like
+any file (the text corrected, the behaviour kept); a newline in `XDG_STATE_HOME` printed a line
+of its own (`uninstall: done`) inside the report, so that path is now named without being
+printed (reproduced: U-4r's arm dies with the fold reverted); U-4r's absolute-XDG fixture was an
+empty directory that `snap` cannot see go (a file planted); the core's manifest was held gone by
+nothing, the core's directory being out of `skilldirs` (`gone` by name; a mutant leaving it dies
+at U-4); QA-7 compared only the fleet SKILL.md under `BUDDY_FLEET_SKILL_DIR` (every fleet file
+now). Answered: a skill named with a glob character (`buddy*`) makes U-4's unquoted list match
+the core's directory. The installer's own `for n in $NAMES` expands that name the same way, so a
+glob-named skill is outside what the installer supports, not a gap in this check. A cache that a
+user's import writes in an installed skill directory is a file this checkout does not ship:
+D-171's foreign-file arm leaves it and its directory, named. Its answers to the three questions:
+no positive control lost; no new removal of anything unproven (the state line only reports, the
+checkout's cache fails uninstall's regular-file selection); no skill escapes the derived lists
+but the glob-named one above.
+`review: lite (self: 2 fixed + codex@xhigh code: 8 raised, 6 fixed, 2 answered, 2 reproduced)`.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number added)
+- GIVEN: review-charter.md GIVEN 119's stub and review-charter-install.md's full text (one
+  clause each, the number added; the codex-pass total 118,636 of 118,784)
+- code: scripts/install-skill.sh (files(), the header), scripts/uninstall.sh (the report's data
+  lines, the header), .gitignore; scripts/check-install.sh (the unset), scripts/check-skill.sh
+  (skdest, skills_each, QA-2/QA-3 derived, QA-14's `__pycache__` arms),
+  scripts/check-uninstall.sh (derived lists, the planted state, U-1/U-4/U-3b, U-4r)
+- docs: README "Uninstall", USAGE `buddy uninstall` "What it never touches"
+- skill: none (no verb, flag or knob)
+- amends: D-171 (rule 3's subdirectory refusal, one named exception), D-173 ("Unchanged": the
+  router's state named among the data left)

@@ -41,6 +41,18 @@
 # SKILL.md, so a refreshed SKILL.md never names a file still absent, and a
 # copy that fails between them leaves the old SKILL.md over a superset.
 #
+# ONE NAMED EXCEPTION: a real DIRECTORY named exactly __pycache__ is skipped,
+# never installed and never refused (D-178). Python writes one beside any .py
+# that something IMPORTS (a developer's `import router`, a test runner, an
+# editor), and the model router ships router.py: one stray cache refused
+# every skill, the core included, so a pull's install left every skill stale
+# (#92). Making nothing write it (-B, PYTHONDONTWRITEBYTECODE) binds only the
+# runs this repo makes, never a user's own import, so skipping is the fix
+# that holds. It is bytecode Python rebuilds, so nothing a skill needs is
+# left out. A symlink named __pycache__, and every other subdirectory, still
+# refuses the whole install, as above; a regular FILE of that name is a file
+# like any other (Python never writes one), installed and listed.
+#
 # NO STALE COPY OF A FILE THE REPO DROPPED. Each destination keeps a manifest,
 # .install-skill.files, one `<cksum> <bytes> <name>` line per file this
 # script installed there. A name in it that the repo no longer ships is
@@ -108,6 +120,8 @@ files() {
 	for f in "$ROOT/skills/$1"/*; do
 		[ -e "$f" ] || [ -L "$f" ] || continue
 		b=$(basename -- "$f")
+		# The one exception (D-178; the header): a real __pycache__ directory.
+		if [ "$b" = __pycache__ ] && [ -d "$f" ] && [ ! -L "$f" ]; then continue; fi
 		case $b in
 		*[!A-Za-z0-9._-]*)
 			echo "install-skill: $f: a skill file's name must be a plain [A-Za-z0-9._-] word; nothing was installed." >&2

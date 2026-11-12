@@ -21,7 +21,10 @@ set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
 CDPATH= cd -- "$ROOT"
-unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON CLAUDE_CONFIG_DIR
+# XDG_STATE_HOME too: uninstall names the model router's state under it
+# when it is absolute (D-178), so a caller's own value would move the path
+# U-4r expects; U-4r (after U-5, which re-runs U-4's case) sets it per case.
+unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON CLAUDE_CONFIG_DIR XDG_STATE_HOME
 
 fail() { echo "check-uninstall: FAIL — $*" >&2; exit 1; }
 WORK=$(mktemp -d) || fail "mktemp failed"
@@ -43,7 +46,9 @@ out=$(env HOME="$P/home" GOCACHE="$gocache" GOMODCACHE="$gomodcache" \
 	BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$P/none-mcp.json" \
 	sh scripts/install.sh 2>&1) || fail "the prototype install failed:
 $out"
-for f in "$P/bin/buddy" "$P/bin/buddylist" "$P/skills/buddy/SKILL.md" "$P/skills/buddy-fleet/SKILL.md" "$P/skills/buddy-lead/SKILL.md"; do
+# Every shipped skill's SKILL.md, read from skills/ as the installer reads it
+# (#92: the list here was written by hand and named three of four).
+for f in "$P/bin/buddy" "$P/bin/buddylist" $(for s in skills/*/SKILL.md; do printf '%s ' "$P/$s"; done); do
 	[ -f "$f" ] || fail "the prototype install left no $f"
 done
 
@@ -248,9 +253,13 @@ EOF
 	printf 'a fixture ledger, never opened\n' > "$R/co/.git/buddy.db"
 	printf 'copy\n' > "$R/bin/agent-model-gate.py"
 	printf 'an earlier copy\n' > "$R/skills/buddy/SKILL.md.bak"
+	# The model router's state, where router.py's state_dir() puts it with
+	# XDG_STATE_HOME unset: the user's data, named and never touched (D-178).
+	mkdir -p "$R/home/.local/state/model-router"
+	printf '#model-router-table\t1\n' > "$R/home/.local/state/model-router/table.tsv"
 	# settings.json and .claude.json are edited now (D-173): the cases that
 	# edit them read them back, and every stop's snapshot holds them.
-	KEEP="$R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.other.plist"
+	KEEP="$R/home/.local/state/model-router/table.tsv $R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.other.plist"
 	keep_sum=$(cksum $KEEP)
 }
 # snap: every file and link under the case, with its checksum.
@@ -278,12 +287,25 @@ bins="$R/bin/buddy $R/bin/buddylist $R/co/bin/buddy $R/co/bin/buddylist $R/daemo
 # reference files beside its SKILL.md), read from skills/ as the installer
 # does, so a file added there is held here the day it lands; the floor is the
 # control that the reference files were counted.
+# A real __pycache__ directory is not a skill file: the installer skips it
+# (D-178), so nothing installs it and nothing removes it.
 skillmds=""
-for f in skills/*/*; do skillmds="$skillmds $R/$f"; done
+for f in skills/*/*; do
+	[ "${f##*/}" = __pycache__ ] && [ -d "$f" ] && [ ! -L "$f" ] || skillmds="$skillmds $R/$f"
+done
 skillmds=${skillmds# }
 [ "$(set -- $skillmds; echo $#)" -ge 9 ] || fail "found $(set -- $skillmds; echo $#) skill files under skills/, want the three SKILL.md and the fleet skill's six reference files"
-# The core's directory keeps the SKILL.md.bak setup plants, so it stays.
-skilldirs="$R/skills/buddy-fleet $R/skills/buddy-lead"
+# Every other skill's directory goes, read from skills/ (#92: the list was
+# written by hand, so the model router's directory, and anything left in it,
+# was held by nothing). The core's keeps the SKILL.md.bak setup plants, so it
+# stays; the floor is the control that the glob read something.
+skilldirs=""
+for s in skills/*/SKILL.md; do
+	n=${s#skills/}; n=${n%/SKILL.md}
+	[ "$n" = buddy ] || skilldirs="$skilldirs $R/skills/$n"
+done
+skilldirs=${skilldirs# }
+[ "$(set -- $skilldirs; echo $#)" -ge 2 ] || fail "found $(set -- $skilldirs; echo $#) non-core skill directories under skills/, want at least buddy-fleet and buddy-lead"
 plist() { printf '%s' "$R/home/Library/LaunchAgents/$AGENT.plist"; }
 # The calls file must exist (the plan always asks print) or "no call but
 # print" is vacuous (the panel).
@@ -332,6 +354,8 @@ echo "$out" | grep -q 'still wires' && fail "U-1: a dry run whose plan ran also 
 $out"
 echo "$out" | tail -1 | grep -qx 'uninstall: dry run: nothing was removed' || fail "U-1: no dry-run last line:
 $out"
+echo "$out" | grep -qxF "uninstall: data: left: $R/home/.local/state/model-router (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $R/home/.local/state/model-router)" || fail "U-1: the plan does not name the model router's state as left:
+$out"
 
 # U-2: a --chat dry run runs no update and changes nothing.
 label=U-2
@@ -372,8 +396,13 @@ if [ -n "$macos" ]; then
 	ls "$R/home/.buddylist/$AGENT.plist.removed-"* >/dev/null 2>&1 || fail "U-4: the plist was not kept in ~/.buddylist:
 $out"
 fi
-there "$R/skills/buddy/SKILL.md.bak" "$R/co/.git/buddy.db"
+there "$R/skills/buddy/SKILL.md.bak" "$R/co/.git/buddy.db" "$R/home/.local/state/model-router/table.tsv"
+# The core's directory stays for its .bak, so its manifest is held by name
+# (Codex code pass: skilldirs excludes the core).
+gone "$R/skills/buddy/.install-skill.files"
 kept U-4
+echo "$out" | grep -qxF "uninstall: data: left: $R/home/.local/state/model-router (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $R/home/.local/state/model-router)" || fail "U-4: the model router's state is not named as left:
+$out"
 # The settings: every buddy line gone, and only those (want_hooks says what
 # stays: the Agent-model hook's, a foreign entry, the Stop entry holding a
 # foreign hook beside buddy's); the old bytes kept beside it, 0600.
@@ -445,6 +474,41 @@ $out"
 $(cat "$FAKE/claude-calls")"
 [ "$(hooks_now "$R/settings.json")" = "$(want_hooks full)" ] || fail "U-5: the re-run changed the settings"
 echo "$out" | tail -1 | grep -qx 'uninstall: done' || fail "U-5: no done line:
+$out"
+
+# U-4r: the model router's state is found where router.py's state_dir() puts
+# it (D-178): under an ABSOLUTE XDG_STATE_HOME, and under ~/.local/state when
+# XDG_STATE_HOME is relative (router.py ignores it then). Dry runs: named,
+# nothing changed. With none there, no line: U-1/U-4 are the control that one
+# is named when it is there.
+label=U-4r
+setup; mkdir -p "$R/xdg/model-router"; printf 'table\n' > "$R/xdg/model-router/table.tsv"; before=$(snap)
+out=$(XENV="XDG_STATE_HOME=$R/xdg" un --dry-run 2>&1) || fail "U-4r: dry run failed:
+$out"
+[ "$(snap)" = "$before" ] || fail "U-4r: a dry run changed the tree"
+echo "$out" | grep -qxF "uninstall: data: left: $R/xdg/model-router (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $R/xdg/model-router)" || fail "U-4r: an absolute XDG_STATE_HOME's state is not named:
+$out"
+echo "$out" | grep -qF "left: $R/home/.local/state/model-router" && fail "U-4r: under an absolute XDG_STATE_HOME the home path was named:
+$out"
+out=$(XENV="XDG_STATE_HOME=rel/state" un --dry-run 2>&1) || fail "U-4r: dry run failed:
+$out"
+echo "$out" | grep -qF "data: left: $R/home/.local/state/model-router (" || fail "U-4r: a relative XDG_STATE_HOME must fall back to ~/.local/state:
+$out"
+# A newline in the path is never printed: it would forge a report line
+# (Codex code pass). Exported in a subshell: XENV splits on whitespace.
+NLX="$R/nl
+uninstall: done"
+mkdir -p "$NLX/model-router"
+out=$(export XDG_STATE_HOME="$NLX"; un --dry-run 2>&1) || fail "U-4r: dry run failed:
+$out"
+echo "$out" | grep -qxF "uninstall: data: left: the model router's table and refusal log under XDG_STATE_HOME/model-router (its path holds a newline, so it is not printed here)" || fail "U-4r: a state path with a newline is not named without it:
+$out"
+[ "$(echo "$out" | grep -cx 'uninstall: done')" -eq 0 ] || fail "U-4r: a newline in XDG_STATE_HOME forged a report line:
+$out"
+rm -rf "$R/home/.local/state/model-router"
+out=$(un --dry-run 2>&1) || fail "U-4r: dry run failed:
+$out"
+echo "$out" | grep -qF "model router" && fail "U-4r: no state directory, yet one was named:
 $out"
 
 # U-6..U-8: runs that STOP before removing anything (U-4 is their control).
@@ -1194,6 +1258,8 @@ $(cat "$FAKE/claude-calls" 2>/dev/null)"
 [ -z "$macos" ] || grep -qx "bootout gui/$(id -u)/$OSCAR" "$FAKE/calls" || fail "U-3b: --chat did not boot the oscar job out"
 echo "$out" | grep -qF "settings: $R/settings.json declares BUDDY_CHAT=on to every session, which outranks buddy's claims-only stamp" || fail "U-3b: settings declaring on are not named (the fixture's env says on; D-127):
 $out"
+echo "$out" | grep -qF "model router" && fail "U-3b: --chat leaves the skill, so it must not name the skill's data:
+$out"
 echo "$out" | tail -1 | grep -qx 'uninstall: done: the chat half is removed and buddy stays, claims-only' || fail "U-3b: no done line:
 $out"
 label=U-3c; stub on; before=$(snap)
@@ -1254,4 +1320,4 @@ $out"
 esac
 
 [ ! -e "$GUARD/reached" ] || fail "the REAL launchctl or claude was reached: $(cat "$GUARD/reached")"
-echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left)"
+echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left, every shipped skill's directory read from skills/, the model router's state named and kept)"

@@ -111,7 +111,10 @@
 # D-171, a reference file beside it) that is not byte-identical to this
 # checkout's (an edit, or another release's), a file in a skill directory this
 # checkout does not ship (the directory is then left too), the Agent-model
-# hook copy (D-120), other com.buddy-system.* launchd agents, a buddylist
+# hook copy (D-120), the model router's state directory (its table and
+# refusal log, `${XDG_STATE_HOME:-~/.local/state}/model-router`, router.py's
+# state_dir(); D-177, named since D-178: the user's data, written by the
+# skill, not by an install), other com.buddy-system.* launchd agents, a buddylist
 # process (never signalled: after the bootout they are live sessions' MCP
 # servers, D-122), and any file not identified as ours.
 #
@@ -931,6 +934,23 @@ if [ -z "$chat_only" ]; then
 	common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
 	[ -z "$common" ] || [ ! -e "$common/buddy.db" ] || say "data: left: this checkout's ledger $common/buddy.db"
 	say "data: left: every other repo's ledger (<git-common-dir>/buddy.db, wherever buddy init ran; not findable from here); each is inert without buddy"
+	# The model router's state (D-177's table and refusal log), found as
+	# router.py's state_dir() finds it: XDG_STATE_HOME when it is absolute,
+	# else ~/.local/state. Named, never removed (D-178): it is the user's
+	# data, which the skill wrote on its own scans, and a removal would be a
+	# --purge D-125 keeps out of scope. Named only on a full run: --chat
+	# leaves the skill, and so its data.
+	case ${XDG_STATE_HOME:-} in /*) rs=$XDG_STATE_HOME ;; *) rs=$HOME/.local/state ;; esac
+	rs=$rs/model-router
+	# A newline in XDG_STATE_HOME would print a line of its own (`uninstall:
+	# done`) inside this report (Codex code pass): named without the path then.
+	if [ ! -e "$rs" ] && [ ! -L "$rs" ]; then
+		:
+	elif case $rs in *"$NL"*) true ;; *) false ;; esac; then
+		say "data: left: the model router's table and refusal log under XDG_STATE_HOME/model-router (its path holds a newline, so it is not printed here)"
+	else
+		say "data: left: $rs (the model router's table and refusal log, written by its scans; remove it by hand if you like: rm -rf $(shq "$rs"))"
+	fi
 fi
 [ ! -d "$STATE_DIR" ] || say "data: left: $STATE_DIR (the chat journal, log and any plist kept above)"
 set +f

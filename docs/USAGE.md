@@ -621,8 +621,9 @@ the same work.
   included), the checkout's `.mcp.json`, Codex's `hooks.json` (Codex's file,
   trusted by its contents in Codex's `/hooks`; its gate line has no `[ -x ]`
   guard, so it refuses once buddy is gone), a pre-commit you added README's
-  `commit-gate` line to (any repo's), every ledger and the chat journal,
-  `core.hooksPath`, `SKILL.md.bak` and any edited skill, the Agent-model hook's
+  `commit-gate` line to (any repo's), every ledger and the chat journal, the
+  model router's table and refusal log (`$XDG_STATE_HOME/model-router` when
+  that is absolute, else `~/.local/state/model-router`; D-178), `core.hooksPath`, `SKILL.md.bak` and any edited skill, the Agent-model hook's
   copy, any other `com.buddy-system.*` agent or one it cannot prove is
   buddy's (above), and every `buddylist`
   process (never signalled, D-122: after the bootout they are live sessions'
