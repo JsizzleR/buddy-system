@@ -287,7 +287,7 @@ the run, or a `buddy wait --ready`) is the report, the run's outcome is the clos
    4h): declare the same wait again.
 4. **Your LANDED** carries the integrator's outcome. PASS naming you: your
    work is on main. Release your claims with the outcome and say so in ONE
-   Bash call: `buddy release <item> --outcome pass --note "<reds> <batches>" && buddy msg orc-<project> "<item> DONE: nothing held, no job running"`
+   Bash call: `buddy release <item> --outcome pass --note "reds=<n> <batches>" && buddy msg orc-<project> "<item> DONE: nothing held, no job running"`
    (an item abandoned on the orchestrator's word: `--outcome fail`).
    That message is what lets your pane be closed. Leave the worktree: the
    orchestrator removes it after the close. A lane whose cwd is the worktree

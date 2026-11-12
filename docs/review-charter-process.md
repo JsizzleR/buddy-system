@@ -33,8 +33,13 @@ main charter does (D-128, D-147). The chosen set and why the rest stay in full: 
     run's cap the skill's pick rule works within); the tier changes the review only. Fable runs
     only inside a review: the full tier's cross-check, panel lenses on a security-sensitive
     commit, a judgement-call ruling; the pick rule never lands on it, and a non-review subagent
-    is not on it. Do not propose "strongest model" wording, a lane on Fable the operator did
-    not name, or a verb or check reading a lane's model.
+    is not on it. D-175: an item claim's tokens are `model=` `class=` `tier=`, its release note
+    begins `reds=<n> `; `model-report.sh` reads them, effort and a `protected` column (the list
+    in its header, overlap either way) and prints no pick. A trial model is reached only by the
+    operator's written cap assigning every eligible item; a protected path stays on the default,
+    and a trial branch's diff is checked at READY. Do not propose "strongest model" wording, a
+    lane on Fable the operator did not name, a verb or check reading a lane's model (the report
+    is the existing reader), a cap a lane or coordinator writes, or shrinking the protected list.
 
 116. **A brief names a review-round ceiling (D-115).** Default: lite, one second-model code
     pass folded once; full, design + code + at most two re-verify rounds; the operator raises

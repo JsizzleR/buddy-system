@@ -1006,7 +1006,7 @@ ledger row entered through the CLI (D-006).
 
 111. **`buddy update` runs install.sh in the checkout install.sh stamped into buddy, after a local report, and never fetches (D-110).** A bad stamp refuses naming install.sh; dirty or off-main warns and installs; only an installed commit HEAD lacks refuses (D-037); not a hook verb, opens no ledger, never delegable (D-083). Do not propose: a pull, a `--check` alias, or refusing a dirty or off-main tree. (full text: part `install`)
 
-112. **Every lane runs on the default lane model, full tier included; Fable is for reviews only (D-111, amends D-104).** Do not propose: "strongest model" wording, a lane on Fable the operator did not name, a verb or check reading a lane's model. (full text: `CODEX_CHARTER=process`)
+112. **Every lane runs on the default lane model, full tier included; Fable is for reviews only (D-111, amends D-104; D-175).** Do not propose: "strongest model" wording, a lane on Fable the operator did not name, a verb or check reading a lane's model, a pick or trial without the operator's written cap, a trial item on a protected path. (full text: `CODEX_CHARTER=process`)
 
 113. **`CLAUDE.md` holds the rules a session obeys and a topical decision index; each
     decision's record is in `docs/decisions.md` (D-112, D-118, D-122, D-165).** The operator, 2026-10-28:

@@ -1,6 +1,9 @@
 # Model routing: a printed pick inside the operator's cap, never a launcher
 
-Status: PLAN, nothing built (2026-11-11). Written by the `model-routing` lane
+Status: PLAN (2026-11-11); **step 2 built as D-175** (2026-11-12, lane
+route-grammar, after the operator's "yes trial a second lane model"; its
+measured bytes are in section 5's Context cost table). The rest of step 1,
+and steps 3 and 4, are not built. Written by the `model-routing` lane
 (Opus 5.5, high) under orc-20's brief. Sources: the operator's request, the
 read-only reports in section 0, the prior plans, one Fable consultation
 (section 7) and one Codex design pass (section 8). Base: main at c23b081.
@@ -332,14 +335,15 @@ Every figure here is an ESTIMATE of text not yet written. Step 2's lane
 measures each with `wc -c` on its diff's added lines and on a fixture run of
 the report, and puts the result in its READY (Codex P7).
 
-| who | bytes |
-|---|---|
-| every request | 0 auto-loaded: no CLAUDE.md, rule or skill-description text |
-| skill bodies, per session that loads them | the release-line wording, about +60 bytes across the core and fleet skills (step 2); a loaded skill rides every later request of that session (D-114) |
-| read on demand | `model-pick.md`, about +2 KB (step 2) and about +300 bytes (step 4) |
-| a coordinator, once per run | the report's added output: a line per open class and tier plus the check, about 1 KB |
-| a trial lane's brief | the cap's path, sha256 and `decided=`, plus the `tier=` token: about 150 bytes, carried on every request of that lane |
-| any other lane | 0 |
+| who | bytes | measured at step 2 (`wc -c`, D-175) |
+|---|---|---|
+| every request | 0 auto-loaded: no CLAUDE.md, rule or skill-description text | +7: D-175 on CLAUDE.md's index line, no clause |
+| skill bodies, per session that loads them | the release-line wording, about +60 bytes across the core and fleet skills (step 2); a loaded skill rides every later request of that session (D-114) | +77 net: core +2, fleet +75 |
+| read on demand | `model-pick.md`, about +2 KB (step 2) and about +300 bytes (step 4) | +2,713 net (2,680 to 5,393) |
+| a coordinator, once per run | the report's added output: a line per open class and tier plus the check, about 1 KB | +1,742 on the live ledger (item section 1,454 to 3,196; 6 cells, a floor line each); a fixture run's item section 3,438 (9 cells) and 3,059 (7) |
+| a Codex pass | not estimated | +93 on every pass (GIVEN 112's stub); +524 more under `CODEX_CHARTER=process` |
+| a trial lane's brief | the cap's path, sha256 and `decided=`, plus the `tier=` token: about 150 bytes, carried on every request of that lane | the token: 10 bytes (`tier=lite `); the cap's part not built |
+| any other lane | 0 | 10 bytes, the token in its claim's start |
 
 ## 6. How a pick is checked afterwards
 

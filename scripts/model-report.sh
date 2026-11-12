@@ -31,6 +31,36 @@
 #           docs code test research ops; a missing, repeated or unlisted
 #           token is `unknown`, counted and never printed. The word reaches
 #           the output as a LITERAL of a SQL CASE, never as the bytes read.
+#   tier    the THIRD anchored token, `tier=<chore|lite|full>` (D-175,
+#           docs/ROUTING-PLAN.md step 2): read only after a valid model= and
+#           class= pair, once (a second ` tier=` anywhere is `unknown`), a
+#           literal of a CASE like the class. Why a tier axis: class x model
+#           alone put the full-tier gate work in the default's cell only, so
+#           "no worse" leaned toward a trial model given the easy items
+#           (Fable F3). A row from an older export has no column: `-`.
+#   reds    the item's own release note's FIRST word, `reds=<n>`, n 0..999
+#           with no leading zero, once (a second ` reds=` is a bad one): the
+#           count, or `-` when missing or bad. Every taught release note
+#           begins with it (the lane's, the parked rider's, the model
+#           summary's). Before D-175, 0 of 81 outcome notes carried it in
+#           any one shape (ROUTING-PLAN M4), and a red never reached the
+#           rework column: an in-run red keeps its claim, and a `-2` lane is
+#           HANDED the claim. Only the parsed integer leaves SQL.
+#   effort  the holder's recorded effort on the same session_context row as
+#           its model: low medium high xhigh max as literals, `unrecorded`
+#           with none, `other` otherwise. Exported, not a cell axis: the cap
+#           names a model, and the report prints it as one summary line.
+#   protected
+#           1 when a scope of this claim, or of a SHARED claim the same
+#           session incarnation held over an overlapping window (a
+#           companion), overlaps the protected list below in EITHER
+#           direction, under the stored fold (invariant 13) and containment
+#           (invariant 14): `docs` overlaps `docs/decisions.md`, and
+#           `internal/fence/x.go` overlaps `internal`. Computed at export, so
+#           a swept row keeps it. It sees claims only: a lane can edit a path
+#           it never claimed, which is why model-pick.md's READY diff check
+#           exists (Codex P1). A shared companion handed to another session
+#           with a plain `release --to` is no longer the lane's and is missed.
 #   model   the holder session's RECORDED model (session_context, the string
 #           the roster renders, D-020's register), never the description's
 #           token: `unrecorded` with no context row, `other` when it is not
@@ -94,6 +124,17 @@
 # names the file. Read back, the file is DATA: a row is reported only if
 # every field passes the same checks a fresh row does, and the rest are
 # counted, never printed. Two exports racing on one file are not serialized.
+# COLUMNS ARE ONLY EVER APPENDED (D-175: tier, reds, effort, protected after
+# the first 14), so a reader by position keeps every column it had. A file
+# with the 14-column header has that one line rewritten to the 18-column
+# one (through a copy that keeps its mode, then a rename) and its old rows
+# kept as they are: read back, a 14-field row reads the four as missing.
+# Rewriting the header, not keeping it: an old report refuses the file by
+# its first line, loudly, where appending wider rows under the old header
+# had it count every new row as "not in this report's rendered form".
+# Every run prints its input: the path, the row count, the created dates
+# and the file's sha256, so a figure quoted in a brief can be re-run against
+# the same bytes (Codex P6); a ledger copy is not retained and says so.
 #
 # THE COPY (D-072's rule, the way `buddy diagnose` reads): the ledger and its
 # WAL are copied into a private 0700 directory, retried while either one's
@@ -199,19 +240,63 @@ case "$schema" in
 esac
 
 # One row per item claim, every field already in its rendered form, plus
-# the full session id (column 13, charset-checked) and the holder's worktree
-# as HEX (column 14) for the transcript lookup, neither ever printed.
+# the full session id (column 17, charset-checked) and the holder's worktree
+# as HEX (column 18) for the transcript lookup, neither ever printed.
+#
+# THE PROTECTED LIST (D-175; docs/ROUTING-PLAN.md section 5, "Protected
+# paths always run on the default"). CLAUDE.md's full tier is "a change to
+# what the gate refuses or allows, the ledger schema, internal/fence or an
+# invariant"; an item touching any of these runs on the default lane model
+# whatever its class or tier word, and the cap cannot shrink the list (F5):
+#   all code      cmd internal scripts .githooks .claude .github go.mod go.sum
+#                 (scripts/ whole: scripts/gate-hook.py sat outside a
+#                 narrower list, Codex P1; .github and the module files are
+#                 code the plan's list did not name, added as the safer side)
+#   the rules     CLAUDE.md AGENTS.md
+#   the skills    skills (model-pick.md, the rule itself, among them: F6)
+#   loaded texts  docs/review-charter* (a PREFIX: every charter part),
+#                 docs/decisions.md docs/prose-budget.tsv
+# Lower-case literals, compared with the stored folded scope. pre=1 is the
+# prefix row. Containment is invariant 14's, spelled with substr, never
+# GLOB: a scope is peer-written, and `*` as a GLOB pattern matches all.
 cat >"$work/items.sql" <<'SQL'
-WITH c AS (
+WITH prot(p, pre) AS (VALUES
+  ('cmd', 0), ('internal', 0), ('scripts', 0), ('.githooks', 0), ('.claude', 0),
+  ('.github', 0), ('go.mod', 0), ('go.sum', 0),
+  ('claude.md', 0), ('agents.md', 0), ('skills', 0),
+  ('docs/review-charter', 1), ('docs/decisions.md', 0), ('docs/prose-budget.tsv', 0)
+),
+hit AS (
+  SELECT DISTINCT s.claim_id FROM claim_scopes s JOIN prot ON
+    (pre = 0 AND (s.folded = p OR substr(s.folded, 1, length(p) + 1) = p || '/'))
+    OR (pre = 1 AND substr(s.folded, 1, length(p)) = p)
+    OR substr(p, 1, length(s.folded) + 1) = s.folded || '/'
+),
+a AS (
   SELECT rowid AS ord, claim_id,
     -- D-133: a parked rider is its producer's work, though a coordinator holds it.
     CASE WHEN producer_session <> '' THEN producer_session ELSE session_id END AS session_id,
     CASE WHEN producer_session <> '' THEN producer_incarnation ELSE incarnation END AS incarnation,
-    slug, created, renewed, state, outcome,
-    ' ' || replace(replace(replace(descr, char(9), ' '), char(10), ' '), char(13), ' ') || ' ' AS d
+    slug, created, renewed, state, outcome, shared, descr, outcome_note,
+    CASE WHEN state = 'open' THEN CAST(strftime('%s', 'now') AS INTEGER) ELSE renewed END AS until
   FROM claims
+),
+c AS (
+  SELECT ord, claim_id, session_id, incarnation, slug, created, renewed, state, outcome,
+    ' ' || replace(replace(replace(descr, char(9), ' '), char(10), ' '), char(13), ' ') || ' ' AS d,
+    ' ' || replace(replace(replace(outcome_note, char(9), ' '), char(10), ' '), char(13), ' ') || ' ' AS nn,
+    -- A NUL anywhere voids every token of that text: SQLite's text length()
+    -- and replace() stop at one, so `tier=lite<NUL> tier=full` counted one
+    -- ` tier=` and read lite (Codex code pass). argv cannot carry a NUL; a
+    -- hand-edited ledger can.
+    instr(CAST(descr AS BLOB), x'00') AS dz, instr(CAST(outcome_note AS BLOB), x'00') AS nz,
+    CASE WHEN claim_id IN (SELECT claim_id FROM hit) OR EXISTS (SELECT 1 FROM a o
+      WHERE o.shared = 1 AND o.claim_id <> a.claim_id AND o.session_id = a.session_id
+        AND o.incarnation = a.incarnation AND o.created <= a.until AND a.created <= o.until
+        AND o.claim_id IN (SELECT claim_id FROM hit)) THEN 1 ELSE 0 END AS prot
+  FROM a
   WHERE slug NOT GLOB 'orc-*' AND slug <> 'orchestrator'
-    AND NOT EXISTS (SELECT 1 FROM claim_scopes s WHERE s.claim_id = claims.claim_id
+    AND NOT EXISTS (SELECT 1 FROM claim_scopes s WHERE s.claim_id = a.claim_id
       AND (s.folded = '.buddy' OR s.folded GLOB '.buddy/*'))
 ),
 w AS (
@@ -219,25 +304,42 @@ w AS (
     substr(d, 2, instr(substr(d, 2), ' ') - 1) AS w1,
     substr(d, 2 + instr(substr(d, 2), ' ')) AS r,
     (length(d) - length(replace(d, ' model=', ''))) / 7 AS nm,
-    (length(d) - length(replace(d, ' class=', ''))) / 7 AS nc
+    (length(d) - length(replace(d, ' class=', ''))) / 7 AS nc,
+    (length(d) - length(replace(d, ' tier=', ''))) / 6 AS nt,
+    substr(nn, 2, instr(substr(nn, 2), ' ') - 1) AS n1,
+    (length(nn) - length(replace(nn, ' reds=', ''))) / 6 AS nr
   FROM c
 ),
 t AS (
   SELECT *,
-    CASE WHEN w1 GLOB 'model=?*' AND nm = 1 AND nc <= 1 THEN substr(w1, 7) END AS mtok,
-    CASE WHEN w1 GLOB 'model=?*' AND nm = 1 AND nc = 1 AND substr(r, 1, instr(r, ' ') - 1) GLOB 'class=?*'
+    CASE WHEN dz = 0 AND w1 GLOB 'model=?*' AND nm = 1 AND nc <= 1 THEN substr(w1, 7) END AS mtok,
+    CASE WHEN dz = 0 AND w1 GLOB 'model=?*' AND nm = 1 AND nc = 1 AND substr(r, 1, instr(r, ' ') - 1) GLOB 'class=?*'
       THEN substr(r, 7, instr(r, ' ') - 7) END AS ctok,
+    substr(r, instr(r, ' ') + 1) AS r2,
     (SELECT model FROM session_context x WHERE x.session_id = w.session_id
       AND x.incarnation = w.incarnation) AS m,
+    (SELECT effort FROM session_context x WHERE x.session_id = w.session_id
+      AND x.incarnation = w.incarnation) AS ef,
     (SELECT worktree FROM sessions y WHERE y.session_id = w.session_id) AS wt
   FROM w
+),
+u AS (
+  SELECT *,
+    -- The third token only after a valid model= and class= pair, and once;
+    -- valid means a LISTED class word (`class=bogus tier=lite` is no pair, Codex).
+    CASE WHEN ctok IN ('docs', 'code', 'test', 'research', 'ops') AND nt = 1 AND substr(r2, 1, instr(r2, ' ') - 1) GLOB 'tier=?*'
+      THEN substr(r2, 6, instr(r2, ' ') - 6) END AS ttok,
+    CASE WHEN nr = 1 AND nz = 0
+      AND (n1 GLOB 'reds=[0-9]' OR n1 GLOB 'reds=[1-9][0-9]' OR n1 GLOB 'reds=[1-9][0-9][0-9]')
+      THEN printf('%d', CAST(substr(n1, 6) AS INTEGER)) ELSE '-' END AS reds
+  FROM t
 ),
 k AS (
   SELECT *,
     ROW_NUMBER() OVER (PARTITION BY slug ORDER BY created, ord) AS nth,
     COUNT(*) OVER (PARTITION BY slug) AS n,
     LAG(claim_id) OVER (PARTITION BY slug ORDER BY created, ord) AS prev
-  FROM t
+  FROM u
 )
 SELECT
   claim_id,
@@ -259,6 +361,11 @@ SELECT
   CASE WHEN prev IS NULL THEN '-'
     WHEN length(CAST(prev AS BLOB)) BETWEEN 8 AND 36 AND instr(CAST(prev AS BLOB), x'00') = 0
       AND prev NOT GLOB '*[^0-9a-f-]*' THEN prev ELSE 'malformed' END,
+  CASE ttok WHEN 'chore' THEN 'chore' WHEN 'lite' THEN 'lite' WHEN 'full' THEN 'full' ELSE 'unknown' END,
+  reds,
+  CASE WHEN ef IS NULL OR ef = '' THEN 'unrecorded' WHEN ef = 'low' THEN 'low' WHEN ef = 'medium' THEN 'medium'
+    WHEN ef = 'high' THEN 'high' WHEN ef = 'xhigh' THEN 'xhigh' WHEN ef = 'max' THEN 'max' ELSE 'other' END,
+  CASE prot WHEN 1 THEN '1' ELSE '0' END,
   CASE WHEN length(CAST(session_id AS BLOB)) BETWEEN 8 AND 64 AND instr(CAST(session_id AS BLOB), x'00') = 0
     AND session_id NOT GLOB '*[^0-9a-f-]*' THEN session_id ELSE '-' END,
   CASE WHEN wt GLOB '/?*' THEN hex(CAST(wt AS BLOB)) ELSE '-' END
@@ -311,7 +418,7 @@ reduce (inputs | fromjson? | select(type == "object" and .type == "assistant"
 # enc: the harness's directory name for a path given as hex, by its rule: an
 # ASCII letter or digit is kept, any other ASCII byte is one '-', a 2- or
 # 3-byte UTF-8 sequence (one UTF-16 unit) one '-', a 4-byte one two.
-cut -f13,14 "$work/raw.tsv" | sort -u | awk -F'\t' -v OFS='\t' '
+cut -f17,18 "$work/raw.tsv" | sort -u | awk -F'\t' -v OFS='\t' '
 function enc(h,   i, b, o, c) {
 	o = ""
 	for (i = 1; i < length(h); i += 2) {
@@ -335,13 +442,14 @@ done >>"$work/events.tsv"
 
 now=$(date +%s)
 # items.tsv: the export's columns. requests/tool_calls in the claim's window.
-hdr='claim_id	session	model	class	pick	outcome	state	created	ended	nth	slug_claims	prev_claim	requests	tool_calls'
+hdr14='claim_id	session	model	class	pick	outcome	state	created	ended	nth	slug_claims	prev_claim	requests	tool_calls'
+hdr="$hdr14	tier	reds	effort	protected"
 awk -F'\t' -v OFS='\t' -v now="$now" '
 # FILENAME, not NR == FNR: with no transcript at all the events file is
 # empty, and NR == FNR then reads every item as an event.
 FILENAME == ARGV[1] { has[$1] = 1; ev[$1, ++ne[$1]] = $2 "\t" $3; next }
 {
-	sid = $13; hi = ($9 == "-") ? now : $9; rq = "-"; tc = "-"
+	sid = $17; hi = ($9 == "-") ? now : $9; rq = "-"; tc = "-"
 	if (sid != "-" && has[sid]) {
 		rq = 0; tc = 0
 		for (i = 1; i <= ne[sid]; i++) {
@@ -349,14 +457,22 @@ FILENAME == ARGV[1] { has[$1] = 1; ev[$1, ++ne[$1]] = $2 "\t" $3; next }
 			if (e[1] != "F" && e[2] >= $8 && e[2] <= hi) { if (e[1] == "R") rq++; else tc++ }
 		}
 	}
-	print $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, rq, tc
+	print $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, rq, tc, $13, $14, $15, $16
 }' "$work/events.tsv" "$work/raw.tsv" >"$work/items.tsv"
 
 # The row checker, ONE copy for a fresh row and a row read back from a file:
-# a row is reported only if every column is in its rendered form.
+# a row is reported only if every column is in its rendered form. A 14-field
+# row is an older export's (before D-175): its first 14 columns are checked
+# the same, and the four it lacks read as missing (`-`) where it is counted.
 valid='
 function ok(   i) {
-	if (NF != 14) return 0
+	if (NF != 14 && NF != 18) return 0
+	if (NF == 18) {
+		if ($15 !~ /^(chore|lite|full|unknown)$/) return 0
+		if ($16 != "-" && $16 !~ /^(0|[1-9][0-9]?[0-9]?)$/) return 0
+		if ($17 !~ /^(low|medium|high|xhigh|max|unrecorded|other)$/) return 0
+		if ($18 !~ /^[01]$/) return 0
+	}
 	if ($1 !~ /^[0-9a-f-]+$/ || length($1) < 8 || length($1) > 36) return 0
 	if ($2 !~ /^s-([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)$/) return 0
 	if ($3 !~ /^[A-Za-z0-9._-]+$/ || length($3) > 64) return 0
@@ -372,6 +488,10 @@ function ok(   i) {
 }'
 
 source="ledger copy"
+# A register whose last line has no newline (a hand edit, a torn write) would
+# have the first appended row glued onto it: one row of 31 fields, both lost
+# and the old id still reserved by the dedupe (Codex code pass). End it first.
+endline() { [ ! -s "$1" ] || [ -z "$(tail -c 1 "$1")" ] || printf '\n' >>"$1"; }
 rows="$work/items.tsv"
 added=0
 # The receipts register (REVIEW LAYERS, below) is refused HERE, before the
@@ -382,12 +502,23 @@ if [ -n "$export_to" ] && [ -e "$export_to.receipts" ] && [ "$(head -n 1 "$expor
 	echo "model-report: $export_to.receipts exists and its first line is not this report's receipts header; refusing to append to it" >&2
 	exit 2
 fi
+upgraded=
 if [ -n "$export_to" ]; then
 	if [ -e "$export_to" ]; then
-		[ "$(head -n 1 "$export_to")" = "$hdr" ] || {
+		first=$(head -n 1 "$export_to")
+		if [ "$first" = "$hdr14" ]; then
+			# An export written before D-175: its header gains the four
+			# columns, its rows stay as written (the header comment says why).
+			# The copy keeps the file's mode; the rename replaces it whole.
+			tmp="$export_to.d175.$$"
+			cp -p "$export_to" "$tmp"
+			{ printf '%s\n' "$hdr"; tail -n +2 "$export_to"; } >"$tmp"
+			mv -f "$tmp" "$export_to"
+			upgraded=1
+		elif [ "$first" != "$hdr" ]; then
 			echo "model-report: the --export file exists and its first line is not this report's header; refusing to append to it" >&2
 			exit 2
-		}
+		fi
 	else
 		printf '%s\n' "$hdr" >"$export_to"
 	fi
@@ -398,24 +529,54 @@ if [ -n "$export_to" ]; then
 		($7 == "released" || $7 == "orphaned") && !done[$1]++ && ok() { print }
 	' "$export_to" "$work/items.tsv" >"$work/new.tsv"
 	added=$(awk 'END { print NR }' "$work/new.tsv")
+	endline "$export_to"
 	cat "$work/new.tsv" >>"$export_to"
 	source="register --export names"
 	rows=$export_to
 fi
+hflag=$( [ -n "$export_to" ] && echo 1 || echo 0)
 
-echo "Model report: per class x model, over the $source"
+# The input, identified (Codex P6): its rows, the span of their created
+# epochs, and the file's sha256 after this run's append. Rows are every line
+# under the header, valid or not, because the digest is over all of them.
+sha256() {
+	if command -v sha256sum >/dev/null 2>&1; then sha256sum <"$1" | cut -d' ' -f1
+	elif command -v shasum >/dev/null 2>&1; then shasum -a 256 <"$1" | cut -d' ' -f1
+	else echo NOT-MEASURED; fi
+}
+day() { [ -n "$1" ] && jq -rn --argjson e "$1" '$e | todate | .[0:10]' || echo -; }
+span=$(LC_ALL=C awk -F'\t' -v header="$hflag" 'FNR == 1 && header { next }
+	{ n++ } $8 ~ /^[0-9]+$/ { v = $8 + 0; if (lo == "" || v < lo) lo = v; if (v > hi) hi = v }
+	END { print n + 0, lo, hi }' "$rows")
+set -- $span
+inrows=$1 lo=$(day "${2:-}") hi=$(day "${3:-}")
+if [ -n "$export_to" ]; then
+	# The path is the operator's argv, printed on one line all the same.
+	input="$(printf '%s' "$export_to" | LC_ALL=C tr -c '[:print:]' '?'), $inrows row(s), created $lo..$hi UTC, sha256 $(sha256 "$export_to")"
+else
+	input="the ledger copy (not retained: --export <tsv> keeps one), $inrows row(s), created $lo..$hi UTC, sha256 -"
+fi
+
+echo "Model report: per class x tier x model, over the $source"
 echo "Counts and ids only: no description, slug, label or note is printed. The model is the holder's recorded one."
 [ -z "$export_to" ] || echo "export: $added new closed item(s) appended"
+[ -z "$upgraded" ] || echo "export: the header gained the tier, reds, effort and protected columns; its older rows read them as missing (-)"
+echo "input: $input"
 [ "$malformed_ids" = 0 ] || echo "left out: $malformed_ids claim(s) whose id is not hex"
 
-LC_ALL=C awk -F'\t' -v floor="$floor" -v header="$( [ -n "$export_to" ] && echo 1 || echo 0)" "$valid"'
+LC_ALL=C awk -F'\t' -v floor="$floor" -v header="$hflag" "$valid"'
 FNR == 1 && header { next }
 !ok() { bad++; next }
 seen[$1]++ { dup++; next }
 {
-	n++; k = $4 SUBSEP $3; items[k]++; cls[$4] = 1; mod[$3] = 1
-	if ($7 == "open") open++
-	if ($6 != "none") { outc[k]++; if ($6 == "fail") fail[k]++ }
+	# A 14-field row is an older export'"'"'s: the four D-175 columns are missing.
+	T = "-"; R = "-"; E = "-"; X = "-"
+	if (NF == 18) { T = $15; R = $16; E = $17; X = $18 }
+	n++; k = $4 SUBSEP T SUBSEP $3; items[k]++; mod[$3] = 1; tiers[T]++; eff[E]++
+	if ($7 == "open") open++; else { closed[k]++; if ($6 == "none") noout[k]++ }
+	if ($6 != "none") { outc[k]++; nout++; if ($6 == "fail") fail[k]++; if (R == "-") nored++ }
+	if (R != "-") { rn[k]++; rs[k] += R }
+	if (X == "1") { prot[k]++; np++ } else if (X == "0") up[k]++; else npu++
 	if ($13 != "-") { tr[k]++; req[k] += $13; tool[k] += $14 }
 	if ($12 != "-" && $12 != "malformed") redone[$12] = 1
 	rowk[$1] = k; pick[$5]++
@@ -425,27 +586,35 @@ function pct(a, b) { return b ? sprintf("%d/%d %3d%%", a, b, int(100 * a / b + 0
 END {
 	for (id in rowk) if (id in redone) rw[rowk[id]]++
 	printf "items: %d (%d open), %d with no class token or a bad one (`unknown`)\n", n, open, unk
+	printf "tier= token: %d chore, %d lite, %d full, %d missing, repeated or unlisted (`unknown`), %d older export row(s) without it (`-`)\n", tiers["chore"], tiers["lite"], tiers["full"], tiers["unknown"], tiers["-"]
 	printf "model= token against the recorded model: %d same, %d differs, %d none or repeated, %d with no model recorded\n", pick["same"], pick["differs"], pick["none"], pick["unchecked"]
+	printf "effort, the holder'"'"'s recorded: %d low, %d medium, %d high, %d xhigh, %d max, %d unrecorded, %d other, %d older export row(s) without it\n", eff["low"], eff["medium"], eff["high"], eff["xhigh"], eff["max"], eff["unrecorded"], eff["other"], eff["-"]
+	printf "outcomes without reds=: %d of %d\n", nored, nout
+	printf "protected: %d item(s) whose claim, or a shared claim beside it, touches the protected list; %d older export row(s) unknown\n", np, npu
+	printf "pick: none printed; this report reads no cap\n"
 	if (bad) printf "left out: %d row(s) that are not in this report'"'"'s rendered form\n", bad
 	if (dup) printf "left out: %d repeated claim id(s)\n", dup
 	if (!n) exit
 	w = 5; for (m in mod) if (length(m) > w) w = length(m)
-	printf "\n%-8s  %-*s  %5s  %-14s  %-14s  %-14s  %14s  %10s\n", "class", w, "model", "items", "outcome", "fail", "reworked", "requests/item", "tools/item"
+	printf "\n%-8s  %-7s  %-*s  %5s  %4s  %-14s  %-14s  %-14s  %-14s  %-14s  %14s  %10s\n", "class", "tier", w, "model", "items", "prot", "outcome", "no-outcome", "fail", "reworked", "reds/item", "requests/item", "tools/item"
 	nc = split("docs code test research ops unknown", order, " ")
+	nt = split("chore lite full unknown -", tord, " ")
 	nm = 0; for (m in mod) mods[++nm] = m
 	for (i = 1; i < nm; i++) for (j = i + 1; j <= nm; j++) if (mods[j] < mods[i]) { t = mods[i]; mods[i] = mods[j]; mods[j] = t }
-	for (c = 1; c <= nc; c++) for (i = 1; i <= nm; i++) {
-		k = order[c] SUBSEP mods[i]
+	for (c = 1; c <= nc; c++) for (y = 1; y <= nt; y++) for (i = 1; i <= nm; i++) {
+		k = order[c] SUBSEP tord[y] SUBSEP mods[i]
 		if (!items[k]) continue
-		printf "%-8s  %-*s  %5d  %-14s  %-14s  %-14s  %14s  %10s\n", order[c], w, mods[i], items[k],
-			pct(outc[k], items[k]), pct(fail[k], outc[k]), pct(rw[k], items[k]),
+		printf "%-8s  %-7s  %-*s  %5d  %4d  %-14s  %-14s  %-14s  %-14s  %-14s  %14s  %10s\n", order[c], tord[y], w, mods[i], items[k], prot[k],
+			pct(outc[k], items[k]), pct(noout[k], closed[k]), pct(fail[k], outc[k]), pct(rw[k], items[k]),
+			rn[k] ? sprintf("%.2f (n=%d)", rs[k] / rn[k], rn[k]) : "- (n=0)",
 			tr[k] ? sprintf("%.0f (n=%d)", req[k] / tr[k], tr[k]) : "- (n=0)",
 			tr[k] ? sprintf("%.0f", tool[k] / tr[k]) : "-"
-		if (items[k] < floor) under[++nu] = sprintf("below the floor: %s x %s has %d item(s), under %d; no inference", order[c], mods[i], items[k], floor)
+		if (up[k] < floor) under[++nu] = sprintf("below the floor: %s x %s x %s has %d unprotected item(s), under %d; no inference", order[c], tord[y], mods[i], up[k], floor)
 	}
 	if (nu) printf "\n"
 	for (i = 1; i <= nu; i++) print under[i]
-	printf "\noutcome: items released with --outcome; fail: of those; reworked: items whose slug was claimed again after them.\n"
+	printf "\noutcome: items released with --outcome; no-outcome: closed items released without one; fail: of the outcomes; reworked: items whose slug was claimed again after them.\n"
+	printf "prot: items on the protected list, never in a trial'"'"'s cell; reds/item: over the items whose note begins reds=<n> (n); the floor counts unprotected items.\n"
 }' "$rows"
 
 # REVIEW LAYERS (#78, D-141): what each review layer FOUND, from the commits'
@@ -510,6 +679,7 @@ if [ -n "$export_to" ]; then
 		!done[$1] && rok() { print }
 	' "$reg" "$work/receipts.tsv" >"$work/rnew.tsv"
 	radded=$(awk -F'\t' '!s[$1]++ { n++ } END { print n + 0 }' "$work/rnew.tsv")
+	endline "$reg"
 	cat "$work/rnew.tsv" >>"$reg"
 	rsrc="receipts register beside the export"
 	rrows=$reg
@@ -518,7 +688,7 @@ fi
 echo
 echo "Review layers: per tier x layer, over the $rsrc"
 [ -z "$export_to" ] || echo "export: $radded new commit receipt(s) appended"
-LC_ALL=C awk -F'\t' -v header="$( [ -n "$export_to" ] && echo 1 || echo 0)" "$rvalid"'
+LC_ALL=C awk -F'\t' -v header="$hflag" "$rvalid"'
 FNR == 1 && header { next }
 !rok() { bad++; next }
 seen[$1, $4]++ { dup++; next }

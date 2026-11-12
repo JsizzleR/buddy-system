@@ -11901,3 +11901,110 @@ key on a case-insensitive volume: `pwd -P` returns the on-disk spelling (measure
 - USAGE: `buddy uninstall`, "What it also removes"; README "Uninstall"
 - amends: D-125's "Never touched" (the three removals), D-135 (its one table now also read in
   reverse)
+
+## D-175 — An item's claim carries `tier=` as its third token and its release note begins `reds=<n> `; the model report reads both, effort and a protected column, the baseline for a trial no lane starts (ROUTING-PLAN step 2; amends D-104, D-111, D-141)
+
+2026-11-12 · the operator, in orc-20's pane at about 05:35Z on 2026-11-12: "yes trial a second
+lane model", answering the first half of step 1 of `docs/ROUTING-PLAN.md` as of `03da68d`. The
+basis is that plan at that commit: sections 3, 5 and 6, its Fable ruling (section 7, F1-F24) and
+its Codex design pass (section 8, P1-P7). Lane route-grammar, under orc-20's brief. The rest of
+step 1 (the trial model, its classes and tiers, the floors, the rewrite of the operator's
+"supersedes" sentence) and step 3 (the `route-cap` line) are the operator's and stay OPEN; nothing
+here writes, proposes or reads a cap.
+
+**The failure** (ROUTING-PLAN section 0). Every cell held one model (M1), so a pick rule comparing
+two models' rates had nothing to compare, and the rates it would compare could not tell two models
+apart: 0 fails in 81 outcomes, 1 rework in 97 items (M3). An in-run red keeps its claim and a red's
+`-2` lane is handed it, so no red reached the rework column, and the red count lived only in free
+text: 0 of 81 outcome notes began `reds=` (M4), and the three taught note lines disagreed (`<reds>
+<batches>`, `<sha>`, `<what>`). Class x model put the full-tier gate work in the default's cell
+only (F3). Effort was recorded and read by no report (M5).
+
+**The rule.**
+1. **Grammar.** An item's claim description begins `model=<id> class=<word> tier=<tier> `, each
+   once; `<tier>` is `chore`, `lite` or `full`, read only after a valid model and class pair. A
+   missing, repeated (anywhere in the description) or unlisted token is `unknown`, as model and
+   class are. Every taught item release note begins `reds=<n> `, n 0..999 with no leading zero,
+   once: the lane's release after LANDED (`reds=<n> <batches>`), the parked rider's at landing
+   (`reds=<n> <sha>`) and the model summary line (`reds=<n> <what>`), changed together.
+2. **The report** (`scripts/model-report.sh`). Cells by class x tier x model, with a protected
+   count, a no-outcome rate (closed with no outcome, F9) and reds per item over the items whose
+   note carries the token (Codex P4); `outcomes without reds=` printed, so an unwritten grade is
+   visible (F12); effort read from `session_context` (the holder's row, its incarnation's), one
+   summary line; the floor counts unprotected items. `--export` appends four counts-only columns
+   at the END (`tier`, `reds`, `effort`, `protected`), and `protected` is computed in SQL at
+   export, so a swept row keeps it (P6). Every run prints its input's path, row count, created
+   dates and sha256 (P6). It prints no pick: it reads no cap (step 4's `--cap` is not built).
+3. **The protected list**, a literal in the report beside a comment naming CLAUDE.md's full-tier
+   classes: `cmd`, `internal`, `scripts`, `.githooks`, `.claude`, `.github`, `go.mod`, `go.sum`,
+   `CLAUDE.md`, `AGENTS.md`, `skills`, `docs/review-charter*` (a prefix), `docs/decisions.md`,
+   `docs/prose-budget.tsv`. Overlap in either direction against the stored folded scope
+   (invariant 13), containment as invariant 14 spells it, in `substr`, never `GLOB` (a scope is
+   peer-written, and `*` as a pattern matches everything). A claim is protected when its own
+   scopes overlap, or a SHARED claim of the same session incarnation whose window overlaps its
+   own does (the plan's "a shared companion claim counts too").
+4. **The trial's rules**, in `skills/buddy-fleet/model-pick.md`, a coordinator's acts once an
+   operator-written cap exists and never before: every eligible item, one predicate for both
+   cells; reds stay on the model that made them (`<item>-2` on the same model; escalation is a
+   fail and a fresh slug on the default); protected paths always run on the default; the READY
+   diff check (`git -c diff.relative=false diff --name-only -z --no-renames <base>..<tip>` from the top level, eject on a protected path);
+   the stop rule, INCONCLUSIVE below `events=`. Cooperative (D-005): nothing enforces the diff
+   check, and the claim-based column cannot see an unclaimed edit.
+
+**Amends.** D-104 and D-111's pick lines: the pick is by class AND tier, and a non-default model
+is reached only through an operator-written cap's assignment of every eligible item, never a
+protected one; a full-tier item stays on the default as before. D-141: receipts still join by the
+receipt's tier (a commit names no claim); the item cells now read the claim's own `tier=`, a
+separate record that nothing reconciles with the receipt's.
+
+**Decided by the lane, the safer side each time.** `.github`, `go.mod` and `go.sum` joined the
+list (code the plan's list did not name; it can only shrink a trial). The companion is the same
+session's INCARNATION with an overlapping window: by session alone, a lane's earlier shared claim
+would mark its later items. An export with the 14-column header has its header line rewritten to
+the 18 (a mode-keeping copy, then a rename) and its rows kept: an older report then refuses the
+file by its header, loudly, where wider rows under the old header were counted "not in this
+report's rendered form". A 14-field row reads the four columns as missing (`-`); positions 1-14
+never move. Not taken: GLOB containment; a protected flag from the claim's own scopes only.
+
+**Measured, the baseline** (a read-only run on the main checkout's ledger, 2026-11-12, items
+created 11-03..11-12): 101 items, 0 with a valid `tier=` (the lane's own first description spelled
+`tier=` twice and read `unknown`, as the rule says); 85 of 85 outcomes without `reds=`; effort 98
+high, 2 xhigh, 1 unrecorded; **96 of 101 items protected** (94 by their own scopes, 2 more by a
+companion), so 5 touched no protected path (4 research, 1 unknown). That answers ROUTING-PLAN
+section 9's last open item: under this list, a trial's cells fill from plans, notes and research
+only, about 5 items in 9 days.
+
+**Tests** — `check-model-report.sh` gains a ledger of its own: each tier word and its malformed
+forms (repeated, unlisted, not third, after a broken class), each `reds=` form (a valid 0, 1 and
+2; a leading zero, a non-number, a repeat, upper case, 1000, none), recorded efforts, the protected
+list both ways (a claimed parent, a file under a claimed dir, the charter prefix, a case-folded
+`Scripts/`) beside its near misses (`internalx`, `docs/README.md`, `*`, `docs-old`), a companion of
+the same session, a companion of another session (the control) and one released before the item
+(the window's control); an unlisted class before a valid tier; a NUL in a description and in a
+note (in a ledger copy); the export's 18 columns, an older 14-column file with no final newline
+read back, upgraded, mode kept, its rows byte-identical, appended to once; the printed sha256,
+rows and dates against values computed in the check. 27 mutants of the report, each killed (one,
+the pair guard, first survived and gained the two broken-pair fixtures).
+
+**Review** — lite: a self-review against the brief's four questions, then one Codex code pass
+at xhigh, folded once (D-115). Five raised, four fixed, each with a test watched to fail
+without it: the READY diff command now pins `-c diff.relative=false` from the top level (a
+relative config hid an `internal/` edit run from `docs/`); a NUL anywhere in a description or
+note voids its tokens (SQLite's `length()` stopped at it and hid a repeat); a tier needs a LISTED
+class word (`class=bogus tier=lite` read lite); a register with no final newline is ended
+before an append (inherited from `03da68d`: the first new row was glued onto the last old one).
+**Answered, open:** a companion released and swept while its item stays open past 24 hours is
+gone when the item is exported, which then reads `protected=0`. The companion's own exported row
+keeps `protected=1`, and the READY diff check sees the edit; carrying a companion across the
+sweep would need a row the ledger does not keep (a schema change, not this step's).
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Review, models" line (number added)
+- GIVEN: review-charter.md GIVEN 112's stub and its process part (amended: the grammar, the
+  protected list, no pick without the operator's cap)
+- code: scripts/model-report.sh (items SQL, the export's columns, the input line),
+  scripts/check-model-report.sh (the D-175 section)
+- skill: model-pick.md (the three tokens, the `reds=` note, the trial's rules); the fleet skill's
+  parked release and its two kept lines; the core skill's release after LANDED
+- USAGE: "Measuring context cost", the `model-report.sh` paragraph
+- amends: D-104 and D-111's pick lines, D-141's join (above)

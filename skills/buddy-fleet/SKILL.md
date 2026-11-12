@@ -396,7 +396,7 @@ lane on the run's tree works beside it (D-133):
   refusing like any claim), `produced by <label>` (who the model report credits),
   `BASED ON run <run>`.
 - **At landing** release each parked item with its own outcome, BEFORE the run:
-  `buddy release <rider> --outcome pass --note <sha>`. A plain release, or the
+  `buddy release <rider> --outcome pass --note "reds=<n> <sha>"`. A plain release, or the
   run's alone, reports nothing for it, and a run closed first denies its admitted
   lanes even on a green. Your own `Edit` on a path such a lane holds is denied too,
   and your commit there meets the commit gate: have it narrow or hand over first.
@@ -506,9 +506,9 @@ default by what past items measured, read `model-pick.md` beside this file.
 Kept here:
 
 - A full-tier item stays on the default lane model, and the pick never lands on a model kept for reviews.
-- Every item's claim description begins `model=<id> class=<word> `, `<word>` one of `docs`, `code`, `test`, `research`, `ops`: the brief gives the lane that exact start.
+- Every item's claim description begins `model=<id> class=<word> tier=<tier> `, `<word>` one of `docs`, `code`, `test`, `research`, `ops`, `<tier>` one of `chore`, `lite`, `full`: the brief gives the lane that exact start.
 - Before each `buddy sweep`, run `sh scripts/model-report.sh --export <tsv>`: a plain sweep deletes released claims, with their outcomes, after 24 hours.
-- A finished or abandoned item is released with its outcome, `buddy release <item> --outcome pass|fail --note <what>`, never bare; a handover is `buddy release <item> --to <target>`.
+- A finished or abandoned item is released with its outcome, `buddy release <item> --outcome pass|fail --note "reds=<n> <what>"`, never bare; a handover is `buddy release <item> --to <target>`.
 
 ## Restacking a dependent lane (gh stack)
 
