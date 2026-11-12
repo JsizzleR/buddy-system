@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 // claudeWriteFake speaks the 2.1.291 stream-json frames recorded by the native
@@ -80,7 +79,7 @@ func TestControllerRenewsTheCompletedClaudeWrite(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { c.Close() })
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			defer cancel()
 			launch := Launch{Worktree: worktree, NativeSessionID: "00000000-0000-4000-8000-000000000001", PermissionMode: "workspace-write",
 				HarnessVersion: "2.1.291", HookConfig: settings, GateCommand: gate, Hooks: Compatibility{Mods: "builtin-only-2.1.291"}}

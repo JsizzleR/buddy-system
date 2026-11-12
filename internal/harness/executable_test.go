@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // F-23: the executable string was resolved once for --version and again for
@@ -109,7 +108,7 @@ func TestNativeExecutableChangedAfterVersionCheckRefuses(t *testing.T) {
 				}
 				return "codex-cli 0.160.0", nil
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			defer cancel()
 			_, err := c.Start(ctx, launch, testAuthorization(t))
 			if replace {

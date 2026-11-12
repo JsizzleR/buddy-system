@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 	"testing"
-	"time"
 )
 
 // The Codex review's residual question on the code pass: activeTurn is set by
@@ -23,7 +22,7 @@ func TestCodexRenewalOnlyInATurnThisLaunchStarted(t *testing.T) {
 		id := codexStart(t, c, l)
 		turn := "turn/replayed"
 		if own {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			d, err := c.Send(ctx, id, "go")
 			cancel()
 			if err != nil || d.TurnID != "turn/one" {
@@ -82,7 +81,7 @@ func TestCodexRenewalOnlyForACompletedFileChangeInTheActiveTurn(t *testing.T) {
 			m := newRenewalMailbox()
 			c.observeRenewals(m)
 			id := codexStart(t, c, l)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			if d, err := c.Send(ctx, id, "go"); err != nil || d.TurnID != "turn/one" {
 				t.Fatalf("send: %+v %v", d, err)
 			}

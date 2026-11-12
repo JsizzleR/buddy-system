@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 type crashAtTransport struct {
@@ -388,7 +387,7 @@ func TestCodexReconcileRefusesUnboundedHistoryRead(t *testing.T) {
 		t.Fatalf("reconcile wrote a native request: %s", raw)
 	}
 	// Positive control: the transport is live and bounded reads still work.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 	defer cancel()
 	state, err := c.Inspect(ctx, id)
 	if err != nil || state.State != "idle" {

@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
-	"time"
 )
 
 // countingClaude writes a fake that records every execution (--version
@@ -410,7 +409,7 @@ func TestAdmissionCodexLaunchRunsNothingWithoutRecord(t *testing.T) {
 			if !control {
 				withAdmissions(t)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			_, err := c.Start(ctx, l, testAuthorization(t))
 			cancel()
 			if control {

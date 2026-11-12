@@ -118,7 +118,7 @@ func codexFixture(t *testing.T) (*codexBackend, *fakeCodexProcess, Launch) {
 
 func codexStart(t *testing.T, c *codexBackend, l Launch) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 	defer cancel()
 	id, err := c.Start(ctx, l, testAuthorization(t))
 	if err != nil {
@@ -134,7 +134,7 @@ func codexEvent(t *testing.T, c *codexBackend) Event {
 			t.Fatal("event stream closed")
 		}
 		return e
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("missing native event")
 	}
 	return Event{}
@@ -548,7 +548,7 @@ func TestCodexBlockedApprovalCanCancelAndClose(t *testing.T) {
 	go func() { approvalDone <- c.Approve(ctx, d) }()
 	select {
 	case <-entered:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("approval write never armed")
 	}
 	cancel()

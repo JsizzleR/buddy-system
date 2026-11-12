@@ -239,7 +239,7 @@ func TestControllerClaudeBusyWakeRefusalRetriesAndResumes(t *testing.T) {
 					if got != turn {
 						t.Fatalf("idle for %s, want %s", got, turn)
 					}
-				case <-time.After(5 * time.Second):
+				case <-time.After(liveBound):
 					t.Fatal("no idle after interrupt")
 				}
 			}
@@ -291,7 +291,7 @@ func TestClaudeWakeRefusalsBeforeTransportAreNotSubmitted(t *testing.T) {
 				}
 				return nil
 			}}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			defer cancel()
 			target := "native"
 			switch name {
@@ -325,7 +325,7 @@ func TestCodexWakeRefusalsBeforeTransportAreNotSubmitted(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c, p, launch := codexFixture(t)
 			id := codexStart(t, c, launch)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			defer cancel()
 			text, target := "peer hint", id
 			switch name {
@@ -443,7 +443,7 @@ func TestCodexRefusalsBeforeTransportAreNotSubmitted(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c, p, launch := codexFixture(t)
 			id := codexStart(t, c, launch)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 			defer cancel()
 			read := map[string]any{"threadId": id, "includeTurns": false}
 			before := len(p.allWrites())

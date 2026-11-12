@@ -56,6 +56,42 @@ for line in sys.stdin:
   emit({'type':'result','subtype':'success','is_error':False,'terminal_reason':'completed','uuid':'native-approved-result','session_id':sid,'user_message_uuid':active['uuid'],'user_message_uuids':[active['uuid']],'queued_turn_count':0})
 `
 
+// liveBound bounds a step a test expects to SUCCEED (a fake worker's startup
+// and initialize, a call the fake answers, an event it emits). It is a wedge
+// detector, not a latency claim, so it is sized for the slowest machine that
+// runs this suite rather than for the step.
+//
+// WHY NOT 5 s (#89). claudeFixture had 5 s, and run-i96's full tier went red
+// on TestAdmissionMissingRecordRunsNothing's POSITIVE control at load 16
+// (7.31 s, "initialize Claude streaming transport: context deadline exceeded";
+// 10/10 alone in 1.3 s). The fake is a python3 process: its startup plus the
+// -race transport's initialize is the step a loaded box stretches. A red there
+// says nothing about the code and costs a whole tier rerun.
+//
+// MEASURED (2026-11-12, -race, -count=20 over the Claude-backend tests). One
+// binary beside 12 busy loops, and four at once at load 250: no red; the
+// slowest test 5.1 s. The binary under a background QoS clamp (`taskpolicy -c
+// background`, inherited by every python3 fake) beside 12 busy loops at load
+// 36-91: 4 of 118 runs red at 5 s, all "context deadline exceeded" on a
+// positive step. With this bound, 1 of 60: one version probe stalled past the
+// bound while 18 sibling subtests took 1-4 s and one other stalled 49 s and
+// passed. The clamp starves without limit, so no bound clears it; it is the
+// harshest inducer found, not a machine this suite runs on.
+//
+// WHY 2 MINUTES. Twenty times the worst unclamped step measured (5.1 s), and
+// still well inside go test's default 10 m -test.timeout, so a context-aware
+// wedge fails as the named step ("waiting for Claude <kind>", the call's own
+// error) instead of as the timeout's panic. It is a budget, not a per-step
+// renewal: claudeFixture's one context covers startup and every later call and
+// event wait of its test. It bounds nothing that ignores its context; there,
+// and when a wedge repeats across several cases until their two minutes add
+// up to the package's 10 m, the bound is go test's timeout panic, which ends
+// the binary and dumps every goroutine. A wait whose EXPIRY is the assertion (a
+// 20-50 ms deadline a test expects to pass, a window in which nothing may
+// arrive, a wait that must end before a helper's own timer) keeps its own
+// short deadline.
+const liveBound = 2 * time.Minute
+
 func claudeFixture(t *testing.T) (Backend, Launch, context.Context) {
 	t.Helper()
 	dir := t.TempDir()
@@ -67,7 +103,7 @@ func claudeFixture(t *testing.T) (Backend, Launch, context.Context) {
 	if err := os.WriteFile(settings, []byte(`{"hooks":{"PreToolUse":[{"matcher":"Edit|Write|NotebookEdit","hooks":[{"type":"command","command":"/tmp/buddy-adapter hook --receipt /tmp/receipt --buddy /tmp/buddy"}]}]}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 	t.Cleanup(cancel)
 	b, err := NewClaude(executable)
 	if err != nil {
@@ -761,7 +797,7 @@ func TestClaudeReviewInterruptSerializesNextAdmission(t *testing.T) {
 		b, _ := json.Marshal(m)
 		return c.frame(b)
 	}}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), liveBound)
 	defer cancel()
 	interrupted := make(chan error, 1)
 	go func() { interrupted <- c.Interrupt(ctx, "native", "A") }()
@@ -946,7 +982,7 @@ func TestClaudeReviewOrdinaryEventBackpressureCannotHideEOF(t *testing.T) {
 	}
 	readerDone := make(chan struct{})
 	go func() { c.read(); close(readerDone) }()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(liveBound)
 	for {
 		c.mu.Lock()
 		blockedOnReplay := c.activeAck
@@ -964,7 +1000,7 @@ func TestClaudeReviewOrdinaryEventBackpressureCannotHideEOF(t *testing.T) {
 	}
 	select {
 	case <-p.stop:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Error("ordinary event backpressure hid native EOF from write admission")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -975,7 +1011,7 @@ func TestClaudeReviewOrdinaryEventBackpressureCannotHideEOF(t *testing.T) {
 	}
 	select {
 	case <-p.done:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Error("native output EOF left the owned child alive")
 	}
 	if _, err := os.Stat(effect); !os.IsNotExist(err) {
@@ -984,7 +1020,7 @@ func TestClaudeReviewOrdinaryEventBackpressureCannotHideEOF(t *testing.T) {
 	_ = c.Close()
 	select {
 	case <-readerDone:
-	case <-time.After(time.Second):
+	case <-time.After(liveBound):
 		t.Fatal("Close did not release ordinary event backpressure")
 	}
 }
