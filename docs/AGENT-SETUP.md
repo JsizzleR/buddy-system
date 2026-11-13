@@ -42,8 +42,8 @@ The script builds the binaries into `~/bin` (`BUDDY_BIN_DIR` overrides), runs
 each once to prove it starts, installs the skills to `~/.claude/skills/buddy/`,
 `~/.claude/skills/buddy-fleet/` and `~/.claude/skills/buddy-lead/`,
 wires this checkout's own git hooks and ledger, and ends by REPORTING which
-Claude Code hooks are wired in `~/.claude/settings.json`. It never edits that
-file. Under `BUDDY_CHAT=off` it builds and checks only the claims half and
+Claude Code hook entries `~/.claude/settings.json` holds. It never edits that
+file, and it cannot tell whether Claude Code loads it (D-184). Under `BUDDY_CHAT=off` it builds and checks only the claims half and
 reports any chat remnants it found and left alone.
 
 **Checkpoint.** The output ends in `install: done`, and:
@@ -95,11 +95,16 @@ to `~/.claude/settings.json`. Then merge, never overwrite:
 
 Show the user the diff before saving. **Checkpoint:** the file is still valid
 JSON (`python3 -m json.tool ~/.claude/settings.json >/dev/null`), and
-re-running the install command from step 1, in the same mode, now reports the
-hooks as wired (the six `buddy` lines claims-only, `all eight` with chat), and
-its `gate:` line reads `README's fail-closed gate entry in …`. A `LEGACY` or
-`custom` gate line means the gate entry is not the README's yet (a dropped
-`onFailure` or `timeout` counts): fix it before going on.
+re-running the install command from step 1, in the same mode, now reports every
+hook's token found by a text search (`all six` claims-only, `all eight` with
+chat), and its `gate:` line reads `README's fail-closed gate entry in …`. A
+`LEGACY` or `custom` gate line means the gate entry is not the README's yet (a
+dropped `onFailure` or `timeout` counts): fix it before going on. Neither line
+says Claude Code loads the file: a schema error in any other key (`"model": 5`)
+unloads it whole, hooks included, and both lines read the same (D-184). Never
+run `claude doctor` yourself: ask the user to run it in their own terminal,
+where it names a settings file that did not load. Step 5's fresh session showing
+its `BUDDY:` lines is the proof that the file loaded.
 
 ## 4. Turn it on in each repository
 
@@ -144,12 +149,13 @@ that coordinates others also loads `/buddy-fleet`; a user not yet sure what
 they want from buddy is led by `/buddy-lead`, which asks first). If
 `buddy status` says the session `has not said hello in this repo's ledger`, the
 SessionStart hook did not run: re-check step 3's spelling and that the session
-was started after the file was saved.
+was started after the file was saved, and ask the user to run `claude doctor`,
+since a schema error in any other key unloads the whole file (D-184).
 
 ## 6. Report
 
 Tell the user, in a few lines: where the binaries are, that the skill is
-installed, which hooks are wired (quote the install report's `hooks:` and
-`gate:` lines),
+installed, which hook entries the install report found (quote its `hooks:` and
+`gate:` lines) and whether step 5's session showed the `BUDDY:` lines,
 which repositories were `buddy init`-ed, and whether chat was set up or
 skipped. Point them at `buddy --help` and the README for everyday use.

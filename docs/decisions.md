@@ -13125,3 +13125,129 @@ Green on 3.9.6 and 3.14.7 (Homebrew), each first on PATH.
 - skill: none (no verb, flag or knob)
 - amends: D-182's rule 2 (each reader calls `decode`, which runs the cap and refuses the three
   constants)
+
+## D-184 — the settings reports name the hook entry they read and say that whether Claude Code loads the file is not checked here, the user's check being `claude doctor`; none calls a hook wired (#99, #100; amends D-107, D-120)
+
+2026-11-13 · issues #99 (found and measured by the #97 lane, recorded open in D-183) and #100
+(a Fable design consultation for #99, from Claude Code's settings documentation); lane
+wired-honest under orc-22's brief, then orc-23 (run-i111). The design ruling is #99's last
+comment (2026-11-13), on the operator's "if design approach isnt settled, try to settle that
+first with fable" (about 04:40Z) and "yes open a lane for #99" (about 05:30Z); #100 joined on
+"also take care of 100" (about 05:33Z).
+
+**What was wrong.** Claude Code 2.1.323 (temp `HOME`) unloads the WHOLE `settings.json`,
+hooks included, when any key fails its schema, even one unrelated to hooks: `"model": 5`,
+`"permissions": {"allow": "x"}` (D-183's Open). The readers check only the entries they read,
+so README's gate entry beside either read "README's fail-closed gate entry ... native loading
+not verified here", install's grep line "hooks: all six (or eight) wired", and the Agent-model
+reader "wired in <path>". #100: per Claude Code's docs an array-valued `matcher` in ANOTHER
+PreToolUse entry may unload the file's hooks too; unmeasured, and not measured here (below).
+
+**The rule (the ruling's option C, alone).** A local reader can prove a file broken, never that
+it loads; only Claude Code can. So every line that names an entry as README's, as custom or as
+what runs says what it read and names the check that can say the rest, as the user's (LEGACY
+alone and the Agent-model reader's custom line, a fault and a "not verified", carry no tail). `gate-hook.py`'s `LOADS` is the tail: "whether
+Claude Code loads the file is not checked here; the user's check is claude doctor".
+- gate line, README's entry: "gate: README's fail-closed gate entry in <path> (onFailure block,
+  timeout set); <LOADS>". README's entry beside the LEGACY command, and a custom gate, end in
+  "; <LOADS>" after their own words. LEGACY alone is unchanged: a fault verdict that holds
+  whether or not the file loads, ending in README's entry as JSON (QA-9 reads it from there).
+- install.sh's grep line: "hooks: all six (or eight) tokens found in <path> by a text search;
+  <LOADS>", spelled in shell (the line needs no python3), held to `LOADS` by check-install.
+  "NOT wired in <path>: <missing>" and "no <path> — none are wired" are unchanged: they report
+  absence (a spelling the grep misses, `buddy gate` bare or with two spaces, reads NOT wired
+  while the gate line reads custom: the closed side, unchanged; the over-claim lens).
+- the Agent-model reader: "entry in <path>: <what its command runs>; <LOADS>". Its kind token
+  stays `wired`, never printed.
+- Unchanged, as the ruling said: the writer (`wire-hooks.py`, which says "added", never wired),
+  the browser report, uninstall, and every exit status.
+- **#100** is answered only as far as the report goes: it no longer claims anything about what
+  Claude Code does with the file, so an array matcher elsewhere needs no reading of its own. If
+  that shape drops the file's hooks rather than the file, `claude doctor` and the fresh session's
+  `BUDDY:` lines may both pass with the gate dropped (open, below). No recognizer widened; it
+  stays unmeasured, because measuring it means running Claude Code, and `claude doctor` under a temp
+  `HOME` attempted a Keychain write that put a dialog on the operator's screen (about 04:52Z):
+  no session runs it.
+
+**The words, amended from the ruling's.** The ruling proposed "entry well formed". The Fable
+lens printed README's line for a gate hook with `"statusMessage": 5`, for `[<README hook>, 5]`
+as the entry's `hooks`, and beside `"SessionStart": "x"`, the last two refused by the writer as
+shapes Claude Code cannot read: `judge` reads README's keys and nothing else on the entry, so
+"well formed" said more than it checked, and the line names README's entry only. And a bare
+"run claude doctor" is read by agents running install or `buddy update`; it now names the
+check as the user's, and AGENT-SETUP says never to run it yourself.
+
+**Cut, with the ruling's reasons.**
+- **A**, validating a set of stable top-level keys: two measured failing shapes out of an
+  unbounded set; a false alarm whenever Claude Code loosens a type; drift no hermetic test
+  would see.
+- **The schemastore schema**: documented to lag the newest CLI releases, and it needs a
+  network fetch or a fork.
+- **B**, install running `claude doctor` (armed by a canary): measured and refuted on 2.1.323,
+  temp `HOME` and `CLAUDE_CONFIG_DIR`, 10 s bound. The verdict works ("Invalid settings" naming
+  the file for `"model": 5` and for `"permissions": {"allow": "x"}`, nothing for a valid file),
+  but every run wrote npm debug logs under the temp `HOME` (`npm --global config get prefix`)
+  and attempted a macOS Keychain write ("authorization was canceled by the user"), a side
+  effect install must never cause; and a Warning-class file (`"allow": ["Bash("]`) is named
+  too, so the file's name cannot separate a skipped entry from a skipped file.
+
+**Docs.** AGENT-SETUP's checkpoint and the lead skill's no longer read the report as proof the
+hooks work: each says it cannot tell, the fresh session's `BUDDY:` lines are the proof, and
+`claude doctor` is the user's to run. README's hook-wiring section says the same in one
+sentence, and CLAUDE.md's Install line that `claude doctor` is the user's to run, never a
+session's. The charter's GIVEN 53 and its stub carry one clause.
+
+**Open.**
+- Effect claims beside the tailed lines, each a reading of the file that holds only if it
+  loads: install.sh's handoff line ("every session is told as a turn opens ...", D-183's Open)
+  and its two chat-posture notes ("declares BUDDY_CHAT=off to every session"); browser-report's
+  "PostToolUse runs buddy beat on matcher ..." (unchanged by the ruling); the Agent-model line's
+  "runs <path>", and the README-beside-LEGACY line's "the gate runs twice per call" (the panel
+  and the Fable lens; each now followed by the tail).
+- The gate's custom line for `disableAllHooks` in the same file reads "custom ... NOT
+  VERIFIED", where the writer says no hook would run and the Agent-model reader "NOT in
+  effect" (the Fable lens; not this item's change). Nor does the tail name another settings
+  layer (project, local, managed) turning hooks off, which no reader reads (the over-claim
+  lens, from Claude Code's docs, unmeasured).
+- "NOT wired in <path>: buddy busy" carries no tail, so the found five read wired by
+  complement (the Fable lens).
+- `docs/assets/install.svg`, README's install picture, and its alt text show "all six wired": a
+  capture dated 2026-10-25 in PICTURES.md, left as captured.
+- Step 5's fresh session shows a SessionStart hook ran; it shows no PreToolUse denial, so
+  #100's shape, if it drops hooks rather than the file, passes it (the Fable lens); and it
+  passes with `buddy hello` in a repo's `.claude/settings.local.json` while the user file is
+  unloaded, as `claude doctor` may under `CLAUDE_CONFIG_DIR`, where install still reads
+  `$HOME/.claude/settings.json` (the cross-check).
+
+**Tests.** Each red at 80efd92 and green after:
+- check-gate-line section 3: every README row of its settings-shape table is the whole README
+  line with `LOADS` (the deep and constant rows below it assert only the verdict); a custom
+  row and the README-beside-LEGACY row end in it once (each its own branch in `_judged`);
+  LEGACY rows carry none (QA-9 pins their end); no row says "native loading", " wired" or "well
+  formed". New rows: README's entry beside `"model": 5` and beside `"permissions": {"allow":
+  "x"}` (#99), and beside a second PreToolUse entry whose matcher is `["Bash"]` (#100), each
+  README's line with the tail. README's entry alone is the positive control (the same line).
+- check-install: QA-1's exact gate line, and `LOADS` pinned in words and held to gate-hook.py's;
+  QA-3 and QA-16b the exact grep line; QA-9's custom line; QA-14's seven wired rows the new
+  words, and three new rows, the entry beside `"model": 5`, beside `"permissions": {"allow":
+  "x"}`, and beside an array-matcher entry.
+
+Mutants, each in a private copy, 7 of 7 killed, the unmutated copy green in both checks: the old
+words restored one site at a time (the report's README line, its README-beside-LEGACY line, its
+custom line, install's grep line, the Agent-model reader), `LOADS` respelled, and ", well formed"
+restored. The base's two readers under the new tests: check-gate-line red on 16 of 18 rows (the
+two LEGACY rows green, as designed), the three #99/#100 rows among them; check-install red at
+QA-1's `LOADS` pin, which ends the run, so QA-3 and QA-14 at base are shown by the grep-line and
+Agent-model mutants, which restore the base's words there (QA-16b sits behind QA-3).
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number, and `claude doctor` the user's)
+- GIVEN: review-charter-install.md 53 (one clause), its stub in review-charter.md
+- code: `scripts/gate-hook.py` (LOADS; `_judged`), `scripts/install.sh` (the grep line,
+  amg_wiring)
+- tests: `scripts/check-gate-line.sh` (section 3), `scripts/check-install.sh` (QA-1, QA-3,
+  QA-9, QA-14, QA-16b)
+- docs: `docs/AGENT-SETUP.md` (step 1, step 3's checkpoint, step 6), README "Hook wiring"
+- skill: `skills/buddy-lead/SKILL.md` step 1's checkpoint (wording; no verb, flag or knob)
+- amends: D-107's report line (README's entry, loading not checked), D-120's "wired in" (entry
+  in)

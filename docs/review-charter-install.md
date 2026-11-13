@@ -7,7 +7,8 @@ stub of each binds as written; this is the full text (D-158).
 53. **`scripts/install.sh` is the one install and upgrade path (D-050).** It rebuilds every buddy
     binary the machine runs, found by where it is run from (`~/bin`, the launchd daemon's plist
     program, the checkout's `bin/`), runs each once, installs the skill, `kickstart -k`s the
-    daemon, runs setup-clone, and REPORTS hook wiring. Every sub-step's status is the install's.
+    daemon, runs setup-clone, and REPORTS hook wiring: the entries it read, never that Claude Code
+    loads the file, which only it can say (D-184). Every sub-step's status is the install's.
     It edits settings only under the operator's opt-in `--wire-hooks` (D-135; `buddy update
     --wire-hooks` forwards it to an install.sh carrying the line `# buddy-install-accepts:
     --wire-hooks`): before step 1 a preflight refuses a file it would refuse to write; at step 6

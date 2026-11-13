@@ -40,7 +40,8 @@
 #      dies — CLAUDE.md) and checks it is running again, waiting out the
 #      launch constraint a NEW build meets first (below);
 #   5. wires THIS checkout (scripts/setup-clone.sh: hooks path, ledger);
-#   6. REPORTS which Claude Code hooks are wired in ~/.claude/settings.json,
+#   6. REPORTS which Claude Code hook entries ~/.claude/settings.json holds
+#      (never whether Claude Code loads that file: D-184),
 #      and whether the gate's is README's fail-closed entry or the old line
 #      that let a crashed buddy's tool call through (D-107).
 #      Without --wire-hooks it never edits that file: which hooks a user runs
@@ -550,7 +551,11 @@ if [ ! -f "$SETTINGS" ]; then
 else
 	hooks_missing "$SETTINGS"
 	if [ -z "$missing" ]; then
-		say "hooks: all $count wired in $SETTINGS"
+		# A text search, so it says what it found and nothing more (D-184): the
+		# tokens can sit in any string, and Claude Code unloads the whole file
+		# for a schema error in a key nobody here reads. gate-hook.py's LOADS
+		# is the tail, spelled again here because this line needs no python3.
+		say "hooks: all $count tokens found in $SETTINGS by a text search; whether Claude Code loads the file is not checked here; the user's check is claude doctor"
 	else
 		say "hooks: NOT wired in $SETTINGS:$missing (README \"Hook wiring\"; busy is optional)"
 	fi
@@ -770,9 +775,10 @@ def verdict():
             live.append("matcher %s runs %s (%s)" % (json.dumps(m), p, state(p)))
     if live:
         # A custom entry beside a wired one is named too: it may also select
-        # Agent and run something else (Codex).
+        # Agent and run something else (Codex). The entry is what was read,
+        # never the file's loading (D-184): gate-hook.py's LOADS is the tail.
         also = "; and custom, not verified: %s" % "; ".join(custom) if custom else ""
-        return "wired", "wired in %s: %s%s" % (settings_path, "; ".join(live), also)
+        return "wired", "entry in %s: %s%s; %s" % (settings_path, "; ".join(live), also, gh.LOADS)
     if custom:
         return "custom", "custom PreToolUse entry naming %s in %s (%s); not verified" % (NAME, settings_path, "; ".join(custom))
     return "off", "NOT wired in %s: the PreToolUse entry naming %s has matcher %s, which does not select Agent" % (

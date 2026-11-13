@@ -264,7 +264,9 @@ a `buddy` that cannot run cannot tell them apart, and Bash is refused with the
 rest. Reinstall from a terminal; if the checkout cannot build, `chmod -x
 ~/bin/buddy` turns the feature off (the `[ -x ]` guard) until it can. That
 switch is named here and not in the refusal, which the model reads.
-`scripts/install.sh` reports a gate still wired the old way (D-107).
+`scripts/install.sh` reports a gate still wired the old way (D-107). Its report reads the hook
+entries only; Claude Code unloads the whole file, hooks included, for a schema error in any
+other key, so whether it loads is for the user's own `claude doctor` to say, never a session's (D-184).
 Why each hook behaves as it does is in [docs/USAGE.md](docs/USAGE.md#hooks-in-detail).
 
 ### 4. The commit gate (optional)

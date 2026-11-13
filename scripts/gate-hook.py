@@ -337,6 +337,28 @@ def report(path):
         return "gate: %s is nested deeper than this report can walk; not checked" % path
 
 
+# What every line that names a gate entry as README's or custom ends with (#99,
+# #100, D-184); LEGACY alone, a fault verdict, does not. This
+# report reads the hook entries and nothing else, and Claude Code unloads the
+# WHOLE file, hooks included, for a schema error in an unrelated key (measured on
+# 2.1.323: `"model": 5`, `"permissions": {"allow": "x"}`), and per its docs
+# (unmeasured) for an array-valued matcher in another PreToolUse entry. A local
+# reader can prove a file broken, never that it loads, so the line says what it
+# checked (README's entry: judge's keys, nothing else on it, so never "well
+# formed": the Fable lens printed that for a hook beside a 5, which the writer
+# refuses) and names the one check that can say the rest, as the USER's: a bare
+# "run claude doctor" read by an agent running install invites a run that, under
+# a temp HOME, put a Keychain dialog on the operator's screen. REFUTED:
+# validating the known top-level keys (two measured failing shapes of an
+# unbounded set; a false alarm whenever Claude Code loosens a type); the
+# schemastore schema (lags the CLI; a network fetch or a fork); install running
+# `claude doctor` itself (measured: npm debug logs and a macOS Keychain write
+# attempt under a temp HOME, and a skipped entry names the file as a skipped file
+# does). install.sh's Agent-model reader prints it from here; its grep line
+# spells it again in shell, held to this by check-install.sh.
+LOADS = "whether Claude Code loads the file is not checked here; the user's check is claude doctor"
+
+
 def _judged(path, settings):
     found = list(gate_hooks(settings))
     if not found:
@@ -351,7 +373,7 @@ def _judged(path, settings):
             # call that decides nothing when it matters (the false-denials panel).
             return (
                 "gate: README's fail-closed gate entry in %s, with the LEGACY command beside it (D-107): the gate "
-                "runs twice per call and the old one decides nothing when buddy dies; remove that entry; settings unchanged" % path
+                "runs twice per call and the old one decides nothing when buddy dies; remove that entry; settings unchanged; %s" % (path, LOADS)
             )
         return (
             "gate: LEGACY fail-open command in %s: a buddy that crashes or is killed lets the tool call "
@@ -361,9 +383,9 @@ def _judged(path, settings):
     if why:
         return (
             'gate: custom PreToolUse gate in %s (%s); crash and timeout blocking NOT VERIFIED; compare README '
-            '"Hook wiring"; settings unchanged' % (path, "; ".join(why))
+            '"Hook wiring"; settings unchanged; %s' % (path, "; ".join(why), LOADS)
         )
-    return "gate: README's fail-closed gate entry in %s (onFailure block, timeout set); native loading not verified here" % path
+    return "gate: README's fail-closed gate entry in %s (onFailure block, timeout set); %s" % (path, LOADS)
 
 
 # What `who`'s browser clause needs (D-134): beat on a matcher that selects a

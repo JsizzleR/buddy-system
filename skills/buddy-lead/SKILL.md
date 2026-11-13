@@ -58,8 +58,9 @@ Three rules before anything else:
 1. **Install.** Follow `docs/AGENT-SETUP.md` steps 0 to 3 (requirements,
    claims-only or chat, the install script, PATH, hooks as a merge the user
    approves). Checkpoint: the report ends `install: done`; once the hooks are
-   wired its `hooks:` line reads all wired and `gate:` names README's
-   fail-closed entry. Quote both lines back.
+   added its `hooks:` line reads all tokens found and `gate:` names README's
+   fail-closed entry. Quote both lines back. Neither says Claude Code loads the
+   file; step 3's fresh session does (and `claude doctor`, which the user runs).
 2. **Turn it on in each repository:** `buddy init`. Checkpoint: its
    `language server:` lines; a `fix:` line there is the user's to apply.
 3. **A fresh session** (hooks load at start). Its first lines include

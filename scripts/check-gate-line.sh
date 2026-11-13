@@ -194,7 +194,22 @@ rows = [
     ("legacy alone", pre({"matcher": m, "hooks": [{"type": "command", "command": legacy}]}), "LEGACY fail-open command"),
     ("legacy beside README's", pre(entry, {"matcher": m, "hooks": [{"type": "command", "command": legacy}]}), "with the LEGACY command beside it"),
     ("legacy beside a custom gate", pre({"matcher": m, "hooks": [{"type": "command", "command": legacy}]}, {"matcher": "Edit", "hooks": [h]}), "LEGACY fail-open command"),
+    # #99 (D-184): Claude Code 2.1.323 unloads the whole file, hooks included,
+    # for each of these two (measured), so the line must not read as "this
+    # runs": it reads README's entry and says loading is not checked.
+    ("an unrelated schema error (#99)", pre(entry, model=5), README),
+    ("a permissions schema error (#99)", pre(entry, permissions={"allow": "x"}), README),
+    # #100, unmeasured (Claude Code's docs): an array matcher in ANOTHER
+    # PreToolUse entry may unload the gate's hooks too. Answered by the same
+    # tail, no recognizer widened.
+    ("an array matcher beside it (#100)", pre(entry, {"matcher": ["Bash"], "hooks": [{"type": "command", "command": "true"}]}), README),
 ]
+# The tail every line that found a gate entry ends with (D-184), and what it
+# replaced. Pinned whole here: a README row must be exactly README's line with
+# it, a custom or README-beside-LEGACY row must end with it (each its own
+# branch in _judged, so restoring the old tail on one is caught by its rows),
+# and LEGACY alone ends in README's entry as JSON (QA-9 pins that), not it.
+TAIL = "; whether Claude Code loads the file is not checked here; the user's check is claude doctor"
 bad = 0
 for i, (name, settings, want) in enumerate(rows):
     f = "%s/report-%d.json" % (work, i)
@@ -203,6 +218,16 @@ for i, (name, settings, want) in enumerate(rows):
     custom = want != README and "LEGACY" not in want
     if want not in got or (custom and "custom PreToolUse gate" not in got):
         print("report row %r: want %r in: %s" % (name, want, got.strip()), file=sys.stderr)
+        bad += 1
+    line = got.rstrip("\n")
+    if want == README:
+        tail_ok = line == "gate: README's fail-closed gate entry in %s (onFailure block, timeout set)%s" % (f, TAIL)
+    elif custom or "beside it" in want:
+        tail_ok = line.endswith(TAIL) and line.count(TAIL) == 1
+    else:
+        tail_ok = TAIL not in line
+    if not tail_ok or "native loading" in line or " wired" in line or "well formed" in line:
+        print("report row %r: the tail (D-184) is wrong in: %s" % (name, line), file=sys.stderr)
         bad += 1
 # Deep nesting (#95). The rows assert the VERDICT, never which exception
 # produced it: up to Python 3.13 json raises RecursionError at a fixed depth
@@ -350,5 +375,5 @@ EOF
 echo "check-gate-line: GREEN (README's entry is gate-hook.py's; under $n shell(s) [$shells]: real deny and two real allows pass through,"
 echo "  absent and non-executable stay silent, exits 1/2/126/127, a Go panic, SIGKILL before and after partial JSON, deny-then-exit-1,"
 echo "  hostile stderr and a missing interpreter each exit 2 with only the fixed line, every HOME holding a space; the old line still"
-echo "  lets the killed stub through; the install report judges 15 settings shapes and 14 nested ones: past gate-hook.py's depth cap not checked, at it read, strings never counted, one pass;"
+echo "  lets the killed stub through; the install report judges 18 settings shapes (each README or custom gate line saying the file's loading is not checked) and 14 nested ones: past gate-hook.py's depth cap not checked, at it read, strings never counted, one pass;"
 echo "  NaN, Infinity and -Infinity not checked by the report and browser-report, as a string, a key, 1e400 read)"

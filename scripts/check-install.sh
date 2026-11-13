@@ -90,7 +90,14 @@ missing=$(echo "$out" | sed -n 's/.*NOT wired in [^:]*: *\(.*\) (README.*/\1/p')
 [ "$missing" = "buddy busy buddylist presence" ] || fail "QA-1: hook report named '$missing', want 'buddy busy buddylist presence'"
 echo "$out" | grep -qF 'handoff: BUDDY_HANDOFF_AT not set in' || fail "QA-1: an unset handoff size is reported:
 $out"
-echo "$out" | grep -qxF "install: gate: README's fail-closed gate entry in $WORK/settings.json (onFailure block, timeout set); native loading not verified here" ||
+# The tail (D-184, #99): the entry is what was read, never the file's loading.
+LOADS="whether Claude Code loads the file is not checked here; the user's check is claude doctor"
+# Pinned here in words, and held to gate-hook.py's LOADS, which the gate line
+# and the Agent-model reader print; install.sh's grep line spells it in shell
+# (it needs no python3), held by QA-3's and QA-16b's exact lines.
+[ "$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("g", sys.argv[1]); g = u.module_from_spec(s); s.loader.exec_module(g); print(g.LOADS)' scripts/gate-hook.py)" = "$LOADS" ] ||
+	fail "QA-1: gate-hook.py's LOADS is not the words this check pins (D-184)"
+echo "$out" | grep -qxF "install: gate: README's fail-closed gate entry in $WORK/settings.json (onFailure block, timeout set); $LOADS" ||
 	fail "QA-1: README's gate entry is reported as such (QA-9's control):
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-1: no done line"
@@ -280,7 +287,7 @@ sed 's/"hooks": {/"hooks": {"UserPromptSubmit": [{"hooks": [{"command": "\\"$HOM
 mv "$WORK/settings2.json" "$WORK/settings.json"
 out=$(inst 2>&1) || fail "QA-3: install failed:
 $out"
-echo "$out" | grep -qF 'hooks: all eight wired' || fail "QA-3: every hook is wired:
+echo "$out" | grep -qxF "install: hooks: all eight tokens found in $WORK/settings.json by a text search; $LOADS" || fail "QA-3: every hook's token is found, and the file's loading not claimed (D-184):
 $out"
 # D-134: a beat on no matcher sees an MCP tool, and says nothing (the control); on
 # a narrow one the same run names it, and the grep's "all wired" does not hide it.
@@ -706,7 +713,7 @@ cmp -s "$WORK/s9legacy.json" "$WORK/s9legacy.orig" || fail "QA-9: the settings f
 printf '{"hooks": {"PreToolUse": [{"matcher": "Edit|Write|NotebookEdit|Bash", "hooks": [{"type": "command", "command": "/abs/bin/buddy gate", "timeout": 10, "onFailure": "block"}]}]}}\n' > "$WORK/s9bare.json"
 out=$(inst9 "$WORK/s9bare.json" 2>&1) || fail "QA-9: install over a bare gate failed:
 $out"
-echo "$out" | grep -qxF "install: gate: custom PreToolUse gate in $WORK/s9bare.json (command differs from README's); crash and timeout blocking NOT VERIFIED; compare README \"Hook wiring\"; settings unchanged" ||
+echo "$out" | grep -qxF "install: gate: custom PreToolUse gate in $WORK/s9bare.json (command differs from README's); crash and timeout blocking NOT VERIFIED; compare README \"Hook wiring\"; settings unchanged; $LOADS" ||
 	fail "QA-9: a bare absolute gate is custom, named:
 $out"
 python3 -I -c 'import json, sys
@@ -875,7 +882,7 @@ want_l "$got" "install: agent-model hook: not installed at $D14 and not wired in
 cp "$A14" "$D14"
 amg "$WORK/s14wired.json"
 want_l "$got" "install: agent-model hook: $D14 is current (byte-identical to this checkout's scripts/hooks/agent-model-gate.py)
-install: agent-model hook: wired in $WORK/s14wired.json: matcher \"Agent|Task\" runs $D14 (the copy above)" "current + wired (the control)"
+install: agent-model hook: entry in $WORK/s14wired.json: matcher \"Agent|Task\" runs $D14 (the copy above); $LOADS" "current + wired (the control)"
 # (c) One trailing newline DIFFERS, naming the remedy; the remedy, run, makes
 # it current again (and is the command the line printed, whole).
 printf '\n' >> "$D14"
@@ -936,7 +943,7 @@ open(sys.argv[1], "w").write(open(sys.argv[2]).read().rstrip()[:-1] + ", \"x\": 
 	if [ "$k14" = "$MAX14" ]; then
 		want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14deep.json is $DEEP14" "one past the depth cap"
 	else
-		want_l "$got" "install: agent-model hook: wired in $WORK/s14deep.json: matcher \"Agent|Task\" runs $D14 (the copy above)" "at the depth cap (the control)"
+		want_l "$got" "install: agent-model hook: entry in $WORK/s14deep.json: matcher \"Agent|Task\" runs $D14 (the copy above); $LOADS" "at the depth cap (the control)"
 	fi
 done
 # NaN, Infinity and -Infinity (#97, D-183), beside the wired entry: JSON and
@@ -949,10 +956,24 @@ for t14 in NaN Infinity -Infinity '"NaN"' '"a: [1, NaN]"' 1e400; do
 open(sys.argv[1], "w").write(open(sys.argv[2]).read().rstrip()[:-1] + ", \"x\": " + sys.argv[3] + "}")' "$WORK/s14const.json" "$WORK/s14wired.json" "$t14"
 	amg "$WORK/s14const.json"; got=$(echo "$got" | tail -1)
 	case $t14 in
-	'"NaN"' | '"a: [1, NaN]"' | 1e400) want_l "$got" "install: agent-model hook: wired in $WORK/s14const.json: matcher \"Agent|Task\" runs $D14 (the copy above)" "$t14 beside the wired entry (a control)" ;;
+	'"NaN"' | '"a: [1, NaN]"' | 1e400) want_l "$got" "install: agent-model hook: entry in $WORK/s14const.json: matcher \"Agent|Task\" runs $D14 (the copy above); $LOADS" "$t14 beside the wired entry (a control)" ;;
 	*) want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14const.json holds a non-JSON constant $t14" "$t14 beside the wired entry" ;;
 	esac
 done
+# #99 and #100 (D-184): a schema error in a key the reader never reads
+# (`"model": 5`, `"permissions": {"allow": "x"}`: Claude Code 2.1.323 unloads
+# the whole file for each, measured), and an array matcher in another
+# PreToolUse entry (#100, unmeasured): each reads the entry as found and
+# claims nothing about the file loading, the same line as the control.
+for x14 in '"model": 5' '"permissions": {"allow": "x"}'; do
+	python3 -I -c 'import sys
+open(sys.argv[1], "w").write(open(sys.argv[2]).read().rstrip()[:-1] + ", " + sys.argv[3] + "}")' "$WORK/s14schema.json" "$WORK/s14wired.json" "$x14"
+	amg "$WORK/s14schema.json"; got=$(echo "$got" | tail -1)
+	want_l "$got" "install: agent-model hook: entry in $WORK/s14schema.json: matcher \"Agent|Task\" runs $D14 (the copy above); $LOADS" "$x14 beside the entry (#99)"
+done
+wire14 "$WORK/s14schema.json" '"Agent|Task"' "$CMD14" '{"matcher": ["Bash"], "hooks": [{"type": "command", "command": "true"}]}'
+amg "$WORK/s14schema.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: agent-model hook: entry in $WORK/s14schema.json: matcher \"Agent|Task\" runs $D14 (the copy above); $LOADS" "an array matcher in another PreToolUse entry (#100)"
 amg "$WORK/s14wired.json" BUDDY_PYTHON="$WORK/no-python"; got=$(echo "$got" | tail -1)
 want_l "$got" "install: agent-model hook: wiring not checked (no $WORK/no-python to decode $WORK/s14wired.json)" "no python"
 # (f) Wired with no copy behind it: python3 exits 2 on a missing script, and
@@ -960,7 +981,7 @@ want_l "$got" "install: agent-model hook: wiring not checked (no $WORK/no-python
 rm -f "$D14"
 amg "$WORK/s14wired.json"
 want_l "$got" "install: agent-model hook: not installed at $D14 ($WHY14; to install: cp $(shq "$ROOT/$A14") $(shq "$D14"))
-install: agent-model hook: wired in $WORK/s14wired.json: matcher \"Agent|Task\" runs $D14 (the copy above; MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call)" "wired, copy missing"
+install: agent-model hook: entry in $WORK/s14wired.json: matcher \"Agent|Task\" runs $D14 (the copy above; MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call); $LOADS" "wired, copy missing"
 [ ! -e "$D14" ] || fail "QA-14f: install.sh installed the hook copy under a wired entry"
 # (g) A symlink: to this checkout's script, current through it; to nothing,
 # replace the link (cp would write through it).
@@ -980,7 +1001,7 @@ rm -f "$D14"; cp "$A14" "$D14"
 printf 'old\n' > "$WORK/other.py"
 wire14 "$WORK/s14two.json" '"Agent"' "$CMD14" '{"matcher": "Agent", "hooks": [{"type": "command", "command": "python3 -I '"$WORK"'/agent-model-gate.py"}]}'
 amg "$WORK/s14two.json"; got=$(echo "$got" | tail -1)
-want_l "$got" "install: agent-model hook: wired in $WORK/s14two.json: matcher \"Agent\" runs $D14 (the copy above); matcher \"Agent\" runs $WORK/agent-model-gate.py (MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call)" "a second entry's path"
+want_l "$got" "install: agent-model hook: entry in $WORK/s14two.json: matcher \"Agent\" runs $D14 (the copy above); matcher \"Agent\" runs $WORK/agent-model-gate.py (MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call); $LOADS" "a second entry's path"
 printf 'old\n' > "$WORK/agent-model-gate.py"
 amg "$WORK/s14two.json"; got=$(echo "$got" | tail -1)
 echo "$got" | grep -qF "runs $WORK/agent-model-gate.py (DIFFERS from this checkout's scripts/hooks/agent-model-gate.py)" ||
@@ -1001,10 +1022,10 @@ mkdir -p "$WORK/old14/sub" "$WORK/old14/bin"; ln -s "$WORK/old14/sub" "$H14/l14"
 printf 'old\n' > "$WORK/old14/bin/agent-model-gate.py"
 wire14 "$WORK/s14m.json" '"Agent"' '"python3 -I $HOME/l14/../bin/agent-model-gate.py"'
 amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
-want_l "$got" "install: agent-model hook: wired in $WORK/s14m.json: matcher \"Agent\" runs $H14/l14/../bin/agent-model-gate.py (DIFFERS from this checkout's scripts/hooks/agent-model-gate.py)" "a path through link/.. is what the kernel resolves"
+want_l "$got" "install: agent-model hook: entry in $WORK/s14m.json: matcher \"Agent\" runs $H14/l14/../bin/agent-model-gate.py (DIFFERS from this checkout's scripts/hooks/agent-model-gate.py); $LOADS" "a path through link/.. is what the kernel resolves"
 wire14 "$WORK/s14m.json" '"Agent"' "$CMD14" '{"matcher": "^Agent$", "hooks": [{"type": "command", "command": "python3 -I /nowhere/agent-model-gate.py"}]}'
 amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
-want_l "$got" "install: agent-model hook: wired in $WORK/s14m.json: matcher \"Agent\" runs $D14 (the copy above); and custom, not verified: matcher \"^Agent$\" not read as an exact list" "a custom entry beside a wired one"
+want_l "$got" "install: agent-model hook: entry in $WORK/s14m.json: matcher \"Agent\" runs $D14 (the copy above); and custom, not verified: matcher \"^Agent$\" not read as an exact list; $LOADS" "a custom entry beside a wired one"
 # QA-15f (after QA-14, whose fake go and stubs it uses): an unstamped buddy
 # with no buddylist beside it (a claims-only install
 # from before D-124) is NOTED, never acted on; one with a buddylist beside it
@@ -1374,7 +1395,7 @@ added=$(echo "$out" | sed -n 's/^install: hooks: --wire-hooks added \(.*\) on \(
 [ "$added" = "buddy busy@UserPromptSubmit buddylist presence@SessionEnd buddy beat (browser tools, #71)@PreToolUse buddy beat (browser tools, #71)@PostToolUseFailure " ] ||
 	fail "QA-16b: added '$added':
 $out"
-echo "$out" | grep -qx "install: hooks: all eight wired in $W16/b/settings.json" || fail "QA-16b: the report after wiring:
+echo "$out" | grep -qxF "install: hooks: all eight tokens found in $W16/b/settings.json by a text search; $LOADS" || fail "QA-16b: the report after wiring:
 $out"
 python3 -I - "$WORK/settings.orig" "$W16/b/settings.json" <<'PY' || fail "QA-16b: an existing entry changed (above)"
 import json, sys
@@ -1465,7 +1486,7 @@ $out"
 pyc_after=$([ -e scripts/__pycache__ ] && echo yes || echo no)
 [ "$pyc_before" = yes ] || [ "$pyc_after" = no ] || fail "QA-14: the report wrote scripts/__pycache__ into the checkout"
 
-echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all-wired control, QA-3b handoff size report,"
+echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all tokens found, the file's loading never claimed (D-184), QA-3b handoff size report,"
 echo "  QA-17 an older ledger elsewhere migrates only under the hooks' binary (\$HOME/bin/buddy) or BUDDY_MIGRATE=1, backed up first;"
 echo "  QA-13 the installed buddy's update names this checkout's install.sh, a dry run runs nothing, and the real run installs,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"
