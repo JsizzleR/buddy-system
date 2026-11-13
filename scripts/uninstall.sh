@@ -655,9 +655,11 @@ erg=$s_state erg_plist=$s_plist
 # one line per registration, its scope, its project, and whether its command
 # is a buddylist this run removes. A path with a control character is never
 # printed raw (invariant 9) and never acted on. Its first argument is
-# gate-hook.py, whose depth cap (D-182) runs on the text before the decode:
+# gate-hook.py, whose one decode runs its depth cap (D-182) on the text first:
 # past 64 levels it is a file this cannot decode (exit 1, the registration
-# left and named) on every Python and stack, where the interpreter decided (#96).
+# left and named) on every Python and stack, where the interpreter decided (#96);
+# so is one holding NaN, Infinity or -Infinity (D-183, #97), which JSON refuses
+# (and Claude Code, measured on settings.json). Each mode (list, has, still) is that one decode.
 MCP_PY='
 import importlib.util, json, os, sys
 gate_hook, mode, path, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
@@ -667,9 +669,7 @@ spec.loader.exec_module(gh)
 try:
     with open(path, encoding="utf-8") as f:
         text = f.read()
-    if gh.too_deep(text):
-        sys.exit(1)
-    d = json.loads(text)
+    d = gh.decode(text)
 except (OSError, ValueError, RecursionError):
     sys.exit(1)
 if not isinstance(d, dict):

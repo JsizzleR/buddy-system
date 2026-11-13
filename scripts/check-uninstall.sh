@@ -129,15 +129,20 @@ if [ -n "${FAKE_CLAUDE_HANG:-}" ]; then
 fi
 exec python3 -I -c '
 import json, sys
-path, scope, cwd = sys.argv[1:]
+path, scope, cwd, const = sys.argv[1:]
 d = json.load(open(path))
 v = d if scope == "user" else d.get("projects", {}).get(cwd, {})
 if "buddylist" not in v.get("mcpServers", {}):
     print("No MCP server found with name: buddylist", file=sys.stderr)
     sys.exit(1)
 del v["mcpServers"]["buddylist"]
-json.dump(d, open(path, "w"))
-' "$FAKE_CLAUDE_JSON" "$5" "$(pwd -P)"
+s = json.dumps(d)
+# FAKE_CLAUDE_CONST: the removal done, the file left holding NaN beside it,
+# which JSON refuses (U-14x, D-183).
+if const:
+    s = s[:-1] + ", \"x\": NaN}"
+open(path, "w").write(s)
+' "$FAKE_CLAUDE_JSON" "$5" "$(pwd -P)" "${FAKE_CLAUDE_CONST:-}"
 EOF
 printf '#!/bin/sh\necho "launchctl $*" >> "%s/reached"\nexit 1\n' "$GUARD" > "$GUARD/launchctl"
 printf '#!/bin/sh\necho "claude $*" >> "%s/reached"\nexit 1\n' "$GUARD" > "$GUARD/claude"
@@ -1616,6 +1621,48 @@ echo "$out" | grep -qF "is still in $R/home/.claude.json (claude exited 0)" && f
 $out"
 echo "$out" | grep -q "^uninstall: removed: the .*buddylist MCP registration" && fail "U-14w: an undecodable read-back was called removed:
 $out"
+# U-14x: NaN, Infinity and -Infinity in ~/.claude.json (#97, D-183), which
+# JSON refuses and Python's json reads by default. (1) The
+# plan's read (list), a dry run: each token beside the registrations leaves
+# them and names the file; the controls, the token as a string (alone and as
+# `a: [1, NaN]`) and 1e400, plan both removals. Before the fix each token planned both removals.
+for t in NaN Infinity -Infinity '"NaN"' '"a: [1, NaN]"' 1e400; do
+	label="U-14x($t)"; setup
+	python3 -I -c 'import sys; p = sys.argv[1]; t = open(p).read().rstrip()
+open(p, "w").write(t[:-1] + ", \"x\": " + sys.argv[2] + "}\n")' "$R/home/.claude.json" "$t"
+	out=$(XENV= un --dry-run 2>&1) || fail "$label: dry run failed:
+$out"
+	if [ "$t" = '"NaN"' ] || [ "$t" = '"a: [1, NaN]"' ] || [ "$t" = 1e400 ]; then
+		for l in "mcp: would remove buddylist registered for $PJ in $R/home/.claude.json" \
+			"mcp: would remove buddylist registered user-wide in $R/home/.claude.json"; do
+			echo "$out" | grep -qF "$l" || fail "$label: a control must plan both removals, missing: $l
+$out"
+		done
+	else
+		echo "$out" | grep -qF "mcp: left: a buddylist MCP server is registered in $R/home/.claude.json, which python3 cannot decode here" || fail "$label: must be left and named:
+$out"
+		echo "$out" | grep -qF "mcp: would remove" && fail "$label: planned a removal:
+$out"
+	fi
+done
+# (2) The late reads (Codex design pass: a mutant strict in list alone passed
+# (1)). The plan reads a clean file; claude removes the user-wide registration
+# and leaves NaN beside it. Its read-back (has) cannot decode that, so it is
+# unconfirmed, not removed; the project's read just before claude (still)
+# cannot either, so it is left and claude is not run for it. Before the fix
+# both read the file: removed, removed, and claude ran twice. U-4 is the control.
+label=U-14x-late; setup; XENV=FAKE_CLAUDE_CONST=1
+out=$(un 2>&1) || fail "$label: uninstall failed:
+$out"
+XENV=
+echo "$out" | grep -qF "mcp: unconfirmed: the user-wide buddylist MCP registration: claude exited 0, and the read-back of $R/home/.claude.json failed (exit 1)" || fail "$label: the read-back of a NaN file must be unconfirmed:
+$out"
+echo "$out" | grep -qF "mcp: left: the buddylist MCP registration for $PJ, since it changed since the plan read it (or could not be read); nothing was run for it" || fail "$label: the read before claude must leave it:
+$out"
+echo "$out" | grep -q "^uninstall: removed: the .*buddylist MCP registration" && fail "$label: a registration was called removed:
+$out"
+[ "$(cat "$FAKE/claude-calls")" = "$(cd "$R/home" && pwd -P)|mcp remove buddylist --scope user" ] || fail "$label: claude ran past the read that cannot decode:
+$(cat "$FAKE/claude-calls")"
 # U-14r: a BUDDY_MCP_TIMEOUT that is not a positive whole number is refused
 # before anything (U-4, unset, is the control).
 for v in 0 abc 1.5 07; do

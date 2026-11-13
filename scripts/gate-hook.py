@@ -215,8 +215,8 @@ def set_reasons(verdicts, settings):
 # THE DEPTH CAP (#96, D-182), the one definition every settings reader uses:
 # this report and browser-report, install.sh's Agent-model reader, wire-hooks.py
 # (check, wire, unwire, and its re-decode of each splice), uninstall.sh's
-# ~/.claude.json reader. Each loads this file and runs too_deep on the TEXT
-# before it decodes, so a nest past the cap reads "not checked" (or is refused)
+# ~/.claude.json reader. Each loads this file and calls decode() below, which
+# runs too_deep on the TEXT first, so a nest past the cap reads "not checked" (or is refused)
 # on every Python and stack size. Before it, the interpreter decided: up to
 # 3.13 json raised RecursionError at a fixed depth that differs by version
 # (992 levels on 3.9.6, 9,997 on 3.12.13; the Fable cross-check); 3.14's decoder
@@ -271,15 +271,51 @@ def too_deep(text):
     return False
 
 
+# THE ONE SETTINGS DECODE (#97, D-183): every reader above calls decode(), never
+# too_deep and json.loads apart, so a reader cannot get one check without the
+# other. Python's json takes NaN, Infinity and -Infinity by default; JSON does
+# not, and neither does Claude Code: a settings.json holding one (README's gate
+# entry beside `"x": NaN`) "did not load, so nothing in them is in effect,
+# including hooks" (Claude Code 2.1.323, a temp HOME, each of the three), while
+# the report called the same file wired and the writer refused it. Fail-open on
+# the gate's wiring. parse_constant is called by the C and the pure-Python
+# scanner alike, with only those three literal names (so the name printed is
+# never file text), at any depth, before an object's duplicate-key hook sees
+# the object; a check on the decoded values would miss `"x": NaN, "x": 1`, and
+# a finite-number check would refuse 1e400, which both parsers read as
+# infinity (Codex design pass). NotChecked is a ValueError, so a reader that
+# lacks its own arm still lands in its not-JSON one: closed, words aside.
+CONSTANT = "a non-JSON constant %s"
+
+
+class NotChecked(ValueError):
+    """str(e) is the writer's reason; e.said is the reports' predicate."""
+
+    def __init__(self, reason, verb):
+        ValueError.__init__(self, reason)
+        self.said = "%s %s" % (verb, reason)
+
+
+def _constant(name):
+    raise NotChecked(CONSTANT % name, "holds")
+
+
+def decode(text, object_pairs_hook=None):
+    """The depth cap on the text, then json.loads refusing NaN and Infinity."""
+    if too_deep(text):
+        raise NotChecked(DEEP, "is")
+    return json.loads(text, parse_constant=_constant, object_pairs_hook=object_pairs_hook)
+
+
 def report(path):
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()
-        if too_deep(text):
-            return "gate: %s is %s; not checked" % (path, DEEP)
-        settings = json.loads(text)
+        settings = decode(text)
     except FileNotFoundError:
         return "gate: no %s; not checked" % path
+    except NotChecked as e:
+        return "gate: %s %s; not checked" % (path, e.said)
     except (OSError, ValueError, RecursionError) as e:
         return "gate: %s is not JSON this report can read (%s); not checked" % (path, type(e).__name__)
     # Decoded is not walkable (#95). Up to 3.13 json.load raised RecursionError
@@ -439,11 +475,12 @@ def main(argv):
         print(report(argv[1]))
     elif len(argv) == 2 and argv[0] == "browser-report":
         # Advisory, as the heredoc was: a file it cannot read prints nothing,
-        # and one nested past the cap is a file it cannot read (D-182).
+        # and one nested past the cap or holding NaN is a file it cannot read
+        # (NotChecked is a ValueError, in UNREADABLE; D-182, D-183).
         try:
             with open(argv[1], encoding="utf-8") as f:
                 text = f.read()
-            lines = [] if too_deep(text) else browser_report(json.loads(text))
+            lines = browser_report(decode(text))
         except (OSError,) + UNREADABLE:
             lines = []
         for l in lines:

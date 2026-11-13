@@ -285,6 +285,45 @@ if " is not JSON this report can read (" not in got or not got.endswith("; not c
 # README's entry decode and walk on every Python, and the verdict is README's.
 bad += deep("50 levels beside README's entry", json.dumps(pre(entry))[:-1] + ', "x": ' + "[" * 50 + "]" * 50 + "}",
             lambda out: README in out)
+# NaN, Infinity and -Infinity (#97, D-183): Python's json reads them by
+# default, JSON and Claude Code do not (a settings.json holding one "did not
+# load ... including hooks", Claude Code 2.1.323), so README's entry beside one
+# was called wired in a file whose gate never runs. Not checked now, in the
+# writer's words, spelled out here so a reworded constant is a red. Each row
+# was README's verdict before the fix. A token in an array, and one a duplicate
+# key overwrites (gone from the decoded dict; a check on the values would miss
+# it: Codex design pass), each read the same. The controls: the same file with
+# 1, and with the token as a string value and as a key (a text match would
+# refuse those; one string reads `a: [1, NaN]`, so a match that wants a value's
+# context is refused too: panel; one reads `say \"NaN\" twice`, so a match after
+# stripping strings that ignores an escaped quote is too: Fable cross-check), and 1e400, which both parsers read as
+# infinity, all README's.
+# browser-report, the same reading: nothing on the token files, exit 0 and no
+# stderr (a traceback is not "nothing"), its advisory line on the controls.
+held = lambda t: lambda out: out.endswith(" holds a non-JSON constant %s; not checked\n" % t)
+def browser(name, body, want):
+    f = "%s/browser-%s.json" % (work, name)
+    open(f, "w").write(body)
+    got = subprocess.run(["python3", "-I", "-B", "scripts/gate-hook.py", "browser-report", f], capture_output=True, text=True)
+    if got.returncode != 0 or got.stderr or (got.stdout == "") != (not want) or (want and "no buddy beat on PreToolUse" not in got.stdout):
+        print("browser-report row %r: rc=%d %r %r" % (name, got.returncode, got.stdout[:300], got.stderr[-300:]), file=sys.stderr)
+        return 1
+    return 0
+for t in ("NaN", "Infinity", "-Infinity"):
+    for how, body in (("beside README's entry", sibling(0, t)),
+                      ("in an array beside README's entry", sibling(2, "1, " + t)),
+                      ("overwritten by a duplicate key", json.dumps(pre(entry))[:-1] + ', "x": %s, "x": 1}' % t)):
+        bad += deep("%s %s" % (t, how), body, held(t))
+        bad += browser("%s %s" % (t, how), body, False)
+    for how, body in (("as a string", sibling(0, json.dumps(t))),
+                      ("in a string after a colon and a bracket", sibling(0, json.dumps("a: [1, %s]" % t))),
+                      ("between escaped quotes in a string", sibling(0, json.dumps('say "%s" twice' % t))),
+                      ("as a key", json.dumps(pre(entry))[:-1] + ', %s: 1}' % json.dumps(t))):
+        bad += deep("%s %s" % (t, how), body, lambda out: README in out)
+        bad += browser("%s %s" % (t, how), body, True)
+for how, inner in (("1", "1"), ("1e400", "1e400"), ("-1e400", "-1e400")):
+    bad += deep("%s beside README's entry" % how, sibling(0, inner), lambda out: README in out)
+    bad += browser("%s beside README's entry" % how, sibling(0, inner), True)
 # The walk's catch, on every Python and stack (Codex code pass): since the cap
 # no file reaches it by depth alone, so in-process, over an ordinary file, with
 # the walk made to raise what a too-deep walk raises: not checked, not a
@@ -311,4 +350,5 @@ EOF
 echo "check-gate-line: GREEN (README's entry is gate-hook.py's; under $n shell(s) [$shells]: real deny and two real allows pass through,"
 echo "  absent and non-executable stay silent, exits 1/2/126/127, a Go panic, SIGKILL before and after partial JSON, deny-then-exit-1,"
 echo "  hostile stderr and a missing interpreter each exit 2 with only the fixed line, every HOME holding a space; the old line still"
-echo "  lets the killed stub through; the install report judges 15 settings shapes and 14 nested ones: past gate-hook.py's depth cap not checked, at it read, strings never counted, one pass)"
+echo "  lets the killed stub through; the install report judges 15 settings shapes and 14 nested ones: past gate-hook.py's depth cap not checked, at it read, strings never counted, one pass;"
+echo "  NaN, Infinity and -Infinity not checked by the report and browser-report, as a string, a key, 1e400 read)"

@@ -939,6 +939,20 @@ open(sys.argv[1], "w").write(open(sys.argv[2]).read().rstrip()[:-1] + ", \"x\": 
 		want_l "$got" "install: agent-model hook: wired in $WORK/s14deep.json: matcher \"Agent|Task\" runs $D14 (the copy above)" "at the depth cap (the control)"
 	fi
 done
+# NaN, Infinity and -Infinity (#97, D-183), beside the wired entry: JSON and
+# Claude Code refuse the file ("did not load ... including hooks"), so it is
+# not checked, in the report's words; before the fix each read as wired. The
+# controls: the token as a string value, alone and as `a: [1, NaN]`, and 1e400 (infinity to both parsers,
+# and valid JSON), each wired.
+for t14 in NaN Infinity -Infinity '"NaN"' '"a: [1, NaN]"' 1e400; do
+	python3 -I -c 'import sys
+open(sys.argv[1], "w").write(open(sys.argv[2]).read().rstrip()[:-1] + ", \"x\": " + sys.argv[3] + "}")' "$WORK/s14const.json" "$WORK/s14wired.json" "$t14"
+	amg "$WORK/s14const.json"; got=$(echo "$got" | tail -1)
+	case $t14 in
+	'"NaN"' | '"a: [1, NaN]"' | 1e400) want_l "$got" "install: agent-model hook: wired in $WORK/s14const.json: matcher \"Agent|Task\" runs $D14 (the copy above)" "$t14 beside the wired entry (a control)" ;;
+	*) want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14const.json holds a non-JSON constant $t14" "$t14 beside the wired entry" ;;
+	esac
+done
 amg "$WORK/s14wired.json" BUDDY_PYTHON="$WORK/no-python"; got=$(echo "$got" | tail -1)
 want_l "$got" "install: agent-model hook: wiring not checked (no $WORK/no-python to decode $WORK/s14wired.json)" "no python"
 # (f) Wired with no copy behind it: python3 exits 2 on a missing script, and
@@ -1074,7 +1088,18 @@ def hardlink(d, p):
         f.write("{}")
     os.link(p, os.path.join(d, "other.json"))
 refused("dup", b'{"hooks": {}, "hooks": {}}', "duplicate key")
-refused("nan", b'{"x": NaN}', "non-JSON constant")
+# NaN, Infinity and -Infinity (D-183): refused in the words the reports now
+# share, whole (gate-hook.py's decode; a generic not-JSON arm first would say
+# "not JSON (a non-JSON constant NaN)", which a substring passes: Codex design
+# pass). The writer refused them before #97; these rows hold that it still
+# does through the one decode. The string is the control: wired.
+for t in (b"NaN", b"Infinity", b"-Infinity"):
+    refused("const" + t.decode(), b'{"x": [1, ' + t + b']}', ": a non-JSON constant %s\n" % t.decode())
+p = os.path.join(w, "const-string.json")
+open(p, "wb").write(b'{"x": "NaN", "Infinity": 1e400}')
+r = run(p, "buddy hello")
+if r.returncode != 0 or "added buddy hello" not in r.stdout:
+    bad.append("wire beside a \"NaN\" string and 1e400: rc=%d out=%r" % (r.returncode, r.stdout))
 refused("notjson", b'{"hooks": ', "not JSON")
 refused("latin1", b'{"x": "\xe9"}', "not UTF-8")
 refused("array", b'[]', "top level is not an object")
@@ -1120,6 +1145,12 @@ for k, want in ((D - 1, "will remove buddy hello"), (D, "refused: " + gh.DEEP)):
     r = subprocess.run([sys.executable, "-I", "-B", tool, "unwire", "plan", q, "-", "buddy hello"], capture_output=True, text=True)
     if want not in r.stdout or r.returncode != (0 if k < D else 1):
         bad.append("unwire plan, depth %d: rc=%d out=%r" % (k + 1, r.returncode, r.stdout))
+# unwire beside -Infinity (D-183): left unedited, refused in the writer's words.
+q = os.path.join(w, "unwire-const.json")
+open(q, "wb").write(b'{"hooks": {"SessionStart": [%s]}, "x": -Infinity}' % json.dumps(gh.line_for("buddy hello")[1]).encode())
+r = subprocess.run([sys.executable, "-I", "-B", tool, "unwire", "plan", q, "-", "buddy hello"], capture_output=True, text=True)
+if "refused: a non-JSON constant -Infinity" not in r.stdout or r.returncode != 1:
+    bad.append("unwire plan beside -Infinity: rc=%d out=%r" % (r.returncode, r.stdout))
 if os.geteuid() != 0:
     refused("readonly", b'{}', "Permission denied", mode=0o555)
     # A file made read-only on purpose: a rename would replace it regardless (panel).
@@ -1129,6 +1160,7 @@ if os.geteuid() != 0:
 for name, body, why in (("pre-big", b'{}' + b' ' * ((1 << 20) - 100), "it would be"),
                         ("pre-shape", b'{"hooks": {"PreToolUse": ["x"]}}', "not a hook object"),
                         ("pre-deep", nest(D), gh.DEEP), ("pre-cap", nest(D - 1), None),
+                        ("pre-nan", b'{"x": NaN}', ": a non-JSON constant NaN\n"),
                         ("pre-ok", b'{}', None)):
     q = os.path.join(w, name + ".json")
     open(q, "wb").write(body)

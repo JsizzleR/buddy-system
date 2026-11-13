@@ -101,20 +101,19 @@ def _pairs(pairs):
     return dict(pairs)
 
 
-def _constant(name):
-    raise Refused("a non-JSON constant %s" % name)
-
-
 def decode(text):
-    # The depth cap (D-182), gate-hook.py's, on the text before the decoder
-    # sees it: past 64 levels it is refused on every Python and stack, where it
-    # was refused or decoded by the interpreter's own limit (#96). Every read
-    # passes here: check, wire, unwire, and each splice's re-decode.
+    # gate-hook.py's one settings decode, the reports': the depth cap (D-182)
+    # on the text before the decoder sees it, past 64 levels refused on every
+    # Python and stack (#96), and NaN, Infinity and -Infinity refused (D-183,
+    # #97), the reason in the same words (str(e)). The constant was refused
+    # here first, by a parse_constant of its own; the reports took the three
+    # as numbers. One definition now, so no reader has one without the other.
+    # Every read passes here: check, wire, unwire, and each splice's re-decode.
     gh = gate_hook()
-    if gh.too_deep(text):
-        raise Refused(gh.DEEP)
     try:
-        return json.loads(text, object_pairs_hook=_pairs, parse_constant=_constant)
+        return gh.decode(text, object_pairs_hook=_pairs)
+    except gh.NotChecked as e:
+        raise Refused(str(e))
     except RecursionError:
         raise Refused("nested too deep to read")
     except ValueError as e:

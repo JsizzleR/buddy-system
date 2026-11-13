@@ -13002,3 +13002,126 @@ valid text: depth floored at 0, and a stop after the root closes.
 - skill: none (no verb, flag or knob)
 - amends: D-135's refusals (a file past 64 levels is refused), D-173's reading (the same, through
   `unwire`)
+
+## D-183 — every Python settings reader refuses NaN, Infinity and -Infinity, as the writer did, through one decode in gate-hook.py that also runs the depth cap, so the gate line says "not checked" for a file Claude Code will not load, never wired (#97; amends D-182)
+
+2026-11-13 · issue #97, recorded open in D-182 (the Fable lens of #96); lane nan-const under
+orc-22's brief (run-i109), opened on the operator's "yes open a lane for them" (02:17Z).
+
+**What was wrong.** Python's `json.loads` reads `NaN`, `Infinity` and `-Infinity` as floats
+by default. Reproduced at 2777166: README's gate entry with `"x": NaN` beside it (and each of
+the other two) read in `gate-hook.py report` as "README's fail-closed gate entry", the wired
+verdict; browser-report printed its advisory as for a readable file; install.sh's Agent-model
+reader called its entry wired; uninstall.sh planned both MCP removals. Only the writer,
+`wire-hooks.py`, refused, with a `parse_constant` of its own: "a non-JSON constant NaN".
+
+**What Claude Code does with such a file.** Measured with Claude Code 2.1.323 under a temp
+`HOME` (`claude -p hi`, not logged in; this machine's settings never touched): for each of the
+three tokens, beside README's entry, it prints "These settings files did not load, so nothing
+in them is in effect, including hooks and permission rules", naming the file "Invalid or
+malformed JSON". The same file with `"x": 1` and with `"x": "NaN"` prints no such line. So the
+report said wired for a file whose gate never runs: fail-open on a safety hook's wiring
+(invariant 2). `internal/cli/codemap.go` decodes settings with Go's `encoding/json`, which
+refuses the three already.
+
+**The rule.**
+1. **One decode.** `scripts/gate-hook.py` defines `decode(text, object_pairs_hook=None)`: the
+   depth cap on the text (D-182), then `json.loads` with a `parse_constant` that raises
+   `NotChecked`, a `ValueError`. Every reader D-182 names calls it, never `too_deep` and
+   `json.loads` apart, so a reader cannot have one check without the other. `CONSTANT`
+   ("a non-JSON constant %s") is the reason.
+2. **The words, the writer's.** `str(e)` is the writer's reason; `e.said` the reports'
+   predicate:
+   - report: "gate: <path> holds a non-JSON constant NaN; not checked";
+   - browser-report: nothing (its unreadable verdict, exit 0);
+   - install.sh's Agent-model reader: "wiring not checked: <path> holds a non-JSON constant NaN";
+   - wire-hooks.py: the reason "a non-JSON constant NaN", as before, in `check` and `wire`
+     ("REFUSED, nothing written: <path>: ..."), `unwire` ("left: <path> unedited, refused: ...")
+     and each splice's re-decode; its own `_constant` is gone;
+   - uninstall.sh's MCP_PY: exits 1 in every mode (`list`, `has`, `still`): the plan leaves the
+     registration and names it; the reread before `claude mcp remove` leaves it and runs
+     nothing; a read-back after the removal is "unconfirmed".
+   The depth words are unchanged. A reader without its own `NotChecked` arm still lands in its
+   not-JSON arm: closed, only the words differ.
+3. **Why `parse_constant`, not a check after the decode.** The C and pure-Python scanners both
+   call it, at any depth, with only the three literal names (never file text, so the name
+   printed cannot break a line, invariant 9), and before an object's duplicate-key hook sees
+   the object. A walk of the decoded values misses `"x": NaN, "x": 1` (the overwritten value is
+   gone), and a finite-number check refuses `1e400`, valid JSON that both parsers read as
+   infinity (Codex design pass). A text match refuses `"NaN"` as a string or a key.
+
+**Open.**
+- **A schema error elsewhere unloads the file too.** Claude Code 2.1.323, the same temp HOME:
+  README's entry beside `"model": 5`, or `"permissions": {"allow": "x"}`, "did not load ...
+  including hooks" ("Expected string, but received number"); the report calls both wired, and
+  `wire-hooks.py check` passes them, so the writer would wire into a file that does not load. A
+  hook event that is not a list (`"Stop": "x"`) only skips that entry. The readers hold no key's
+  schema but the few fields they judge, so a file valid as JSON and invalid to Claude Code's
+  schema can read wired. The Fable lens ran more of that shape, each read wired, Claude Code's
+  side unmeasured: `"statusMessage": 5` or `"once": "x"` on the gate hook; a `5` beside it in its
+  `hooks` list, or `"x"` beside README's entry in PreToolUse (the writer refuses those two);
+  `"disableAllHooks": "true"` or `1` (both test `is True`); and the Agent-model reader checks no
+  timeout, so its hook with `"timeout": 1e400` would read wired. Wider than #97; reported to the
+  orchestrator, not folded here.
+- install.sh's grep and sed lines read no JSON, so beside NaN they still print "hooks: all six
+  (or eight) wired in <path>" (above the gate line's "not checked") and a `BUDDY_HANDOFF_AT` from
+  the file, neither in effect (the bypass lens); uninstall.sh's text reads ("still wires", a
+  `BUDDY_CHAT=on` note) are the same kind (the Fable cross-check). D-182 accepted the grep line for depth; the same holds
+  here: advisory, and the gate line under it is the verdict.
+- A duplicate key reads last-wins in the reports; Claude Code prints no "did not load" line,
+  and the writer refuses it (D-135). Unchanged.
+- A leading byte-order mark: the reports say not JSON (not checked); Claude Code prints no
+  "did not load" line for it. The closed side; unchanged.
+- Python 3.9.6's pure-Python scanner, used only when the C `_json` is missing, reads a non-ASCII
+  digit (`1٢`, `1.٢`, `1e٢`) and `"\u+041"`, `"\u 041"`, `"\u0_41"`, which `JSON.parse` refuses
+  (Codex design pass from source; the Fable lens ran it on 3.9.6 with `_json` blocked; 3.12.13's and
+  3.14.7's pure scanners refuse them all). CPython always builds `_json`; recorded, not covered.
+
+**Tests.** Every token row outside the writer was red at 2777166 and is green after; the controls
+and the writer rows were green at both:
+- check-gate-line: report and browser-report on README's entry beside each token, the token in an
+  array, and the token overwritten by a duplicate key: not checked in the writer's words, and
+  browser-report silent with exit 0 and no stderr. Controls, README's and the advisory line:
+  the token as a string value, as `"a: [1, NaN]"` (a match that wants a value's context), as
+  `"say \"NaN\" twice"` (a strip-strings match blind to an escaped quote: Fable cross-check), as a
+  key, `1`, `1e400`, `-1e400`.
+- check-install QA-14: the Agent-model reader beside each token, not checked; `"NaN"`,
+  `"a: [1, NaN]"` and `1e400`, wired. QA-16a: the writer refuses each token (the whole reason, so a generic arm
+  first, "not JSON (a non-JSON constant NaN)", is a red), `check` refuses NaN, `unwire plan`
+  refuses -Infinity; a file with `"NaN"` and `1e400` wires. The writer rows were green at the
+  base (it refused already); they hold the one decode.
+- check-uninstall U-14x: a dry run beside each token leaves the registrations and names the
+  file; `"NaN"`, `"a: [1, NaN]"` and `1e400` plan both removals. U-14x-late: a claude that removes the user-wide registration
+  and leaves NaN: its read-back is unconfirmed, the project's reread leaves it, and claude runs
+  once (Codex design pass: a mutant strict only in `list` passed the dry run).
+  The late reads and the writer's `check` and `unwire` have no string control of their own: in
+  MCP_PY each mode is the one decode before its dispatch, and in wire-hooks.py each reaches
+  `decode` through `parse`, so a text match local to one mode is not covered (panel).
+
+Mutants, each in a private copy, 15 of 15 killed, each by the row it names; the unmutated
+copy green and the base readers with the new rows red in all three checks:
+- the constant check dropped from report, browser-report, install's reader and the writer, one
+  at a time (the token rows), and from uninstall's MCP_PY everywhere but `list`, from `has`
+  alone, and from `still` alone (U-14x-late);
+- `parse_constant` dropped from `decode` (every token row);
+- the `NotChecked` arm removed from report and from install's reader (the words: "not JSON this
+  report can read (NotChecked)");
+- the writer's generic `ValueError` arm first ("not JSON (a non-JSON constant NaN)");
+- a text match, a match that wants a value's context, and a match after stripping strings (the
+  string controls);
+- a finite-number check after the decode (the duplicate-key row and the `1e400` controls).
+Green on 3.9.6 and 3.14.7 (Homebrew), each first on PATH.
+
+**Review.** Counts per D-163; the receipt is the commit's.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number added)
+- GIVEN: review-charter-install.md, the writer's refusals (one clause)
+- code: `scripts/gate-hook.py` (CONSTANT, NotChecked, decode; report, browser-report),
+  `scripts/install.sh` (amg_wiring), `scripts/wire-hooks.py` (decode), `scripts/uninstall.sh`
+  (MCP_PY)
+- tests: `scripts/check-gate-line.sh`, `scripts/check-install.sh` (QA-14, QA-16a),
+  `scripts/check-uninstall.sh` (U-14x)
+- skill: none (no verb, flag or knob)
+- amends: D-182's rule 2 (each reader calls `decode`, which runs the cap and refuses the three
+  constants)
