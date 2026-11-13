@@ -71,6 +71,26 @@
 # ~/.claude/skills/buddy) is such a copy: replaced, kept as .bak, and the other
 # skills installed beside it.
 #
+# EACH DESTINATION DIRECTORY IS JUDGED FIRST (D-181, #94; scripts/skill-dest.sh,
+# the judge uninstall.sh uses too). One that IS this checkout's skills/<n>,
+# however reached (a live-edit link), is skipped and named: it is current, and
+# the lock, temp files and manifest this wrote there before landed in the
+# checkout. One that is a symlink to anything else, or another buddy
+# checkout's skills/<n> (or would be made in its skills/, or through a link to
+# nothing, where mkdir -p fails), is left and named,
+# never written through, and the run goes on: through a link to another clone
+# it overwrote that clone's tracked files. A knob with a . or .. component
+# anywhere is refused before anything is written (Codex code pass:
+# BUDDY_SKILL_DIR=<d>/missing/../buddy hid <d>/buddy's files from every
+# check until mkdir -p made `missing`, and its symlinked .bak was then written
+# through). One that is not a directory, cannot be searched, has a newline in
+# its physical path, or lies elsewhere in this checkout, is refused before
+# anything is written, absent ones by where mkdir -p would make them. One inside a version-control work
+# tree (a dotfiles layout, reached through a link above it) installs as any
+# other, each overwrite keeping its .bak, but a file the checkout dropped is
+# moved to .bak there, never deleted. Uninstall leaves such a directory
+# whole: a removal keeps no copy.
+#
 # REFUSED, not guessed (Codex code pass): a SKILL.md (or any file installed) that is a symlink (the
 # refresh would overwrite whatever it points at) or anything but a regular file
 # (cp into a directory named SKILL.md "succeeds" and installs nothing). And ONE
@@ -88,6 +108,27 @@ CDPATH= cd -- "$(dirname -- "$0")/.."
 ROOT=$(pwd)
 DEST_DIR=${BUDDY_SKILL_DIR:-$HOME/.claude/skills/buddy}
 FLEET_DIR=${BUDDY_FLEET_SKILL_DIR:-$(dirname -- "$DEST_DIR")/buddy-fleet}
+for p in "$DEST_DIR" "$FLEET_DIR"; do
+	case $p in *'
+'*)
+		echo "install-skill: a skill destination holds a newline; set BUDDY_SKILL_DIR and BUDDY_FLEET_SKILL_DIR to paths without one (nothing was installed)." >&2
+		exit 1
+		;;
+	esac
+done
+# Absolute, no trailing slash: uninstall.sh reads them the same way, and both
+# judge a destination with skill-dest.sh (D-181).
+. "$ROOT/scripts/skill-dest.sh"
+skd_abs "$DEST_DIR" "$ROOT"; DEST_DIR=$SKD_P
+skd_abs "$FLEET_DIR" "$ROOT"; FLEET_DIR=$SKD_P
+for p in "$DEST_DIR" "$FLEET_DIR"; do
+	case /$p/ in
+	*/./* | */../*)
+		echo "install-skill: a skill destination has a . or .. component ($p); name the directory itself (nothing was installed)." >&2
+		exit 1
+		;;
+	esac
+done
 
 # dest <name> — the directory skill <name> is installed into.
 dest() {
@@ -172,10 +213,53 @@ stale() {
 	done
 }
 
+# skd_refuse <dest dir>: refuse, before anything is written, a destination
+# skd_judge says is not a directory this script may write into (D-181).
+skd_refuse() {
+	case $SKD_KIND in
+	link) why="is a symlink to a directory that is not this checkout's skills/$n" ;;
+	hop) why="is / or has a . or .. component, which can step past a link" ;;
+	notdir) why="is not a directory" ;;
+	unsearchable) why="cannot be searched" ;;
+	newline) why="has a physical path holding a newline" ;;
+	checkout) why="is inside this checkout and is not its skills/$n" ;;
+	*) why="could not be judged ($SKD_KIND)" ;;
+	esac
+	echo "install-skill: $1 $why; refusing to write through it (nothing was installed)." >&2
+	echo "  Move it aside and re-run." >&2
+	exit 1
+}
+
+# OWN: the skills whose destination IS this checkout's skills/<n>, however
+# reached (a live-edit link). Nothing is written there: no lock, no temp
+# file, no manifest (all of which landed in the checkout before D-181), and
+# it is current by definition, so D-114's together-or-not-at-all holds.
+# LINKED: the skills whose destination is a symlink to anything else, or
+# another buddy checkout's skills/<n> through a link above it. Nothing is
+# written through either (through one, an install from a second clone or
+# worktree overwrote the first's tracked files), and neither stops the run:
+# a refusal there stopped install.sh after its binaries and setup-clone.sh
+# before its `buddy init` (the panel). Named, and left as it is.
+OWN="" LINKED=""
 for n in $NAMES; do
 	[ -f "$ROOT/skills/$n/SKILL.md" ] || { echo "install-skill: no skill at $ROOT/skills/$n/SKILL.md" >&2; exit 1; }
 	d=$(dest "$n")
 	files "$n" > /dev/null
+	skd_judge "$d" "$ROOT/skills/$n" "$ROOT"
+	case $SKD_KIND in
+	own) OWN="$OWN $n"; continue ;;
+	link) LINKED="$LINKED $n"; echo "install-skill: left: $d is a symlink to a directory that is not this checkout's skills/$n, so nothing is written through it"; continue ;;
+	clone) LINKED="$LINKED $n"; echo "install-skill: left: $d is another checkout's skills/$n ($SKD_MARK), so nothing is written there"; continue ;;
+	absent)
+		case $SKD_UNDER in
+		clone) LINKED="$LINKED $n"; echo "install-skill: left: $d would be made in another checkout's skills/ ($SKD_MARK), so nothing is written there"; continue ;;
+		dangling) LINKED="$LINKED $n"; echo "install-skill: left: $d would be made through $SKD_MARK, a symlink to nothing, so nothing is made there"; continue ;;
+		checkout | newline | unsearchable) SKD_KIND=$SKD_UNDER; skd_refuse "$d" ;;
+		esac
+		;;
+	ok | vcs) ;;
+	*) skd_refuse "$d" ;;
+	esac
 	refuse_through "$d/$MANIFEST"
 	check_manifest "$n"
 	# Each file's .bak too: a changed or dropped file is moved or copied there,
@@ -183,7 +267,29 @@ for n in $NAMES; do
 	for f in $(files "$n") $(stale "$n"); do refuse_through "$d/$f"; refuse_through "$d/$f.bak"; done
 done
 
-for n in $NAMES; do mkdir -p "$(dest "$n")"; done
+# is_own <name>: its destination is not written (OWN or LINKED, above).
+is_own() { case " $OWN $LINKED " in *" $1 "*) return 0 ;; esac; return 1; }
+# VCS: the skills whose destination is in a version-control work tree. They
+# install as any other (a dotfiles layout is the user's own), each overwrite
+# keeping its .bak, but a file the checkout no longer ships is never deleted
+# there, only moved to .bak (Codex design pass: through a link above the
+# destination into another clone's skills/, the stale cleanup deleted that
+# clone's tracked file with no copy kept).
+VCS=""
+for n in $NAMES; do
+	is_own "$n" && continue
+	mkdir -p "$(dest "$n")"
+	# Judged again once it exists (a destination absent above is judged here
+	# for the first time); still nothing but directories has been written.
+	skd_judge "$(dest "$n")" "$ROOT/skills/$n" "$ROOT"
+	case $SKD_KIND in
+	ok) ;;
+	vcs) VCS="$VCS $n" ;;
+	own) echo "install-skill: $(dest "$n") became this checkout's own skills/$n during the run; nothing was installed." >&2; exit 1 ;;
+	*) skd_refuse "$(dest "$n")" ;;
+	esac
+done
+for n in $OWN; do echo "install-skill: $(dest "$n") is this checkout's own skills/$n (however it is reached), so it is current; nothing was written there"; done
 # -ef compares device and inode, so an alias of the same directory (a
 # symlinked parent, a case-folded spelling on the default macOS volume) is
 # caught too, which comparing the spellings would not. Every pair.
@@ -207,6 +313,7 @@ done
 HELD=""
 trap 'printf "%s\n" "$HELD" | while IFS= read -r d; do [ -n "$d" ] || continue; rm -f "$d/.install-skill.tmp.$$" "$d/.install-skill.files.$$"; rmdir "$d/.install-skill.lock" 2>/dev/null; done; true' EXIT INT TERM
 for n in $NAMES; do
+	is_own "$n" && continue
 	d=$(dest "$n")
 	if ! mkdir "$d/.install-skill.lock" 2>/dev/null; then
 		echo "install-skill: another install holds $d/.install-skill.lock; if none is running, remove it and re-run." >&2
@@ -237,6 +344,7 @@ install_one() {
 # The stale list is read BEFORE anything is written (the checks above
 # refused on it), then each skill: its files, its stale names, its manifest.
 for n in $NAMES; do
+	is_own "$n" && continue
 	d=$(dest "$n")
 	gone=$(stale "$n")
 	for f in $(files "$n"); do install_one "$ROOT/skills/$n/$f" "$d"; done
@@ -249,7 +357,10 @@ for n in $NAMES; do
 		for g in $(files "$n"); do [ ! "$d/$f" -ef "$d/$g" ] || alias=1; done
 		[ -z "$alias" ] || continue
 		was=$(awk -v f="$f" '$3 == f {l = $1" "$2} END {print l}' "$d/$MANIFEST")
-		if [ "$(sums "$d/$f")" = "$was" ]; then
+		if case " $VCS " in *" $n "*) true ;; *) false ;; esac; then
+			mv "$d/$f" "$d/$f.bak"
+			echo "install-skill: moved $d/$f to $d/$f.bak (this checkout no longer ships it, and its directory is in a version-control work tree, where nothing is deleted)"
+		elif [ "$(sums "$d/$f")" = "$was" ]; then
 			rm -f "$d/$f"
 			echo "install-skill: removed $d/$f (this checkout no longer ships it)"
 		else

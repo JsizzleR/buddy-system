@@ -239,7 +239,7 @@ fi
 in_install() {
   case $1 in
     scripts/install.sh | scripts/uninstall.sh | scripts/install-lock.sh | scripts/wire-hooks.py | \
-    scripts/gate-hook.py | scripts/install-skill.sh | scripts/setup-clone.sh | scripts/codex-gate-row.sh | \
+    scripts/gate-hook.py | scripts/install-skill.sh | scripts/skill-dest.sh | scripts/setup-clone.sh | scripts/codex-gate-row.sh | \
     scripts/check-install.sh | scripts/check-uninstall.sh | scripts/check-gate-line.sh | \
     scripts/check-setup-clone.sh | scripts/hooks | scripts/hooks/* | internal/cli/update.go | internal/cli/update_test.go | \
     internal/cli/uninstall.go | internal/cli/uninstall_test.go | internal/cli/browser_test.go | \

@@ -135,7 +135,13 @@
 # out of scope), SKILL.md.bak and any installed skill file (a SKILL.md or,
 # D-171, a reference file beside it) that is not byte-identical to this
 # checkout's (an edit, or another release's), a file in a skill directory this
-# checkout does not ship (the directory is then left too), the Agent-model
+# checkout does not ship (the directory is then left too), a whole skill
+# directory that is a symlink, is this checkout's own skills/<n> however
+# reached, lies elsewhere in this checkout, is another buddy checkout's
+# skills/<n>, is not a directory, cannot be searched, has a newline in its
+# physical path, or is in a version-control work tree (D-181, #94:
+# a link to the checkout's own had its tracked files deleted through it;
+# scripts/skill-dest.sh judges it, at the plan and again at the act), the Agent-model
 # hook copy (D-120), the model router's state when anything above leaves it,
 # and ~/.local/state itself, other com.buddy-system.* launchd agents, a buddylist
 # process (never signalled: after the bootout they are live sessions' MCP
@@ -254,6 +260,21 @@ IFS=$NL
 # as they are read, above.
 for p in "$ROOT" "$BIN_DIR" "$SKILL_DIR" "$FLEET_DIR" "$PLIST"; do
 	case $p in *"$NL"*) die "a path to act on holds a newline ($(printf '%s' "$p" | tr '\n' '?')); nothing was removed. Set the BUDDY_* knobs to paths without one." ;; esac
+done
+# The skill destinations, absolute and without a trailing slash, as
+# install-skill.sh reads them (scripts/skill-dest.sh: a relative `-` was
+# $OLDPWD to `cd`, and `link/` hid the link from `[ -L ]`; D-181).
+. "$ROOT/scripts/skill-dest.sh"
+skd_abs "$SKILL_DIR" "$ROOT"; SKILL_DIR=$SKD_P
+skd_abs "$FLEET_DIR" "$ROOT"; FLEET_DIR=$SKD_P
+# A last name of . or .. moved every sibling: BUDDY_SKILL_DIR=<skills>/buddy/.
+# put the fleet, lead and router destinations under buddy/, absent, so the
+# router's state passed as its skill gone and was removed beside the real
+# skill (the panel). Refused, as a newline is, and so is one anywhere in the
+# path (Codex code pass: <d>/missing/../buddy hides <d>/buddy until something
+# makes `missing`; install refuses the same knob).
+for p in "$SKILL_DIR" "$FLEET_DIR"; do
+	case /$p/ in */./* | */../*) die "a skill destination has a . or .. component ($p); nothing was removed. Name the directory itself in BUDDY_SKILL_DIR and BUDDY_FLEET_SKILL_DIR." ;; esac
 done
 
 # flipped: --chat has rebuilt buddy claims-only. Every stop after that says so,
@@ -475,6 +496,25 @@ elif [ -f "$PLIST" ] && [ -z "$plist_other" ]; then
 	say "daemon: left: $PLIST (its program is not a buddylist, or it cannot be read here)"
 fi
 rm_lists="" rm_skills="" rm_skill_dirs="" rm_buddies=""
+# skill_left <dest dir> <name>: why skd_judge's verdict leaves the directory
+# whole. Its path is one line (the newline guard above, and skd_judge's own).
+skill_left() {
+	case $SKD_KIND in
+	own)
+		printf '%s (whole), since it is this checkout'"'"'s own skills/%s (however it is reached), so its files are the checkout'"'"'s, not an installed copy' "$1" "$2"
+		[ ! -L "$1" ] || printf '; to remove the link alone: rm %s' "$(shq "$1")"
+		;;
+	clone) printf '%s (whole), since it is another checkout'"'"'s skills/%s (%s), so its files are that checkout'"'"'s, not an installed copy' "$1" "$2" "$SKD_MARK" ;;
+	link) printf '%s (whole), since it is a symlink, so its files are not an installed copy; to remove the link alone: rm %s' "$1" "$(shq "$1")" ;;
+	hop) printf '%s (whole), since it is / or has a . or .. component, which can step past a link, so what it holds cannot be judged' "$1" ;;
+	vcs) printf '%s (whole), since it is in a version-control work tree (%s), which may track its files; if they are installed copies you want gone, remove them by hand: rm -r %s' "$1" "$SKD_MARK" "$(shq "$1")" ;;
+	checkout) printf '%s (whole), since it is inside this checkout, so its files are the checkout'"'"'s, not an installed copy' "$1" ;;
+	notdir) printf '%s, since it is not a directory' "$1" ;;
+	unsearchable) printf '%s (whole), since it cannot be searched, so what it holds cannot be judged' "$1" ;;
+	newline) printf '%s (whole), since its physical path holds a newline' "$1" ;;
+	*) printf '%s (whole), since it could not be judged (%s)' "$1" "$SKD_KIND" ;;
+	esac
+}
 plan_bin() { # plan_bin <path> <cmd>: prints the line; status 0 when it goes
 	if [ -L "$1" ] && [ ! -e "$1" ]; then
 		say "$2: left: $1 is a symlink to nothing; remove it by hand: rm $(shq "$1")"
@@ -499,6 +539,16 @@ if [ -z "$chat_only" ]; then
 	# directory if it is empty.
 	for n in $skill_names; do
 		d=$(dest "$n")
+		# The directory first (D-181, #94): a file reached through a link to
+		# the checkout's own skills/<n> compared equal with itself, and the
+		# act deleted the checkout's tracked files through it. Left whole, so
+		# not its manifest and not its rmdir either.
+		skd_judge "$d" "$ROOT/skills/$n" "$ROOT"
+		case $SKD_KIND in
+		absent) continue ;;
+		ok) ;;
+		*) say "skill: left: $(skill_left "$d" "$n")"; continue ;;
+		esac
 		fl=SKILL.md
 		set +f
 		for s in "$ROOT/skills/$n"/*; do
@@ -1119,9 +1169,31 @@ if [ -z "$dry" ]; then
 			say "mcp: left: $what is still in $CLAUDE_JSON (claude exited $crc); remove it by hand: $how"
 		fi
 	done
-	for f in $rm_skills; do unlink_one "$f"; done
-	for d in $rm_skill_dirs; do
-		[ -d "$d" ] || continue
+	# By directory, each judged again just before its files go (D-181): one
+	# that became a link, the checkout's, or a work tree's since the plan is
+	# left whole. This narrows the swap window to a user who can write the
+	# skills directory (invariant 6); it does not close it.
+	# A directory two knobs name is acted on once (Fable cross-check: the
+	# second pass printed its "still holds files" line again).
+	acted=""
+	for n in $skill_names; do
+		d=$(dest "$n")
+		case "$NL$rm_skill_dirs$NL" in *"$NL$d$NL"*) ;; *) continue ;; esac
+		case "$NL$acted$NL" in *"$NL$d$NL"*) continue ;; esac
+		acted=$acted$NL$d
+		skd_judge "$d" "$ROOT/skills/$n" "$ROOT"
+		case $SKD_KIND in
+		absent) continue ;;
+		ok) ;;
+		*) say "skill: left: $(skill_left "$d" "$n") (found at the act; nothing in it was removed)"; continue ;;
+		esac
+		# Gone already (the same directory named by two knobs, or a file
+		# removed since the plan) is no "removed:" line (the panel).
+		for f in $rm_skills; do
+			[ "${f%/*}" = "$d" ] || continue
+			[ -e "$f" ] || [ -L "$f" ] || continue
+			unlink_one "$f"
+		done
 		rmdir -- "$d" 2>/dev/null || say "skill: left: $d, which still holds files this checkout did not install or that differ"
 	done
 	# The model router's state (1e), once its skill is gone for sure: judged

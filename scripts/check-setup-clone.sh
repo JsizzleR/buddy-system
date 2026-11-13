@@ -28,7 +28,7 @@ WORK=$(CDPATH= cd -- "$WORK" && pwd -P)
 CLONE="$WORK/clone"
 mkrepo "$CLONE"
 mkdir -p "$CLONE/scripts" "$CLONE/skills/buddy" "$CLONE/skills/buddy-fleet" "$CLONE/skills/buddy-lead" "$WORK/bin" "$WORK/home" "$WORK/other-hooks"
-cp scripts/setup-clone.sh scripts/install-skill.sh "$CLONE/scripts/"
+cp scripts/setup-clone.sh scripts/install-skill.sh scripts/skill-dest.sh "$CLONE/scripts/"
 cp skills/buddy/SKILL.md "$CLONE/skills/buddy/"
 cp skills/buddy-fleet/SKILL.md "$CLONE/skills/buddy-fleet/"
 # install-skill.sh refuses a checkout with fewer than the three shipped skills (D-121).

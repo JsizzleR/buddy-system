@@ -425,7 +425,11 @@ BUDDY_SKILL_DIR="$HOME/.agents/skills/buddy" sh scripts/install-skill.sh
 ```
 
 The fleet skill goes beside it, in `buddy-fleet` (`BUDDY_FLEET_SKILL_DIR`
-overrides that).
+overrides that). Each destination is judged before anything is written there
+(D-181): the checkout's own `skills/<n>` (a live-edit link) is skipped, a
+symlink elsewhere or another buddy checkout's `skills/<n>` is left and named
+and the run goes on, and one elsewhere in this checkout, `/`, or a knob with a
+`.` or `..` component is refused.
 
 That user skill directory follows the current
 [Codex skill discovery guide](https://learn.chatgpt.com/docs/build-skills).
@@ -550,7 +554,10 @@ the same work.
   `~/.buddylist/<agent>.plist.removed-<time>`, never deleted, with the restore
   command), every `buddylist` copy (`~/bin`, the daemon's program, the
   checkout's `bin/`), each installed skill that is byte-identical to the
-  checkout's, then `buddy` itself, last, by one unlink. A stop anywhere leaves
+  checkout's (a skill directory that is a symlink, the checkout's own
+  `skills/<n>` however reached, elsewhere in the checkout, another buddy
+  checkout's `skills/<n>`, or in a version-control work tree is left whole
+  and named, D-181), then `buddy` itself, last, by one unlink. A stop anywhere leaves
   the claims half working; running it again finishes.
 - **`--chat`** removes the daemon and the `buddylist` copies only, and keeps
   the install claims-only: it first runs the installed buddy's

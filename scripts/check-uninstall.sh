@@ -38,6 +38,14 @@ WORK=$(mktemp -d) || fail "mktemp failed"
 # `|| true`: under set -e a failed kill of a watchdog already ended set the
 # check's status to 1 after its ok line (measured).
 trap '[ -z "${gwd:-}" ] || kill "$gwd" 2>/dev/null || true; rm -rf "$WORK"' EXIT INT TERM
+# Every skill destination here is judged by where it lands (D-181): under a
+# temp directory inside a work tree, each would be `vcs` and left, and U-4 went
+# red on a correct tree (the panel); straight under another checkout's skills/,
+# `clone` (Codex code pass). Anything but `ok` is said by name, never a
+# confusing red.
+. scripts/skill-dest.sh
+mkdir "$WORK/none"; skd_judge "$WORK" "$WORK/none" "$WORK/none"; rmdir "$WORK/none"
+[ "$SKD_KIND" = ok ] || fail "the temp directory $WORK is judged $SKD_KIND${SKD_MARK:+ ($SKD_MARK)}, where every fixture skill directory is left; set TMPDIR to a plain directory outside any work tree or checkout"
 gocache=$(go env GOCACHE) gomodcache=$(go env GOMODCACHE)
 AGENT=com.buddy-system.buddylistd
 macos=""
@@ -218,7 +226,7 @@ setup() {
 	# The hook lines run $HOME/bin/...: this bin dir is that one, as on a
 	# machine (D-173 edits only lines that run what the run removes).
 	ln -s ../bin "$R/home/bin"
-	cp scripts/uninstall.sh scripts/install-lock.sh scripts/wire-hooks.py scripts/gate-hook.py scripts/get-oscar.sh scripts/get-ergo.sh "$R/co/scripts/"
+	cp scripts/uninstall.sh scripts/install-lock.sh scripts/skill-dest.sh scripts/wire-hooks.py scripts/gate-hook.py scripts/get-oscar.sh scripts/get-ergo.sh "$R/co/scripts/"
 	cp -R skills "$R/co/skills"
 	mkrepo "$R/co"
 	git -C "$R/co" config core.hooksPath .githooks
@@ -725,6 +733,8 @@ if [ -x "$R/skills/model-router" ]; then
 	echo "check-uninstall: U-15m (unsearchable) NOT RUN — a mode-000 directory is searchable here (root)" >&2
 else
 	rs_left "U-15m (unsearchable)" ", since its skill stays ($R/skills/model-router/SKILL.md)"
+	echo "$out" | grep -qxF "uninstall: skill: left: $R/skills/model-router (whole), since it cannot be searched, so what it holds cannot be judged" || fail "U-15m: the unsearchable skill directory is not named:
+$out"
 fi
 chmod 700 "$R/skills/model-router"; rm -rf "$R/skills/model-router"; rs_goes
 # U-15r: in a version-control work tree, where router.py never writes (its
@@ -985,6 +995,247 @@ echo "$out" | grep -qF "skill: left: $R/skills/buddy-fleet/restack.md differs" |
 $out"
 echo "$out" | grep -qxF "uninstall: skill: left: $R/skills/buddy-fleet, which still holds files this checkout did not install or that differ" || fail "U-9r: the directory left is not named:
 $out"
+
+# U-16: a skill directory whose files are not an installed copy is LEFT
+# whole and named, and nothing in what it reaches changes (D-181, #94: a
+# link to the checkout's own skills/<n> had its tracked files deleted through
+# it). Each case runs the dry run (the same leave planned, nothing changed)
+# and then the full run, and names the clause of skill-dest.sh's skd_judge it
+# holds alone; U-4 is the control that the same directories, unlinked, go,
+# and most cases check an ordinary skill beside them still goes.
+# tsum <dir>: every entry under it, links by their text, files by checksum.
+tsum() { (cd "$1" && find . | LC_ALL=C sort | while IFS= read -r f; do if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink "$f")"; elif [ -f "$f" ]; then printf '%s %s\n' "$(cksum < "$f")" "$f"; else printf 'dir %s\n' "$f"; fi; done); }
+# u16 <reached dir> <left line>...: both runs, each left line in both, and
+# the reached tree unchanged by either. The premise first: the reached
+# directory holds a SKILL.md byte-identical to one the checkout ships, so a
+# judge that let it through would plan its removal (the panel: an empty
+# directory passed the old guard).
+u16() {
+	u16_reach=$1; shift
+	u16_b4=$(tsum "$u16_reach")
+	u16_eq=""
+	for s in "$R/co/skills"/*/SKILL.md; do cmp -s "$s" "$u16_reach/SKILL.md" 2>/dev/null && u16_eq=1; done
+	[ -n "$u16_eq" ] || fail "$label: $u16_reach holds no SKILL.md identical to the checkout's, so this case tests nothing"
+	before=$(snap)
+	out=$(un --dry-run 2>&1) || fail "$label: the dry run failed:
+$out"
+	[ "$(snap)" = "$before" ] || fail "$label: the dry run changed the tree:
+$out"
+	for want in "$@"; do
+		echo "$out" | grep -qxF "uninstall: skill: left: $want" || fail "$label: the dry run does not plan the leave '$want':
+$out"
+	done
+	out=$(un 2>&1) || fail "$label: uninstall failed:
+$out"
+	for want in "$@"; do
+		echo "$out" | grep -qxF "uninstall: skill: left: $want" || fail "$label: the run does not name the leave '$want':
+$out"
+	done
+	[ "$(tsum "$u16_reach")" = "$u16_b4" ] || fail "$label: uninstall changed what $u16_reach holds:
+$(tsum "$u16_reach")
+$out"
+}
+own_line() { printf '%s (whole), since it is this checkout'"'"'s own skills/%s (however it is reached), so its files are the checkout'"'"'s, not an installed copy' "$1" "$2"; }
+ownlink_line() { printf '%s; to remove the link alone: rm %s' "$(own_line "$1" "$2")" "$1"; }
+link_line() { printf '%s (whole), since it is a symlink, so its files are not an installed copy; to remove the link alone: rm %s' "$1" "$1"; }
+vcs_line() { printf '%s (whole), since it is in a version-control work tree (%s), which may track its files; if they are installed copies you want gone, remove them by hand: rm -r %s' "$1" "$2" "$1"; }
+checkout_line() { printf '%s (whole), since it is inside this checkout, so its files are the checkout'"'"'s, not an installed copy' "$1"; }
+clone_line() { printf '%s (whole), since it is another checkout'"'"'s skills/%s (%s), so its files are that checkout'"'"'s, not an installed copy' "$1" "$2" "$3"; }
+
+# U-16a: the issue's case. ~/.claude/skills/buddy-fleet a symlink to the
+# checkout's own skills/buddy-fleet (a live-edit setup). Clause: the
+# directory judged at all (a mutant back to the last-component-only test
+# deletes the checkout's files here). The other skills still go: the
+# positive control that the run reached the skills.
+label=U-16a
+setup
+rm -rf "$R/skills/buddy-fleet"; ln -s "$R/co/skills/buddy-fleet" "$R/skills/buddy-fleet"
+u16 "$R/co/skills/buddy-fleet" "$(ownlink_line "$R/skills/buddy-fleet" buddy-fleet)"
+[ -L "$R/skills/buddy-fleet" ] || fail "U-16a: the link itself was removed:
+$out"
+gone "$R/skills/buddy-lead/SKILL.md" "$R/skills/buddy/SKILL.md" "$R/skills/buddy-lead"
+echo "$out" | grep -qF "skill: will remove $R/skills/buddy-fleet/" && fail "U-16a: a file through the link was planned:
+$out"
+
+# U-16b: the skills root itself, ~/.claude/skills, a link to the checkout's
+# skills/: every destination is a real directory there, so no `-L` sees it;
+# -ef does (and the checkout's .git). Every skill is left, and with it the
+# model router's state (its skill stays).
+label=U-16b
+setup
+mv "$R/skills" "$R/skills.installed"; ln -s co/skills "$R/skills"
+u16 "$R/co/skills/buddy" "$(own_line "$R/skills/buddy" buddy)" "$(own_line "$R/skills/buddy-fleet" buddy-fleet)" "$(own_line "$R/skills/model-router" model-router)"
+there "$RS/table.tsv"
+
+# U-16c: the same through a checkout with NO version-control marker (an
+# export): -ef names it `own`. A mutant without the -ef clause still leaves
+# the files (the checkout clause reads them `checkout`), so it dies here on
+# the exact line, not on a deletion (Codex code pass).
+label=U-16c
+setup
+mv "$R/co/.git" "$R/co.git-aside"
+mv "$R/skills" "$R/skills.installed"; ln -s co/skills "$R/skills"
+u16 "$R/co/skills/buddy-fleet" "$(own_line "$R/skills/buddy-fleet" buddy-fleet)"
+
+# U-16d: a skill directory linked to a plain directory outside any work tree
+# (not the checkout's, not tracked): the link alone holds it.
+label=U-16d
+setup
+mkdir "$R/plain"; mv "$R/skills/buddy-fleet" "$R/plain/buddy-fleet"; ln -s ../plain/buddy-fleet "$R/skills/buddy-fleet"
+u16 "$R/plain/buddy-fleet" "$(link_line "$R/skills/buddy-fleet")"
+gone "$R/skills/buddy-lead/SKILL.md"
+
+# U-16e: a trailing slash makes `[ -L ]` look past that link (Codex design
+# pass): dropped first, so the link line names the link.
+label=U-16e
+setup
+mkdir "$R/plain"; mv "$R/skills/buddy-fleet" "$R/plain/buddy-fleet"; ln -s ../plain/buddy-fleet "$R/skills/buddy-fleet"
+XENV="BUDDY_FLEET_SKILL_DIR=$R/skills/buddy-fleet/"
+u16 "$R/plain/buddy-fleet" "$(link_line "$R/skills/buddy-fleet")"
+XENV=
+gone "$R/skills/buddy-lead/SKILL.md"
+
+# U-16f: the skills root linked into a work tree that is no buddy checkout
+# (a dotfiles repo): the work-tree clause alone holds it, at the physical
+# path, and the line names the hand removal.
+label=U-16f
+setup
+mkrepo "$R/dots"; mv "$R/skills" "$R/dots/skills"; ln -s dots/skills "$R/skills"
+RP=$(cd "$R" && env pwd -P)
+u16 "$R/dots/skills/buddy-fleet" "$(vcs_line "$R/skills/buddy-fleet" "$RP/dots/.git")" "$(vcs_line "$R/skills/buddy" "$RP/dots/.git")"
+
+# U-16l: the skills root linked into ANOTHER buddy checkout's skills/ (a
+# second clone or worktree; its scripts/install-skill.sh marks it): its own
+# clause, named with that checkout (the panel: an install from this clone
+# overwrote the other's tracked files).
+label=U-16l
+setup
+mkrepo "$R/clone"; mkdir "$R/clone/scripts"; : > "$R/clone/scripts/install-skill.sh"
+mv "$R/skills" "$R/clone/skills"; ln -s clone/skills "$R/skills"
+RP=$(cd "$R" && env pwd -P)
+u16 "$R/clone/skills/buddy-fleet" "$(clone_line "$R/skills/buddy-fleet" buddy-fleet "$RP/clone")" "$(clone_line "$R/skills/buddy" buddy "$RP/clone")"
+
+# U-16n: the same into a checkout with NO version-control marker (an
+# export), so the clone clause alone holds it (Fable cross-check: U-16l's
+# .git still left it as `vcs`), linked in another case on a case-insensitive
+# volume (the builtin pwd -P of macOS /bin/sh kept the link's spelling, and
+# `Skills` was no `skills`: every identical file was removed).
+label=U-16n
+setup
+mkdir -p "$R/clone2/scripts"; : > "$R/clone2/scripts/install-skill.sh"
+mv "$R/skills" "$R/clone2/skills"
+cl=clone2/skills
+[ ! "$R/CLONE2/Skills" -ef "$R/clone2/skills" ] || cl=CLONE2/Skills
+ln -s "$cl" "$R/skills"
+RP=$(cd "$R" && env pwd -P)
+u16 "$R/clone2/skills/buddy-fleet" "$(clone_line "$R/skills/buddy-fleet" buddy-fleet "$RP/clone2")" "$(clone_line "$R/skills/buddy" buddy "$RP/clone2")"
+
+# U-16g: a RELATIVE knob is read under the checkout, never by `cd`: `-` is
+# $OLDPWD to cd, so from a caller's directory outside any work tree the old
+# judge looked there while the removal reached <checkout>/- (Codex design
+# pass). <checkout>/- holds fleet copies, inside the checkout.
+label=U-16g
+setup
+mkdir "$R/co/-"; cp "$R/skills/buddy-fleet/"*.md "$R/co/-/"
+XENV="BUDDY_FLEET_SKILL_DIR=-"
+u16_cwd=$(pwd); cd "$WORK"
+u16 "$R/co/-" "$(checkout_line "$R/co/-")"
+cd "$u16_cwd"; XENV=
+gone "$R/skills/buddy-lead/SKILL.md"
+
+# U-16j: a destination inside the checkout that is not its own skills/<n>
+# (the core's knob naming the checkout's skills/buddy-fleet, after an
+# install that wrote the core's SKILL.md there), in an export with no
+# marker: the checkout clause alone holds it (the panel).
+label=U-16j
+setup
+mv "$R/co/.git" "$R/co.git-aside"
+cp "$R/co/skills/buddy/SKILL.md" "$R/co/skills/buddy-fleet/SKILL.md"
+XENV="BUDDY_SKILL_DIR=$R/co/skills/buddy-fleet BUDDY_FLEET_SKILL_DIR=$R/skills/buddy-fleet"
+u16 "$R/co/skills/buddy-fleet" "$(checkout_line "$R/co/skills/buddy-fleet")"
+XENV=
+gone "$R/skills/buddy-fleet/restack.md"
+
+# U-16m: two knobs naming one directory: each file the plan named is
+# removed and reported once (the panel: the second skill's pass re-ran the
+# first's unlinks, rm -f succeeded on nothing, and "removed:" printed twice).
+label=U-16m
+setup
+XENV="BUDDY_FLEET_SKILL_DIR=$R/skills/buddy"
+out=$(un 2>&1) || fail "U-16m: uninstall failed:
+$out"
+XENV=
+[ "$(echo "$out" | grep -cxF "uninstall: removed: $R/skills/buddy/SKILL.md")" -eq 1 ] || fail "U-16m: want one removed line for the core SKILL.md:
+$out"
+# The directory is acted on once: its SKILL.md.bak (setup's) keeps it, and
+# that is said once (Fable cross-check: twice, one per knob).
+[ "$(echo "$out" | grep -cF "skill: left: $R/skills/buddy, which still holds files")" -eq 1 ] || fail "U-16m: want one left line for the shared directory:
+$out"
+
+# U-16o: `/` as the core's destination is left, named (Codex re-verify:
+# `///` matched no hop pattern, so `/` was `ok` and a /SKILL.md identical to
+# the checkout's would have gone). The fleet skill beside it in $R still
+# goes: the positive control that the run reached the skills.
+label=U-16o
+setup
+XENV="BUDDY_SKILL_DIR=/ BUDDY_FLEET_SKILL_DIR=$R/skills/buddy-fleet"
+out=$(un --dry-run 2>&1) || fail "U-16o: dry run failed:
+$out"
+XENV=
+echo "$out" | grep -qF "skill: left: / (whole), since it is / or has a . or .. component" || fail "U-16o: / is not left and named:
+$out"
+echo "$out" | grep -qF "$R/skills/buddy-fleet/SKILL.md" || fail "U-16o: the fleet skill beside it was not planned:
+$out"
+
+# U-16k: a knob whose last name is . or .. stops the run before anything is
+# planned: BUDDY_SKILL_DIR=<skills>/buddy/. put every other skill's
+# destination under buddy/, absent, and the model router's state passed as
+# its skill gone (the panel).
+XENV="BUDDY_SKILL_DIR=$R/skills/buddy/."; stopped U-16k "a skill destination has a . or .. component ($R/skills/buddy/.); nothing was removed"
+XENV="BUDDY_FLEET_SKILL_DIR=$R/skills/buddy-fleet/.."; stopped U-16k2 "a skill destination has a . or .. component ($R/skills/buddy-fleet/..); nothing was removed"
+# Above the last name too (Codex code pass): install refuses the same knob.
+XENV="BUDDY_SKILL_DIR=$R/skills/missing/../buddy"; stopped U-16k3 "a skill destination has a . or .. component ($R/skills/missing/../buddy); nothing was removed"
+XENV=
+
+# U-16h: a physical path holding a newline (a link above into "foreign<LF>",
+# a work tree) is left and named on ONE line, never printed (invariant 9).
+# Outside the case's tree: snap() reads one path per line.
+label=U-16h
+setup
+F="$WORK/foreign
+"
+rm -rf "$F"
+mkdir "$F"; mkrepo "$F"; mv "$R/skills/buddy-fleet" "$F/buddy-fleet"; ln -s "$F" "$R/up"
+XENV="BUDDY_FLEET_SKILL_DIR=$R/up/buddy-fleet"
+u16 "$F/buddy-fleet" "$R/up/buddy-fleet (whole), since its physical path holds a newline"
+XENV=
+echo "$out" | grep -qF "which may track its files" && fail "U-16h: the work-tree line printed a path holding a newline:
+$out"
+gone "$R/skills/buddy-lead/SKILL.md"
+rm -rf "$F"
+
+# U-16i: a directory that becomes a link to the checkout's own between the
+# plan and the act (the bootout runs between them) is judged again and left:
+# nothing in it goes (a mutant without the act's judgement deletes the
+# checkout's files through the new link).
+label=U-16i
+setup
+printf '[ -e %s ] && exit 0\nrm -rf %s && ln -s %s %s\n: > %s\n' "$WORK/swap.done" "$R/skills/buddy-lead" "$R/co/skills/buddy-lead" "$R/skills/buddy-lead" "$WORK/swap.done" > "$WORK/swap.sh"
+rm -f "$WORK/swap.done"
+b4=$(tsum "$R/co/skills/buddy-lead")
+XENV="FAKE_ON_BOOTOUT=$WORK/swap.sh"
+out=$(un 2>&1) || fail "U-16i: uninstall failed:
+$out"
+XENV=
+[ -e "$WORK/swap.done" ] || fail "U-16i: nothing was swapped between plan and act, so this case tests nothing:
+$out"
+echo "$out" | grep -qxF "uninstall: skill: will remove $R/skills/buddy-lead/SKILL.md" || fail "U-16i: the plan did not see the installed copy:
+$out"
+echo "$out" | grep -qxF "uninstall: skill: left: $(ownlink_line "$R/skills/buddy-lead" buddy-lead) (found at the act; nothing in it was removed)" || fail "U-16i: the act did not leave the swapped directory:
+$out"
+[ "$(tsum "$R/co/skills/buddy-lead")" = "$b4" ] || fail "U-16i: the checkout's skills/buddy-lead changed:
+$out"
+gone "$R/skills/buddy-fleet/SKILL.md"
 
 # U-9c: a directory at the hooks' buddy path passes README's `[ -x ]` and then
 # fails to exec, so it is INCOMPLETE too, never done (Codex).
@@ -1702,4 +1953,4 @@ $out"
 esac
 
 [ ! -e "$GUARD/reached" ] || fail "the REAL launchctl or claude was reached: $(cat "$GUARD/reached")"
-echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left, every shipped skill's directory read from skills/, the model router's own files removed with its skill, its state left whole and named on every refusal, and kept by --chat)"
+echo "check-uninstall: ok (dry runs change nothing; full and --chat remove what install put in place; stops remove nothing; foreign and edited files left, every file of a skill with its manifest and directory, an edited reference file and its directory left, a skill directory that is a link, the checkout's own or in a work tree left whole, every shipped skill's directory read from skills/, the model router's own files removed with its skill, its state left whole and named on every refusal, and kept by --chat)"

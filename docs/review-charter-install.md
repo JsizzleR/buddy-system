@@ -50,7 +50,9 @@ stub of each binds as written; this is the full text (D-158).
     the stamped checkout as update runs install.sh (D-125).** Never a knob of install. Order:
     the daemon through launchd only (`print` by label, 113 is absent, any other status stops
     the run before anything goes; `bootout`, confirmed), its plist MOVED to ~/.buddylist, the
-    buddylist copies, the skills identical to the checkout's, buddy LAST by one unlink, so a
+    buddylist copies, the skills identical to the checkout's (a skill directory that is a link, the
+    checkout's own or elsewhere in it, another checkout's skills/<n>, or in a work tree left
+    whole, D-181), buddy LAST by one unlink, so a
     stop leaves the claims half working and a re-run finishes. Ours is a build-info `path`
     line in the bytes, never a run. A full run that leaves an executable at
     `$BUDDY_BIN_DIR/buddy` exits INCOMPLETE. `--chat` first runs the installed buddy's

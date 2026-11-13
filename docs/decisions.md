@@ -12738,3 +12738,138 @@ answered (each a residual above), 4 reproduced. Codex re-verify round 1, scoped 
   "okay" (20:04Z)
 - amends: D-177 (the pick on a tiered line: two new reasons, `no-touch` for every class, a
   second protected list)
+
+## D-181 — A skill's destination directory is judged before install or uninstall writes or removes in it: the checkout's own, a link, another checkout's or one inside this checkout is left (install skips, leaves or refuses), a work tree's is left by uninstall (#94; amends D-173, D-171)
+
+2026-11-12 · issue #94, found by D-179's panel. Lanes skill-link and skill-link-2 under orc-22's brief (run-i107).
+
+**The defect.** `uninstall.sh`'s skills plan tested only a file's last component (`[ -L "$d/$b" ]`).
+With `~/.claude/skills/buddy-fleet` a symlink to the checkout's own `skills/buddy-fleet` (a live-edit
+setup), `$d/$b` was the checkout's tracked file, `cmp` compared it with itself, and the act deleted
+`skills/buddy-fleet/*` through the link. `install-skill.sh` wrote its lock, temp file and manifest
+into the checkout through the same link, and through a link to another clone overwrote that clone's
+tracked files.
+
+**The rule** (`scripts/skill-dest.sh`, sourced by both scripts: one judge, so the two agree).
+1. **Each knob is read absolute** (a relative one under the checkout, where both scripts run), each
+   run of slashes made one, its trailing slashes dropped. A knob holding a newline, or a `.` or `..`
+   component ANYWHERE, stops uninstall and refuses install before anything is planned or made:
+   `BUDDY_SKILL_DIR=<skills>/buddy/.` put every other skill's destination under `buddy/`, absent, and
+   the model router's state passed as its skill gone (the panel); `<d>/missing/../buddy` hid
+   `<d>/buddy` from every check until `mkdir -p` made `missing`, and its symlinked `SKILL.md.bak` was
+   then written through (Codex code pass).
+2. **The destination directory is judged before any file in it, by where it lands.** Links above it
+   are not refused as such (`/var` on macOS is one; a dotfiles layout links `~/.claude`). Verdicts, in
+   order: `hop` (`/`, or a dot component); a symlink (`own` when `-ef` the checkout's `skills/<n>`,
+   else `link`); absent; not a directory; `own` by `-ef` (a link anywhere above, a case-folded
+   spelling); cannot be entered; a physical path holding a newline; `checkout`, inside this checkout
+   but not its `skills/<n>`; `clone`, a physical path `<T>/skills/<n>` where
+   `<T>/scripts/install-skill.sh` exists (another clone or worktree); `vcs`, a version-control marker
+   (router.py's VCS_MARKERS) at the physical path or above (D-179's in_tree shape); else `ok`.
+3. **The physical path is the external `pwd -P`'s** (`env pwd -P`), with no fallback to the builtin:
+   macOS `/bin/sh`'s builtin keeps a case-folded spelling as typed and a `/System/Volumes/Data`
+   prefix (measured), so `checkout` and `clone`, string tests on that path, read
+   `<checkout in another case>/docs` as `vcs` and a link to `<A>/Skills` as `ok` (Fable cross-check).
+   Where no external `pwd` runs, or it cannot place the checkout itself, the directory is
+   `unsearchable`: left, or refused (Codex re-verify 1 and 2: a fallback, or a skipped containment
+   test, reopened the miss).
+4. **An absent destination is judged on the physical path `mkdir -p` would make**: the deepest
+   existing ancestor's, plus the names below it. `unsearchable` (that ancestor or the checkout
+   unplaceable), `dangling` (a symlink to nothing on the way),
+   `newline`, `checkout`, or `clone` (whether or not that checkout has a `skills/` yet).
+5. **Uninstall removes only from an `ok` directory.** Every other verdict leaves the directory whole
+   (its files, its manifest and its `rmdir`), with one line naming why, and `rm <link>` for a link or
+   `rm -r <dir>` for a work tree's. The act judges each directory again just before its unlinks, acts
+   on a directory two knobs name once, and reports only files still there.
+6. **Install:** `own` is skipped and named, nothing written (it is current). `link` and `clone` (and
+   an absent one that would be made in another checkout's `skills/`, or through a link to nothing)
+   are left and named, nothing written, and the run goes on: a refusal there stopped `install.sh`
+   after its binaries and `setup-clone.sh` before its `buddy init`, for a second worktree whose user
+   linked the first's skills (the panel). `hop`, `checkout`, `notdir`, `unsearchable` and `newline`
+   (an absent one's by its forecast) refuse before anything is written. `vcs` installs (each
+   overwrite keeps its `.bak`, as before), but a file the checkout no longer ships is moved to `.bak`
+   there, never deleted (Codex design pass). After `mkdir -p` each is judged again.
+
+**Why uninstall leaves a work tree's directory and install writes into it.** A removal keeps no copy;
+an overwrite keeps `.bak`. A dotfiles repo holding `~/.claude` is the user's layout, so install keeps
+working there, and uninstall names the hand command instead of deleting what the repo may track.
+
+**Accepted, with the reasons.**
+- A home directory or `~/.claude` that is itself a work tree (`~/.git`) makes every destination `vcs`:
+  uninstall leaves every skill, named with `rm -r`, and with them the router's state (its skill stays).
+  It fails toward keeping (Codex design pass, the panel).
+- The work-tree test misses a bare-repo dotfiles setup (`--git-dir=~/.cfg`) and yadm: their tracked
+  identical copies are removed as installed copies. They are recoverable from the repository.
+- `.bak` keeps one generation: a second refresh into a `vcs` directory replaces it (as everywhere).
+- The act's re-judgement narrows a swap between plan and act to a user who can write the skills
+  directory (invariant 6, D-179's Accepted); it does not close it. Files are unlinked by path.
+- A hard-linked `SKILL.md.bak` is written through by install's backup (older than this item; it needs a
+  hand-made link).
+- The install lock of an older install-skill left in a linked checkout still stops uninstall
+  (`in_flight`): an install in flight outranks a leave (Codex design pass, answered).
+- A link ABOVE the destination into a plain directory (not a work tree, not a checkout) is the user's
+  layout: its identical copies go, and install writes there.
+- The judge's own `hop` clause for a dot component is unreachable from either script, which refuse
+  such a knob first; it stays as the judge's guard (its mutant survives, by design).
+
+**Not covered.**
+- Residue an older install wrote into a linked checkout's `skills/<n>` (`.install-skill.files`) is
+  left and not named.
+- A checkout, or an absent destination's deepest ancestor, that the external `pwd` cannot place
+  makes the destination `unsearchable` (re-verify 2); no fixture makes that happen, so no test.
+- install's `notdir`, `unsearchable` and existing-directory `newline` arms have no case of their own:
+  they share `skd_refuse` with the `checkout` and `hop` arms, which do (Fable cross-check, answered).
+- The hermetic checks want the temp directory judged `ok` (not in a work tree, not under a checkout's
+  `skills/`) and stop, naming it, otherwise. QA-15k (the checkout in another case) runs only on a
+  case-insensitive volume and says NOT RUN elsewhere; U-16n then links in the same case.
+
+**Tests** (`scripts/check-skill.sh` QA-15, `scripts/check-uninstall.sh` U-16; mutants in a private
+copy, never the worktree).
+- U-16a, the issue's case: a skill directory linked to the checkout's own; nothing in the checkout
+  deleted, the leave named, the other skills still removed (the positive control). U-16b: the skills
+  root linked (no `-L` at any destination; `-ef` holds). U-16c: the same in an export with no `.git`.
+  U-16d..f: a link elsewhere, a work tree above (directly, and through a link). U-16g: a relative `-`
+  knob. U-16h, U-16i: the act's re-judgement after a swap. U-16j: a knob naming another skill inside
+  an export. U-16k..k3: dot knobs, last and above. U-16l, U-16n: another checkout's `skills/`, with and
+  without a `.git`, U-16n through a link in another case. U-16m: two knobs on one directory, each
+  line once. U-16o: `/`. Every leave is planned the same by `--dry-run`.
+- QA-15a..b: the checkout's own, by a link at the destination and at the root, skipped, nothing
+  written in the checkout. QA-15c: a link elsewhere left, with a trailing-slash spelling. QA-15d: a
+  work tree's stale file moved to `.bak`. QA-15e: inside the checkout, existing and absent, refused.
+  QA-15f, QA-15h: another checkout's `skills/`, with and without it existing, and spelled with `//`.
+  QA-15g: dot knobs (the code pass's exact input, its victim byte for byte). QA-15i: a newline above
+  an absent destination. QA-15j: a link to nothing above one. QA-15k: the checkout in another case.
+  QA-15l: `/`.
+- Mutants: 6dcb6e9's uninstall.sh is red at U-16a, its install-skill.sh at QA-15a. On 614374f, 25
+  mutants: 24 killed, the dot `hop` clause surviving (above). The code pass's fold: 8 killed, among
+  them the last-name-only dot test (QA-15g, the install reaching the victim), the parent-only clone
+  test (QA-15h), the forecast's newline (QA-15i) and checkout (QA-15e). The cross-check's fold: 5
+  killed: the builtin `pwd` (QA-15k, U-16n), the dangling walk (QA-15j), the slash collapse (QA-15h),
+  the act's once (U-16m). Re-verify 1's fold: 2 killed (`/` read `ok`: QA-15l,
+  U-16o). Two folds have no mutant a fixture can kill, both fail-closed by inspection: no
+  fallback to the builtin `pwd` (a run with no external `pwd`), and re-verify 2's (a checkout the
+  external `pwd` cannot place while it places a directory below it).
+
+**Review** (full; counts per D-163). codex@xhigh design: 5 raised, 4 fixed, 1 answered.
+panel@opus, three lenses (what uninstall can still delete that is not ours; the leave set and its
+controls; agreement with install-skill.sh and portability): 18 raised, 13 fixed, 5 answered, 3
+reproduced (2 duplicates across lenses). codex@xhigh code: 6 raised, 6 fixed, 3 reproduced; its one
+blocking finding was the `missing/..` knob. fable@xhigh cross-check: 9 raised, 8 fixed, 1 answered,
+4 reproduced; its one blocking finding was the builtin `pwd -P`. codex@xhigh re-verify 1: 3 raised, 3
+fixed, 1 reproduced (`/`). codex@xhigh re-verify 2 (the ceiling, D-115): 1 raised, 1 fixed, folded
+narrowly with no further round.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number added)
+- GIVEN: review-charter.md GIVEN 119's stub and review-charter-install.md's full text (one clause
+  each). The codex-pass total stays under D-180's 131,072, with no raise.
+- code: scripts/skill-dest.sh (new: `skd_abs`, `skd_phys`, `skd_under`, `skd_judge`);
+  scripts/uninstall.sh (the header, the knobs, the skills plan, `skill_left`, the act);
+  scripts/install-skill.sh (the header, the knobs, `skd_refuse`, the check loop, the post-`mkdir`
+  judgement, the `vcs` stale move); skill-dest.sh in every fixture copy (check-skill.sh,
+  check-setup-clone.sh, check-uninstall.sh) and in codex-review.sh's install area
+- docs: USAGE `buddy uninstall` (Full) and the Codex skill install paragraph; README: none (its
+  "anything it cannot prove is buddy's" covers it)
+- skill: none (no verb, flag or knob)
+- amends: D-173's skills removal ("each installed skill byte-identical": now only in a directory
+  judged `ok`); D-171's install of every file of a skill (now only into a directory judged own-able)

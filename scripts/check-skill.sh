@@ -33,6 +33,14 @@ fail() { echo "check-skill: FAIL — $*" >&2; exit 1; }
 
 WORK=$(mktemp -d) || fail "mktemp failed"
 trap 'rm -rf "$WORK"' EXIT INT TERM
+# Every skill destination here is judged by where it lands (D-181): under a
+# temp directory inside a work tree, each would be `vcs` and left, and U-4 went
+# red on a correct tree (the panel); straight under another checkout's skills/,
+# `clone` (Codex code pass). Anything but `ok` is said by name, never a
+# confusing red.
+. scripts/skill-dest.sh
+mkdir "$WORK/none"; skd_judge "$WORK" "$WORK/none" "$WORK/none"; rmdir "$WORK/none"
+[ "$SKD_KIND" = ok ] || fail "the temp directory $WORK is judged $SKD_KIND${SKD_MARK:+ ($SKD_MARK)}, where every fixture skill directory is left; set TMPDIR to a plain directory outside any work tree or checkout"
 DIR="$WORK/skills/buddy"
 FDIR="$WORK/skills/buddy-fleet"
 LDIR="$WORK/skills/buddy-lead"
@@ -129,7 +137,7 @@ echo "$out" | grep -q 'name the same directory' || fail "QA-11: refused, but not
 # QA-12: a checkout with fewer than the three shipped skills is refused whole,
 # naming the count, before anything is written. QA-1 is the control.
 SHORT="$WORK/short"; mkdir -p "$SHORT/scripts" "$SHORT/skills/buddy" "$SHORT/skills/buddy-fleet"
-cp scripts/install-skill.sh "$SHORT/scripts/"; cp "$SRC" "$SHORT/skills/buddy/"; cp "$FSRC" "$SHORT/skills/buddy-fleet/"
+cp scripts/install-skill.sh scripts/skill-dest.sh "$SHORT/scripts/"; cp "$SRC" "$SHORT/skills/buddy/"; cp "$FSRC" "$SHORT/skills/buddy-fleet/"
 if out=$(BUDDY_SKILL_DIR="$WORK/short-dest/buddy" sh "$SHORT/scripts/install-skill.sh" 2>&1); then fail "QA-12: two skills in the checkout must be refused"; fi
 echo "$out" | grep -q 'found 2 skill(s)' || fail "QA-12: the refusal does not name the count: $out"
 [ ! -e "$WORK/short-dest" ] || fail "QA-12: the refused install wrote something"
@@ -203,7 +211,7 @@ BUDDY_SKILL_DIR="$SPD" sh scripts/install-skill.sh >/dev/null || fail "QA-13: th
 # checkout is a copy, so files can be dropped from it. The control for each
 # removal is the file the same run keeps installed.
 CO="$WORK/co"; mkdir -p "$CO/scripts"
-cp scripts/install-skill.sh "$CO/scripts/"; cp -R skills "$CO/skills"
+cp scripts/install-skill.sh scripts/skill-dest.sh "$CO/scripts/"; cp -R skills "$CO/skills"
 MD="$WORK/m/buddy"; MF="$WORK/m/buddy-fleet"
 BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" >/dev/null || fail "QA-14: the copy did not install"
 grep -qx '[0-9]* [0-9]* restack.md' "$MF/.install-skill.files" || fail "QA-14: the manifest does not list restack.md"
@@ -270,7 +278,169 @@ rmdir "$CO/skills/buddy-fleet/extra"
 BUDDY_SKILL_DIR="$MD" sh "$CO/scripts/install-skill.sh" >/dev/null || fail "QA-14: with the manifest line and the subdirectory gone, the install still refuses"
 cmp -s "$CO/skills/buddy/SKILL.md" "$MD/SKILL.md" || fail "QA-14: the control install did not refresh the core"
 
+# QA-15: a destination directory judged before anything is written in it
+# (D-181, #94; scripts/skill-dest.sh, the judge uninstall.sh uses too). The
+# checkout is a fresh copy, so its skills/ can be watched.
+# tsum <dir>: every entry under it, links by their text, files by checksum.
+tsum() { (cd "$1" && find . | LC_ALL=C sort | while IFS= read -r f; do if [ -L "$f" ]; then printf 'link %s -> %s\n' "$f" "$(readlink "$f")"; elif [ -f "$f" ]; then printf '%s %s\n' "$(cksum < "$f")" "$f"; else printf 'dir %s\n' "$f"; fi; done); }
+C2="$WORK/co2"; mkdir -p "$C2/scripts"
+cp scripts/install-skill.sh scripts/skill-dest.sh "$C2/scripts/"; cp -R skills "$C2/skills"
+rm -rf "$C2/skills/model-router/__pycache__"
+L="$WORK/l"
+BUDDY_SKILL_DIR="$L/buddy" sh "$C2/scripts/install-skill.sh" >/dev/null || fail "QA-15: the control install failed"
+# QA-15a: the fleet skill's destination a link to the checkout's own
+# skills/buddy-fleet (a live-edit setup) is skipped and named: no lock, temp
+# file or manifest lands in the checkout (all three did). The core, stale, is
+# refreshed: the positive control that the run installed.
+rm -rf "$L/buddy-fleet"; ln -s "$C2/skills/buddy-fleet" "$L/buddy-fleet"
+b4=$(tsum "$C2/skills")
+printf 'stale core\n' > "$L/buddy/SKILL.md"
+out=$(BUDDY_SKILL_DIR="$L/buddy" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15a: a link to the checkout's own skill must not refuse: $out"
+echo "$out" | grep -qxF "install-skill: $L/buddy-fleet is this checkout's own skills/buddy-fleet (however it is reached), so it is current; nothing was written there" || fail "QA-15a: the skip is not named: $out"
+[ "$(tsum "$C2/skills")" = "$b4" ] || fail "QA-15a: the install wrote into the checkout's skills/:
+$(tsum "$C2/skills")"
+cmp -s "$C2/skills/buddy/SKILL.md" "$L/buddy/SKILL.md" || fail "QA-15a: the core was not refreshed beside the skipped skill"
+# QA-15b: the skills root itself a link to the checkout's skills/: every
+# destination is the checkout's own, by -ef (no link at any of them).
+ln -s "$C2/skills" "$WORK/r"
+out=$(BUDDY_SKILL_DIR="$WORK/r/buddy" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15b: a root link to the checkout's skills/ must not refuse: $out"
+[ "$(echo "$out" | grep -c "is this checkout's own skills/")" -eq "$N" ] || fail "QA-15b: want $N skips: $out"
+[ "$(tsum "$C2/skills")" = "$b4" ] || fail "QA-15b: the install wrote into the checkout's skills/"
+# QA-15c: a destination linked anywhere else is LEFT and named, nothing
+# written through it, and the run goes on (the panel: a refusal there
+# stopped install.sh and setup-clone.sh for a second worktree linked to the
+# first); so is the same link spelled with a trailing slash (Codex design
+# pass: `link/` made `[ -L ]` look past it). The core is the control.
+mkdir "$WORK/plain"; cp -R "$L/buddy-lead" "$WORK/plain/buddy-lead"
+rm -rf "$L/buddy-lead"; ln -s "$WORK/plain/buddy-lead" "$L/buddy-lead"
+printf 'stale\n' > "$WORK/plain/buddy-lead/SKILL.md"
+pb4=$(tsum "$WORK/plain")
+printf 'stale core\n' > "$L/buddy/SKILL.md"
+out=$(BUDDY_SKILL_DIR="$L/buddy" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15c: a linked destination must not stop the install: $out"
+echo "$out" | grep -qxF "install-skill: left: $L/buddy-lead is a symlink to a directory that is not this checkout's skills/buddy-lead, so nothing is written through it" || fail "QA-15c: the link is not named: $out"
+[ "$(tsum "$WORK/plain")" = "$pb4" ] || fail "QA-15c: the install wrote through the link"
+cmp -s "$C2/skills/buddy/SKILL.md" "$L/buddy/SKILL.md" || fail "QA-15c: the core was not refreshed beside the linked skill"
+mv "$L/buddy-fleet" "$WORK/fleet-own"; mkdir "$WORK/fl"; ln -s "$WORK/fl" "$L/fleetlink"
+out=$(BUDDY_SKILL_DIR="$L/buddy" BUDDY_FLEET_SKILL_DIR="$L/fleetlink/" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15c: a linked destination spelled with a trailing slash must not stop the install: $out"
+echo "$out" | grep -qxF "install-skill: left: $L/fleetlink is a symlink to a directory that is not this checkout's skills/buddy-fleet, so nothing is written through it" || fail "QA-15c: the trailing-slash spelling was not judged as the link: $out"
+[ -z "$(ls -A "$WORK/fl")" ] || fail "QA-15c: the install wrote through the trailing-slash link"
+# QA-15d: a destination inside a version-control work tree that is no buddy
+# checkout (a dotfiles repo, here through a link above it) installs, but a
+# file the checkout no longer ships is moved to .bak there, never deleted
+# (Codex design pass: that removal kept no copy). QA-14's removal is the
+# control.
+mkrepo "$WORK/dots"; mkdir "$WORK/dots/skills"; ln -s "$WORK/dots/skills" "$WORK/v"
+C3="$WORK/co3"; mkdir -p "$C3/scripts"
+cp scripts/install-skill.sh scripts/skill-dest.sh "$C3/scripts/"; cp -R skills "$C3/skills"
+rm -rf "$C3/skills/model-router/__pycache__"
+BUDDY_SKILL_DIR="$WORK/v/buddy" sh "$C3/scripts/install-skill.sh" >/dev/null || fail "QA-15d: an install into a work tree failed"
+cmp -s "$C3/skills/buddy/SKILL.md" "$WORK/dots/skills/buddy/SKILL.md" || fail "QA-15d: the install into a work tree installed nothing"
+rsum=$(cksum < "$WORK/dots/skills/buddy-fleet/restack.md")
+rm "$C3/skills/buddy-fleet/restack.md"
+out=$(BUDDY_SKILL_DIR="$WORK/v/buddy" sh "$C3/scripts/install-skill.sh" 2>&1) || fail "QA-15d: the refresh into a work tree failed: $out"
+echo "$out" | grep -qxF "install-skill: moved $WORK/v/buddy-fleet/restack.md to $WORK/v/buddy-fleet/restack.md.bak (this checkout no longer ships it, and its directory is in a version-control work tree, where nothing is deleted)" || fail "QA-15d: the move is not named: $out"
+[ ! -e "$WORK/dots/skills/buddy-fleet/restack.md" ] && [ "$(cksum < "$WORK/dots/skills/buddy-fleet/restack.md.bak")" = "$rsum" ] || fail "QA-15d: the dropped file was not kept as .bak"
+# QA-15f: the skills root a link to ANOTHER buddy checkout's skills/ (a
+# second clone or worktree, marked by its scripts/install-skill.sh): every
+# destination is left, nothing written there, the run goes on (the panel:
+# an install from this clone overwrote the other's tracked files), and a
+# skill the other checkout lacks is not made there either.
+A="$WORK/clone-a"; mkrepo "$A"; mkdir -p "$A/scripts"; : > "$A/scripts/install-skill.sh"
+cp -R skills "$A/skills"; rm -rf "$A/skills/model-router"
+ln -s "$A/skills" "$WORK/hs"
+AP=$(cd "$A" && env pwd -P)
+ab4=$(tsum "$A")
+out=$(BUDDY_SKILL_DIR="$WORK/hs/buddy" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15f: another checkout's skills/ must not stop the install: $out"
+echo "$out" | grep -qxF "install-skill: left: $WORK/hs/buddy is another checkout's skills/buddy ($AP), so nothing is written there" || fail "QA-15f: the other checkout's skill is not named: $out"
+echo "$out" | grep -qxF "install-skill: left: $WORK/hs/model-router would be made in another checkout's skills/ ($AP), so nothing is written there" || fail "QA-15f: the skill it lacks is not named: $out"
+[ "$(tsum "$A")" = "$ab4" ] || fail "QA-15f: the install wrote into the other checkout:
+$(tsum "$A")"
+# QA-15e: a destination inside this checkout that is not the skill's own
+# (the core's knob naming the checkout's skills/buddy-fleet) refuses before
+# anything is written (the panel: the core's SKILL.md replaced the
+# checkout's tracked fleet SKILL.md); so does one made anywhere else in it.
+b4=$(tsum "$C2")
+if out=$(BUDDY_SKILL_DIR="$C2/skills/buddy-fleet" BUDDY_FLEET_SKILL_DIR="$WORK/f15e" sh "$C2/scripts/install-skill.sh" 2>&1); then fail "QA-15e: a destination inside the checkout must refuse: $out"; fi
+echo "$out" | grep -qF "install-skill: $C2/skills/buddy-fleet is inside this checkout and is not its skills/buddy; refusing to write through it (nothing was installed)." || fail "QA-15e: refused, but not naming the checkout: $out"
+if out=$(BUDDY_SKILL_DIR="$C2/inst/buddy" sh "$C2/scripts/install-skill.sh" 2>&1); then fail "QA-15e: a destination to be made inside the checkout must refuse: $out"; fi
+# Whichever destination the glob lists first is refused (buddy-fleet before
+# buddy in C collation: '-' sorts before '/').
+echo "$out" | grep -q "^install-skill: $C2/inst/[a-z-]* is inside this checkout and is not its skills/[a-z-]*; refusing" || fail "QA-15e: the absent destination in the checkout is not named: $out"
+[ "$(tsum "$C2")" = "$b4" ] && [ ! -e "$WORK/f15e" ] || fail "QA-15e: the refused install wrote something:
+$(tsum "$C2")"
+# QA-15g: a knob with a . or .. component anywhere refuses before any
+# directory is made (the panel: `missing/..` made directories, then refused).
+# Above the last name too (Codex code pass): `s94/missing/../buddy` hid
+# s94/buddy's symlinked SKILL.md.bak from every check until mkdir -p made
+# `missing`, and the backup was then written through onto the victim.
+mkdir -p "$WORK/s94/buddy"; printf 'victim\n' > "$WORK/s94/victim"
+printf 'changed\n' > "$WORK/s94/buddy/SKILL.md"; ln -s "$WORK/s94/victim" "$WORK/s94/buddy/SKILL.md.bak"
+for k in "$WORK/g15/missing/.." "$WORK/g15/buddy/." "$WORK/s94/missing/../buddy" "$WORK/s94/./buddy"; do
+	if out=$(BUDDY_SKILL_DIR="$k" BUDDY_FLEET_SKILL_DIR="$WORK/g15f" sh "$C2/scripts/install-skill.sh" 2>&1); then fail "QA-15g: $k must refuse: $out"; fi
+	echo "$out" | grep -qF "install-skill: a skill destination has a . or .. component ($k)" || fail "QA-15g: refused, but not for the dot: $out"
+	[ ! -e "$WORK/g15" ] && [ ! -e "$WORK/g15f" ] && [ ! -e "$WORK/s94/missing" ] || fail "QA-15g: $k made a directory before refusing"
+	[ "$(cat "$WORK/s94/victim")" = victim ] || fail "QA-15g: $k wrote through the linked .bak onto the victim"
+done
+# QA-15l: `/` as a destination refuses before anything is written (Codex
+# re-verify: it was `ok`); the fleet knob beside it is made by nothing.
+if out=$(BUDDY_SKILL_DIR=/ BUDDY_FLEET_SKILL_DIR="$WORK/f15l" sh "$C2/scripts/install-skill.sh" 2>&1); then fail "QA-15l: / must refuse: $out"; fi
+echo "$out" | grep -qF "install-skill: / is / or has a . or .. component, which can step past a link; refusing to write through it (nothing was installed)." || fail "QA-15l: refused, but not for /: $out"
+[ ! -e "$WORK/f15l" ] || fail "QA-15l: the refused install made the fleet destination"
+# QA-15h: another buddy checkout with NO skills/ yet (Codex code pass): the
+# destination its skills/<n> would be is left before anything is made, and
+# the run goes on; the core beside it is the control.
+B="$WORK/clone-b"; mkdir -p "$B/scripts"; : > "$B/scripts/install-skill.sh"
+BP=$(cd "$B" && env pwd -P)
+printf 'stale core\n' > "$L/buddy/SKILL.md"
+out=$(BUDDY_SKILL_DIR="$L/buddy" BUDDY_FLEET_SKILL_DIR="$B/skills/buddy-fleet" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15h: a clone with no skills/ must not stop the install: $out"
+echo "$out" | grep -qxF "install-skill: left: $B/skills/buddy-fleet would be made in another checkout's skills/ ($BP), so nothing is written there" || fail "QA-15h: the clone's absent skills/ is not named: $out"
+[ ! -e "$B/skills" ] || fail "QA-15h: the install made skills/ in the other checkout"
+cmp -s "$C2/skills/buddy/SKILL.md" "$L/buddy/SKILL.md" || fail "QA-15h: the core was not refreshed beside the left skill"
+# The same spelled with `//` (Fable cross-check: the empty name before it
+# was no `skills`, so skills/buddy-fleet was made there, then refused).
+out=$(BUDDY_SKILL_DIR="$L/buddy" BUDDY_FLEET_SKILL_DIR="$B/skills//buddy-fleet" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15h: the // spelling must not stop the install: $out"
+echo "$out" | grep -qxF "install-skill: left: $B/skills/buddy-fleet would be made in another checkout's skills/ ($BP), so nothing is written there" || fail "QA-15h: the // spelling is not named as the clone: $out"
+[ ! -e "$B/skills" ] || fail "QA-15h: the // spelling made skills/ in the other checkout"
+# QA-15j: a destination to be made through a link to nothing (a removed
+# worktree's skills/) is left and named, and the run goes on (Fable
+# cross-check: mkdir -p failed under set -e and stopped install.sh); the
+# core beside it is the control.
+ln -s "$WORK/gone-tree/skills" "$WORK/dl"
+printf 'stale core\n' > "$L/buddy/SKILL.md"
+out=$(BUDDY_SKILL_DIR="$L/buddy" BUDDY_FLEET_SKILL_DIR="$WORK/dl/buddy-fleet" sh "$C2/scripts/install-skill.sh" 2>&1) || fail "QA-15j: a link to nothing above a destination must not stop the install: $out"
+echo "$out" | grep -qxF "install-skill: left: $WORK/dl/buddy-fleet would be made through $WORK/dl, a symlink to nothing, so nothing is made there" || fail "QA-15j: the dangling link is not named: $out"
+cmp -s "$C2/skills/buddy/SKILL.md" "$L/buddy/SKILL.md" || fail "QA-15j: the core was not refreshed beside the left skill"
+# QA-15k: the checkout spelled in another case, on a case-insensitive volume
+# (the macOS default; skipped, said, where the volume is case-sensitive):
+# still `checkout`, existing or absent (Fable cross-check: the builtin
+# pwd -P of macOS /bin/sh kept the typed case, so the prefix test missed it,
+# the core's knob on the checkout's skills/buddy-fleet installed, and an
+# absent one was made inside the checkout).
+C2U="$WORK/CO2"
+if [ "$C2U" -ef "$C2" ]; then
+	b4=$(tsum "$C2")
+	if out=$(BUDDY_SKILL_DIR="$C2U/skills/buddy-fleet" BUDDY_FLEET_SKILL_DIR="$WORK/f15k" sh "$C2/scripts/install-skill.sh" 2>&1); then fail "QA-15k: the checkout in another case must refuse: $out"; fi
+	echo "$out" | grep -qF "install-skill: $C2U/skills/buddy-fleet is inside this checkout and is not its skills/buddy; refusing to write through it (nothing was installed)." || fail "QA-15k: refused, but not naming the checkout: $out"
+	if out=$(BUDDY_SKILL_DIR="$C2U/inst/buddy" sh "$C2/scripts/install-skill.sh" 2>&1); then fail "QA-15k: an absent destination in the checkout in another case must refuse: $out"; fi
+	echo "$out" | grep -q "^install-skill: $C2U/inst/[a-z-]* is inside this checkout and is not its skills/[a-z-]*; refusing" || fail "QA-15k: the absent destination is not named: $out"
+	[ "$(tsum "$C2")" = "$b4" ] && [ ! -e "$WORK/f15k" ] || fail "QA-15k: the refused install wrote something:
+$(tsum "$C2")"
+	qa15k="the checkout in another case refused"
+else
+	echo "check-skill: QA-15k NOT RUN: $WORK is on a case-sensitive volume"
+	qa15k="QA-15k not run (case-sensitive volume)"
+fi
+# QA-15i: absent destinations under a link to a directory whose name ends in
+# a newline refuse before any directory is made there (Codex code pass: the
+# first mkdir -p made a child in "foreign<LF>", and only then refused).
+NLD="$WORK/foreign
+"
+mkdir "$NLD"; ln -s "$NLD" "$WORK/up"
+if out=$(BUDDY_SKILL_DIR="$WORK/up/buddy" sh "$C2/scripts/install-skill.sh" 2>&1); then fail "QA-15i: a destination to be made under a newline must refuse: $out"; fi
+echo "$out" | grep -q "^install-skill: $WORK/up/[a-z-]* has a physical path holding a newline; refusing" || fail "QA-15i: refused, but not for the newline: $out"
+[ -z "$(ls -A "$NLD")" ] || fail "QA-15i: a directory was made under the newline before the refusal"
+
 # QA-4: setup-clone.sh runs it — the step is wired, not merely available.
 grep -q 'scripts/install-skill.sh' scripts/setup-clone.sh || fail "QA-4: setup-clone.sh does not run install-skill.sh"
 
-echo "check-skill: GREEN (QA-1 fresh install of all $N, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + others added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob + lead beside the core, QA-8 a refused fleet dir installs none, QA-9 one dir for two refused, QA-10 fleet lock, QA-11 core dir named as another skill refused, QA-12 a short checkout refused, QA-13 a spaced destination releases its locks, QA-14 every file of a skill with a manifest: a dropped file removed, an edited one kept, a foreign one left, a bad manifest line and a subdirectory refused, a __pycache__ directory skipped)"
+echo "check-skill: GREEN (QA-1 fresh install of all $N, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + others added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob + lead beside the core, QA-8 a refused fleet dir installs none, QA-9 one dir for two refused, QA-10 fleet lock, QA-11 core dir named as another skill refused, QA-12 a short checkout refused, QA-13 a spaced destination releases its locks, QA-14 every file of a skill with a manifest: a dropped file removed, an edited one kept, a foreign one left, a bad manifest line and a subdirectory refused, a __pycache__ directory skipped, QA-15 a destination that is the checkout's own skipped, a linked one or another checkout's left, one inside this checkout, a dot knob anywhere, / and a newline above an absent one refused, a clone with no skills/ yet or a link to nothing above left, $qa15k, a stale file in a work tree kept as .bak)"

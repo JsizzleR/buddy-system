@@ -333,7 +333,7 @@ DRUN=$E; diffcase gitlink core+testinfra HEAD~1..HEAD; DRUN=
 # Every area path, one commit each: the list is the spec, so dropping a path from the
 # script's area is a red here (Codex code pass: deleting update.go went unseen).
 for ap in install:scripts/install.sh install:scripts/uninstall.sh install:scripts/install-lock.sh install:scripts/wire-hooks.py \
-  install:scripts/gate-hook.py install:scripts/install-skill.sh install:scripts/setup-clone.sh install:scripts/codex-gate-row.sh \
+  install:scripts/gate-hook.py install:scripts/install-skill.sh install:scripts/skill-dest.sh install:scripts/setup-clone.sh install:scripts/codex-gate-row.sh \
   install:scripts/check-install.sh install:scripts/check-uninstall.sh install:scripts/check-gate-line.sh \
   install:scripts/check-setup-clone.sh install:scripts/hooks/agent-model-gate.py install:internal/cli/update.go \
   install:internal/cli/update_test.go install:internal/cli/uninstall.go install:internal/cli/uninstall_test.go \
