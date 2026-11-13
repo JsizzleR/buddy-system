@@ -48,7 +48,8 @@ REFUSED, naming the file, nothing written: a symlink (a rename would replace a
 dotfiles link with a file; wire the target, BUDDY_SETTINGS=<target>), not a
 regular file, a second hard link (a rename would split it), another user's or
 a read-only file, over MAX_BYTES
-before or after, not UTF-8, not JSON, a duplicate key, NaN or Infinity, a top
+before or after, not UTF-8, not JSON, nested past gate-hook.py's MAX_DEPTH (64
+levels, D-182), a duplicate key, NaN or Infinity, a top
 level that is not an object, a `hooks` that is not an object, an event that is
 not a list or holds an entry that is not a hook object, `disableAllHooks` true, bytes that differ from the report's
 snapshot (the report and the write read one version, Codex design pass), and
@@ -105,6 +106,13 @@ def _constant(name):
 
 
 def decode(text):
+    # The depth cap (D-182), gate-hook.py's, on the text before the decoder
+    # sees it: past 64 levels it is refused on every Python and stack, where it
+    # was refused or decoded by the interpreter's own limit (#96). Every read
+    # passes here: check, wire, unwire, and each splice's re-decode.
+    gh = gate_hook()
+    if gh.too_deep(text):
+        raise Refused(gh.DEEP)
     try:
         return json.loads(text, object_pairs_hook=_pairs, parse_constant=_constant)
     except RecursionError:
@@ -728,7 +736,8 @@ def main(argv):
         return 1
     except (ValueError, TypeError, AttributeError, KeyError, RecursionError) as e:
         # A shape this reading cannot follow (an entry that is not an object,
-        # a command that is not a string, nesting deepcopy cannot copy): one
+        # a command that is not a string, a regex matcher nested past what re
+        # compiles; JSON nesting is refused first, by the depth cap): one
         # line, not a traceback the install prints line by line (panel).
         print("hooks: --wire-hooks REFUSED, nothing written: %s: a shape it cannot read (%s)" % (argv[1], type(e).__name__))
         return 1

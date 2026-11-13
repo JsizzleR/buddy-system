@@ -722,9 +722,14 @@ def state(p):
 
 
 def verdict():
+    # gate-hook.py's depth cap (D-182), on the text before the decode, so a
+    # nest past it is not checked on every Python and stack (#96).
     try:
         with open(settings_path, encoding="utf-8") as f:
-            s = json.load(f)
+            text = f.read()
+        if gh.too_deep(text):
+            return "unread", "wiring not checked: %s is %s" % (settings_path, gh.DEEP)
+        s = json.loads(text)
     except (OSError, ValueError, RecursionError) as e:
         return "unread", "wiring not checked: %s is not JSON this report can read (%s)" % (settings_path, type(e).__name__)
     hooks = s.get("hooks") if isinstance(s, dict) else None

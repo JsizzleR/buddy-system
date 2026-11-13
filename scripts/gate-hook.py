@@ -212,18 +212,80 @@ def set_reasons(verdicts, settings):
     return []
 
 
+# THE DEPTH CAP (#96, D-182), the one definition every settings reader uses:
+# this report and browser-report, install.sh's Agent-model reader, wire-hooks.py
+# (check, wire, unwire, and its re-decode of each splice), uninstall.sh's
+# ~/.claude.json reader. Each loads this file and runs too_deep on the TEXT
+# before it decodes, so a nest past the cap reads "not checked" (or is refused)
+# on every Python and stack size. Before it, the interpreter decided: up to
+# 3.13 json raised RecursionError at a fixed depth that differs by version
+# (992 levels on 3.9.6, 9,997 on 3.12.13; the Fable cross-check); 3.14's decoder
+# is bounded by the C stack, so a 100000-deep nest decoded with room (Homebrew's
+# 3.14.7, whose Python.app main thread has 16 MB whatever `ulimit -s` says;
+# uv's 3.14.4 at 64 MB) and not without it (uv's 3.14.4 at 8 MB; #95), and one
+# file read two ways.
+# 64: the deepest of 44 real settings files on the developing machine
+# (~/.claude.json, every settings.json, project settings, .mcp.json; counted
+# 2026-11-12) is 7 containers, README's block 6; and every walk after the
+# decode (copy.deepcopy, about two frames a level; wire-hooks' span scan; a
+# json.dumps of a matcher) stays far inside the 1000-frame limit at 64. The
+# RecursionError catches stay. Two are still reached, by a regex matcher's own
+# nesting, which is not JSON depth (600 groups in a matcher, a 6-deep file): browser-
+# report's re.search, and wire-hooks main's catch around the same reading
+# (check-install holds both). The decode
+# catches are the second line, reached by no file past the cap.
+MAX_DEPTH = 64
+DEEP = "nested deeper than %d levels" % MAX_DEPTH
+# One linear pass over the characters that can matter. REFUTED: stripping
+# strings with a regex first (`"[^"\\]*(?:\\.[^"\\]*)*"`): on an unterminated
+# string of escaped quotes it fails and retries at every later quote, quadratic
+# on a 1 MiB file (Codex design pass). Outside a string, every `"` opens one; in
+# one, a backslash skips the character after it; so on any text json.loads
+# accepts, and on the valid prefix of any it rejects, the count is the
+# decoder's own nesting. A duplicate key's overwritten value counts too: the
+# decoder walks it before dropping it.
+_TOKEN = re.compile(r'[\[\]{}"\\]')
+
+
+def too_deep(text):
+    """True when JSON text nests more than MAX_DEPTH containers, `{}` being 1."""
+    depth, in_str, skip = 0, False, -1
+    for m in _TOKEN.finditer(text):
+        i = m.start()
+        if i == skip:
+            continue
+        c = text[i]
+        if in_str:
+            if c == "\\":
+                skip = i + 1
+            elif c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True
+        elif c in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return True
+        elif c in "]}":
+            depth -= 1
+    return False
+
+
 def report(path):
     try:
         with open(path, encoding="utf-8") as f:
-            settings = json.load(f)
+            text = f.read()
+        if too_deep(text):
+            return "gate: %s is %s; not checked" % (path, DEEP)
+        settings = json.loads(text)
     except FileNotFoundError:
         return "gate: no %s; not checked" % path
     except (OSError, ValueError, RecursionError) as e:
         return "gate: %s is not JSON this report can read (%s); not checked" % (path, type(e).__name__)
     # Decoded is not walkable (#95). Up to 3.13 json.load raised RecursionError
-    # at the interpreter's recursion limit (1000), so a deep file never got
-    # here. From 3.14 the decoder is bounded by the real C stack: a terminated
-    # [ * 100000 decodes when the stack has room (Homebrew's 3.14.7 at 8 MB,
+    # at a fixed depth (992 on 3.9.6, 9,997 on 3.12.13), so a 100000-deep file
+    # never got here. From 3.14 the decoder is bounded by the real C stack: a terminated
+    # [ * 100000 decodes when the stack has room (Homebrew's 3.14.7, 16 MB,
     # uv's 3.14.4 at 64 MB, measured; the ubuntu-26.04 runner's 3.14.4 read an
     # unterminated one to its end) and not when it has less (uv's 3.14.4 at
     # 8 MB). What decodes can still be too deep to
@@ -231,7 +293,8 @@ def report(path):
     # (3.14.7) and the report died in a traceback, which install printed as
     # "could not run scripts/gate-hook.py". Caught here, it says what it is:
     # not checked. Only the crash becomes a verdict; a walk that finishes
-    # decides exactly as it did.
+    # decides exactly as it did. Since the cap (D-182) no file past 64 levels
+    # gets here, so this catch is the second line, not the first.
     try:
         return _judged(path, settings)
     except RecursionError:
@@ -375,10 +438,12 @@ def main(argv):
     elif len(argv) == 2 and argv[0] == "report":
         print(report(argv[1]))
     elif len(argv) == 2 and argv[0] == "browser-report":
-        # Advisory, as the heredoc was: a file it cannot read prints nothing.
+        # Advisory, as the heredoc was: a file it cannot read prints nothing,
+        # and one nested past the cap is a file it cannot read (D-182).
         try:
             with open(argv[1], encoding="utf-8") as f:
-                lines = browser_report(json.load(f))
+                text = f.read()
+            lines = [] if too_deep(text) else browser_report(json.loads(text))
         except (OSError,) + UNREADABLE:
             lines = []
         for l in lines:

@@ -12873,3 +12873,132 @@ narrowly with no further round.
 - skill: none (no verb, flag or knob)
 - amends: D-173's skills removal ("each installed skill byte-identical": now only in a directory
   judged `ok`); D-171's install of every file of a skill (now only into a directory judged own-able)
+
+## D-182 — every Python settings reader caps JSON nesting at 64 levels, checked on the text before the decode, so a deeper file is "not checked" (or refused by the writer) on every Python and stack size (#96; amends D-135, D-173)
+
+2026-11-12 · issue #96, opened from #95's landing (orc-21's ruling, #1181: a separate full-tier
+item); lane depth-cap under orc-22's brief (run-i108).
+
+**What was wrong.** Up to Python 3.13, json raises RecursionError at a fixed depth that
+differs by version: 992 levels on 3.9.6, 9,997 on 3.12.13 (the Fable cross-check). 3.14's
+decoder is bounded by the C stack instead. A terminated 100000-deep nest decodes with room
+and raises without it (#95 measured each):
+- decodes: Homebrew's 3.14.7, whose `Python.app` main thread has 16 MB whatever `ulimit -s`
+  says (the cross-check; #95 called it 8 MB), and uv's 3.14.4 at 64 MB;
+- raises: uv's 3.14.4 at 8 MB.
+
+So one settings file read two ways. A deep value in a key the report never walks,
+beside README's gate entry, was "not checked" on 3.13 and README's on 3.14 with room; the
+writer refused it or not by interpreter.
+
+**The rule.**
+1. **One cap, one place.** `scripts/gate-hook.py` defines `MAX_DEPTH = 64`, `DEEP` ("nested
+   deeper than 64 levels") and `too_deep(text)`. Depth counts containers from the root: `{}` is
+   1, a scalar 0. 64 reads; 65 does not.
+2. **Before the decode, on the text it decodes.** Each reader loads gate-hook.py and runs
+   `too_deep` on the string it then hands to `json.loads`, so neither the recursion limit nor
+   the stack decides:
+   - `gate-hook.py report`: "gate: <path> is nested deeper than 64 levels; not checked";
+   - `browser-report`: prints nothing (its unreadable verdict; advisory);
+   - install.sh's Agent-model reader: "wiring not checked: <path> is nested deeper than 64 levels";
+   - `wire-hooks.py decode()`: refused, nothing written, in `check`, `wire`, `unwire` and each
+     splice's re-decode;
+   - uninstall.sh's `~/.claude.json` reader (MCP_PY): exits 1. The plan and the reread before
+     `claude mcp remove` leave the registration and name it. A read-back that fails after a removal
+     that did not time out says "unconfirmed", neither removed nor still there (Codex re-verify 1
+     and 2; before, any undecodable read-back said "still in"; a timeout keeps its own line).
+   One definition imported by all, so there is no parity test; each call site is its own, so
+   each has its own row. Not covered: `internal/cli/codemap.go` unmarshals settings with Go's
+   `encoding/json`, whose depth limit is fixed by the standard library, not by an interpreter or
+   a stack. A 65-level file reads there as before.
+3. **The scan.** One `finditer` over `[]{}"\`: outside a string a quote opens one; inside, a
+   backslash skips the next character and a quote closes it. On text json.loads accepts, and on
+   the valid prefix of text it rejects, the count is the decoder's own nesting, a duplicate
+   key's overwritten value included. It exits early past the cap.
+   REFUTED: stripping strings with a regex first (Codex design pass). An unterminated run of
+   escaped quotes makes it retry at every quote, which is quadratic on a 1 MiB file.
+4. **Why 64.** On the developing machine, 2026-11-12, 44 real files were counted:
+   `~/.claude/settings*.json`, `~/.claude.json`, project `.claude/settings*.json` and
+   `.mcp.json`. The deepest is 7 (`~/.claude.json`); every settings.json is 6 or less, and so is
+   README's block. At 64 every walk after the decode stays far inside 1000 frames: `deepcopy` at
+   about two frames a level, wire-hooks' span scan, a matcher's `json.dumps`. The
+   RecursionError catches stay. A regex matcher's own nesting, which is not JSON depth, still
+   reaches two of them: 600 groups in a matcher (a 6-deep file) recurse in `re`, which reaches
+   browser-report's `UNREADABLE` and wire-hooks main's catch. The decode catches are reached by
+   no file past the cap, and no row holds them.
+
+**Accepted (the Fable lens).** A file 65 to about 985 levels deep is a real case. Every Python
+here used to read it alike and give a real verdict (LEGACY, custom, "does not select Agent");
+it now reads "not checked". Install's grep line above it can still say "all wired". The same
+pair already printed for invalid JSON and, on 3.9, past about 1,000 levels. The cap lowers that
+bar to 65; it does not create the shape. The writer refuses that band, nothing written, where it
+used to wire it. Invalid text past the cap gets DEEP's wording instead of "not JSON"; both are
+not checked.
+
+**Open, outside this item.**
+- The reports' `json.loads` accepts `NaN`, `Infinity` and `-Infinity`, and still reads
+  README's or wired. A strict parser rejects them, and the writer already refuses them
+  (`parse_constant`). This predates the change and is not depth (the Fable lens); filed as #97.
+- Python's int-digit limit (3.11+) still reads a 5,000-digit number two ways by version. Both
+  ways are closed.
+
+**Tests.** check-gate-line, report:
+- the three 100000-deep shapes (unterminated, under the matcher, beside README's entry), now one
+  verdict;
+- 64 and 65 beside README's entry, and under a second gate entry's matcher (custom at 64);
+- brackets in a string, and an escaped quote before brackets (README's);
+- an escaped backslash, then 64 and 65;
+- 500000 escaped quotes unterminated, "not JSON" inside 30 s (about 0.1 s measured).
+
+check-install:
+- QA-14, the Agent-model reader: both 100000-deep shapes, and 64 and 65 beside the wired entry
+  (wired, then not checked); `BUDDY_PYTHON` is now unset, so the matrix's python3 is the one
+  install runs;
+- QA-16a, the writer: 501, 100000 open, 100000 closed and 65 refused in DEEP's words; it wires at
+  64; `check` refuses 65 and passes 64; `unwire plan` plans at 64 and refuses at 65;
+- browser-report: 2 lines at 64, none at 65;
+- the 600-group regex matcher: browser-report gives one line and rc 0, and `check` refuses on
+  one line, never a traceback.
+
+check-uninstall, U-14v: a dry run over the fixture `~/.claude.json`, with a nest bringing it to 64,
+plans the user-wide removal; at 65 the registration is left and named, and the file is unchanged.
+`BUDDY_PYTHON` is unset there too. U-14w: a claude that leaves an undecodable file makes the read-back
+"unconfirmed", never "still in" or "removed" (U-4 the control).
+
+check-gate-line also pins the value, 64 and DEEP's words. Every fixture derives from the
+constant, so a cap moved to 65 or 400 passed them all (the Fable cross-check).
+
+Every row is green on 3.9.6, 3.14.7 (Homebrew) and 3.14.6 (uv), each run under `ulimit -s`
+8176 KB and 65520 KB. Only uv's main thread follows that limit; Apple's and Homebrew's keep
+16 MB. So the stack axis is real on the uv leg alone, and with the cap in place no verdict
+depends on it. Each 65 row decodes without the cap on every Python, so it dies everywhere,
+3.14 with stack room included.
+
+Mutants, in a private copy, each on 3.9.6, 3.14.7 and 3.14.6 at 64 MB: 13 of 13 killed, 39 of
+39 runs:
+- the cap dropped from report, browser-report, install's reader, wire-hooks and uninstall's
+  reader, one at a time;
+- `>` made `>=`;
+- brackets counted inside strings;
+- the escape skip removed;
+- the cap raised to 10**6, and moved to 65 (the pin);
+- RecursionError dropped from `UNREADABLE`, and from wire-hooks main's catch (the 600-group
+  rows);
+- the read-back fold reverted (U-14w).
+
+The Fable cross-check's own scanner mutants killed 7 more. Two survive, both equivalent on
+valid text: depth floored at 0, and a stop after the root closes.
+
+**Review.** Counts per D-163; the receipt is the commit's.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Install" line (number added)
+- GIVEN: review-charter-install.md, the writer's refusals (one clause)
+- code: `scripts/gate-hook.py` (MAX_DEPTH, DEEP, too_deep; report, browser-report),
+  `scripts/install.sh` (amg_wiring), `scripts/wire-hooks.py` (decode), `scripts/uninstall.sh`
+  (MCP_PY)
+- tests: `scripts/check-gate-line.sh`, `scripts/check-install.sh` (QA-14, QA-16a),
+  `scripts/check-uninstall.sh`
+- skill: none (no verb, flag or knob)
+- amends: D-135's refusals (a file past 64 levels is refused), D-173's reading (the same, through
+  `unwire`)

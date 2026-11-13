@@ -16,8 +16,9 @@ stub of each binds as written; this is the full text (D-158).
     `gate-hook.py`'s `browser_gone` names, each spelled by `gate-hook.py`'s table (README's and
     USAGE's blocks held to it); a text splice verified to decode to the old document plus those
     entries, a 0600 backup, a same-directory temp renamed over it; refused, nothing written: a
-    symlink, a hard link, another user's or a read-only file, over 1 MiB, not UTF-8 JSON, a
-    duplicate key, a non-object `hooks`, a non-list event or a non-hook entry, `disableAllHooks`,
+    symlink, a hard link, another user's or a read-only file, over 1 MiB, not UTF-8 JSON,
+    nested past 64 levels (`gate-hook.py`'s cap, before any decode; each Python settings reader
+    then reads it as unreadable, D-182), a duplicate key, a non-object `hooks`, a non-list event or a non-hook entry, `disableAllHooks`,
     and (before step 1) a `$BUDDY_BIN_DIR` that is not `~/bin`, which the lines run. No harness environment is refused (the operator's choice:
     the write set is fixed, and `env -u` defeats a check); settings are never relayed. Do not
     propose it rewrite, reorder, "fix" or remove an entry, touch another key or file, or wire the

@@ -25,7 +25,9 @@ CDPATH= cd -- "$ROOT"
 # when it is absolute (D-178, D-179), so a caller's own value would move the
 # path U-4 and U-15 expect; U-4r (after U-5, which re-runs U-4's case) sets it
 # per case.
-unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON CLAUDE_CONFIG_DIR XDG_STATE_HOME
+# BUDDY_PYTHON: uninstall decodes with it, so an exported one would test that
+# interpreter, not the python3 a run puts first on PATH (U-14v, D-182).
+unset BUDDY_FLEET_SKILL_DIR BUDDY_REPO_BIN BUDDY_CHAT BUDDY_DAEMON CLAUDE_CONFIG_DIR XDG_STATE_HOME BUDDY_PYTHON
 # The umask too: under a caller's 002 the fixture's ~/.local/state is made
 # group-writable, and uninstall then leaves the model router's state (its
 # parent check), so U-1 went red on a correct tree (Fable).
@@ -111,6 +113,9 @@ echo "$(pwd -P)|$*" >> "$FAKE_DIR/claude-calls"
 [ "$*" = "mcp remove buddylist --scope local" ] || [ "$*" = "mcp remove buddylist --scope user" ] || { echo "fake claude: unexpected: $*" >&2; exit 64; }
 [ -z "${FAKE_TOUCH:-}" ] || printf ' ' >> "$FAKE_TOUCH"
 [ -z "${FAKE_CLAUDE_NOOP:-}" ] || exit 0
+# FAKE_CLAUDE_BREAK: claude leaves a file the read-back cannot decode (65
+# levels, past gate-hook.py's cap) and exits 0 (U-14w).
+[ -z "${FAKE_CLAUDE_BREAK:-}" ] || { python3 -I -c 'import sys; open(sys.argv[1], "w").write("[" * 65 + "]" * 65)' "$FAKE_CLAUDE_JSON"; exit 0; }
 # FAKE_CLAUDE_HANG: a wedged claude (U-14q). It ignores TERM, and so does the
 # child it leaves (claude is node, with children of its own), so only a KILL
 # to its process group ends both. Bounded at 60 s, so a mutant without the
@@ -1573,6 +1578,44 @@ for pid in $(cat "$FAKE/hang-pids"); do
 		sleep 0.1; i=$((i + 1))
 	done
 done
+# U-14v: the depth cap (#96, D-182), gate-hook.py's, on ~/.claude.json before
+# the decode. The fixture is 6 deep; a top-level "x" of k containers makes it
+# 1+k. At the cap the plan names both removals (the control); one past it, the
+# registration is left and named, on every Python and stack (65 levels decode
+# everywhere, so the second dies without the cap). A dry run: list is the mode
+# the plan reads, and still/has share its one decode.
+cap=$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("g", sys.argv[1]); g = u.module_from_spec(s); s.loader.exec_module(g); print(g.MAX_DEPTH)' "$ROOT/scripts/gate-hook.py")
+for k in $((cap - 1)) "$cap"; do
+	label="U-14v($((k + 1)))"; setup
+	python3 -I -c 'import sys; p, k = sys.argv[1], int(sys.argv[2]); t = open(p).read().rstrip()
+open(p, "w").write(t[:-1] + ", \"x\": " + "[" * k + "]" * k + "}\n")' "$R/home/.claude.json" "$k"
+	cp "$R/home/.claude.json" "$WORK/cj"
+	out=$(XENV= un --dry-run 2>&1) || fail "$label: dry run failed:
+$out"
+	cmp -s "$R/home/.claude.json" "$WORK/cj" || fail "$label: a dry run changed ~/.claude.json"
+	if [ "$k" -lt "$cap" ]; then
+		echo "$out" | grep -qF "mcp: would remove buddylist registered user-wide in $R/home/.claude.json" || fail "$label: at the cap the plan must name the user-wide removal:
+$out"
+	else
+		echo "$out" | grep -qF "mcp: left: a buddylist MCP server is registered in $R/home/.claude.json, which python3 cannot decode here" || fail "$label: one past the cap must be left and named:
+$out"
+		echo "$out" | grep -qF "mcp: would remove" && fail "$label: one past the cap planned a removal:
+$out"
+	fi
+done
+# U-14w: a read-back that cannot decode the file claude left says neither
+# removed nor still there (Codex re-verify 1). U-4 is the control: the same
+# removals read back gone.
+label=U-14w; setup; XENV=FAKE_CLAUDE_BREAK=1
+out=$(un 2>&1) || fail "U-14w: uninstall failed:
+$out"
+XENV=
+echo "$out" | grep -qF "mcp: unconfirmed: " || fail "U-14w: an undecodable read-back must be unconfirmed:
+$out"
+echo "$out" | grep -qF "is still in $R/home/.claude.json (claude exited 0)" && fail "U-14w: an undecodable read-back was called still there:
+$out"
+echo "$out" | grep -q "^uninstall: removed: the .*buddylist MCP registration" && fail "U-14w: an undecodable read-back was called removed:
+$out"
 # U-14r: a BUDDY_MCP_TIMEOUT that is not a positive whole number is refused
 # before anything (U-4, unset, is the control).
 for v in 0 abc 1.5 07; do

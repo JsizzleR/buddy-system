@@ -654,12 +654,22 @@ erg=$s_state erg_plist=$s_plist
 # 1c. MCP registrations in ~/.claude.json, decoded (the Fable lens, D-125):
 # one line per registration, its scope, its project, and whether its command
 # is a buddylist this run removes. A path with a control character is never
-# printed raw (invariant 9) and never acted on.
+# printed raw (invariant 9) and never acted on. Its first argument is
+# gate-hook.py, whose depth cap (D-182) runs on the text before the decode:
+# past 64 levels it is a file this cannot decode (exit 1, the registration
+# left and named) on every Python and stack, where the interpreter decided (#96).
 MCP_PY='
-import json, os, sys
-mode, path, rest = sys.argv[1], sys.argv[2], sys.argv[3:]
+import importlib.util, json, os, sys
+gate_hook, mode, path, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+spec = importlib.util.spec_from_file_location("gate_hook", gate_hook)
+gh = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gh)
 try:
-    d = json.load(open(path, encoding="utf-8"))
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    if gh.too_deep(text):
+        sys.exit(1)
+    d = json.loads(text)
 except (OSError, ValueError, RecursionError):
     sys.exit(1)
 if not isinstance(d, dict):
@@ -701,7 +711,7 @@ if [ -f "$CLAUDE_JSON" ] && grep -q '"buddylist"[[:space:]]*:' "$CLAUDE_JSON"; t
 		# absent). Split on newlines (IFS), one argument per path.
 		mcp_ours=$rm_lists
 		for b in $lists; do ! gone_for_sure "$b" || mcp_ours="$mcp_ours$NL$b"; done
-		mcp_plan=$("$PY" -I -B -c "$MCP_PY" list "$CLAUDE_JSON" $mcp_ours 2>/dev/null) && mrc=0 || mrc=$?
+		mcp_plan=$("$PY" -I -B -c "$MCP_PY" "$ROOT/scripts/gate-hook.py" list "$CLAUDE_JSON" $mcp_ours 2>/dev/null) && mrc=0 || mrc=$?
 	else
 		mrc=127
 	fi
@@ -1137,7 +1147,7 @@ if [ -z "$dry" ]; then
 		# Read again just before claude runs: the plan read it before the
 		# bootout, and a registration rewritten since was removed unchecked
 		# (Codex, D-173's code pass). Left open: claude's own read after this.
-		"$PY" -I -B -c "$MCP_PY" still "$CLAUDE_JSON" "$scope" "$pj" "$cmd" 2>/dev/null && src=0 || src=$?
+		"$PY" -I -B -c "$MCP_PY" "$ROOT/scripts/gate-hook.py" still "$CLAUDE_JSON" "$scope" "$pj" "$cmd" 2>/dev/null && src=0 || src=$?
 		if [ "$src" -ne 0 ]; then
 			[ "$scope" = user ] && what="the user-wide buddylist MCP registration" || what="the buddylist MCP registration for $pj"
 			case $src in
@@ -1158,15 +1168,21 @@ if [ -z "$dry" ]; then
 		# stdout is a pipe only it holds (claude's is /dev/null), so a child
 		# claude leaves behind cannot hold this substitution open.
 		bout=$("$PY" -I -B -c "$BOUND_PY" "$MCP_TIMEOUT" "$dir" "$CLAUDE" mcp remove buddylist --scope "$scope" 2>/dev/null) && crc=0 || crc=$?
-		"$PY" -I -B -c "$MCP_PY" has "$CLAUDE_JSON" "$scope" "$pj" 2>/dev/null && hrc=0 || hrc=$?
+		"$PY" -I -B -c "$MCP_PY" "$ROOT/scripts/gate-hook.py" has "$CLAUDE_JSON" "$scope" "$pj" 2>/dev/null && hrc=0 || hrc=$?
 		if [ "$bout" = timeout ] && [ "$hrc" -eq 3 ]; then
 			say "removed: $what ($how; claude did not exit within ${MCP_TIMEOUT}s and was stopped, and the read-back finds it gone)"
 		elif [ "$bout" = timeout ]; then
 			say "mcp: left: $what, since claude mcp remove did not exit within ${MCP_TIMEOUT}s and was stopped (BUDDY_MCP_TIMEOUT); remove it by hand: $how"
 		elif [ "$hrc" -eq 3 ]; then
 			say "removed: $what ($how)"
-		else
+		elif [ "$hrc" -eq 0 ]; then
 			say "mcp: left: $what is still in $CLAUDE_JSON (claude exited $crc); remove it by hand: $how"
+		else
+			# The read-back failed: the file claude left nested past
+			# gate-hook.py's cap (D-182) or not JSON, gate-hook.py not
+			# loading, or the interpreter not running. Neither gone nor there
+			# is known, so neither is said (Codex re-verify 1 and 2).
+			say "mcp: unconfirmed: $what: claude exited $crc, and the read-back of $CLAUDE_JSON failed (exit $hrc); if claude mcp list still shows it: $how"
 		fi
 	done
 	# By directory, each judged again just before its files go (D-181): one

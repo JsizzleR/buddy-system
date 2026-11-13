@@ -26,7 +26,10 @@ CDPATH= cd -- "$ROOT"
 # a session opened with BUDDY_CHAT=off built no buddylist and went red on QA-1
 # "binaries missing" (#92, reproduced alone). The fixture owns its posture:
 # unset here, set per case (QA-7, QA-15), as check-uninstall.sh does.
-unset BUDDY_FLEET_SKILL_DIR BUDDY_CHAT
+# BUDDY_PYTHON too: install.sh decodes settings with it, so an exported one
+# would test that interpreter, not the python3 a run puts first on PATH
+# (the depth cap's matrix, #96 panel); the "no python" row sets its own.
+unset BUDDY_FLEET_SKILL_DIR BUDDY_CHAT BUDDY_PYTHON
 
 fail() { echo "check-install: FAIL — $*" >&2; exit 1; }
 # Before ANY install runs: QA-14 checks the report wrote no __pycache__ into the
@@ -910,14 +913,32 @@ want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14bad.json 
 # decodes on a 3.14 stack with room, and the reader's json.dumps of it may then
 # run out of stack, which install catches as "could not read"; a custom entry,
 # not verified, is the other closed answer. Never wired, never "none".
+# Since the depth cap (#96, D-182), gate-hook.py's, every shape past it is
+# the one verdict, in the cap's words, before any decode: no Python and no
+# stack decides.
+DEEP14=$(python3 -I -B -c 'import importlib.util as u, sys; s = u.spec_from_file_location("g", sys.argv[1]); g = u.module_from_spec(s); s.loader.exec_module(g); print(g.DEEP, g.MAX_DEPTH)' scripts/gate-hook.py)
+MAX14=${DEEP14##* } DEEP14=${DEEP14% *}
 python3 -I -c 'import sys; open(sys.argv[1], "w").write("[" * 100000)' "$WORK/s14deep.json"
 amg "$WORK/s14deep.json"; got=$(echo "$got" | tail -1)
-case $got in "install: agent-model hook: wiring not checked"*) ;; *) fail "QA-14: an unterminated deep nest must be not checked: $(echo "$got" | cut -c1-300)" ;; esac
+want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14deep.json is $DEEP14" "an unterminated deep nest"
 python3 -I -c 'import sys; d = "{\"a\": " * 100000 + "1" + "}" * 100000
 open(sys.argv[1], "w").write(open(sys.argv[2]).read().replace("\"Agent|Task\"", d))' "$WORK/s14deep.json" "$WORK/s14wired.json"
 amg "$WORK/s14deep.json"; got=$(echo "$got" | tail -1)
-case $got in "install: agent-model hook: wiring not checked"* | "install: agent-model hook: custom PreToolUse entry naming agent-model-gate.py in "*"; not verified") ;;
-*) fail "QA-14: a deep matcher must be not checked or custom, not verified: $(echo "$got" | cut -c1-300)" ;; esac
+want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14deep.json is $DEEP14" "a deep matcher"
+# The boundary, beside the wired entry, depth from the root ({} is 1): k
+# containers under a top-level "x" make 1+k. At the cap the file reads as wired
+# (the control); one past it, not checked. 65 levels decode on every Python,
+# so the second row dies without the cap everywhere.
+for k14 in $((MAX14 - 1)) "$MAX14"; do
+	python3 -I -c 'import sys; k = int(sys.argv[3])
+open(sys.argv[1], "w").write(open(sys.argv[2]).read().rstrip()[:-1] + ", \"x\": " + "[" * k + "]" * k + "}")' "$WORK/s14deep.json" "$WORK/s14wired.json" "$k14"
+	amg "$WORK/s14deep.json"; got=$(echo "$got" | tail -1)
+	if [ "$k14" = "$MAX14" ]; then
+		want_l "$got" "install: agent-model hook: wiring not checked: $WORK/s14deep.json is $DEEP14" "one past the depth cap"
+	else
+		want_l "$got" "install: agent-model hook: wired in $WORK/s14deep.json: matcher \"Agent|Task\" runs $D14 (the copy above)" "at the depth cap (the control)"
+	fi
+done
 amg "$WORK/s14wired.json" BUDDY_PYTHON="$WORK/no-python"; got=$(echo "$got" | tail -1)
 want_l "$got" "install: agent-model hook: wiring not checked (no $WORK/no-python to decode $WORK/s14wired.json)" "no python"
 # (f) Wired with no copy behind it: python3 exits 2 on a missing script, and
@@ -1068,14 +1089,37 @@ refused("hardlink", None, "hard links", setup=hardlink)
 refused("badtoken", b'{}', "is not one the report names", toks=("buddy rm",))
 refused("shape", b'{"hooks": {"PreToolUse": ["x"]}}', "not a hook object")
 refused("cmdint", b'{"hooks": {"PreToolUse": [{"hooks": [{"command": 5}]}]}}', "not a hook object")
-refused("deep", b'{"x": ' + b'[' * 500 + b']' * 500 + b'}', "a shape it cannot read")
-# 100000 levels (#95): refused on every Python, for a reason that
-# is the Python's, so the row names none (3.13 and older: "nested too deep to
-# read"; 3.14, bounded by the C stack: "not JSON" for the unterminated one, and
-# for the terminated one either that refusal or "a shape it cannot read" once it
-# decodes). refused() still holds one line, nothing written, and its control.
-refused("deep-open", b'[' * 100000, "")
-refused("deep-closed", b'{"x": ' + b'{"a": ' * 100000 + b'1' + b'}' * 100000 + b'}', "")
+# The depth cap (#96, D-182), gate-hook.py's, read from it: past MAX_DEPTH
+# refused in its words before any decode, on every Python and stack. Before
+# it, 500 levels decoded on every Python and deepcopy refused ("a shape it
+# cannot read"), and 100000 was refused for a reason that was the Python's
+# (#95). Depth from the root, `{}` 1: k containers under "x" make 1+k.
+import importlib.util
+spec = importlib.util.spec_from_file_location("gate_hook", os.path.join(os.path.dirname(tool), "gate-hook.py"))
+gh = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gh)
+D = gh.MAX_DEPTH
+def nest(k, before=b''):
+    return b'{' + before + b'"x": ' + b'[' * k + b']' * k + b'}'
+refused("deep", nest(500), gh.DEEP)
+refused("deep-open", b'[' * 100000, gh.DEEP)
+refused("deep-closed", b'{"x": ' + b'{"a": ' * 100000 + b'1' + b'}' * 100000 + b'}', gh.DEEP)
+refused("deep-cap", nest(D), gh.DEEP)
+# The boundary's positive control: at the cap it wires, and wired, the file
+# still decodes (the splice's re-decode passes the same scan).
+p = os.path.join(w, "at-cap.json")
+open(p, "wb").write(nest(D - 1))
+r = run(p, "buddy hello")
+if r.returncode != 0 or "added buddy hello" not in r.stdout:
+    bad.append("wire at the depth cap: rc=%d out=%r" % (r.returncode, r.stdout))
+# unwire (uninstall's reading, D-173) reads through the same decode: at the cap
+# it plans the cut; one past it, left unedited, refused in the cap's words.
+for k, want in ((D - 1, "will remove buddy hello"), (D, "refused: " + gh.DEEP)):
+    q = os.path.join(w, "unwire-%d.json" % k)
+    open(q, "wb").write(nest(k, b'"hooks": {"SessionStart": [%s]}, ' % json.dumps(gh.line_for("buddy hello")[1]).encode()))
+    r = subprocess.run([sys.executable, "-I", "-B", tool, "unwire", "plan", q, "-", "buddy hello"], capture_output=True, text=True)
+    if want not in r.stdout or r.returncode != (0 if k < D else 1):
+        bad.append("unwire plan, depth %d: rc=%d out=%r" % (k + 1, r.returncode, r.stdout))
 if os.geteuid() != 0:
     refused("readonly", b'{}', "Permission denied", mode=0o555)
     # A file made read-only on purpose: a rename would replace it regardless (panel).
@@ -1084,6 +1128,7 @@ if os.geteuid() != 0:
 # shape, so the install stops before step 1; a plain file is its control.
 for name, body, why in (("pre-big", b'{}' + b' ' * ((1 << 20) - 100), "it would be"),
                         ("pre-shape", b'{"hooks": {"PreToolUse": ["x"]}}', "not a hook object"),
+                        ("pre-deep", nest(D), gh.DEEP), ("pre-cap", nest(D - 1), None),
                         ("pre-ok", b'{}', None)):
     q = os.path.join(w, name + ".json")
     open(q, "wb").write(body)
@@ -1114,16 +1159,39 @@ open(q, "w").write('{"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"c
 r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
 if r.stdout.count('runs buddy beat on matcher "Edit"') != 1 or r.stdout.count("\n") != 1:
     bad.append("browser-report beside an unreadable event: %r" % r.stdout)
-# Deep nesting (#95): advisory, never a traceback (its catch names
-# RecursionError). An unterminated nest never decodes, so it prints nothing: a
-# fall-through to an empty object would print the #71 line (Codex code pass).
-# A deep matcher decodes on a 3.14 stack with room: a line or none.
-for body, most in (('[' * 100000, 0), ('{"hooks": {"PostToolUse": [{"matcher": %s, "hooks": [{"command": "buddy beat"}]}]}}'
-                                        % ('{"a": ' * 100000 + '1' + '}' * 100000), 2)):
+# Deep nesting (#95, #96): advisory, never a traceback. Past the depth cap
+# (D-182) the file is one it cannot read, so it prints nothing, on every
+# Python and stack; at the cap, the same beat reads and prints its two lines
+# (the control). The MAX+1 fixture is chosen so a reader without the cap
+# PRINTS: its silence is the cap's, never a parse failure's (Codex design
+# pass). The two 100000-deep fixtures can be silent without the cap too (a
+# decode error, a caught RecursionError; Codex code pass; the deep matcher
+# prints a line on 3.14 with room, the Fable cross-check), so the 65 row is
+# the one that holds the cap here.
+beat = '{"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"command": "buddy beat"}]}]}, "x": %s}'
+for body, lines in (('[' * 100000, 0),
+                    ('{"hooks": {"PostToolUse": [{"matcher": %s, "hooks": [{"command": "buddy beat"}]}]}}'
+                     % ('{"a": ' * 100000 + '1' + '}' * 100000), 0),
+                    (beat % ("[" * D + "]" * D), 0), (beat % ("[" * (D - 1) + "]" * (D - 1)), 2)):
     open(q, "w").write(body)
     r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
-    if r.returncode != 0 or r.stderr or r.stdout.count("\n") > most:
+    if r.returncode != 0 or r.stderr or r.stdout.count("\n") != lines:
         bad.append("browser-report over a deep nest: rc=%d out=%r err=%r" % (r.returncode, r.stdout[:200], r.stderr[-200:]))
+# The RecursionError catches the cap leaves reachable (the Fable cross-check):
+# a regex matcher's own nesting, 600 groups in a 6-deep file, recurses in re,
+# not in json. browser-report skips that beat and prints its other line;
+# the writer refuses on one line. Without the catch, a traceback either way.
+rx = "(" * 600 + "a" + ")" * 600
+for ev in ("PostToolUse", "PreToolUse"):
+    open(q, "w").write(json.dumps({"hooks": {ev: [{"matcher": rx, "hooks": [{"type": "command", "command": "buddy beat"}]}]}}))
+    if ev == "PostToolUse":
+        r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
+        ok = r.returncode == 0 and not r.stderr and r.stdout.count("\n") == 1 and "no buddy beat on PreToolUse" in r.stdout
+    else:
+        r = subprocess.run([sys.executable, "-I", "-B", tool, "check", q], capture_output=True, text=True)
+        ok = r.returncode == 1 and not r.stderr and r.stdout.count("\n") == 1 and "a shape it cannot read (RecursionError)" in r.stdout
+    if not ok:
+        bad.append("a 600-group regex matcher on %s: rc=%d out=%r err=%r" % (ev, r.returncode, r.stdout[:200], r.stderr[-200:]))
 # The report's snapshot must be the file's bytes now, absent included.
 d = os.path.join(w, "moved")
 os.mkdir(d)
