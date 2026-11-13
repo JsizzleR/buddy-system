@@ -2053,7 +2053,9 @@ itself never reads it and finds its ledger from the cwd's git common dir.
 
 The other reports print counts, ids and byte lengths only, like these:
 `sh scripts/wake-report.sh [project]` (idle→wake warm or cold by what woke it,
-tokens re-written; see "Waiting without going cold"), `sh scripts/fleet-report.sh
+tokens re-written; its window is `BUDDY_WAKE_DAYS`, default 7, not
+`BUDDY_COST_DAYS`, and its header names the knob; see "Waiting without going
+cold"), `sh scripts/fleet-report.sh
 <list-file>` (per listed project ledger: verdict, counts, STALE, mail and pause
 ids; see "Landing through an orchestrator") and `sh scripts/subagent-report.sh
 [--since D] [--until D]` (Agent calls by model parameter and word, the model each

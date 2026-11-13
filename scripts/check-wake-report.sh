@@ -37,6 +37,11 @@
 #     (control: a window that reaches its mtime takes it in), and a request
 #     timed before the window is left out even in a file modified inside it,
 #     while its successor's gap is still measured from it;
+#   - the knob is named (#98): the header says BUDDY_WAKE_DAYS and follows its
+#     value; BUDDY_COST_DAYS alone draws ONE line saying it is not this
+#     report's and leaves the window at 7, its value never echoed, and
+#     neither BUDDY_WAKE_DAYS beside it nor no knob at all draws that line;
+#     USAGE names BUDDY_WAKE_DAYS beside wake-report.sh, not BUDDY_COST_DAYS;
 #   - the default project directory is the cwd repo's, named by the harness's
 #     rule and spelled here by hand, never computed the way the report does;
 #     its linked worktrees' directories join it, from the main checkout and
@@ -236,6 +241,58 @@ w11=$(win 11)
 printf '%s\n' "$w11" | grep -q '^total  *0  *3  *900$' ||
 	fail "the control failed: an 11-day window did not take in the 10-day-old transcript:
 $w11"
+
+# The knob is named (#98): a cost audit ran BUDDY_COST_DAYS=10, got 7 days, and
+# read it as the window ignored. The header names BUDDY_WAKE_DAYS, and its
+# value moves with it (the 11-day run says 11: the header is not a constant).
+printf '%s\n' "$w7" | grep -qx 'Wake report: -window, last 7 day(s) (BUDDY_WAKE_DAYS)' ||
+	fail "the header does not name BUDDY_WAKE_DAYS:
+$w7"
+printf '%s\n' "$w11" | grep -qx 'Wake report: -window, last 11 day(s) (BUDDY_WAKE_DAYS)' ||
+	fail "the header's window did not follow BUDDY_WAKE_DAYS=11:
+$w11"
+# BUDDY_COST_DAYS alone: ONE line says it is not this report's knob, and the
+# window stays 7 (w1's two wakes, not the 10-day-old transcript an 11-day
+# window takes in). The value is never echoed: one planted after a newline
+# would be a second line.
+costnote='^BUDDY_COST_DAYS is set and is not this report.s knob'
+cw() { env -u BUDDY_WAKE_DAYS -u BUDDY_COST_DAYS "$@" CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/wake-report.sh -window 2>&1; }
+c=$(cw BUDDY_COST_DAYS=11)
+[ "$(printf '%s\n' "$c" | grep -c "$costnote")" -eq 1 ] ||
+	fail "BUDDY_COST_DAYS set, BUDDY_WAKE_DAYS unset: want one line saying the cost knob is not this report's:
+$c"
+printf '%s\n' "$c" | grep -q '^total  *0  *2  *500$' ||
+	fail "BUDDY_COST_DAYS=11 moved the window: want the 7-day default's two wakes:
+$c"
+c=$(cw BUDDY_COST_DAYS="$(printf '11\nMARKER_COSTVAL')")
+if printf '%s\n' "$c" | grep -q MARKER_COSTVAL; then
+	fail "BUDDY_COST_DAYS's value reached the report:
+$c"
+fi
+[ "$(printf '%s\n' "$c" | grep -c "$costnote")" -eq 1 ] ||
+	fail "a BUDDY_COST_DAYS holding a newline: want the one note line still:
+$c"
+# Controls, so "no line" is the knob's doing and not a line never printed:
+# BUDDY_WAKE_DAYS set beside it, or neither set, says nothing.
+for knobs in "BUDDY_WAKE_DAYS=11 BUDDY_COST_DAYS=11" "BUDDY_WAKE_DAYS=7" ""; do
+	# shellcheck disable=SC2086 # split on purpose: zero, one or two assignments
+	c=$(cw $knobs)
+	if printf '%s\n' "$c" | grep -q "$costnote"; then
+		fail "with '$knobs' the cost-knob line printed:
+$c"
+	fi
+	printf '%s\n' "$c" | grep -q '^Wake report: -window, last [0-9]* day(s) (BUDDY_WAKE_DAYS)$' ||
+		fail "with '$knobs' the report did not run:
+$c"
+done
+# USAGE names the knob beside wake-report.sh and says it is not the cost knob:
+# the text from `scripts/wake-report.sh` to the next report it lists, joined.
+# Control: that span was found at all (it carries the report's own summary).
+u=$(awk '/^## Measuring context cost$/ {on=1; next} on && /^## / {exit} on' docs/USAGE.md |
+	tr '\n' ' ' | sed -n 's/.*`sh scripts\/wake-report\.sh \(.*\)`sh scripts\/fleet-report\.sh.*/\1/p')
+case "$u" in *'tokens re-written'*) ;; *) fail "the USAGE control failed: no wake-report.sh entry in \"Measuring context cost\": '$u'" ;; esac
+case "$u" in *'`BUDDY_WAKE_DAYS`'*) ;; *) fail "USAGE does not name BUDDY_WAKE_DAYS beside wake-report.sh: '$u'" ;; esac
+case "$u" in *'not `BUDDY_COST_DAYS`'*) ;; *) fail "USAGE does not say wake-report.sh's knob is not BUDDY_COST_DAYS: '$u'" ;; esac
 
 # The default: the cwd repo's directory, spelled by hand — '/', '.', ' ' and
 # 'é' are one '-' each.

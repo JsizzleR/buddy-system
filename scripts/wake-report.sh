@@ -93,7 +93,12 @@
 # KNOBS
 #   BUDDY_WAKE_DAYS      look back this many days (default 7): transcripts
 #                        MODIFIED in the window, then requests and tool calls
-#                        TIMED in it (a wake's previous request may be older)
+#                        TIMED in it (a wake's previous request may be older).
+#                        NOT BUDDY_COST_DAYS, which the other cost reports
+#                        read: the header names the knob, and with only
+#                        BUDDY_COST_DAYS set a line says it was not this
+#                        report's (#98: a cost audit ran BUDDY_COST_DAYS=10,
+#                        got 7 days, and read it as the window ignored)
 #   CLAUDE_PROJECTS_DIR  where transcripts live (default ~/.claude/projects;
 #                        cost-report's knob)
 set -eu
@@ -246,7 +251,11 @@ else
 	IFS=$_ifs; set +f
 fi
 
-echo "Wake report: $(basename -- "$proj"), last $days day(s)"
+echo "Wake report: $(basename -- "$proj"), last $days day(s) (BUDDY_WAKE_DAYS)"
+# The value is never echoed: one line, whatever the variable holds.
+if [ -n "${BUDDY_COST_DAYS:-}" ] && [ -z "${BUDDY_WAKE_DAYS:-}" ]; then
+	echo "BUDDY_COST_DAYS is set and is not this report's knob: BUDDY_WAKE_DAYS is unset, so the window is the default 7 day(s)"
+fi
 [ $# -eq 0 ] || echo "plus $# linked worktree dir(s): every registered worktree's and $(basename -- "$proj")--claude-worktrees-*"
 echo "Every request after 5+ min idle in the same session (main thread). Counts, tokens and times only."
 if [ ! -d "$proj" ] && [ $# -eq 0 ]; then
