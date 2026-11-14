@@ -1654,6 +1654,20 @@ func cmdHello(args []string, env Env) error {
 		if h.Harness == "codex" {
 			return unsupportedCodexLifecycle("hello")
 		}
+		// A SUBAGENT'S SessionStart IS NOT THE SESSION STARTING. Claude Code
+		// fires a post-compaction SessionStart when a subagent compacts, under
+		// the PARENT's session_id, and from 2.1.323 adds agent_id to it
+		// ("Fixed PreCompact, PostCompact and post-compaction SessionStart
+		// hooks not receiving agent_id and agent_type when a subagent
+		// compacts"; release notes, not measured on a live payload). Before
+		// this guard such a hello drained the parent's inbox into the
+		// subagent's digest and marked it delivered (D-099's loss, through the
+		// one hook beat's guard did not cover), and refreshed the parent's row
+		// with the subagent's cwd. It registers, prints and drains nothing:
+		// the parent's own hooks keep its row, and its next tool call drains.
+		if h.subagent() {
+			return nil
+		}
 		if session != "" && session != h.SessionID {
 			return errors.New("hello --session and hook session_id disagree; refusing to redirect a lifecycle event")
 		}

@@ -6789,6 +6789,19 @@ killed only with both removed). Review: one lite Codex code pass, one finding
 between `msg`'s observation and its insert; there is no seam for it, and it is
 covered by the transaction argument above.
 
+**Amended 2026-11-14** (the release-impact read of Claude Code 2.1.325: a
+constrained Codex pass and a Fable read, each finding it unprompted) — `hello`
+had no subagent guard. Claude Code fires a post-compaction SessionStart when a
+subagent compacts, under the parent's session id, and 2.1.323's notes say it now
+carries `agent_id` ("Fixed PreCompact, PostCompact and post-compaction
+SessionStart hooks not receiving agent_id and agent_type when a subagent
+compacts"; not measured on a live payload). Such a hello drained the parent's
+inbox into the subagent's digest, marked it delivered, and refreshed the
+parent's row with the subagent's cwd. It now returns before registering,
+printing or draining. `agent_type` alone (a `claude --agent` main thread) is
+not the marker. Test: `TestSubagentHelloLeavesTheParentsMailQueued`, with the
+main-thread positive control; the guard removed in a private copy, it failed.
+
 ## D-100 — A scope's backslashes fold before the absolute check; the removal doors can still name a legacy row
 
 2026-10-20. Found by reading during D-096 (`authority add '\handoff-at'`

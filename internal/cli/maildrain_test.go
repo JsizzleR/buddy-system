@@ -152,3 +152,38 @@ func sessionRow(t *testing.T, f *fixture, label string) string {
 	t.Fatalf("no row for %q in:\n%s", label, out)
 	return ""
 }
+
+// A subagent that compacts fires a post-compaction SessionStart under the
+// PARENT's session id, with agent_id from Claude Code 2.1.323 on. hello drained
+// the parent's inbox into that subagent's digest and marked it delivered, and
+// re-pointed the parent's row at the subagent's cwd. It must do neither.
+func TestSubagentHelloLeavesTheParentsMailQueued(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "take the router bundle"); code != 0 {
+		t.Fatal(errw)
+	}
+	rowBefore := sessionRow(t, f, "bravo")
+	// The subagent works in another tree (f.repo), so a refresh would show on
+	// the row.
+	out, errw, code := f.run(t, f.repo, subagentHook("sess-b", f.repo, "", ""), "hello", "--label", "bravo")
+	if code != 0 {
+		t.Fatalf("subagent hello: %s", errw)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("a subagent's SessionStart must print nothing into the subagent's context:\n%s", out)
+	}
+	if n := f.undeliveredTo(t, "sess-b", "bravo"); n != 1 {
+		t.Fatalf("a subagent's SessionStart must leave the parent's mail queued; %d queued", n)
+	}
+	if row := sessionRow(t, f, "bravo"); row != rowBefore {
+		t.Fatalf("a subagent's SessionStart must not refresh the parent's row:\nbefore %s\nafter  %s", rowBefore, row)
+	}
+	// Positive control: the main thread's SessionStart delivers the same
+	// message, so the silence above was the guard and not an empty inbox.
+	out, _, _ = f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "hello", "--label", "bravo")
+	if !strings.Contains(out, "take the router bundle") {
+		t.Fatalf("the main thread's hello must deliver what the subagent left queued:\n%s", out)
+	}
+}

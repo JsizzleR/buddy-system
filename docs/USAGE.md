@@ -1083,7 +1083,9 @@ adapter mail never holds one. `msg` re-reads the idle mark after its insert,
 so a Stop that lands between its observation and its write still gets the
 wake named. A tool call made inside a subagent (its hook payload carries
 `agent_id`) beats for the session but drains no mail and consumes no LANDED or
-authority notice: its output reaches the subagent, not the session. Every
+authority notice: its output reaches the subagent, not the session. The
+SessionStart a subagent's compaction fires under the session's id (it carries
+`agent_id` from Claude Code 2.1.323) registers, prints and drains nothing. Every
 drain holds the ledger's write lock from its read to its mark, so parallel
 tool calls deliver a message once.
 
