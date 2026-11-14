@@ -265,8 +265,8 @@ version range:
 
 | field | range |
 |---|---|
-| Claude Code `interruptedMessageId` | 2.1.292 to 2.1.322 |
-| `permissionDecision`, `toolDenialKind` | 2.1.296 to 2.1.322 |
+| Claude Code `interruptedMessageId` | 2.1.292 to 2.1.323 |
+| `permissionDecision`, `toolDenialKind` | 2.1.296 to 2.1.325 |
 | Codex `turn_aborted` | 0.144.3 to 0.166.0 |
 
 A newer harness reads as not covered until the ranges ship again.

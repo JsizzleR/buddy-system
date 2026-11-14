@@ -80,9 +80,15 @@ MAX_CAP_LINE = 1024
 # record outside a field's range is "not covered" for that signal: a renamed field must read as
 # not comparable, never as zero (Fable F10). A newer harness reads as not covered until these are
 # re-shipped; phase 2 only prints signals, so that costs a display, never a pick.
+# Re-measured 2026-11-14, counting records per version across this machine's transcripts (keys
+# only): permissionDecision and toolDenialKind were seen in 2.1.323 and 2.1.325, and
+# interruptedMessageId in 2.1.323 but not yet in 2.1.325 (0 of 14,731 records, likely no
+# interrupt yet), so each range ends at the last version it was seen in. Codex stays at 0.166.0:
+# 0.167.0 and 0.168.0 never ran here, 0.169.0 has no turn_aborted in 19 sessions, and 0.169.0's
+# notes change how an interrupted turn closes (#59910, #60700).
 CLAUDE_RANGES = {
-    'interrupt': ((2, 1, 292), (2, 1, 322)),   # interruptedMessageId: event-only
-    'permission': ((2, 1, 296), (2, 1, 322)),  # permissionDecision, toolDenialKind
+    'interrupt': ((2, 1, 292), (2, 1, 323)),   # interruptedMessageId: event-only
+    'permission': ((2, 1, 296), (2, 1, 325)),  # permissionDecision, toolDenialKind
 }
 CODEX_RANGES = {
     'interrupt': ((0, 144, 3), (0, 166, 0)),   # turn_aborted.reason: event-only
