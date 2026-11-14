@@ -291,8 +291,8 @@ the run, or a `buddy wait --ready`) is the report, the run's outcome is the clos
    (an item abandoned on the orchestrator's word: `--outcome fail`).
    That message is what lets your pane be closed. Leave the worktree: the
    orchestrator removes it after the close. A lane whose cwd is the worktree
-   it removed has lost its hooks' cwd, and the gate then denies every Bash
-   call it makes, its DONE message included. FAIL naming you: fix on your
+   it removed has lost its working directory, and the harness then fails
+   every shell command it runs, its DONE message included. FAIL naming you: fix on your
    branch, commit, declare `buddy wait --on <run> --ready HEAD` again, and say
    so; not named, ask. ABORTED: that run landed nothing; its note says what
    happened and who reruns, so declare again on the run it names, or ask. A
