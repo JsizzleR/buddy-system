@@ -1200,6 +1200,10 @@ ledger row entered through the CLI (D-006).
   re-registers it 10.0 s later (two samples), and the next spawn runs. It follows the spawn,
   not the file: a 15 s pause between the build and the kickstart did not avoid it. An
   unchanged binary restarts in 0.14 s. Measured 2026-10-03, macOS 27 (D-067).
+- Claude Code 2.1.325's Bash sandbox keeps `.git/worktrees` read-only: `git worktree add`/`remove`
+  and a commit in another worktree fail, and a nested `sandbox-exec` exits 71, so the fleet skill
+  runs those with the sandbox off for the call; a lane's claim and commits in its own linked
+  worktree run sandboxed (no D-138 denial). Measured 2026-11-14 (D-188).
 
 - macOS (darwin), zsh, Go 1.26. Default volume is case-insensitive but case-preserving.
 - `pgrep`/`pkill` abort on non-ASCII patterns ("illegal byte sequence") and report BUSY as

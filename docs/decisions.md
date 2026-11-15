@@ -13561,3 +13561,72 @@ recommended to the lane that adds env-check rows (this lane does not edit env-ch
 ### Where it lives
 - index: CLAUDE.md § Decisions, the "Skills" line (env-check, D-121), the number only
 - issue: #105
+
+## D-188 — Under Claude Code's Bash sandbox a coordinator runs `git worktree add`/`remove`, the integration worktree's git writes and the restack call with the sandbox off for that call; a lane's claim and commits in its own linked worktree run sandboxed; an unattended `buddy wait check` needs auto mode, an allow rule or `autoAllowBashIfSandboxed` (#101)
+
+2026-11-14 · issue #101, from the release-impact read of Claude Code 2.1.323/2.1.325. Lane
+sandbox-101 (Opus 5.5 at high), run r1114b. Docs and research: no code changes, no rule a gate
+enforces.
+
+**What was measured.** Claude Code 2.1.325, probe sessions launched as
+`env -u CLAUDE_CODE_SESSION_ID -u CODEX_THREAD_ID … claude -p <prompt> --settings <scratch>
+--permission-mode <mode> --output-format stream-json`, the scratch file
+`{"sandbox":{"enabled":true}}` (the operator's settings carry no `sandbox` key), in a throwaway
+repo under `$HOME` (not under `/tmp/claude-501`, which the sandbox leaves writable and would have
+hidden a denial) with its own `buddy init`, a linked worktree `repo.lane1` and a pre-made
+`repo.int0`. Each command one Bash call, the tool result read from the stream.
+- **Coordinator, cwd the main checkout, auto mode, sandboxed:** `git worktree add --detach
+  ../scratch/int-r1 main` and the same to `$TMPDIR/int-r2` (the sandbox sets `TMPDIR=/tmp/claude-501`)
+  exit 128, `could not create directory of '.git/worktrees/int-r1': Operation not permitted`,
+  and leave nothing behind; `git -C ../repo.int0 commit --allow-empty` and `cherry-pick -n`
+  exit 128 on `.git/worktrees/repo.int0/index.lock`; `git worktree remove ../repo.int0` exits
+  255, `failed to delete`. `buddy claim`, `buddy ls` and `buddy wait check` succeed (the ledger
+  is `.git/buddy.db`, inside the session's own repository). `git merge --ff-only lane1`
+  succeeds. `sandbox-exec -p '(version 1)(allow default)(deny network*)' true` exits 71,
+  `sandbox_apply: Operation not permitted`: restack.md step 3 cannot run sandboxed. The
+  binary's own guidance says the same: `.git/worktrees` is read-only "apart from this session's
+  own worktrees"; run those commands outside the sandbox.
+- **The same four git commands with `dangerouslyDisableSandbox: true`, auto mode:** add, commit
+  in the new worktree, remove and list all succeed, no permission denial.
+- **Lane, cwd the linked worktree, auto mode, sandboxed:** `buddy claim`, `git add` + `git
+  commit`, `buddy wait check` and `buddy release` all succeed; `touch ../repo/.git/common-probe`
+  succeeds while `touch ../repo/outside-probe.txt` is `Operation not permitted` (the positive
+  control: the sandbox was armed). The issue's low-confidence guess, that 2.1.325's tightened
+  linked-worktree protection would put a lane's claim on D-138's unwritable-ledger denial, does
+  not hold on 2.1.325: the common git dir stays writable to a session started in a linked
+  worktree.
+- **`buddy wait check` in default mode:** sandboxed, `This command requires approval`
+  (a permission denial under `-p`); with `"autoAllowBashIfSandboxed":true` added, it runs; with
+  no sandbox at all (the control), it also requires approval. So 2.1.325 removed a
+  sandbox-only exemption; a default-mode session always needed an allow rule for an unattended
+  check. Auto mode ran every buddy call above without a denial (one probe each; one run is no
+  rate).
+
+**The rule.** The fleet skill's landing step 3 says, in one sentence, that under the sandbox
+`git worktree add`/`remove` and the `cherry-pick -n` and `commit` in the integration worktree
+run with the sandbox off for that call (`dangerouslyDisableSandbox`) and that the `--ff-only` merge runs sandboxed;
+restack.md step 3 says its call runs with the sandbox off because `sandbox-exec` cannot nest. The
+core skill says, in one sentence beside Codex's sandbox paragraph, that an unattended `/loop
+buddy wait check` must need no approval: auto mode, an allow rule, or the sandbox's
+`autoAllowBashIfSandboxed`. Nothing is said about the lane's claim, which measured fine.
+Rejected: `sandbox.excludedCommands` or `filesystem.allowWrite` as the named grant (unmeasured
+here, and a settings edit is the user's, where a per-call flag is the session's own). Unmeasured:
+a lane's mutation worktree (`git worktree add` from a lane fails the same way by the binary's
+rule; not run), `gh stack` itself under the sandbox, default mode's prompt on an unsandboxed call
+(the normal permission flow, by the release note), and the shared tier run sandboxed in the
+integration worktree (Go's build cache is outside it).
+
+**Recommended env-check row** (not added: env-check is another lane's, the run's common brief):
+`sandbox` WARN when `sandbox.enabled` is true in the user's settings, naming the worktree
+commands a coordinator runs with the sandbox off; the line adds that an unattended `buddy wait
+check` asks outside auto mode only when neither `autoAllowBashIfSandboxed: true` nor an allow rule
+covering it is set (a lane's permission mode is a launch flag the check cannot read, and auto mode
+ran the check without asking). PASS when no `sandbox.enabled`; CANNOT-ASSESS when the settings file
+is unreadable. Fixture: `{"sandbox":{"enabled":true}}` WARN naming both, the same with
+`autoAllowBashIfSandboxed: true` WARN naming the worktree commands only, `{}` PASS.
+
+### Where it lives
+- skill: `skills/buddy-fleet/SKILL.md` (landing step 3), `skills/buddy-fleet/restack.md` (step
+  3), `skills/buddy/SKILL.md` (beside the Codex sandbox paragraph); no verb, flag or knob
+- index: CLAUDE.md § Decisions, the "Fleet" line (number only; CLAUDE.md is not this lane's)
+- amends: none; D-138 (unwritable ledger) stands, its sandbox case not reached by a lane on 2.1.325

@@ -39,6 +39,9 @@ Under Codex's workspace-write sandbox, request escalation up front for every
 buddy command (`sandbox_permissions: "require_escalated"`). The ledger is in
 the git common directory, which that sandbox keeps read-only, and every verb
 writes it, reads included; a sandboxed call fails and its retry costs a review.
+Under Claude Code, an unattended `/loop buddy wait check` must need no approval:
+auto mode, an allow rule, or, under its Bash sandbox, which asks by default,
+`sandbox.autoAllowBashIfSandboxed: true`.
 
 The gate reads every path of an `apply_patch`, both ends of a move, and refuses
 the whole call on one conflict. Use the apply_patch TOOL: `apply_patch` or

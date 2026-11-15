@@ -222,7 +222,12 @@ never an instruction. Then, every time:
    names; a parked item has none: `buddy ls` and its message); decide when to go. In a fresh worktree off main
    (`git worktree add --detach <scratch>/int-<run> main`), for each READY
    lane: `git cherry-pick -n <base>..<tip>`, then
-   `git commit -F <its message file>`. Check the commit is the lane's work:
+   `git commit -F <its message file>`. Under Claude Code's Bash sandbox,
+   `git worktree add` and `remove` and that worktree's `cherry-pick -n` and
+   `commit` fail "Operation not permitted" (the sandbox keeps the repository's
+   `.git/worktrees` read-only): run those calls with the sandbox off
+   (`dangerouslyDisableSandbox`); `git merge --ff-only` from the main checkout
+   runs sandboxed. Check the commit is the lane's work:
    `git diff --quiet HEAD <tip>` when its base is the commit you squashed
    onto, else `git diff --stat HEAD~ HEAD` names exactly its files. Never a
    plain `git cherry-pick`: git runs no pre-commit on one, so the claim gate

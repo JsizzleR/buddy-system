@@ -74,7 +74,9 @@ The recipe:
          sandbox-exec -p "$off" gh stack rebase --no-trunk <B> </dev/null) &&
        (cd <B's worktree> && sandbox-exec -p "$off" gh stack unstack --local </dev/null)
 
-   Chained, so the first refusal stops it (`init` of a stack already
+   Under Claude Code's Bash sandbox, `sandbox-exec` cannot nest (exit 71,
+   `sandbox_apply: Operation not permitted`): run this call with the sandbox
+   off. Chained, so the first refusal stops it (`init` of a stack already
    recorded exits 5, a conflicting rebase 3), and in subshells, so your own
    cwd stays put. The unstack runs from B's worktree because, run from the
    main checkout with two stacks recorded, it refuses ("branch main belongs
