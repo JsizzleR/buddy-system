@@ -13371,3 +13371,74 @@ a test row holds it.
 - tests: `internal/cli/diagnostic_test.go` (`TestDiagnoseCodexHookLocation`)
 - docs: `docs/USAGE.md` "Opt-in wiring" ("Which layer, and trust"), "Offline compatibility
   diagnostic" (`location`, `trust`)
+
+## D-187 — subagent progress summaries are not in any transcript, so no report counts them; estimated from Claude Code's own timer at a fifth of subagent spend and about 4% of a fleet day's, the knob recommended to env-check as advice (#105)
+
+2026-11-14 · issue #105 (filed from the release-impact read of Claude Code 2.1.325); lane
+summaries-105 in run r1114b under buddy-system/s-9cfc61f9. Class ops: measured, nothing built.
+
+**The question.** 2.1.323 documents `CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=1` as turning
+off subagent progress summaries "and the requests that write them". What do they cost here?
+
+**Not in transcripts (measured).** Every `api-request` record under `~/.claude/projects`, all of
+history, names one of ten `querySource` values: `repl_main_thread` (141,159), the
+`agent:builtin:*` and `agent:custom*` sources, `sdk` (17). None is `agent_summary`. No record
+type, `agent-*.meta.json` key or debug log (none kept) carries one. The binary says why: the
+summary is a forked request (`Rp`, `querySource:"agent_summary"`) made with
+`skipTranscript:true, skipCacheWrite:true`. So `subagent-report.sh` and `cost-report.sh` cannot
+count them, and a report that ESTIMATED them from a transcript would print the same number with
+the knob set or not: an instrument that cannot see its own before and after. No report changes.
+
+**How the summarizer runs (read from the 2.1.322, 2.1.323 and 2.1.325 binaries, all three
+alike).** A timer per agent, first at 30 s, then 30 s after each fire; a fire sends one request
+when the agent has 3 or more messages and its transcript changed since the last summary sent;
+held, checked every 2 s for at most 5 min, while the agent's own request has no response. It is
+on for an agent launched in the background in an interactive session when the fork-subagent gate
+is on (`enableSummarization: … (coordinator || fork gate) && interactive`), which drops
+`run_in_background` from the Agent tool's schema (one other condition does too): this lane's
+schema has none, and 1,980 of
+2,031 subagent meta files say `requestShape: background`. "Full" mode (the default unless a
+served config says "short") forks the agent's whole context on the AGENT'S model, reusing its
+cache; "short" asks a smaller writer model with notes, uncached. Which mode was served here is
+not readable offline; full is assumed, the costlier.
+
+**The estimate (counts only).** The timer replayed over every subagent transcript started
+2026-11-01..14: 1,080 background agents, 26,743 of their own requests, an estimated 8,901
+summary requests (0.33 per agent request; 0.25 to 0.51 by day), each priced as a cache read of
+the agent's latest context (1,041 M tokens; the agents' own cache reads were 2,639 M) plus an
+assumed 200 output tokens. In input-price units (cache read 0.1, write 1.25, output 5; the summary runs on
+the agent's own model, so model prices cancel within an agent): 19.5% on top of the subagents'
+own spend (16.7% to 22.0% per fleet day), 4.4% of everything the main and subagent threads spent
+(3.5% to 5.4% on the fleet days 11-09..14). Not modeled: the hold (delays a fire, adds none), a
+summary's thinking tokens (output is a small share: 1,000 units against about 11,700 for the
+mean context), short mode (cheaper). An estimate, not a count; the lever is real, its size
+unverified by a live trace.
+
+**How to count them for real.** The OpenTelemetry trace span `claude_code.llm_request` carries
+`query_source` (here `agent_summary`). One lane launched with telemetry and a traces exporter in
+its own env (`CLAUDE_CODE_ENABLE_TELEMETRY`, `OTEL_TRACES_EXPORTER`, likely
+`CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`, all named in the binary; the exact set unverified), knob unset and then set, gives the count and the tokens.
+Not run here: an interactive probe in a scratch directory meets the project-trust dialog, which a
+lane may not answer, and a `-p` probe is non-interactive, where the summarizer is off unless an SDK launch option turns it on.
+
+**Recommendation.** Name it in env-check as advice: a WARN with the number, never a setting
+written. That widens env-check's WARN from "slower or fuller" to "costlier": the commit that adds the
+row also extends the header's WARN definition to cost. What setting it costs: the background-task panel's one-line progress for each running
+subagent. The operator decides whether to set it; nothing here wrote a setting. The row,
+recommended to the lane that adds env-check rows (this lane does not edit env-check):
+- `summaries`: PASS when the variable is `1` (or true) in env-check's own environment or in
+  `env` of `~/.claude/settings.json` (`plutil -extract env.CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES
+  raw`, read-only); WARN when neither has it, printing "subagent progress summaries on: about 20%
+  on subagent spend, 4% of a fleet day's (estimated, D-187)"; CANNOT-ASSESS when the process env
+  does not have it and the settings file exists but `plutil` is missing or cannot read it (the
+  process env, read first, is enough for PASS on its own). Fix line: `"env":
+  {"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES": "1"}` in ~/.claude/settings.json (no sudo;
+  reversible; loses the panel's progress line). A project's settings are not read, and the
+  line says so.
+- fixture cases (check-env-check.sh): settings `env` has it → PASS; unset in both → WARN and its
+  fix line; process env alone → PASS; process env `1` beside a malformed settings file → PASS; a malformed
+  settings file and no process value → CANNOT-ASSESS, never PASS.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Skills" line (env-check, D-121), the number only
+- issue: #105
