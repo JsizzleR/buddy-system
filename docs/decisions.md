@@ -13723,7 +13723,113 @@ account yet": record it and stop.
 - A Code Mode session "can be resumed only with Code Mode on": a lane opened with it and resumed
   without it is refused by Claude Code, not by buddy.
 
+**Amended 2026-11-15 (D-190): the probe ran, and the gate refused inside Code Mode.** On Claude
+Code 2.1.325, an inner Edit of the peer-held file and an inner shell `apply_patch` were denied
+with buddy's own reasons, the control edit went through, and the inner payloads carry `tool_name`,
+`file_path` and `cwd` as the gate reads them. The rule above ("unqualified") no longer holds for
+the gate. Mail on a `poll_event` is still open, and the env-check row is a WARN on that. D-190
+has the evidence.
+
 ### Where it lives
 - index: CLAUDE.md § Decisions, the "Gate recognition" line (the number), for the integrator
 - env-check: the recommended `code-mode` row, carried in the READY to the env-check lane
 - evidence: this entry (the probe's scratch fixture is not retained in the repo)
+
+## D-190 — Code Mode: the gate MEASURED refusing inside it (Claude Code 2.1.325): an inner Edit of a peer-held file and an inner shell `apply_patch` denied with buddy's own reasons, the control edit allowed, and the inner payloads carry `tool_name`, `file_path` and `cwd` as the gate reads them, so the gate needs no change; mail on a background-code poll event is still unmeasured (#103, #107); amends D-189
+
+2026-11-15 · issues #103 and #107. Lane codemode-probe (Opus 5.5 at high), run r1115a, under
+orc buddy-system/s-9cfc61f9 and then orc-2. Class research plus the env-check row, tier lite.
+amends: D-189 (its rule: Code Mode is no longer unqualified for the gate; its probe recipe ran).
+
+**The operator's decision**, relayed in the lane's brief, said in the orchestrator's pane at
+2026-11-15 about 07:15Z: "1. approved live code mode test". It covered ONE probe session launched
+with `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` on that launch only, plus Code Mode's first-use
+confirmation and the folder-trust dialog for the probe's scratch directory. Nothing else: no
+settings file, no other trust, no install. Both dialogs appeared, folder trust first ("Quick
+safety check: Is this a project you created or one you trust?"), then Code Mode's ("Code Mode
+(experimental) ... No, start without it / Yes, turn on Code Mode", its text including the
+auto-mode caveat). The lane answered both Yes. Afterwards `~/.claude.json` holds
+`projects["<scratch>/cmprobe/repo"].hasTrustDialogAccepted: true` and two top-level keys,
+`codeModeCaveatsAcceptedV1: true` and `codeModeAutoModeCaveatAcceptedV1: true`. Whether the
+second predates the probe was not checked; it was not read before the launch. The operator
+removes these or keeps them; the lane left them.
+
+**The probe** (D-189's recipe). A scratch repo outside this one, its own `git init` and
+`buddy init` ledger, and a hand-registered peer `peer-holder-0001` holding `held.txt` by
+`hello --session` + `claim`. `control.txt` was unclaimed. ONE interactive session in a herdr tab,
+from the scratch repo: `env -u CLAUDE_CODE_SESSION_ID -u CODEX_THREAD_ID
+CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --settings <scratch>/probe-settings.json --session-id
+<uuid> --model claude-sonnet-5-5 --permission-mode acceptEdits`. The settings file added only
+recorders, on PreToolUse and PostToolUse matcher `*`, UserPromptSubmit, Stop and SessionStart:
+each appends the raw payload to a scratch file, prints nothing and exits 0. The user settings'
+buddy hooks loaded unchanged. Startup line: "Code Mode (experimental) is on · this session can be
+resumed only with Code Mode on". The model was asked for ONE script that makes three calls in
+try/catch, with no retries: Edit `held.txt`, Bash `apply_patch <<'EOF'` on `held.txt`, Edit
+`control.txt`.
+
+**Measured.**
+- Its first REPL call was a JavaScript syntax error (a top-level `return`). Nothing ran: the
+  recorder saw a `REPL` PreToolUse and PostToolUse and no inner call. The second ran all three.
+- Inner Edit of `held.txt`: refused. The transcript shows "Error: Permission denied for Edit:
+  held.txt is inside scope "held.txt" claimed by session peer-holder (slug "held-by-peer": ...)",
+  which is buddy's peer-claim `permissionDecisionReason` verbatim.
+- Inner Bash `apply_patch`: refused. "Not run · permission denied │ Reason: buddy gate: this Bash
+  command runs apply_patch (or applypatch) as a command. ... (D-073, D-087); refusing."
+- Inner Edit of `control.txt`: allowed. `control.txt` is `control-EDITED`; `held.txt` is
+  unchanged.
+- The inner payloads are an ordinary call's: `session_id` (the probe's), `transcript_path`, `cwd`
+  (the session's directory), `prompt_id`, `permission_mode`, `effort`, `hook_event_name`,
+  `tool_name` (`Edit`, `Bash`), `tool_input` (the Edit's absolute `file_path`, the Bash
+  `command`) and `tool_use_id`. Only `tool_use_id` differs: `repl_<uuid>` inside code,
+  `toolu_...` on the outer `REPL` call, whose `tool_input` is `code` and `description`. The gate
+  reads no `tool_use_id`.
+- Replay: the three complete recorded payloads, fed to `buddy gate` by hand, gave the same
+  verdicts (deny, deny, a silent allow).
+- An inner call's PostToolUse runs too, so `beat` ran: the ledger recorded `control.txt` as a
+  dirty path for the probe session (invariant 10, attributed from the inner call's path).
+
+So every condition D-189 set holds: buddy's own refusal texts, matched to recorded inner calls,
+and a control going through. The gate needs no `REPL` arm and no change. Code Mode is qualified
+for the claims gate and the shell-patch refusal on Claude Code 2.1.325. A later release that
+renames an inner tool, drops `file_path`, or stops sending inner calls to PreToolUse would undo
+this. Only a denial proves the hook ran, so a re-check repeats this probe; an allowed call proves
+nothing.
+
+**Mail (#107), measured only in part.**
+- A shell started from code through Code Mode's `$(cmd, timeoutMs)` helper moves to the
+  background once it passes its timeout. Its completion arrives as a `<task-notification>`
+  UserPromptSubmit whose payload has NO `source` field. `busy` ran there and drained a message
+  queued while the shell ran (a `buddy msg` sent after the turn's Stop). The model, asked to
+  report any text that came with the result, quoted its token, and the ledger shows 0 undelivered. That is the ordinary background-task path,
+  not the one #107 names.
+- A JavaScript timer left running when the REPL call returns is cleared: the REPL's own
+  description says so, and nothing arrived in 120 s, with a second message still queued at the
+  end. Not a poll event either.
+- `source: poll_event` comes, per the Code Mode docs, from background CODE, which needs the session
+  STARTED in auto or `bypassPermissions` mode. The probe ran in `acceptEdits`. The operator
+  approved auto mode for the probe session (orc-2's pane, 2026-11-15 07:28Z). This lane's own
+  auto-mode classifier then refused the shift+tab it sent into the probe's pane ("Undermining
+  Oversight": raising another session's permission mode). A relaunch with `--permission-mode auto`
+  has the same intent and was not tried. So whether a poll event's `additionalContext` reaches the
+  model, or `busy` marks mail delivered unread there, is still UNMEASURED. The docs say only that
+  a UserPromptSubmit hook's block `reason` replaces the code output and reaches the model. The run
+  needs the operator's own hand on the mode (shift+tab in the probe pane), or a session they start
+  in auto mode. A fix to `busy` (skip the drain on `source: poll_event`) stays its own item, not
+  owed until this measures a loss.
+
+**The env-check row** (`code-mode`, scripts/env-check.sh). Code Mode on, in the process
+environment or in the user settings' `env` (1, true, yes or on), is a WARN that names the
+measured gate and the unmeasured mail question. Off is PASS. Unreadable settings with nothing in
+the environment is CANNOT-ASSESS. A WARN, not a PASS, because #107 is open. D-189 recommended
+"unqualified", which the probe overturned. Its level is the orchestrator's to change once #107 is
+measured.
+
+**Unchanged from D-189:** the hook-failure semantics (the gate entry already refuses on failure
+and on timeout), auto mode reviewing each piece of code and not each call, and resume only with
+Code Mode on.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Gate recognition" line, beside D-189
+- charter: GIVEN 130, reworded to this entry
+- env-check: the `code-mode` row and its QA-9 cases in scripts/check-env-check.sh
+- evidence: this entry (the probe's scratch fixture and recorder log are not retained)

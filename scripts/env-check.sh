@@ -41,7 +41,7 @@
 # `ps`, `tmutil destinationinfo|isexcluded`, `pmset -g custom`, `du` of
 # ~/.claude/projects, a directory listing of the harness's scratch root, the
 # user's LaunchAgents plists, `crontab -l`, ~/.claude/settings.json (through
-# scripts/gate-hook.py's one decode, python3 -I -B), one variable of its own
+# scripts/gate-hook.py's one decode, python3 -I -B), two variables of its own
 # environment, `cmp` of each shipped SKILL.md against the copies under
 # ~/.agents/skills and Codex's skills directory, and, where Codex's directory
 # exists, its config.toml and `buddy diagnose --codex-hooks` of its hooks.json.
@@ -115,6 +115,7 @@ worktrees-tmp|/tmp is a symlink to /private/tmp on macOS, and path checks on a w
 scratch|transcripts and harness scratch grow without bound; 4.7 GB and 6.6 GB on one machine
 sandbox|under the Claude Code Bash sandbox, worktree and integration git calls fail unless run with it off
 summaries|subagent progress summaries add an estimated 20% to subagent spend, unseen by any transcript
+code-mode|with Code Mode on the gate was measured to refuse, but mail on a background-code poll event is unmeasured
 codex-skill-copy|a SKILL.md under ~/.agents/skills or the Codex skills directory that is not the shipped one is stale
 codex-gate|plain Codex is gated only by a hand-wired hooks.json, and an absent hook is a silent allow; only where ~/.codex exists'
 
@@ -447,7 +448,7 @@ fi
 # Only the user layer is read (a project's settings, settings.local.json and a
 # managed file are not), and each line says so. The reader prints one line of
 # its own words, never a value from the file: `absent`, `unread <reason>`, or
-# `ok` and k=v facts (room for a fourth row's fact, D-187's #103 sibling).
+# `ok` and k=v facts (the fourth, codemode, is D-187's #103 sibling, D-190).
 # absent_proven <path> — true when <path> provably does not exist: its deepest
 # existing ancestor is a non-directory (ENOTDIR) or a searchable directory.
 # Under one that cannot be searched, test -e is false for a file that is there;
@@ -518,13 +519,24 @@ def covers(rule):
     return False
 
 
+# Code Mode is on for a truthy CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: the docs
+# name 1; true, yes and on are read as on too, so a spelling Claude Code may
+# take is never read as off (the row it feeds is advice either way). Exactly
+# the spellings the case pattern of the shell arm takes, any case, nothing
+# stripped: " true " in settings and in the environment must agree (Codex
+# code pass: a strip here made settings WARN on a value the environment PASSed).
+def truthy(v):
+    return isinstance(v, str) and v.lower() in ("1", "true", "yes", "on")
+
+
 allow = get(s, "permissions", "allow")
 v = get(s, "env", "CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES")
-print("ok sandbox=%d autoallow=%d rule=%d summaries=%d" % (
+print("ok sandbox=%d autoallow=%d rule=%d summaries=%d codemode=%d" % (
     get(s, "sandbox", "enabled") is True,
     get(s, "sandbox", "autoAllowBashIfSandboxed") is True,
     any(covers(r) for r in allow) if isinstance(allow, list) else False,
-    isinstance(v, str) and v.strip().lower() in ("1", "true")))
+    isinstance(v, str) and v.strip().lower() in ("1", "true"),
+    truthy(get(s, "env", "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE"))))
 '
 CSET=${HOME:-}/.claude/settings.json
 cset=""
@@ -542,12 +554,12 @@ else
 	[ -n "$cset" ] || cset="unread python3 could not run scripts/gate-hook.py's decode on it"
 fi
 
-sb=0; aa=0; ar=0; sm=0
+sb=0; aa=0; ar=0; sm=0; cm=0
 case $cset in
 ok\ *)
 	for kv in ${cset#ok }; do
 		case $kv in
-		sandbox=1) sb=1 ;; autoallow=1) aa=1 ;; rule=1) ar=1 ;; summaries=1) sm=1 ;;
+		sandbox=1) sb=1 ;; autoallow=1) aa=1 ;; rule=1) ar=1 ;; summaries=1) sm=1 ;; codemode=1) cm=1 ;;
 		esac
 	done ;;
 esac
@@ -604,6 +616,40 @@ case $sv in
 		else
 			verdict WARN summaries "$swhy; not set in this environment or in env of $CSET (a project's settings are not read)"
 			fix "$sfix"
+		fi ;;
+	esac ;;
+esac
+
+# code-mode (D-190, amending D-189): Claude Code's experimental Code Mode runs
+# Claude's tool calls from JavaScript inside one REPL call. Measured on 2.1.325
+# in a scratch repo: the gate DENIED an inner Edit of a peer-held file and an
+# inner shell apply_patch with its own reasons, the control edit went through,
+# and the inner payloads carry tool_name and file_path as the gate reads them;
+# so the gate needs no change. Still unmeasured: whether mail busy drains on a
+# background-code poll event (UserPromptSubmit, source poll_event) reaches the
+# model, or is marked delivered unread (#107). That is why this row is a WARN and
+# not a PASS: advice, so the operator decides. On is the process environment
+# (enough on its own) or env of the user settings, the only two places Code
+# Mode reads it (a project's settings are ignored for it, per the docs).
+cv=${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE:-}
+cwhy="the gate was measured to refuse inner Edit and Bash calls there (Claude Code 2.1.325, D-190); whether mail drained on a background-code poll event reaches the model is unmeasured (#107)"
+cfix="nothing to change for the gate; to rule out the mail question, start lanes without CLAUDE_CODE_EXPERIMENTAL_CODE_MODE and remove it from env of $CSET (no sudo; reversible: set it again; a session started in Code Mode resumes only with it on)"
+case $cv in
+1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn])
+	verdict WARN code-mode "Code Mode is on (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=$cv in this environment): $cwhy"
+	fix "$cfix" ;;
+*)
+	case $cset in
+	absent) verdict PASS code-mode "Code Mode is not on: not set in this environment, and no $CSET" ;;
+	unread\ *)
+		verdict CANNOT-ASSESS code-mode "not on in this environment, and $CSET: ${cset#unread }"
+		fix "read env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE in $CSET by hand, as the user" ;;
+	*)
+		if [ "$cm" = 1 ]; then
+			verdict WARN code-mode "Code Mode is on (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE in env of $CSET): $cwhy"
+			fix "$cfix"
+		else
+			verdict PASS code-mode "Code Mode is not on: not set in this environment or in env of $CSET (a project's settings are ignored for it)"
 		fi ;;
 	esac ;;
 esac

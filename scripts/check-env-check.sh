@@ -16,7 +16,7 @@
 #     worktree move, ...) and the fixture tree lists the same files as before.
 #     Control: a planted script that makes two such calls through the same
 #     stubs, which the same detector MUST report.
-#   - EVERY VERDICT ARM: a good machine is 15 PASS, exit 0, no fix line; a bad
+#   - EVERY VERDICT ARM: a good machine is 16 PASS, exit 0, no fix line; a bad
 #     one is FAIL (old Go, a full disk), WARN on every advice check, and exit
 #     1; a non-macOS box is CANNOT-ASSESS wherever the tool is missing, never
 #     PASS. A subfolder of an indexed volume is CANNOT-ASSESS, not PASS
@@ -25,7 +25,7 @@
 #     line agrees with the lines above it.
 #   - --list runs no command (an empty log); --help exits 0; an unknown flag
 #     or a positional exits 2 with `refused:` last.
-#   - THE SETTINGS AND SKILL-COPY ROWS (QA-9; D-188, D-187, D-186): each arm
+#   - THE SETTINGS AND SKILL-COPY ROWS (QA-9; D-188, D-187, D-190, D-186): each arm
 #     beside its control. Settings are read through gate-hook.py's decode, and
 #     a NaN file, which a plain json.loads would read, is CANNOT-ASSESS; a
 #     Codex skill copy is WARN only when readable and different, and absence
@@ -140,13 +140,15 @@ run() {
 	: > "$LOG"
 	_before=$(snapshot)
 	# FX_HOME (default the fixture HOME; empty is staged as empty), FX_SUMMARIES
-	# (the process value of the summaries knob) and FX_CODEX_HOME are the
+	# (the process value of the summaries knob), FX_CODEMODE (Code Mode's, D-190)
+	# and FX_CODEX_HOME are the
 	# per-case environment; unset, each is absent from the run. FX_HOME_UNSET
 	# (any value) runs with no HOME at all. A case sets
 	# one, runs, and unsets it: `V=x run` would keep V after a function in sh.
 	out=$(cd "$CO" && env -i HOME="${FX_HOME-$HOMEFX}" PATH="$bin:$STD" STUBLOG="$LOG" STUB_SCENARIO="$sc" \
 		STUB_CACHEVOL="${STUB_CACHEVOL:-}" STUB_OWNVOL="${STUB_OWNVOL:-}" BUDDY_ENV_CHECK_TMP="$TMPFX" \
 		${FX_SUMMARIES+"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=$FX_SUMMARIES"} \
+		${FX_CODEMODE+"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=$FX_CODEMODE"} \
 		${FX_CODEX_HOME+"CODEX_HOME=$FX_CODEX_HOME"} \
 		${FX_HOME_UNSET+/usr/bin/env -u HOME} /bin/sh "$ROOT/scripts/env-check.sh" "$@" 2>&1) && rc=0 || rc=$?
 	[ "$_before" = "$(snapshot)" ] || fail "a run ($*) wrote into the fixture:
@@ -215,11 +217,11 @@ before=$(snapshot)
 run "$BIN_A" "$SC_A" --checkout "$CO"
 [ "$rc" -eq 0 ] || fail "QA-1: a good machine must exit 0 (rc=$rc):
 $out"
-[ "$(printf '%s\n' "$out" | grep -c '^\[PASS\]')" -eq 15 ] || fail "QA-1: want 15 PASS lines:
+[ "$(printf '%s\n' "$out" | grep -c '^\[PASS\]')" -eq 16 ] || fail "QA-1: want 16 PASS lines:
 $out"
 printf '%s\n' "$out" | grep -q 'fix:' && fail "QA-1: a PASS has a fix line:
 $out"
-printf '%s\n' "$out" | grep -qx 'env-check: 15 PASS, 0 WARN, 0 FAIL, 0 CANNOT-ASSESS\. A WARN is advice; only a FAIL exits non-zero\.' || fail "QA-1: the count line:
+printf '%s\n' "$out" | grep -qx 'env-check: 16 PASS, 0 WARN, 0 FAIL, 0 CANNOT-ASSESS\. A WARN is advice; only a FAIL exits non-zero\.' || fail "QA-1: the count line:
 $out"
 printf '%s\n' "$out" | grep -q '^env-check: not repeated here: hooks, gate entry, chat and handoff size (sh scripts/install.sh reports them); language servers (buddy init); harness compatibility (buddy diagnose)\.$' || fail "QA-1: the footer must name what install.sh, buddy init and buddy diagnose report:
 $out"
@@ -259,7 +261,7 @@ scenario "$SC_B" os=Darwin go_version=1.25.3 gocache="$HOMEFX/Library/Caches/go-
 	mdutil=on fseventsd="2097152  3.0" tm_dest=yes tm_excluded=Included pm_sleep=10 du_kb=6291456
 rm -f "$HOMEFX/Library/LaunchAgents/com.example.trim.plist"
 git -C "$CO" worktree add -q "$TMPFX/wt-under-tmp" HEAD
-printf '{"sandbox": {"enabled": true}}\n' > "$SET"
+printf '{"sandbox": {"enabled": true}, "env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1"}}\n' > "$SET"
 mkdir -p "$HOMEFX/.agents/skills/buddy"
 sed 's/Claude Code/Codex/g; s/CLAUDE\.md/AGENTS.md/g' "$ROOT/skills/buddy/SKILL.md" > "$HOMEFX/.agents/skills/buddy/SKILL.md"
 before=$(snapshot)
@@ -280,6 +282,7 @@ WARN worktrees-tmp
 WARN scratch
 WARN sandbox
 WARN summaries
+WARN code-mode
 WARN codex-skill-copy'
 [ "$(verdicts "$out")" = "$want" ] || fail "QA-3: verdicts:
 $(verdicts "$out")
@@ -314,7 +317,7 @@ printf '%s\n' "$out" | grep -q 'python3 MISSING' || fail "QA-4: the WARN names p
 # ...and with no python3 to run gate-hook.py's decode, a settings file that
 # exists is not read some other way: both settings rows CANNOT-ASSESS
 # (QA-3, the same file with python3, is the control: WARN on both).
-for r in sandbox summaries; do
+for r in sandbox summaries code-mode; do
 	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-4: no python3 must leave $r CANNOT-ASSESS:
 $out"
 done
@@ -346,6 +349,7 @@ PASS worktrees-tmp
 PASS scratch
 PASS sandbox
 PASS summaries
+PASS code-mode
 PASS codex-skill-copy'
 [ "$(verdicts "$out")" = "$want" ] || fail "QA-5: verdicts:
 $(verdicts "$out")
@@ -372,7 +376,7 @@ run "$BIN_A" "$SC_D" --checkout "$WORK/missing"
 [ "$rc" -eq 0 ] || fail "QA-7: CANNOT-ASSESS must not fail the run (rc=$rc):
 $out"
 for v in 'CANNOT-ASSESS checkout-spotlight' 'CANNOT-ASSESS worktrees-tmp' 'CANNOT-ASSESS scratch' 'WARN go-cache-trim' \
-	'CANNOT-ASSESS sandbox' 'CANNOT-ASSESS summaries' 'CANNOT-ASSESS codex-skill-copy'; do
+	'CANNOT-ASSESS sandbox' 'CANNOT-ASSESS summaries' 'CANNOT-ASSESS code-mode' 'CANNOT-ASSESS codex-skill-copy'; do
 	verdicts "$out" | grep -qx "$v" || fail "QA-7: want '$v' when the read fails:
 $out"
 done
@@ -394,9 +398,9 @@ grep -q '^go version' "$LOG" || fail "QA-7: go version was not reached"
 run "$BIN_A" "$SC_A" --checkout "$CO" --list
 [ "$rc" -eq 0 ] || fail "QA-6: --list rc=$rc"
 [ ! -s "$LOG" ] || fail "QA-6: --list ran a command: $(cat "$LOG")"
-[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 16 ] || fail "QA-6: --list must name the 16 checks:
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 17 ] || fail "QA-6: --list must name the 17 checks:
 $out"
-for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd go-cache-trim time-machine ac-sleep worktrees-tmp scratch sandbox summaries codex-skill-copy codex-gate; do
+for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd go-cache-trim time-machine ac-sleep worktrees-tmp scratch sandbox summaries code-mode codex-skill-copy codex-gate; do
 	printf '%s\n' "$out" | grep -q "^$c " || fail "QA-6: --list does not name $c"
 done
 run "$BIN_A" "$SC_A" --checkout "$CO" --help
@@ -475,7 +479,7 @@ chmod 600 "$CX/hooks.json"
 $out"
 rm -rf "$CX"
 
-# QA-9 (D-188, D-187, D-186): the settings and skill-copy rows, arm by arm.
+# QA-9 (D-188, D-187, D-190, D-186): the settings and skill-copy rows, arm by arm.
 # row <name> — that row's line of the last run, with its fix line.
 row() { printf '%s\n' "$out" | awk -v n="$1" '$2 == n { p = 1; print; next } p && /^ *fix: / { print } { p = 0 }'; }
 # set9 <json> — the fixture's user settings for the next run.
@@ -584,6 +588,57 @@ fi
 chmod 755 "$HOMEFX/.claude"
 printf '%s\n' "$GOODSET" > "$SET"
 
+# code-mode (D-190). Off is PASS; on, in the process environment or in env of
+# the user settings, is WARN naming the measured gate and the unmeasured mail
+# question, with the fix line. The WARN cases are the positive control that
+# the variable is read at all (QA-1's GOODSET, without it, is PASS); the
+# environment alone is enough for WARN beside a malformed file, which alone is
+# CANNOT-ASSESS. A value Code Mode would not take (0) is PASS.
+rm -f "$SET"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row code-mode | grep -q '^\[PASS\] *code-mode *Code Mode is not on: not set in this environment, and no ' || fail "QA-9: no file and no env must PASS code-mode:
+$(row code-mode)"
+FX_CODEMODE=1; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEMODE
+r=$(row code-mode)
+printf '%s\n' "$r" | grep -q '^\[WARN\] *code-mode *Code Mode is on (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 in this environment): the gate was measured to refuse inner Edit and Bash calls there (Claude Code 2.1.325, D-190); whether mail drained on a background-code poll event reaches the model is unmeasured (#107)' || fail "QA-9: Code Mode on in the env must WARN:
+$r"
+printf '%s\n' "$r" | grep -qF "fix: nothing to change for the gate; to rule out the mail question, start lanes without CLAUDE_CODE_EXPERIMENTAL_CODE_MODE and remove it from env of $SET (no sudo; reversible: set it again; a session started in Code Mode resumes only with it on)" || fail "QA-9: the code-mode fix line:
+$r"
+[ "$rc" -eq 0 ] && [ -z "$(shape "$out")" ] || fail "QA-9: a code-mode WARN (rc=$rc) shape:$(shape "$out")"
+FX_CODEMODE=On; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEMODE
+row code-mode | grep -q '^\[WARN\] *code-mode .*=On in this environment' || fail "QA-9: On in the env must WARN:
+$(row code-mode)"
+FX_CODEMODE=0; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEMODE
+row code-mode | grep -q '^\[PASS\] *code-mode ' || fail "QA-9: 0 in the env must PASS:
+$(row code-mode)"
+set9 '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "true"}}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row code-mode | grep -q '^\[WARN\] *code-mode *Code Mode is on (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE in env of .*): the gate was measured' || fail "QA-9: Code Mode on in settings env must WARN:
+$(row code-mode)"
+set9 '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "0"}}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row code-mode | grep -q '^\[PASS\] *code-mode *Code Mode is not on: not set in this environment or in env of ' || fail "QA-9: 0 in settings env must PASS:
+$(row code-mode)"
+set9 '{"env": '
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row code-mode | grep -q '^\[CANNOT-ASSESS\] *code-mode *not on in this environment, and .*is not JSON this check can read' || fail "QA-9: a malformed file and no process value must be CANNOT-ASSESS:
+$(row code-mode)"
+FX_CODEMODE=yes; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEMODE
+row code-mode | grep -q '^\[WARN\] *code-mode .*=yes in this environment' || fail "QA-9: the env beside a malformed file must WARN:
+$(row code-mode)"
+# One value, two sources, one verdict: a padded " true " is judged the same
+# in settings as in the environment (Codex code pass). Each run's other
+# source is empty, and the settings WARN above is the control that the file
+# is read.
+set9 '{"env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": " true "}}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+v1=$(verdicts "$out" | grep ' code-mode$')
+rm -f "$SET"
+FX_CODEMODE=' true '; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEMODE
+v2=$(verdicts "$out" | grep ' code-mode$')
+[ -n "$v1" ] && [ "$v1" = "$v2" ] || fail "QA-9: \" true \" must get one verdict from settings and env, got '$v1' and '$v2'"
+printf '%s\n' "$GOODSET" > "$SET"
+
 # codex-skill-copy. A verbatim copy is PASS; the rewrite /import makes is
 # WARN naming the path and the refresh with both knobs, never rm; a copy in
 # CODEX_HOME's skills is found there and its own command printed; unreadable
@@ -645,7 +700,7 @@ $r"
 fi
 chmod 755 "$AG"; rm -rf "$HOMEFX/.agents"
 FX_HOME=; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_HOME
-for r in sandbox summaries codex-skill-copy; do
+for r in sandbox summaries code-mode codex-skill-copy; do
 	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-9: an empty HOME must leave $r CANNOT-ASSESS:
 $out"
 done
@@ -654,7 +709,7 @@ $(row codex-skill-copy)"
 # HOME not set at all: every row still prints (set -u aborted the script at
 # the first $HOME before), the HOME-rooted ones CANNOT-ASSESS, scratch too.
 FX_HOME_UNSET=1; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_HOME_UNSET
-for r in sandbox summaries codex-skill-copy scratch; do
+for r in sandbox summaries code-mode codex-skill-copy scratch; do
 	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-9: an unset HOME must leave $r CANNOT-ASSESS:
 $out"
 done
@@ -689,4 +744,4 @@ printf 'x=$(python3 - <<%sPY%s\n' "'" "'" > "$WORK/heredoc-ctl"
 [ -n "$(heredoc "$WORK/heredoc-ctl")" ] || fail "QA-9: the heredoc detector missed its planted control"
 [ -z "$(heredoc "$ROOT/scripts/env-check.sh")" ] || fail "QA-9: env-check.sh holds a heredoc (a temporary file under macOS sh): $(heredoc "$ROOT/scripts/env-check.sh")"
 
-echo "check-env-check: GREEN (QA-1 good machine 15 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 12 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN + settings rows CANNOT-ASSESS without it, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks, QA-9 sandbox WARN with and without the wait-check clause + summaries PASS/WARN/CANNOT-ASSESS by env and settings + codex-skill-copy PASS/WARN/CANNOT-ASSESS, through gate-hook.py's decode (NaN, depth) + glob in CODEX_HOME + unset HOME + unresolvable symlink + newline in a path + no heredoc; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"
+echo "check-env-check: GREEN (QA-1 good machine 16 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 13 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN + settings rows CANNOT-ASSESS without it, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks, QA-9 sandbox WARN with and without the wait-check clause + summaries and code-mode PASS/WARN/CANNOT-ASSESS by env and settings + codex-skill-copy PASS/WARN/CANNOT-ASSESS, through gate-hook.py's decode (NaN, depth) + glob in CODEX_HOME + unset HOME + unresolvable symlink + newline in a path + no heredoc; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"
