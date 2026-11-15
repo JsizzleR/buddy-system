@@ -309,3 +309,88 @@ func TestDiagnoseCodexHookGateCoverage(t *testing.T) {
 		})
 	}
 }
+
+// A project-layer hooks.json loads only in a trusted project (Codex 0.169.0,
+// #102), so the report says which layer the file is and, for a project layer,
+// that trust decides. The same bytes in the user layer are the positive
+// control: the note must come from the file's place, not from every .codex/
+// folder, and an alias of CODEX_HOME is still the user layer. The verdict and
+// findings never move with the location: it is a note, not a finding.
+func TestDiagnoseCodexHookLocation(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	root := t.TempDir()
+	gate, err := json.Marshal(failClosed("BUDDY_HARNESS=codex /abs/bin/buddy gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"hooks":{"PreToolUse":[{"matcher":"^(apply_patch|Bash)$","hooks":[{"type":"command","command":` +
+		string(gate) + `}]}]}}`)
+	place := func(rel string) string {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, body, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	project := place("proj/.codex/hooks.json")
+	userByCodexHome := place("codexhome/hooks.json")
+	userByHome := place("home/.codex/hooks.json")
+	other := place("loose/hooks.json")
+	renamed := place("proj/.codex/hooks.json.bak")
+	// Codex joins ".codex" and "hooks.json", so whether this spelling is a
+	// project layer is the volume's answer: project where the join reaches it
+	// (the macOS default volume), other where it does not (Linux CI).
+	caseVariant := place("cased/.Codex/HOOKS.JSON")
+	caseWant := "other"
+	if _, err := os.Stat(filepath.Join(root, "cased", ".codex", "hooks.json")); err == nil {
+		caseWant = "project"
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(filepath.Join(root, "codexhome"), alias); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(root, "linked")
+	if err := os.Symlink(filepath.Join(root, "proj", ".codex"), linked); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, path, codexHome, home, want string
+	}{
+		{"project layer through a symlinked folder", filepath.Join(linked, "hooks.json"), filepath.Join(root, "codexhome"), "", "project"},
+		{"project layer", project, filepath.Join(root, "codexhome"), "", "project"},
+		{"project layer under HOME's lookup", project, "", filepath.Join(root, "home"), "project"},
+		{"user layer by CODEX_HOME", userByCodexHome, filepath.Join(root, "codexhome"), "", "user"},
+		{"user layer by an alias of CODEX_HOME", userByCodexHome, alias, "", "user"},
+		{"user layer by HOME", userByHome, "", filepath.Join(root, "home"), "user"},
+		{"CODEX_HOME wins over HOME", userByHome, filepath.Join(root, "codexhome"), filepath.Join(root, "home"), "project"},
+		{"a .codex folder with no Codex home to compare", project, "", "", "unknown"},
+		{"not in a .codex folder", other, filepath.Join(root, "codexhome"), "", "other"},
+		{"not named hooks.json", renamed, filepath.Join(root, "codexhome"), "", "other"},
+		{"another case of .codex/hooks.json, as Codex's join finds it", caseVariant, filepath.Join(root, "codexhome"), "", caseWant},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f.env["CODEX_HOME"], f.env["HOME"] = tc.codexHome, tc.home
+			d := diagnosticOK(t, f, f.repo, "--codex-hooks", tc.path).CodexHooks
+			if d == nil || d.Location != tc.want {
+				t.Fatalf("location %+v, want %q", d, tc.want)
+			}
+			if d.Verdict != "marked" {
+				t.Fatalf("the location moved the verdict: %+v", d)
+			}
+			for _, c := range d.Commands {
+				if c.Finding != "" {
+					t.Fatalf("the location drew a finding: %+v", d)
+				}
+			}
+			noted := strings.Contains(d.Trust, "trusted") && strings.Contains(d.Trust, "codex exec --trust") &&
+				strings.Contains(d.Trust, "fails open")
+			if (tc.want == "project") != noted || tc.want != "project" && d.Trust != "" {
+				t.Fatalf("trust note %q for location %q", d.Trust, d.Location)
+			}
+		})
+	}
+}

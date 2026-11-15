@@ -13264,3 +13264,110 @@ Agent-model mutants, which restore the base's words there (QA-16b sits behind QA
 - skill: `skills/buddy-lead/SKILL.md` step 1's checkpoint (wording; no verb, flag or knob)
 - amends: D-107's report line (README's entry, loading not checked), D-120's "wired in" (entry
   in)
+
+## D-185 — a Codex `hooks.json` in a project layer loads only in a trusted project, so a buddy gate wired only there fails open in an untrusted directory; USAGE names the layers, trust and `codex exec --trust`, and `diagnose --codex-hooks` reports the file's layer and, for a project layer, that trust decides, reading no trust entry (#102)
+
+2026-11-14 · issue #102, from the release-impact read of Codex 0.169.0; lane codex-trust-102
+under orc buddy-system/s-9cfc61f9 (run r1114b), on the operator's "lets also get started on the
+open issues we have" (about 17:43Z).
+
+**The question.** 0.169.0's notes: "`codex exec` keeps project configuration and MCP servers
+disabled in untrusted directories, even with `--sandbox workspace-write`. Use `--trust` ...
+(#60041)". Is a project-layer `hooks.json` "project configuration"?
+
+**Answered from source (openai/codex tag rust-v0.169.0, commit d32063f):** yes.
+- `config/src/loader/mod.rs` `discover_project_layers`: every `.codex/` from the cwd up to the
+  project root becomes a project layer; one whose trust decision is not `Trusted` is built with
+  `new_disabled`, its reason "To load project-local config, hooks, and exec policies, add <dir>
+  as a trusted project in <user config.toml>" (`disabled_reason_for_decision`).
+- `config/src/state.rs` `layers_low_to_high` filters `is_disabled`; `hooks/src/engine/discovery.rs`
+  `discover_handlers` walks that iterator for both `hooks.json` (`load_hooks_json` on the layer's
+  `hooks_config_folder`) and a `[hooks]` table. A disabled layer contributes no handler: the gate
+  is absent, not failed, so nothing reports a refusal that did not happen.
+- Trust lookup (`decision_for_dir`): exact keys only on non-Windows (`project_trust_for_lookup_key`),
+  tried for the directory holding `.codex/`, then its project root (marker `.git`), then
+  `resolve_root_git_project_for_trust`, the main repository of a linked worktree. A trusted
+  parent such as `~/Projects` does not cover a repository under it. A linked worktree's project
+  layer takes its hook declarations from the main checkout's matching `.codex/`
+  (`root_checkout_hooks_folder_for_dir`).
+- #60041 itself: the embedded app-server used to receive an explicit `thread/start` cwd, which
+  "can grant trust when the sandbox is writable"; exec now passes it as `default_cwd`, prints
+  "warning: Untrusted project-local configuration is disabled. Run `codex exec --trust` ..." when
+  a disabled project layer exists, and adds `--trust` to `exec` and `review`, which writes a
+  `Trusted` entry to the user config, refuses an explicitly untrusted project, and refuses
+  `--ignore-user-config`. So before 0.169.0 a writable-sandbox exec loaded an untrusted project
+  layer; read-only did not, and neither does either now.
+- Per-hook trust is a second, separate gate (`HookTrustStatus`; only `Trusted` or `Managed`
+  handlers run unless trust is bypassed): a project gate runs only past both.
+
+**Measured once (installed codex-cli 0.169.0, 2026-11-14), no trust touched.** A scratch
+`git init` + `buddy init` directory under the session scratchpad (no trust key matches it) with a
+`.codex/hooks.json` whose SessionStart, UserPromptSubmit and PreToolUse hooks each touch a marker;
+`codex exec --ephemeral -s workspace-write -C <dir> "Reply with the single word ok..."`, foreground:
+rc 0, stderr line 1 the warning above, reply `ok`, no marker, `~/.codex/config.toml` byte-identical
+before and after. The warning is the disabled-layer signal (it fires only on a disabled project
+layer); the missing markers alone cannot tell project trust from per-hook trust, which would skip
+a never-reviewed hook too. No positive control (a trusted project with a reviewed hook) was run:
+it needs a trust grant and a hook review, the operator's.
+
+**What changed.**
+- USAGE "Opt-in wiring": a "Which layer, and trust" paragraph: the three layer folders, that a
+  project layer loads only when trusted and how the key is matched, the 0.169.0 exec change and
+  its warning, `codex exec --trust` / `codex review --trust`, the worktree hooks rule, the two
+  trust gates, and that trust is the operator's to grant. The example's "the appropriate
+  `hooks.json` layer" now points there.
+- `buddy diagnose --codex-hooks`: two fields under `codex_hooks`. `location` is `user` (the
+  folder is os.SameFile with `$CODEX_HOME`, else `$HOME/.codex`, so an alias still counts),
+  `system` (`/etc/codex`), `project` (any other `.codex/`), `unknown` (a `.codex/` with neither
+  variable set; never guessed `project`) or `other` (not a `hooks.json` Codex reads). `trust`,
+  on a project layer only, says Codex loads it only in a trusted project, that a gate there
+  otherwise fails open, and names `codex exec --trust`. USAGE's diagnostic section documents both.
+
+**Rejected.**
+- Reading `[projects]` from the user `config.toml` to report trusted/untrusted: a second
+  implementation of Codex's key lookup (normalization, project-root markers configurable by
+  `project_root_markers`, worktree root resolution, managed trust) would be a guess reported as
+  a verdict; diagnose describes the file, not what Codex loaded (D-071..D-081 posture).
+- Making the note a command finding: the file is not wrong, and a finding turns the env-check
+  and install Codex rows (`scripts/codex-gate-row.sh`: any finding is NOT WIRED) for a reason the
+  row's file, the user layer, does not have. Verdict and findings stay what the bytes earn.
+- An env-check row change: that row reads `${CODEX_HOME:-~/.codex}/hooks.json`, the user layer,
+  which trust does not gate; its words stay right.
+- `codex exec --trust` anywhere in buddy's scripts: it writes the operator's config, and trust
+  widens what a project layer may configure (MCP commands outside the sandbox among them).
+  `scripts/codex-review.sh` is unaffected: `-s read-only`, no project `.codex/`, the charter in
+  the prompt.
+
+**Tests.** `TestDiagnoseCodexHookLocation` (internal/cli/diagnostic_test.go): the same marked,
+fail-closed gate bytes at a project `.codex/`, at `$CODEX_HOME`, at a symlink alias of it, at
+`$HOME/.codex`, with `CODEX_HOME` beating `HOME`, with neither set, outside a `.codex/` and under
+another name, and `.Codex/HOOKS.JSON` (expected `project` where Codex's join reaches it, the macOS
+default volume, `other` where it does not): each location as listed, the trust note on `project`
+alone, verdict `marked` and no finding in every case (the user-layer rows are the positive control
+that the note comes from the place, not from every `.codex/`).
+
+Mutants, each in a private rsync'd copy, 8 of 8 killed, the unmutated copy green: every path
+`other`; the user arm removed; `os.SameFile` replaced by a cleaned-string compare (the alias row);
+the `unknown` arm removed; the note on every location; the literal `.codex` and `hooks.json` name
+compares the first draft had (the case row; found in self-review); and the folder's symlink
+resolution skipped (the symlinked-folder row; Codex's finding).
+
+**Review (lite).** Self-review raised 2, both fixed: the literal-name compares (above), and
+USAGE's "the user and system layers always load", false under `--ignore-user-config` or managed-only
+hooks, now "need no project trust". Codex (xhigh, one code pass) raised 1 with two inputs. A
+relative `hooks.json` with cwd in `.codex/` is unreachable: diagnose refuses a non-absolute path
+before reading (the existing refusals test). An absolute symlinked folder, `/tmp/hooks ->
+/repo/.codex`, reported `other` for a file Codex reads as a project layer, contradicting USAGE's
+`other`: folded, the folder is resolved with `filepath.EvalSymlinks` before the `.codex` check, and
+a test row holds it.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line (number; the rule: a Codex gate in a
+  project layer loads only in a trusted project) — named in the lane's READY, CLAUDE.md not the
+  lane's
+- GIVEN: review-charter.md 108 (one clause)
+- code: `internal/cli/diagnostic.go` (`codexHookLocation`, `codexProjectTrustNote`, the comment
+  above them)
+- tests: `internal/cli/diagnostic_test.go` (`TestDiagnoseCodexHookLocation`)
+- docs: `docs/USAGE.md` "Opt-in wiring" ("Which layer, and trust"), "Offline compatibility
+  diagnostic" (`location`, `trust`)

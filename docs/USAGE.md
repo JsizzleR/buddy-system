@@ -280,8 +280,8 @@ launcher.
 
 **Opt-in wiring.** After building the intended Buddy binary, use its absolute
 path in a Codex hook definition. This example deliberately wires only the gate;
-replace `/absolute/path/to/buddy` before installing it in the appropriate
-`hooks.json` layer:
+replace `/absolute/path/to/buddy` before installing it in a `hooks.json` layer
+(which one decides when it loads; see "Which layer" below):
 
 ```json
 {
@@ -319,6 +319,31 @@ CANNOT ASSESS (unreadable, refused, or no file beside a hooks table in
 `config.toml`, which is scanned, not parsed); neither writes there. After opting in, run an actual Codex patch against a peer-held
 scope and a non-conflicting control, and confirm the former wrote nothing.
 A direct `buddy gate` fixture is not proof the installed harness invoked it.
+
+**Which layer, and trust.** Codex reads `hooks.json` (and a `[hooks]` table in
+the same folder's `config.toml`) from each config layer's folder: the user layer
+`${CODEX_HOME:-~/.codex}/`, the system layer `/etc/codex/`, and a project layer,
+every `.codex/` from the working directory up to its project root. The user and
+system layers need no project trust. A project layer loads only when the user
+`config.toml` trusts that project (`[projects."<dir>"] trust_level = "trusted"`,
+matched exactly on the directory holding `.codex/`, its project root, or a
+linked worktree's main checkout: a trusted parent directory does not cover a
+repository under it). In an untrusted directory Codex loads the layer disabled
+and its hooks are simply absent, so a gate wired only there fails open with no
+hook failure to see (codex-rs 0.169.0 source, D-185). Codex 0.169.0 widened
+this: `codex exec --sandbox workspace-write` no longer trusts its directory
+implicitly; it prints `warning: Untrusted project-local configuration is
+disabled` on stderr and runs without the layer (measured once on 0.169.0).
+`codex exec --trust` (or `codex review --trust`) saves the trust entry to the
+user config, and refuses a project marked untrusted. In a linked worktree Codex
+takes a project layer's hook declarations from the main checkout's matching
+`.codex/` folder. Trust is the project's and changes what else that layer may
+configure, so it is the operator's to grant, never a lane's or a script's; the
+user layer, which `install.sh` and `env-check.sh` read, needs none. Project
+trust and the per-hook `/hooks` trust above are two gates: a project gate runs
+only past both. `buddy diagnose --codex-hooks` names the layer a file sits in
+and, for a project layer, says trust decides; it does not read whether the
+project is trusted.
 
 Manual participation can still register an independent top-level worker with
 `buddy hello` from its own shell before claiming. That is an explicit local
@@ -3130,7 +3155,14 @@ the gate's shell parser, parse only; `env NAME=value` prefixes are read, a
 wrapper script or `sh -c` is not inspected. Unknown fields in the layer are
 allowed (it is Codex's file, not Buddy's schema). It describes the file, not the
 configuration Codex loaded, its trust or its enforcement; it does not apply to
-`--harness claude`.
+`--harness claude`. Its `location` names the layer the path sits in (#102):
+`user` (the folder is `${CODEX_HOME:-$HOME/.codex}`, an alias included),
+`system` (`/etc/codex`), `project` (any other `.codex/` folder), `unknown` (a
+`.codex/` folder with neither `CODEX_HOME` nor `HOME` set to compare it with) or
+`other` (not a `hooks.json` Codex reads). A `project` layer also carries `trust`,
+a note that Codex loads it only in a trusted project and that a gate there
+otherwise fails open (`codex exec --trust`, "Opt-in wiring"); the project's trust
+entry is not read. Neither field is a finding or moves the verdict.
 
 `--receipt` accepts the saved `buddy.control.v1` object containing `identity`
 and `launch`, not a single lifecycle CLI result. `--launch` uses the existing

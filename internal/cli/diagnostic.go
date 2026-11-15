@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -119,7 +120,7 @@ func cmdDiagnose(args []string, env Env) error {
 		r.Harness = &d
 	}
 	if *codexHooks != "" {
-		d, err := diagnoseCodexHookLayer(*codexHooks)
+		d, err := diagnoseCodexHookLayer(*codexHooks, env)
 		if err != nil {
 			return err
 		}
@@ -218,6 +219,8 @@ type codexHookDiagnostic struct {
 	Unmarked     int                `json:"unmarked"`
 	Unrecognized int                `json:"unrecognized"`
 	Commands     []codexHookCommand `json:"commands"`
+	Location     string             `json:"location"`
+	Trust        string             `json:"trust,omitempty"`
 	Detail       string             `json:"detail"`
 }
 
@@ -230,7 +233,7 @@ type codexHookCommand struct {
 
 var buddyHookVerbs = map[string]bool{"gate": true, "hello": true, "beat": true, "busy": true, "idle": true, "bye": true}
 
-func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
+func diagnoseCodexHookLayer(path string, env Env) (*codexHookDiagnostic, error) {
 	b, err := harness.ReadDiagnosticFile(path)
 	if err != nil {
 		return nil, err
@@ -251,6 +254,10 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 	sum := sha256.Sum256(b)
 	d := &codexHookDiagnostic{SHA256: hex.EncodeToString(sum[:]), Commands: []codexHookCommand{},
 		Detail: "the supplied file only: not the effective configuration Codex loaded, its trust, or enforcement; a wrapper script or sh -c is not inspected"}
+	d.Location = codexHookLocation(path, env)
+	if d.Location == "project" {
+		d.Trust = codexProjectTrustNote
+	}
 	events := make([]string, 0, len(layer.Hooks))
 	for event := range layer.Hooks {
 		events = append(events, event)
@@ -305,6 +312,86 @@ func diagnoseCodexHookLayer(path string) (*codexHookDiagnostic, error) {
 		d.Verdict = "no_buddy_command_recognized"
 	}
 	return d, nil
+}
+
+// WHICH LAYER THE FILE IS, AND WHAT DECIDES WHETHER CODEX LOADS IT (#102).
+// Codex reads hooks.json from each config layer's folder: the user layer's
+// ${CODEX_HOME:-~/.codex}, the system layer's /etc/codex, and every project
+// layer's .codex/ between the cwd and its project root. A project layer in a
+// directory the user config does not trust is loaded DISABLED, and hook
+// discovery walks enabled layers only (codex-rs 0.169.0: config/src/state.rs
+// layers_low_to_high filters is_disabled; hooks/src/engine/discovery.rs
+// iterates it; the disabled reason reads "To load project-local config,
+// hooks, and exec policies, add <dir> as a trusted project"). So a gate wired
+// only in a project layer fails open in an untrusted directory, with no hook
+// failure to see: the hook is simply not there. 0.169.0 (#60041) widened the
+// case: `codex exec --sandbox workspace-write` no longer trusts its cwd
+// implicitly, and prints "warning: Untrusted project-local configuration is
+// disabled" instead (measured once on the installed 0.169.0, 2026-11-14).
+//
+// The report names the location and, for a project layer, that trust decides,
+// and it stops there. It does not read the user config's [projects] table to
+// say whether this project IS trusted: Codex matches trust keys exactly on the
+// directory, its project root or a linked worktree's main checkout, after its
+// own path normalization, and a second implementation of that lookup here
+// would be a guess dressed as a verdict. The note is a field, not a command
+// finding, because the file is not wrong: the verdict and the findings stay
+// what the file's bytes earn, and scripts/codex-gate-row.sh, which reads the
+// user layer, words its row exactly as before. The user layer is told apart
+// from a project .codex/ by os.SameFile against Codex's own home lookup, so an
+// alias (a symlink, the case-insensitive volume's other spelling) of
+// CODEX_HOME is still the user layer; with neither CODEX_HOME nor HOME set, a
+// .codex/ folder cannot be placed and is "unknown", never guessed "project".
+
+const codexProjectTrustNote = "a project layer: Codex loads it only when the user config.toml trusts this project ([projects.\"<dir>\"] trust_level = \"trusted\", matched exactly on the directory holding .codex, its project root, or a linked worktree's main checkout); untrusted, its hooks are not loaded and a gate here fails open. Since Codex 0.169.0, codex exec --sandbox workspace-write does not trust implicitly; codex exec --trust saves it. Whether this project is trusted is not checked here"
+
+// codexHookLocation names the Codex config layer a hooks.json path sits in:
+// "user", "system", "project", "unknown" (a .codex/ folder with no Codex home
+// to compare it against) or "other" (not a file Codex reads hooks from).
+//
+// Names are matched the way Codex finds them, by joining "hooks.json" and
+// ".codex" and comparing the results with os.SameFile, so on the
+// case-insensitive volume `.Codex/HOOKS.JSON`, which Codex's join reaches, is
+// placed as Codex places it rather than called "other" by a literal compare.
+func codexHookLocation(p string, env Env) string {
+	dir := filepath.Dir(p)
+	if !samePath(p, filepath.Join(dir, "hooks.json")) {
+		return "other"
+	}
+	home := env.getenv("CODEX_HOME")
+	if home == "" {
+		if h := env.getenv("HOME"); h != "" {
+			home = filepath.Join(h, ".codex")
+		}
+	}
+	if home != "" && samePath(dir, home) {
+		return "user"
+	}
+	if samePath(dir, "/etc/codex") {
+		return "system"
+	}
+	// The folder is placed by its real name: through a symlinked folder
+	// (/tmp/hooks -> /repo/.codex) the file is still the project layer Codex
+	// reads (Codex review of this change).
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	if !samePath(dir, filepath.Join(filepath.Dir(dir), ".codex")) {
+		return "other"
+	}
+	if home == "" {
+		return "unknown"
+	}
+	return "project"
+}
+
+func samePath(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
 }
 
 const gateFailsOpenFinding = "the gate is not wrapped fail-closed: a buddy that is killed or cannot run fails this hook and Codex lets the call through; use USAGE's line, { ... gate; } 2>/dev/null || { echo <reason> >&2; exit 2; } (D-107)"

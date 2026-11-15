@@ -967,7 +967,10 @@ ledger row entered through the CLI (D-006).
     or custom, edits settings only under GIVEN 53's `--wire-hooks` (adding README's entry
     where the report names the gate missing, never replacing one), and builds beside the target, renaming in only
     after a `gate` probe passes. Codex's wiring is wrapped the same way without the `[ -x ]`
-    guard. A binary that exits 0 having decided nothing (a zero-byte one included) is a
+    guard. A Codex gate in a project `.codex/hooks.json` loads only in a trusted project, so
+    untrusted it fails open, absent (codex-rs 0.169.0 source; `codex exec` no longer trusts
+    implicitly): `diagnose --codex-hooks` reports the layer and that trust decides, and never
+    reads or grants trust (D-185). A binary that exits 0 having decided nothing (a zero-byte one included) is a
     named residual. Do not propose a stdout-capturing deny JSON at exit 0, a shell-level
     no-ledger shortcut (it fails open across repositories and in linked worktrees), or
     passing a crash's stderr through as the reason.
