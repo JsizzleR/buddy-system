@@ -83,10 +83,47 @@ func writeDenied(path string) (bool, error) {
 // back unchanged. Only the error path pays for it: one git process and one
 // open, after the verb has already failed.
 func explainLedgerAccess(err error, env Env) error {
+	return explainLedgerAccessIn("", err, env)
+}
+
+// fleetLifecycleHooks are the hook verbs that open through openSessionLedger.
+var fleetLifecycleHooks = map[string]bool{"hello": true, "beat": true, "busy": true, "idle": true, "bye": true}
+
+// explainLedgerAccessIn is explainLedgerAccess for the verb that failed: only
+// a verb that opens through openSessionLedger (section 6's typed verbs and the
+// five lifecycle hooks) can have failed on a fleet ledger, so only its error
+// may name one (the Fable cross-check, finding 5: `BUDDY_FLEET=f buddy init`
+// in a never-inited repository failed creating the REPOSITORY's ledger and was
+// told the fleet's could not be written). The gate is in neither set, and is
+// not errVerb-wrapped.
+func explainLedgerAccessIn(verb string, err error, env Env) error {
 	if err == nil || !looksLikeLedgerAccess(err) {
 		return err
 	}
 	rc, rerr := resolveRepo(env.Cwd)
+	where := "It lives in the git common directory, outside the writable roots of"
+	// "No home ledger" is resolveRepo's errNoLedger, or a repository it
+	// resolved whose ledger file is not there (never `buddy init`ed): openRepo
+	// says errNoLedger for both and the verb fell back to the fleet, so this
+	// must too (Codex code pass, finding 5).
+	noHome := errors.Is(rerr, errNoLedger)
+	if rerr == nil && rc.ledger != "" {
+		if _, serr := os.Lstat(rc.ledger); errors.Is(serr, syscall.ENOENT) {
+			noHome = true
+		}
+	}
+	inFleet := false
+	if noHome && (fleetVerbs[verb] || fleetLifecycleHooks[verb]) && fleetNameRE.MatchString(env.getenv(EnvFleet)) {
+		// A fleet ledger the process may not write (D-191; Codex design pass,
+		// finding 2: this rediscovered repositories only, so a sandboxed
+		// Codex lane in a fleet got the bare SQLite code). The path walk,
+		// never an open: this runs after the verb already failed.
+		if p, ferr := fleetLedgerPath(env, env.getenv(EnvFleet)); ferr == nil {
+			rc, rerr = repoContext{ledger: p}, nil
+			where = "It lives in the fleet home under $HOME, outside the writable roots of"
+			inFleet = true
+		}
+	}
 	if rerr != nil || rc.ledger == "" {
 		return err
 	}
@@ -97,12 +134,16 @@ func explainLedgerAccess(err error, env Env) error {
 	if !denied {
 		return err
 	}
-	sandbox := "a sandbox that keeps the git directory read-only (Codex's workspace-write does)"
-	if v := env.getenv(envCodexSandbox); v != "" {
-		sandbox = "the Codex sandbox ($" + envCodexSandbox + "=" + fence.Line(v, 32) + "), which keeps the git directory read-only"
+	keeps := "keeps the git directory read-only"
+	if inFleet {
+		keeps = "keeps it read-only"
 	}
-	return fmt.Errorf("%w\n  cause: this process may not write the ledger %s (%s). It lives in the git common directory, outside the writable roots of %s.\n"+
+	sandbox := "a sandbox that " + keeps + " (Codex's workspace-write does)"
+	if v := env.getenv(envCodexSandbox); v != "" {
+		sandbox = "the Codex sandbox ($" + envCodexSandbox + "=" + fence.Line(v, 32) + "), which " + keeps
+	}
+	return fmt.Errorf("%w\n  cause: this process may not write the ledger %s (%s). %s %s.\n"+
 		"  fix: run buddy with sandbox escalation requested UP FRONT, for every buddy call (Codex: sandbox_permissions \"require_escalated\"), instead of letting the sandboxed call fail first. "+
 		"Every verb needs write access, read-only ones included: with no peer holding the ledger open, the open itself fails.",
-		err, fence.Line(rc.ledger, 512), fence.Line(why.Error(), 256), sandbox)
+		err, fence.Line(rc.ledger, 512), fence.Line(why.Error(), 256), where, sandbox)
 }

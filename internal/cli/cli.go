@@ -121,7 +121,7 @@ type verb struct {
 func errVerb(name string, fn func([]string, Env) error) func([]string, Env) int {
 	return func(args []string, env Env) int {
 		if err := fn(args, env); err != nil {
-			fmt.Fprintf(env.Stderr, "buddy %s: %v\n", name, explainLedgerAccess(err, env))
+			fmt.Fprintf(env.Stderr, "buddy %s: %v\n", name, explainLedgerAccessIn(name, err, env))
 			var ec exitErr
 			if errors.As(err, &ec) {
 				return ec.code
@@ -210,10 +210,12 @@ func Run(args []string, env Env) int {
 		fmt.Fprintln(env.Stdout, v.usage)
 		return 0
 	}
-	if hookVerbs[cmd] {
+	if hookVerbs[cmd] || fleetScrub(cmd, env) {
 		// A hook discovers from the filesystem, never from an inherited
 		// GIT_DIR (#76, D-137); hookgitenv.go says why here and not in
-		// revParse, which the commit gate shares.
+		// revParse, which the commit gate shares. A typed verb of the plan's
+		// section 6 does too while BUDDY_FLEET is set, so it reads the ledger
+		// its own session's hooks read (fleetScrub, D-191).
 		defer scrubHookGitEnv()()
 	}
 	return v.run(rest, env)
@@ -397,7 +399,8 @@ edit. They exist so that a message about a file can be ADDRESSED to someone.
 // usage refusal says. Each begins "usage: buddy <verb>", and a test holds the
 // table to that, so a verb cannot be added with the wrong line or none.
 const (
-	usageInit       = "usage: buddy init   (create the ledger for this repo, and say whether its main languages have a language server; takes no arguments)"
+	usageInit = "usage: buddy init [--fleet <name>]   (no flag: create the ledger for this repo, and say whether its main languages have a language server;\n" +
+		"       --fleet <name>: create the coordination-only fleet ledger <HOME>/.buddy/fleets/<name>/buddy.db that sessions launched with BUDDY_FLEET=<name> use outside git)"
 	usageHello      = "usage: buddy hello [--session <id>] [--label <text>]   (SessionStart hook; hook JSON on stdin; by hand, give it </dev/null)"
 	usageBye        = "usage: buddy bye <session> [--force]  (or pipe SessionEnd hook JSON)"
 	usageBeat       = "usage: buddy beat   (PostToolUse hook; hook JSON on stdin)"
@@ -647,6 +650,11 @@ type repoContext struct {
 	// discovery ran from from, its deepest existing ancestor (D-102); both ""
 	// otherwise.
 	gone, from string
+	// fleet is the fleet's name when ledger is a FLEET ledger (fleet.go,
+	// D-191), "" for a repository's. Only openFleetLedger sets it, and then
+	// top is always "": a fleet has no root, so nothing that places a path
+	// (the dirty scan, the authority watch, whose) has anything to act on.
+	fleet string
 }
 
 // revParse runs one bounded, locale-pinned `git rev-parse` and returns stdout
@@ -1157,6 +1165,13 @@ func placeCanonical(top, cp string) (rel, cased string, outside bool) {
 // ledger owned by another user, where the real answer is EACCES.
 func mustLedger(dir string, env Env) (*store.Store, repoContext, error) {
 	st, rc, err := openRepo(dir, env)
+	return verbLedger(dir, st, rc, err)
+}
+
+// verbLedger is mustLedger's wording on top of an open that already ran, so
+// mustFleetLedger (fleet.go) words "no ledger here, and BUDDY_FLEET unset"
+// exactly as mustLedger does, byte for byte (D-191, 5.2 step 3).
+func verbLedger(dir string, st *store.Store, rc repoContext, err error) (*store.Store, repoContext, error) {
 	if errors.Is(err, errNoLedger) {
 		// Both say WHERE (D-088). Measured on one fleet: 14 "not a git
 		// repository" errors in 11 sessions, all from a notes directory
@@ -1515,10 +1530,20 @@ func mainCheckoutName(common string) string {
 // ---- commands ----
 
 func cmdInit(args []string, env Env) error {
-	if len(args) > 0 {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		// `init --help` used to create the ledger — turning the feature ON
 		// for a repo whose operator was asking what init does.
 		return usageRefusal(fmt.Sprintf("init takes no arguments, got %s", strconv.Quote(fence.Line(args[0], 64))), usageInit)
+	}
+	// The one flag (D-191): `--fleet <name>` creates a fleet ledger under
+	// the fleet home and discovers nothing. Any other flag is refused by the
+	// parser, never ignored (D-031).
+	fleet, help, err := initArgs(args, env)
+	if help || err != nil {
+		return err
+	}
+	if fleet != "" {
+		return cmdInitFleet(fleet, env)
 	}
 	// discoverRepo, never resolveRepo: init creates the ledger where discovery
 	// lands, and a vanished cwd's ancestor is not where anybody asked (D-102).
@@ -1614,7 +1639,7 @@ func chatOff(env Env) bool {
 	return env.chatStamp() == "off"
 }
 
-func cmdHello(args []string, env Env) error {
+func cmdHello(args []string, env Env) (err error) {
 	session, label, _ := helloFlags(args)
 	// Named by --session, the caller need not BE the session (usually the
 	// operator's terminal), and `buddy inbox` there resolves no one: the
@@ -1699,17 +1724,47 @@ func cmdHello(args []string, env Env) error {
 	if session == "" {
 		return fmt.Errorf("no session id (pipe hook JSON, pass --session, or set %s)", EnvSession)
 	}
-	st, rc, err := openRepo(dir, env)
+	st, rc, err := openSessionLedger(dir, env)
 	if errors.Is(err, errNoLedger) {
 		return nil // feature off
+	}
+	if line := fleetLine(err); line != "" {
+		// A fleet that did not open (D-191, the plan's 5.2): one line on
+		// STDOUT and exit 0, because the wired line drops stderr and the
+		// status, and SessionStart context is the one place the session
+		// reads. Never a refusal: no tool call depends on this ledger.
+		_, werr := io.WriteString(env.Stdout, line)
+		return werr
 	}
 	if err != nil {
 		return fencedOpenErr(err)
 	}
 	defer st.Close()
+	// digestOut: the digest went to stdout. After that the one document is
+	// written, and a failure (MarkDelivered's) keeps today's error: the
+	// messages are redelivered at the next drain (Codex code pass, finding 3:
+	// the replacement line used to be appended after a digest already out,
+	// saying "on no roster" of a session the digest had just registered).
+	digestOut := false
+	if rc.fleet != "" {
+		// A fleet ledger that opened and then failed (no tables behind a
+		// valid user_version, a write the OS refuses): the same one line, so
+		// it is not the silent collapse invariant 3 forbids (Codex design
+		// pass, finding 2). Deferred, so every return below is covered, and
+		// only while nothing was written, as busy's is.
+		defer func() {
+			if err != nil && !digestOut {
+				if _, werr := io.WriteString(env.Stdout, fleetLine(fleetOpsErr(rc, err))); werr == nil {
+					err = nil
+				}
+			}
+		}()
+	}
 
 	// The root came back with the ledger; a repo that would not name one (bare)
-	// registers under the directory it was called from, as it always has.
+	// registers under the directory it was called from, as it always has. So
+	// does a fleet session: its row's worktree column is the cwd at hello,
+	// shown and never used to place a path (D-191).
 	top := rc.top
 	if top == "" {
 		top = dir
@@ -1720,8 +1775,11 @@ func cmdHello(args []string, env Env) error {
 	}
 	// The copy of each watched file this session starts with (D-167): a
 	// later checkout of the same bytes, in this tree or a worktree it makes,
-	// is then not announced as a change. Best-effort, like the notice.
-	authorityBaseline(st, top, si)
+	// is then not announced as a change. Best-effort, like the notice. Not
+	// in a fleet, whose authority watch is off (D-191): a cwd is no root.
+	if rc.fleet == "" {
+		authorityBaseline(st, top, si)
+	}
 
 	// Digest: this goes into the session's context at SessionStart.
 	now := nowOf(env)
@@ -1730,8 +1788,26 @@ func cmdHello(args []string, env Env) error {
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n",
-		fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
+	if rc.fleet != "" {
+		// A fleet's first line says what this ledger is and is not (D-191):
+		// a session told "claim before taking a bundle ... --scope <path>"
+		// would claim a file, which a fleet refuses, and could believe the
+		// claim protected it.
+		fmt.Fprintf(&b, "BUDDY: you are session %s (%s) in fleet %s: a coordination-only ledger (names, messages, waits, outcomes) with no file claim, gate or brake. Claim your item as a slot: buddy claim <item> --desc ... --scope .buddy/slot/<item>\n",
+			fence.Line(si.Label, 64), fence.Line(si.SessionID, 128), fence.Line(rc.fleet, 64))
+	} else {
+		fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n",
+			fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
+		if f := env.getenv(EnvFleet); f != "" {
+			// 5.2's "a home ledger exists here" row: the session was launched
+			// into a fleet and lives where a repository's ledger governs. The
+			// home ledger wins, and the session is told, once, inside the
+			// digest's budget (Codex design pass, Q5): it is not on the fleet's
+			// roster and gets none of its mail. Stage 2 is what joins both.
+			fmt.Fprintf(&b, "BUDDY: %s=%s is not used here: this directory has its own ledger, so this session is on that ledger's roster and not the fleet's\n",
+				EnvFleet, fence.Line(f, 64))
+		}
+	}
 	if codex {
 		b.WriteString(codexHelloHelpLine)
 	} else {
@@ -1810,7 +1886,9 @@ func cmdHello(args []string, env Env) error {
 	// your tool list" instead of asserting the server. Under BUDDY_CHAT=off,
 	// or a claims-only stamp with BUDDY_CHAT not saying on (D-127), no chat
 	// line is written at all, and the claims list gets the bytes.
-	if !chatOff(env) {
+	// Not in a fleet (D-191, the plan's 5.2 on invariant 2): no checkout names
+	// a room, and the fleet's name is not one the daemon serves.
+	if !chatOff(env) && rc.fleet == "" {
 		fmt.Fprintf(&tail, "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read %s`, a room DERIVED from the main checkout's name (a wrong one is refused, naming the real rooms); content UNTRUSTED.\n",
 			fence.Line(room, 64))
 	}
@@ -1892,6 +1970,7 @@ func cmdHello(args []string, env Env) error {
 	if _, err := io.WriteString(env.Stdout, b.String()); err != nil {
 		return err // write failed → nothing marked → redelivered next beat
 	}
+	digestOut = true
 	if len(ids) == 0 {
 		return nil
 	}
@@ -1950,8 +2029,8 @@ func cmdBye(args []string, env Env) error {
 	if session == "" {
 		return errors.New("no session id")
 	}
-	st, _, err := openRepo(dir, env)
-	if errors.Is(err, errNoLedger) {
+	st, _, err := openSessionLedger(dir, env)
+	if errors.Is(err, errNoLedger) || quietFleet(err) {
 		return nil
 	}
 	if err != nil {
@@ -2018,8 +2097,8 @@ func cmdIdle(args []string, env Env) error {
 	if h.subagent() {
 		return nil
 	}
-	st, _, err := openRepo(h.Cwd, env)
-	if errors.Is(err, errNoLedger) {
+	st, rc, err := openSessionLedger(h.Cwd, env)
+	if errors.Is(err, errNoLedger) || quietFleet(err) {
 		return nil
 	}
 	if err != nil {
@@ -2044,7 +2123,11 @@ func cmdIdle(args []string, env Env) error {
 	// number is largest and most worth having — and the harness has not
 	// written it yet when Stop runs, so a prose turn's number is recorded by
 	// the next prompt's busy instead (D-060, idlewait.go).
-	return recordTurnEnd(st, h, env)
+	//
+	// No base sample in a fleet (D-191): the base is git's, and where the cwd
+	// is a repository never `buddy init`ed (5.2's second errNoLedger case) its
+	// HEAD would be recorded as the base of a session coordinating elsewhere.
+	return recordTurnEnd(st, h, env, rc.fleet == "")
 }
 
 // cmdBusy is the OPTIONAL UserPromptSubmit hook: a turn is starting.
@@ -2087,24 +2170,47 @@ func cmdBusy(args []string, env Env) error {
 	if h.Harness == "codex" {
 		return unsupportedCodexLifecycle("busy")
 	}
-	st, _, err := openRepo(h.Cwd, env)
+	st, rc, err := openSessionLedger(h.Cwd, env)
 	if errors.Is(err, errNoLedger) {
 		return nil
+	}
+	if line := fleetLine(err); line != "" {
+		// THE LINE AT EVERY PROMPT (D-191, the plan's 5.2; Codex pass over
+		// the plan, finding 2). A fleet that opened at SessionStart and was
+		// removed or went unreadable an hour later would otherwise stop
+		// coordinating with nothing said: hello does not run again, and beat,
+		// idle and bye fail on the stderr the wired lines drop. One line a
+		// turn, as this event's one document, exit 0; never a block.
+		return writeHookContext(env, "UserPromptSubmit", strings.TrimSuffix(line, "\n"))
 	}
 	if err != nil {
 		return fencedOpenErr(err)
 	}
 	defer st.Close()
+	wrote, err := busyTurn(st, rc, h, env)
+	if err != nil && rc.fleet != "" && !wrote {
+		// Opened, then failed (Codex design pass, finding 2): the same line,
+		// and only when this event wrote nothing yet, so it stays ONE
+		// document. A drain that wrote and then failed to mark keeps today's
+		// error: its messages are redelivered at the next drain.
+		return writeHookContext(env, "UserPromptSubmit", strings.TrimSuffix(fleetLine(fleetOpsErr(rc, err)), "\n"))
+	}
+	return err
+}
+
+// busyTurn is busy's work once its ledger is open; wrote says this event's one
+// document went out.
+func busyTurn(st *store.Store, rc repoContext, h hookInput, env Env) (wrote bool, err error) {
 	if err := st.ClearIdle(h.SessionID); err != nil {
-		return err
+		return false, err
 	}
 	// No subagent event opens a turn today; the guard is beat's (D-099).
 	if h.subagent() {
-		return nil
+		return false, nil
 	}
 	me, known, err := st.SessionByID(h.SessionID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	label := ""
 	if known {
@@ -2117,10 +2223,9 @@ func cmdBusy(args []string, env Env) error {
 	if h.Harness != "codex" {
 		resampleFootprint(st, h, me, known, env) // Claude's turn that just ended (D-060)
 	}
-	note := busyHandoff(st, me, known, env)
-	_, err = drainHook(st, h.SessionID, label, env, "UserPromptSubmit", note,
+	note := busyHandoff(st, me, known, env) + busyRosterNote(rc, h.SessionID, known, env)
+	return drainHook(st, h.SessionID, label, env, "UserPromptSubmit", note,
 		func(msgs []store.InboxMsg) []store.InboxMsg { return boundDrain(msgs, nowOf(env)) })
-	return err
 }
 
 // drainHook writes a hook event's ONE document: prefix (buddy's own notices,
@@ -2196,8 +2301,8 @@ func cmdBeat(args []string, env Env) error {
 	if beatOffSuccess(h, env) {
 		return nil
 	}
-	st, rc, err := openRepo(h.Cwd, env)
-	if errors.Is(err, errNoLedger) {
+	st, rc, err := openSessionLedger(h.Cwd, env)
+	if errors.Is(err, errNoLedger) || quietFleet(err) {
 		return nil
 	}
 	if err != nil {
@@ -2291,7 +2396,9 @@ func cmdBeat(args []string, env Env) error {
 	// rather than returned. beat's contract is the heartbeat and the inbox;
 	// this rides along with them and never in front of them.
 	warn, commitWarn := "", func() error { return nil }
-	if top != "" {
+	// rc.fleet: a fleet runs no dirty scan (D-191). Its top is "" already;
+	// said here too, so the skip does not rest on that alone.
+	if top != "" && rc.fleet == "" {
 		warn, commitWarn = noteDirtyPaths(st, env, h.SessionID, top, rel, h.ToolName)
 	}
 	// The authority notice (D-028) rides the same way: fail-open, one line
@@ -2300,7 +2407,7 @@ func cmdBeat(args []string, env Env) error {
 	// a path, because the dirty notice attributes a path; this check wants
 	// the worktree root on EVERY tool call, Bash included.
 	auth, commitAuth := "", func() error { return nil }
-	if rc.top != "" && known && me.Live() && !sub {
+	if rc.top != "" && rc.fleet == "" && known && me.Live() && !sub {
 		// The session's own write of a watched file is not news to it
 		// (D-167): rel is the path this call named, and a write tool's
 		// PostToolUse runs after the write landed.
@@ -3367,11 +3474,17 @@ func cmdClaim(args []string, env Env) error {
 	if jobPID != 0 {
 		job = declaredJob(env, jobPID)
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	// A fleet takes slot scopes only, never gh-stack, never --shared or
+	// --based-on (D-191, the plan's section 6), refused before the dry-run
+	// branch so a forecast refuses with the claim's own words.
+	if err := checkFleetScopes(rc, scopes, *shared, basedOnGiven); err != nil {
+		return err
+	}
 	si, err := whoAmI(st, env, session)
 	if err != nil {
 		return err
@@ -3894,9 +4007,19 @@ func cmdRelease(args []string, env Env) error {
 		return fmt.Errorf("--note renders to %d bytes and the cap is %d; nothing was released (a line break renders as ⏎, which is 3 bytes)",
 			renderedLen(*note), maxOutcomeNote)
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
+	}
+	// Nothing is integrated in a fleet, so nothing parks (D-191, section 6):
+	// a lane's report is its release with --outcome and --note. A slot-only
+	// claim's park was refused already ("coordination is never parked"); this
+	// says why in a fleet's words, before any row is read.
+	if *inRun != "" || *unpark {
+		if err := fleetRefusal(rc, "parking (--in-run, --unpark)", "a fleet ledger integrates nothing, so there is no run to park in; report with release <item> --outcome pass|fail --note \"DONE: <where the findings are>\""); err != nil {
+			st.Close()
+			return err
+		}
 	}
 	defer st.Close()
 	si, err := whoAmI(st, env, session)
@@ -4193,7 +4316,7 @@ func cmdLs(args []string, env Env) error {
 	if err := noStray("ls", fs, usageLs); err != nil {
 		return err
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -4243,7 +4366,7 @@ func cmdSweep(args []string, env Env) error {
 	if err := noStray("sweep", fs, usageSweep); err != nil {
 		return err
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -4349,11 +4472,14 @@ func cmdPause(args []string, env Env) error {
 	if err := noStray("pause", fs, usagePause); err != nil {
 		return err
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	if err := fleetRefusal(rc, "pause", fleetNoBrake); err != nil {
+		return err
+	}
 	// Quiet: an ENDED target's pause is not "queued", and the echo, printed
 	// only once the write committed, says when it bites (resume.go, #86).
 	tgt, err := resolveTargetQuiet(st, target)
@@ -4372,11 +4498,14 @@ func cmdResume(args []string, env Env) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return errors.New(usageResume)
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	if err := fleetRefusal(rc, "resume", fleetNoBrake); err != nil {
+		return err
+	}
 	tgt, err := resolveTargetQuiet(st, args[0])
 	if err != nil {
 		return err
@@ -4418,7 +4547,7 @@ func cmdMsg(args []string, env Env) error {
 	if _, _, err := environmentSession(env); err != nil {
 		return err // an ambiguous native sender must not queue an operator message
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -5089,7 +5218,7 @@ func cmdInbox(args []string, env Env) error {
 	if fs.NArg() > 1 {
 		return fencedErr(usageRefusal(fmt.Sprintf("inbox takes at most one message id, got %q after it — flags after it would be IGNORED", fs.Arg(1)), usageInbox))
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -5188,7 +5317,7 @@ func cmdSessions(args []string, env Env) error {
 	default:
 		return fmt.Errorf(`--by takes "seen" or "started", not %s`, strconv.Quote(fence.Line(*by, 64)))
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}

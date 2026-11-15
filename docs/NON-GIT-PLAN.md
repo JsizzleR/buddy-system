@@ -1,6 +1,8 @@
 # Buddy outside git: one pane over independent investigations
 
-Status: PLAN, nothing built (2026-11-14). **This supersedes the version at
+Status: stage 1b BUILT (2026-11-15, D-191: the fleet ledger, `buddy init --fleet`; its
+record says where the code met this plan); stages 0, 1a, 2 and 3 not built. The rest
+of this paragraph is the plan as written, 2026-11-14. **This supersedes the version at
 1d36f8b**, which answered another question (file claims in one untracked
 directory, through a `.git` pointer file): the operator rejected the pointer
 file and re-scoped the use, below. Written by the `nongit-plan-2` lane on Fable

@@ -246,11 +246,14 @@ func authorityNotice(st *store.Store, top string, si store.SessionInfo, now time
 // cmdAuthority: `buddy authority` lists, `add <path>` and `rm <path>` edit.
 func cmdAuthority(args []string, env Env) error {
 	const usage = usageAuthority
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	if err := fleetRefusal(rc, "authority", fleetNoPaths); err != nil {
+		return err
+	}
 	switch {
 	case len(args) == 0:
 		paths, err := watchList(st)

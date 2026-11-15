@@ -532,8 +532,17 @@ When a lane's deliverable is notes, a report, a runbook or configuration,
 read `not-code.md` beside this file: how commit, READY, the shared tier and
 main translate. Kept here:
 
-- The directory must be a git repository with `buddy init` run: outside one every verb answers "not a git repository".
+- The directory must be a git repository with `buddy init` run: outside one every ledger verb answers "not a git repository", unless the session was launched into a fleet ledger (below).
 - A deliverable written through an MCP tool is not gated: claim it anyway.
+
+## Investigations outside git
+
+When the operator asks you to coordinate lanes in plain directories, outside
+every repository, read `outside-git.md` beside this file: the fleet ledger,
+its launch, its refusals and its loop. Kept here:
+
+- Only on the operator's word, `buddy init --fleet <name>`; you and each lane start with `BUDDY_FLEET=<name>` (on a herdr tab, `herdr tab create ... --env BUDDY_FLEET=<name>`; `claude --bg` carries none), in a directory with no ledger of its own.
+- The gate never reads a fleet ledger: it reserves no file and has no brake, so a lane claims only its slot and `buddy pause` is refused; say so in every brief.
 
 ## Codex lanes and adapters
 

@@ -73,7 +73,9 @@ func beatOffSuccess(h hookInput, env Env) bool {
 	if !isBrowserTool(h.ToolName) {
 		return true
 	}
-	st, _, err := openRepo(h.Cwd, env)
+	// beat's own ledger, a fleet's included (D-191), and still silent in
+	// every arm: this runs on PreToolUse, where output could refuse a call.
+	st, _, err := openSessionLedger(h.Cwd, env)
 	if err != nil {
 		return true
 	}

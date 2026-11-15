@@ -147,7 +147,10 @@ func noteHeard(env Env) {
 	if err != nil || id == "" {
 		return
 	}
-	st, _, err := openRepo(env.Cwd, env)
+	// The session's own ledger, a fleet's included (D-191): under Codex a
+	// lane has no heartbeat, and a typed verb run as itself is how its row's
+	// `seen` moves.
+	st, _, err := openSessionLedger(env.Cwd, env)
 	if err != nil {
 		return
 	}

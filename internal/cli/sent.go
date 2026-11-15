@@ -46,7 +46,7 @@ func cmdSent(args []string, env Env) error {
 	if fs.NArg() > 1 {
 		return fencedErr(fmt.Errorf("sent takes at most one message id; %s", usageSent))
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}

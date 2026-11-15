@@ -176,6 +176,7 @@ var skillFiles = []string{
 	"../../skills/buddy-fleet/handoff.md",
 	"../../skills/buddy-fleet/model-pick.md",
 	"../../skills/buddy-fleet/not-code.md",
+	"../../skills/buddy-fleet/outside-git.md",
 	"../../skills/buddy-fleet/restack.md",
 	"../../skills/model-router/SKILL.md",
 	"../../skills/model-router/reference.md",

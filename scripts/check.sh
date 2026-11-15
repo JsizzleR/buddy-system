@@ -171,6 +171,45 @@ if [ "$run_hermetic" = 1 ]; then
     [ "$shlist" = "$golist" ] || { echo "check.sh: $f's fallback list of git's local env differs from testguard's:" >&2; echo "  $f: $shlist" >&2; echo "  gitenv.go: $golist" >&2; exit 1; }
   done
 
+  # FLEET GATE, source-shape (D-191; docs/NON-GIT-PLAN.md 5.4): nothing a
+  # `buddy gate` or `buddy commit-gate` process runs may name the fleet
+  # resolver, so BUDDY_FLEET and a fleet ledger's rows can change no verdict.
+  # The scan itself is a Go test on internal/cli's call graph
+  # (TestGateNeverReachesTheFleetLedger, fleet_reach_test.go), not a grep: a
+  # grep of call sites cannot see a two-hop path, and the verdict tests cannot
+  # see an open whose result is thrown away. This gate keeps that test from
+  # being quietly defeated. Two clauses, as above: the tests RAN and PASSED by
+  # name (deleted, renamed or t.Skip'd, `go test ./...` would still print ok;
+  # `-run` matching nothing prints "no tests to run" and exits 0, so each
+  # verdict line is required), and its forbidden list and roots still name
+  # every resolver, the fleet home, both gate verbs and init (a name dropped
+  # from the list, or a root, passes the test by asking it less). The names
+  # pinned are the scan, the verdict tests (TestGateVerdictsIgnoreTheFleet,
+  # fleet_test.go: the gate's output under BUDDY_FLEET) and main's hold
+  # (TestBuddyMainOnlyCallsRun, fleet_reach_test.go), all in internal/cli
+  # (Fable cross-check, F4: only the scan was pinned, so deleting or skipping
+  # the other two left this gate green).
+  fleettests="TestGateNeverReachesTheFleetLedger TestGateVerdictsIgnoreTheFleet TestBuddyMainOnlyCallsRun"
+  fleetrun=$(go test ./internal/cli -run "^($(echo $fleettests | tr ' ' '|'))\$" -count=1 -v 2>&1) || { echo "check.sh: the fleet gate's tests failed (D-191):" >&2; echo "$fleetrun" >&2; exit 1; }
+  for t in $fleettests; do
+    echo "$fleetrun" | grep -q "^--- PASS: $t " || { echo "check.sh: $t did not run and pass by name (deleted, renamed or skipped?) — re-point this gate in the same commit (D-191)" >&2; exit 1; }
+  done
+  fleetlist=$(grep '^var fleetForbidden = ' internal/cli/fleet_reach_test.go || true)
+  for fn in openFleetLedger openSessionLedger mustFleetLedger fleetLedgerPath cmdInitFleet fleetHomeRel; do
+    echo "$fleetlist" | grep -q "\"$fn\"" || { echo "check.sh: fleetForbidden no longer names $fn, so the gate's call-graph scan stopped asking about it (D-191)" >&2; exit 1; }
+  done
+  # The roots are read inside forbiddenFrom and envFleetFrom, the scans' own
+  # functions: the test names the same call again in a control, which a
+  # whole-file grep would accept in its place (measured: a scan cut to two
+  # roots passed that way). Comments are cut first, `//` to the end of the
+  # line, so a comment that only mentions the call cannot stand in for it
+  # (Codex code pass, finding C4: a `// g.reach(...)` line left above a
+  # trimmed call passed). The test's planted controls, one per root, are the
+  # semantic clause; these greps keep a root from leaving by an edit nobody
+  # reads as one.
+  awk '/^func forbiddenFrom\(/{on=1} on{print} on && /^}/{exit}' internal/cli/fleet_reach_test.go | sed 's|//.*||' | grep -q 'g\.reach("Run", pkgInit, "cmdGate", "cmdCommitGate")' || { echo "check.sh: the fleet gate's scan (forbiddenFrom) no longer walks from Run, init, cmdGate and cmdCommitGate (D-191)" >&2; exit 1; }
+  awk '/^func envFleetFrom\(/{on=1} on{print} on && /^}/{exit}' internal/cli/fleet_reach_test.go | sed 's|//.*||' | grep -q 'g\.reach(pkgInit, "cmdGate", "cmdCommitGate")\[fleetEnvNode\]' || { echo "check.sh: the fleet gate's BUDDY_FLEET scan (envFleetFrom) no longer walks from init, cmdGate and cmdCommitGate to EnvFleet (D-191)" >&2; exit 1; }
+
   go vet ./...
   go test ./... -count=1
   go test -race ./... -count=1

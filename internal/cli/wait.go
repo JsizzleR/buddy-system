@@ -144,11 +144,20 @@ func cmdWaitDeclare(args []string, env Env) error {
 		return fmt.Errorf("--note renders to %d bytes and the cap is %d, so %d would be cut silently (a line break renders as ⏎, which is 3 bytes)",
 			n, maxWaitNote, n-maxWaitNote)
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	// --ready names a commit, and a fleet keeps none (D-191, section 6).
+	// Refused here and not left to git: in 5.2's second errNoLedger case the
+	// cwd is a repository never `buddy init`ed, whose HEAD would resolve, and
+	// a READY at an unrelated commit would read as work handed in.
+	if *ready != "" {
+		if err := fleetRefusal(rc, "--ready", "a fleet ledger keeps no commits; put where the work is in --note (\"READY: <path> <version word>\")"); err != nil {
+			return err
+		}
+	}
 	si, err := whoAmI(st, env, session)
 	if err != nil {
 		return err
@@ -235,7 +244,7 @@ func cmdWaitCheck(args []string, env Env) error {
 		return fmt.Errorf("$%s names %s but the harness says this is session %s; a check speaks only for the harness's own session",
 			EnvSession, fence.Line(b, 128), fence.Line(id, 128))
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -342,7 +351,7 @@ func cmdWaitClear(args []string, env Env) error {
 	if err := noStray("wait clear", fs, usageWait); err != nil {
 		return err
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
@@ -380,7 +389,7 @@ func cmdWaitLs(args []string, env Env) error {
 	if err := noStray("wait ls", fs, usageWait); err != nil {
 		return err
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}

@@ -73,7 +73,8 @@ yourself: that changes the operator's machine and settings.
 1. `buddy claim <slug> --desc "<what and why>" --scope <path> [--scope ...]`.
    A scope is a file or a directory prefix, with no globs. Use one `--scope` per
    path. A comma list is refused, because it would name one file nobody has. A
-   claim is granted whole or refused whole.
+   claim is granted whole or refused whole. In a fleet ledger (outside git:
+   `buddy status` opens `LEDGER ... fleet`), claim only `.buddy/slot/<item>`.
 2. Not sure it will be granted? Run `buddy claim <slug> --dry-run --desc ... --scope ...`
    (the slug comes first). It names every conflict and writes nothing. A claim
    a holder refuses, and a dry run that forecasts one, exits 4; not a

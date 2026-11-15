@@ -54,16 +54,17 @@ func cmdStatus(args []string, env Env) error {
 		return fmt.Errorf("status takes no arguments (`buddy who <target>` asks about another session), got %s",
 			strconv.Quote(fence.Line(fs.Arg(0), 64)))
 	}
-	st, rc, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	ledgerLine(env, rc)
 	si, err := whoAmI(st, env, session)
 	if err != nil {
 		return err
 	}
-	return sessionReport(env, st, rc.top, si, true, "")
+	return sessionReport(env, st, rc, si, true, "")
 }
 
 // cmdWho. With no argument it reports the caller, exactly as `status` does
@@ -79,17 +80,23 @@ func cmdWho(args []string, env Env) error {
 	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
 		return errors.New(usageWho)
 	}
-	st, rc, err := mustLedger(env.Cwd, env)
+	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	ledgerLine(env, rc)
 	t, err := st.ResolveTarget(args[0])
 	if err != nil {
 		// A slash is how a path reads, and `who .buddy/slot/x` asked about a
 		// path (one fleet's refusals). Labels carry slashes too, so this
 		// suggests and never redirects.
 		if errors.Is(err, store.ErrNoSuchTarget) && strings.Contains(args[0], "/") {
+			if rc.fleet != "" {
+				// whose is refused in a fleet (it keeps no paths); a slot's
+				// holder is on ls (the refusals lens, finding 2).
+				return fmt.Errorf("%s; if it is a slot, `buddy ls` lists who holds each", fence.Line(err.Error(), 512))
+			}
 			return fmt.Errorf("%s; if it is a path, `buddy whose <path>` reports who claims it", fence.Line(err.Error(), 512))
 		}
 		return errors.New(fence.Line(err.Error(), 512))
@@ -122,7 +129,7 @@ func cmdWho(args []string, env Env) error {
 	if t.Via == "slug" {
 		onSlug = t.Slug
 	}
-	return sessionReport(env, st, rc.top, si, me, onSlug)
+	return sessionReport(env, st, rc, si, me, onSlug)
 }
 
 // sessionReport renders every register the ledger holds about one session.
@@ -131,7 +138,8 @@ func cmdWho(args []string, env Env) error {
 // drops rows is indistinguishable from a smaller one. onSlug is the open
 // claim the target was named by, "" for any other name: WAITED ON then
 // speaks for that claim alone (D-092).
-func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, me bool, onSlug string) error {
+func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInfo, me bool, onSlug string) error {
+	top := rc.top
 	now := nowOf(env)
 	const maxRows = 20
 
@@ -232,7 +240,10 @@ func sessionReport(env Env, st *store.Store, top string, si store.SessionInfo, m
 	if err != nil {
 		return err
 	}
-	if b, ok := bases[si.SessionID]; ok && b.Incarnation == si.Incarnation {
+	if rc.fleet != "" {
+		// The base sample is git's, and idle records none in a fleet (D-191).
+		fmt.Fprintln(env.Stdout, "BASE         not kept in a fleet ledger")
+	} else if b, ok := bases[si.SessionID]; ok && b.Incarnation == si.Incarnation {
 		fmt.Fprintf(env.Stdout, "BASE         %s, as of its last reported turn\n",
 			strings.TrimPrefix(newBaseReader(env.Cwd).note(now, b), "base "))
 	} else {
@@ -487,4 +498,23 @@ func adapterRegister(a store.AdapterBacklog, now time.Time) string {
 		return "(none)"
 	}
 	return strings.Join(parts, "; ")
+}
+
+// ledgerLine names the ledger in use, FIRST, whenever BUDDY_FLEET is set (the
+// plan's 9.1: a session can be in a fleet, or launched into one and living
+// where a repository's ledger governs, and which ledger a verb read is the
+// first question). Printed straight after the open and before any identity or
+// target lookup, which can fail and would hide it (Codex design pass, Q5).
+// With BUDDY_FLEET unset nothing is printed: today's report, byte for byte.
+func ledgerLine(env Env, rc repoContext) {
+	f := env.getenv(EnvFleet)
+	switch {
+	case f == "":
+	case rc.fleet != "":
+		fmt.Fprintf(env.Stdout, "LEDGER       fleet %s: %s (coordination only: no file claim, gate or brake)\n",
+			fence.Field(rc.fleet, 64), fence.Line(rc.ledger, 512))
+	default:
+		fmt.Fprintf(env.Stdout, "LEDGER       %s, this directory's own; %s=%s is not used here\n",
+			fence.Line(rc.ledger, 512), EnvFleet, fence.Field(f, 64))
+	}
 }

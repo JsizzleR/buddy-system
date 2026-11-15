@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -1511,4 +1512,40 @@ func TestSweepDryRunReportsTheRealRunAndWritesNothing(t *testing.T) {
 	if after.Orphaned != 0 || after.Deleted != 0 || len(after.OrphanedClaims) != 0 {
 		t.Fatalf("after the real run a dry run must find nothing: %+v", after)
 	}
+}
+
+// OpenEscaped (D-191, the fleet ledger): the file opened is the path given,
+// a `?` and a `%` included, and with create false a missing file is an error
+// that leaves nothing behind; the control is the same open after create true.
+func TestOpenEscapedOpensTheLiteralPath(t *testing.T) {
+	dir := t.TempDir()
+	other := filepath.Join(dir, "buddy.db")
+	s, err := Open(other, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	weird := filepath.Join(dir, "buddy.db?x=y%41", "buddy.db")
+	if err := os.MkdirAll(filepath.Dir(weird), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenEscaped(weird, nil, false); err == nil {
+		t.Fatal("create false opened a missing file")
+	}
+	if _, err := os.Stat(weird); err == nil {
+		t.Fatal("create false left a file behind")
+	}
+	s, err = OpenEscaped(weird, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if fi, err := os.Stat(weird); err != nil || fi.Size() == 0 {
+		t.Fatalf("create true must make the literal file: %v", err)
+	}
+	s, err = OpenEscaped(weird, nil, false)
+	if err != nil {
+		t.Fatalf("create false on an existing ledger: %v", err)
+	}
+	s.Close()
 }

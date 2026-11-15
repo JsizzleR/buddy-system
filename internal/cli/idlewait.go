@@ -74,7 +74,8 @@ func sampleOfUsage(u usageSample, env Env) store.ContextSample {
 
 // recordTurnEnd is the Stop hook's whole write: the footprint and base of the
 // turn that just ended, and the idle mark, under the fences described above.
-func recordTurnEnd(st *store.Store, h hookInput, env Env) error {
+// withBase is false in a fleet (D-191): no base is sampled there.
+func recordTurnEnd(st *store.Store, h hookInput, env Env, withBase bool) error {
 	r := readTurn(h.TranscriptPath, h.PromptID)
 	if r.superseded {
 		// This Stop's turn is on disk behind a newer prompt: the session has
@@ -103,7 +104,7 @@ func recordTurnEnd(st *store.Store, h hookInput, env Env) error {
 			// on beat, which forks no git by design. Best effort: a HEAD that
 			// cannot be read records nothing, and the previous base keeps its
 			// own age.
-			if sha := headOf(h.Cwd); sha != "" {
+			if sha := baseOf(h.Cwd, withBase); sha != "" {
 				_ = st.RecordBase(h.SessionID, si.Incarnation, sha, r.u.At)
 			}
 		}
@@ -117,7 +118,7 @@ func recordTurnEnd(st *store.Store, h hookInput, env Env) error {
 		// and behind the same fence.
 		fence = r.pendingAt
 		if si, known, err := st.SessionByID(h.SessionID); err == nil && known && si.Live() && !fence.Before(si.Started) {
-			if sha := headOf(h.Cwd); sha != "" {
+			if sha := baseOf(h.Cwd, withBase); sha != "" {
 				_ = st.RecordBase(h.SessionID, si.Incarnation, sha, nowOf(env))
 			}
 		}
@@ -222,4 +223,13 @@ func resampleFootprint(st *store.Store, h hookInput, me store.SessionInfo, known
 	if u, ok := lastUsage(h.TranscriptPath); ok && !u.At.Before(me.Started) {
 		_ = st.RecordContext(h.SessionID, me.Incarnation, sampleOfUsage(u, env))
 	}
+}
+
+// baseOf is headOf where a base is kept, and "" in a fleet (withBase false),
+// which forks no git for it.
+func baseOf(dir string, withBase bool) string {
+	if !withBase {
+		return ""
+	}
+	return headOf(dir)
 }

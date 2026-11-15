@@ -13,6 +13,8 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -456,13 +458,23 @@ func stampLiteral(v string) bool {
 	if s, err := strconv.Unquote(v); err == nil {
 		v = s
 	}
-	return strings.Contains(strings.Join(strings.Fields(strings.ToLower(v)), ""), "pragmauser_version=")
+	return stampRE.MatchString(strings.Join(strings.Fields(strings.ToLower(v)), ""))
 }
 
+// stampRE is the stamp with or without a schema name (`PRAGMA
+// main.user_version = 19` stamps the same file; Codex re-verify of D-191,
+// round 2, finding 3: the plain spelling alone let that one through).
+// Quoted schema names are folded in too.
+var stampRE = regexp.MustCompile(`pragma(["'\x60\[]?[a-z0-9_]+["'\x60\]]?\.)?user_version=`)
+
 // The guarded door is the only door: in the package's non-test sources,
-// migrateTx is called exactly once, from migrateLedger, and Open calls
-// migrateLedger. A new call site (an unguarded migration) fails here; so does
-// respelling the one allowed call through a variable (no call at all).
+// migrateTx is called exactly once, from migrateLedger, and openDSN calls
+// migrateLedger, and only Open and OpenEscaped call openDSN. A new call site
+// (an unguarded migration) fails here; so does respelling the one allowed call
+// through a variable (no call at all). openDSN is Open's old body, split out
+// so OpenEscaped (the fleet ledger's exact-path open, D-191) goes through the
+// same door, and so under D-136's rule exactly as Open does; a third caller of
+// openDSN would be a third opener nobody reviewed as one.
 func TestMigrateTxCalledOnlyFromMigrateLedger(t *testing.T) {
 	fset := token.NewFileSet()
 	files, err := filepath.Glob("*.go")
@@ -508,7 +520,7 @@ func TestMigrateTxCalledOnlyFromMigrateLedger(t *testing.T) {
 			}
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				if ce, ok := n.(*ast.CallExpr); ok {
-					if id, ok := ce.Fun.(*ast.Ident); ok && (id.Name == "migrateTx" || id.Name == "migrateLedger") {
+					if id, ok := ce.Fun.(*ast.Ident); ok && (id.Name == "migrateTx" || id.Name == "migrateLedger" || id.Name == "openDSN") {
 						calls[id.Name] = append(calls[id.Name], fd.Name.Name)
 					}
 				}
@@ -525,8 +537,13 @@ func TestMigrateTxCalledOnlyFromMigrateLedger(t *testing.T) {
 	if len(stamps) != 1 || stamps[0] != "migrateTx" {
 		t.Fatalf("only migrateTx may stamp user_version: %v", stamps)
 	}
-	if got := calls["migrateLedger"]; len(got) != 1 || got[0] != "Open" {
-		t.Fatalf("migrateLedger must be called from Open alone: %v", got)
+	if got := calls["migrateLedger"]; len(got) != 1 || got[0] != "openDSN" {
+		t.Fatalf("migrateLedger must be called from openDSN alone: %v", got)
+	}
+	got := append([]string(nil), calls["openDSN"]...)
+	sort.Strings(got)
+	if strings.Join(got, ",") != "Open,OpenEscaped" {
+		t.Fatalf("openDSN must be called from Open and OpenEscaped, once each: %v", got)
 	}
 }
 
@@ -534,13 +551,15 @@ func TestMigrateTxCalledOnlyFromMigrateLedger(t *testing.T) {
 // catch, beside the plain one (the control) and literals that set nothing.
 func TestStampLiteralReadsSourceText(t *testing.T) {
 	for src, want := range map[string]bool{
-		`"PRAGMA user_version = 19"`:   true,
-		"`pragma  USER_VERSION = %d`":  true,
-		`"PRAGMA\tuser_version=19"`:    true, // the re-verify's form
-		`"PRAGMA\nuser_version = %d"`:  true,
-		`"PRAGMA user_version"`:        false, // a read, not a stamp
-		`"SELECT user_version FROM x"`: false,
-		`19`:                           false,
+		`"PRAGMA user_version = 19"`:        true,
+		"`pragma  USER_VERSION = %d`":       true,
+		`"PRAGMA\tuser_version=19"`:         true, // the re-verify's form
+		`"PRAGMA\nuser_version = %d"`:       true,
+		`"PRAGMA main.user_version = 19"`:   true, // the schema-qualified form
+		"`PRAGMA \"main\".user_version=19`": true,
+		`"PRAGMA user_version"`:             false, // a read, not a stamp
+		`"SELECT user_version FROM x"`:      false,
+		`19`:                                false,
 	} {
 		if got := stampLiteral(src); got != want {
 			t.Errorf("stampLiteral(%s) = %v, want %v", src, got, want)

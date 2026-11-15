@@ -38,7 +38,7 @@ func cmdIDs(args []string, env Env) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return errors.New(idsUsage)
 	}
-	st, _, err := mustLedger(env.Cwd, env)
+	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}

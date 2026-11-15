@@ -13833,3 +13833,232 @@ Code Mode on.
 - charter: GIVEN 130, reworded to this entry
 - env-check: the `code-mode` row and its QA-9 cases in scripts/check-env-check.sh
 - evidence: this entry (the probe's scratch fixture and recorder log are not retained)
+
+## D-191 — The fleet ledger (NON-GIT-PLAN stage 1b): outside git, `BUDDY_FLEET=<name>` names a coordination-only ledger, `$HOME/.buddy/fleets/<name>/buddy.db`, that the five lifecycle hooks and section 6's typed verbs use only where filesystem discovery found NO ledger; the gate never reads it, so it holds slot claims, messages, waits and outcomes and no file claim or brake; invariant 3's two verdicts there are two sentences, never a DENY
+
+2026-11-15 · docs/NON-GIT-PLAN.md (as of d953058) stage 1b, on the operator's word in orc-2's pane
+at about 07:15Z ("3. proceed, use opus 5.5 on xhigh to do the work with fable and codex as needed
+for help on critical areas along the way. build the fleet ledger/full build"), relayed in lane
+fleet-ledger's brief; stage 2 FOLLOWS as its own item (relayed 07:21Z). Lanes fleet-ledger and its
+successor fleet-ledger-2 (Opus 5.5 at xhigh), run r1115a, class code, tier full.
+
+**What was built.** `internal/cli/fleet.go`. `openSessionLedger` is `openRepo` first; only on its
+`errNoLedger` (provably not a repository, or a repository never `buddy init`ed) does
+`BUDDY_FLEET` choose a ledger (it is read in more places: Run's scrub before discovery, and beside
+a home ledger the not-used lines of hello, busy, status and who and the ledger-access
+explanation, none of which opens the fleet). Unset or empty is today's verdict and words, byte for byte; set, `openFleetLedger` opens
+`<HOME>/.buddy/fleets/<name>/buddy.db` at its literal path with `store.OpenEscaped` (a
+percent-escaped SQLite URI with `mode=rw`; D-136's migration rule and `ErrLedgerNewer` apply) and
+never creates it: only `buddy init --fleet <name>` does. Its callers
+are the five lifecycle hooks, `noteHeard`, `beatOffSuccess` and the typed verbs of the plan's
+section 6 through `mustFleetLedger`. A name is `^[a-z0-9][a-z0-9-]{0,63}$`, matched exactly. The
+refusals of section 6 (`checkFleetScopes`, `fleetRefusal`) and the three skips (no dirty scan, no
+base sample, no authority watch) are in place; hello's first line in a fleet says what the ledger
+is not; `status` and `who` open with a `LEDGER` line whenever `BUDDY_FLEET` is set. No schema
+change, no settings change, no new knob but the variable; `BUDDY_LEDGER` stays a report knob
+`buddy` never reads (the plan's 5.3).
+
+**Invariant 3, read for a ledger the gate never reads.** "No ledger" and "unreadable" stay two
+verdicts with two sentences, in the two places something reads them: the session's SessionStart
+context (hello's line, repeated at every prompt while it lasts if busy is wired) and every fleet
+verb's exit 1. Neither is a DENY, and that is the one departure from "exists but unreadable
+denies": the fleet ledger guards nothing, so a closed failure would protect nothing, and a refusal keyed on an
+environment variable is the bug D-137 closed. Invariant 2's "a ledger that exists but cannot be
+read denies" speaks of the safety hooks, and none reads this ledger. What stays forbidden is the
+silent collapse: the lines go to stdout because the wired lifecycle lines drop stderr and the
+exit status, and "absent" is a positive `ENOENT` only (a dangling symlink, a symlinked fleet, a
+missing or dangling `$HOME`, a git directory's mark, a hard-linked or corrupt ledger: each
+"unavailable", with its cause; a ledger that opened and then failed, SQLITE_BUSY say, is its own
+sentence, `fleet ledger error (`, transient and retried by the next hook or verb).
+**Amended:** D-137, for one case: its typed verbs that "still inherit" git's local environment
+do not while `BUDDY_FLEET` is set (section 6's verbs scrub it at entry: Git's variables, below).
+The plan's 9.2 row 1b asked for D-137 untouched; it cannot be, because a dotfiles `GIT_DIR` gave
+one session two ledgers, its scrubbed hooks in the fleet and its unscrubbed `release` in the
+repository `GIT_DIR` names (`fleetScrub`'s comment). The hooks' scrub and the gate reading only
+ledgers the filesystem names are unchanged. **Untouched:** D-044 (the gate's jurisdiction and its
+"no ledger" arm), D-107 (an installed `buddy` that cannot run refuses every gated call, ledger or
+none). No gate verdict changes:
+`cmdGate` and `cmdCommitGate` call no fleet function, held on internal/cli's call graph by
+`TestGateNeverReachesTheFleetLedger` (roots Run's pre-dispatch body, cmdGate, cmdCommitGate; its
+controls: the resolver reachable from every lifecycle hook and from `claim`/`msg`, and planted
+packages flagged and clean) and on the gate's output by `TestGateVerdictsIgnoreTheFleet` (the
+verdict table re-run unset, naming no fleet, a healthy fleet with a slot claim and queued mail,
+and a corrupt file, in a repository and outside one, byte-identical, each DENY beside its ALLOW;
+it runs `gate` only, so `commit-gate`'s guarantee is the call-graph test's and check.sh's);
+`scripts/check.sh` requires the first to RUN and PASS by name and its forbidden list and roots to
+keep every name.
+
+**The location** is the plan's example (its section 10, question 2), which the operator accepted
+by proceeding and did not name: one constant, `fleetHomeRel`. A later choice changes that line.
+
+**Git's variables in a typed verb (the plan's 9.1; decided in the Codex design pass, its D6).**
+With `BUDDY_FLEET` non-empty, the section-6 typed verbs unset git's local environment at entry, as
+the hook verbs always do, so a typed verb reads the ledger its session's hooks read: otherwise a
+lane with a `GIT_DIR` inherited from a dotfiles shell registers in the fleet through its scrubbed
+hooks while its unscrubbed `release` acts in the repository `GIT_DIR` names. The cost: under
+`BUDDY_FLEET`, an intentional `GIT_DIR=<A>` from repository B acts in B. With the variable unset,
+D-137's recorded open stands unchanged. `commit-gate` is never scrubbed (the partial commit's
+`GIT_INDEX_FILE`).
+
+**Where the plan and the code met.** The code and CLAUDE.md won where they differed, and nothing
+changed the design. (1) The plan's "one `Lstat`" placement was not enough: `Lstat` follows every
+component but the last, so a symlinked fleet directory reached a repository's own `buddy.db` and
+`BUDDY_FLEET=f buddy release <slug>` released a peer's real claim there (design pass, finding 1);
+the walk now checks each managed component. (2) A fleet ledger can open and then fail (a SQLite
+file with the right `user_version` and no tables): hello and busy print the unavailable line for
+it too, so the failure is not on the dropped stderr (finding 2). (3) An open placed in `Run` before
+dispatch reaches neither cmd function (finding 3): Run's pre-dispatch body is a root. (4) Claim's
+scope rule is decided on the store's normalized, folded key (`.buddy/slot/` is the slot root,
+which covers gh-stack; `.buddy\slot\gh-stack` is gh-stack). (5) `release --in-run` and `--unpark`
+refuse in a fleet's own words before any row is read (the plan says parking is refused already,
+which holds only for a slot-only claim's park).
+
+**Folded from the Codex code pass and the panel.** A fleet's directory holding any of `HEAD`,
+`objects`, `refs`, `commondir`, `gitdir` (a git directory or a git common directory; a deny-list,
+so Finder's `.DS_Store` is fine), or a `buddy.db` with more than one name, is unavailable and init
+adopts neither: before, only `HEAD` and symlinks were refused, and a hard link and a common
+directory each aliased a repository's ledger (code pass, finding 1). Its `-wal`, `-shm` and
+`-journal` must each be absent or a regular file with one name (the Fable cross-check, finding 1,
+measured: a hard-linked `-wal` of a repository's live ledger let a fleet verb list and release that
+repository's claims). The ledger-access explanation names a fleet ledger only for a fleet verb's
+failure (the cross-check's finding 5: `init` in a never-inited repository was told the fleet's ledger
+could not be written). The escaped open is finding
+2's (a `?` in `$HOME` opened a repository's ledger). A missing or dangling `$HOME` is unavailable,
+not absent (finding 6). Init checks everything before it changes anything (no chmod on a directory
+it then refuses, nor before an open that refuses a newer schema: re-verify round 1, finding 2), refuses as `refused: init --fleet <name>: ...; nothing was created or changed`,
+and refuses a repeated `--fleet` and a bare `--`. Busy, if wired, adds a line for a session the
+opened fleet does not know (`not on fleet <name>'s roster`, naming the `buddy hello` that
+registers it) and one for a session that left its fleet for a directory whose own ledger does not
+know it: its fleet row stops moving and goes GONE with any slot claim open, and the coordinator's
+wait on it does not land. `buddy who <a/b>` in a fleet suggests `buddy ls`, not
+`whose`. The call-graph test (code pass, finding 4; the cross-check's 3 and 4) now roots every
+`init` and the calls a package-level initializer makes (not the `verbs` table, whose wrappers only
+build closures), follows function values assigned to package variables, forbids from `init`,
+`cmdGate` and `cmdCommitGate` an environment read of `BUDDY_FLEET` (a getenv-shaped call naming it
+or an alias of it; a mention in message text is no read) and the fleet home's constant, and its
+header names what it still cannot see; `check.sh` requires its three tests to pass by name. The
+sidecars are checked before the ledger's own absence (re-verify round 2, finding 1: with `buddy.db`
+absent, init created it beside a hard-linked `-shm`), and the store's migrate guard reads a
+schema-qualified stamp (`PRAGMA main.user_version`, round 2, finding 3). The fold's own mutants: 45,
+all killed (28 on the code and the store's migrate guard, 17 on the call-graph test and `check.sh`'s
+clause).
+
+**Tests and mutants.** Every row of the plan's 5.2 and 9.1 is a test in
+`internal/cli/fleet_test.go` with its positive control, but these: the synced-volume row (recipe
+only); 9.1's orphaned-claim arm; busy's context sample and handoff line in a fleet; `claim --job`,
+msg's wake address, `wait --block` and `sweep --force` inside a fleet (code shared with the
+repository path, tested there). Each section-6 refusal stands beside its grant; 5.4's two tests
+are above. Mutants, in a private rsync'd copy, one per arm: 54 mutants, 51 killed: the resolver's
+walk (each symlink,
+`HEAD`, regular-file and dangling arm, unavailable collapsed into absent, a hook that creates the
+ledger, a loosened name, the unset and home-wins arms); each hook line, before and after the open;
+beat, idle and bye made loud; the three skips; the D6 scrub off and always on; every section-6
+refusal, the slot root, gh-stack and its children, the normalization, the order against
+`--dry-run`; the `LEDGER` and `BASE` lines; the ledger-access fleet arm; init's mode, walk and empty
+name; and three on the gate: an open from `cmdGate` and one from Run's pre-dispatch body, killed by
+the call-graph test, and an ALLOW whenever `BUDDY_FLEET` is set, killed by the verdict test, which
+the call-graph test cannot see. Three survive, each equivalent by construction: the fleet guards on
+beat's dirty scan and authority notice (a fleet's `top` is always "", which both already require)
+and init's symlink clause (`Lstat` never reports a symlink as a directory, so `!IsDir` alone
+refuses it). Five mutants found tests missing (hello's authority baseline and idle's base sample in
+a fleet, the `LEDGER` line with the variable unset, the ledger-access fleet arm, init over a `HEAD`
+or a symlinked ledger); each test was added and its mutant killed on the re-run. `check.sh`'s fleet
+gate, mutated the same way: 5 of 5 killed (a name dropped from the list, the test renamed, skipped
+or failing, the scan's roots cut), after its first roots clause let the last through: a whole-file
+grep matched the control's copy of the call, so it is now read inside `forbiddenFrom`.
+
+**N9 re-taken** (the plan's section 12 loop, extended: two binaries built into a scratch
+directory and never installed, base d953058 and this tree; a throwaway `HOME`; cells interleaved
+per call so load drifts hit every cell alike; 20 calls each, min / median / max ms, failures
+counted): load average 9.3 on 12 cores, 0 of 20 failed in every cell.
+
+| cell | `beat` | `busy` | `idle` |
+| --- | --- | --- | --- |
+| base, no ledger (plain directory) | 20.3 / 21.2 / 22.5 | 20.3 / 21.6 / 26.9 | 19.8 / 21.5 / 72.2 |
+| tip, no ledger, variable unset | 20.6 / 21.2 / 23.1 | 20.3 / 21.8 / 26.0 | 19.9 / 20.7 / 43.5 |
+| tip, the variable names no fleet | 20.3 / 21.5 / 23.3 | 19.9 / 22.1 / 27.7 | 20.2 / 20.8 / 45.9 |
+| tip, fleet ledger found | 21.8 / 22.9 / 24.7 | 21.4 / 22.7 / 27.1 | 21.1 / 22.8 / 54.1 |
+| base, repository ledger found | 14.7 / 15.4 / 25.0 | 14.6 / 15.4 / 18.0 | 14.7 / 15.2 / 41.8 |
+| tip, repository ledger found | 14.6 / 15.4 / 25.0 | 14.4 / 15.2 / 24.3 | 14.2 / 15.1 / 29.1 |
+
+With the variable unset, the no-ledger path's medians match the base binary's within 0.8 ms (the
+lookup adds one `getenv`); a found fleet costs about 1.5 ms over the no-ledger path (git's failed
+discovery first, then the walk and the open); every median is under a quarter of the 100 ms hook
+budget. The no-ledger path stays dearer than a repository's found one, as the plan's N9 saw. One
+run on one machine: the maxima move with load.
+
+**What stage 2 needs from 1b.** `openFleetLedger` is separate from `openSessionLedger`, so stage
+2 opens both and calls it on its own; hello's "is not used here" line (cli.go, the home-ledger
+row) is exactly where stage 2 changes behavior; stage 2's own record owes the joint budget of two
+inboxes under one 9,000-byte digest (`helloBudget`, D-034), which ledger a bare `msg` means, and
+hook latency with two opens (the cells above are its baseline). Nothing in 1b writes a
+`by-session` file or reads one.
+
+**Decided by the lane, for the operator's later review** (each easily reverted):
+- the name is matched exactly, neither folded nor trimmed (upper case is malformed, so two
+  spellings never alias one directory on the case-insensitive volume);
+- `init --fleet` makes the directories 0700 and tightens an existing one with group or other
+  bits, saying so (Mkdir's mode applies only to what it creates);
+- a fleet's directory holding a git directory's mark, or a hard-linked `buddy.db`, is unavailable;
+- `~/.buddy` itself may be a symlink (it holds the operator's other files), but not a dangling one;
+  `~/.buddy/fleets` and each fleet may not;
+- `release --in-run`/`--unpark` refuse explicitly in a fleet;
+- the `LEDGER` line prints only when `BUDDY_FLEET` is set, so every report with it unset is
+  byte-identical;
+- the core skill carries one sentence (a fleet takes only slot claims); the recipe is a
+  reference file beside the fleet skill, `outside-git.md`, read on demand.
+
+**Rejected.** A ledger PATH in the environment (the plan's 5.3: it can name a repository's ledger,
+migrates whatever it names past D-136, and invites a gate to honour it); a per-session `join`
+file, a registry by directory, a marker in the directory, one default fleet (the plan's 5.1); a
+brake in a fleet (it would need the gate to honour a ledger the environment names: the plan's
+question 3, accepted by proceeding); a fleet lookup inside `openRepo`/`resolveRepo`/
+`discoverRepo`, which the gate shares; a DENY for an unreadable fleet.
+
+**Review answers, no code change.** (I5) A zero-byte file a user leaves at the ledger's exact path
+is read by SQLite as an empty database and given the schema at the first open, as any ledger path
+would be; only init or the user puts a file there. (I6) A hand-run `buddy hello` exits 0 on a fleet
+failure: the line is on stdout, which a hand run shows, and the wired line needs the hook contract
+(exit 0, stdout). (R3) The "no tool call refused" check in `TestFleetBusyRepeatsTheLineWhileItLasts`
+cannot fail on its own; the guarantee is `TestGateVerdictsIgnoreTheFleet`'s. (R8)
+`TestFleetVerbSetIsBounded` is one-directional by design: a non-fleet verb reaching the fleet
+resolver is no safety question, and the gate side is the call-graph test's. (L1) Ending the fleet
+row from a governed repository (bye in both ledgers) is stage 2. (D9) The core skill teaches only
+claim's slot form; READY's `--in-run` and `wait --ready` refuse in a fleet with the fix in the
+refusal; the core skill's prose budget (124 bytes left) is why.
+
+**Open.** A fleet home on a synced or network volume is refused in the recipe, not measured. A
+Codex lane in a fleet (the plan's question 5) and a session on both rosters (question 4, stage
+2) are not built. `install.sh` after landing is the operator's. A repository whose own
+`.git/buddy.db` is a symlink INTO the fleet home makes that repository's gate read the fleet's file
+(`openLedgerAt` follows a non-dangling symlinked ledger, as it always has), so a fleet verb from
+outside git can free that repository's claims (Codex re-verify, round 1, finding 1, P1). The fleet's
+walk cannot see a link pointing in; the fix is the gate's (refuse a repository ledger that resolves
+under the fleet home), a change to the gate's verdicts, raised to the coordinator for the operator
+and not made here. Only a deliberate act of the machine user makes that layout (invariant 6). The
+Fable cross-check (finding 2, measured) found the same alias without a symlink: a repository common
+directory literally named `~/.buddy/fleets/%66` opens fleet `f`'s ledger, because `store.Open`'s raw
+`file:` spelling decodes `%XX`, and such a directory can sit anywhere (`x%2f..%2f...`). So that gate-side
+fix is escaping in `Open` (as `OpenEscaped` does), not symlink resolution; it changes the file every
+gate opens and is the operator's too. And `commit-gate` reads no `BUDDY_FLEET` in `Run`: the scrub is
+`fleetVerbs[cmd] && ...`, which never evaluates the variable for a verb outside the set; no verdict
+test runs `commit-gate` with the variable set (the cross-check's finding 4), and the call-graph test
+is what holds it. At the round ceiling (two re-verify rounds), two are answered, not folded: a
+constant that inherits its expression in a const block is unseen by the call-graph test (round 2,
+finding 2; named in its header), and the ledger-access explanation rediscovers from the process cwd,
+so a hook whose payload names another cwd can be explained against the wrong ledger (round 2,
+finding 4, P3; `d953058` rediscovers the same way for repositories; the fix carries the failed
+ledger's path in the error, a refactor for a later item).
+
+### Where it lives
+- code: `internal/cli/fleet.go`; the switches in `cli.go`, `who.go`, `wait.go`, `idlewait.go`,
+  `dirty.go`, `authority.go`, `ids.go`, `sent.go`, `browser.go`, `harness_identity.go`,
+  `ledgeraccess.go`; `internal/store/store.go` (`OpenEscaped`)
+- tests: `internal/cli/fleet_test.go`, `internal/cli/fleet_reach_test.go`,
+  `internal/store/store_test.go` (`OpenEscaped`); `scripts/check.sh`'s fleet gate
+- docs: `docs/USAGE.md` "Outside git — a fleet ledger"; `skills/buddy-fleet/outside-git.md` and
+  SKILL.md's "Investigations outside git"; one sentence in `skills/buddy/SKILL.md`
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line (number and rule)
+- charter: a GIVEN carried in the READY for the integrator (the charter was another lane's)
+- amends: D-137 (with `BUDDY_FLEET` set, section 6's typed verbs scrub git's local environment);
+  the reading of invariant 3 (and invariant 2's sentence) for a ledger the gate never reads

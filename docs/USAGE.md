@@ -27,6 +27,7 @@ answer.
 - [Resource slots — a claim on `.buddy/slot/<name>`](#resource-slots--a-claim-on-buddyslotname)
 - [One long run closes out several sessions](#one-long-run-closes-out-several-sessions)
 - [Landing through an orchestrator](#landing-through-an-orchestrator)
+- [Outside git — a fleet ledger](#outside-git--a-fleet-ledger)
 - [The identifier register — `buddy ids`](#the-identifier-register--buddy-ids)
 - [The commit gate in detail](#the-commit-gate-in-detail)
 - [Chat internals](#chat-internals)
@@ -1848,6 +1849,126 @@ sides. What the operator sees, and where each fact lives:
 
 Buddy keeps no task table. A `buddy task` verb was proposed ([ORCHESTRATION-PLAN.md](ORCHESTRATION-PLAN.md))
 and is not built.
+
+## Outside git — a fleet ledger
+
+Outside a git repository buddy is off: every hook verb exits 0 and prints
+nothing, every ledger verb exits 1. A **fleet ledger** (D-191,
+[NON-GIT-PLAN.md](NON-GIT-PLAN.md) stage 1b) gives sessions working in plain
+directories (independent investigations, one coordinator relaying) a shared
+roster, messages, waits, outcomes and slot claims. It is coordination only:
+**the gate never reads it**, so it reserves no file and carries no brake. Two
+sessions writing one file outside git are refused by nothing, as before. The
+coordinator's recipe is the fleet skill's `outside-git.md`.
+
+**Where it lives and how it is made.** `buddy init --fleet <name>` creates
+`$HOME/.buddy/fleets/<name>/buddy.db` (directories mode 0700; an existing one
+with group or other bits is tightened to 0700 and said so), or says it is
+already there, and prints the variable to launch with. A name is
+`[a-z0-9][a-z0-9-]{0,63}`, matched exactly (no folding, no trimming), so it
+spells no path and two spellings never alias one directory. Nothing else
+creates one: a hook that created what it failed to find would turn a mistyped
+name into a private ledger. The location is the plan's example, one constant
+in `internal/cli/fleet.go` (`fleetHomeRel`). `~/.buddy` may be a symlink;
+`~/.buddy/fleets` and each fleet must be real directories, the ledger a
+regular file with one name (no hard link), its `-wal`, `-shm` and `-journal`
+absent or the same, and a fleet's directory may hold
+none of `HEAD`, `objects`, `refs`, `commondir`, `gitdir` (a git directory's or
+common directory's marks; a deny-list, so Finder's `.DS_Store` is fine):
+otherwise a name could reach a repository's own ledger and release its claims.
+A hook or verb opens it at its literal path (a percent-escaped SQLite URI)
+with `mode=rw`, which fails rather than creates. Init checks all of this before it
+changes anything and adopts nothing a lookup would refuse; its refusals read
+`refused: init --fleet <name>: <cause>; nothing was created or changed`, and
+it refuses a repeated `--fleet` and a bare `--`. Keep the fleet home off synced
+and network volumes (SQLite under a tool that copies a live database is not
+measured).
+
+**How a session finds it.** `BUDDY_FLEET=<name>` in the session's
+environment, set at launch (a herdr tab's `--env`; `claude --bg` carries no
+variable). Discovery from the filesystem runs first, exactly as before. Only
+when it finds no ledger (provably not a repository, or a repository never
+`buddy init`ed) does the variable choose the ledger of the five lifecycle
+hooks and the typed verbs below; beside a home ledger it is read only for the
+lines that say it is not used, and everywhere for the git scrub below.
+`BUDDY_LEDGER` stays a report knob that `buddy` never reads (a path
+could name a repository's ledger and would migrate whatever it names, D-136);
+`BUDDY_LEDGER=$HOME/.buddy/fleets/<name>/buddy.db sh scripts/cost-report.sh`
+reads a fleet like any ledger.
+
+| State | `hello` | `beat`, `busy`, `idle`, `bye` | typed verbs | `gate`, `commit-gate` |
+| --- | --- | --- | --- | --- |
+| variable unset or empty | silent | silent | exit 1, today's words | unchanged |
+| a repository ledger here | registers there; one line: `BUDDY_FLEET=<name> is not used here` | the home ledger | the home ledger; `status`/`who` open with a `LEDGER` line naming it | unchanged |
+| the fleet opens | registers; digest says `in fleet <name>`, no chat line | heartbeat, drain, idle, context sample, handoff line | work, below | unchanged |
+| malformed name | one line on stdout | `busy`, if wired, repeats it each prompt; the rest silent; all exit 0 | exit 1, `refused: ...` | unchanged |
+| no such fleet | one line: `names no fleet ledger on this machine (looked in <path>)` | as above | exit 1, the same words | unchanged |
+| exists, cannot be opened or read (a symlink, a git mark, a hard link, no `$HOME`, a corrupt file, no write access) | one line: `fleet ledger unavailable (<cause>)`, naming the fix | `busy`, if wired, repeats it each prompt; the rest exit 1, cause on stderr | exit 1, the cause; under a sandbox, the escalation fix | unchanged |
+
+"No such fleet" is a positive `ENOENT` under an existing `$HOME` only; a
+dangling symlink anywhere on the path, or a missing or dangling `$HOME`, is
+"unavailable". Neither failure is a DENY: the ledger guards nothing, so a
+closed failure would protect nothing, and a refusal keyed on an environment
+variable is the bug D-137 closed. What is forbidden is the silent collapse, so
+the lines go to stdout (the wired hook lines drop stderr and the exit status),
+and `busy`, if wired, repeats its line at every prompt while the failure lasts
+(without it the line is said once, at hello): a fleet removed an hour after
+SessionStart would otherwise stop coordinating with nothing said. A fleet
+ledger that opens and then fails (a file with the right version and no
+tables, a write lock held past the timeout) has its own line, `fleet ledger
+error (<cause>)`: usually transient, retried by the next hook or verb. And
+`busy`, if wired, says when the opened fleet does not know this session
+(`this session is not on fleet <name>'s roster`, naming the `buddy hello` that
+registers it).
+
+**Verbs in a fleet.**
+
+| Verb | In a fleet ledger |
+| --- | --- |
+| `hello`, `beat`, `busy`, `idle`, `bye` | work; no dirty scan, no base sample, no authority watch (a cwd is no root) |
+| `msg`, `inbox`, `sent`, `wait` (timer, `--on`, `--block`), `wait check`/`ls`/`clear`, `sessions`, `ls`, `sweep`, `ids` | unchanged |
+| `status`, `who` | first line `LEDGER       fleet <name>: <path> (coordination only: no file claim, gate or brake)`; `BASE` reads `not kept in a fleet ledger`; a `who` of an `a/b` that names nobody suggests `buddy ls` |
+| `claim` | only `.buddy/slot/<name>` scopes (after normalization: not the slot root, not `.buddy/slot/gh-stack` or under it, the one slot the gate reads, D-108); `--job` works; `--shared` and `--based-on` refused |
+| `release` | `--outcome`, `--note`, `--to` work; `--in-run` and `--unpark` refused (nothing integrates) |
+| `wait --ready` | refused (no commit; the note carries the path) |
+| `pause`, `resume` | refused: no gate reads the ledger, so a pause would stop nothing while the roster said PAUSED. Stop a lane in its own pane |
+| `whose`, `authority` | refused: no paths |
+| `lifecycle`, `adapter`, `diagnose`, `init` (without `--fleet`), `update`, `uninstall` | the repository's only |
+
+Every refusal reads `refused: <what> in fleet <name>: <why>`.
+
+**Git's variables.** With `BUDDY_FLEET` set, the typed verbs above unset
+git's local environment at entry, as the hook verbs always do (D-137,
+amended for this case), so a
+typed verb reads the ledger its own session's hooks read: a `GIT_DIR`
+inherited from a dotfiles shell cannot send a lane's `release` to some
+repository while its hooks register in the fleet. The cost: under
+`BUDDY_FLEET`, an intentional `GIT_DIR=<A>` run from repository B acts in B;
+unset `BUDDY_FLEET` to target A that way. `commit-gate` is never scrubbed
+(the partial commit's `GIT_INDEX_FILE`).
+
+**What the gate does.** Nothing new. `cmdGate` finds its ledger from the
+filesystem alone (D-137, D-138, D-044), `cmdCommitGate` with git's environment
+kept (D-137), and neither calls the fleet resolver:
+`TestGateNeverReachesTheFleetLedger` holds that for both on the package's call
+graph, and `scripts/check.sh` holds that test to running.
+`TestGateVerdictsIgnoreTheFleet` re-runs `gate`'s verdicts (not
+`commit-gate`'s, which only the call graph holds) with the variable unset,
+naming no fleet, a healthy fleet holding a slot claim and mail, and a corrupt
+file, each byte-identical. An installed `buddy` that cannot run still refuses
+every gated call (D-107).
+
+**Seen by whom.** A lane launched without the variable is off, as today: the
+coordinator sees `buddy who <its id>` refuse. A lane launched in a repository
+with a ledger is on that ledger's roster, not the fleet's. Wherever a lane
+works, a repository's gate governs its writes there. One that `cd`s into such
+a repository after hello leaves its fleet row behind: the row stops moving and goes GONE with any slot claim open, the coordinator's
+wait on it does not land, and `busy`, if wired, says so at each prompt
+(`BUDDY_FLEET=<name> is not used here: this directory has its own ledger
+(<path>), where this session is not registered, ...`). `/clear` mints a new
+row and strands the old one's mail (D-034). Another `HOME` is another fleet
+home. A session on both a repository's roster and a fleet's at once is stage
+2, not built.
 
 ## The identifier register — `buddy ids`
 
