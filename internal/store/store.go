@@ -437,33 +437,48 @@ type Store struct {
 // gate opening behind a peer's Sweep or RetainDirty queues for up to
 // busy_timeout, 5000 ms against a 100 ms hook budget. A ledger already at
 // schemaVersion (every open after the first) now never asks for that lock.
+//
+// THE PATH IS PERCENT-ESCAPED into the file: URI (D-194), so the file opened
+// is the file named. It was spelled "file:"+dbPath, and SQLite decodes %XX in
+// a URI and ends the name at ? or #: measured on this repo's pin,
+// `a%41b/x.db` opened `aAb/x.db`, `e#f/x.db` the file `e`, `g?h/x.db` the
+// file `g`. So a repository whose common directory was literally spelled
+// `~/.buddy/fleets/%66` (or `x%2f..%2f...` from anywhere) had its gate read
+// fleet f's ledger, and a fleet verb run outside git could release that
+// repository's claims (the Fable cross-check of D-191, finding 2, measured;
+// D-191's Open paragraph). Every path that opened its literal file still
+// opens that file: SQLite leaves a % not followed by two hex digits as it
+// is (`100%`, `%zz`), and EscapedPath's %XX of a non-ASCII byte decodes back
+// to the same byte, so an NFD spelling stays NFD. Only a path holding %XX, ?
+// or #, which opened ANOTHER file (or failed), now opens its own. A leading
+// `//` keeps its URI-authority reading, as it had; ledger paths come from
+// filepath.Join, which never leaves one.
 func Open(dbPath string, now func() time.Time) (*Store, error) {
-	return openDSN(dbPath, "file:"+dbPath+"?"+ledgerOpts, now)
+	return openDSN(dbPath, ledgerDSN(dbPath, ""), now)
+}
+
+// ledgerDSN is the ledger's file: URI: the escaped path, then extra (a
+// "k=v&" prefix or ""), then the ledger's options.
+func ledgerDSN(dbPath, extra string) string {
+	u := url.URL{Path: dbPath}
+	return "file:" + u.EscapedPath() + "?" + extra + ledgerOpts
 }
 
 const ledgerOpts = "_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
 
 // OpenEscaped is Open for a path the caller checked on the filesystem and
-// must reach EXACTLY (the fleet ledger, D-191). Two differences, both
-// because the checked path and the opened file must be the same file:
-//
-//   - The path is percent-escaped into the file: URI, as verifyBackup's is.
-//     SQLite decodes %XX and ends the name at ? or #, so with Open's raw
-//     "file:"+dbPath a HOME of `/w/R/.git/buddy.db?x=y` passed the caller's
-//     walk of the literal directory and opened /w/R/.git/buddy.db, a
-//     repository's own ledger (Codex code pass, finding 2). Open's own
-//     spelling is older and recorded open (verifyBackup's comment); it is
-//     not changed here, because the gate opens through it.
-//   - create false adds mode=rw, so a file deleted between the caller's
-//     check and this open is an error, never a fresh empty ledger made
-//     where none was (the panel's lifecycle lens, F4).
+// must reach EXACTLY (the fleet ledger, D-191). It came first: its escaping
+// closed a HOME of `/w/R/.git/buddy.db?x=y` opening a repository's own ledger
+// (Codex code pass of D-191, finding 2), and Open now escapes the same way
+// (D-194). What is left is one difference: create false adds mode=rw, so a
+// file deleted between the caller's check and this open is an error, never a
+// fresh empty ledger made where none was (the panel's lifecycle lens, F4).
 func OpenEscaped(dbPath string, now func() time.Time, create bool) (*Store, error) {
-	u := url.URL{Path: dbPath}
-	q := ledgerOpts
+	extra := ""
 	if !create {
-		q = "mode=rw&" + q
+		extra = "mode=rw&"
 	}
-	return openDSN(dbPath, "file:"+u.EscapedPath()+"?"+q, now)
+	return openDSN(dbPath, ledgerDSN(dbPath, extra), now)
 }
 
 func openDSN(dbPath, dsn string, now func() time.Time) (*Store, error) {
@@ -730,9 +745,9 @@ func (s *Store) Close() error { return s.db.Close() }
 // MainFile is the file SQLite actually opened for this store, as it reports
 // it (`PRAGMA database_list`), not the path the caller asked for. A session
 // on two ledgers (NON-GIT-PLAN stage 2) compares the two by this: the path
-// asked for can differ from the file opened (Open's raw `file:` spelling
-// decodes %XX, D-191's Open paragraph), and two connections to ONE file
-// nested in two write transactions wait on themselves until busy_timeout
+// asked for can differ from the file opened (a symlink SQLite resolves; Open's
+// raw `file:` spelling decoded %XX until D-194), and two connections to ONE
+// file nested in two write transactions wait on themselves until busy_timeout
 // (the Codex design pass, Q2).
 func (s *Store) MainFile() (string, error) {
 	rows, err := s.db.Query(`PRAGMA database_list`)

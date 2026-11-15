@@ -1549,3 +1549,73 @@ func TestOpenEscapedOpensTheLiteralPath(t *testing.T) {
 	}
 	s.Close()
 }
+
+// Open escapes the path (D-194): each spelling opens its own literal file,
+// as SQLite reports it (MainFile, compared by SameFile). For the spellings a
+// raw `file:` URI already read literally (a % not followed by two hex digits,
+// a space, a non-ASCII name in NFD), the file a raw open reaches is the SAME
+// file, so no existing ledger moves; for %XX, ? and #, which a raw open sent
+// to ANOTHER file (aAb, e, g), the escaped open is the literal one and the
+// decoy is left alone.
+func TestOpenOpensTheLiteralPath(t *testing.T) {
+	dir := t.TempDir()
+	rawFile := func(p string) string {
+		t.Helper()
+		db, err := sql.Open("sqlite", "file:"+p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`PRAGMA user_version`); err != nil {
+			return ""
+		}
+		var seq int
+		var name, file string
+		if err := db.QueryRow(`PRAGMA database_list`).Scan(&seq, &name, &file); err != nil {
+			t.Fatal(err)
+		}
+		return file
+	}
+	same := func(a, b string) bool {
+		ai, err := os.Stat(a)
+		if err != nil {
+			return false
+		}
+		bi, err := os.Stat(b)
+		return err == nil && os.SameFile(ai, bi)
+	}
+	for _, c := range []struct {
+		name      string
+		unchanged bool // a raw open already reached the literal file
+	}{
+		{"100%", true},
+		{"q%zz", true},
+		{"with space", true},
+		{"café", true}, // NFD
+		{"a%41b", false},
+		{"e#f", false},
+		{"g?h", false},
+		{"i%25j", false},
+	} {
+		d := filepath.Join(dir, c.name)
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(d, "buddy.db")
+		s, err := Open(p, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		mf, err := s.MainFile()
+		s.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !same(mf, p) {
+			t.Fatalf("%s: Open opened %s, not the literal %s", c.name, mf, p)
+		}
+		if raw := rawFile(p); c.unchanged != same(raw, p) {
+			t.Fatalf("%s: a raw open reached %q; unchanged=%v", c.name, raw, c.unchanged)
+		}
+	}
+}

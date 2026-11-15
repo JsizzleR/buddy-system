@@ -72,13 +72,15 @@ type fleetBeside struct {
 // fleet's already (1b: no home here).
 //
 // ONE FILE IS NOT TWO LEDGERS (the design pass, Q2). A repository whose
-// ledger resolves to the fleet's own file (a symlinked .git/buddy.db, or the
-// %XX spelling D-191's Open paragraph records) would otherwise be opened twice,
+// ledger resolves to the fleet's own file would otherwise be opened twice,
 // and the joint drain's two nested write transactions would wait on each other
 // until busy_timeout. Compared by the files SQLite opened (MainFile), not the
-// paths asked for, because those differ exactly in the second case. That
-// fleet is unavailable beside this home, with that cause; the home half runs as
-// today. Fixing the alias itself is the gate's and the operator's (D-191).
+// paths asked for. That fleet is unavailable beside this home, with that
+// cause; the home half runs as today. Since D-194 the repository side refuses
+// both spellings this was written for (a symlinked .git/buddy.db, in
+// openLedgerAt's fleet-alias guard; the %XX spelling, in store.Open's escape)
+// before this runs, so this is the backstop for the window between that guard
+// and the opens (a link made, or the fleet home made inspectable, in between).
 func besideOf(home *store.Store, rc repoContext, env Env) *fleetBeside {
 	if rc.fleet != "" || env.getenv(EnvFleet) == "" {
 		return nil

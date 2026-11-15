@@ -213,7 +213,19 @@ if [ "$run_hermetic" = 1 ]; then
   # trimmed call passed). The test's planted controls, one per root, are the
   # semantic clause; these greps keep a root from leaving by an edit nobody
   # reads as one.
-  awk '/^func forbiddenFrom\(/{on=1} on{print} on && /^}/{exit}' internal/cli/fleet_reach_test.go | sed 's|//.*||' | grep -q 'g\.reach("Run", pkgInit, "cmdGate", "cmdCommitGate")' || { echo "check.sh: the fleet gate's scan (forbiddenFrom) no longer walks from Run, init, cmdGate and cmdCommitGate (D-191)" >&2; exit 1; }
+  awk '/^func forbiddenFrom\(/{on=1} on{print} on && /^}/{exit}' internal/cli/fleet_reach_test.go | sed 's|//.*||' | grep -q 'withoutHomeReads(g)\.reach("Run", pkgInit, "cmdGate", "cmdCommitGate")' || { echo "check.sh: the fleet gate's scan (forbiddenFrom) no longer walks from Run, init, cmdGate and cmdCommitGate (D-191)" >&2; exit 1; }
+  # D-194: the one function a gate process may name the fleet home from (the
+  # refusal of a repository ledger that is a fleet's file), and the clause
+  # that holds what it reaches to opening nothing. A second name in the list,
+  # or the clause dropped from forbiddenFrom, would let the gate locate and
+  # open a fleet's file unseen.
+  grep -qx 'var fleetHomeReaders = \[\]string{"repoLedgerFleetAlias"}' internal/cli/fleet_reach_test.go || { echo "check.sh: fleetHomeReaders is no longer exactly repoLedgerFleetAlias, the one gate-side reader of the fleet home (D-194)" >&2; exit 1; }
+  awk '/^func forbiddenFrom\(/{on=1} on{print} on && /^}/{exit}' internal/cli/fleet_reach_test.go | sed 's|//.*||' | grep -q 'hits := fleetHomeOpens(g)' || { echo "check.sh: forbiddenFrom no longer holds the fleet-home reader to opening nothing (fleetHomeOpens, D-194)" >&2; exit 1; }
+  # Its signature too (the panel's tests lens, finding 9c): the scan sees what
+  # the reader reaches, not what it hands back, so a reader returning a path
+  # its caller then opened would pass it. It takes the repository's ledger and
+  # returns only an error.
+  grep -qx 'func repoLedgerFleetAlias(ledger string, env Env) error {' internal/cli/fleetalias.go || { echo "check.sh: repoLedgerFleetAlias no longer returns only an error, so a fleet path could leave it unseen by the call-graph scan (D-194)" >&2; exit 1; }
   awk '/^func envFleetFrom\(/{on=1} on{print} on && /^}/{exit}' internal/cli/fleet_reach_test.go | sed 's|//.*||' | grep -q 'g\.reach(pkgInit, "cmdGate", "cmdCommitGate")\[fleetEnvNode\]' || { echo "check.sh: the fleet gate's BUDDY_FLEET scan (envFleetFrom) no longer walks from init, cmdGate and cmdCommitGate to EnvFleet (D-191)" >&2; exit 1; }
 
   go vet ./...

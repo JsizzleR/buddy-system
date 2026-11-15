@@ -1306,21 +1306,22 @@ func TestFleetDirectoryAsACommonDirIsRefused(t *testing.T) {
 	if got := strings.TrimSpace(gitIn(t, wt, "rev-parse", "--git-common-dir")); got != want {
 		t.Fatalf("premise: git must take the fleet's directory as the worktree's common dir; got %q, want %q", got, want)
 	}
-	// The worktree's own session claims a directory there, in the fleet's file.
-	if _, errw, code := fe.run(t, wt, hookJSON("sess-w", wt, "", ""), "hello"); code != 0 {
-		t.Fatal(errw)
+	// Since D-194 the repository side refuses this one file too: the
+	// worktree's ledger sits directly in a fleet's directory, so its hello
+	// fails naming D-194 and its gate denies (before, both worked, on the
+	// fleet's file). The fleet side still refuses on its own, below.
+	if _, errw, code := fe.run(t, wt, hookJSON("sess-w", wt, "", ""), "hello"); code == 0 || !strings.Contains(errw, "a file in the fleet directory") {
+		t.Fatalf("the worktree's hello over a fleet's directory: code %d %q, want refused (D-194)", code, errw)
 	}
-	mustClaim(t, fe.fixture, wt, "peer", "sess-w", "dir1")
+	out, _, _ := fe.run(t, wt, hookJSON("sess-w", wt, "Write", filepath.Join(wt, "x.md")), "gate")
+	if reason, denied := decodeDeny(t, out); !denied || !strings.Contains(reason, "D-194") {
+		t.Fatalf("the worktree's gate over a fleet's directory: %q", out)
+	}
 	fe.env[EnvFleet] = "inv"
 	_, errw, code := fe.run(t, fe.plain, "", "release", "peer", "--session", "sess-w")
 	if code != 1 || !strings.Contains(errw, "the mark of a git directory") {
 		t.Fatalf("release through a fleet that is a common dir: code %d %q, want refused", code, errw)
 	}
-	delete(fe.env, EnvFleet)
-	if out, _, _ := fe.run(t, wt, "", "ls"); !strings.Contains(out, "peer") {
-		t.Fatalf("the worktree's claim must survive: %q", out)
-	}
-	fe.env[EnvFleet] = "inv"
 	if _, errw, code := fe.run(t, fe.plain, "", "init", "--fleet", "inv"); code != 1 || !strings.Contains(errw, "refused: init --fleet inv") {
 		t.Fatalf("init --fleet must not adopt a common dir: code %d %q", code, errw)
 	}

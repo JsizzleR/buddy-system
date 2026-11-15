@@ -1092,6 +1092,13 @@ func openLedgerAt(rc repoContext, env Env) (*store.Store, error) {
 			return nil, fmt.Errorf("ledger is a dangling symlink: %w", err)
 		}
 	}
+	// A repository ledger that is a fleet's file exists but cannot be used:
+	// an error, never errNoLedger, so the gate DENIES and no session falls
+	// through to the fleet (D-194, fleetalias.go). Before the open, which may
+	// migrate what it opens.
+	if err := repoLedgerFleetAlias(rc.ledger, env); err != nil {
+		return nil, err
+	}
 	return store.Open(rc.ledger, env.Now)
 }
 
@@ -1568,6 +1575,10 @@ func cmdInit(args []string, env Env) error {
 		return err
 	}
 	p := rc.ledger
+	// Init would create, or migrate, a fleet's file through a link (D-194).
+	if err := repoLedgerFleetAlias(p, env); err != nil {
+		return fencedOpenErr(err) // a wrapped PathError carries a raw path (invariant 9)
+	}
 	st, err := store.Open(p, env.Now)
 	if err != nil {
 		return fencedOpenErr(err) // names the ledger's path (openErr)

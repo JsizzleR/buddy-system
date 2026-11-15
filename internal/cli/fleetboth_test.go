@@ -305,16 +305,21 @@ func TestBothLedgersUnreadableHomeTouchesNoFleet(t *testing.T) {
 }
 
 // The design pass, Q2: a repository ledger that IS the fleet's file (here a
-// symlinked .git/buddy.db) is not opened twice: the fleet is unavailable
-// beside it, and a beat with mail does not wait out busy_timeout on itself.
+// symlinked .git/buddy.db). Since D-194 the repository side refuses it before
+// any fleet is opened: hello fails as over any unusable home ledger, naming
+// D-194, and registers the session in neither ledger (no fallback to the
+// fleet, which errNoLedger alone would give). besideOf's own one-file arm
+// stays as the backstop for the window between the guard and the opens (a
+// link made in between), so it is driven directly: two stores on one file, the fleet unavailable beside the home.
 // The control is the same repository with its own ledger.
 func TestBothLedgersOneFileIsNotTwoLedgers(t *testing.T) {
 	boundedParallel(t)
-	fe, orc := bothEnv(t)
+	fe, _ := bothEnv(t)
 	out, _, _ := fe.hook(t, "hello", "ctl-x", fe.repo)
 	if !strings.Contains(out, "BUDDY: also session") {
 		t.Fatalf("control: %q", out)
 	}
+	fleetLedger := filepath.Join(fe.home, ".buddy", "fleets", "inv", "buddy.db")
 	ledger := filepath.Join(fe.repo, ".git", "buddy.db")
 	if err := os.Remove(ledger); err != nil {
 		t.Fatal(err)
@@ -322,20 +327,38 @@ func TestBothLedgersOneFileIsNotTwoLedgers(t *testing.T) {
 	for _, s := range []string{"-wal", "-shm"} {
 		os.Remove(ledger + s)
 	}
-	if err := os.Symlink(filepath.Join(fe.home, ".buddy", "fleets", "inv", "buddy.db"), ledger); err != nil {
+	if err := os.Symlink(fleetLedger, ledger); err != nil {
 		t.Fatal(err)
 	}
-	out, _, code := fe.hook(t, "hello", "sess-x", fe.repo)
-	if code != 0 || !strings.Contains(out, "it is the same file as this directory's own ledger") || !strings.Contains(out, "this directory's own ledger works as before") {
-		t.Fatalf("hello over an aliased ledger: code %d %q", code, out)
+	out, errw, code := fe.hook(t, "hello", "sess-x", fe.repo)
+	if code == 0 || !strings.Contains(errw, "D-194") || strings.Contains(out, "also session") {
+		t.Fatalf("hello over an aliased ledger: code %d stdout %q stderr %q", code, out, errw)
 	}
-	if _, errw, code := fe.as(t, "orc-1", orc, "msg", "sess-x", "fleet mail"); code != 0 {
-		t.Fatal(errw)
+	if row := fleetRow(t, fe, "sess-x"); row != "" {
+		t.Fatalf("an aliased home must not register the session in the fleet: %q", row)
 	}
-	start := time.Now()
-	out, _, _ = fe.hook(t, "beat", "sess-x", fe.repo)
-	if el := time.Since(start); el > 3*time.Second || !strings.Contains(promptContext(t, out), "fleet mail") {
-		t.Fatalf("beat over an aliased ledger: %v, %q", el, out)
+
+	// The backstop, driven directly.
+	home, err := store.Open(fleetLedger, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer home.Close()
+	env := Env{Getenv: func(k string) string { return fe.env[k] }, Now: time.Now}
+	fb := besideOf(home, repoContext{}, env)
+	if fb == nil || fb.st != nil || fb.err == nil || !strings.Contains(fb.err.Error(), "it is the same file as this directory's own ledger") {
+		t.Fatalf("besideOf over one file: %+v", fb)
+	}
+	// Its control: a home that is another file opens the fleet beside it.
+	other, err := store.Open(filepath.Join(t.TempDir(), "buddy.db"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if fb := besideOf(other, repoContext{}, env); fb == nil || fb.st == nil || fb.err != nil {
+		t.Fatalf("control: besideOf over two files: %+v", fb)
+	} else {
+		fb.st.Close()
 	}
 }
 

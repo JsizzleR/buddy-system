@@ -14343,3 +14343,191 @@ no `buddy fleet` set.
   ledgers, and `BUDDY_FLEET` is no longer "not used here"; "a session on both rosters" leaves its
   Open paragraph); the plan's 5.1 hand path (withdrawn for `buddy fleet <verb>`) and 9.2 row 2
   (`join` dropped)
+
+## D-194 — A repository ledger that is a fleet's file DENIES: `openLedgerAt` and `init` refuse, before the open, a repository ledger or a sidecar SQLite opens beside it whose path, resolved by SQLite's own walk, lands directly in a directory of `$HOME/.buddy/fleets`; and `store.Open` percent-escapes its path, so a ledger spelled with `%XX`, `?` or `#` opens its own literal file; amends D-191
+
+2026-11-15 · the operator in orc-2's pane, after 12:50Z: "add the gate-side refusal as a follow-up"
+(D-191's Open paragraph had raised it, because it changes the gate's verdicts), relayed in lane
+gate-fleet-alias's brief. Lanes gate-fleet-alias and its successor gate-fleet-alias-2 (Opus 5.5 at
+high), run r1115c, class code, tier full.
+
+**The alias.** A fleet ledger (D-191) is coordination-only and the gate never reads it; a
+repository ledger is the file every gate verdict rests on. Two layouts made one file both, so a
+`buddy fleet <verb>` or a `BUDDY_FLEET` verb run outside git wrote the file a repository's gate
+reads and could release that repository's claims. (1) `R/.git/buddy.db` a symlink into
+`$HOME/.buddy/fleets/f/` (D-191's Codex re-verify, round 1, finding 1, P1): `openLedgerAt` follows
+a non-dangling symlinked ledger, and the fleet's walk cannot see a link pointing IN. (2) No link at
+all (D-191's Fable cross-check, finding 2): `store.Open` spelled its URI `"file:"+dbPath`, and SQLite
+decodes `%XX` and ends the name at `?` or `#`, so a common directory literally named
+`~/.buddy/fleets/%66`, or `x%2f..%2f...` from anywhere, opened fleet `f`'s ledger.
+
+**What changed.** `store.Open` escapes its path into the URI (`ledgerDSN`, shared with
+`OpenEscaped`, which keeps only its `mode=rw`). Measured on this repo's pin before the change:
+`a%41b/x.db` opened `aAb/x.db`, `e#f/x.db` the file `e`, `g?h/x.db` the file `g`. Every path that
+opened its literal file still opens it: SQLite leaves a `%` not followed by two hex digits as it is
+(`100%`, `%zz`), and `EscapedPath`'s `%XX` of a non-ASCII byte decodes back to the same byte, so an
+NFD spelling stays NFD (`TestOpenOpensTheLiteralPath`). `repoLedgerFleetAlias`
+(`internal/cli/fleetalias.go`, its header the design) runs in `openLedgerAt`, which every gated
+opener goes through (the gate, commit-gate, the hook verbs, the typed verbs), and in `cmdInit`
+before it creates a ledger. It resolves the ledger the way SQLite's unix VFS does
+(`unixFullPathname`'s element walk: `..` drops the last element of what is resolved SO FAR, ENOENT
+is not an error and the walk goes on, an absolute link restarts from `/`, at most 201 links: the pinned SQLITE_MAX_SYMLINK, 200,
+compared as SQLite does), then
+derives `-wal`, `-shm` and `-journal` from that RESOLVED file and resolves each that is a symlink.
+If any lands directly in a child directory of the fleet home, compared by `os.SameFile` against
+both its lexical and its physical (`<dir>/..`) grandparent, it returns an error naming cause and
+fix before the paths: `a repository ledger is a fleet's file (D-194): ask the operator to give this
+repository a ledger file of its own ...`. Under invariant 3 that is a ledger that exists but cannot
+be used: a DENY, never feature-off and never `errNoLedger` (which would hand the session to the
+fleet under `openSessionLedger`). Once a fleet home exists, failing to resolve the repository's own
+file or a symlinked sidecar denies too, `cannot tell whether this repository's ledger is a fleet's
+file (D-194) ...`: that is the file the gate is about to open, and "cannot tell" is not "safe".
+
+**Verdicts that change.**
+- A repository whose ledger, or whose `-wal`/`-shm`/`-journal` beside the database it resolves to,
+  lands directly in a fleet's directory now DENIES in the gate, fails commit-gate, every hook and
+  typed verb, and `init` refuses it. Before, each read and wrote the fleet's file. This includes
+  D-191's own layout of a worktree whose git common dir IS a fleet's directory
+  (`TestFleetDirectoryAsACommonDirIsRefused`): its hello and gate, which worked on the fleet's file,
+  now refuse on the repository's side too; the fleet side refuses as before.
+- A ledger path holding `%XX`, `?` or `#` opens its literal file. Before: another file, or a
+  CANTOPEN deny.
+- A `-journal` (or any sidecar) symlink into a directory the walk cannot search, once a fleet home
+  exists, now denies `cannot tell` (the invariant-3 lens, finding 5a): before, SQLite's open
+  decided. And a ledger in `~/.buddy/fleets/.git` or a bare `fleets/x.git` denies, the whole
+  directory being reserved (below).
+
+**Unchanged.** D-137 (no fleet-wide deny from one repository), D-044, D-107: a fleet-home error is
+NOT a denial (the design pass, finding 2): `$HOME` empty or relative, or the fleet home absent, not
+a directory, a symlink, or not stat-able, means no fleet verb under this HOME can reach a fleet
+(`fleetLedgerPath` refuses every one of those), so there is no alias to refuse and the repository
+opens as it did; an unreadable `~/.buddy` refusing every gated call in every healthy repository is
+the fleet-wide class D-137 closed. A repository merely living under the fleet home
+(`fleets/x/repo/.git/buddy.db`) opens as before: the depth is exact (the design pass, Q3). A plain
+ledger a peer holds open, with regular `-wal` and `-shm` beside it, allows (the production shape,
+the tests lens, finding 1). The fleet side (D-191, D-193) is unchanged; `besideOf`'s `MainFile`
+comparison stays as the backstop for the window between this check and the open.
+
+**Before the open, not by `MainFile` after it** (the design pass, Q1): `openDSN` reads the schema
+stamp, may MIGRATE a below-schema file (D-136) and asks for WAL mode, so a check after the open
+would have touched the fleet's file before refusing it (`TestAliasedRepositoryLeavesTheFleetFileAlone`
+reads the fleet's rows and stamp back unchanged). The window between check and open is the TOCTOU
+the ledger already accepts (D-005, invariant 6).
+
+**Why SQLite's walk, not `filepath.EvalSymlinks`** (the docs lens, finding 1, reproduced): with
+`buddy.db -> <fleets>/f/nonexist/../buddy.db` EvalSymlinks stopped at the missing directory, the
+guard saw no file, and init created fleet `f`'s ledger, because SQLite takes `..` against
+`<fleets>/f/nonexist` lexically. The same walk covers a dangling final link (through which init's
+open creates the target) and the physical order a link then `..` needs (`jump/../buddy.db`). The
+physical grandparent is the gate-verdict lens's finding 1, reproduced: `/.vol/<dev>/<inode>/buddy.db`
+names the fleet's directory by inode, SQLite's walk reaches it past an ENOENT at `/.vol/<dev>`, and
+only `<dir>/..`, spelled raw so nothing cleans it, asks the kernel for the real parent. Sidecars come
+from the RESOLVED database (the design pass, finding 1): `R/.git/buddy.db -> /data/repo.db` with
+`/data/repo.db-wal` linked into a fleet has no sidecar beside the link at all, and a stray link
+beside the link, which SQLite never opens, refuses nothing.
+
+**The call graph.** `fleetalias.go` is the one place a gate process names `fleetHomeRel`.
+`TestGateNeverReachesTheFleetLedger` exempts `repoLedgerFleetAlias` by name (`fleetHomeReaders`),
+drops only its edge to the constant, still walks through it, and holds everything it reaches to
+opening no ledger: no store or `database/sql` selector, the design pass's finding 3 (a body-only
+check let a helper open one). `scripts/check.sh` pins the readers list, the opens clause, the walk
+roots and the guard's signature. It reads `HOME`, never `BUDDY_FLEET`.
+
+**Latency** (against the 100 ms hook budget; gate 20 ms in CLAUDE.md). Gate medians, 20 calls each,
+base and tip interleaved, load 3.67 on 12 cores, 0 of 20 failed: no fleet home 13.7 ms base and
+13.7 ms tip; three fleets 13.8 and 13.7; a symlinked ledger 13.8 and 13.8.
+
+**Decided by the lane, for the operator's later review** (each easily reverted): the WHOLE fleet
+directory is reserved, any file in it and not only `buddy.db` (an exact-file rule would need the
+fleet's filename spelled the case-insensitive volume's way); no repository-side hard-link rule: the
+fleet side refuses a file with two names (`nlink != 1`), so no fleet verb writes a hard-linked
+ledger (the cross-check reproduced it: the gate reads the shared file, `buddy fleet who` refuses
+"has 2 names"); a repository-side `nlink != 1` would deny a ledger with any second name, a fleet's
+or not, the fleet-wide class this guard keeps out, and matching the inode against every fleet's
+files would read the whole fleet home on every gated call. (The first draft's reason, that it would
+deny every ledger holding a D-136 backup, was wrong: the backup links its temporary copy to the
+`.bak` name, and the ledger never gains a name; the Fable cross-check, 1a.) The residue, a fleet
+connection opened BEFORE `ln` of a sidecar, is the accepted TOCTOU; no check when `$HOME` is empty or relative or the
+fleet home is absent, a symlink or not stat-able; a sidecar name too long to exist (ENAMETOOLONG: a
+resolved basename of 248 to 251 bytes leaves `-journal` past NAME_MAX and `-wal` under it, and that
+ledger opens today) counts as absent (the invariant-3 lens, finding 5b).
+
+**Open.** A hook and a fleet verb under DIFFERENT HOMEs (`R/.git/buddy.db ->
+/H1/.buddy/fleets/f/buddy.db`, the hook under `HOME=/H2`) pass the check; the ledger trusts the
+machine user (invariant 6), and a registry of homes is not built. A hung network `~/.buddy` blocks
+the guard's stat (unmeasured; the invariant-3 lens, finding 7). buddylist's `journal.go` keeps the
+raw `file:` spelling (it is no ledger the gate reads). A literal `".buddy/fleets"` string elsewhere
+is unseen by the call-graph scan (predates this change; the tests lens, 9d).
+
+**Tests and mutants.** Every alias is a test with its positive control in the same flow: a
+symlinked `buddy.db` (absolute, relative through `..`, through a mid-path link, through a chain of
+8), a link to another file in a fleet's directory, a symlinked `-wal`, `-shm` and `-journal`
+beside a plain ledger and beside a moved one, the fleet home spelled in upper case, `/.vol` by
+inode, init through a dangling link (four `..` shapes, a fleet directory not made yet), a looping
+sidecar and a looping ledger ("cannot tell"); `%XX`, `?` and `#` in a common directory open their
+own literal ledger and leave the fleet's file untouched. The controls: a plain ledger, one a peer
+holds open, a ledger under the fleet home, a stray link beside the link, a symlinked fleet home,
+an unreadable `~/.buddy`, `$HOME` unset or relative, a name too long only for its `-journal`. The
+hard link is the fleet side's (`nlink != 1`, D-191) and decided above. Each deny is checked in the
+gate, `ls`, commit-gate and `hello`, by this rule's words, with the peer's claim governing on a
+usable ledger as the proof the guard was armed. Mutants in a private rsync'd copy: run 1, 25 code
+and test mutants and 4 `check.sh` pin mutants, all killed (one after a test was added); run 2,
+over the code changed since (the SQLite walk, both grandparents, the fleet home's Lstat, the
+ENAMETOOLONG arm, the "cannot tell" text), 33, of which 29 were killed at once, init's guard once its stale patch was
+redone, and 2 more after a test each (the lexical grandparent: a fleet directory not made yet; the repository's own file
+unresolvable: a ledger link to itself). The one survivor is the sidecar's non-ENOENT Lstat error,
+unreachable without a race (the ledger's directory exists and is searchable once the ledger
+resolved), commented where it stands.
+
+**The Codex code pass** (xhigh, over `7d514a2..4317372`): one finding, fixed. The walk's link cap
+was 100, the C source's `SQLITE_MAX_SYMLINKS`; the pinned `modernc.org/sqlite` v1.53.0 checks
+`SQLITE_MAX_SYMLINK`, 200, against the count of links already followed, so it follows 201 and
+refuses the 202nd, and init through 101 to 201 links to a ledger outside every fleet was refused
+"cannot tell". Now `sqliteMaxSymlinks`, compared as SQLite does, with both sides tested at the
+exact count (201 allowed and created; 202 "cannot tell"; with the guard's cap moved past it,
+SQLite's own open failed `unable to open database file (14)` at 202, measured). Counting needs a
+resolved directory: a link in a path's prefix counts too (macOS's `/var`, one per absolute hop),
+and git hands buddy its common directory physical. Its other answers found no bypass of
+`openLedgerAt`, no other file-selection change from the escape, no unfenced value; its Q6 note
+(no newline in any fixture path) became `TestFleetAliasRefusalsAreOneLine`.
+
+**The Fable cross-check** (Fable 5.2, fresh context, given the code; over `7d514a2..4317372`, in a
+scratch copy with throwaway HOMEs): no layout where a repository's gate and a fleet verb share a
+file and the guard allows it, beyond the residues recorded. Raised, by its numbering: 1a the
+hard-link reason above, wrong, rewritten; 1b `/.vol/<dev>/<inode of the fleet's FILE>` under init
+passes the guard (no parent is stat-able) and fails SQLite's own open, the fleet file unchanged,
+reproduced, answered (safe by SQLite's failure, and the gate denies it earlier); 1c the header's
+"a write through a symlinked -wal returned no error" did not reproduce (CANTOPEN under
+`O_NOFOLLOW`), the comment and a test name corrected, the sidecar arms kept as defence in depth;
+2a the link cap, the code pass's finding, already folded; 2b a git directory made inside the fleet
+home was told to replace a link it does not have: with no link (path is file) the fix now names
+the git directory; 5a the no-check arm's two halves (an Lstat error, `IsDir`) survived mutation
+because the plain-ledger control has nothing to resolve: three controls with a `-journal` linked to
+itself (no fleet home, the fleet home a regular file, `~/.buddy` unreadable) allow, and its twin
+with a readable fleet home denies; 5b `.` before `..` (`<fleet>/sub/./../buddy.db`) now a deny case;
+5c init's fencing of a raw PathError, now tested with a newline in the unsearchable directory's
+name; 5d `fence.Line` on `e.file` and on `cannotTell`'s path, and 5e the cause-and-fix-first order
+the 512-byte arms rely on, now asserted in `TestFleetAliasRefusalsAreOneLine`; 5f the gate's
+`/.vol` subtest passes with the guard removed (the dangling arm denies first, as its comment says),
+answered. It ran 31 mutants of its own: 22 killed, 9 survived, the 9 being 5a to 5e and the
+recorded sidecar Lstat arm; each fold's mutant was rerun after its test and killed.
+
+**The Codex re-verify** (xhigh, round 1 of the ceiling's two, over `4317372..fbac12f`, the folds of
+both passes): clean on each item (the bound and its boundary test exact, the no-link test of path
+against file right at both call sites, each new control and deny case sensitive to its arm, no
+unrecorded verdict change). No round 2 was needed.
+
+### Where it lives
+- code: `internal/cli/fleetalias.go` (`repoLedgerFleetAlias`, `resolveLedgerFile`, `inFleetDir`);
+  the two calls in `internal/cli/cli.go` (`openLedgerAt`, `cmdInit`); `internal/store/store.go`
+  (`Open`, `ledgerDSN`, `OpenEscaped`); comments in `fleetboth.go` (`besideOf`) and `migrate.go`
+- tests: `internal/cli/fleetalias_test.go`; `internal/store/store_test.go`
+  (`TestOpenOpensTheLiteralPath`); `internal/cli/fleet_reach_test.go` (`fleetHomeReaders`,
+  `fleetHomeOpens`); `fleetboth_test.go` (`TestBothLedgersOneFileIsNotTwoLedgers`); `fleet_test.go`
+  (`TestFleetDirectoryAsACommonDirIsRefused`, now refused on the repository side too);
+  `scripts/check.sh`'s pins
+- docs: `docs/USAGE.md` "Outside git — a fleet ledger" (the refusal's text)
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line (number and rule)
+- charter: GIVEN 134
+- amends: D-191 (its Open paragraph's gate-side fix, symlink and `%XX`, is made here; the
+  repository side of `TestFleetDirectoryAsACommonDirIsRefused` now refuses)

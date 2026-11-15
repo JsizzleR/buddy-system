@@ -1922,6 +1922,23 @@ error (<cause>)`: usually transient, retried by the next hook or verb. And
 (`this session is not on fleet <name>'s roster`, naming the `buddy hello` that
 registers it).
 
+**A repository ledger that is a fleet's file DENIES** (D-194). The fleet's own
+checks refuse every alias they can see from the fleet's side, a hard link
+included (the fleet goes unavailable; the repository keeps working). A
+SYMLINK pointing in from a repository (`.git/buddy.db`, or the `-wal`, `-shm`
+or `-journal` SQLite opens beside the database it resolves to, landing
+directly in `$HOME/.buddy/fleets/<name>/`) is refused on the repository's
+side: the gate, commit-gate, every hook and verb, and `init` fail with `a
+repository ledger is a fleet's file (D-194): ask the operator to give this
+repository a ledger file of its own ...` (with no link, a git directory made inside the fleet
+home: `... to move this repository's git directory out of the fleet home ...`), then the paths,
+because a fleet verb
+run outside git could otherwise release that repository's claims. A
+repository merely living under the fleet home is not refused, nor is any
+repository while `$HOME` is empty or relative or the fleet home cannot be
+stat'ed as a directory. A ledger path holding `%XX`, `?` or `#` opens its own
+literal file.
+
 **Verbs in a fleet.**
 
 | Verb | In a fleet ledger |

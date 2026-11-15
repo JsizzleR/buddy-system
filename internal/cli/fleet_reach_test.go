@@ -116,6 +116,57 @@ import (
 // is caught where no resolver is named (Fable cross-check, F3b).
 var fleetForbidden = []string{"openFleetLedger", "openSessionLedger", "mustFleetLedger", "fleetLedgerPath", "cmdInitFleet", "fleetHomeRel", "besideOf"}
 
+// fleetHomeReaders may name fleetHomeRel from a gate root, and nothing else
+// forbidden (D-194): the gate's refusal of a repository ledger that is a
+// fleet's file has to know where the fleet home is, and opens nothing there.
+// The scan drops ONLY the edge from such a function to fleetHomeRel and still
+// walks through it, so a fleet resolver it calls is flagged; fleetHomeOpens
+// holds everything it reaches to naming no store or sql selector, so an
+// opener it reaches through a helper is flagged too (the Codex design pass,
+// finding 3). One name, pinned by check.sh.
+var fleetHomeReaders = []string{"repoLedgerFleetAlias"}
+
+// withoutHomeReads is g with each fleetHomeReaders function's edge to
+// fleetHomeRel removed, and nothing else changed.
+func withoutHomeReads(g callGraph) callGraph {
+	out := callGraph{edges: map[string]map[string]bool{}, run: g.run, opens: g.opens}
+	for n, es := range g.edges {
+		out.edges[n] = es
+	}
+	for _, r := range fleetHomeReaders {
+		if es, ok := g.edges[r]; ok && es["fleetHomeRel"] {
+			cp := make(map[string]bool, len(es))
+			for m := range es {
+				if m != "fleetHomeRel" {
+					cp[m] = true
+				}
+			}
+			out.edges[r] = cp
+		}
+	}
+	return out
+}
+
+// fleetHomeOpens names each path from a fleetHomeReaders function to a node
+// that names a store or sql selector.
+func fleetHomeOpens(g callGraph) []string {
+	var hits []string
+	for _, r := range fleetHomeReaders {
+		reach := g.reach(r)
+		names := make([]string, 0, len(reach))
+		for n := range reach {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			if g.opens[n] {
+				hits = append(hits, strings.Join(reach[n], " -> "))
+			}
+		}
+	}
+	return hits
+}
+
 // pkgInit is the one node for every package-level `func init()`: nothing can
 // name or call one, so it is a root and never an edge, and a method that
 // happens to be called init stays a node of its own.
@@ -171,6 +222,10 @@ func envRead(e ast.Expr, aliases map[string]bool) bool {
 type callGraph struct {
 	edges map[string]map[string]bool // node -> nodes it names
 	run   map[string]bool            // Run's edges, minus the verbs table
+	// opens are the nodes whose body names a selector of package store or
+	// database/sql (`store.Open`, `sql.Open`, `store.Store`): what the
+	// exempt fleet-home reader may not reach (D-194).
+	opens map[string]bool
 }
 
 func isPkgInit(d *ast.FuncDecl) bool { return d.Recv == nil && d.Name.Name == "init" }
@@ -256,7 +311,7 @@ func buildCallGraph(t *testing.T, files []*ast.File) callGraph {
 			}
 		}
 	}
-	g := callGraph{edges: map[string]map[string]bool{}, run: map[string]bool{}}
+	g := callGraph{edges: map[string]map[string]bool{}, run: map[string]bool{}, opens: map[string]bool{}}
 	add := func(from string, n ast.Node, skip string) {
 		if g.edges[from] == nil {
 			g.edges[from] = map[string]bool{}
@@ -289,6 +344,10 @@ func buildCallGraph(t *testing.T, files []*ast.File) callGraph {
 				}
 			case *ast.BasicLit:
 				mentions = mentions || envRead(x, aliases)
+			case *ast.SelectorExpr:
+				if id, ok := x.X.(*ast.Ident); ok && (id.Name == "store" || id.Name == "sql") {
+					g.opens[from] = true
+				}
 			case *ast.CallExpr:
 				if !envCallees[calleeName(x.Fun)] {
 					break
@@ -486,8 +545,8 @@ func parseSrc(t *testing.T, src string) []*ast.File {
 // forbiddenFrom names each forbidden function reachable from the gate's roots,
 // with its path.
 func forbiddenFrom(g callGraph) []string {
-	r := g.reach("Run", pkgInit, "cmdGate", "cmdCommitGate")
-	var hits []string
+	r := withoutHomeReads(g).reach("Run", pkgInit, "cmdGate", "cmdCommitGate")
+	hits := fleetHomeOpens(g)
 	for _, f := range fleetForbidden {
 		if p, ok := r[f]; ok {
 			hits = append(hits, strings.Join(p, " -> "))
@@ -523,6 +582,18 @@ func TestGateNeverReachesTheFleetLedger(t *testing.T) {
 		t.Fatalf("Run is reachable from a gate verb or init, so every verb is: %s", strings.Join(p, " -> "))
 	}
 
+	// The opens clause matches the selectors `store.` and `sql.`, so the
+	// package must import them under those names (the tests lens, finding
+	// 9b): `import st "…/internal/store"` would make every open invisible.
+	for _, f := range parseDir(t, ".") {
+		for _, im := range f.Imports {
+			path, _ := strconv.Unquote(im.Path.Value)
+			if (strings.HasSuffix(path, "/internal/store") || path == "database/sql") && im.Name != nil {
+				t.Fatalf("internal/cli imports %s as %s; fleetHomeOpens sees only the selectors store. and sql. (D-194)", path, im.Name.Name)
+			}
+		}
+	}
+
 	// Clause 2a: the resolver IS reachable where it belongs, so a respelled
 	// resolver (or a walk that finds nothing) cannot pass by absence.
 	for _, from := range []string{"cmdHello", "cmdBeat", "cmdBusy", "cmdIdle", "cmdBye", "cmdClaim", "cmdMsg", "noteHeard", "beatOffSuccess"} {
@@ -539,7 +610,10 @@ func TestGateNeverReachesTheFleetLedger(t *testing.T) {
 	}
 	// And the roots are real: each reaches what a gate does reach.
 	r := g.reach("Run", pkgInit, "cmdGate", "cmdCommitGate")
-	for _, n := range []string{"openRepo", "openGateRepo", "scrubHookGitEnv", "decodeHook", "hooksBinaryPermit"} {
+	// repoLedgerFleetAlias among them (D-194): the exemption below is for a
+	// function the gate really runs, so it cannot outlive its call site
+	// unnoticed.
+	for _, n := range []string{"openRepo", "openGateRepo", "scrubHookGitEnv", "decodeHook", "hooksBinaryPermit", "repoLedgerFleetAlias"} {
 		if _, ok := r[n]; !ok {
 			t.Fatalf("control: %s is not reachable from the gate's roots; the walk is broken", n)
 		}
@@ -669,6 +743,47 @@ var fleet string
 func init() { fleet = os.Getenv(EnvFleet) }
 func cmdGate() {}
 func cmdCommitGate() {}`, false, true},
+		// D-194: the one exempt reader names the fleet home and opens
+		// nothing: clean. The same function reaching a resolver, or an
+		// opener through a helper, is flagged; so is a second gate function
+		// naming the constant beside it.
+		{"D-194: the exempt reader only locates the fleet home", `package p
+const fleetHomeRel = ".buddy/fleets"
+func cmdGate() { openLedgerAt() }
+func openLedgerAt() { _ = repoLedgerFleetAlias(); _, _ = store.Open("x", nil) }
+func repoLedgerFleetAlias() error { _, err := os.Stat(filepath.Join(os.Getenv("HOME"), fleetHomeRel)); return err }
+func cmdCommitGate() {}`, false, false},
+		{"D-194: the exempt reader calls a fleet resolver", `package p
+const fleetHomeRel = ".buddy/fleets"
+func cmdGate() { _ = repoLedgerFleetAlias() }
+func repoLedgerFleetAlias() error { _ = fleetHomeRel; openFleetLedger(); return nil }
+func cmdCommitGate() {}
+func openFleetLedger() {}`, true, false},
+		{"D-194 design finding 3: the exempt reader opens through a helper", `package p
+const fleetHomeRel = ".buddy/fleets"
+func cmdGate() { _ = repoLedgerFleetAlias() }
+func repoLedgerFleetAlias() error { _ = fleetHomeRel; return helper() }
+func helper() error { _, err := store.OpenEscaped(filepath.Join(fleetHome(), "f", "buddy.db"), nil, false); return err }
+func fleetHome() string { return "" }
+func cmdCommitGate() {}`, true, false},
+		{"D-194: the exempt reader names a store selector in its own body", `package p
+const fleetHomeRel = ".buddy/fleets"
+func cmdGate() { _ = repoLedgerFleetAlias() }
+func repoLedgerFleetAlias() error { _, err := store.OpenEscaped(filepath.Join(fleetHomeRel, "f", "buddy.db"), nil, false); return err }
+func cmdCommitGate() {}`, true, false},
+		{"D-194: the exempt reader reaches a resolver through a by-name method", `package p
+const fleetHomeRel = ".buddy/fleets"
+type e struct{}
+func (e) openFleetLedger() {}
+func cmdGate() { _ = repoLedgerFleetAlias() }
+func repoLedgerFleetAlias() error { _ = fleetHomeRel; var x e; x.openFleetLedger(); return nil }
+func cmdCommitGate() {}`, true, false},
+		{"D-194: another gate function names the fleet home beside the exempt one", `package p
+const fleetHomeRel = ".buddy/fleets"
+func cmdGate() { _ = repoLedgerFleetAlias(); other() }
+func repoLedgerFleetAlias() error { _ = fleetHomeRel; return nil }
+func other() { _ = fleetHomeRel }
+func cmdCommitGate() {}`, true, false},
 		{"clean twin", `package p
 const EnvFleet = "BUDDY_FLEET"
 var verbs = map[string]func(){"claim": cmdClaim, "gate": cmdGate}

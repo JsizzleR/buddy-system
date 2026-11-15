@@ -272,8 +272,8 @@ func backupName(dbPath string, k int) string {
 // The path is percent-escaped into the URI (the code pass): SQLite decodes
 // %XX in a file: URI and ends the name at ? or #, so a raw `good%2edb`
 // opened `good.db` and verified the wrong file. EscapedPath escapes %, ?
-// and # and keeps /. Open's own "file:"+dbPath has the same shape, older
-// than this change, and is recorded open.
+// and # and keeps /. Open's own "file:"+dbPath had the same shape, older
+// than this change, until D-194 escaped it the same way (ledgerDSN).
 func verifyBackup(path string, ver int) error {
 	u := url.URL{Path: path}
 	b, err := sql.Open("sqlite", "file:"+u.EscapedPath()+"?mode=ro&immutable=1")
