@@ -13372,6 +13372,125 @@ a test row holds it.
 - docs: `docs/USAGE.md` "Opt-in wiring" ("Which layer, and trust"), "Offline compatibility
   diagnostic" (`location`, `trust`)
 
+## D-186 — Codex 0.169.0's Claude Code skill migration is not an install path for the buddy skills: it copies once, never refreshes, and rewrites the core skill's harness instructions into wrong ones; the existing opt-in `BUDDY_SKILL_DIR=~/.agents/skills/buddy` install stands, and a Codex default destination is the operator's to decide (#104; nothing built)
+
+2026-11-14 · issue #104, from the release-impact read of Codex 0.169.0 ("#60492 Add local-only
+Claude Code skill migration"). Lane codex-skills-104 under orc buddy-system/s-9cfc61f9's brief
+(run r1114b), class research: the brief said to stop after research if the clean path needs a new
+destination policy, and it does.
+
+**What was read.** Codex's source at tag `rust-v0.169.0` (commit d32063f), never run: the
+migration was not run against `~/.codex` or `~/.agents`, and no Codex was launched. Paths are
+under `codex-rs/`.
+- **Where Codex loads skills.** `ext/skills/src/host_roots.rs` 127-190: for the user layer,
+  `$CODEX_HOME/skills` (commented "deprecated ... kept for backward compatibility"), then
+  `$HOME/.agents/skills` (from `dirs::home_dir`, not `CODEX_HOME`), then
+  `$CODEX_HOME/skills/.system`; for a project layer `<config folder>/skills`; and
+  `<dir>/.agents/skills` for each directory from the project root down to the cwd (192-280).
+  No root in that list is `~/.claude/skills` (and `ext/skills/src` names no `claude` path).
+  Discovery recurses at most 6 deep (`loader/mod.rs` 26).
+- **The frontmatter.** `skills/src/parser.rs` 44-90 reads `name` (at most 64 characters, a
+  default from the loader when absent) and `description` (non-empty, no cap), plus an optional
+  `metadata.short-description`; the struct does not deny unknown keys. The four shipped skills'
+  frontmatter is that shape (names 5 to 12 characters, description values 381 to 599 bytes), read
+  against the parser, not by a Codex run.
+- **What the migration copies.** `external-agent-migration/src/service.rs` 720-781
+  (`import_skills`): each directory under `~/.claude/skills` (repo scope:
+  `<root>/.claude/skills`) is copied to `<parent of CODEX_HOME>/.agents/skills/<name>` (484-489;
+  `~/.agents/skills` with the default `CODEX_HOME`; with `CODEX_HOME` elsewhere it lands beside
+  that directory, where the loader's `$HOME/.agents/skills` does not look), **skipped whole
+  when the target exists** (`if target.exists() { continue; }`). `utils.rs` 44-81 copies every
+  regular file, dot files included (so `~/.claude/skills/<n>/.install-skill.files`, D-171's
+  manifest, rides along), recursing into directories; a `SKILL.md` (any case) is rewritten,
+  every other file copied verbatim. PR #60492 added only the `claude-code-local-skills`
+  source, which also skips `~/.claude/skills/synced`; both sources skip `.trash` (`migration_source.rs`).
+- **The rewrite.** `rewrite.rs` with `source/cla.rs` 23-32: outside recognized URLs, `CLAUDE.md`
+  becomes `AGENTS.md`, and `claude code`, `claude-code`, `claude_code`, `claudecode` and `claude`
+  become `Codex`, case-insensitively, at word boundaries (`_` and alphanumerics are word bytes,
+  so `CLAUDE_CODE_SESSION_ID` is untouched; `.` is not, so `~/.claude/skills` becomes
+  `~/.Codex/skills`).
+- **When it runs.** Only when asked. The TUI's `/import` slash command sends
+  `AppEvent::OpenExternalAgentConfigMigration` (`tui/src/chatwidget/slash_dispatch.rs` 533, the
+  event's only sender), handled at `tui/src/app/event_dispatch.rs` 554, which detects, shows a
+  prompt, and imports only what the user proceeds with
+  (`tui/src/external_agent_config_migration/flow.rs` 255-373), with source `claude-code` (all
+  skills); `claude-code-local-skills` is a value another app-server client
+  may send; the TUI at 0.169.0 does not.
+- **Staleness.** Detection offers only the names missing from the target
+  (`detect/mod.rs` 197-240, `missing_subdirectory_names`), and the import skips an existing
+  target. A migrated copy is never refreshed and never offered again: it is frozen at the day
+  it was taken, for every later Codex session's skill list.
+
+**Why the migration is not an install path.** Its copy of `skills/buddy/SKILL.md`, reproduced
+here by the same substitutions in a scratch directory, changes 7 lines, among them:
+- "Under Codex run `env -u CLAUDE_CODE_SESSION_ID buddy status`; under Claude Code,
+  `env -u CODEX_THREAD_ID buddy status`" becomes "... under Codex Code, `env -u CODEX_THREAD_ID
+  buddy status`" (the skill breaks the line between `Claude` and `Code`, so the two-word variant
+  misses and `claude` alone is replaced). A Codex lane that takes the second clause for itself
+  unsets its own native identity, the opposite of the rule (D-085, D-086).
+- The description becomes "How to work alongside Codex and Codex sessions"; "(a Claude
+  Edit/Write/NotebookEdit or a Codex patch)" becomes "(a Codex Edit/Write/NotebookEdit ...)";
+  "`CLAUDE.md` or `AGENTS.md`" becomes "`AGENTS.md` or `AGENTS.md`".
+So the migrated copy is wrong on the day it is taken and staler every pull after. Nothing in
+buddy invokes it, and nothing should tell a user to.
+
+**What already works.** `BUDDY_SKILL_DIR="$HOME/.agents/skills/buddy" sh scripts/install-skill.sh`,
+documented in USAGE's install section since before this item, writes the shipped files verbatim,
+with D-171's manifest and D-181's destination judgement. Measured in a scratch directory
+(`BUDDY_SKILL_DIR=<scratch>/agents/skills/buddy`) over a simulated migrated core copy: rc 0,
+all four skills installed beside it, the migrated `SKILL.md` replaced (`updated ... the previous
+copy is at SKILL.md.bak`) and the new one byte-identical to the checkout's. A later migration
+then skips every buddy name, since the targets exist. Order does not matter: an install after a
+migration replaces it (keeping `.bak`), a migration after an install does nothing.
+
+**The decision.** Nothing is built. `install-skill.sh` and `uninstall.sh` stay as they are: the
+default destination stays `~/.claude/skills/`, and Codex is installed for only when the user asks,
+through the knob. Making `~/.agents/skills` a default (or second) destination is a new destination
+policy, so it goes to the operator, with these facts:
+1. **Scope.** `~/.agents/skills` is read by every Codex session in every directory, and by any
+   other tool that follows the `.agents` convention. The opt-in knob installs all four skills
+   there, `model-router` (it picks a Claude Code session's model) and `buddy-lead` among them; a
+   Codex default would want the core alone, or the core and the fleet skill: a per-skill choice
+   the scripts do not have.
+2. **Content.** The core skill is written for both harnesses but leads with Claude's recipes
+   (`/loop`, `SendMessage`, `run_in_background`); a Codex lane today reads its rules in this
+   repo's `AGENTS.md` (5,224 B), and would carry the core's 28,242 B as well once it loads it.
+3. **Uninstall symmetry.** `uninstall.sh` removes the skills from the one destination set its
+   knobs name, alongside everything else it removes. A user who installed to both
+   `~/.claude/skills` and `~/.agents/skills` gets the second left, unnamed, by a plain uninstall.
+   A second default destination needs uninstall to plan both (and D-181's judge to run on both).
+4. **A migrated copy already present.** Install replaces it, keeping `.bak` (above). An
+   uninstall run with that destination selected leaves the rewritten `SKILL.md` and names it
+   ("differs from this checkout's"), and removes the byte-identical companions, manifest or
+   none; a plain uninstall never looks there (point 3).
+
+**Recommended env-check row, not added here** (the brief reserves `scripts/env-check.sh`).
+`codex-skill-copy`: for each skill this checkout ships, `$HOME/.agents/skills/<name>/SKILL.md`
+(and `${CODEX_HOME:-$HOME/.codex}/skills/<name>/SKILL.md`), read only, judged in this order.
+CANNOT-ASSESS: `HOME` unset, or absence or equality cannot be established (an ancestor that
+cannot be searched, the file unreadable, or not a regular file). PASS: proven absent, or
+byte-identical to the checkout's. WARN: a readable file that differs from this checkout's, naming
+the path and saying a Codex session may load it and that a copy `/import` took is never
+refreshed. The fix it names is a refresh of all four skills there with both knobs set,
+`BUDDY_SKILL_DIR=<dir>/buddy BUDDY_FLEET_SKILL_DIR=<dir>/buddy-fleet sh scripts/install-skill.sh`
+(an inherited `BUDDY_FLEET_SKILL_DIR` would otherwise send the fleet skill elsewhere), and no
+`rm`: D-181's judge decides there whether the directory is this install's to write (a link into
+another checkout is left), which the row does not repeat. It compares `SKILL.md` only; a stale
+reference file beside an identical `SKILL.md` is not seen. Fixture: a scratch `HOME` holding
+`.agents/skills/buddy/SKILL.md` as the rewrite above (WARN), a verbatim copy (PASS), none (PASS),
+and a `SKILL.md` that is a directory (CANNOT-ASSESS).
+
+**Accepted.** The reading is of 0.169.0's source; a later Codex may refresh migrated copies or
+change the roots. The rewrite was reproduced in Python from `rewrite.rs`, not by running Codex's
+code; its URL exemption (`linkify`) was not reproduced, and none of the 7 changed lines holds a
+URL.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Skills" line (number only; no rule a session must obey unread)
+- GIVEN: review-charter.md 115 (one clause)
+- docs: `docs/USAGE.md` § install (the opt-in Codex destination, unchanged)
+- code: none; `scripts/install-skill.sh`, `scripts/uninstall.sh`, `scripts/skill-dest.sh` unchanged
+
 ## D-187 — subagent progress summaries are not in any transcript, so no report counts them; estimated from Claude Code's own timer at a fifth of subagent spend and about 4% of a fleet day's, the knob recommended to env-check as advice (#105)
 
 2026-11-14 · issue #105 (filed from the release-impact read of Claude Code 2.1.325); lane

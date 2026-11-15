@@ -1080,7 +1080,10 @@ ledger row entered through the CLI (D-006).
     their `route-cap` names it, or pre-cap at most 8 leading 10+ tasks), an undated draft, and a
     pick never wider than their line; on a `tiers=` line, only prose outside the model
     report's literal list routes, and what it cannot judge defaults (D-180). Do not propose a text mode, a subagent pick before a pin
-    is measured, or a draft that routes.
+    is measured, or a draft that routes. Codex 0.169.0's `/import` skill migration is not an
+    install path: it copies once, never refreshes, and rewrites the core skill's harness clauses;
+    Codex gets the skills only through `BUDDY_SKILL_DIR=~/.agents/skills/buddy` (D-186). Do not
+    propose relying on it, or a default Codex destination the operator has not decided.
 
 116. **A brief names a review-round ceiling (D-115).** Lite: one code pass folded once; full: at most two re-verify rounds; at the ceiling, fold narrowly and record the rest open (D-106's folds regressed). Do not propose: re-verifying "until it accepts" without a named ceiling. (full text: `CODEX_CHARTER=process`)
 
