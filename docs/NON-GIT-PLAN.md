@@ -1,787 +1,774 @@
-# Buddy on a project that is not git-tracked
+# Buddy outside git: one pane over independent investigations
 
-Status: PLAN, nothing built (2026-11-14). Written by the `nongit-plan` lane on
-Fable 5.2 at high effort, from the operator's request below, the code at main
-c41826a, and one fixture script run the same day against throwaway ledgers
-(section 10). One Codex pass ran over the finished draft (verdict: revise, 12
-findings); each is in section 9 and folded where that section says, once. It
-starts from `docs/BEYOND-CODE-PLAN.md` and re-measures nothing that plan
-settled.
+Status: PLAN, nothing built (2026-11-14). **This supersedes the version at
+1d36f8b**, which answered another question (file claims in one untracked
+directory, through a `.git` pointer file): the operator rejected the pointer
+file and re-scoped the use, below. Written by the `nongit-plan-2` lane on Fable
+5.2 at high effort, from the code at main 1d36f8b, the installed `buddy` at
+9658d75 (`git diff --stat 9658d75 1d36f8b` names this file only) and the
+measurements of section 2. One Codex pass ran over the finished draft; section
+11 holds its findings and what became of each. It starts from
+`docs/BEYOND-CODE-PLAN.md` (convention A, options C and D).
 
 Register: each part names the failure it answers, the number it rests on and
 how to re-run it, the alternative it refuses and what it costs. A number not
-taken says NOT MEASURED. What only the operator can decide is in section 8.
+taken says NOT MEASURED. What only the operator can decide is in section 10.
 
 ## The request
 
-Relayed by the orchestrator, each marked as said in its pane: 2026-11-14 about
-06:32Z, "open a lane to plan out how we can use the buddy system/support using
-it on a project that isnt git tracked/operator doesnt want git tracking"; about
-06:33Z, "the use case btw, is mostly then orchestrating multiple sessions from
-one pane". So the weight is on one coordinator and several lanes working in ONE
-directory that has no git history and is to get none: claims, waits, READY,
-messages, landing and handoff there. The other uses are secondary.
+Relayed by the orchestrator, each marked as said in its pane on 2026-11-14:
+
+- about 06:32Z: "open a lane to plan out how we can use the buddy system/support
+  using it on a project that isnt git tracked/operator doesnt want git tracking"
+- about 06:33Z: "the use case btw, is mostly then orchestrating multiple
+  sessions from one pane"
+- about 17:35Z, on the first plan's questions 1 to 3: "on 1. what is the point
+  of a .git pointer file? when we said no git/not a git tracked repo? 2. no
+  3. most lanes arent working ont he same project when coordinating for this
+  use case. e.g., opening 10 investigations on different items, with an
+  orchestrator to help you monitor all 10 at once and pipe questions/answers
+  back and forth"
+- about 17:38Z: "i think that should help answer the rest, were going in a
+  different direction here compared to what i think you imagined"
+- about 17:41Z, on the orchestrator's restatement: "yes, open the lane"
+
+The restatement is the orchestrator's (its advice, which the operator approved
+by opening this lane): no git at all, and no git-named entry. About ten
+INDEPENDENT investigations, each on its own item and mostly in its own
+directory. One pane sees who is working, stuck, waiting on a question or done,
+and carries questions and answers between the operator and the lanes. File
+claims and the edit gate are beside the point; the question is how sessions
+that share no repository share ONE coordination ledger, and whether they need
+one.
 
 ## 1. The straight answer
 
-**It works today, with no buddy code change, if the directory may hold one
-small `.git` FILE** (one line, 146 bytes in the fixture) that points at a git
-directory kept somewhere else. Nothing is tracked, git is told to ignore
-everything, a hook refuses every commit, and the ledger sits outside the
-directory. Measured end to end (H0 to H2, section 2): the gate refuses a second lane's write into a claimed file, a
-lane parks its item in a run, another declares READY with a path and a version
-word, the coordinator releases the run with an outcome and the lane reads
-LANDED. No commit exists at any point, and the directory gains no other entry.
+**Outside git, buddy is off, completely and silently** (N0). All six hook
+verbs exit 0 and print nothing; every typed verb exits 1 with "not a git
+repository". A lane there has no row, no inbox, no wait, no handoff signal.
+`BUDDY_LEDGER` changes none of it: `buddy` never reads it.
 
-**It also works today with nothing added to the directory**, where the
-directory can sit inside a dedicated parent that holds the `.git` (F3), at the
-price of a scope trap (G1).
+**The harness alone already does a usable part of this job** (X1 to X4), with
+no buddy and no git: a roster of every session with a busy or idle word, a
+message that wakes an idle session and arrives marked as a peer's, herdr's
+`blocked` and `done` states with a wait on them. For ten short investigations
+and one question at a time, that is enough, and section 4 says how to run it.
 
-**With no git-named entry anywhere it does not work, and that needs code.**
-Every verb answers "not a git repository" and the gate allows silently (F0; the
-settled feature-off verdict of invariant 3). The code is a second way for the
-hooks to find a ledger: BEYOND-CODE-PLAN's option C, changed here in one
-respect that matters (the ledger must not live inside the directory, 3.2).
+**What it does not have, and buddy does:** a queue that outlives the turn it
+was sent in, with a record of what was delivered; state the LANE declares
+(waiting, and on what; an item's outcome with a note; its context size against
+a handoff size); an address that survives a coordinator's handoff
+(`orc-<fleet>`); one channel that a Codex lane can use too. Section 4 gives
+each with its evidence.
 
-**Does this request meet option C's triggers?** C was cut with two conditions:
-"`git init` is one command, the fixture shows it coordinates, and 2 live
-sessions are the whole measured demand", and "**OPEN** for the operator: are
-there directories you will not `git init`? If yes, C is the next plan." The
-request answers the second as worded: there is such a directory, so the next
-plan is owed, and this is it. BEYOND-CODE set no further bar for building C.
-The bar below is this plan's own recommendation: do not build yet, because
-"not git tracked" has two readings that the request does not separate:
-no history kept (met today by the pointer file, with zero commits possible),
-or no git-named entry in the directory at all (met today only by the parent
-layout, else by code). Section 8, question 1, is that choice. Demand was not
-re-counted: the figure stays BEYOND-CODE's of 2026-10-26 (8 non-repository
-project directories, 24 transcripts, one directory holding 15), plus this one
-request.
+**Recommendation.** Stage 0: run one batch on the harness alone and take five
+counts (section 9). Stage 1, if the counts or the operator say buddy is wanted
+here: a **fleet ledger**, a coordination-only ledger outside every project,
+named by `BUDDY_FLEET=<name>` on the lane's tab at launch and read only where
+git finds no ledger. No schema change; no settings change (the hooks already
+run in every session, X5); one new flag (`buddy init --fleet <name>`).
+
+**What this plan does not give outside git, said once:** no file claim, no gate
+or brake of its own, no landing. (A write that lands in a governed repository
+is judged by that repository's ledger, as today.) A fleet ledger holds names,
+messages, waits and outcomes. The gate never opens it (section 5.4), so nothing
+in it can refuse a tool call or allow one a repository's ledger refuses.
 
 ## 2. What was measured
 
-All on 2026-11-14, macOS 27.2.1, APFS, git 2.54.0, by the one script in
-section 10, run in an empty directory under the lane's scratchpad with the
-installed `~/bin/buddy`. That binary was rebuilt by a landing while the lane
-worked: the table is the script's last run, at revision 9658d75 (`go version
--m`, unmodified); the lane's earlier runs of the same fixtures, at c41826a,
-gave the same verdict in every row they shared. Between the two,
-`internal/cli` differs by 14 lines in `hello`'s subagent arm (`git diff
---stat c41826a 9658d75`). Throwaway ledgers, three minted session ids (O, A,
-B) registered by hand (`hello --session <id> --label <l> </dev/null`), hook
-payloads piped to `buddy gate` and `buddy beat`. Nothing was registered in a
-real ledger and nothing was installed by the lane.
+All on 2026-11-14, macOS 27.2.1, Claude Code 2.1.325, herdr 0.9.5, git 2.54.0,
+`~/bin/buddy` at 9658d75 (`go version -m`, unmodified).
 
-ALLOW is `buddy gate` exiting 0 with no output. DENY is exit 0 with a JSON
-document whose `permissionDecision` is `deny`; the script parses it and
-prints anything else raw, and no row did. Every gate DENY has an ALLOW beside
-it, and every refused command a control that succeeds with the blocker absent
-(K0, or in its own row). A size marked "here" depends on the fixture's own
-path or labels (the `.git` file, a DENY's bytes) and is this run's only.
+**N rows:** the one script in section 12, run in an empty directory under the
+lane's scratchpad; the table is its last run. Throwaway ledger, eleven minted
+session ids registered by hand, hook payloads piped to the hook verbs. Because
+today's buddy keeps a ledger nowhere but a git directory, the throwaway ledger
+sits in a `git init`ed scratch directory, the "stand-in". That is the
+fixture's scaffolding and is recommended to nobody: it shows what the verbs do
+once a ledger is open (N1 to N8), and N0, N5, N7 and N9 show what happens
+where none is found. Sizes depend on the fixture's own labels, notes and path.
 
 | # | Fixture | Result |
 | --- | --- | --- |
-| F0 | plain directory, no git | `status`: "not a git repository"; B's write ALLOW |
-| F1 | `git init` in the directory (the settled path, and the control) | A claims `notes/plan.md`; B's write there DENY (495 bytes here), B's write to `notes/other.md` ALLOW |
-| K0 | F1's repository: controls for the commands refused below | `git add` with nothing excluded: 1 index entry; `git commit` with no hook: exit 0, 1 commit; `wait --on item-a --ready HEAD` with a commit: WAITING |
-| F2 | `git init --separate-git-dir=<elsewhere> <dir>` | the directory gains one entry, `.git`, a regular file of 146 bytes here (`gitdir: `, the separate directory's absolute path, a newline); `core.worktree` unset; `buddy init` puts `buddy.db` in the separate directory, 0 files named `buddy*` under the project; B's write to A's file DENY, to `notes/other.md` ALLOW, and DENY again with cwd `notes/`; `BASE` reads "(none recorded…)"; `wait --ready HEAD` refused ("names no commit here"; control K0); the chat line names room `f2`, the separate directory's name less `.git` |
-| F2b | a `pre-commit` in that git directory that exits 1 | `git commit --allow-empty` refused with the hook's words; 0 commits (control K0) |
-| F2c | the project directory renamed | git names the new path as root; B's write to A's file DENY there, to `notes/other.md` ALLOW |
-| F2d | the project directory copied with `cp -R` | both `.git` files name one git directory, so one ledger: B's write to the COPY's `notes/plan.md` DENY, to its `notes/other.md` ALLOW |
-| F2e | the separate git directory moved away | `status`: "not a git repository"; B's write to A's file ALLOW |
-| F2f | the `.git` file removed, ledger intact elsewhere | B's write to A's file ALLOW; file restored, DENY |
-| F3 | `.git` in the PARENT, project in `vault/` below it | nothing added to `vault/`; `buddy init` from `vault/` makes the parent's ledger; the chat line names the parent, `f3` |
-| G1 | F3's layout, `claim --scope notes/plan.md` typed from `vault/` | granted with no warning as `notes/plan.md` under the PARENT: B's write to `vault/notes/plan.md` ALLOW, to `<parent>/notes/plan.md` DENY; claimed as `vault/notes/plan.md`, B's write there DENY |
-| F4 | no `.git` anywhere, `GIT_DIR` and `GIT_WORK_TREE` exported | the typed verbs follow the variables: `buddy ls` exits 1 without them, `init` and `ls` exit 0 with them. `hello`, a hook verb, exits 0 and registers nothing: the `claim` right after says the session "has not said hello in this repo's ledger". B's write ALLOW |
-| F5 | a repository holding a symlink to the project | `git -C` on the wrapper names it (control); through the link: "not a git repository" |
-| G2 | an inited repository inside an inited one; A, in the outer, claims the inner directory; one absolute target for both probes | B homed in the INNER: ALLOW; B homed in the outer: DENY |
-| G3 | a repository that never commits; A's `beat` names `notes/plan.md` | `whose` lists `alpha … uncommitted` under DIRTY IN; with no commit to make the path clean, no scan retracts it |
-| G4 | the dirty scan's own command over a never-committed tree, best of 3 | 1,000 files: 9 ms, 28,000 bytes; 10,000: 17 ms, 280,000 bytes; 50,000: 52 ms, 1,400,000 bytes, past the scan's 1,048,576-byte cap |
-| H1 | F2 plus `*` in the git directory's `info/exclude` and F2b's hook | `git add notes/plan.md` refused ("ignored by one of your .gitignore files"), 0 index entries; commit refused, 0 commits (controls K0); the scan's command prints 0 bytes |
-| H2 | H1's directory: O holds `orc-vault` and run `r1` (`.buddy/slot/r1`, `.buddy/slot/main`); A and B each claim one file | B's write to A's file DENY, A's own ALLOW; A's `release item-a --to orc-vault --in-run r1`: "handed … parked in run r1"; B's `wait --on r1 --until 4h --note "READY: notes/b.md draft 2"`: WAITING; `who r1` lists bravo by name; `wait ls` quotes the note; O's `release r1 --outcome pass --note …`; B's `wait check`: LANDED, outcome PASS with the note. The project's entries afterwards: `.git`, `notes` |
-| H2b | the parked item, run open (`ls`: "PARKED in run r1 produced by alpha") | B's write DENY; A's, who parked it, DENY; O's, who holds it, ALLOW; B's to an unclaimed path ALLOW. After the run's release: B and A still DENY. After O releases the item: B ALLOW |
-| H2c | run open, B claims the parked scope: `claim item-c --based-on r1 --scope notes/plan.md` | granted ("BASED ON run r1"); B's write to the parked file ALLOW; that claim released, DENY again |
-| H3 | the same directory: A's `beat` names `notes/plan.md`; 17 s later (a scan runs at most once per 15 s) A's `beat` names another file, `notes/other.md` | `whose notes/plan.md` at once: `alpha … uncommitted`; after the second beat: DIRTY IN (none), while `notes/other.md` is now listed. A row lives until the next scan after it |
-| H4 | `touch` a stamp, then one claimed file edited and one stray file created | `find . -type f -newer <stamp>` prints exactly those two |
-| H6 | G4's 50,000 files with `*` in `info/exclude` | the scan's command: 9 ms, 0 bytes (best of 3); `cp -c -R` of the tree: 5,283 ms (one run; two earlier runs read 7,033 and 8,221) |
-| J1 | B's cwd is a plain directory outside the project; it never said hello there | Write by absolute path into A's claimed file DENY; to an unclaimed file there ALLOW; Bash `cd <project> && echo x > f` ALLOW, and DENY after `pause all` in the project; Bash with no directory change, still paused, ALLOW |
-| J3 | `buddy gate` wall time, 20 calls each, min / median / max ms, load average 4.3 on 12 cores | project, Write to an unclaimed path 15.7 / 17.1 / 20.2; project, Bash `true` 14.4 / 16.8 / 24.2; plain directory, Write 35.0 / 37.0 / 43.7; plain directory, Bash `true` 20.5 / 21.5 / 22.5; one `git rev-parse` 7.4 / 7.8 / 8.5 in the project and 7.1 / 7.6 / 8.6 failing in the plain directory |
+| N0 | a plain directory, no git above it | `hello`, `busy`, `beat`, `idle`, `bye` with their hook payloads: each exit 0, 0 bytes on stdout and stderr; `gate` on a Write there: ALLOW. `status`, `sessions`, `inbox`, `wait check`, `msg`, `claim` (a slot scope): each exit 1, "not a git repository". The same `sessions` with `BUDDY_LEDGER` naming the stand-in's ledger: exit 1, the same words. Controls: `sessions` from the stand-in exits 0, and so does a registered session's `status` there (N1) |
+| N1 | a coordinator O and ten lanes `i01` to `i10` registered in the stand-in by hand; each holds a claim on `.buddy/slot/<its name>`; O holds `orc-standin` and declares one wait on all ten item claims | 11 claims open; the wait is taken (exit 0) |
+| N2 | lanes 3, 7 and 9 each ask: `msg orc-standin "NEED INPUT: ..."` (a 155-byte body), then `wait --until 2h --note "NEED INPUT: ..."` | 3 of 3 sends and 3 of 3 waits exit 0; lane 3's result line is one line of 745 bytes, reciting all ten claims the recipient waits on; its wait reads "WAITING on a timer" with its note |
+| N3 | lanes 5 and 6 finish: `release <item> --outcome pass\|fail --note "DONE: ..."` | both exit 0, "outcome PASS" and "outcome FAIL" recorded; the first line of O's next `wait check`, 631 bytes, names all ten claims, the two released ones with outcome and note |
+| N4 | what O reads, 11 sessions | `sessions` 2,723 bytes, 11 lines: a lane that asked reads `waiting 2s claims 1` (no note), a finished one reads as a live row with no claim; `wait ls` 1,182 bytes, 4 lines, 3 of them carrying a lane's note (the fourth is O's own wait); `ls` 1,532; `ls --all` 1,876, and of its 2 rows for the released items, 0 carry the outcome or the note; `inbox` 495 bytes, 3 lines, each carrying the question; `who i03` 928 bytes, 12 lines |
+| N5 | O answers lane 3 (`msg i03 ...`, message #4); then lane 3's `beat`, run in the plain directory the lane lives in; then the lane reads by hand, `cd <stand-in> && buddy inbox` | the send queues and its line says "the ledger has no live harness process for it" (no wake address); the beat prints 0 bytes and `sent 4` reads "0 of 1 with a recorded delivery"; the hand read prints one line carrying #4 and its body, and `sent 4` reads 1 of 1 |
+| N6 | control: the same hooks for lane 4 with its cwd INSIDE the stand-in | `beat` delivers the queued message (202 bytes); `idle` records it: the row reads `idle 0s`, with a pid |
+| N7 | which shapes the ledger takes | a relative file scope (`notes.md`): granted, relative to the stand-in, a file no lane edits; an absolute scope: refused ("scopes are repo-relative"); parking a slot-only claim in a run: refused ("coordination is never parked"), a file-scope claim parks (control); `wait --ready HEAD`: refused, no commit (its succeeding control is the first plan's K0, with a commit: WAITING); `wait --on <run> --note "READY: ..."` then the run's release with an outcome: LANDED PASS; a slot-only item claim handed to another session (`release i08 --to i01`): handed. The brake, on one unclaimed file inside the stand-in and lane 10's own plain directory: before `pause i10`, the file inside: ALLOW; paused (the roster row reads PAUSED): a write in the lane's plain directory ALLOW, the file inside DENY; after `resume i10`, the file inside: ALLOW |
+| N8 | O blocks on two item claims (`wait --on i07 --on i09 --block`); the releases start once it prints BLOCKING | 20 s after the first release (exit 0): still blocked; after the second: exit 0, one LANDED line |
+| N9 | hook wall time, 20 calls each, 0 of 20 failed in every cell, min / median / max ms, load average 14.6 on 12 cores (other lanes' test tiers were running) | no ledger found (plain directory): `beat` 38.5 / 50.8 / 58.7, `busy` 22.7 / 29.6 / 49.3, `idle` 32.0 / 35.9 / 49.9; ledger found: 27.4 / 33.8 / 67.6, 20.3 / 30.1 / 608.1, 24.8 / 29.3 / 36.2. Two earlier runs of the same loop (before it counted failures), medians only: at load 7.3, 21.3, 20.8, 21.1 against 16.1, 15.4, 16.3; at load 21.5, 40.3, 44.6, 33.6 against 30.7, 29.6, 24.8, with no-ledger maxima of 119.0 and 108.9 |
 
-J3 moves with the machine. Three earlier runs of the same loop the same day,
-two of them while other lanes' test tiers ran, read for the two Write rows
-15.4 against 35.1 ms median (load 5), 15.8 against 47.1 (load 18) and 22.4
-against 61.5 (load not recorded). Across the four runs a Write where NO
-ledger is found costs two to three times a Write where one is. Why is read
-from the code and fits the Bash rows, not separately measured: discovery runs git twice on a failure (D-138 says so of
-its own numbers), and a call that names a path then discovers the target's
-directory as well (`gateForeignRepo`). Section 3.2 uses it.
+**X rows:** the machine's own live sessions, read once each, read-only.
+Counts, key names and sizes only; no name, path or message text was kept.
 
-Not measured, each named where it matters: any sync tool (the lane writes
-nothing into the operator's synced folders); what Claude Code itself does on
-finding a `.git` file (its own git context, its worktree features); a real
-one-pane run with live lanes in such a directory; Codex lanes there.
-
-## 3. Options
-
-### 3.1 Who this is for, and what serves each (brief item 1)
-
-| The directory | Serves it today | Code |
+| # | What | Result |
 | --- | --- | --- |
-| merely has no commits yet; git is welcome | `git init`, `buddy init` (`not-code.md`; F1) | none |
-| is to keep no history, but may hold one pointer file | P: the separate git directory (F2, H0 to H2) | none |
-| may hold nothing new, and can sit in a parent made for it | W: the parent wrapper (F3), with G1's trap | none |
-| may hold nothing new and its parent is not the operator's to arrange (a sync tool's container), or no git-named entry is acceptable anywhere | nothing | stage 2 |
+| X1 | `claude agents --json`, one sample at 17:52:37Z | 18 rows, 4,449 bytes (247 a row). Seven keys on every row: `pid`, `cwd`, `kind`, `startedAt`, `sessionId`, `name`, `status`. `status`: 15 busy, 3 idle. `waitingFor` on 0 rows (D-056 records it as set while a session waits for an approval; none was, so its shape is NOT MEASURED here). Of the 18 working directories, 0 are outside git and 0 are in a repository with no `buddy.db` |
+| X2 | `herdr agent list`, the same second | 17 rows, 6,683 bytes (393 a row), 14 keys a row, among them `agent_status`, `cwd`, `pane_id`. `agent_status`: 8 working, 7 done, 2 idle. `herdr agent wait <target> --until <state>` takes `idle`, `working`, `blocked`, `done`, `unknown` (its `--help`; not run) |
+| X3 | the harness's `ListAgents` tool, seconds later | the caller and 17 peers, one line of about 80 bytes each (name, a ref, kind, state, age): 8 busy, 6 shell, 3 idle. Not the same instant as X1, and the counts still fit one reading: X1's 15 busy are X3's 8 busy, 6 shell and the caller. Three views of the same sessions, three vocabularies |
+| X4 | the harness's `SendMessage` tool, its description as this session loaded it; NOT exercised by this lane | to a name from `ListAgents`; queued, drained at the receiver's next tool round; a receiver in another permission mode holds it for its user's approval and may let it expire; a notice comes back when a local session holds or refuses it; `notify_when_idle` asks for one notice when a local session next goes idle or exits. Exercised before: D-039 (2026-09-23: it woke an idle session, enqueued and dequeued 5 ms apart, marked as a peer's, the framing not forgeable from the body) and D-132 (4,898 wakes sent in 14 days of this machine's transcripts) |
+| X5 | which events in the user-level settings run a buddy hook verb (a read-only parse of the file) | `hello` on SessionStart, `gate` on PreToolUse (`Edit\|Write\|NotebookEdit\|Bash`), `beat` on PostToolUse (`*`) and, for `mcp__.*`, on PreToolUse and PostToolUseFailure, `busy` on UserPromptSubmit, `idle` on Stop, `bye` on SessionEnd. They are user-level, so they already run in every session whatever its cwd: N0 is what they do there |
+| X6 | this checkout's own roster, `buddy sessions` run once here (a read), the byte length of each ` live ` row | 9 rows: 111 to 302 bytes, median 297 (a real row carries a pid, a pane, a context size and a base that the fixture's rows lack) |
 
-Two more were tried and are dead. **`GIT_DIR` in the environment** (F4): the
-hook verbs unset git's local environment at entry (D-137), so `hello`
-registers nothing and the gate reads the directory as no repository while the
-typed verbs read a ledger. That split is the bypass D-137 was written against.
-**A wrapper repository holding a symlink** (F5): the process's cwd is the
-physical path, which is outside the wrapper.
+Read from the code, not run (file and line at 1d36f8b): the five lifecycle
+hooks return silently on `errNoLedger` (`internal/cli/cli.go:1703`, 1954,
+2022, 2091, 2200) and the gate goes on with no home ledger (2804); the wake
+address needs one live registered process and a quiet recipient
+(`wake.go:126`); a drain is at most 20 messages and 8 KiB (`cli.go:2401`); the
+handoff line is delivered at the `busy` hook (`handoff.go:115`); a row is
+stale 30 minutes after it was last seen (`store/store.go:29`); the typed verbs `msg`,
+`inbox`, `sent`, `wait` (but `--ready <commit>`), `ls`, `claim`, `release`,
+`sweep`, `ids`, `pause` and `resume` use nothing of git once the ledger is
+open, and `who`, `status` and `sessions` use it only for the base sample.
 
-**P, the pointer file (recommended).** The operator runs, once per directory:
+Not measured, each named where it matters: a live fleet of sessions outside
+git (every lane here is a minted id); a SendMessage round trip by this lane;
+`herdr agent wait`; what an investigation lane in auto mode still stops for;
+questions per hour from ten lanes; Codex lanes; anything about stage 1, which
+is not built.
 
-```sh
-git init --separate-git-dir="$HOME/.buddy/gitdirs/<name>.git" <dir>
-echo '*' > "$HOME/.buddy/gitdirs/<name>.git/info/exclude"
-printf '#!/bin/sh\necho "not git-tracked: the operator keeps this directory out of git" >&2\nexit 1\n' \
-  > "$HOME/.buddy/gitdirs/<name>.git/hooks/pre-commit"
-chmod +x "$HOME/.buddy/gitdirs/<name>.git/hooks/pre-commit"
-cd <dir> && buddy init
-```
+## 3. The workflow, step by step (brief item 1)
 
-Name the git directory after the project: the chat room and so `orc-<project>`
-are derived from it (`mainCheckoutName`, F2). The exclude line makes git see
-nothing: `git add` is refused, the dirty scan's `git status` prints 0 bytes,
-and the scan costs 9 ms on 50,000 files where it otherwise overflows its
-cap (H1, H6, G4). The hook refuses a commit a lane makes from habit (F2b). Both
-are cooperative, like the gate (D-005): `git add -f` and `commit --no-verify`
-are git's documented ways past them (not run here). Where the git directory
-goes is the operator's (question 5; the path above is an example); it must be
-outside the project and outside anything synced. Cost: five commands, one
-file of `gitdir: ` plus that path (about 50 bytes for a path under
-`~/.buddy`) that never changes after it is written, 15 to 22 ms per gated
-call at the median (J3's four runs), and the residuals of section 5 (the
-pointer or the git directory removed is a silent OFF, F2e and F2f). It
-follows a rename (F2c). A copy shares the ledger and over-refuses (F2d),
-which is how two worktrees of one checkout behave.
+"In a repository" is today's fleet recipe (the `buddy-fleet` skill). "Outside
+git" is the same step today where no ledger is found. "Harness alone" is
+stage 0. "Fleet ledger" is stage 1, not built.
 
-**W, the parent wrapper.** `git init` in a parent that holds only the project,
-the same exclude and hook, `buddy init`. Nothing is added to the project.
-Costs: every scope is relative to the PARENT, and a scope typed as it looks
-from the project reserves a path nobody edits, silently (G1), so lanes start
-with the parent as cwd or write `vault/…` scopes; the room and `orc-` name are
-the parent's (F3); the ledger's brake and roster cover everything under the
-parent. Not available where the parent belongs to a sync tool.
+| Step | In a repository today | Outside git today | Harness alone | Fleet ledger (stage 1) |
+| --- | --- | --- | --- | --- |
+| open ten lanes | `herdr tab create --cwd <dir> --label <l> --env BUDDY_LABEL=<l>`, `herdr agent start ... "Read <brief file>"`, in parallel (D-056, D-144) | the same; herdr and the brief do not need git | the same | the same, plus `--env BUDDY_FLEET=<name>` |
+| confirm each is up | `buddy who <session id>` | exit 1 (N0): no row | `claude agents --json`, `herdr agent list` (X1, X2) | `buddy who <session id>` |
+| the lane works | the gate judges its writes | no home ledger, so nothing of the lane's own is enforced (N0). A write whose target, or whose literal `cd`, lands in a governed repository is still judged by that repository's ledger (D-138; the first plan's J1) | the same | the same: a fleet ledger adds no enforcement and removes none |
+| the lane asks a question | `buddy msg orc-<project> "NEED INPUT: ..."`, deliver the wake address, `buddy wait --until 2h --note "..."` (N2) | each exit 1 (N0) | `SendMessage` to the coordinator's name (X4) | as in a repository |
+| the coordinator sees it | its own hooks drain it at its next tool call, prompt or Stop, or the wake starts a turn (D-039) | nothing to drain | the message starts a turn | as in a repository |
+| the operator answers | in the coordinator's pane, in words | the same | the same | the same |
+| the answer goes back | `buddy msg <lane> "the operator, in my pane at <time>: ..."`, deliver the wake | exit 1 | `SendMessage` to the lane's name | as in a repository |
+| the lane reports and is done | `release <item> --outcome pass --note "DONE: <path>"` and a message (N3) | exit 1 | `SendMessage`; the session goes idle (`done` in herdr) | as in a repository |
+| the coordinator watches | `sessions`, `wait ls`, its own `wait check` (N4) | exit 1 | X1, X2, `herdr agent wait` | as in a repository, minus `base` |
+| a lane passes its handoff size | told at its next prompt (D-064) | never told | never told | told |
+| a stuck approval prompt | not buddy's: a blocked lane runs no verb | the same | `waitingFor` (X1), herdr `blocked` (X2) | not buddy's; read the harness |
+| stop a lane | `buddy pause`, enforced by the gate | nothing (N7) | Esc in its pane, or close its tab | nothing from buddy (5.4) |
 
-**`git init` in place** stays right for the first row. For a directory that is
-synced it is the worst option: the ledger (`buddy.db` and its `-wal` and
-`-shm`, rewritten on every hook) would sit inside the synced folder. NOT
-MEASURED; a tool that copies a live database and its write-ahead log at
-different moments is the case SQLite's corruption notes file under backing up
-during a transaction. P and W avoid it by construction.
+Two more shapes exist today and are not recommended. **The hand path** (N1 to
+N7): every session registers by hand in a ledger kept in some `git init`ed
+directory and runs every verb as `cd <there> && buddy ...`. It needs git
+somewhere, and the lane's own hooks never see that ledger: no mail arrives
+unless the lane reads by hand (N5), no idle report and so no wake address, a
+row that reads stale after 30 minutes of honest work, no handoff signal, and a
+`pause` that shows on the roster and stops nothing (N7). **Lanes started
+inside one such directory** (BEYOND-CODE 1.4): full function (N6), and it is
+git plus one shared directory, both of which the operator has refused.
 
-### 3.2 Where the ledger lives and how a hook finds it (brief item 2)
+## 4. What the harness gives without buddy, and what buddy adds (brief item 2)
 
-**Today.** One function answers both questions, `discoverRepo`
-(`internal/cli/cli.go:910`): `git rev-parse --git-common-dir --show-toplevel`
-from the hook's cwd; the ledger is `<common dir>/buddy.db`, the root is the
-toplevel. Its two `errNoLedger` returns (git says "not a git repository" or
-no `.git` is above; git refused a repository whose ledger is provably absent,
-D-044), with `openRepo`'s for a repository never inited, are the feature-off
-verdict. Call sites outside tests, counted by the grep in section 10: `discoverRepo` 5,
-`resolveRepo` 2, `openRepo` 14, `mustLedger` 21; the `.git`-entry helpers
-that key the gate's per-call cache and its nested-repository test,
-`nearestGitEntry` 2, `repoKeyForDir` 6, `gateRepoKey` 1, `hasGitAncestor` 1,
-`ledgerProvablyAbsent` 1; and the gate's own literal, `homeKey :=
-filepath.Join(homeTop, ".git")` (`cli.go:2929`), which a root with no `.git`
-never matches (2983). Git-only features behind them: the dirty scan
-(`gitDirtyPaths`, 2 call sites), the base sample (`baseGit`, 8), `init`'s
-language-server count (`sourceCounts`, `git ls-files`), the commit gate.
+**The stage-0 loop, no buddy:** the coordinator opens the ten tabs as above,
+keeps each lane's name, and briefs each lane: "questions and your final
+findings go to <coordinator's name> with SendMessage; then stop". It learns of
+a blocked or finished lane from `herdr agent wait <lane> --until blocked
+--until done`, one per lane under the harness's background runner, or from
+`SendMessage`'s `notify_when_idle`; it reads `claude agents --json` when the
+operator asks where things stand. Both waits are NOT MEASURED here (X2, X4).
+`herdr agent prompt` and `send-keys` are never the relay: they type into the
+lane's pane, where a peer's text would arrive as the operator's turn. Codex
+lanes: the fleet skill starts them in herdr with `--kind codex`; they have no
+`SendMessage`, and how one would ask is NOT MEASURED.
 
-**Under P and W nothing changes**: git finds the ledger through the pointer or
-the parent, from the filesystem alone, which is why F2 holds with git's
-environment scrubbed. The root is the directory holding the `.git` entry.
-Invariant 14's containment and invariant 13's folding run on root-relative
-paths after `placeCanonical` and never see where the ledger is.
-
-**Stage 2, a ledger found without git.** Three shapes:
-
-- **M, a marker file with the ledger's absolute path** (the `.git` file's own
-  shape under a buddy name: `.buddy-project`, one line, a regular file of at
-  most 4,096 bytes, read as `commonDirOf` reads a gitfile). Found by a walk up
-  from the cwd, so discovery stays on the filesystem (D-137's rule); follows a
-  rename; a copy shares the ledger as F2d does.
-- **R, a registry outside every project** (one small file mapping a canonical,
-  folded root to a ledger directory): nothing is added to the directory at
-  all. The gate decides it is inside a project by invariant 14's own test on
-  absolute canonical paths, `root == cwd || HasPrefix(cwd, root+"/")`. It
-  cannot follow a rename (the new path is unregistered: silent OFF), and it is
-  found through the machine, not the directory: looked up through `$HOME` it
-  repeats D-137's failure for a session started under another `HOME`, so the
-  design would have to find it beside the installed binary (`os.Executable`),
-  NOT MEASURED.
-- **C as BEYOND-CODE drafted it, a marker directory holding `buddy.db`**: CUT.
-  It puts the ledger inside the directory, the synced-folder hazard above, and
-  it is the one thing P already avoids.
-
-Whichever shape, the same five rules, which are the design pass's starting
-point and not yet a design:
-
-1. **A discovery source, not a new verdict** (BEYOND-CODE's finding 11). Off
-   and unreadable stay two verdicts: no marker or registry row on the way up
-   and git says no → OFF, as today; a marker or registry that exists and
-   cannot be read or parsed → DENY, naming the file and the fix (D-084's
-   register); a level of the walk that answers anything but "exists" or "does
-   not exist" → DENY, the cannot-tell case; a marker or row whose ledger is
-   missing → DENY, because unlike a bare `.git` it is positive evidence of an
-   init (this is stricter than F2e and is question 6); a ledger that will not
-   open → DENY, as today.
-2. **One walk before git runs, and a fixed precedence.** One `Lstat` walk
-   from the cwd to the root (the walk `nearestGitEntry` already is) notes the
-   nearest `.git` entry and EVERY marker above the cwd. Then, first match:
-   - two markers on the path, or a marker and a `.git` entry in one
-     directory → DENY, naming both: cannot tell;
-   - no marker → today's path, git asked exactly as now. A repository is
-     untouched but for one `Lstat` per level;
-   - a marker and no `.git` entry → the marker's ledger; git is not run;
-   - the marker is the DEEPER (`/outer/.git`, `/outer/sub/.buddy-project`) →
-     the marker governs only where the repository above provably has no
-     ledger, by `ledgerProvablyAbsent`'s own test, which needs no git; where
-     it has one, or the test cannot say → DENY: a governed root inside a
-     governed root;
-   - the `.git` entry is the deeper (a clone inside the project) → git is
-     asked as now. A ledger there is the home, G2's behavior and its residual
-     (an outer claim on that directory does not bind a session homed inside
-     it); no ledger there → the marker above governs, with the marker's
-     directory as root; git refusing or failing → today's verdict.
-   Consulting the marker only AFTER git says no was the first draft and is
-   refused on J3: across its four runs that path starts at 35 to 62 ms median
-   for a Write, against 15 to 22 where a ledger is found, and the hook budget
-   is 100 ms. The walk and git can disagree (across a mount, D-138's open
-   residual); the design pass owns that. Under shape R a registered root that
-   contains the cwd stands where "a marker at that root" stands above.
-3. **`init --no-git` refuses to create what rule 2 would deny**: at or under
-   a governed root of either kind, above an existing marker, or beside a
-   `.git` entry. Nesting is thereby stricter than git's own (G2).
-4. **Every site that keys or bypasses discovery is in the review scope**: the
-   counts above, the `homeKey` literal, the cross-repository arm
-   (`gateForeignRepo`, which J1 exercises), the reached-brake arm (D-138), the
-   vanished-cwd walk (D-102), the commit gate's own discovery, and `init`.
-5. **No schema change.** The root is already a session column (`worktree`);
-   the marker or registry is a file. A schema bump would cost D-037's one-way
-   migration for a feature most ledgers never use.
-
-Cost: full tier (what the gate refuses and allows). Recommendation: build
-neither until question 1 names a real directory P and W cannot serve; then M
-if a buddy-named file is acceptable there, R only if no file is, with R's two
-residuals (rename, `HOME`) written into its decision record.
-
-## 4. What each feature becomes (brief item 3)
-
-"Today" means under P or W, measured where a row is cited. "Stage 2" is what a
-git-less ledger would owe.
-
-| Feature | Today, under P or W | Stage 2 owes |
+| Need | The harness alone | What buddy adds |
 | --- | --- | --- |
-| Claims and the gate | unchanged (F2, H2, J1) | discovery only; placement after it is the same code |
-| Slots | unchanged; `.buddy/slot/<name>` is a scope, and no file appears (H2) | nothing |
-| Waits | unchanged (H2) | nothing |
-| READY | no commit to name: `wait --on <run> --until 4h --note "READY: <path> <version word>"` (`not-code.md`; H2), read with `wait ls`; a chore or lite lane parks instead, `release <item> --to <coordinator> --in-run <run>` (H2). `--ready HEAD` is refused (F2) | the same; `--ready` with a non-commit token stays unproposed (BEYOND-CODE 1.3) |
-| Commit gate | none: nothing is committed, and `setup-clone.sh` is not run. The second line behind the gate (D-012) does not exist here | none possible |
-| Dirty paths | with the exclude, a tool-named path is recorded and retracted by the next scan after it (H3). A scan runs only on some session's `beat`, at most once per 15 s per session and directory, so the register holds what was touched since the last scan and does not clear while nobody works. Without the exclude, every touched path stays "uncommitted" for good (G3), and on a tree whose listing passes 1,048,576 bytes each scan is abandoned and retracts nothing (G4; `gitDirtyPaths`) | no `git status`: record nothing and have `whose` say the register is off here (invariant 10: a scan may only retract, and there is none) |
-| Base | "(none recorded…)" (F2); the roster's `base` column is empty | skip the sample |
-| Chat room, `orc-<project>` | the git directory's name less `.git` under P (F2); the parent's name under W (F3) | the root's directory name, said outright: `mainCheckoutName` reads the ledger's directory, which would name the ledger's home |
-| Messages, inbox, wakes, ids, pause, authority files, identity | unchanged; none reads git | nothing |
-| Handoff size | unchanged: read from the session's own transcript, declared by `BUDDY_HANDOFF_AT` | nothing |
-| Landing and "main" | 4.1 | the same |
-| Reports | `cost-`, `model-`, `wake-`, `startup-` and `fleet-report.sh` find the ledger with `git rev-parse --git-common-dir`, which P and W answer; NOT RUN in the fixtures | each needs its ledger named: `cost-report.sh` and `model-report.sh` read `BUDDY_LEDGER` today, the others would gain it (lite) |
-| Review receipts | no commit body to carry one: the receipt goes in the READY message and the run's `--note`; `receipt-check.sh` has nothing to read | the same |
-| `init`'s language-server report | counts tracked files, so it prints for none | skip |
-| Opening lanes | every lane's tab gets the project as `--cwd` and its own `BUDDY_LABEL`; no worktree is made. A Codex lane escalates every buddy call as the skill says (the ledger is outside its workspace). NOT MEASURED with live lanes | the same |
+| who is there, busy or idle | yes: X1, X2, X3, at about 80 to 393 bytes a row. Three views, three vocabularies; a session parked on a background shell reads `busy` in X1 (D-041 records a harness listing that read `busy` for a lane at its prompt with a background task running) | one roster with a labelled age on every row and `idle`, `waiting`, `claims`, context size (N4) |
+| blocked on an approval | yes: `waitingFor`, herdr `blocked` | nothing; a blocked lane cannot run a verb |
+| a message that wakes the other side | yes (X4; D-039) | nothing new: buddy's wake IS this message, with a fixed text |
+| the message survives | no: it lives in two transcripts. Held for approval across permission modes, and may expire (X4) | a queue in the ledger until drained; `sent` says delivered or queued per recipient; `inbox <id>` re-reads one; `--supersedes` corrects one (N5) |
+| "waiting, and on what" | no: idle is idle | `wait --note`, on the roster as `waiting` and in `wait ls` with the note (N2, N4) |
+| "done, and how it went" | partly: herdr `done`, an idle notice; the finding is in a message | `release --outcome` with a note, read by the coordinator's own `wait check` (N3) |
+| past the handoff size | no | the lane is told at its prompt; the roster shows the size (D-064) |
+| an address that survives a handoff | no: a name is one session's | `orc-<fleet>`, a claim slug that moves with `release --to` |
+| Codex lanes on the same channel | no | `buddy msg` and `buddy inbox` work under Codex by hand |
+| what a message rests on | no | `--measured`, `--lead`, `--relay` (D-045) |
+| cache kept warm while parked | no | `wait check` on its 50-minute pace (D-033, D-054) |
 
-### 4.1 One pane, several lanes, one directory
+**Is it worth it here?** Not for a batch that is short, single-harness and
+quiet: ten lanes that each run under an hour, ask at most one question at a
+time and report once need nothing in the right-hand column, and stage 1 is a
+full-tier change. It becomes worth it at any of four marks, each a stage-0
+count (where the line falls is this plan's judgment; "under an hour" and "one
+question at a time" are not measured thresholds): more than one question
+pending at once (the coordinator needs "who is waiting on what" without
+re-reading its transcript); a lane or the coordinator handing off (names and
+mail must survive); a Codex lane; a message held, expired or lost. The fixed
+cost on each side is small beside a turn: X1 is 4,449 bytes for 18 sessions,
+the buddy roster 2,723 for 11.
 
-What changes is not buddy; it is that **there are no worktrees and no
-branches**. In a repository each lane edits its own worktree and the
-coordinator integrates commits. Here every lane's cwd is the same directory
-and an edit is live in it the moment it is written. Four consequences:
+A third shape, for the record: the coordinator runs the ten as background
+subagents inside its one session. No panes, no cross-session messages, and
+nothing for the operator to open, approve in or steer; an investigation dies
+with the coordinator's session. NOT MEASURED for this workload. The operator's
+word was sessions, and this plan stays with them.
 
-- **The gate is the only separation, and it sees only paths a tool names.** A
-  lane that writes from a shell passes every claim (D-005), and no commit gate
-  catches it later. Each lane's brief says: claim before you edit, write with
-  the file tools and never from a shell, never `git add`, `commit` or `stash`
-  here, stay in this directory (a foreign command in a subshell).
-- **Landing is acceptance, not arrival.** READY says "my paths are in the
-  state to read"; the run's outcome says the coordinator read them and what it
-  decided. The fleet skill's step 3 loses squash, cherry-pick, the integration
-  worktree and the fast-forward, and keeps the run's claim, the answer to
-  every READY, the outcome and the words that end a lane's work. What holds the
-  state under review is the parked claim instead of a sha, and it is weaker
-  than a sha. Once parked, the item refuses every other lane, the one that
-  parked it included, and allows the coordinator that holds it, through the
-  run's release and until the item itself is released (H2b). One exception,
-  D-133's: a lane that claims the same scope exclusively with `--based-on
-  <run>` is admitted and may write there (H2c). In a directory with no
-  branches nothing is "based on" a run, so every lane's brief says never to
-  pass `--based-on`; the rule is cooperative, and the stamp check below is
-  what would show such a write. A red goes to the lane the item is handed
-  back to and is fixed in place; there is nothing to back out, and nothing
-  can be.
-- **The project's own checks are owed before READY and before the outcome.**
-  A directory without git can still hold scripts, configuration or code.
-  Whatever checks that content has (its tests, a linter, a validator) the
-  lane runs before READY, the coordinator runs on the assembled state before
-  the outcome, and the outcome's note names them with their results. "Read
-  and accept" is the gate only for a deliverable whose class has no checks
-  (notes, prose), and the outcome's note then says "read, no checks apply".
-  An outcome of pass over content with checks that were not run is a false
-  receipt; this plan does not license one.
-- **"Which files did this run change" has no `git diff`.** The coordinator
-  `touch`es a stamp in its own session's scratch directory (the harness's,
-  never a path of its choosing in a directory the operator keeps) when it
-  forms the run, and before the outcome runs `find . -type f -newer <stamp>`
-  and holds the list against the riders' scopes from `buddy ls` (H4: it lists
-  the claimed file edited and the stray one). A path outside every rider's
-  scopes is a shell write or an unclaimed edit, to be asked about before the
-  outcome. An observation, never
-  a refusal (invariant 10), and it attributes nothing.
+## 5. How a session finds a coordination ledger with no git (brief item 3)
 
-Options for the landing itself, the operator's choice (question 3):
+### 5.1 Options
 
-- **In place** (recommended first): as above. Cost: unaccepted work is already
-  in the directory, which matters where something consumes it live (a synced
-  vault, a published folder, a pipeline).
-- **Copy-in**: each lane works on a private copy of its claimed paths outside
-  the project and the coordinator copies exactly the parked scopes in at
-  landing, holding `.buddy/slot/main`. A red then lands nothing. Cost: the
-  lane's edits are outside the governed root, so the gate adjudicates none of
-  them, and a lane must be briefed on two trees. Where the copies live is the
-  operator's to name, per directory, in the coordinator's pane (question 5);
-  no session picks it. NOT MEASURED.
+| Option | How a hook finds the ledger | Cost and failure |
+| --- | --- | --- |
+| **E. A fleet NAME in the environment** (recommended): `BUDDY_FLEET=<name>` on the tab, as `BUDDY_LABEL` and `BUDDY_HANDOFF_AT` ride today (D-089, D-064); the ledger is `<fleet home>/<name>/buddy.db` | one `getenv` after git has said "no ledger" | a launch that forgets the variable gives a lane on no roster (9.1); `claude --bg` carries no variable (the fleet skill says so of `BUDDY_HANDOFF_AT`), so fleet lanes are herdr tabs; a session already running cannot join (stage 2) |
+| P. A ledger PATH in the environment (`BUDDY_LEDGER`, or a new name) | the same | refused, 5.3 |
+| S. A file per session: `<fleet home>/by-session/<session id>` naming the fleet, written by a typed `join` | one `Lstat` in every hook of every session outside a ledger | works for a running session and for `--bg`; a second kind of state outside the ledger, stale files, and `/clear` mints a new id that has not joined (D-034). Stage 2, on its trigger |
+| R. A registry keyed by directory | read on every hook outside a ledger | ten directories to register per batch; any other session started under a registered directory joins a fleet it never heard of; stale rows. Cut: membership belongs to the launch, not the directory |
+| U. One default per-user fleet for every session outside a ledger | none | every such session on the machine shares one namespace, pays a ledger write per tool call and gets a digest it did not ask for; defaults are narrow here (D-010). Cut; `BUDDY_FLEET=default` is the opt-in spelling |
+| M. A marker in the directory (the first plan's M) | a walk up | writes a buddy-named entry into each of ten directories the operator keeps, to mark one batch. Cut |
+| D. A ledger above the repositories' ledgers | | cut in BEYOND-CODE (invariants 1, 4, 6), and still cut: a fleet ledger sits BESIDE them and commands nothing |
 
-The tier is the workflow's own gate, as `not-code.md` says, under the checks
-rule above. A snapshot before a landing (`cp -c -R`, H6) is the only undo
-there is. It writes outside the project, so it is taken only where the
-operator has said so and named the destination (question 4), never on a
-session's own motion.
+`<fleet home>` is the operator's to name (question 2); `~/.buddy/fleets` is
+this plan's example. A name is `[a-z0-9][a-z0-9-]{0,63}`: it can spell no
+path. The ledger is created only by a typed `buddy init --fleet <name>`, never
+by a hook: a hook that created what it failed to find would turn a mistyped
+name into a private ledger and a lane that reports to nobody.
 
-Handoff is unchanged for a lane (a fresh `<lane>-2` session in the same
-directory, claims by `release --to`) and for the coordinator (`orc-<project>`
-moves with `release --to`; the state note is a file in its session's scratch
-directory, or a claimed path inside the project if the operator wants it
-kept there).
+The coordinator is a session like any other: its own hooks read the variable
+from its process environment, so it is STARTED with it (by the operator, or as
+a tab the operator's existing orchestrator opens), in a directory with no
+ledger. A session that lives in a governed repository can still read a fleet's
+roster and send into it by hand, each verb run from a plain directory with the
+variable set (`(cd <fleet home>/<name> && BUDDY_FLEET=<name> buddy sessions)`);
+that is section 3's hand path without the git, with the same limits (its own
+hooks never drain the fleet's mail). Stage 2 is what removes them.
 
-## 5. Failure modes (brief item 4)
+### 5.2 Resolution, the same for every hook verb and every typed verb
 
-"P today" is measured. "Stage 2" is what rules 1 to 3 of 3.2 would give, with
-nothing built.
+1. Discover from the filesystem exactly as today (`openRepo`). A ledger found
+   is the session's ledger, and `BUDDY_FLEET` takes no part in choosing it
+   (`hello` alone reads it there, to print the notice in the table below). An
+   unreadable one is today's verdict, unchanged.
+2. Only on `errNoLedger` (provably not a repository, or a repository never
+   `buddy init`ed) and only for the verbs of section 6: read `BUDDY_FLEET`.
+3. Unset or empty: today's behavior, byte for byte (N0).
+4. Set: open `<fleet home>/<name>/buddy.db`.
 
-| Event | P today | Stage 2, marker M | Stage 2, registry R |
-| --- | --- | --- | --- |
-| pointer or marker deleted | silent OFF; the ledger and its claims sit unread (F2f) | silent OFF, the same: nothing in the directory says it was governed | cannot happen |
-| ledger (or its directory) deleted | silent OFF (F2e) | DENY, naming the marker and the fix (rule 1) | DENY |
-| directory renamed or moved | follows (F2c) | follows | silent OFF at the new path; a view can only report the old root MISSING |
-| directory copied | one ledger, both copies; claims refuse in each (F2d). Over-refusal, the safe side | the same | the copy is unregistered: OFF, which is right for a copy |
-| pointer or marker synced to a second machine | names a git directory that is not there: silent OFF (F2e's shape) | DENY there until that machine's operator runs `init` or removes the marker (question 6) | nothing is synced |
-| a sync tool evicts, replaces or conflicts the pointer or marker | NOT MEASURED. If the entry is absent for an instant the gate is OFF for that instant (F2f) | the same | immune |
-| ledger inside a synced folder | avoided by construction | avoided | avoided |
-| two nested | the deeper wins; an outer claim on the inner directory does not bind a session homed inside (G2) | refused at `init`, DENY at discovery (rules 2 and 3) | refused at `init` |
-| a session's cwd leaves the project | its file-tool writes back in are still judged by the project's claims, and a literal `cd` back in reads its brake (J1; D-138). Not re-run, read from the code and BEYOND-CODE 3.4(A): a `cd` inside one command does not move the hooks' cwd; a session that does settle elsewhere beats no ledger there, so mail queued to it is not drained, its row goes stale, and its claims stay held (invariant 11) | the same, once discovery covers targets (rule 4) | the same |
-| a session started under another `HOME` | no effect: discovery is from the filesystem | no effect | OFF unless the registry is found beside the binary |
+| State | `hello` | `beat`, `busy`, `idle`, `bye` | typed verbs | `gate` |
+| --- | --- | --- | --- | --- |
+| variable unset | silent (N0) | silent | exit 1, as today | as today |
+| a home ledger exists here | registers there; one line: "`BUDDY_FLEET=<name>` is not used here: this directory has its own ledger" | as today | the home ledger | as today |
+| set, the fleet's ledger opens | registers, drains, prints the digest | heartbeat, drain, idle report, context sample, handoff line | work (section 6) | as today |
+| set, the name is malformed | one line on stdout saying so | `busy` prints the same line at each prompt; the rest are silent; all exit 0 | exit 1, `refused: ...` | as today |
+| set, no such fleet (no directory, or no `buddy.db` in it) | one line: "names no fleet ledger on this machine (looked in <path>): this session is on no roster and gets no mail; its coordinator creates it with `buddy init --fleet <name>`" | `busy` prints the same line at each prompt; the rest are silent; all exit 0 | exit 1 with the same words | as today |
+| set, the ledger exists and cannot be opened or read | one line: "fleet ledger unavailable (<cause>): ...", naming the fix (D-084's register) | `busy` prints the same line on stdout at each prompt and exits 0; the rest exit 1 with the cause on stderr, which the wired hook lines drop | exit 1 with the cause | as today |
 
-What does NOT fail closed, said plainly: under P, and under M, removing the
-one small file turns the feature off without a word, exactly as removing
-`.git` does in any repository today. Closing it needs something outside the
-directory that remembers the directory was governed, which is the registry.
-M and R together (a marker that follows a rename, a registry that notices
-the marker gone) close the deletion at the REGISTERED path only. They do not
-close every order of events: move a registered `/a` to `/b`, then remove the
-marker at `/b`, and `/b` has neither marker nor row, so rule 1 reads OFF. No
-shape in this plan is fail-closed against a move and a deletion together.
-The pair costs both halves: a registry read on every hook in every directory
-git does not claim, and a stale registry row that denies until the operator
-retires it. Not recommended before stage 0's sync measurement shows the
-pointer can go missing in practice.
+**Invariant 3, read for a ledger that is not a safety feature.** "No ledger"
+and "unreadable" stay two verdicts with two different sentences, in the two
+places something reads them: the SessionStart context and every typed verb's
+exit. Neither is a DENY, on purpose: a DENY is the gate's, and the gate has no
+part in this (5.4). That is the one departure from "exists but unreadable
+denies", and the decision record must state it: the fleet ledger guards
+nothing, so there is nothing for a closed failure to protect, and a refusal
+keyed on an environment variable is the bug D-137 closed. The record must
+say the same of invariant 2's sentence "a ledger that exists but cannot be
+read denies": it speaks of the safety hooks, and none reads this ledger. What
+must not happen is the silent collapse, which is why `hello` prints on stdout
+(the wired lifecycle lines end `2>/dev/null; exit 0`, README, so stderr and
+the exit status reach nobody), and why `busy` repeats the line at every prompt
+while the failure lasts: a fleet that opened at SessionStart and was removed
+or went unreadable an hour later would otherwise stop coordinating with
+nothing said, and the stale row of 9.1 cannot be read either while the ledger
+cannot. One line a turn, on stdout, never a block.
 
-## 6. Staged rollout (brief item 5)
+**The other invariants.** 2: chat is untouched; the digest's chat line is left
+out in a fleet (no checkout names a room). 4: membership confers nothing; a
+brief still names its coordinator by full session id and label (D-083), and
+anything a session of this user can do in a repository's ledger by `cd`, it can
+do in a fleet's by setting the variable. 6: the fleet home is the user's own,
+mode 0700; not a tenancy boundary. 11: stale rows and claims are marked and
+never reaped; `sweep --force` stays the operator's. 12: rows are `(session_id,
+incarnation)` and `bye` is fenced by `session_procs` exactly as now; the row's
+`worktree` column holds the cwd at `hello` (as for a bare repository today),
+shown and never used to place a path. 13 folds names as now; 14 still decides
+overlap between slot scopes (D-035) and meets no file path.
+
+### 5.3 `BUDDY_LEDGER` stays what it is
+
+CLAUDE.md's line stands and this plan does NOT overturn it: `BUDDY_LEDGER` is
+a knob of two reports, and `buddy` never reads it (N0). A new variable that
+carries a NAME is proposed instead, for three reasons. (1) A path can name any
+file, a repository's own ledger included: sessions outside that repository
+would register in it, and its roster and inbox would stop meaning "the sessions
+working here". (2) A path makes whichever binary reads it open, and so
+migrate, whatever it names; D-136 lets an existing ledger be migrated only by
+`$HOME/bin/buddy` or under `BUDDY_MIGRATE=1`. A name under one fixed home can
+reach only ledgers `init --fleet` made. (3) A path variable read by "buddy"
+invites the next reader to honor it in the gate, which is D-137's bug under a
+buddy name. The reports lose nothing: `BUDDY_LEDGER=<fleet home>/<name>/buddy.db
+scripts/cost-report.sh` reads a fleet ledger as it reads any other.
+
+### 5.4 Why a fleet ledger can never turn a refusal on or off
+
+- **The gate never opens one.** `cmdGate` keeps today's code: the ledgers it
+  reads are found from the filesystem alone (the call's cwd, each named
+  path's directory, each directory a literal `cd` or `git -C` reaches; D-137,
+  D-138). On `errNoLedger` it goes on with no home ledger (`cli.go:2804`)
+  and never reaches step 2 above. The fleet lookup is a separate function,
+  called by the five lifecycle hooks and the typed verbs, and is NOT inside
+  `openRepo`, `resolveRepo` or `discoverRepo`, which the gate shares.
+- **Nothing a gate could act on can be written into one.** There, `claim`
+  refuses every scope outside `.buddy/slot/`, refuses `.buddy/slot/gh-stack`
+  (the one slot the gate reads in a repository's ledger, D-108), and `pause`
+  and `resume` refuse (section 6). No path claim, no brake row and no slot the
+  gate knows exists there for a later bug to find.
+- **Nothing crosses.** No verb copies a row from a fleet ledger into a
+  repository's, or back. Claims never cross ledgers (BEYOND-CODE, option D).
+- **Held by tests, not by this paragraph** (stage 1 owes them): the gate's
+  existing verdict table re-run with `BUDDY_FLEET` unset, naming no fleet,
+  naming a healthy fleet that holds a slot claim and queued mail, and naming a
+  corrupt file, each verdict byte-identical to the unset run and each DENY
+  beside its ALLOW; and a source-shape gate in `check.sh`, in the two clauses
+  CLAUDE.md asks of such gates, that fails when anything reachable from
+  `cmdGate` names the fleet resolver.
+
+Two effects that are NOT refusals and stay: the Stop hook holds a turn open
+one step to hand over mail that arrived as it ended (`idlewait.go:186`), in a
+fleet as in a repository; and an installed `buddy` that cannot run still
+refuses every gated call, ledger or none (D-107).
+
+**The cost, plainly.** A lane in a fleet has no brake. N7 is today's version
+of that: `pause` taken, the roster says PAUSED, the write is allowed. Stage 1
+refuses `pause` in a fleet ledger so that the roster cannot say what is not
+true, and tells the caller where the stop is: the lane's own pane. A brake
+there would need the gate to honor a ledger the environment names, which is
+the widening this plan was told not to make (question 3).
+
+## 6. Verbs in a fleet ledger (brief item 4)
+
+| Verb | In a fleet ledger | Why |
+| --- | --- | --- |
+| `hello`, `beat`, `busy`, `idle`, `bye` | work. `beat` runs no dirty scan and `idle` no base sample; the authority watch is off | those three need a root (invariant 10 is kept by recording nothing) |
+| `msg`, `inbox`, `sent` | unchanged, the wake address included (the pid comes from `session_procs`) | no use of git (N2, N5, N6) |
+| `wait` (a timer, `--on`, `--block`), `wait check`, `ls`, `clear` | unchanged | N2, N3, N8 |
+| `wait --ready <commit>` | refused, as today (N7) | no commit exists; the note carries the path |
+| `sessions`, `who`, `status` | work; `BASE` reads "not kept in a fleet ledger" | the base sample is git's |
+| `claim` on `.buddy/slot/<name>` | works: the item's name, `orc-<fleet>`, a resource one lane may use at a time; `--job <pid>` too (D-131) | a slot is a name, resolved against nothing |
+| `claim` on any other scope, on `.buddy/slot/gh-stack`, `--shared`, `--based-on` | `refused:` a fleet ledger reserves no file; no gate reads it, and a path here has no root | N7's `notes.md` is a claim on a file nobody edits: announced, not locked (invariant 1); `gh-stack` is the slot the gate reads (D-108) |
+| `release`, `--outcome`, `--note`, `--to <target>` | unchanged; `--to` hands an item or `orc-<fleet>` to a successor | N3, N7 |
+| `release --in-run`; READY with no commit | parking is refused already (N7). There is no run to be READY for: a lane's report is its DONE, below. A wait on a claim with a note still works where a coordinator wants one (N7) | nothing is integrated, so nothing parks |
+| `sweep`, `ids` | unchanged | a plain sweep deletes a released claim after 24 h (`SweepTTL`, `cli.go:32`), and its outcome with it |
+| `pause`, `resume` | `refused:` a fleet ledger carries no brake | 5.4 |
+| `whose`, `authority` | `refused:` no paths here | they place paths under a root |
+| `init --fleet <name>` | creates `<fleet home>/<name>/buddy.db`, or says it is there; prints the `--env` to launch with | the one new flag |
+| `gate`, `commit-gate` | never read it | 5.4 |
+
+**"Needs input"**, three options. (a) Existing verbs, recommended: `buddy msg
+orc-<fleet> "NEED INPUT: <question>"`, deliver the wake, then `buddy wait
+--until 2h --note "NEED INPUT: <topic>"` (BEYOND-CODE 1.4, N2). The roster
+shows `waiting`, `wait ls` the topic, the inbox the question; the lane clears
+the wait when answered. Its weakness: the roster word is the same for a lane
+waiting on the operator and one waiting out its own long run, and the note is
+one read away (N4). (b) The harness's own `waitingFor` and `blocked`, which
+catch the case (a) cannot: a lane stopped at an approval prompt runs no verb.
+Keep both; they answer different questions. (c) A new state or verb: not
+proposed. It is a schema column (full tier, D-037's one-way migration) for a
+distinction a convention already carries; its trigger is a stage-0 or stage-1
+count of questions the coordinator missed because `waiting` did not say whose
+move it was.
+
+**Done**: `buddy release <item> --outcome pass|fail --note "DONE: <path of
+the findings>"`, then a message to `orc-<fleet>` with the headline, and the
+wake. The coordinator holds one wait on all the item claims; each `wait
+check` lists every claim, the released ones with outcome and note (N3: 631
+bytes for ten). The blocking form is no "tell me at each finish": it returns
+only when all have landed (N8), so the per-finish signal is the lane's
+message. `ls --all` does not print the outcome (N4); making it do so is a
+small view change (stage 3).
+
+**A DONE here is a report, not a landing.** The outcome is the lane's own
+word about its investigation (the schema's comment says so of every release).
+Nothing merges anywhere. If an investigation ends in a change to a
+repository, that change is a new item in that repository, landed through its
+own run, tier, tests and review; a fleet's `pass` licenses none of it.
+
+## 7. Monitoring ten at once from one pane (brief item 5)
+
+**Do not poll.** A cycle is a turn, and a turn is at least three requests that
+each read the coordinator's whole prompt from cache (D-054: median 3, mean 4.05
+over 20 measured checks); the bytes below are small beside that. The loop is
+event-driven:
+
+1. A lane's question or DONE arrives with a wake, so the coordinator's turn
+   starts within seconds of the send (D-039), already holding the message.
+2. Its standing wait on the ten item claims is checked on the keep-alive pace
+   the check itself prints (50 minutes on the hour tier). That one call is the
+   whole periodic read: it drains mail and lists all ten claims.
+3. `sessions` and `wait ls` are read when the operator asks "where are we", or
+   when a check shows a lane neither released nor heard from.
+
+| Read, for a coordinator and ten lanes | Bytes | From |
+| --- | --- | --- |
+| one question, as drained | 165 on average for a 155-byte body | N4 (495 for three, not one drained alone); a body may be 4,096 (invariant 9's cap) |
+| a full drain | at most 20 messages or 8 KiB | `cli.go:2401` |
+| `wait check` over ten claims | 631 | N3 |
+| `sessions` | 2,723, 248 a row; a real roster's rows run longer (X6) | N4, X6 |
+| `wait ls` | 1,182 with three lanes waiting | N4 |
+| `who <lane>`, when one lane needs a closer look | 928 | N4 |
+| the send's own result line, into the lane's context | 745, most of it the coordinator's ten-claim wait recited | N2 |
+| harness alone: `claude agents --json`; `herdr agent list` | 247 a row; 393 a row | X1, X2 |
+
+A whole "where are we" read (`wait check`, `sessions`, `wait ls`) is about
+4.5 KB for ten lanes. Questions per hour, the number that decides whether one
+pane holds ten lanes, is NOT MEASURED; it is stage 0's first count, as it was
+BEYOND-CODE's.
+
+**A question's path.** Lane: `msg orc-<fleet>` + wake + wait. Coordinator: the
+drain prints it under the lane's label; it shows the operator the question and
+the lane's name, and goes on with other lanes. Operator: answers in that pane.
+Coordinator: `buddy msg <lane> "the operator, in my pane at <time>: <answer>"`
+and the wake. Lane: wakes, drains, `wait clear`, goes on. Two coordinator turns
+and one lane turn per round trip, by construction of the loop; not measured.
+The lane takes the answer as the operator's only because its brief carries the
+relay clause naming this coordinator by full session id and label (D-083,
+D-109); without it the lane asks again in its own pane, and it is right to. A
+message is never authority (invariant 4).
+
+**What stays in each lane's pane:** a tool approval, and anything on install,
+settings, permissions, trust or a more permissive mode. A reply typed in the
+coordinator's pane is not that approval. Which permission mode the lanes run
+in is the operator's standing decision, never the coordinator's.
+
+**If a wake is not delivered** (the lane forgot, or the harness held it), the
+message waits for the coordinator's next successful hook or check: nominally
+about 50 minutes when the hour-tier keep-alive is armed, and with no stated
+deadline when none is (a late-firing loop, the 5-minute tier, a coordinator
+that armed nothing). The harness's own signals cover
+that gap at no cost to the lane (`herdr agent wait --until blocked --until
+done`, or `notify_when_idle`), and stage 0 measures how often it happens.
+
+## 8. Refuted by the operator
+
+The first plan's recommendations are withdrawn; `git show
+1d36f8b:docs/NON-GIT-PLAN.md` has them. **The pointer file (P)** and **the
+parent layout (W)**: a `.git` entry is git, and the operator said no git. **A
+marker or registry that lets the GATE find a ledger without git** (its stage
+2): it answered "claims with teeth in an untracked directory", which this
+workload does not ask for; its trigger is now a named directory where two lanes
+must not write the same file and git is refused. Until then, where two lanes
+share a directory outside git, nothing refuses a collision, and the briefs keep
+them apart (one output file or directory per lane).
+
+Three of its measurements still hold and are used above: outside git every
+verb is off (its F0; N0 re-takes it per hook verb); the hook verbs ignore
+git's own environment variables (its F4, D-137), which is why a fleet is named
+by a buddy variable the gate never reads and not by `GIT_DIR`; a hook's
+no-ledger path usually costs more than its found path (its J3 for `gate`; N9
+for the lifecycle hooks: in eight of the nine pairs of medians across three
+runs, by 5 to 17 ms; `busy` in the last run read 29.6 against 30.1). Under
+load single calls already pass the 100 ms hook budget of CLAUDE.md's gotchas
+on either path (N9: 119.0, 108.9, 608.1). The lookup of 5.2 is added to the
+no-ledger path, so stage 1 re-takes N9 with it in place.
+
+## 9. Failure modes and a staged rollout (brief item 6)
+
+### 9.1 Failure modes of stage 1
+
+| Event | What happens | Seen by |
+| --- | --- | --- |
+| a lane launched without the variable | off, silently, as today (N0) | the coordinator: it minted the session id, and `buddy who <id>` refuses. The brief's first step is `buddy status`; a lane that sees it fail says so in its pane and stops |
+| a mistyped fleet name | `hello`'s line; every typed verb exits 1 | the lane, at its first turn |
+| the fleet ledger unreadable or removed, at the start or later | 5.2: `hello`'s line, `busy`'s line at each prompt after it, typed-verb errors; no tool call is refused | each session at its next prompt; the coordinator cannot read the roster either |
+| the lane's cwd is, or becomes, a directory with its own ledger (it `cd`s into a governed repository; someone runs `buddy init` in its repository) | its hooks follow the home ledger from then on: its fleet row goes stale, fleet mail is not drained. The repository's gate governs its writes there, which is right | the coordinator, as a stale row; `hello`'s "not used here" line if it started there. Closed only by stage 2 |
+| `claude --bg`, or a session opened by hand without the variable | not in the fleet | as the first row |
+| `/clear` in a lane | a new session id in the same process and environment: a new row; the old row's mail and wait are stranded (D-034, unchanged) | the coordinator: two rows, one going stale |
+| a label worn twice, or reused by a later batch | `msg <label>` refused as ambiguous, for good (BEYOND-CODE 3.3) | the sender. A fleet name per batch (`inv-1114`); the coordinator is addressed by its claim slug |
+| another `HOME` (a demo home, `sudo`) | another fleet home: "names no fleet ledger" | the lane |
+| the fleet home on a synced or network volume | SQLite under a tool that copies a live database: NOT MEASURED, refused in the recipe | nobody, until it corrupts |
+| git's variables in a typed verb's environment | the typed verb may find a ledger through `GIT_DIR` where the scrubbed hooks found none and used the fleet (D-137's recorded open, now with a second ledger) | `status`'s first line names the ledger in use; the design pass decides whether typed verbs scrub too when `BUDDY_FLEET` is set |
+| two lanes write one file outside git | nothing refuses it | nobody. Out of this plan (section 8) |
+| the coordinator ends without a successor | a lane's next send to `orc-<fleet>` is refused once the claim is orphaned, or queues with a result line that says its holder has ended (D-134) | each lane, at its next send |
+
+### 9.2 Stages
 
 | Stage | What | Tier, by class | Owes |
 | --- | --- | --- | --- |
-| 0 | The operator runs P (or W) in the real directory, and a coordinator the operator starts there runs one batch of lanes. No buddy code, no commit | none: the five commands are the operator's own act, never a lane's and never done on a relayed word (they write into a directory the operator keeps and under the operator's home) | three counts before stage 1 is written, each read without writing: whether the pointer survives the directory's sync tool for a week (`ls -la <dir>/.git` daily, bytes and mtime unchanged); what Claude Code does on meeting the pointer (its start context's git lines, in bytes); refusals, denies and strays (4.1's `find`) over the first batch. The project's own checks are owed as 4.1 says |
-| 1a | `skills/buddy-fleet/not-code.md` gains "a directory you keep out of git": the P recipe as the operator's act, W and G1's trap, 4.1's consequences, the `--based-on` rule and the stamp check | chore: skill prose naming no new verb or flag | one decision record (the recipe, F4 and F5 as the refused alternatives, section 5's residuals as accepted), its number on CLAUDE.md's Skills line; the skill tests still pass; `not-code.md` is 2,337 bytes and a lane raises no ceiling in `docs/prose-budget.tsv`: an overage is named at READY for the operator |
-| 1b | A done-check, `scripts/check-nongit-recipe.sh`, invoked from `check.sh`: section 10's script cut to the rows that pin the recipe (F2, F2c to F2f, H1, H2, H2b, H2c), so a later discovery change cannot quietly break it. No test names `--separate-git-dir` today (`grep -rl separate-git-dir internal scripts docs` prints nothing at c41826a) | the operator's to say (question 9): it changes nothing the gate does, but its subject is the gate's verdicts, and CLAUDE.md gives a test-only change its subject's tier, which read strictly is full | each DENY beside its ALLOW; each pinned verdict watched to fail under a mutation of discovery in a private copy; never run against a real ledger |
-| 2 | Only on question 1: discovery without git, shape M or R (3.2), `buddy init --no-git`, the dirty register and base sample off there, the room name, the reports' ledger knob | full: what the gate refuses and allows. Codex design pass before code, panel, Codex code pass, Fable cross-check, re-verify to the brief's ceiling | a decision record amending D-005 and D-044 and naming D-102, D-137 and D-138 as touched; every row of section 5's column as a test with its positive control; the hook-latency rows of J3 re-taken on the new path; mutants per `errNoLedger` arm; the new flag in `init`'s parser, usage line and a skill in the same commit; `install.sh` after landing (the operator's) |
-| 3 | Each only if stage 0 or a month of use shows the count: the stamp check as a script (lite); the marker-and-registry tripwire of section 5 (full); `--ready` carrying a non-commit token (full: schema) | as marked | its own record |
+| 0 | One batch on the harness alone (section 4), run by a coordinator the operator starts. No code, no commit, nothing installed | none: nothing changes in this repository | five counts, kept by the coordinator as counts: questions per hour; the most pending at once; messages held, expired or lost; minutes from a lane blocking to the operator seeing it; lanes that ran past an hour or past the handoff size |
+| 1a | A decision record and a page in `skills/buddy-fleet/`: outside git buddy is off, the stage-0 loop, and the four marks of section 4 | chore: prose naming no new verb or flag | the record's number on CLAUDE.md's Skills line; the skill tests; a byte ceiling a lane does not raise |
+| 1b | The fleet ledger: 5.2's resolution in the five lifecycle hooks and the typed verbs, `buddy init --fleet <name>`, section 6's refusals, `hello`'s lines, the three skips. No schema change, no settings change | **full**: it adds an arm to invariant 3's reading and sits beside the discovery the gate shares. Codex design pass before code, panel, Codex code pass, Fable cross-check, re-verify to the brief's ceiling | a decision record that amends the reading of invariant 3 for a ledger the gate never reads and names D-137, D-044 and D-107 as untouched; 5.4's two tests; every row of 5.2 and 9.1 as a test with its positive control; each refusal of section 6 beside the grant it stands next to; mutants per arm in a private copy; N9 re-taken; the flag in `init`'s parser and usage line and the fleet skill in the same commit; USAGE; then `install.sh`, the operator's |
+| 2 | Only on its trigger (question 4, or a stage-1 count of lanes inside governed repositories): a session with BOTH ledgers (the lifecycle hooks beat the home ledger and the fleet; one joint digest budget), and option S's typed `join` for a session already running | full | its own record: two inboxes under one 9,000-byte digest (`helloBudget`, `cli.go:2553`; D-034), which ledger a bare `msg` means, hook latency with two opens |
+| 3 | Each only on a count: the outcome on `ls --all` (lite, a view); a "whose move" word on the roster's `waiting` (full if it is a column); a fleet listing verb | as marked | its own record |
 
-Stages 1 to 3 go through this repository's own run and tier like any item,
-with the tests and mutation checks every tier owes. What stage 0 and 4.1 do
-change is the non-git project's own landing: an edit is in the directory
-before anyone has read it, "landed" means accepted, and the checks that
-content owes are run before READY and before the outcome (4.1). That an edit
-is live when written is the nature of a directory without branches, not a
-step this plan adds; copy-in is the answer where it is not acceptable.
+Stage 1b is not small and should not be bought on this plan's word: stage 0
+costs one batch (an afternoon is this plan's timebox, not a measurement) and
+says whether the right-hand column of section 4 is
+needed at all. If the operator wants buddy here regardless, 1b can go first;
+nothing in it depends on 0 but its priority.
 
-Operator-only, wherever this plan mentions them: stage 0's commands; any
-`install.sh`, `buddy update` or `--wire-hooks`; raising a prose ceiling; and
-naming every location outside the project that anything is written to (the
-git directory, copy-in copies, snapshots, a stage-2 ledger). A session writes
-outside the project only into its own scratch directory.
+Operator-only, wherever this plan touches them: naming the fleet home;
+`install.sh` or `buddy update` after 1b lands; the lanes' permission mode; any
+settings change (none is proposed); raising a prose ceiling. A coordinator
+creates a fleet (`init --fleet`) and opens lanes only as the operator said it
+may run, and a lane does neither.
 
-## 7. Not in this plan
+## 10. OPEN: only the operator can answer
 
-Multi-machine claims (out of scope in CLAUDE.md; a synced marker shares an id
-at most, never a ledger). Anything that watches the directory (a daemon, an
-fsevents reader). Buddy taking snapshots or running git for the operator. A
-second landing verb. Authority from chat. Widening the `PreToolUse` matcher so
-`pause` reaches MCP-only lanes (BEYOND-CODE 1.2, still open there). Launching
-or closing lanes (the coordinator's, with the harness).
+1. **Stage 0 first, or the fleet ledger now?** One batch on the harness alone
+   with its five counts, or build 1b regardless?
+2. **Where may fleet ledgers be written?** `~/.buddy/fleets/<name>/` is the
+   example; the location is yours to name, on a local volume nothing syncs.
+3. **No brake and no file protection outside git: accepted?** `pause` is
+   refused in a fleet ledger; a lane there stops only in its own pane; two
+   lanes writing one file are kept apart by their briefs alone.
+4. **Which pane coordinates?** A coordinator started for the fleet in a plain
+   directory (stage 1b is enough), or your existing orchestrator pane, which
+   lives in a repository with its own ledger (that needs stage 2)? The same
+   question for lanes: will some of the ten sit inside a governed repository?
+5. **Codex lanes among the ten?** They have no `SendMessage`, so the
+   harness-only loop has no message channel for them; that alone would put 1b
+   first.
+6. **Stage 1b's tier:** full as classed here, or capped for this run?
 
-## 8. OPEN: only the operator can answer
-
-1. **Which reading of "not git tracked"?** May the directory hold one small
-   `.git` pointer file with nothing tracked and commits refused (then stage 0
-   is the whole answer), or must it hold no git-named entry (then W, or stage
-   2)? If stage 2: is a buddy-named file acceptable there (M), or nothing (R)?
-2. **Is the directory synced by another tool, and is its parent yours to
-   arrange?** It decides P against W, and whether stage 0's first week must
-   prove the pointer survives.
-3. **In-place edits, live when written, or copy-in landing where a red lands
-   nothing?**
-4. **A snapshot before each landing: wanted, and where?**
-5. **Where may anything outside the project be written**, each location
-   named by you: the git directory (`~/.buddy/gitdirs/` in the recipe),
-   copy-in copies and snapshots if you want either, a stage-2 ledger
-   (`~/.buddy/projects/`)?
-6. **Is a silent OFF acceptable when the pointer is deleted**, as when `.git`
-   is deleted in any repository today, or is the stage-3 tripwire worth its
-   cost? And for stage 2: a marker whose ledger is missing, DENY (proposed) or
-   OFF (parity with F2e)?
-7. **What is the workflow's gate in such a project**: the coordinator's read,
-   a second model's read, yours?
-8. **Is stage 1 wanted now**, before a stage-0 week has produced its counts?
-9. **Stage 1b's review tier.** A done-check that pins the gate's verdicts for
-   the recipe changes nothing the gate does; read strictly, a test-only change
-   takes its subject's tier, which is full. Full, or capped at lite? (Codex
-   finding 12, answered here and not folded.)
-
-## 9. Taken and refuted
+## 11. Taken and refuted
 
 **The Codex pass** (gpt-6-astra, xhigh, 2026-11-14, through
-`scripts/codex-review.sh` in the foreground, `CODEX_DIFF=c41826a..4eaf59e`).
-A first attempt with a wider prompt (seven questions, the code read in full)
-ran into the script's 540 s watchdog and returned NO VERDICT; nothing from it
-is counted. The prompt's scope was cut, as CLAUDE.md says to, and the pass
-ran once more: 212 s, header verified, verdict revise, twelve findings.
-Finding 1 was reproduced before it was taken (H2c). Folded once; no re-verify
-ran, which is the brief's ceiling.
+`scripts/codex-review.sh` in the foreground, `CODEX_DIFF=1d36f8b..2a58789` (the
+draft commit, squashed into this one),
+one prompt of six questions scoped to this file and five ranges of code): 476
+s, header verified, verdict revise, ten findings. On gate jurisdiction (its
+question 2), landing (3) and operator-only actions (4) it answered "none";
+its finding 3 below is the one place the draft overstated what the gate does.
+Folded once; no re-verify ran, which is the brief's ceiling.
 
 | # | Finding | Taken / answered | Change |
 | --- | --- | --- | --- |
-| 1 | 4.1: parking does not freeze the reviewed paths; a lane claiming `--based-on <run>` may write there | Taken; reproduced as H2c | 4.1 names the exception and the brief rule against it; "refuses every lane" removed |
-| 2 | 4.1, 6: "read and accept" lets content that owes checks get a pass without them | Taken | 4.1: the project's own checks are owed before READY and before the outcome; the no-check gate only for a class with none; stage 0 says so |
-| 3 | 4.1, 6: the stamp, the handoff note, copy-in copies and snapshots are writes outside the project that nobody authorized | Taken | a session writes outside the project only into its own scratch directory; every other location is the operator's to name (section 6, question 5) |
-| 4 | 2, 10: the gate helper counted bytes and dropped buddy's exit status and decision | Taken; the lane's own scripts did grep the decision, the published helper did not | section 10's helper keeps the exit status and parses the JSON decision; every row re-run with it |
-| 5 | 2, 4, 10: replaying H3 with the same path does not give an empty register | Taken; the lane's second beat named another file, which section 10 did not say | H3 says so and shows both paths; "empty within 15 s" replaced in 4 |
-| 6 | 10: fixtures lacked their directories and files | Taken | section 10 is now the script that was run |
-| 7 | 2, 10: the refused commands had no succeeding control | Taken | K0, and F4's and F5's own controls |
-| 8 | 10: G2's two probes named different targets as written | Taken; the run used one absolute path, the text did not | one absolute target, in the script |
-| 9 | 2, 10: sizes and timings without reproducible inputs | Taken | the timing program is in the script; path-dependent sizes are marked "here"; the earlier J3 runs are named as such |
-| 10 | 3.2: rules 2 and 3 gave two verdicts for `/outer/.git` with `/outer/sub/.buddy-project` | Taken | one precedence list in rule 2, the same-directory tie included; rule 3 is `init`'s side of it |
-| 11 | 5: M with R is not fully fail-closed (move, then delete the marker) | Taken | the claim is narrowed to deletion at the registered path, and the sequence is written out |
-| 12 | 6: stage 1's lite tier rested on "it is a script", but a test-only change takes its subject's tier | Answered, not folded | stage 1 split into 1a (prose, chore) and 1b (the done-check); 1b's tier is question 9 |
+| 1 | 12: the script tested "outside a repository" BEFORE clearing git's variables, so under `GIT_DIR=/nonexistent` inside a governed repository N0's `hello` and `msg all` could reach that repository's ledger; a failed `init` did not stop it | Taken | git's local variables and the ceiling are unset first; every fixture step that must succeed aborts the run when it does not |
+| 2 | 5.2: a fleet that opens at SessionStart and goes missing or unreadable later fails silently (stderr is dropped, and no later `hello` runs); invariant 2's unreadable clause was not addressed | Taken | `busy` repeats the one line at each prompt while the failure lasts; the record must speak to invariant 2's sentence as well as 3's; 9.1's row says so |
+| 3 | 3, 1: "the gate allows everything" and "no gate" are too absolute: a write from outside git into a governed repository is still judged there | Taken | both now say no home-ledger enforcement, and that governed targets keep theirs (D-138, the first plan's J1) |
+| 4 | N7: the DENY that stood as the pause control targeted a file already claimed and parked, so it did not isolate the brake; N0 showed no succeeding `status`; `--ready HEAD` had no succeeding control | Taken, the last by citation | the brake is now shown on one unclaimed file: ALLOW, paused DENY, resumed ALLOW; a registered session's `status` is in N1; `--ready HEAD` succeeding with a commit is the first plan's K0, cited and not re-run |
+| 5 | 2, 12: seven N cells claimed more than the script printed (unprinted exit statuses in N2, N3, N8; `wait ls` notes and the hand-read body not shown; an outcome-absence count that could read 0 on no match; ALLOW inferred from empty output; timings blind to failed calls) | Taken | the script prints or checks each; `gate` parses the decision; N9 counts failures (0 of 20 in every cell); every cell was re-read against the last run |
+| 6 | 7: "50 minutes at worst" is a nominal interval, not a bound | Taken | reworded: the next successful hook or check, with no stated deadline where no keep-alive is armed |
+| 7 | 5.2: invariant 14 still decides overlap between slot scopes (D-035) | Taken | said so |
+| 8 | 2, 12: X1's two directory counts and X5 had no re-run command | Taken | the commands are in section 12; X6 added |
+| 9 | 4, 6, 7, 8, 9: figures without a source or a label (the "worth it" thresholds; 24 h; "three requests"; the checkout's row sizes cited to N4; 165 as if drained alone; 4,096; the turns per round trip; 100 ms; 9,000; "one afternoon") | Taken | each now carries its source (`SweepTTL`, D-054, X6, invariant 9, CLAUDE.md, `helloBudget` and D-034) or is labelled a judgment, an average, or by construction |
+| 10 | 5.2: step 1 said `BUDDY_FLEET` "is not read" where a ledger is found, while `hello` there prints a notice naming it | Taken | the variable takes no part in choosing the ledger; `hello` alone reads it there, for the notice |
 
-Codex also confirmed section 1's quotation of option C's trigger and noted
-that the bar for building is this plan's own; section 1 now says so.
+Folding finding 5 changed the script, so every N row is from a run made
+after the pass. N9 moved with the machine's load across its three runs, and
+section 8 now says only what all three support.
 
-**The lane's own review before the pass** raised thirteen points, all fixed
-in the draft Codex read: the `.git` file's size given as if it were fixed;
-F4's ledger asserted and not shown; J3's cause stated as measured; a claim
-about Claude Code's own `git status`; `git add -f` and `--no-verify` implied
-as run; a claim about SQLite's documentation wider than its text; "three"
-`errNoLedger` returns where `discoverRepo` has two; rule 2 describing a walk
-git does not do today; which reports read `BUDDY_LEDGER`; the stage-2 room
-name resting on a fallback that would name the ledger's directory; the
-parked-claim refusal quoted from after the run closed (measured mid-run as
-H2b); the cwd-leaves row presented as measured; and rule 1 missing the
-cannot-tell arm of the walk.
+**The lane's own review before the pass** raised thirteen points, all fixed in
+the draft Codex read: X3's states miscounted; a send's result-line size quoted
+from a run the published script could not reproduce (the script now counts
+what the line recites); `release --to` of a slot-only claim asserted and not
+measured (now in N7); the provenance flags cited to the wrong decision;
+`.buddy/slot/gh-stack`, the one slot the gate reads, left grantable in a fleet
+ledger; invariant 13 said to have nothing to act on; the orchestrator's
+restatement presented as the operator's words; the coordinator's own need to
+be started with the variable left unsaid; `herdr agent wait` and
+`notify_when_idle` recommended without saying neither was run, and `herdr
+agent prompt` not ruled out as a relay; the macOS version and X5's event list;
+a coordinator's end described as queueing only; N9 quoted from a quieter run
+than the script's last; READY with no commit left unanswered in section 6.
 
-## 10. Re-running the fixtures
+## 12. Re-running the measurements
 
 Save the block below as a file and run `sh <file> <empty directory>`; the
 directory must be outside every repository. It needs `buddy`, `git` and
-`python3` on PATH, takes about two minutes, registers three minted session
-ids in throwaway ledgers it creates, and touches no other ledger. Each `==`
-heading is a row of section 2. This is the text that produced that table.
+`python3` on PATH, takes about a minute, registers eleven minted session ids
+in one throwaway ledger it creates, and touches no other ledger. Each `==`
+heading is an N row of section 2. This is the text that produced that table.
+One beat in N6 binds the calling shell's harness process, if there is one, to
+a row of the throwaway ledger and to nothing else.
 
 ```sh
 #!/bin/sh
 # Fixtures for docs/NON-GIT-PLAN.md. usage: sh fixtures.sh <empty directory>
-# Throwaway ledgers only: the directory must be outside every repository.
-# Session ids are minted. Needs buddy, git, python3 on PATH. About two minutes.
+# Throwaway ledger only: the directory must be outside every repository.
+# Session ids are minted. Needs buddy, git, python3 on PATH. About a minute.
+# The stand-in fleet ledger sits in a `git init`ed scratch directory ONLY
+# because today's buddy keeps a ledger nowhere else; what is measured is what
+# the verbs do once a ledger is open, and what the hooks do where none is found.
 set -u
-W=$1
-[ -d "$W" ] && [ -z "$(ls -A "$W")" ] || { echo "need an empty directory"; exit 2; }
+die() { echo "FIXTURE FAILED: $*"; exit 2; }
+# Git's own variables go first: with GIT_DIR set, the outside-a-repository test
+# below could pass inside one, and the hook verbs (which scrub them) would then
+# find that repository's real ledger.
+unset $(git rev-parse --local-env-vars) GIT_CEILING_DIRECTORIES
+unset CODEX_THREAD_ID BUDDY_SESSION BUDDY_LABEL BUDDY_LEDGER BUDDY_FLEET
+W=${1:-}
+[ -n "$W" ] && [ -d "$W" ] && [ -z "$(ls -A "$W")" ] || die "need an empty directory"
 W=$(cd "$W" && pwd -P)
-git -C "$W" rev-parse --git-dir >/dev/null 2>&1 && { echo "inside a repository"; exit 2; }
+git -C "$W" rev-parse --git-dir >/dev/null 2>&1 && die "inside a repository"
 O=00000000-0000-4000-8000-000000000000
-A=11111111-1111-4111-8111-111111111111
-B=22222222-2222-4222-8222-222222222222
-unset CODEX_THREAD_ID GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR
+lane() { printf '%08d-1111-4111-8111-111111111111' "$1"; }   # lane 3 -> 00000003-1111-...
 as() { id=$1; shift; CLAUDE_CODE_SESSION_ID=$id "$@"; }
-say() { sed "s|$W|<W>|g" | cut -c1-"${2:-170}" | sed "s|^|  $1: |"; }
-hi() { as "$1" buddy hello --session "$1" --label "$2" </dev/null >/dev/null 2>&1 || echo "  hello $2 FAILED"; }
-# gate <label> <session> <cwd> <Write|Bash> <absolute path | command>
-# ALLOW: buddy exits 0 and prints nothing. DENY: exits 0 and prints a JSON
-# document whose permissionDecision is "deny". Anything else is printed raw.
+say() { sed "s|$W|<W>|g" | cut -c1-"${2:-200}" | sed "s|^|  $1: |"; }
+size() { wc -c | tr -d ' '; }
+# hook <verb> <event> <session> <cwd> [<tool> <file_path>]: run one hook verb
+# with the payload on stdin, FROM <cwd>; leaves RC, $W/.out and $W/.err.
+hook() {
+	v=$1; ev=$2; id=$3; d=$4; tool=${5:-}; fp=${6:-}
+	p=$(printf '{"hook_event_name":"%s","session_id":"%s","cwd":"%s"' "$ev" "$id" "$d")
+	[ -n "$tool" ] && p="$p$(printf ',"tool_name":"%s","tool_input":{"file_path":"%s"}' "$tool" "$fp")"
+	p="$p}"
+	(cd "$d" && printf %s "$p" | CLAUDE_CODE_SESSION_ID=$id buddy "$v" >"$W/.out" 2>"$W/.err"); RC=$?
+}
+show() { echo "  $1: rc=$RC stdout=$(size <"$W/.out") stderr=$(size <"$W/.err") bytes"; }
+# gate <label> <session> <cwd> <absolute path>. ALLOW: buddy exits 0 and prints
+# nothing. DENY: exits 0 and prints a JSON document whose permissionDecision is
+# "deny". Anything else is printed raw.
 gate() {
-	k=file_path; [ "$4" = Bash ] && k=command
-	out=$(printf '{"hook_event_name":"PreToolUse","session_id":"%s","cwd":"%s","tool_name":"%s","tool_input":{"%s":"%s"}}' \
-		"$2" "$3" "$4" "$k" "$5" | CLAUDE_CODE_SESSION_ID=$2 buddy gate 2>/dev/null)
-	rc=$?
-	n=$(printf %s "$out" | wc -c | tr -d ' ')
-	if [ "$rc" = 0 ] && [ "$n" = 0 ]; then v=ALLOW
-	elif [ "$rc" = 0 ] && printf %s "$out" | python3 -I -c 'import json,sys
-sys.exit(0 if json.load(sys.stdin)["hookSpecificOutput"]["permissionDecision"]=="deny" else 1)' 2>/dev/null; then v="DENY ($n bytes)"
-	else v="OTHER rc=$rc: $out"; fi
+	hook gate PreToolUse "$2" "$3" Write "$4"
+	if [ "$RC" = 0 ] && [ ! -s "$W/.out" ]; then v=ALLOW
+	elif [ "$RC" = 0 ] && python3 -I -c 'import json,sys
+sys.exit(0 if json.load(sys.stdin)["hookSpecificOutput"]["permissionDecision"]=="deny" else 1)' <"$W/.out" 2>/dev/null; then v="DENY ($(size <"$W/.out") bytes)"
+	else v="OTHER rc=$RC: $(cat "$W/.out" "$W/.err")"; fi
 	echo "  $1: $v"
 }
-beat() { printf '{"hook_event_name":"PostToolUse","session_id":"%s","cwd":"%s","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
-	"$1" "$2" "$3" | CLAUDE_CODE_SESSION_ID=$1 buddy beat >/dev/null 2>&1; }
-SCAN='git -c core.fsmonitor=false --no-optional-locks status --porcelain -z -uall'
-lanes() { hi $A alpha; hi $B bravo; as $A buddy claim item-a --desc fixture --scope "$1" 2>&1 | say claim; }
 
-echo "== F0 plain directory"
-mkdir -p "$W/plain"; cd "$W/plain"
-buddy status 2>&1 | head -1 | say status 60
-gate "B writes x.md" $B "$W/plain" Write "$W/plain/x.md"
+echo "== N0 a plain directory: the hook verbs, the typed verbs, BUDDY_LEDGER"
+F="$W/standin"; mkdir -p "$W/inv/i01"; P="$W/inv/i01"
+git init -q "$F" || die "git init"
+(cd "$F" && buddy init >/dev/null 2>&1) || die "buddy init"
+[ -f "$F/.git/buddy.db" ] || die "no throwaway ledger"
+L1=$(lane 1)
+hook hello SessionStart "$L1" "$P"; show "hello (SessionStart)"
+hook busy UserPromptSubmit "$L1" "$P"; show "busy (UserPromptSubmit)"
+hook beat PostToolUse "$L1" "$P" Write "$P/notes.md"; show "beat (PostToolUse)"
+hook idle Stop "$L1" "$P"; show "idle (Stop)"
+hook bye SessionEnd "$L1" "$P"; show "bye (SessionEnd)"
+gate "gate, a Write in the plain directory" "$L1" "$P" "$P/notes.md"
+cd "$P"
+for v in status sessions inbox "wait check" "msg all hi" "claim x --desc d --scope .buddy/slot/x"; do
+	as "$L1" buddy $v >"$W/.out" 2>&1; echo "  buddy $v: rc=$? $(head -1 "$W/.out" | cut -c1-48)"
+done
+BUDDY_LEDGER="$F/.git/buddy.db" CLAUDE_CODE_SESSION_ID=$L1 buddy sessions >"$W/.out" 2>&1
+echo "  BUDDY_LEDGER=<the stand-in's ledger> buddy sessions: rc=$? $(head -1 "$W/.out" | cut -c1-48)"
+(cd "$F" && as "$L1" buddy sessions >"$W/.out" 2>&1); echo "  control, the same verb from the stand-in: rc=$? rows $(grep -c . "$W/.out")"
 
-echo "== F1 git init in place; K0 controls for the refused commands below"
-mkdir -p "$W/f1/notes"; git init -q "$W/f1"; cd "$W/f1"
-buddy init >/dev/null 2>&1; lanes notes/plan.md
-gate "B writes A's notes/plan.md" $B "$W/f1" Write "$W/f1/notes/plan.md"
-gate "B writes notes/other.md" $B "$W/f1" Write "$W/f1/notes/other.md"
-echo x >notes/plan.md
-git add notes/plan.md; echo "  K0 git add, nothing excluded: index entries $(git ls-files | wc -l | tr -d ' ')"
-git -c user.name=x -c user.email=x@x commit -qm x; echo "  K0 git commit, no hook: rc=$? commits $(git rev-list --all | wc -l | tr -d ' ')"
-as $B buddy wait --on item-a --ready HEAD 2>&1 | head -1 | say "K0 wait --ready HEAD with a commit" 90
-as $B buddy wait clear >/dev/null 2>&1
+echo "== N1 eleven sessions hand-registered in one ledger (a coordinator, ten lanes)"
+cd "$F"
+as $O buddy hello --session $O --label orc </dev/null >/dev/null 2>&1 || die "hello orc"
+as $O buddy claim orc-standin --desc "coordinator: ten investigations; report with buddy msg" --scope .buddy/slot/orc-standin 2>&1 | say O
+ON=""; i=1; while [ $i -le 10 ]; do
+	n=$(printf 'i%02d' $i); mkdir -p "$W/inv/$n"; ON="$ON --on $n"
+	as "$(lane $i)" buddy hello --session "$(lane $i)" --label $n </dev/null >/dev/null 2>&1 || die "hello $n"
+	as "$(lane $i)" buddy claim $n --desc "investigation $n: the question it was given, in a sentence of ordinary length" --scope .buddy/slot/$n >/dev/null 2>&1 || die "claim $n"
+	i=$((i+1))
+done
+echo "  claims open: $(as $O buddy ls 2>/dev/null | grep -c 'slot/')"
+as $O buddy status >"$W/.out" 2>&1; echo "  control for N0, a registered session's status here: rc=$?"
+as $O buddy wait $ON --until 12h --note "watching ten lanes" >"$W/.out" 2>&1; echo "  O waits on all ten item claims: rc=$? $(head -1 "$W/.out" | cut -c1-60)"
 
-echo "== F2 separate git directory"
-mkdir -p "$W/gitdirs"; git init -q --separate-git-dir="$W/gitdirs/f2.git" "$W/f2"; mkdir -p "$W/f2/notes"; cd "$W/f2"
-echo "  entries: $(ls -A | tr '\n' ' '); .git: $(stat -f '%HT, %z bytes' .git) = 8 + $(printf %s "$W/gitdirs/f2.git" | wc -c | tr -d ' ') path bytes + 1; core.worktree: $(git config --get core.worktree || echo unset)"
-buddy init 2>&1 | head -1 | say init
-echo "  files named buddy* under the project: $(find "$W/f2" -name 'buddy*' | wc -l | tr -d ' ')"
-lanes notes/plan.md
-gate "B writes A's notes/plan.md" $B "$W/f2" Write "$W/f2/notes/plan.md"
-gate "B writes notes/other.md" $B "$W/f2" Write "$W/f2/notes/other.md"
-gate "B, cwd notes/, writes A's file" $B "$W/f2/notes" Write "$W/f2/notes/plan.md"
-as $A buddy hello --session $A --label alpha </dev/null 2>&1 | grep -o 'chat_read [^`]*' | say "chat line"
-as $A buddy status 2>&1 | grep '^BASE' | say status 60
-as $B buddy wait --on item-a --ready HEAD 2>&1 | head -1 | say "wait --ready HEAD, no commit" 90
-as $B buddy wait clear >/dev/null 2>&1
-echo "== F2b a pre-commit that exits 1"
-printf '#!/bin/sh\necho "not git-tracked: the operator keeps this directory out of git" >&2\nexit 1\n' >"$W/gitdirs/f2.git/hooks/pre-commit"
-chmod +x "$W/gitdirs/f2.git/hooks/pre-commit"
-git -c user.name=x -c user.email=x@x commit -q --allow-empty -m x 2>&1 | head -1 | say commit
-echo "  commits: $(git rev-list --all 2>/dev/null | wc -l | tr -d ' ')"
-echo "== F2c renamed"
-cd "$W"; mv "$W/f2" "$W/f2-moved"; cd "$W/f2-moved"
-git rev-parse --show-toplevel | say toplevel
-gate "B writes A's notes/plan.md" $B "$W/f2-moved" Write "$W/f2-moved/notes/plan.md"
-gate "B writes notes/other.md" $B "$W/f2-moved" Write "$W/f2-moved/notes/other.md"
-echo "== F2d copied"
-cp -R "$W/f2-moved" "$W/f2-copy"
-gate "B, in the copy, writes its notes/plan.md" $B "$W/f2-copy" Write "$W/f2-copy/notes/plan.md"
-gate "B, in the copy, writes its notes/other.md" $B "$W/f2-copy" Write "$W/f2-copy/notes/other.md"
-echo "== F2e the git directory moved away"
-mv "$W/gitdirs/f2.git" "$W/gitdirs/f2.git.away"
-buddy status 2>&1 | head -1 | say status 60
-gate "B writes A's notes/plan.md" $B "$W/f2-moved" Write "$W/f2-moved/notes/plan.md"
-mv "$W/gitdirs/f2.git.away" "$W/gitdirs/f2.git"
-echo "== F2f the .git file removed, then restored"
-mv "$W/f2-moved/.git" "$W/dotgit.away"
-gate "removed: B writes A's notes/plan.md" $B "$W/f2-moved" Write "$W/f2-moved/notes/plan.md"
-mv "$W/dotgit.away" "$W/f2-moved/.git"
-gate "restored: B writes A's notes/plan.md" $B "$W/f2-moved" Write "$W/f2-moved/notes/plan.md"
+echo "== N2 a lane asks: one message to the coordinator's slug, one declared wait"
+Q="NEED INPUT: the vendor's export has two candidate date columns, created_at and posted_at; which one is the audit keyed on? Findings so far are in notes.md."
+ms=0; ws=0
+for i in 3 7 9; do
+	as "$(lane $i)" buddy msg orc-standin "$Q" >"$W/.out" 2>&1 && ms=$((ms+1))
+	[ $i = 3 ] && echo "  lane 3's send: result line $(size <"$W/.out") bytes in $(grep -c . "$W/.out") line(s), reciting $(grep -o 'claim "i[0-9]*"' "$W/.out" | wc -l | tr -d ' ') of the claims O waits on: $(cut -c1-60 "$W/.out")"
+	as "$(lane $i)" buddy wait --until 2h --note "NEED INPUT: which date column" >"$W/.out" 2>&1 && ws=$((ws+1))
+	[ $i = 3 ] && head -1 "$W/.out" | say "lane 3's wait" 120
+done
+echo "  sends that exited 0: $ms of 3; waits that exited 0: $ws of 3; question body: $(printf %s "$Q" | size) bytes"
 
-echo "== F3, G1 .git in the parent"
-mkdir -p "$W/f3/vault/notes"; git init -q "$W/f3"; cd "$W/f3/vault"
-buddy init 2>&1 | head -1 | say "init from vault/"
-echo "  entries in vault/: $(ls -A | tr '\n' ' ')"
-lanes notes/plan.md
-gate "B writes vault/notes/plan.md" $B "$W/f3/vault" Write "$W/f3/vault/notes/plan.md"
-gate "B writes <parent>/notes/plan.md" $B "$W/f3/vault" Write "$W/f3/notes/plan.md"
-as $A buddy claim item-a2 --desc fixture --scope vault/notes/plan.md 2>&1 | say claim
-gate "B writes vault/notes/plan.md" $B "$W/f3/vault" Write "$W/f3/vault/notes/plan.md"
-as $A buddy hello --session $A --label alpha </dev/null 2>&1 | grep -o 'chat_read [^`]*' | say "chat line"
+echo "== N3 two lanes finish: release with an outcome"
+as "$(lane 5)" buddy release i05 --outcome pass --note "DONE: findings in <W>/inv/i05/findings.md" >"$W/.out" 2>&1; echo "  lane 5: rc=$? $(head -1 "$W/.out" | cut -c1-90)"
+as "$(lane 6)" buddy release i06 --outcome fail --note "DONE: could not reproduce; notes in findings.md" >"$W/.out" 2>&1; echo "  lane 6: rc=$? $(head -1 "$W/.out" | cut -c1-90)"
+as $O buddy wait check >"$W/.out" 2>&1
+echo "  O's wait check: rc=$? $(grep -c . "$W/.out") line(s); the first is $(head -1 "$W/.out" | size) bytes and names $(head -1 "$W/.out" | grep -o 'claim "i[0-9]*"' | sort -u | wc -l | tr -d ' ') claims, $(head -1 "$W/.out" | grep -o 'outcome [A-Z]* "[^"]*"' | wc -l | tr -d ' ') with an outcome and its note: $(head -1 "$W/.out" | grep -o 'outcome [A-Z]* "DONE: could[^"]*"')"
 
-echo "== F4 GIT_DIR and GIT_WORK_TREE exported, no .git anywhere"
-mkdir -p "$W/f4/notes"; git init -q --bare "$W/gitdirs/f4.git"; git --git-dir="$W/gitdirs/f4.git" config core.bare false
-cd "$W/f4"
-buddy ls >/dev/null 2>&1; echo "  typed verb, env unset: buddy ls rc=$?"
-export GIT_DIR="$W/gitdirs/f4.git" GIT_WORK_TREE="$W/f4"
-buddy init >/dev/null 2>&1; echo "  init rc=$?"
-buddy ls >/dev/null 2>&1; echo "  typed verb, env set (control): buddy ls rc=$?"
-as $A buddy hello --session $A --label alpha </dev/null >/dev/null 2>&1; echo "  hello rc=$?"
-as $A buddy claim item-a --desc fixture --scope notes/plan.md 2>&1 | say claim 150
-gate "B writes notes/plan.md" $B "$W/f4" Write "$W/f4/notes/plan.md"
-unset GIT_DIR GIT_WORK_TREE
+echo "== N4 what the coordinator reads in one cycle (bytes, lines)"
+for v in sessions "wait ls" ls "ls --all"; do
+	as $O buddy $v >"$W/.out" 2>&1; echo "  buddy $v: rc=$? $(size <"$W/.out") bytes, $(grep -c . "$W/.out") lines"
+done
+as $O buddy sessions 2>&1 | grep -E ' i0[135] ' | sed 's/  */ /g' | say "row" 230
+echo "  wait ls lines carrying a lane's NEED INPUT note: $(as $O buddy wait ls 2>&1 | grep -c 'note: NEED INPUT')"
+as $O buddy ls --all >"$W/.out" 2>&1
+echo "  ls --all: rows for i05 and i06 selected: $(grep -c -E '^i0[56] .* released ' "$W/.out"); of those, rows carrying the outcome word or the note: $(grep -E '^i0[56] .* released ' "$W/.out" | grep -c -E 'PASS|FAIL|pass|fail|DONE')"
+as $O buddy inbox >"$W/.out" 2>&1; echo "  buddy inbox: rc=$? $(size <"$W/.out") bytes, $(grep -c . "$W/.out") lines, $(grep -c 'NEED INPUT: the vendor' "$W/.out") carrying the question"
+as $O buddy inbox >"$W/.out" 2>&1; echo "  again: $(head -1 "$W/.out" | cut -c1-40)"
+as $O buddy who i03 >"$W/.out" 2>&1; echo "  buddy who i03: rc=$? $(size <"$W/.out") bytes, $(grep -c . "$W/.out") lines"
 
-echo "== F5 a repository holding a symlink to the project"
-mkdir -p "$W/f5real/notes" "$W/f5wrap"; git init -q "$W/f5wrap"; ln -s "$W/f5real" "$W/f5wrap/proj"
-git -C "$W/f5wrap" rev-parse --show-toplevel 2>&1 | say "control, the wrapper itself"
-git -C "$W/f5wrap/proj" rev-parse --show-toplevel 2>&1 | head -1 | say "through the link" 60
+echo "== N5 the answer goes back; the lane's hooks, run where the lane lives, never see it"
+as $O buddy msg i03 "posted_at: the operator said so in my pane at 17:50Z" >"$W/.out" 2>&1; echo "  O answers: rc=$? $(cut -c1-150 "$W/.out")"
+M=$(grep -o 'message #[0-9]*' "$W/.out" | grep -o '[0-9]*')
+hook beat PostToolUse "$(lane 3)" "$W/inv/i03" Write "$W/inv/i03/notes.md"; show "lane 3's beat, from its plain directory"
+echo "  buddy sent $M, after that beat: $(as $O buddy sent "$M" 2>&1 | head -1 | grep -o '[0-9] of [0-9] with a recorded delivery')"
+(cd "$F" && as "$(lane 3)" buddy inbox >"$W/.out" 2>&1); echo "  the lane, by hand, cd <stand-in> && buddy inbox: rc=$? $(size <"$W/.out") bytes, $(grep -c "#$M .*posted_at: the operator said so" "$W/.out") line(s) carrying message #$M and its body"
+echo "  buddy sent $M, after the hand read: $(as $O buddy sent "$M" 2>&1 | head -1 | grep -o '[0-9] of [0-9] with a recorded delivery')"
 
-echo "== G2 an inited repository inside an inited one"
-mkdir -p "$W/g2/inner/notes"; git init -q "$W/g2"; git init -q "$W/g2/inner"
-cd "$W/g2" && buddy init >/dev/null 2>&1; cd "$W/g2/inner" && buddy init >/dev/null 2>&1
-echo "  ledgers: outer $(ls "$W/g2/.git" | grep -c '^buddy.db$') inner $(ls "$W/g2/inner/.git" | grep -c '^buddy.db$')"
-cd "$W/g2"; hi $A alpha; as $A buddy claim item-a --desc fixture --scope inner 2>&1 | say "outer claim"
-cd "$W/g2/inner"; hi $B bravo
-gate "B, homed inner, writes <W>/g2/inner/notes/x.md" $B "$W/g2/inner" Write "$W/g2/inner/notes/x.md"
-cd "$W/g2"; hi $B bravo
-gate "B, homed outer, writes the same path" $B "$W/g2" Write "$W/g2/inner/notes/x.md"
+echo "== N6 the same hooks with the lane's cwd INSIDE the ledger's directory (control)"
+mkdir -p "$F/i04"
+as $O buddy msg i04 "a second answer" >/dev/null 2>&1 || die "msg i04"
+hook beat PostToolUse "$(lane 4)" "$F/i04" Write "$F/i04/notes.md"; show "lane 4's beat"
+echo "  beat output lines carrying the body: $(grep -c 'a second answer' "$W/.out")"
+hook idle Stop "$(lane 4)" "$F/i04"; show "lane 4's idle"
+as $O buddy sessions 2>&1 | grep -E ' i04 ' | sed 's/  */ /g' | sed 's/pid [0-9]*/pid <n>/' | say "row" 230
 
-echo "== G3 the dirty register where nothing is ever committed"
-mkdir -p "$W/g3/notes"; git init -q "$W/g3"; cd "$W/g3"; buddy init >/dev/null 2>&1; hi $A alpha; hi $B bravo
-echo draft >notes/plan.md; beat $A "$W/g3" "$W/g3/notes/plan.md"
-whose() { echo "  $1: $(as $B buddy whose "$2" 2>&1 | grep -A1 '^DIRTY' | tr -s ' ' | tr '\n' ' ' | cut -c1-90)"; }
-whose "whose notes/plan.md" notes/plan.md
+echo "== N7 which claim shapes the ledger takes and refuses"
+as "$(lane 1)" buddy claim i01-file --desc d --scope notes.md 2>&1 | head -1 | say "a relative file scope" 120
+as "$(lane 1)" buddy claim i01-abs --desc d --scope "$W/inv/i01/notes.md" >"$W/.out" 2>&1; echo "  an absolute scope: rc=$? $(head -1 "$W/.out" | sed "s|$W|<W>|g" | cut -c1-110)"
+as $O buddy claim r1 --desc FORMING --scope .buddy/slot/r1 >/dev/null 2>&1 || die "claim r1"
+as "$(lane 2)" buddy release i02 --to orc-standin --in-run r1 >"$W/.out" 2>&1; echo "  park a slot-only claim in a run: rc=$? $(head -1 "$W/.out" | cut -c1-150)"
+as "$(lane 1)" buddy release i01-file --to orc-standin --in-run r1 >"$W/.out" 2>&1; echo "  park a file-scope claim (control): rc=$? $(head -1 "$W/.out" | cut -c1-110)"
+as "$(lane 8)" buddy wait --on r1 --ready HEAD >"$W/.out" 2>&1; echo "  wait --ready HEAD: rc=$? $(head -1 "$W/.out" | cut -c1-110)"
+as "$(lane 8)" buddy wait --on r1 --until 4h --note "READY: <W>/inv/i08/findings.md v1" >"$W/.out" 2>&1; echo "  wait --on r1 --note READY: rc=$? $(head -1 "$W/.out" | cut -c1-90)"
+as $O buddy release r1 --outcome pass --note "read, no checks apply" >/dev/null 2>&1 || die "release r1"
+as "$(lane 8)" buddy wait check 2>&1 | head -1 | say "wait check" 120
+as "$(lane 8)" buddy wait clear >/dev/null 2>&1
+as "$(lane 8)" buddy release i08 --to i01 >"$W/.out" 2>&1; echo "  hand a slot-only item claim to another session, release i08 --to i01: rc=$? $(head -1 "$W/.out" | cut -c1-70)"
+gate "before the pause: lane 10 writes an unclaimed file INSIDE the stand-in" "$(lane 10)" "$F" "$F/free.md"
+as $O buddy pause i10 --note fixture >"$W/.out" 2>&1; echo "  pause i10: rc=$? $(head -1 "$W/.out" | cut -c1-60)"
+echo "  roster rows reading PAUSED: $(as $O buddy sessions 2>&1 | grep -c ' i10 .*PAUSED')"
+gate "paused: lane 10 writes in the plain directory it lives in" "$(lane 10)" "$W/inv/i10" "$W/inv/i10/notes.md"
+gate "paused: the same unclaimed file inside the stand-in (control)" "$(lane 10)" "$F" "$F/free.md"
+as $O buddy resume i10 >/dev/null 2>&1; echo "  resume i10: rc=$?"
+gate "resumed: the same file again" "$(lane 10)" "$F" "$F/free.md"
 
-echo "== G4, H6 the scan's command by tree size (best of 3), then excluded, then a clone"
-python3 -I - "$W" <<'EOF'
-import os, subprocess, sys, time
-w = sys.argv[1]
-cmd = ["git", "-c", "core.fsmonitor=false", "--no-optional-locks", "status", "--porcelain", "-z", "-uall"]
-def scan(d):
-    best = None
-    for _ in range(3):
-        t = time.monotonic()
-        p = subprocess.run(cmd, cwd=d, capture_output=True)
-        ms = (time.monotonic() - t) * 1000
-        best = ms if best is None or ms < best else best
-    return "%.0f ms, %d bytes of output, rc %d" % (best, len(p.stdout), p.returncode)
-for n in (1000, 10000, 50000):
-    d = os.path.join(w, "g4-%d" % n)
-    os.makedirs(d)
-    subprocess.run(["git", "init", "-q", d], check=True)
-    for i in range(n):
-        sub = os.path.join(d, "folder-%03d" % (i // 100))
-        os.makedirs(sub, exist_ok=True)
-        with open(os.path.join(sub, "note-%05d.md" % i), "w") as f:
-            f.write("x\n")
-    print("  %d files: %s" % (n, scan(d)))
-with open(os.path.join(d, ".git", "info", "exclude"), "w") as f:
-    f.write("*\n")
-print("  50000 files, * in info/exclude: %s" % scan(d))
-t = time.monotonic()
-r = subprocess.run(["cp", "-c", "-R", d, d + "-snap"])
-print("  cp -c -R of that tree, one run: %.0f ms, rc %d" % ((time.monotonic() - t) * 1000, r.returncode))
-EOF
+echo "== N8 a blocking wait on two claims ends only when BOTH have landed"
+as $O buddy wait clear >/dev/null 2>&1
+( as $O buddy wait --on i07 --on i09 --until 1h --block >"$W/.blk" 2>&1; echo "rc=$?" >>"$W/.blk" ) &
+t=0; until grep -q '^BLOCKING' "$W/.blk" 2>/dev/null; do t=$((t+1)); [ $t -gt 20 ] && die "the wait never blocked"; sleep 1; done
+as "$(lane 7)" buddy release i07 --outcome pass --note "DONE" >/dev/null 2>&1; echo "  the wait is blocking; first release: rc=$?"
+sleep 20; echo "  20 s later: $(grep -c '^rc=' "$W/.blk") exit(s)"
+as "$(lane 9)" buddy release i09 --outcome pass --note "DONE" >/dev/null 2>&1; echo "  second release: rc=$?"; wait
+echo "  then: $(tail -1 "$W/.blk"), $(grep -c '^LANDED' "$W/.blk") LANDED line(s)"
 
-echo "== H0 the recipe; H1 git sees nothing"
-P="$W/vault"; G="$W/gitdirs/vault.git"
-git init -q --separate-git-dir="$G" "$P"; mkdir -p "$P/notes"; cd "$P"
-echo '*' >"$G/info/exclude"
-printf '#!/bin/sh\necho "not git-tracked: the operator keeps this directory out of git" >&2\nexit 1\n' >"$G/hooks/pre-commit"; chmod +x "$G/hooks/pre-commit"
-buddy init 2>&1 | head -1 | say init
-echo draft >notes/plan.md; echo b >notes/b.md
-git add notes/plan.md 2>&1 | head -1 | say "git add" 80
-echo "  index entries: $(git ls-files | wc -l | tr -d ' ')"
-git -c user.name=x -c user.email=x@x commit -q --allow-empty -m x 2>&1 | head -1 | say commit
-echo "  commits: $(git rev-list --all 2>/dev/null | wc -l | tr -d ' '); scan output: $($SCAN | wc -c | tr -d ' ') bytes"
-
-echo "== H2 one coordinator, two lanes, one directory, no commit"
-hi $O orc; hi $A alpha; hi $B bravo
-as $O buddy claim orc-vault --desc coordinator --scope .buddy/slot/orc-vault 2>&1 | say O
-as $O buddy claim r1 --desc FORMING --scope .buddy/slot/r1 --scope .buddy/slot/main 2>&1 | say O
-as $A buddy claim item-a --desc plan --scope notes/plan.md 2>&1 | say A
-as $B buddy claim item-b --desc b --scope notes/b.md 2>&1 | say B
-gate "before parking: B writes A's file" $B "$P" Write "$P/notes/plan.md"
-gate "before parking: A writes its own file" $A "$P" Write "$P/notes/plan.md"
-as $A buddy release item-a --to orc-vault --in-run r1 2>&1 | head -1 | say "A parks" 120
-as $O buddy ls 2>&1 | grep item-a | tr -s ' ' | say ls 110
-echo "== H2b who may write the parked file while the run is open"
-gate "B" $B "$P" Write "$P/notes/plan.md"
-gate "A, who parked it" $A "$P" Write "$P/notes/plan.md"
-gate "O, who holds it" $O "$P" Write "$P/notes/plan.md"
-gate "B, an unclaimed path" $B "$P" Write "$P/notes/free.md"
-echo "== H2c the exception: an exclusive claim declared --based-on the run"
-as $B buddy claim item-c --desc "based on r1" --based-on r1 --scope notes/plan.md 2>&1 | head -1 | say "B claims" 150
-gate "B, holding that claim, writes the parked file" $B "$P" Write "$P/notes/plan.md"
-as $B buddy release item-c >/dev/null 2>&1
-gate "B again, claim released" $B "$P" Write "$P/notes/plan.md"
-echo "== H2 READY, the outcome, LANDED"
-as $B buddy wait --on r1 --until 4h --note "READY: notes/b.md draft 2" 2>&1 | head -1 | say "B waits" 140
-as $O buddy who r1 2>&1 | grep 'WAITED ON' | say "who r1" 90
-echo "  wait ls lines quoting the note: $(as $O buddy wait ls 2>&1 | grep -c 'READY: notes/b.md draft 2')"
-as $O buddy release r1 --outcome pass --note "accepted: item-a item-b, read by orc" 2>&1 | head -1 | say "O releases r1" 110
-as $B buddy wait check 2>&1 | head -1 | say "B checks" 110
-gate "run closed, item still parked: B" $B "$P" Write "$P/notes/plan.md"
-gate "run closed, item still parked: A" $A "$P" Write "$P/notes/plan.md"
-as $O buddy release item-a --outcome pass --note ok 2>&1 | head -1 | say "O releases item-a" 90
-gate "item released: B" $B "$P" Write "$P/notes/plan.md"
-echo "  project entries after all of it: $(ls -A | tr '\n' ' ')"
-
-echo "== H3 the dirty register with everything excluded"
-beat $A "$P" "$P/notes/plan.md"
-whose "at once, notes/plan.md" notes/plan.md
-sleep 17
-echo o >notes/other.md; beat $A "$P" "$P/notes/other.md"
-whose "after a beat 17 s later naming notes/other.md: notes/plan.md" notes/plan.md
-whose "and notes/other.md" notes/other.md
-
-echo "== H4 files changed since a stamp"
-touch "$W/stamp"; sleep 1; echo more >>notes/b.md; mkdir -p stray; echo s >stray/x.md
-echo "  find -newer: $(find . -type f -newer "$W/stamp" | sort | tr '\n' ' ')"
-
-echo "== J1 a session whose cwd is outside the project"
-as $A buddy claim item-a --desc plan --scope notes/plan.md >/dev/null 2>&1
-gate "Write, absolute path into A's claim" $B "$W/plain" Write "$P/notes/plan.md"
-gate "Write, an unclaimed path there" $B "$W/plain" Write "$P/notes/free.md"
-gate "Bash cd into the project, not paused" $B "$W/plain" Bash "cd $P && echo x > f"
-buddy pause all --note fixture >/dev/null 2>&1; echo "  pause all rc=$?"
-gate "Bash cd into the project, paused" $B "$W/plain" Bash "cd $P && echo x > f"
-gate "Bash, no directory change, paused" $B "$W/plain" Bash "echo x > f"
-buddy resume all >/dev/null 2>&1
-
-echo "== J3 buddy gate wall time, 20 calls each: min median max ms; $(uptime | sed 's/.*load/load/'); ncpu $(sysctl -n hw.ncpu)"
-python3 -I - "$P" "$W/plain" "$B" <<'EOF'
+echo "== N9 hook wall time, 20 calls each: min median max ms; $(uptime | sed 's/.*load/load/'); ncpu $(sysctl -n hw.ncpu)"
+python3 -I - "$W/inv/i02" "$F/i04" "$(lane 2)" "$(lane 4)" <<'EOF'
 import json, os, subprocess, sys, time
-proj, plain, sid = sys.argv[1:4]
-env = dict(os.environ, CLAUDE_CODE_SESSION_ID=sid)
-def stats(ts):
+plain, inside, sp, si = sys.argv[1:5]
+def run(verb, ev, cwd, sid):
+    payload = json.dumps({"hook_event_name": ev, "session_id": sid, "cwd": cwd, "tool_name": "Write", "tool_input": {"file_path": os.path.join(cwd, "notes.md")}}).encode()
+    env = dict(os.environ, CLAUDE_CODE_SESSION_ID=sid)
+    ts, bad = [], 0
+    for _ in range(20):
+        t = time.monotonic()
+        r = subprocess.run(["buddy", verb], input=payload, capture_output=True, env=env, cwd=cwd)
+        ts.append((time.monotonic() - t) * 1000)
+        bad += r.returncode != 0 or bool(r.stderr)
     ts.sort()
-    return "%.1f %.1f %.1f" % (ts[0], (ts[9] + ts[10]) / 2, ts[-1])
-def gate(cwd, tool, inp):
-    payload = json.dumps({"hook_event_name": "PreToolUse", "session_id": sid, "cwd": cwd, "tool_name": tool, "tool_input": inp}).encode()
-    ts = []
-    for _ in range(20):
-        t = time.monotonic()
-        subprocess.run(["buddy", "gate"], input=payload, capture_output=True, env=env, cwd=cwd)
-        ts.append((time.monotonic() - t) * 1000)
-    return stats(ts)
-def revparse(cwd):
-    ts = []
-    for _ in range(20):
-        t = time.monotonic()
-        subprocess.run(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], capture_output=True)
-        ts.append((time.monotonic() - t) * 1000)
-    return stats(ts)
-print("  project, Write to an unclaimed path:", gate(proj, "Write", {"file_path": os.path.join(proj, "notes", "free.md")}))
-print("  project, Bash `true`:", gate(proj, "Bash", {"command": "true"}))
-print("  plain directory, Write:", gate(plain, "Write", {"file_path": os.path.join(plain, "x.md")}))
-print("  plain directory, Bash `true`:", gate(plain, "Bash", {"command": "true"}))
-print("  one git rev-parse, project:", revparse(proj))
-print("  one git rev-parse, plain (it fails):", revparse(plain))
+    return "%.1f %.1f %.1f (%d of 20 failed)" % (ts[0], (ts[9] + ts[10]) / 2, ts[-1], bad)
+for verb, ev in (("beat", "PostToolUse"), ("busy", "UserPromptSubmit"), ("idle", "Stop")):
+    print("  %s: no ledger found (plain directory) %s; ledger found %s" % (verb, run(verb, ev, plain, sp), run(verb, ev, inside, si)))
 EOF
 echo "== done"
 ```
 
-The call-site counts of 3.2, at c41826a, for each function name `f`:
+The X rows, each read-only. X1: `claude agents --json`, its rows counted by
+`status`, and the first command below for the two counts of working
+directories. X2: `herdr agent list`, rows counted by `agent_status`, and
+`herdr agent wait --help`. X3: the harness's `ListAgents` tool. X4: the
+`SendMessage` tool's own description. X5 and X6: the second and third
+commands below.
 
 ```sh
-grep -rn --include='*.go' "f(" internal cmd | grep -v _test.go |
-  grep -v -E '^[^:]+:[0-9]+:\s*//' | grep -v -E "func f\(" | wc -l
+claude agents --json | python3 -I -c 'import json,os,subprocess,sys
+out=nol=n=0
+for r in json.load(sys.stdin):
+    n+=1
+    p=subprocess.run(["git","-C",r["cwd"],"rev-parse","--path-format=absolute","--git-common-dir"],capture_output=True,text=True)
+    if p.returncode: out+=1
+    elif not os.path.exists(os.path.join(p.stdout.strip(),"buddy.db")): nol+=1
+print(n,"sessions;",out,"outside git;",nol,"in a repository with no buddy.db")'
+python3 -I -c 'import json,os,re
+for ev,arr in json.load(open(os.path.expanduser("~/.claude/settings.json"))).get("hooks",{}).items():
+    for m in arr:
+        for h in m.get("hooks",[]):
+            for v in re.findall(r"bin/buddy\W+(hello|beat|busy|idle|bye|gate)\b",h.get("command","")): print(ev,m.get("matcher"),v)'
+buddy sessions | LC_ALL=C awk '/ live /{print length($0)}' | sort -n
 ```
