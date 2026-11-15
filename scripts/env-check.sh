@@ -23,8 +23,9 @@
 # whether it is reversible. The user applies a fix, one at a time, in their
 # own shell; the skill never types a sudo or an irreversible one.
 #
-# VERDICTS. PASS; WARN (advice: the machine works, a fleet will run slower or
-# fill the disk sooner); FAIL (buddy itself cannot work: no Go or git, a disk
+# VERDICTS. PASS; WARN (advice: the machine works, but a fleet will run slower,
+# fill the disk sooner, cost more, or meet a setting or stale copy it must work
+# around); FAIL (buddy itself cannot work: no Go or git, a disk
 # about to be full); CANNOT-ASSESS (this script's own read-only command could
 # not tell: not macOS, a tool missing, Spotlight's privacy list, which is
 # unreadable without sudo). A check that could not tell never says PASS. Exit
@@ -39,7 +40,10 @@
 # (the volume's indexing state; `-i` would change it and is never run),
 # `ps`, `tmutil destinationinfo|isexcluded`, `pmset -g custom`, `du` of
 # ~/.claude/projects, a directory listing of the harness's scratch root, the
-# user's LaunchAgents plists, `crontab -l`, and, where Codex's directory
+# user's LaunchAgents plists, `crontab -l`, ~/.claude/settings.json (through
+# scripts/gate-hook.py's one decode, python3 -I -B), one variable of its own
+# environment, `cmp` of each shipped SKILL.md against the copies under
+# ~/.agents/skills and Codex's skills directory, and, where Codex's directory
 # exists, its config.toml and `buddy diagnose --codex-hooks` of its hooks.json.
 # `go` runs with GOTOOLCHAIN=local
 # and GOTELEMETRY=off: from a checkout pinning a newer toolchain a bare `go
@@ -86,6 +90,12 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
+# HOME unset aborted the first $HOME under set -u, so no row printed (Codex
+# code pass). Unset is read as empty from here on (not exported to what this
+# runs), and every row that reads under HOME says CANNOT-ASSESS for it,
+# never PASS on a path rooted at /.
+HOME=${HOME:-}
+
 TMP=${BUDDY_ENV_CHECK_TMP:-/tmp}
 TMP=${TMP%/}
 
@@ -103,6 +113,9 @@ time-machine|a build cache in a Time Machine backup is gigabytes of churn per ba
 ac-sleep|a maintenance sleep on AC froze an unattended run; three checks ran 5-16x slow
 worktrees-tmp|/tmp is a symlink to /private/tmp on macOS, and path checks on a worktree there disagree
 scratch|transcripts and harness scratch grow without bound; 4.7 GB and 6.6 GB on one machine
+sandbox|under the Claude Code Bash sandbox, worktree and integration git calls fail unless run with it off
+summaries|subagent progress summaries add an estimated 20% to subagent spend, unseen by any transcript
+codex-skill-copy|a SKILL.md under ~/.agents/skills or the Codex skills directory that is not the shipped one is stale
 codex-gate|plain Codex is gated only by a hand-wired hooks.json, and an absent hook is a silent allow; only where ~/.codex exists'
 
 if [ "$LIST" = 1 ]; then
@@ -121,11 +134,16 @@ verdict() {
 	FAIL) nfail=$((nfail + 1)) ;;
 	CANNOT-ASSESS) ncant=$((ncant + 1)) ;;
 	esac
-	printf '%-15s %-19s %s\n' "[$1]" "$2" "$3"
+	printf '%-15s %-19s %s\n' "[$1]" "$2" "$(oneline "$3")"
 }
 # fix <line> — the one remedy line under a non-PASS verdict: the command, sudo
 # or not, reversible or not.
-fix() { printf '%-15s fix: %s\n' "" "$1"; }
+fix() { printf '%-15s fix: %s\n' "" "$(oneline "$1")"; }
+# oneline <text> — <text> on one physical line: every control character,
+# newline included, printed as `?`. A path from the environment (HOME,
+# CODEX_HOME) holding a newline otherwise printed a second line that began
+# `[PASS]` (Codex code pass); the done-check reads the lines by that column.
+oneline() { printf '%s' "$1" | awk 'BEGIN { ORS = "" } { gsub(/[[:cntrl:]]/, "?"); if (NR > 1) print "?"; print }'; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 # gocmd — `go` held to the installed toolchain and no telemetry: from a checkout
@@ -206,7 +224,7 @@ fi
 # path-bin
 if have buddy; then
 	verdict PASS path-bin "buddy at $(command -v buddy)"
-elif [ -x "$HOME/bin/buddy" ]; then
+elif [ -n "$HOME" ] && [ -x "$HOME/bin/buddy" ]; then
 	verdict WARN path-bin "$HOME/bin/buddy is built but \$HOME/bin is not on this shell's PATH"
 	fix "echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> ~/.zprofile, then a new shell (no sudo; reversible: delete the line)"
 else
@@ -312,7 +330,7 @@ fi
 # (Codex code pass). What the program does is not verified; the line says so.
 trim=""
 for p in "$HOME"/Library/LaunchAgents/*.plist; do
-	[ -f "$p" ] || continue
+	[ -n "$HOME" ] && [ -f "$p" ] || continue
 	if grep -Eq 'go clean|cache[-_]?trim|trim[-_]?cache' "$p" 2>/dev/null; then trim=$p; break; fi
 done
 [ -n "$trim" ] || { crontab -l 2>/dev/null | grep -Ev '^[[:space:]]*#' | grep -Eq 'go clean|cache[-_]?trim|trim[-_]?cache' && trim=crontab; } || true
@@ -407,7 +425,10 @@ elif [ -d "$sdir" ]; then
 	for e in "$sdir"/* "$sdir"/.[!.]*; do [ -e "$e" ] && sn=$((sn + 1)); done
 fi
 pgb=$((pk / 1048576))
-if [ -n "$unread" ]; then
+if [ -z "$HOME" ]; then
+	verdict CANNOT-ASSESS scratch "HOME is unset, so there are no transcripts to size"
+	fix "run it from the user's own shell, with HOME set"
+elif [ -n "$unread" ]; then
 	verdict CANNOT-ASSESS scratch "could not read $unread (du failed or no permission), so no size to judge"
 	fix "du -sk on it by hand, as the user"
 elif [ "$pk" -ge 5242880 ] || [ "$sn" -ge 200 ]; then
@@ -415,6 +436,245 @@ elif [ "$pk" -ge 5242880 ] || [ "$sn" -ge 200 ]; then
 	fix "transcripts: cleanupPeriodDays in ~/.claude/settings.json (no sudo; irreversible: a deleted transcript cannot be resumed and the report scripts read them); scratch: delete entries you no longer need under $sdir (no sudo; irreversible)"
 else
 	verdict PASS scratch "transcripts ${pgb} GB, scratch $sn entries under $sdir"
+fi
+
+# sandbox and summaries (D-188, D-187): two facts from the user's Claude Code
+# settings, read ONCE through scripts/gate-hook.py's decode (D-182's depth cap
+# on the text, D-183's NaN/Infinity refusal), the decode every settings reader
+# here shares, never a second parser: D-187 suggested `plutil -extract`, a
+# second reading that takes what Claude Code refuses. python3 runs -I -B, so
+# no user site is imported and no __pycache__ is written beside gate-hook.py.
+# Only the user layer is read (a project's settings, settings.local.json and a
+# managed file are not), and each line says so. The reader prints one line of
+# its own words, never a value from the file: `absent`, `unread <reason>`, or
+# `ok` and k=v facts (room for a fourth row's fact, D-187's #103 sibling).
+# absent_proven <path> — true when <path> provably does not exist: its deepest
+# existing ancestor is a non-directory (ENOTDIR) or a searchable directory.
+# Under one that cannot be searched, test -e is false for a file that is there;
+# so is it for a symlink whose target sits under one, so a link that does not
+# resolve proves nothing (Codex code pass: ~/.claude linked into a locked
+# directory read as "no settings file", PASS).
+absent_proven() {
+	_a=$(dirname -- "$1")
+	while [ ! -e "$_a" ] && [ ! -L "$_a" ]; do
+		_n=$(dirname -- "$_a"); [ "$_n" != "$_a" ] || return 1; _a=$_n
+	done
+	[ -e "$_a" ] || return 1
+	[ ! -d "$_a" ] || [ -x "$_a" ]
+}
+# The reader, passed with -c, not a heredoc: macOS /bin/sh writes a heredoc to
+# a temporary file, a write this script promises not to make (Codex code
+# pass). So the program holds no single quote.
+CSET_PY='import importlib.util
+import sys
+
+path, gate_hook = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("gate_hook", gate_hook)
+gh = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gh)
+try:
+    with open(path, encoding="utf-8") as f:
+        s = gh.decode(f.read())
+except gh.NotChecked as e:
+    print("unread it " + e.said)
+    sys.exit(0)
+except (OSError, ValueError, RecursionError) as e:
+    print("unread it is not JSON this check can read (%s)" % type(e).__name__)
+    sys.exit(0)
+if not isinstance(s, dict):
+    print("unread it is not a JSON object")
+    sys.exit(0)
+
+
+def get(d, *keys):
+    for k in keys:
+        d = d.get(k) if isinstance(d, dict) else None
+    return d
+
+
+# An allow rule that covers `buddy wait check`, recognized in the shapes
+# Claude Code documents for Bash: the bare tool, an exact command, and a
+# prefix rule (`:*`, or a trailing ` *` / `*`). A rule in any other shape is
+# not recognized, and the line then says the check is unattended-unsafe: the
+# wording of the WARN, never its verdict, rides on this.
+CMD = "buddy wait check"
+
+
+def covers(rule):
+    if not isinstance(rule, str):
+        return False
+    r = rule.strip()
+    if r in ("Bash", "Bash(*)"):
+        return True
+    if not (r.startswith("Bash(") and r.endswith(")")):
+        return False
+    body = r[5:-1]
+    if body == CMD:
+        return True
+    for tail in (":*", " *", "*"):
+        if body.endswith(tail):
+            pre = body[: -len(tail)]
+            return CMD == pre or CMD.startswith(pre + " ") or (tail == "*" and CMD.startswith(pre))
+    return False
+
+
+allow = get(s, "permissions", "allow")
+v = get(s, "env", "CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES")
+print("ok sandbox=%d autoallow=%d rule=%d summaries=%d" % (
+    get(s, "sandbox", "enabled") is True,
+    get(s, "sandbox", "autoAllowBashIfSandboxed") is True,
+    any(covers(r) for r in allow) if isinstance(allow, list) else False,
+    isinstance(v, str) and v.strip().lower() in ("1", "true")))
+'
+CSET=${HOME:-}/.claude/settings.json
+cset=""
+if [ -z "${HOME:-}" ]; then
+	CSET="~/.claude/settings.json"
+	cset="unread HOME is unset, so there is no user settings file to read"
+elif [ ! -e "$CSET" ] && [ ! -L "$CSET" ]; then
+	if absent_proven "$CSET"; then cset=absent; else cset="unread its directory cannot be searched"; fi
+elif ! have python3; then
+	cset="unread no python3 to decode it"
+elif [ ! -r "$SCRIPTS/gate-hook.py" ]; then
+	cset="unread no $SCRIPTS/gate-hook.py to decode it with"
+else
+	cset=$(python3 -I -B -c "$CSET_PY" "$CSET" "$SCRIPTS/gate-hook.py" 2>/dev/null || true)
+	[ -n "$cset" ] || cset="unread python3 could not run scripts/gate-hook.py's decode on it"
+fi
+
+sb=0; aa=0; ar=0; sm=0
+case $cset in
+ok\ *)
+	for kv in ${cset#ok }; do
+		case $kv in
+		sandbox=1) sb=1 ;; autoallow=1) aa=1 ;; rule=1) ar=1 ;; summaries=1) sm=1 ;;
+		esac
+	done ;;
+esac
+
+# sandbox (D-188): Claude Code's Bash sandbox leaves .git/worktrees read-only
+# but for the session's own worktree, so a coordinator's worktree add/remove,
+# its integration worktree's cherry-pick -n and commit, and the restack's
+# sandbox-exec (which cannot nest) fail sandboxed and run with the sandbox off
+# for that call; a lane's claim and commits in its own linked worktree ran
+# sandboxed. An unattended `buddy wait check` asked for approval outside auto
+# mode with neither autoAllowBashIfSandboxed nor an allow rule; a lane's
+# permission mode is a launch flag no file holds, so the line names that.
+case $cset in
+absent) verdict PASS sandbox "no $CSET: the Bash sandbox is not enabled in user settings" ;;
+unread\ *)
+	verdict CANNOT-ASSESS sandbox "$CSET: ${cset#unread }; whether the Bash sandbox is on is unknown"
+	fix "read sandbox.enabled in $CSET by hand, as the user" ;;
+*)
+	if [ "$sb" = 0 ]; then
+		verdict PASS sandbox "sandbox.enabled is not true in $CSET (user layer only; a project's settings are not read)"
+	else
+		w="a coordinator runs git worktree add/remove, the integration worktree's cherry-pick -n and commit, and the restack call with the sandbox off for that call (D-188)"
+		if [ "$aa" = 1 ] || [ "$ar" = 1 ]; then
+			verdict WARN sandbox "sandbox.enabled is true in $CSET: $w"
+			fix "nothing to change in settings: the coordinator passes dangerouslyDisableSandbox on those calls (the fleet skill's landing step 3); a lane's own claim and commits run sandboxed"
+		else
+			verdict WARN sandbox "sandbox.enabled is true in $CSET: $w; and outside auto mode an unattended buddy wait check asks for approval: neither sandbox.autoAllowBashIfSandboxed true nor an allow rule covering it is set there"
+			fix "the coordinator passes dangerouslyDisableSandbox on those calls (the fleet skill's landing step 3); for unattended waits, a lane in auto mode, or \"autoAllowBashIfSandboxed\": true under \"sandbox\" or \"Bash(buddy wait check)\" in permissions.allow of $CSET (no sudo; reversible: remove it)"
+		fi
+	fi ;;
+esac
+
+# summaries (D-187): subagent progress summaries are forked requests Claude
+# Code writes with skipTranscript, so no transcript or report counts them; the
+# number is D-187's replay of the summarizer's timer, an ESTIMATE, and the
+# line says so. Advice: the operator decides; this row writes nothing. The
+# process environment is read first and is enough on its own for PASS.
+sv=${CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES:-}
+case $sv in
+1|[Tt][Rr][Uu][Ee]) verdict PASS summaries "CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=$sv in this environment" ;;
+*)
+	swhy="subagent progress summaries on: about 20% on subagent spend, 4% of a fleet day's (estimated, D-187)"
+	sfix="\"env\": {\"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES\": \"1\"} in $CSET, if you want it (no sudo; reversible: remove it; loses the background-task panel's progress line for each running subagent)"
+	case $cset in
+	absent)
+		verdict WARN summaries "$swhy; not set in this environment, and no $CSET"
+		fix "$sfix" ;;
+	unread\ *)
+		verdict CANNOT-ASSESS summaries "not set in this environment, and $CSET: ${cset#unread }"
+		fix "read env.CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES in $CSET by hand, as the user" ;;
+	*)
+		if [ "$sm" = 1 ]; then
+			verdict PASS summaries "CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES is 1 or true in env of $CSET"
+		else
+			verdict WARN summaries "$swhy; not set in this environment or in env of $CSET (a project's settings are not read)"
+			fix "$sfix"
+		fi ;;
+	esac ;;
+esac
+
+# codex-skill-copy (D-186): Codex 0.169.0 loads user skills from
+# $HOME/.agents/skills and $CODEX_HOME/skills, and its /import copies
+# ~/.claude/skills there once, never refreshes the copy, and rewrites the core
+# skill's harness instructions into wrong ones ("under Codex Code, env -u
+# CODEX_THREAD_ID"). So a SKILL.md there that is not the shipped one is a
+# stale or rewritten copy a Codex session may load. Read only: test, cmp.
+# Absence is proven only from a searchable directory (test -e is false under
+# one that cannot be searched); a file that is not regular or not readable is
+# CANNOT-ASSESS, never PASS. SKILL.md only: a stale reference file beside an
+# identical SKILL.md is not seen. The fix is install-skill.sh with both knobs
+# (an inherited BUDDY_FLEET_SKILL_DIR would send the fleet skill elsewhere),
+# never rm: its destination judge (D-181) decides whether the directory is
+# this install's to write.
+SKILLS_SRC=$(dirname -- "$SCRIPTS")/skills
+# judge_skill_dir <dir> — compares every shipped SKILL.md with <dir>/<name>/
+# SKILL.md, adding to differ, unk, nseen and the fix text. One call per
+# directory, the path always quoted: a loop over an unquoted list globbed
+# CODEX_HOME=/tmp/codex[1] into /tmp/codex1 and judged a directory it never
+# named (Codex code pass).
+differ=""; unk=""; sfix=""; nseen=0
+judge_skill_dir() {
+	_dd=0
+	for src in "$SKILLS_SRC"/*/SKILL.md; do
+		[ -f "$src" ] || continue
+		p="$1/$(basename -- "$(dirname -- "$src")")/SKILL.md"
+		nseen=$((nseen + 1))
+		if [ ! -e "$p" ] && [ ! -L "$p" ]; then
+			absent_proven "$p" || unk="$unk $p"
+		elif [ ! -f "$p" ] || [ ! -r "$p" ]; then
+			unk="$unk $p"
+		else
+			# cmp: 0 the same, 1 different, anything else a read that failed.
+			cmp -s "$src" "$p" && crc=0 || crc=$?
+			case $crc in
+			0) ;;
+			1) differ="$differ $p"; _dd=1 ;;
+			*) unk="$unk $p" ;;
+			esac
+		fi
+	done
+	[ "$_dd" = 0 ] || sfix="${sfix:+$sfix; then }BUDDY_SKILL_DIR=\"$1/buddy\" BUDDY_FLEET_SKILL_DIR=\"$1/buddy-fleet\" sh scripts/install-skill.sh"
+}
+if [ -z "${HOME:-}" ]; then
+	verdict CANNOT-ASSESS codex-skill-copy "HOME is unset, so \$HOME/.agents/skills cannot be found"
+	fix "run it from the user's own shell, with HOME set"
+elif ! have cmp; then
+	verdict CANNOT-ASSESS codex-skill-copy "no cmp to compare a Codex skill copy with the shipped one"
+	fix "nothing to apply; compare \$HOME/.agents/skills/*/SKILL.md with this checkout's skills/ by hand"
+else
+	cshow="$HOME/.agents/skills"
+	judge_skill_dir "$HOME/.agents/skills"
+	cx="${CODEX_HOME:-$HOME/.codex}/skills"
+	if [ "$cx" != "$HOME/.agents/skills" ]; then
+		judge_skill_dir "$cx"; cshow="$cshow and $cx"
+	fi
+	if [ "$nseen" -eq 0 ]; then
+		verdict CANNOT-ASSESS codex-skill-copy "no shipped skills under $SKILLS_SRC to compare with"
+		fix "run this script from a buddy-system checkout"
+	elif [ -n "$differ" ]; then
+		verdict WARN codex-skill-copy "differs from this checkout's skills:$differ${unk:+ (and not assessed:$unk)}; a Codex session may load it, and a copy Codex's /import took is never refreshed (D-186)"
+		fix "$sfix, from the checkout (no sudo; reversible: a replaced SKILL.md is kept as SKILL.md.bak; no delete: install-skill.sh judges whether that directory is this install's to write)"
+	elif [ -n "$unk" ]; then
+		verdict CANNOT-ASSESS codex-skill-copy "could not establish absence or equality for:$unk (not a regular file, unreadable, or under a directory that cannot be searched)"
+		fix "ls -l each by hand, as the user; a copy that is there and differs is refreshed with BUDDY_SKILL_DIR=<dir>/buddy BUDDY_FLEET_SKILL_DIR=<dir>/buddy-fleet sh scripts/install-skill.sh"
+	else
+		verdict PASS codex-skill-copy "each shipped SKILL.md under $cshow is absent or byte-identical to this checkout's"
+	fi
 fi
 
 # codex-gate (Codex report B1): one row, only where Codex's directory exists,

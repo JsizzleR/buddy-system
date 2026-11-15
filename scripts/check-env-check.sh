@@ -4,8 +4,8 @@
 # HERMETIC: sh, git and the repo. The machine is never judged: every command
 # env-check.sh reads (uname, sw_vers, go, df, mdutil, ps, tmutil, pmset, du,
 # crontab, buddy) is a STUB in a directory that is the whole PATH, beside
-# symlinks to the real awk, sed, grep, dirname, basename, cat, id and git
-# (/bin/sh is named absolutely). Each stub answers
+# symlinks to the real awk, sed, grep, dirname, basename, cat, id, git and
+# cmp (/bin/sh is named absolutely). Each stub answers
 # from a scenario directory and appends its argv to a log. HOME is a fixture;
 # the checkout is a throwaway repo; the harness scratch root and the /tmp
 # rule are pointed at the fixture by BUDDY_ENV_CHECK_TMP.
@@ -16,7 +16,7 @@
 #     worktree move, ...) and the fixture tree lists the same files as before.
 #     Control: a planted script that makes two such calls through the same
 #     stubs, which the same detector MUST report.
-#   - EVERY VERDICT ARM: a good machine is 12 PASS, exit 0, no fix line; a bad
+#   - EVERY VERDICT ARM: a good machine is 15 PASS, exit 0, no fix line; a bad
 #     one is FAIL (old Go, a full disk), WARN on every advice check, and exit
 #     1; a non-macOS box is CANNOT-ASSESS wherever the tool is missing, never
 #     PASS. A subfolder of an indexed volume is CANNOT-ASSESS, not PASS
@@ -25,6 +25,11 @@
 #     line agrees with the lines above it.
 #   - --list runs no command (an empty log); --help exits 0; an unknown flag
 #     or a positional exits 2 with `refused:` last.
+#   - THE SETTINGS AND SKILL-COPY ROWS (QA-9; D-188, D-187, D-186): each arm
+#     beside its control. Settings are read through gate-hook.py's decode, and
+#     a NaN file, which a plain json.loads would read, is CANNOT-ASSESS; a
+#     Codex skill copy is WARN only when readable and different, and absence
+#     under a directory that cannot be searched is not proof.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -34,13 +39,15 @@ LC_ALL=C; export LC_ALL
 fail() { echo "check-env-check: FAIL — $*" >&2; exit 1; }
 
 WORK=$(mktemp -d) || fail "mktemp failed"
-trap 'rm -rf "$WORK"' EXIT INT TERM
+# u+rwx first: a case that fails while a mode-000 directory is staged (QA-9)
+# would otherwise leave the fixture behind.
+trap 'chmod -R u+rwx "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT INT TERM
 WORK=$(CDPATH= cd -- "$WORK" && pwd -P)
 
 # The real tools env-check.sh may use that are not stubbed, by symlink, so
 # the PATH can hold nothing else (that is how "python3 missing" is staged).
 STD="$WORK/std"; mkdir -p "$STD"
-for t in awk sed grep dirname basename cat id git; do
+for t in awk sed grep dirname basename cat id git cmp; do
 	p=$(command -v "$t") || fail "no $t on this machine's PATH"
 	ln -s "$p" "$STD/$t"
 done
@@ -132,9 +139,16 @@ run() {
 	bin=$1; sc=$2; shift 2
 	: > "$LOG"
 	_before=$(snapshot)
-	out=$(cd "$CO" && env -i HOME="$HOMEFX" PATH="$bin:$STD" STUBLOG="$LOG" STUB_SCENARIO="$sc" \
+	# FX_HOME (default the fixture HOME; empty is staged as empty), FX_SUMMARIES
+	# (the process value of the summaries knob) and FX_CODEX_HOME are the
+	# per-case environment; unset, each is absent from the run. FX_HOME_UNSET
+	# (any value) runs with no HOME at all. A case sets
+	# one, runs, and unsets it: `V=x run` would keep V after a function in sh.
+	out=$(cd "$CO" && env -i HOME="${FX_HOME-$HOMEFX}" PATH="$bin:$STD" STUBLOG="$LOG" STUB_SCENARIO="$sc" \
 		STUB_CACHEVOL="${STUB_CACHEVOL:-}" STUB_OWNVOL="${STUB_OWNVOL:-}" BUDDY_ENV_CHECK_TMP="$TMPFX" \
-		/bin/sh "$ROOT/scripts/env-check.sh" "$@" 2>&1) && rc=0 || rc=$?
+		${FX_SUMMARIES+"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=$FX_SUMMARIES"} \
+		${FX_CODEX_HOME+"CODEX_HOME=$FX_CODEX_HOME"} \
+		${FX_HOME_UNSET+/usr/bin/env -u HOME} /bin/sh "$ROOT/scripts/env-check.sh" "$@" 2>&1) && rc=0 || rc=$?
 	[ "$_before" = "$(snapshot)" ] || fail "a run ($*) wrote into the fixture:
 $out"
 	[ -z "$(mutations "$LOG")" ] || fail "a run ($*) made a mutating call: $(mutations "$LOG")"
@@ -154,9 +168,14 @@ got=$(mutations "$LOG" | sed 's/ .*//' | tr '\n' ' ')
 
 # snapshot — the fixture tree's names and every regular file's checksum, so an
 # overwrite of an existing file shows as well as a new one (Codex code pass).
+# find's complaint about a mode-000 directory (QA-9 stages two) is part of the
+# snapshot, not noise on the terminal: the same before and after.
+# scripts/__pycache__ is in it too: env-check imports gate-hook.py, and
+# without -B Python writes bytecode beside it, outside the fixture (Codex
+# code pass).
 snapshot() {
-	find "$HOMEFX" "$CO" "$TMPFX" -print | sort
-	find "$HOMEFX" "$CO" "$TMPFX" -type f -print | sort | while IFS= read -r f; do if [ -r "$f" ]; then cksum < "$f"; else ls -l "$f"; fi; done
+	find "$HOMEFX" "$CO" "$TMPFX" "$ROOT/scripts" -path "$ROOT/scripts/*" ! -path "$ROOT/scripts/__pycache__*" -prune -o -print 2>&1 | sort
+	find "$HOMEFX" "$CO" "$TMPFX" "$ROOT/scripts/__pycache__" -type f -print 2>/dev/null | sort | while IFS= read -r f; do if [ -r "$f" ]; then cksum < "$f"; else ls -l "$f"; fi; done
 }
 # The control: a changed byte in an existing file moves the snapshot.
 _s0=$(snapshot); printf 'y\n' > "$CO/f"; _s1=$(snapshot); printf 'x\n' > "$CO/f"
@@ -189,15 +208,18 @@ scenario "$SC_A" os=Darwin go_version=1.27.1 gocache="$HOMEFX/Library/Caches/go-
 	mdutil=off fseventsd="2048  0.3" tm_dest=none tm_excluded=Excluded pm_sleep=0 du_kb=1048576
 printf '<plist><string>%s</string></plist>\n' 'go clean -cache' > "$HOMEFX/Library/LaunchAgents/com.example.trim.plist"
 : > "$TMPFX/claude-$(id -u)/one"
+SET="$HOMEFX/.claude/settings.json"
+GOODSET='{"env": {"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES": "1"}}'
+printf '%s\n' "$GOODSET" > "$SET"
 before=$(snapshot)
 run "$BIN_A" "$SC_A" --checkout "$CO"
 [ "$rc" -eq 0 ] || fail "QA-1: a good machine must exit 0 (rc=$rc):
 $out"
-[ "$(printf '%s\n' "$out" | grep -c '^\[PASS\]')" -eq 12 ] || fail "QA-1: want 12 PASS lines:
+[ "$(printf '%s\n' "$out" | grep -c '^\[PASS\]')" -eq 15 ] || fail "QA-1: want 15 PASS lines:
 $out"
 printf '%s\n' "$out" | grep -q 'fix:' && fail "QA-1: a PASS has a fix line:
 $out"
-printf '%s\n' "$out" | grep -qx 'env-check: 12 PASS, 0 WARN, 0 FAIL, 0 CANNOT-ASSESS\. A WARN is advice; only a FAIL exits non-zero\.' || fail "QA-1: the count line:
+printf '%s\n' "$out" | grep -qx 'env-check: 15 PASS, 0 WARN, 0 FAIL, 0 CANNOT-ASSESS\. A WARN is advice; only a FAIL exits non-zero\.' || fail "QA-1: the count line:
 $out"
 printf '%s\n' "$out" | grep -q '^env-check: not repeated here: hooks, gate entry, chat and handoff size (sh scripts/install.sh reports them); language servers (buddy init); harness compatibility (buddy diagnose)\.$' || fail "QA-1: the footer must name what install.sh, buddy init and buddy diagnose report:
 $out"
@@ -231,13 +253,17 @@ $out"
 # WARNs; the checkout is its own indexed volume (the sudo mdutil fix); exit
 # 1; one fix line under each; still nothing written and nothing mutated.
 BIN_B="$WORK/bin-b"; mkbin "$BIN_B" uname sw_vers go df mdutil ps tmutil pmset du crontab sudo killall caffeinate launchctl
+BIN_B3="$WORK/bin-b3"; mkbin "$BIN_B3" uname sw_vers go python3 df mdutil ps tmutil pmset du crontab sudo killall caffeinate launchctl
 SC_B="$WORK/sc-b"
 scenario "$SC_B" os=Darwin go_version=1.25.3 gocache="$HOMEFX/Library/Caches/go-build" df_avail=1048576 df_used=99 \
 	mdutil=on fseventsd="2097152  3.0" tm_dest=yes tm_excluded=Included pm_sleep=10 du_kb=6291456
 rm -f "$HOMEFX/Library/LaunchAgents/com.example.trim.plist"
 git -C "$CO" worktree add -q "$TMPFX/wt-under-tmp" HEAD
+printf '{"sandbox": {"enabled": true}}\n' > "$SET"
+mkdir -p "$HOMEFX/.agents/skills/buddy"
+sed 's/Claude Code/Codex/g; s/CLAUDE\.md/AGENTS.md/g' "$ROOT/skills/buddy/SKILL.md" > "$HOMEFX/.agents/skills/buddy/SKILL.md"
 before=$(snapshot)
-STUB_OWNVOL="$CO" run "$BIN_B" "$SC_B" --checkout "$CO"
+STUB_OWNVOL="$CO" run "$BIN_B3" "$SC_B" --checkout "$CO"
 [ "$rc" -eq 1 ] || fail "QA-3: a FAIL must exit 1 (rc=$rc):
 $out"
 want='PASS platform
@@ -251,7 +277,10 @@ WARN go-cache-trim
 WARN time-machine
 WARN ac-sleep
 WARN worktrees-tmp
-WARN scratch'
+WARN scratch
+WARN sandbox
+WARN summaries
+WARN codex-skill-copy'
 [ "$(verdicts "$out")" = "$want" ] || fail "QA-3: verdicts:
 $(verdicts "$out")
 want:
@@ -267,6 +296,8 @@ printf '%s\n' "$out" | grep -q 'worktree(s) under '"$TMPFX"':.*wt-under-tmp' || 
 $out"
 printf '%s\n' "$out" | grep -q 'not installed yet' || fail "QA-3: no buddy anywhere reads as not installed"
 printf '%s\n' "$out" | grep -q 'irreversible' || fail "QA-3: the scratch fix says irreversible"
+printf '%s\n' "$out" | grep -q 'fix: "env": {"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES": "1"} in .*(no sudo; reversible' || fail "QA-3: the summaries fix line:
+$out"
 [ -z "$(mutations "$LOG")" ] || fail "QA-3: a mutating call was made: $(mutations "$LOG")"
 [ "$before" = "$(snapshot)" ] || fail "QA-3: the run wrote into the fixture"
 
@@ -280,6 +311,14 @@ $out"
 verdicts "$out" | grep -qx 'WARN toolchain' || fail "QA-4: no python3 with go 1.26.8 is a WARN, not a FAIL:
 $out"
 printf '%s\n' "$out" | grep -q 'python3 MISSING' || fail "QA-4: the WARN names python3"
+# ...and with no python3 to run gate-hook.py's decode, a settings file that
+# exists is not read some other way: both settings rows CANNOT-ASSESS
+# (QA-3, the same file with python3, is the control: WARN on both).
+for r in sandbox summaries; do
+	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-4: no python3 must leave $r CANNOT-ASSESS:
+$out"
+done
+printf '%s\n' "$out" | grep -q 'no python3 to decode it' || fail "QA-4: the CANNOT-ASSESS names the missing python3"
 rm -f "$HOMEFX/bin/buddy"
 
 # QA-5: not macOS, the tools missing: CANNOT-ASSESS where a tool is missing,
@@ -289,6 +328,7 @@ SC_C="$WORK/sc-c"
 scenario "$SC_C" os=Linux go_version=1.27.0 gocache="$HOMEFX/.cache/go-build" df_avail=104857600 df_used=40 \
 	fseventsd= du_kb=1024 crontab='0 */3 * * * go clean -cache'
 git -C "$CO" worktree remove --force "$TMPFX/wt-under-tmp"
+printf '%s\n' "$GOODSET" > "$SET"; rm -rf "$HOMEFX/.agents"
 run "$BIN_C" "$SC_C" --checkout "$CO"
 [ "$rc" -eq 0 ] || fail "QA-5: CANNOT-ASSESS must not fail the run (rc=$rc):
 $out"
@@ -303,7 +343,10 @@ PASS go-cache-trim
 CANNOT-ASSESS time-machine
 CANNOT-ASSESS ac-sleep
 PASS worktrees-tmp
-PASS scratch'
+PASS scratch
+PASS sandbox
+PASS summaries
+PASS codex-skill-copy'
 [ "$(verdicts "$out")" = "$want" ] || fail "QA-5: verdicts:
 $(verdicts "$out")
 want:
@@ -323,10 +366,13 @@ SC_D="$WORK/sc-d"; cp -R "$SC_A" "$SC_D"
 scenario "$SC_D" crontab='# 0 */3 * * * go clean -cache'
 : > "$SC_D/du_fail"
 printf '<plist><key>EnvironmentVariables</key><dict><key>GOCACHE</key><string>/x</string></dict></plist>\n' > "$HOMEFX/Library/LaunchAgents/com.example.env.plist"
+printf '{"env": \n' > "$SET"
+mkdir -p "$HOMEFX/.agents/skills/buddy/SKILL.md"
 run "$BIN_A" "$SC_D" --checkout "$WORK/missing"
 [ "$rc" -eq 0 ] || fail "QA-7: CANNOT-ASSESS must not fail the run (rc=$rc):
 $out"
-for v in 'CANNOT-ASSESS checkout-spotlight' 'CANNOT-ASSESS worktrees-tmp' 'CANNOT-ASSESS scratch' 'WARN go-cache-trim'; do
+for v in 'CANNOT-ASSESS checkout-spotlight' 'CANNOT-ASSESS worktrees-tmp' 'CANNOT-ASSESS scratch' 'WARN go-cache-trim' \
+	'CANNOT-ASSESS sandbox' 'CANNOT-ASSESS summaries' 'CANNOT-ASSESS codex-skill-copy'; do
 	verdicts "$out" | grep -qx "$v" || fail "QA-7: want '$v' when the read fails:
 $out"
 done
@@ -334,7 +380,11 @@ printf '%s\n' "$out" | grep -q 'is not a directory' || fail "QA-7: the missing c
 printf '%s\n' "$out" | grep -q 'du failed or no permission' || fail "QA-7: the failed du is named"
 [ -z "$(shape "$out")" ] || fail "QA-7: shape:$(shape "$out")
 $out"
-rm -f "$HOMEFX/Library/LaunchAgents/com.example.env.plist"
+printf '%s\n' "$out" | grep -q 'is not JSON this check can read (JSONDecodeError)' || fail "QA-7: the malformed settings file is named as unreadable:
+$out"
+printf '%s\n' "$out" | grep -q "could not establish absence or equality for: $HOMEFX/.agents/skills/buddy/SKILL.md" || fail "QA-7: a SKILL.md that is a directory is named:
+$out"
+rm -f "$HOMEFX/Library/LaunchAgents/com.example.env.plist"; rm -rf "$HOMEFX/.agents"; printf '%s\n' "$GOODSET" > "$SET"
 # A go stub that sees the holding env is the control that the script sets it:
 # QA-1's toolchain PASS came through this stub, which refuses without it.
 grep -q '^go version' "$LOG" || fail "QA-7: go version was not reached"
@@ -344,9 +394,9 @@ grep -q '^go version' "$LOG" || fail "QA-7: go version was not reached"
 run "$BIN_A" "$SC_A" --checkout "$CO" --list
 [ "$rc" -eq 0 ] || fail "QA-6: --list rc=$rc"
 [ ! -s "$LOG" ] || fail "QA-6: --list ran a command: $(cat "$LOG")"
-[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 13 ] || fail "QA-6: --list must name the 13 checks:
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 16 ] || fail "QA-6: --list must name the 16 checks:
 $out"
-for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd go-cache-trim time-machine ac-sleep worktrees-tmp scratch codex-gate; do
+for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd go-cache-trim time-machine ac-sleep worktrees-tmp scratch sandbox summaries codex-skill-copy codex-gate; do
 	printf '%s\n' "$out" | grep -q "^$c " || fail "QA-6: --list does not name $c"
 done
 run "$BIN_A" "$SC_A" --checkout "$CO" --help
@@ -361,7 +411,7 @@ run "$BIN_A" "$SC_A" --checkout "$CO" stray
 $out"
 [ ! -s "$LOG" ] || fail "QA-6: a refused call ran a command"
 
-# QA-8 (Codex report B1): the Codex row. No ~/.codex is no row (QA-1's 12
+# QA-8 (Codex report B1): the Codex row. No ~/.codex is no row (QA-1's 15
 # PASS are the control: HOMEFX has none). With one: no hooks.json is WARN NOT
 # WIRED; a gate diagnose lists clean is PASS (the positive control, and the
 # one that proves diagnose was asked: its argv is in the log); a gate drawing
@@ -425,4 +475,218 @@ chmod 600 "$CX/hooks.json"
 $out"
 rm -rf "$CX"
 
-echo "check-env-check: GREEN (QA-1 good machine 12 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 9 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"
+# QA-9 (D-188, D-187, D-186): the settings and skill-copy rows, arm by arm.
+# row <name> — that row's line of the last run, with its fix line.
+row() { printf '%s\n' "$out" | awk -v n="$1" '$2 == n { p = 1; print; next } p && /^ *fix: / { print } { p = 0 }'; }
+# set9 <json> — the fixture's user settings for the next run.
+set9() { printf '%s\n' "$1" > "$SET"; }
+
+# sandbox. Enabled with nothing else: WARN naming the worktree commands AND the
+# unattended wait check. autoAllowBashIfSandboxed true, or an allow rule that
+# covers `buddy wait check`, drops only the wait-check clause; a rule that
+# does not cover it keeps it. {} and no file are PASS. The WARN is the
+# positive control that the file was read at all.
+set9 '{"sandbox": {"enabled": true}}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+r=$(row sandbox)
+printf '%s\n' "$r" | grep -q '^\[WARN\] *sandbox *sandbox.enabled is true in .*git worktree add/remove, the integration worktree.s cherry-pick -n and commit, and the restack call with the sandbox off' || fail "QA-9: sandbox enabled must WARN naming the worktree commands:
+$r"
+printf '%s\n' "$r" | grep -q 'an unattended buddy wait check asks for approval: neither sandbox.autoAllowBashIfSandboxed true nor an allow rule' || fail "QA-9: sandbox alone must name the unattended wait check:
+$r"
+printf '%s\n' "$r" | grep -q 'fix: .*dangerouslyDisableSandbox.*"autoAllowBashIfSandboxed": true.*(no sudo; reversible' || fail "QA-9: the sandbox fix line:
+$r"
+[ "$rc" -eq 0 ] && [ -z "$(shape "$out")" ] || fail "QA-9: a sandbox WARN (rc=$rc) shape:$(shape "$out")"
+for s in '{"sandbox": {"enabled": true, "autoAllowBashIfSandboxed": true}}' \
+	'{"sandbox": {"enabled": true}, "permissions": {"allow": ["Bash(buddy wait:*)"]}}' \
+	'{"sandbox": {"enabled": true}, "permissions": {"allow": ["Bash(buddy wait check)"]}}' \
+	'{"sandbox": {"enabled": true}, "permissions": {"allow": ["Bash"]}}'; do
+	set9 "$s"; run "$BIN_A" "$SC_A" --checkout "$CO"; r=$(row sandbox)
+	printf '%s\n' "$r" | grep -q '^\[WARN\] *sandbox .*restack call with the sandbox off' || fail "QA-9: $s must still WARN on the worktree commands:
+$r"
+	printf '%s\n' "$r" | grep -q 'unattended' && fail "QA-9: $s covers the wait check; the line must not say it asks:
+$r"
+	[ -z "$(shape "$out")" ] || fail "QA-9: $s shape:$(shape "$out")"
+done
+for s in '{"sandbox": {"enabled": true}, "permissions": {"allow": ["Bash(git:*)", "Bash(buddy waitress:*)", "Bash(buddy wait check --block)"]}}' \
+	'{"sandbox": {"enabled": true, "autoAllowBashIfSandboxed": "true"}}'; do
+	set9 "$s"; run "$BIN_A" "$SC_A" --checkout "$CO"
+	row sandbox | grep -q 'an unattended buddy wait check asks for approval' || fail "QA-9: $s does not cover the wait check; the line must say it asks:
+$(row sandbox)"
+done
+for s in '{}' '{"sandbox": {"enabled": false}}' '{"sandbox": true}'; do
+	set9 "$s"; run "$BIN_A" "$SC_A" --checkout "$CO"
+	row sandbox | grep -q '^\[PASS\] *sandbox *sandbox.enabled is not true' || fail "QA-9: $s must PASS sandbox:
+$out"
+done
+# One decode, gate-hook.py's: NaN and a 65-deep nest are files Claude Code
+# does not load, and a plain json.loads would read the first (D-183) and the
+# interpreter would decide the second (D-182); both are CANNOT-ASSESS in the
+# shared decode's words, never PASS. 64 deep reads (the cap's own control).
+set9 '{"sandbox": {"enabled": true}, "x": NaN}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row sandbox | grep -q '^\[CANNOT-ASSESS\] *sandbox .*holds a non-JSON constant NaN' || fail "QA-9: a NaN settings file must be CANNOT-ASSESS through gate-hook.py's decode:
+$(row sandbox)"
+deep=$(awk 'BEGIN { for (i = 0; i < 64; i++) printf "{\"a\":"; printf "1"; for (i = 0; i < 64; i++) printf "}" }')
+set9 "{\"sandbox\": {\"enabled\": true}, \"x\": $deep}"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row sandbox | grep -q '^\[CANNOT-ASSESS\] *sandbox .*is nested deeper than 64 levels' || fail "QA-9: a 65-deep settings file must be CANNOT-ASSESS:
+$(row sandbox)"
+deep=$(awk 'BEGIN { for (i = 0; i < 63; i++) printf "{\"a\":"; printf "1"; for (i = 0; i < 63; i++) printf "}" }')
+set9 "{\"sandbox\": {\"enabled\": true}, \"x\": $deep}"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row sandbox | grep -q '^\[WARN\] *sandbox ' || fail "QA-9: a 64-deep settings file reads (the cap's control):
+$(row sandbox)"
+set9 '[1]'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row sandbox | grep -q '^\[CANNOT-ASSESS\] *sandbox .*is not a JSON object' || fail "QA-9: a settings file that is not an object must be CANNOT-ASSESS:
+$(row sandbox)"
+rm -f "$SET"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row sandbox | grep -q '^\[PASS\] *sandbox *no .*settings.json: the Bash sandbox is not enabled' || fail "QA-9: no settings file must PASS sandbox:
+$(row sandbox)"
+
+# summaries (D-187's fixture cases). No settings file and nothing in the
+# environment: WARN with the estimate marked as one, and the fix line.
+row summaries | grep -q '^\[WARN\] *summaries *subagent progress summaries on: about 20% on subagent spend, 4% of a fleet day.s (estimated, D-187); not set in this environment, and no ' || fail "QA-9: no file and no env must WARN with the estimate:
+$(row summaries)"
+row summaries | grep -q "fix: \"env\": {\"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES\": \"1\"} in $SET, if you want it (no sudo; reversible: remove it; loses the background-task panel.s progress line" || fail "QA-9: the summaries fix line:
+$(row summaries)"
+FX_SUMMARIES=1; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_SUMMARIES
+row summaries | grep -q '^\[PASS\] *summaries *CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=1 in this environment' || fail "QA-9: the process env alone must PASS:
+$(row summaries)"
+set9 '{"env": {"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES": "0"}}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row summaries | grep -q '^\[WARN\] *summaries .*not set in this environment or in env of ' || fail "QA-9: a 0 in settings must WARN:
+$(row summaries)"
+set9 '{"env": {"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES": "true"}}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row summaries | grep -q '^\[PASS\] *summaries .*is 1 or true in env of ' || fail "QA-9: true in settings env must PASS:
+$(row summaries)"
+FX_SUMMARIES=TRUE; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_SUMMARIES
+row summaries | grep -q '^\[PASS\] *summaries *CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=TRUE in this environment' || fail "QA-9: TRUE in the env must PASS:
+$(row summaries)"
+set9 '{"env": '
+FX_SUMMARIES=1; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_SUMMARIES
+row summaries | grep -q '^\[PASS\] *summaries .*in this environment' || fail "QA-9: the process env beside a malformed file must PASS:
+$(row summaries)"
+FX_SUMMARIES=0; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_SUMMARIES
+row summaries | grep -q '^\[CANNOT-ASSESS\] *summaries *not set in this environment, and .*is not JSON this check can read' || fail "QA-9: a malformed file and no process value must be CANNOT-ASSESS:
+$(row summaries)"
+rm -f "$SET"
+chmod 000 "$HOMEFX/.claude"
+if [ -x "$HOMEFX/.claude" ]; then
+	echo "check-env-check: QA-9's unsearchable-settings case NOT RUN (running as a user who can search a mode-000 directory)" >&2
+else
+	run "$BIN_A" "$SC_A" --checkout "$CO"
+	row summaries | grep -q '^\[CANNOT-ASSESS\] *summaries .*its directory cannot be searched' || fail "QA-9: settings under an unsearchable directory are not proven absent:
+$(row summaries)"
+fi
+chmod 755 "$HOMEFX/.claude"
+printf '%s\n' "$GOODSET" > "$SET"
+
+# codex-skill-copy. A verbatim copy is PASS; the rewrite /import makes is
+# WARN naming the path and the refresh with both knobs, never rm; a copy in
+# CODEX_HOME's skills is found there and its own command printed; unreadable
+# or under an unsearchable directory is CANNOT-ASSESS; HOME empty too. QA-1
+# (none at all) is PASS.
+AG="$HOMEFX/.agents/skills"
+mkdir -p "$AG/buddy" "$AG/buddy-fleet"
+cat "$ROOT/skills/buddy/SKILL.md" > "$AG/buddy/SKILL.md"; cat "$ROOT/skills/buddy-fleet/SKILL.md" > "$AG/buddy-fleet/SKILL.md"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row codex-skill-copy | grep -q "^\[PASS\] *codex-skill-copy *each shipped SKILL.md under $AG and $HOMEFX/.codex/skills is absent or byte-identical" || fail "QA-9: verbatim copies must PASS:
+$(row codex-skill-copy)"
+sed 's/Claude Code/Codex/g; s/CLAUDE\.md/AGENTS.md/g' "$ROOT/skills/buddy/SKILL.md" > "$AG/buddy/SKILL.md"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+r=$(row codex-skill-copy)
+printf '%s\n' "$r" | grep -q "^\[WARN\] *codex-skill-copy *differs from this checkout's skills: $AG/buddy/SKILL.md; a Codex session may load it, and a copy Codex's /import took is never refreshed (D-186)" || fail "QA-9: the rewritten copy must WARN naming it:
+$r"
+printf '%s\n' "$r" | grep -q "fix: BUDDY_SKILL_DIR=\"$AG/buddy\" BUDDY_FLEET_SKILL_DIR=\"$AG/buddy-fleet\" sh scripts/install-skill.sh, from the checkout (no sudo; reversible" || fail "QA-9: the refresh names both knobs:
+$r"
+printf '%s\n' "$r" | grep -Eq '(fix: |[;&|] *)rm ' && fail "QA-9: the fix must never be an rm:
+$r"
+[ -z "$(shape "$out")" ] || fail "QA-9: skill-copy WARN shape:$(shape "$out")"
+cat "$ROOT/skills/buddy/SKILL.md" > "$AG/buddy/SKILL.md"
+CXH="$WORK/codexhome"; mkdir -p "$CXH/skills/buddy-fleet"
+printf 'stale\n' > "$CXH/skills/buddy-fleet/SKILL.md"
+FX_CODEX_HOME=$CXH; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEX_HOME
+r=$(row codex-skill-copy)
+printf '%s\n' "$r" | grep -q "differs from this checkout's skills: $CXH/skills/buddy-fleet/SKILL.md;" || fail "QA-9: a stale copy under CODEX_HOME must WARN:
+$r"
+printf '%s\n' "$r" | grep -q "fix: BUDDY_SKILL_DIR=\"$CXH/skills/buddy\" BUDDY_FLEET_SKILL_DIR=\"$CXH/skills/buddy-fleet\" sh scripts/install-skill.sh, from" || fail "QA-9: the CODEX_HOME refresh:
+$r"
+rm -rf "$CXH"
+# A glob character in CODEX_HOME is a name, not a pattern: codex[1] beside an
+# empty codex1 is judged as named (Codex code pass: an unquoted loop judged
+# codex1 and said PASS).
+mkdir -p "$WORK/codex[1]/skills/buddy" "$WORK/codex1/skills"; printf 'stale\n' > "$WORK/codex[1]/skills/buddy/SKILL.md"
+FX_CODEX_HOME="$WORK/codex[1]"; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEX_HOME
+row codex-skill-copy | grep -qF "differs from this checkout's skills: $WORK/codex[1]/skills/buddy/SKILL.md;" || fail "QA-9: CODEX_HOME with a glob character must be judged as named:
+$(row codex-skill-copy)"
+rm -rf "$WORK/codex[1]" "$WORK/codex1"
+chmod 000 "$AG/buddy/SKILL.md"
+if [ -r "$AG/buddy/SKILL.md" ]; then
+	echo "check-env-check: QA-9's unreadable-copy case NOT RUN (running as a user who can read a mode-000 file)" >&2
+else
+	run "$BIN_A" "$SC_A" --checkout "$CO"
+	row codex-skill-copy | grep -q "^\[CANNOT-ASSESS\] *codex-skill-copy *could not establish absence or equality for: $AG/buddy/SKILL.md" || fail "QA-9: an unreadable copy must be CANNOT-ASSESS:
+$(row codex-skill-copy)"
+fi
+chmod 644 "$AG/buddy/SKILL.md"
+rm -rf "$AG/buddy-fleet"; chmod 000 "$AG"
+if [ -x "$AG" ]; then
+	echo "check-env-check: QA-9's unsearchable-directory case NOT RUN (running as a user who can search a mode-000 directory)" >&2
+else
+	run "$BIN_A" "$SC_A" --checkout "$CO"
+	r=$(row codex-skill-copy)
+	printf '%s\n' "$r" | grep -q '^\[CANNOT-ASSESS\] *codex-skill-copy *could not establish absence or equality for: ' &&
+		printf '%s\n' "$r" | grep -q " $AG/buddy/SKILL.md" && printf '%s\n' "$r" | grep -q " $AG/buddy-fleet/SKILL.md" ||
+		fail "QA-9: under an unsearchable directory, absence is not proven:
+$r"
+fi
+chmod 755 "$AG"; rm -rf "$HOMEFX/.agents"
+FX_HOME=; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_HOME
+for r in sandbox summaries codex-skill-copy; do
+	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-9: an empty HOME must leave $r CANNOT-ASSESS:
+$out"
+done
+row codex-skill-copy | grep -q 'HOME is unset' || fail "QA-9: the empty-HOME line says why:
+$(row codex-skill-copy)"
+# HOME not set at all: every row still prints (set -u aborted the script at
+# the first $HOME before), the HOME-rooted ones CANNOT-ASSESS, scratch too.
+FX_HOME_UNSET=1; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_HOME_UNSET
+for r in sandbox summaries codex-skill-copy scratch; do
+	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-9: an unset HOME must leave $r CANNOT-ASSESS:
+$out"
+done
+printf '%s\n' "$out" | grep -q '^env-check: [0-9]* PASS' || fail "QA-9: an unset HOME must still reach the count line:
+$out"
+# A symlink that does not resolve (its target under a directory that cannot
+# be searched) proves no absence: ~/.agents linked into a locked directory is
+# CANNOT-ASSESS, not "absent" (Codex code pass). QA-1's PASS is the control.
+mkdir -p "$WORK/locked/agents"; ln -s "$WORK/locked/agents" "$HOMEFX/.agents"; chmod 000 "$WORK/locked"
+if [ -x "$WORK/locked" ]; then
+	echo "check-env-check: QA-9's locked-symlink case NOT RUN (running as a user who can search a mode-000 directory)" >&2
+else
+	run "$BIN_A" "$SC_A" --checkout "$CO"
+	row codex-skill-copy | grep -q '^\[CANNOT-ASSESS\] *codex-skill-copy *could not establish absence or equality for: ' ||
+		fail "QA-9: a skills path through an unresolvable symlink must be CANNOT-ASSESS:
+$(row codex-skill-copy)"
+fi
+chmod 755 "$WORK/locked"; rm -f "$HOMEFX/.agents"
+# A newline in a path from the environment stays on its row: no fabricated
+# `[PASS]` line, one codex-skill-copy row (Codex code pass).
+FX_CODEX_HOME="$WORK/cx
+[PASS]          forged"; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEX_HOME
+printf '%s\n' "$out" | grep -q '^\[PASS\] *forged' && fail "QA-9: a newline in CODEX_HOME fabricated a row:
+$out"
+[ "$(printf '%s\n' "$out" | grep -c 'codex-skill-copy')" -eq 1 ] && row codex-skill-copy | grep -q "cx?\[PASS\] *forged/skills is absent" ||
+	fail "QA-9: the CODEX_HOME path must print on its own row, its newline as ?:
+$out"
+# Python is passed with -c, never a heredoc: macOS /bin/sh writes a heredoc to
+# a temporary file (Codex code pass). Control: the same pattern finds one.
+heredoc() { grep -n '<<' "$1" | grep -v '^[0-9]*:[[:space:]]*#' || true; }
+printf 'x=$(python3 - <<%sPY%s\n' "'" "'" > "$WORK/heredoc-ctl"
+[ -n "$(heredoc "$WORK/heredoc-ctl")" ] || fail "QA-9: the heredoc detector missed its planted control"
+[ -z "$(heredoc "$ROOT/scripts/env-check.sh")" ] || fail "QA-9: env-check.sh holds a heredoc (a temporary file under macOS sh): $(heredoc "$ROOT/scripts/env-check.sh")"
+
+echo "check-env-check: GREEN (QA-1 good machine 15 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 12 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN + settings rows CANNOT-ASSESS without it, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks, QA-9 sandbox WARN with and without the wait-check clause + summaries PASS/WARN/CANNOT-ASSESS by env and settings + codex-skill-copy PASS/WARN/CANNOT-ASSESS, through gate-hook.py's decode (NaN, depth) + glob in CODEX_HOME + unset HOME + unresolvable symlink + newline in a path + no heredoc; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"
