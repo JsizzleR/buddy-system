@@ -13630,3 +13630,100 @@ is unreadable. Fixture: `{"sandbox":{"enabled":true}}` WARN naming both, the sam
   3), `skills/buddy/SKILL.md` (beside the Codex sandbox paragraph); no verb, flag or knob
 - index: CLAUDE.md § Decisions, the "Fleet" line (number only; CLAUDE.md is not this lane's)
 - amends: none; D-138 (unwritable ledger) stands, its sandbox case not reached by a lane on 2.1.325
+
+## D-189 — Claude Code's Code Mode (2.1.323, experimental) is UNQUALIFIED for buddy until a gate DENIAL is measured inside it: the docs say inner tool calls reach PreToolUse hooks under their usual names, which predicts the gate needs no change, but no session has seen one refused (#103)
+
+2026-11-14 · issue #103 (from the release-impact read of Claude Code 2.1.323/2.1.325); lane
+codemode-103 under orc buddy-system/s-9cfc61f9's brief, run r1114b. Class research, tier lite.
+No probe was run: it needs the operator's answer to two dialogs that write `~/.claude.json`
+(below), asked through the orchestrator at 17:46Z and again at 19:37Z and not given by the
+lane's report, so this entry takes the brief's "no" path: docs and a hand-fed baseline only.
+
+**What Code Mode is (docs, code.claude.com/docs/en/code-mode, read 2026-11-14).** An opt-in in
+which Claude writes JavaScript that calls its tools, run by an outer tool named `REPL` whose
+input is `tool_input.code`. On only under `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` in the shell or
+the user settings' `env` (project settings are ignored for it; managed settings can force it
+off, never on); 2.1.323+, the native build, Opus, Sonnet or Haiku 5.5 or Fable 5.2, and an
+interactive terminal session only (not `-p`, the Agent SDK, Desktop, VS Code, cloud, background
+jobs). The first Code Mode session asks "Yes, turn on Code Mode", and the answer is saved, the
+docs imply, in `~/.claude.json` (their fix for "couldn't save your answer" is to make it
+writable). It may refuse to start,
+naming a reason on its startup line and in `/status`: "isn't open to your account yet",
+OpenTelemetry on, an installed mod, "this launch's tool options" (`REPL` missing from `--tools`).
+
+**What the docs promise the gate.** "Each tool call that Claude's code makes goes through your
+`deny` and `ask` permission rules and your `PreToolUse` hooks. You don't need to change a rule
+or matcher for a tool such as `Bash`." So the gate's `Edit|Write|NotebookEdit|Bash` matcher
+should fire on an inner call under its own name, and the gate needs no `REPL` arm. Not
+documented: the inner call's `tool_input` (whether an inner edit carries `file_path` as the
+gate reads it, D-005), and whether `cwd` names the session's directory. A hook matching `REPL`
+sees only the code text, whose paths are computed at run time; the gate does not parse it
+(it would be a JavaScript interpreter's job, and D-005's declared-path rule already excludes it).
+
+**Failure semantics: no change owed.** Under Code Mode a PreToolUse hook that "gives no
+decision" REFUSES the call ("the hook failed": could not start, killed, exit 126, 127 or above
+128, invalid output; "the hook did not finish": a timeout), even with `onFailure` unset; an
+ordinary non-zero exit such as 1 still lets the call through unless `onFailure: block`. README's
+gate entry turns any `buddy gate` failure into exit 2 (invariant 2) and sets `"timeout": 10,
+"onFailure": "block"`, so it refuses in both modes; an older entry without `onFailure` refuses a
+timed-out gate under Code Mode anyway. Unchanged in both: its `[ -x "$HOME/bin/buddy" ] ||
+exit 0` guard, the no-binary arm, allows (feature off, D-107). The chat hooks end in `exit 0`
+and are not PreToolUse gates, so they stay silent. `UserPromptSubmit` also runs on code output
+(`source: poll_event`), so `buddy busy` runs more often; it never blocks, so it refuses no poll
+event (but see Open: it also drains the inbox there).
+
+**Baseline, the gate on hand-fed outer-shape payloads** (scratch repo, its own throwaway
+ledger, a peer `peer-holder-0001` holding `held.txt` by hand `hello --session` + `claim`):
+Edit `held.txt` DENY naming the peer's claim; Edit `control.txt` (unclaimed) allowed; Bash
+`apply_patch <<EOF ... EOF` DENY (D-073); Bash `echo X >> held.txt` allowed, by design (the gate
+places no shell write: it refuses a shell-routed patch BECAUSE it cannot place its paths, so that
+denial comes on any target, claimed or not, and other shell side effects are unchecked, D-005).
+So the probe's Bash leg is a shell `apply_patch`, not a redirect: a redirect allowed proves
+nothing, and the `apply_patch` denial proves the hook saw the inner Bash call, not a claim.
+
+**The rule.** Until a Code Mode session is seen to have an inner Edit (or Write) on a
+peer-claimed path and an inner Bash `apply_patch` REFUSED by the gate, with an inner edit to an
+unclaimed control path going through, buddy names Code Mode unqualified: the docs, USAGE and
+the skills say nothing that relies on it, and env-check says so where it is on. Only a denial is
+evidence: buddy's gate writes nothing when it allows, so an allowed inner call and a skipped
+hook look the same. If a probe shows an inner call bypassing the gate, or presenting a payload
+the gate cannot place (no `file_path`, a renamed tool), that is a change to what the gate
+refuses: full tier, its own item.
+
+**The probe, when the operator approves it** (not run here; the recipe for whoever does):
+the fixture above; launch ONE interactive session in a herdr tab with
+`env -u CLAUDE_CODE_SESSION_ID -u CODEX_THREAD_ID CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude
+--settings <scratch>/probe-settings.json ...` from the scratch repo, the settings file adding
+only a PreToolUse `*` recorder that appends each raw payload to a scratch file and decides
+nothing. Two dialogs write `~/.claude.json`, both the operator's to answer: Code Mode's first-use
+confirmation and folder trust for the scratch directory (no trusted ancestor). Ask the session
+to do, from ONE Code Mode script, an edit of `held.txt`, a Bash `apply_patch` on it, and an
+edit of `control.txt`. Evidence: the startup line ("Code Mode (experimental) is on"), the
+refusal texts in the transcript (`Ctrl+O` shows the code as a **Code** row), `control.txt`
+changed and `held.txt` not, and the recorder's `tool_name`, `tool_input.file_path` and `cwd`
+for each inner call fed back to `buddy gate` by hand for the same verdicts. A refusal counts only
+if its text is buddy's own `permissionDecisionReason`, the peer-claim reason for the edit and
+D-073's for the patch, matched to the recorded inner call: another permission rule could refuse
+the held path and allow the control with buddy's hook absent. The replay feeds the complete
+recorded payload, `session_id` and Bash's `tool_input.command` included. "Isn't open to your
+account yet": record it and stop.
+
+**Open.**
+- The probe itself (above), and the inner payload's shape.
+- Mail on a poll event. `buddy busy` drains the inbox on EVERY `UserPromptSubmit` and marks
+  each message it prints delivered (`drainHook`, `internal/cli/cli.go`), so it does so on a
+  `poll_event` too. Whether Claude Code puts a poll event's hook output before the model is
+  undocumented; if it does not, a peer's message is marked delivered and never read, and
+  `buddy sent` says delivered. Unmeasured: the probe's extra leg is a `buddy msg` to the probe
+  session while one of its scripts runs in the background, then whether the text reaches it.
+  A fix (skip the drain on `source: poll_event`) would be its own item.
+- Auto mode under Code Mode reviews each piece of code, not each tool call, and "doesn't see
+  values computed at run time" (docs): a reviewer of a lane's permissions should not count the
+  classifier as a second gate there. Not buddy's to enforce.
+- A Code Mode session "can be resumed only with Code Mode on": a lane opened with it and resumed
+  without it is refused by Claude Code, not by buddy.
+
+### Where it lives
+- index: CLAUDE.md § Decisions, the "Gate recognition" line (the number), for the integrator
+- env-check: the recommended `code-mode` row, carried in the READY to the env-check lane
+- evidence: this entry (the probe's scratch fixture is not retained in the repo)
