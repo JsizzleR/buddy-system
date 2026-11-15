@@ -173,6 +173,7 @@ before you would open it:
 - **Hand off before you are full**, at the operator's handoff size: a prompt that opens a turn says when you reach it (the optional `busy` hook), and your `buddy sessions` row shows it (`prompt 521k`). A new batch of lanes past the operator's batch-boundary size, if they set one, gets a fresh coordinator too (D-117).
 - Launch a coordinator, and its successor, in a herdr tab, `herdr tab create … --env BUDDY_HANDOFF_AT=<the operator's size>`, never `claude --bg`: the size never reaches a background session.
 - Start no background job you will not see finish: a job you start is your session's child, and nothing hands it to a successor.
+- Taking over: say what you found in one `buddy msg` to your predecessor and deliver its wake address, never your pane alone; it hands on when that arrives (D-192).
 - Hand every claim on in ONE `buddy release <run> orc-<project> <parked riders> --to <successor>`; never release a run to have it claimed afresh: a new claim id lands every rider's wait with no outcome and loses its READY (D-063).
 - Never hand on `.buddy/slot/browser`: keep it, list it, and stay open until its work is over (D-134).
 - Account for every running job before you say you are done (D-065).

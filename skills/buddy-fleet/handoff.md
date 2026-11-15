@@ -40,12 +40,19 @@ it.
      label>. Read <file>, then buddy inbox. For every running job it lists with a pid,
      check that its pid is still that job and that you can read its output; one
      gone without its final line failed, whatever the file says. Say what you
-     found. I will hand you my claims."
+     found, in your pane AND in one buddy msg to <your label> (session <your
+     full id>; use the id if the label is refused), delivering the wake
+     address its result prints: I hand you my claims when it arrives."
      It treats a failed job under a run as Landing's step 4 does, once it holds
      the run (D-131). A `buddy wait --on` on a claim it is about to be handed is
      not refused, and its check reads LANDED, handed to it (D-093).
-  4. `buddy msg` it anything since the file, and wake it. When it answers,
-     hand it every claim you hold in ONE call (all or nothing, one notice):
+  4. `buddy msg` it anything since the file, and wake it, then arm a clock:
+     `buddy wait --until 5m --block` under run_in_background; its notice opens
+     a turn that drains your mail. None there: `buddy msg` it once asking for
+     its report and wake it; still none, say so in your pane for the operator.
+     `buddy wait clear` before the hand-on. When its message
+     arrives (an answer said only in its own pane never reaches you, and both
+     of you then wait on the other: D-192), hand it every claim you hold in ONE call (all or nothing, one notice):
      `buddy release <run> orc-<project> <parked riders> --to <its label>`. Each claim stays open with
      its scopes, and every wait on it follows it: riders keep waiting, stay
      READY on `buddy who <run>`, and land on the successor's outcome. The
@@ -58,7 +65,12 @@ it.
      as the coordinator whose relays they take, and nothing in the ledger
      changes that. While you are still live, `buddy msg` each lane you
      launched or inherited: "<successor label> (session <full id>) is your
-     coordinator from now; it relays the same decisions I did."
+     coordinator from now; it relays the same decisions I did." And edit each
+     lane's brief file the same way, every place it names you (label, session
+     id, a `buddy release --to` or a `buddy msg` target): a lane re-reading its brief after a
+     compaction otherwise has its park refused (the run's holder is the
+     successor), and sends its READY to, and runs its relay check against, a
+     coordinator that is closing (D-192).
      **Never `.buddy/slot/browser`:** tabs and a running browser job do not move
      with a claim. Keep it, list it under Running jobs (a later handoff carries
      it on), and stay open: the successor closes no pane that holds it. Browser
@@ -67,8 +79,8 @@ it.
      coordinates by then, who closes you on the usual evidence. Refused, or its
      result says ended: nobody does, so say so in your pane (D-134).
   5. **Account for every running job before you say you are done:** finished,
-     handed over (its output file is in the handoff and the successor says it
-     is alive and readable), stopped, or a browser job you stay open for. `buddy status`'s EXIT and JOBS lines see the
+     handed over (its output file is in the handoff and the successor's
+     `buddy msg` says it is alive and readable), stopped, or a browser job you stay open for. `buddy status`'s EXIT and JOBS lines see the
      ledger and the shells directly under your harness process, not a job that
      exec'd into another program: they check your list, never replace it (D-065).
      Then tell the
@@ -89,7 +101,7 @@ it.
   batch-boundary size (their standing decisions; none set means this bullet
   does not fire) and the batch is independent of this conversation: the
   handoff file's three registers written and empty or handed, the batch's
-  decisions in files, the successor saying it has read the file. A fold
+  decisions in files, the successor's `buddy msg` saying it has read the file. A fold
   round on a lane you briefed is not independent: its brief names you. The
   recipe is the same. What is keyed to your session id does not carry over, so finish it
   first: drain `buddy inbox` and relay what is open, `buddy wait clear`, stop

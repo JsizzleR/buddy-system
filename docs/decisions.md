@@ -14062,3 +14062,41 @@ ledger's path in the error, a refactor for a later item).
 - charter: a GIVEN carried in the READY for the integrator (the charter was another lane's)
 - amends: D-137 (with `BUDDY_FLEET` set, section 6's typed verbs scrub git's local environment);
   the reading of invariant 3 (and invariant 2's sentence) for a ledger the gate never reads
+
+## D-192 — A coordinator handoff's successor answers its predecessor with `buddy msg`, not only in its pane, and the predecessor hands its claims on when that message arrives; re-pointing a lane edits its brief file too
+
+2026-11-15 · run r1115a, integrator orc-2 (successor of buddy-system/s-9cfc61f9). Class: skill
+prose naming no new verb or flag (chore). The operator, in orc-2's pane: "if this hiccup here was
+a bug in buddy-system, lets fix that", then "both of you were waiting on the other to msg".
+
+**What happened.** `skills/buddy-fleet/handoff.md` step 3 had the successor's brief end "Say what
+you found. I will hand you my claims.", and step 4 had the predecessor hand its claims on "when it
+answers". Neither said how the answer travels. orc-2 reported its job checks in its own pane, as
+the brief read, and stopped; the predecessor waited for an answer that never reached it. Nothing
+moved until the operator said "tell the orc": orc-2's `buddy msg` arrived at 07:24:05Z and the
+claims were handed at 07:24:14Z.
+
+**The rule.** The successor says what it found in its pane AND in one `buddy msg` to the
+predecessor, delivering the wake address the result prints. The predecessor waits for that
+message under a 5-minute `buddy wait --until 5m --block` timer (an idle session has no other
+clock); at the timer, none arrived, it messages the successor once and wakes it, and still none,
+it says so in its pane. The brief also gives the predecessor's session id, since a hand-chosen
+label worn twice refuses a `buddy msg` as ambiguous. Taken from a Fable cross-check of the first
+draft, which also found two "the successor says" lines in handoff.md and a wrong hazard claim in
+this entry; all fixed before commit.
+
+**A second gap, same handoff.** Re-pointing a lane was a message only, and the brief files still
+named the predecessor, codemode-probe's with `release --to buddy-system/s-9cfc61f9 --in-run`. A
+lane re-reading its brief after a compaction would have had its park refused (`release --to
+<predecessor> --in-run` once the successor holds the run: "a rider parks only with its run's
+holder", `internal/store/parked.go`), and would have sent its READY to, and run its relay check
+against, a coordinator that is closing. orc-2 edited the three
+brief files by hand. The step now says to edit each lane's brief file wherever it names the
+predecessor (label, session id, a `buddy release --to` or a `buddy msg` target).
+
+**Not done.** No verb change: buddy cannot know that a pane answer was meant for a peer, and a
+handoff "answered" state in the ledger would be a second channel for what one `buddy msg` already
+carries. A brief naming `orc-<project>` as every target would follow the claim, but the relay
+check (D-083, D-099) is by session id and label on purpose, so the brief still names the session.
+
+- skill: `skills/buddy-fleet/handoff.md` steps 3, 4 and the re-pointing paragraph
