@@ -14100,3 +14100,246 @@ carries. A brief naming `orc-<project>` as every target would follow the claim, 
 check (D-083, D-099) is by session id and label on purpose, so the brief still names the session.
 
 - skill: `skills/buddy-fleet/handoff.md` steps 3, 4 and the re-pointing paragraph
+
+## D-193 — A session on both ledgers (NON-GIT-PLAN stage 2): where discovery finds a home ledger and `BUDDY_FLEET` names a fleet, the five lifecycle hooks keep the session on both rosters (hello registers in both, beat and busy heartbeat both and drain both inboxes into one document under one budget, idle marks both or holds the turn for mail from either, bye ends both), each ledger fenced by its own incarnation and processes; a bare typed verb stays the directory's, and `buddy fleet <verb>` runs one with its ledger forced to the fleet; `join` dropped
+
+2026-11-15 · docs/NON-GIT-PLAN.md section 9.2 row 2, as amended by D-191, on the operator's word
+in orc-2's pane at 07:28Z ("open stage 2 after 1b lands"; 07:21Z in the previous coordinator's,
+"yes, stage 2 should follow after 1b"), relayed in lane fleet-stage2's brief. Lanes fleet-stage2
+and its successor fleet-stage2-2 (Opus 5.5 at xhigh), run r1115b, class code, tier full.
+
+**What changed.** In 1b a session whose directory has its own ledger used that ledger alone and
+`BUDDY_FLEET` was "not used here": a coordinator living in a governed repository (the plan's
+question 4, the trigger) could not coordinate a fleet, and a fleet lane that `cd`'d into a
+repository dropped off its fleet's roster (its row went GONE with its slot claim open, and the
+coordinator's wait on it never landed: the plan's 9.1 row this stage closes). Now `besideOf`
+(`internal/cli/fleetboth.go`) opens the fleet beside the home in the five lifecycle hooks and
+`beatOffSuccess`'s browser record, and nowhere else. `hello` registers in both (the fleet row's
+worktree is the home's top, shown and never used) and says so in one line naming
+`buddy fleet <verb>`; `beat` heartbeats both (in the fleet: the process, the context sample, a
+browser call, the LANDED line of a wait declared there; never a dirty path, a base sample or an
+authority notice, 1b's three skips); `busy` retracts both idle marks; `idle` marks both or holds
+the turn; the session's own `bye` (its SessionEnd) ends both rows. Each ledger keeps its own `(session_id, incarnation)`, its own
+`session_procs` fence for `bye` (invariant 12) and its own idle fence; no row crosses between them.
+No schema change, no settings change, no new knob.
+
+**Which ledger a verb means** (the plan's question: "which ledger a bare `msg` means"). The
+directory's, exactly as before: a bare typed verb from a governed repository acts in its ledger,
+and a `msg` there to a name only the fleet knows is refused as a miss (D-021), never rerouted.
+`buddy fleet <verb> [args...]` (`cmdFleetVerb`) runs one of section 6's typed verbs with
+`Env.fleetOnly` set, which only `openSessionLedger` turns into a ledger (the gate never calls it;
+`ledgeraccess` reads it for its explanation), so no directory and no git variable can make it act
+in a repository's ledger; it needs no git-env scrub of its own for that reason. It refuses no
+verb, a flag before the verb (`--help` and `-h` there print its usage, as Run answers every verb),
+a verb outside section 6's set (a hook verb, `init`, the gate) and an unset variable; `--help`
+after the verb prints that verb's usage, and with the variable unset a help flag anywhere after
+it does (the verb's parser, which answers `claim x --help`, never runs there). What it prints for
+the session to run next names `buddy fleet` (`buddyCmd`: the keep-alive, the holder ask, a
+claim's wait hint, the parking refusal; then the timer's end, the positional hint, a cleared
+wait's check, a handed claim's `who`, who's EXIT line, `sent`'s wake report and an inbox miss,
+the cross-check's: the timer's bare `buddy wait clear`, run as printed, cleared the session's
+home wait and left the fleet's timer open), and so do the fleet's own lines in a hook beside a
+home (beat's LANDED, hello's wait):
+bare, each acted in the home ledger from a governed repository (the panel's gate lens, measured:
+a keep-alive armed as printed was answered NO WAIT while the fleet's wait had LANDED, and the
+holder ask queued in the home inbox of the home claim's holder). The hand path the plan's 5.1 taught,
+`(cd <fleet dir> && buddy <verb>)`, is withdrawn: with `$HOME` a governed worktree (a dotfiles
+repository `buddy init`ed), discovery finds THAT ledger from the fleet's directory and `release
+<slug>` freed the home claim of the same name (the design pass, finding 1;
+`TestFleetVerbCannotReachAGovernedHome` builds that layout as its control). A hand-run
+`buddy bye <id>` from a governed repository is a bare typed verb too, the directory's alone: it
+ended a fleet row the home never knew, silently, where nothing fenced it (the cross-check), and
+`bye` is not a section-6 verb, so a fleet row is ended by hand from a directory with no ledger.
+
+**One joint budget** (D-034's `helloBudget`, 9,000 bytes). `hello`'s digest: its first line, the
+fleet's line, the home's other lines, the home's claims, the fleet's claims in at most half the
+room the two lists share (what the fleet's list leaves goes to the home's, never the reverse;
+the line counting the fleet's claims left out names `buddy fleet ls`, bare it listed the home's:
+the Codex code pass, finding 3),
+both ledgers' waits, then the mail, the home's block and the fleet's under its own line, with a
+count line held back for each (the longest wording at a 64-byte name: the shorter let a long
+fleet name overrun, the panel's tests lens; under a Codex hello named by `--session` the fleet's
+line is addressed to that session, as the home's is, the cross-check). With the variable unset the digest is byte for byte
+the base's: the home list's room is taken after its header is written, as before (taking it first
+overran by the header's own bytes, 9,003 of 9,000, measured by
+`TestHelloDigestStaysUnderBudgetAtEveryClaimLength`). Every drain (`hello`, `beat`, `busy`, the
+Stop) carries both inboxes in its ONE document, merged oldest first (a tie goes to the home) under
+one bound, 20 messages and about 8 KiB inside the room the notices leave (`mergeDrain`): home
+first starved the fleet for good behind two large home messages (the design pass, finding 3). The
+fleet's messages sit under their own line naming the fleet, since each ledger numbers its own ids.
+
+**Locks and the failure protocol** (the design pass, finding 4). Each ledger's read and mark stay
+under its own write lock (D-099), so `beat`'s and `busy`'s joint drain is two nested transactions, taken
+only on a ledger whose plain read found mail (`hello` marks after its write and holds neither
+across it); the order is always fleet outer, home inner, and nothing takes
+a repository's lock and then a fleet's, so there is no cycle, and a contended home stalls fleet
+writers rather than a contended fleet stalling a repository's claims and beats. A fleet whose
+transaction never began gives today's `drainHook` on the home, also bounded by the room its
+document leaves: beat's is `beatDrain`'s own, so its drain is today's byte for byte, while busy's,
+bounded today by count and bytes alone, stops short of `helloBudget` less its note (with the
+fleet's sentence and a 512-byte path in that note, every message was marked delivered in a
+document past the 10,000-character preview: the Codex code pass, finding 1; that fold first held
+back the fleet's lead too, and an empty fleet inbox then cost beat one home message, measured by
+`TestBothLedgersEmptyFleetInboxIsTodaysDrain`). The home failing before the
+write is the home's error and the fleet marks nothing; the document out and the home's commit
+failed is the home's error (its mail comes again, at least once, as today) while the fleet marks
+what was written; the fleet's commit failing after the write costs only its mail, which comes
+again. A fleet failure is never the hook's result.
+
+**The Stop** (`stopBoth`, `store.StopHold`). `StopHold` is `StopTurn` with the decision handed to
+a body: each ledger's fence, mail read and idle mark stay ONE transaction, so D-099's race stays
+closed per ledger, and the body writes the one Stop document. Nested fleet outer, home inner: mail
+from either that fits holds the turn in one `decision: block` and neither row is marked idle;
+otherwise both are. Each fence is the ledger's own: a fleet drain nested inside the home's admitted
+Stop delivered fleet mail to a fleet incarnation that started after the turn (the design pass,
+finding 2). A ledger whose fence refuses (a late predecessor's turn, or a ledger that never
+registered the session) writes nothing of its own, and the other's mail can still hold the turn.
+It always nests, unlike the drain: both ledgers are written on every Stop and "held" is one
+decision over both, so a contended home holds the fleet's lock up to busy_timeout (the panel's
+concurrency lens measured 15.3 s for one `idle` with the home locked); two sequential
+transactions would split the decision. A home that fails before any document rolls the fleet
+back with it, so the fleet then gets its idle mark alone and a later fleet `msg` names a wake
+(the concurrency lens, finding 1, reproduced by holding the home's lock). `StopTurn` itself is
+left byte for byte.
+
+**Invariant 3 beside a home.** A home that cannot be read is today's verdict, and the fleet is not
+opened at all. A fleet that does not open beside a home (malformed, absent, unavailable) leaves
+the home half's work exactly as with the variable unset; `hello`'s digest and `busy`'s every
+prompt carry the fleet's sentence, worded for a session the home still serves ("this session is
+on no fleet roster and gets no fleet mail (this directory's own ledger works as before)"), and
+`beat`, `idle` and `bye` say nothing. One that opened and then failed is closed for the rest of
+the hook, its mail neither shown nor marked (shown, it panicked at the mark after the digest went
+out: the concurrency lens, finding 2), and `busy` names it, `fleet ledger error (<cause>)`, as it
+names one whose drain could not take its write lock (silent before: the Codex code pass, finding
+2). Busy's
+roster note for the home says the fleet row still moves only when the fleet knows the session
+(it said so for a session neither ledger knew: the cross-check). `buddy status`'s LEDGER line
+names the fleet the hooks report to only when the fleet is found, else that they report to none
+(a lane's brief checks that tail; it was printed for an absent name). One file is not two ledgers: a repository
+ledger that resolves to the fleet's own file (a symlinked `.git/buddy.db`, or D-191's `%XX`
+spelling) is refused as the fleet, compared by the files SQLite opened (`Store.MainFile`,
+`os.SameFile`), not the paths asked for, because two nested write transactions on one file wait on
+themselves until busy_timeout (the design pass, Q2). The gate still never opens a fleet:
+`besideOf` joins `openFleetLedger` in `fleet_reach_test.go`'s forbidden list and in check.sh's pin,
+and 5.4's tests stay green unchanged.
+
+**N9 with two opens** (D-191's method: base 40604de and this tree built into a scratch directory,
+never installed; a throwaway `HOME`; cells interleaved per call; 20 calls each, min / median / max
+ms): load average 2.5 on 12 cores, 0 of 20 failed in every cell.
+
+| cell | `beat` | `busy` | `idle` |
+| --- | --- | --- | --- |
+| base, repository ledger, variable unset | 12.8 / 13.6 / 16.5 | 12.9 / 14.6 / 18.3 | 14.4 / 15.4 / 41.3 |
+| tip, repository ledger, variable unset | 12.8 / 13.4 / 15.3 | 12.8 / 14.5 / 25.1 | 14.8 / 15.5 / 21.7 |
+| base, repository ledger, a fleet named | 13.0 / 13.6 / 15.3 | 13.3 / 14.5 / 15.6 | 14.3 / 15.2 / 21.7 |
+| tip, both ledgers | 13.5 / 14.3 / 21.0 | 13.3 / 15.3 / 16.7 | 15.3 / 16.2 / 20.8 |
+| tip, the variable names no fleet | 13.0 / 13.4 / 15.5 | 12.9 / 14.5 / 15.9 | 14.4 / 14.7 / 16.7 |
+| tip, fleet only (plain directory) | 18.8 / 19.5 / 23.5 | 19.1 / 21.6 / 24.2 | 20.9 / 21.9 / 55.1 |
+
+The second open costs under a millisecond per hook (medians +0.9, +0.8, +0.7 ms over the unset
+path), about 1% of the 100 ms budget; the fleet-only path stays dearer, as D-191 measured. One run
+on one machine.
+
+**Tests and mutants.** Every row (both ledgers present; the fleet malformed, absent, unreadable,
+failing after it opened, or the home's own file; the home unreadable; a session known to one
+ledger only; each failure branch of the drain and the Stop, a failing home raised by a trigger
+inside its own transaction; both locks contended) is a test beside its positive control, most in
+`fleetboth_test.go` and `fleetboth_fold_test.go`. Mutants, each in a private copy, each one
+exact replacement: a first pass over the design's arms, 71 run, 66 killed (31 by the tests then
+written, 35 only by the 17 tests it added and 4 it strengthened), 5 surviving as equivalent:
+`fail` losing `beside` (it wraps only store errors, whose sentence never reads it); `mergeDrain`'s
+never-fewer-than-one guard (no rendered line reaches 8 KiB: body 4,096, sender 64, at most three
+superseded ids and a 128-byte note); the fleet committing when the home failed before the write
+(it has no ids to mark); `drainBoth`'s "the fleet-only drain wrote nothing" arm (reachable only by
+a concurrent drain between the plain read and the lock); beat's `!sub` in `beatBeside` (composing
+LANDED writes nothing, and a subagent's beat returns before the mark). The Stop's nesting swapped
+(home outer) is not killed by the fence case, since each ledger still fences itself, but by
+`TestBothLedgersAContendedFleetNeverHoldsTheHome`, which holds the fleet's write lock. Then every
+review fold, mutated back: 15 from the panel and 3 from the Codex code pass, 18 of 18 killed.
+Last, the tests lens's two remaining gaps closed (with the fleet broken, `bye`, `beat`, the Stop's
+mark and its hold still act on the home; a Stop's held mail is marked delivered in its own
+ledger, and a fleet message the fence deferred holds the next turn alone): their five mutants
+survived the earlier tests and are killed by these. The cross-check's folds, mutated back the
+same way (each follow-up bare again, the hand-run bye beside the fleet, the roster note's old
+argument, the LEDGER tail unconditional, the later help refused, the named Codex line and its
+reserve, the fleet's process at hello, beat and bye emptied, its bye forced, its Stop sampling a
+base): 18 of 18 killed, the hand-run bye's only once its test also ran the lane with its process
+gone (with the process alive the fleet's own fence refused it, so the jurisdiction went untested).
+And four budget reserves the cross-check found unpinned (the Stop's and busy's fleet lead, hello's
+fleet count line in the mail's room and in the claims'), each killed by a test that sizes the
+lines exactly (read back and measured with `inboxLine`, a 64-byte fleet name so the fleet's
+lead is its reserve) so that what the reserve holds back would ride: removed, the Stop's document
+was 9,176 bytes, busy's 9,011 (inside an 11-byte window with no note), hello's 9,117 and 9,084.
+
+**The Codex re-verify** (two rounds, the ceiling, D-115). Round 1, over the folds since the code
+pass: 8 hold, 2 raised (P3), both fixed, each reproduced by a test watched red and its mutants
+killed (3 of 3). The home-only fallback measured beat's room with `drainBoth`'s entry time while
+beat's own bound measured inside the lock: a CORRECTS line's "reached you 59s ago" is a byte longer
+than the "1m" a moment later, so a queue filling the room exactly lost its last message that
+today's drain kept; the fallback now reads the clock where bound does
+(`TestDrainBothHomeOnlyMeasuresAtTheDrainsTime`, a clock that steps once, the control `drainHook`).
+And who's LEDGER line for a fleet that is not there said "this session is on no roster and gets no
+mail" though the home's roster and mail stand: `fleetFindable`'s errors are beside's. Round 2,
+over those two folds: 0 raised.
+
+**Review answers, no code change.** The Stop always nesting (the concurrency lens, finding 3):
+above, under The Stop. No commit-gate test with the variable set (the gate lens): the call-graph
+test in `fleet_reach_test.go` holds every path from the gate and the commit-gate away from
+`openFleetLedger` and `besideOf`, as D-191's did; one behavioral test would pin one path of many.
+`release --to`'s lines naming the target's or a waiter's `buddy wait check` stay bare: they
+speak of another session's check, whose directory the releaser cannot know, and beside a home
+that session's own beat prints the fleet's LANDED with `buddy fleet wait check`. No golden of the
+unset path (the tests lens): every hook run on base 40604de and on this tree with the variable
+unset printed the same bytes but the base's hash, and a golden would freeze hello's wording for
+every later change; `TestHelloDigestStaysUnderBudgetAtEveryClaimLength` and the base's own tests
+hold it. The tests lens's other untested rows: D-191's `%XX` spelling of the fleet's own file
+(`MainFile` compares the file SQLite opened, so no spelling can differ from the symlink the test
+builds); an unreadable home under `beat`, `busy`, `idle` and `bye` (each fails in the same
+`openSessionLedger` arm before `besideOf` is reached, tested under `hello`); `bye` with the
+fleet's processes alive (`byeBeside` is `ByeFrom` on the fleet's own `session_procs`, held by
+bye's own tests); `StopHold`'s unknown session, tested held only (it leaves by the same fence
+return as a late turn, whose not-held case kills a held=false write there: the mutant
+`!ok && held`, run). Added instead: `buddy fleet <verb> --help` with the variable unset, and a Stop
+whose hook is already active, held by neither ledger. From the cross-check: a Stop whose fleet
+lock stays held past busy_timeout runs the home's alone and leaves the fleet row unmarked, not
+wrong (marking it would wait out busy_timeout a second time on one Stop; its next Stop marks
+it); the store's own refusals keep their bare listing hints (`buddy ls`, `buddy sessions`: a
+read, and threading the selector into the store's error text buys a correct listing at the cost
+of the store knowing which command called it).
+
+**Rejected.** A typed `join` writing a by-session file (the plan's option S). D-191 rejected it for
+1b and this stage confirms the rejection for its own reasons: its lookup would run on every hook
+of every session on the machine; `/clear` mints a new id that has not joined while the variable
+survives it (D-034), so a joined session silently leaves its fleet; and it is a second state outside
+the ledger choosing which ledger a hook opens. `join` without a file has nothing to persist into
+the next hook. So a session not launched with the variable cannot join while it runs: a
+coordinator joins by being launched with it, or by its successor at a handoff being launched with
+it. Trigger to revisit: a count of sessions that needed to join while running. Also rejected: the
+cd hand path (above); home mail first (finding 3); a fleet drain nested inside the home's Stop
+(finding 2); a fleet lookup in the gate's discovery (5.4).
+
+**Decided by the lane, for the operator's later review** (each easily reverted): `join` dropped,
+no by-session file; the verb's name `fleet`; the fleet's lock outer; the fleet's claims at most half
+the shared room; the fleet row's worktree column is the home's top; the typed verbs and
+`noteHeard` stay the home's; `buddy fleet` gets no git-env scrub of its own (its ledger is forced,
+so no git variable can choose one); a hand-run `buddy bye <id>` stays the directory's, and `bye` joins
+no `buddy fleet` set.
+
+### Where it lives
+- code: `internal/cli/fleetboth.go`; the switches in `cli.go` (hello, beat, busy, idle, bye, Run's
+  `fleet` dispatch, release's parking refusal), `fleet.go` (`openSessionLedger`'s `fleetOnly`,
+  `busyRosterNote`), `wait.go` (the printed follow-ups), `browser.go`, `idlewait.go`,
+  `ledgeraccess.go`, `who.go`; `internal/store/drain.go` (`StopHold`), `store.go` (`MainFile`);
+  `fleet` in `scripts/subagent-report.py`'s VERBS (its done-check compares it with the table)
+- tests: `internal/cli/fleetboth_test.go`, `fleetboth_fold_test.go`, `fleetboth_cross_test.go`,
+  `fleetboth_budget_test.go`, `fleet_test.go`, `fleet_reach_test.go`;
+  `internal/store/drain_hold_test.go`; `scripts/check.sh`'s pin of `besideOf`
+- docs: `docs/USAGE.md` "Outside git — a fleet ledger" (a session on both ledgers);
+  `skills/buddy-fleet/outside-git.md`, `skills/buddy-fleet/SKILL.md`, one sentence in
+  `skills/buddy/SKILL.md`; `docs/NON-GIT-PLAN.md` (status, 5.1, the 5.2 row)
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line (number and rule)
+- charter: GIVEN 133, and GIVEN 131's tail pointing at it
+- amends: D-191 (its "a repository ledger here" row: the lifecycle hooks keep the session on both
+  ledgers, and `BUDDY_FLEET` is no longer "not used here"; "a session on both rosters" leaves its
+  Open paragraph); the plan's 5.1 hand path (withdrawn for `buddy fleet <verb>`) and 9.2 row 2
+  (`join` dropped)

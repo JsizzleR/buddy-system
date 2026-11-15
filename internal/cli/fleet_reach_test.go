@@ -54,6 +54,10 @@ import (
 //   - Run's pre-dispatch use of the verbs table, which the skip that keeps
 //     dispatch out of Run's root hides as well (TestGateVerdictsIgnoreTheFleet
 //     holds that behaviour, and check.sh pins it by name);
+//   - cmdFleetVerb's dispatch through its table parameter (D-193), hidden by
+//     the same skip (TestFleetVerbSetIsBounded holds the set without gate
+//     and commit-gate, TestFleetVerbActsInTheFleetOnly the refusal of
+//     `buddy fleet gate` at dispatch, and check.sh pins both by name);
 //   - a func value carried through a local, a parameter, a struct field of a
 //     non-package value, a channel or a pointer, when the only function that
 //     names it is itself unreachable (an assignment through `*p` is followed
@@ -110,7 +114,7 @@ import (
 // fleetHomeRel, the fleet home under $HOME: a mention is an edge, so a path
 // built by hand (`store.OpenEscaped(filepath.Join(home, fleetHomeRel, ...))`)
 // is caught where no resolver is named (Fable cross-check, F3b).
-var fleetForbidden = []string{"openFleetLedger", "openSessionLedger", "mustFleetLedger", "fleetLedgerPath", "cmdInitFleet", "fleetHomeRel"}
+var fleetForbidden = []string{"openFleetLedger", "openSessionLedger", "mustFleetLedger", "fleetLedgerPath", "cmdInitFleet", "fleetHomeRel", "besideOf"}
 
 // pkgInit is the one node for every package-level `func init()`: nothing can
 // name or call one, so it is a root and never an edge, and a method that

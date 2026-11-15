@@ -62,6 +62,12 @@ type Env struct {
 	// SockDir is where the harness's per-process message sockets live (wake.go);
 	// "" means the real one. A seam for the reason Anchor is one.
 	SockDir string
+	// fleetOnly is set by `buddy fleet <verb>` (cmdFleetVerb, D-193) and read
+	// by openSessionLedger alone: the verb's ledger is the fleet BUDDY_FLEET
+	// names and never the one discovery finds. Unexported, so no caller
+	// outside this package sets it, and the gate never calls
+	// openSessionLedger (fleet_reach_test.go).
+	fleetOnly bool
 	// Sleep is `wait --block`'s pause between reads (D-095); nil means
 	// time.Sleep. A seam so a test can act between two reads.
 	Sleep func(time.Duration)
@@ -177,11 +183,15 @@ var verbs = map[string]verb{
 	"authority":   {usageAuthority, heardVerb("authority", cmdAuthority)},
 	"ids":         {idsUsage, heardVerb("ids", cmdIDs)},
 	"wait":        {usageWait, waitVerb},
-	"lifecycle":   {usageLifecycle, errVerb("lifecycle", cmdLifecycle)},
-	"adapter":     {usageAdapter, errVerb("adapter", cmdAdapter)},
-	"diagnose":    {usageDiagnose, errVerb("diagnose", cmdDiagnose)},
-	"update":      {usageUpdate, cmdUpdate},
-	"uninstall":   {usageUninstall, cmdUninstall},
+	// fleet runs another verb of this table, so Run hands it the table
+	// (cmdFleetVerb): naming it here would be an initialization cycle, and its
+	// run is never called.
+	"fleet":     {usageFleet, nil},
+	"lifecycle": {usageLifecycle, errVerb("lifecycle", cmdLifecycle)},
+	"adapter":   {usageAdapter, errVerb("adapter", cmdAdapter)},
+	"diagnose":  {usageDiagnose, errVerb("diagnose", cmdDiagnose)},
+	"update":    {usageUpdate, cmdUpdate},
+	"uninstall": {usageUninstall, cmdUninstall},
 }
 
 func Run(args []string, env Env) int {
@@ -217,6 +227,9 @@ func Run(args []string, env Env) int {
 		// section 6 does too while BUDDY_FLEET is set, so it reads the ledger
 		// its own session's hooks read (fleetScrub, D-191).
 		defer scrubHookGitEnv()()
+	}
+	if cmd == "fleet" {
+		return cmdFleetVerb(rest, env, verbs)
 	}
 	return v.run(rest, env)
 }
@@ -364,6 +377,9 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     started is announced to it ONCE, on its next tool
                                     call (CLAUDE.md and AGENTS.md always; a long session's
                                     context is a snapshot, and nothing else says it rotted)
+              fleet <verb> [args...]   run one typed verb in the fleet BUDDY_FLEET names and
+                                    never in this directory's ledger: how a session in a
+                                    governed repository acts in its fleet (D-193)
 setup         init                  create the ledger for this repo
               update [--dry-run]    reinstall from the checkout this buddy was installed
                                     from: says where it stands (read locally, nothing
@@ -1740,6 +1756,11 @@ func cmdHello(args []string, env Env) (err error) {
 		return fencedOpenErr(err)
 	}
 	defer st.Close()
+	// The fleet beside a home ledger (stage 2, D-193): nil with BUDDY_FLEET
+	// unset, so every line below is today's; a fleet that does not open costs
+	// the home half nothing and is said in the digest (besideHelloLine).
+	fb := besideOf(st, rc, env)
+	defer fb.close()
 	// digestOut: the digest went to stdout. After that the one document is
 	// written, and a failure (MarkDelivered's) keeps today's error: the
 	// messages are redelivered at the next drain (Codex code pass, finding 3:
@@ -1773,6 +1794,7 @@ func cmdHello(args []string, env Env) (err error) {
 	if err != nil {
 		return err
 	}
+	fsi := helloBeside(fb, session, label, top, proc, terminal)
 	// The copy of each watched file this session starts with (D-167): a
 	// later checkout of the same bytes, in this tree or a worktree it makes,
 	// is then not announced as a change. Best-effort, like the notice. Not
@@ -1798,14 +1820,13 @@ func cmdHello(args []string, env Env) (err error) {
 	} else {
 		fmt.Fprintf(&b, "BUDDY: you are session %s (%s). Claim before taking a bundle: buddy claim <slug> --desc ... --scope <path>\n",
 			fence.Line(si.Label, 64), fence.Line(si.SessionID, 128))
-		if f := env.getenv(EnvFleet); f != "" {
-			// 5.2's "a home ledger exists here" row: the session was launched
-			// into a fleet and lives where a repository's ledger governs. The
-			// home ledger wins, and the session is told, once, inside the
-			// digest's budget (Codex design pass, Q5): it is not on the fleet's
-			// roster and gets none of its mail. Stage 2 is what joins both.
-			fmt.Fprintf(&b, "BUDDY: %s=%s is not used here: this directory has its own ledger, so this session is on that ledger's roster and not the fleet's\n",
-				EnvFleet, fence.Line(f, 64))
+		if fb != nil {
+			// 5.2's "a home ledger exists here" row, as stage 2 reads it
+			// (D-193): the session was launched into a fleet and lives where a
+			// repository's ledger governs. It is on BOTH rosters now, and this
+			// line says how it acts in the fleet; or, the fleet not opening,
+			// the fleet's 5.2 sentence, inside the digest's budget.
+			b.WriteString(besideHelloLine(fb, fsi))
 		}
 	}
 	if codex {
@@ -1831,6 +1852,7 @@ func cmdHello(args []string, env Env) (err error) {
 				strconv.Quote(fence.Line(si.Label, 64)), twins)
 		}
 	}
+	b.WriteString(besideTwinLine(fb, fsi))
 	if note, paused, _ := st.PausedFor(si.SessionID, si.Label); paused {
 		fmt.Fprintf(&b, "BUDDY: you are PAUSED: %s\n", fence.Line(note, 512))
 	}
@@ -1895,7 +1917,8 @@ func cmdHello(args []string, env Env) (err error) {
 	// A declared wait (D-033): this incarnation's, restated with its verdict
 	// and the keep-alive questioned; or a predecessor's that ended with its
 	// run, named as the earlier run's with the line that declares it again.
-	tail.WriteString(waitHelloLines(st, si, now, codex))
+	tail.WriteString(waitHelloLines(st, si, now, codex, "buddy"))
+	tail.WriteString(besideWaitLines(fb, fsi, now, codex))
 	// Read before the claims list, because the list must leave room for the
 	// line that counts undelivered messages. That line is written after
 	// everything else, whether or not any message fits, and the list's room
@@ -1907,12 +1930,32 @@ func cmdHello(args []string, env Env) (err error) {
 	if len(msgs) > 0 {
 		inboxReserve = helloCountReserve(codex, namedByFlag, len(msgs), si.SessionID)
 	}
+	// ONE JOINT BUDGET (D-193): the fleet's mail gets its count line held back
+	// too, and its claims at most half the room the claims lists share, so a
+	// long fleet list cannot push the home's out (the list that fits whole
+	// uses less, and the home's gets the rest).
+	var fmsgs []store.InboxMsg
+	if fb.ok() {
+		var ferr error
+		if fmsgs, ferr = fb.st.Undelivered(session, fsi.Label); ferr != nil {
+			fb.fail(ferr) // closed: its mail is not shown below (busy names it)
+		}
+		if len(fmsgs) > 0 {
+			inboxReserve += fleetCountReserve(len(fmsgs))
+		}
+	}
+	// The home list's room is taken AFTER its header is written, exactly as
+	// before D-193 (fclaims is "" with no fleet beside, so the unset path is
+	// byte-identical to the base): measured, taking it before the header
+	// overran helloBudget by the header's own bytes (9,003 of 9,000).
+	fclaims := helloBesideClaims(fb, fsi, now, (helloBudget-b.Len()-tail.Len()-inboxReserve)/2, env)
 	if len(claims) == 0 {
 		b.WriteString("BUDDY: no live claims.\n")
 	} else {
 		b.WriteString("BUDDY live claims (do not touch scopes held by other sessions):\n")
-		writeHelloClaims(&b, claims, si, now, helloBudget-b.Len()-tail.Len()-inboxReserve, readHolders(env, st))
+		writeHelloClaims(&b, claims, si, now, helloBudget-b.Len()-tail.Len()-inboxReserve-len(fclaims), readHolders(env, st))
 	}
+	b.WriteString(fclaims)
 	b.WriteString(tail.String())
 	// DRAIN THE INBOX HERE TOO (issue #25, D-034). This line used to say
 	// "N queued message(s); they will arrive after your next tool call" and
@@ -1931,18 +1974,35 @@ func cmdHello(args []string, env Env) (err error) {
 	// that does not fit (never skipping ahead, so order holds). The remainder
 	// is named with a count and left for the next drain. Same fence, same
 	// header, same write-then-mark as beat.
-	var ids []int64
-	if len(msgs) > 0 {
+	// A fleet that failed after its mail was read (its claims or a beside
+	// line, each fb.fail) is closed, so its mail is not shown: shown, it
+	// could not be marked (the panel's concurrency lens, finding 2: the mark
+	// below dereferenced the closed store, a panic after the digest went out
+	// that also cost the home's mark).
+	if !fb.ok() {
+		fmsgs = nil
+	}
+	var ids, fids []int64
+	var fshown []store.InboxMsg
+	if len(msgs) > 0 || len(fmsgs) > 0 {
 		var shown []store.InboxMsg
 		if hookDriven {
 			room := helloBudget - b.Len() - len(inboxHeader) - helloInboxCountLine
-			for _, m := range boundDrain(msgs, now) {
-				if room -= len(inboxLine(m, nil, now)); room < 0 {
-					break
+			if len(fmsgs) == 0 {
+				for _, m := range boundDrain(msgs, now) {
+					if room -= len(inboxLine(m, nil, now)); room < 0 {
+						break
+					}
+					shown = append(shown, m)
 				}
-				shown = append(shown, m)
+			} else {
+				// Both inboxes, merged oldest first under one bound
+				// (mergeDrain), with the fleet's lead, header and count line
+				// held back.
+				shown, fshown = mergeDrain(msgs, fmsgs, room-fleetLeadMax-fleetCountReserve(len(fmsgs)), now)
 			}
 			ids = writeInbox(&b, shown, now)
+			fids = writeFleetInbox(&b, fb.name(), fshown, now)
 		}
 		// NAME WHAT DELIVERS THEM (Codex report B4). "Your next tool call" is
 		// Claude's beat. Under Codex this hello is never hook-driven (a Codex
@@ -1966,11 +2026,19 @@ func cmdHello(args []string, env Env) (err error) {
 		if rest := len(msgs) - len(shown); rest > 0 {
 			b.WriteString(helloCountLine(codex, namedByFlag, rest, si.SessionID))
 		}
+		if rest := len(fmsgs) - len(fshown); rest > 0 {
+			b.WriteString(fleetCountLine(codex, namedByFlag, fb.name(), rest))
+		}
 	}
 	if _, err := io.WriteString(env.Stdout, b.String()); err != nil {
 		return err // write failed → nothing marked → redelivered next beat
 	}
 	digestOut = true
+	if len(fids) > 0 && fb.ok() {
+		// The fleet's mark is the fleet's: a failure redelivers its mail at
+		// the next drain and never costs the home's mark below.
+		_ = fb.st.MarkDelivered(session, fids)
+	}
 	if len(ids) == 0 {
 		return nil
 	}
@@ -2029,7 +2097,7 @@ func cmdBye(args []string, env Env) error {
 	if session == "" {
 		return errors.New("no session id")
 	}
-	st, _, err := openSessionLedger(dir, env)
+	st, rc, err := openSessionLedger(dir, env)
 	if errors.Is(err, errNoLedger) || quietFleet(err) {
 		return nil
 	}
@@ -2038,6 +2106,18 @@ func cmdBye(args []string, env Env) error {
 	}
 	defer st.Close()
 	res, err := st.ByeFrom(session, from, env.procAlive, force)
+	// The fleet row too, from a governed repository (D-193; D-191 left it to
+	// this stage, L1): its own fence, silent in every arm. Only the session's
+	// own SessionEnd: a hand-run `buddy bye <id>` is a bare typed verb and
+	// acts in this directory's ledger alone, as every other one does (the
+	// cross-check: it ended a live lane's fleet row with --force, or was
+	// refused there, and either way said nothing).
+	if hookDriven {
+		if fb := besideOf(st, rc, env); fb != nil {
+			byeBeside(fb, session, from, env)
+			fb.close()
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -2105,6 +2185,11 @@ func cmdIdle(args []string, env Env) error {
 		return fencedOpenErr(err)
 	}
 	defer st.Close()
+	if fb := besideOf(st, rc, env); fb != nil {
+		// A session on both ledgers (D-193): one Stop for both (idleBoth).
+		defer fb.close()
+		return idleBoth(st, fb, h, env)
+	}
 
 	// THE TURN'S OWN END TIME, read from the transcript the hook payload
 	// already names. Two things come of it:
@@ -2187,7 +2272,9 @@ func cmdBusy(args []string, env Env) error {
 		return fencedOpenErr(err)
 	}
 	defer st.Close()
-	wrote, err := busyTurn(st, rc, h, env)
+	fb := besideOf(st, rc, env)
+	defer fb.close()
+	wrote, err := busyTurn(st, rc, fb, h, env)
 	if err != nil && rc.fleet != "" && !wrote {
 		// Opened, then failed (Codex design pass, finding 2): the same line,
 		// and only when this event wrote nothing yet, so it stays ONE
@@ -2200,7 +2287,7 @@ func cmdBusy(args []string, env Env) error {
 
 // busyTurn is busy's work once its ledger is open; wrote says this event's one
 // document went out.
-func busyTurn(st *store.Store, rc repoContext, h hookInput, env Env) (wrote bool, err error) {
+func busyTurn(st *store.Store, rc repoContext, fb *fleetBeside, h hookInput, env Env) (wrote bool, err error) {
 	if err := st.ClearIdle(h.SessionID); err != nil {
 		return false, err
 	}
@@ -2223,9 +2310,22 @@ func busyTurn(st *store.Store, rc repoContext, h hookInput, env Env) (wrote bool
 	if h.Harness != "codex" {
 		resampleFootprint(st, h, me, known, env) // Claude's turn that just ended (D-060)
 	}
-	note := busyHandoff(st, me, known, env) + busyRosterNote(rc, h.SessionID, known, env)
-	return drainHook(st, h.SessionID, label, env, "UserPromptSubmit", note,
-		func(msgs []store.InboxMsg) []store.InboxMsg { return boundDrain(msgs, nowOf(env)) })
+	note := busyHandoff(st, me, known, env)
+	bound := func(msgs []store.InboxMsg) []store.InboxMsg { return boundDrain(msgs, nowOf(env)) }
+	if fb == nil {
+		return drainHook(st, h.SessionID, label, env, "UserPromptSubmit", note+busyRosterNote(rc, h.SessionID, known, env, false), bound)
+	}
+	// A session on both ledgers (D-193): the fleet's half first, so the
+	// home's roster note knows whether the fleet row still moves; then its
+	// line or roster note in the same document, and both inboxes in one drain.
+	fknown := busyBeside(fb, h, env)
+	// "Its fleet row still moves" only when the fleet knows the session: with
+	// fb.ok() alone, a session neither ledger knows was told its fleet row
+	// moves and, in the same document, that it is not on the fleet's roster
+	// (the cross-check).
+	note += busyRosterNote(rc, h.SessionID, known, env, fb.ok() && fknown) + busyBesideNote(fb, h, fknown, env)
+	return drainBoth(st, label, fb, h.SessionID, env, "UserPromptSubmit", note, bound,
+		helloBudget-len(note)-len(inboxHeader)-fleetLeadMax)
 }
 
 // drainHook writes a hook event's ONE document: prefix (buddy's own notices,
@@ -2388,6 +2488,11 @@ func cmdBeat(args []string, env Env) error {
 	if known && me.Live() && isBrowserTool(h.ToolName) {
 		_ = st.RecordBrowserUse(h.SessionID, me.Incarnation)
 	}
+	// The fleet beside a home ledger (D-193): its heartbeat, footprint,
+	// browser call and LANDED line; nil, and nothing, with BUDDY_FLEET unset.
+	fb := besideOf(st, rc, env)
+	defer fb.close()
+	flanded, commitFLanded := beatBeside(fb, h, a.Ref, sub, env)
 
 	// Addressing (advisory): record which paths this session is holding
 	// uncommitted, and warn ONCE if a peer holds the same file in the same
@@ -2424,7 +2529,7 @@ func cmdBeat(args []string, env Env) error {
 	// whichever comes first.
 	landed, commitLanded := "", func() error { return nil }
 	if known && me.Live() && !sub {
-		landed, commitLanded = waitNotice(st, me, nowOf(env))
+		landed, commitLanded = waitNotice(st, me, nowOf(env), "buddy")
 	}
 
 	// THE guard for a subagent: nothing but the dirty warning is written, so
@@ -2448,9 +2553,15 @@ func cmdBeat(args []string, env Env) error {
 	}
 	// One hook event may emit only ONE JSON document, so the notice and the
 	// messages share a single additionalContext rather than racing to stdout.
-	notices := warn + auth + landed
-	wrote, err := drainHook(st, h.SessionID, label, env, "PostToolUse", notices,
-		func(msgs []store.InboxMsg) []store.InboxMsg { return beatDrain(msgs, len(notices), nowOf(env)) })
+	notices := warn + auth + landed + flanded
+	bound := func(msgs []store.InboxMsg) []store.InboxMsg { return beatDrain(msgs, len(notices), nowOf(env)) }
+	var wrote bool
+	if fb == nil {
+		wrote, err = drainHook(st, h.SessionID, label, env, "PostToolUse", notices, bound)
+	} else {
+		wrote, err = drainBoth(st, label, fb, h.SessionID, env, "PostToolUse", notices, bound,
+			helloBudget-len(notices)-len(inboxHeader)-fleetLeadMax)
+	}
 	if !wrote {
 		return err // write failed → nothing marked → redelivered next beat
 	}
@@ -2469,6 +2580,10 @@ func cmdBeat(args []string, env Env) error {
 	_ = commitWarn()
 	_ = commitAuth()
 	_ = commitLanded()
+	// The fleet's LANDED mark fails too when a drain failure closed the fleet
+	// after the notice was composed (drainBoth's failed): it comes again once,
+	// the same at-least-once.
+	_ = commitFLanded()
 	return err // the inbox mark's, made inside drainHook's transaction
 }
 
@@ -2505,7 +2620,6 @@ func beatDrain(msgs []store.InboxMsg, notices int, now time.Time) []store.InboxM
 // the harness's 10,000-character hook cap, past which the model gets a
 // preview instead of the messages (Codex design pass, D-045).
 func boundDrain(msgs []store.InboxMsg, now time.Time) []store.InboxMsg {
-	const maxDrainMsgs, maxDrainBytes = 20, 8 * 1024
 	if len(msgs) > maxDrainMsgs {
 		msgs = msgs[:maxDrainMsgs]
 	}
@@ -2518,6 +2632,10 @@ func boundDrain(msgs []store.InboxMsg, now time.Time) []store.InboxMsg {
 	}
 	return msgs
 }
+
+// maxDrainMsgs and maxDrainBytes are boundDrain's bound, shared with
+// mergeDrain (a session on both ledgers: one bound over both inboxes, D-193).
+const maxDrainMsgs, maxDrainBytes = 20, 8 * 1024
 
 // inboxHeader is the header of a drain that carries a CORRECTS/SUPERSEDED
 // link or a declared kind, and it is the one every budget measures, because
@@ -2762,11 +2880,19 @@ const codexHelloHelpLine = helloHelpLead + ", then `buddy wait check` in your ow
 // line says the rest refuse all the same: the gate reads the ledger, not
 // this digest.
 func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.SessionInfo, now time.Time, room int, h holders) {
+	writeClaimsList(b, claims, si, now, room, h, "buddy")
+}
+
+// writeClaimsList is writeHelloClaims with the command its remainder line
+// names: `buddy fleet ls` for the fleet's list beside a home (D-193), whose
+// bare `buddy ls` lists the HOME's claims and never the fleet's it left out
+// (the Codex code pass, finding 3).
+func writeClaimsList(b *strings.Builder, claims []store.ClaimInfo, si store.SessionInfo, now time.Time, room int, h holders, bin string) {
 	// The room held back for the "not shown here" line is that line's own
 	// worst case, rendered: hidden and mine can be no larger than the list.
 	// It was a constant 160, which the line outgrows once 100 claims of the
 	// caller's own are hidden (155 bytes plus the digits of both counts).
-	remainderLine := len(helloClaimsRemainder(len(claims), len(claims)))
+	remainderLine := len(claimsRemainder(len(claims), len(claims), bin))
 	lines := make([]string, len(claims))
 	var order []int
 	for i, c := range claims {
@@ -2822,18 +2948,20 @@ func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.Ses
 	if hidden == 0 {
 		return
 	}
-	b.WriteString(helloClaimsRemainder(hidden, mine))
+	b.WriteString(claimsRemainder(hidden, mine, bin))
 }
 
 // helloClaimsRemainder is the line that counts the claims a capped digest
 // left out. One function renders it and measures its reserve, so the two
 // cannot drift apart.
-func helloClaimsRemainder(hidden, mine int) string {
+func helloClaimsRemainder(hidden, mine int) string { return claimsRemainder(hidden, mine, "buddy") }
+
+func claimsRemainder(hidden, mine int, bin string) string {
 	yours := ""
 	if mine > 0 {
 		yours = fmt.Sprintf(", %d of them YOURS", mine)
 	}
-	return fmt.Sprintf("BUDDY: %d more live claim(s) not shown here%s (the digest is capped); `buddy ls` lists every one, and they refuse exactly like the ones shown.\n", hidden, yours)
+	return fmt.Sprintf("BUDDY: %d more live claim(s) not shown here%s (the digest is capped); `%s ls` lists every one, and they refuse exactly like the ones shown.\n", hidden, yours, bin)
 }
 
 // sessionLabel resolves the label a hook's session answers to. "" for a
@@ -3503,7 +3631,7 @@ func cmdClaim(args []string, env Env) error {
 		}
 		printConflicts(env, st, conflicts)
 		fmt.Fprint(env.Stdout, claimNotes(conflicts, stuck, *basedOn, *shared, runClosed))
-		fmt.Fprint(env.Stdout, waitSuggestion(conflicts))
+		fmt.Fprint(env.Stdout, waitSuggestion(conflicts, buddyCmd(env)))
 		// What a real claim would DISPLACE: open claims of holders that have
 		// said bye, which Claim orphans on its way in (D-026). Said apart
 		// from `would claim`, because "free once the ended holder is cleaned
@@ -3557,7 +3685,7 @@ func cmdClaim(args []string, env Env) error {
 			// The command that would declare a wait on every claim in the
 			// way (D-033). Suggested, never registered: a refusal is a fact
 			// about a claim, not about what this session means to do next.
-			fmt.Fprint(env.Stdout, waitSuggestion(set))
+			fmt.Fprint(env.Stdout, waitSuggestion(set, buddyCmd(env)))
 			return exitErr{ExitRefused, fencedErr(err)}
 		}
 		return fencedErr(err)
@@ -4016,7 +4144,13 @@ func cmdRelease(args []string, env Env) error {
 	// claim's park was refused already ("coordination is never parked"); this
 	// says why in a fleet's words, before any row is read.
 	if *inRun != "" || *unpark {
-		if err := fleetRefusal(rc, "parking (--in-run, --unpark)", "a fleet ledger integrates nothing, so there is no run to park in; report with release <item> --outcome pass|fail --note \"DONE: <where the findings are>\""); err != nil {
+		// Under `buddy fleet` the report names that route (buddyCmd): a bare
+		// release from a governed repository frees the home claim of the slug.
+		rel := "release"
+		if env.fleetOnly {
+			rel = buddyCmd(env) + " release"
+		}
+		if err := fleetRefusal(rc, "parking (--in-run, --unpark)", "a fleet ledger integrates nothing, so there is no run to park in; report with "+rel+" <item> --outcome pass|fail --note \"DONE: <where the findings are>\""); err != nil {
 			st.Close()
 			return err
 		}
@@ -5268,7 +5402,7 @@ func cmdInbox(args []string, env Env) error {
 func inboxReread(st *store.Store, env Env, si store.SessionInfo, id int64) error {
 	r, err := st.InboxMessage(si.SessionID, si.Label, id)
 	if errors.Is(err, store.ErrNotAddressed) {
-		return fmt.Errorf("no message #%d addressed to %s (by id, label, or a broadcast that named it); `buddy sent %d` is the sender's view", id, fence.Line(si.Label, 64), id)
+		return fmt.Errorf("no message #%d addressed to %s (by id, label, or a broadcast that named it); `%s sent %d` is the sender's view", id, fence.Line(si.Label, 64), buddyCmd(env), id)
 	}
 	if err != nil {
 		return err

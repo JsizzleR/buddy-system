@@ -27,24 +27,27 @@ writing one file outside git are refused by nothing. Say so in every brief.
   directories, not symlinks, and a fleet holds only its ledger: a git
   directory's mark there (`HEAD`, `objects`, `refs`, `commondir`, `gitdir`) or
   a hard-linked `buddy.db` makes it unavailable.
-- **You are started with `BUDDY_FLEET=<name>`,** in a directory with no ledger
-  of its own: your own hooks read the variable from your process environment.
+- **You are started with `BUDDY_FLEET=<name>`:** your own hooks read the
+  variable from your process environment, from a plain directory or, on both
+  rosters, from a governed repository (below).
 - **Each lane is a herdr tab with the variable** (Opening lanes), in its own
   plain directory:
   `herdr tab create --workspace <ws> --cwd <dir> --label <label> --env BUDDY_LABEL=<label> --env BUDDY_FLEET=<name> --no-focus`,
   then `herdr agent start` as usual. `claude --bg` carries no variable, so a lane
   started that way is in no fleet.
 - **The brief's first step is `buddy status`.** In a fleet its first line
-  starts `LEDGER`, then `fleet <name>: <path>`. A lane whose `status` fails, or names another
-  ledger, says so in its pane and stops: it is on no roster you can read.
-- **A lane's directory must have no ledger of its own.** Inside a repository
-  that ran `buddy init`, the home ledger wins: its `hello` says
-  `BUDDY_FLEET=<name> is not used here`, it is on that repository's roster,
-  and the fleet's mail never reaches it. A lane that `cd`s into one later
-  leaves its row behind: it stops moving and goes GONE with its slot claim
-  open, your wait on it does not land, and its `busy` (if wired) says so at
-  each prompt. The repository's gate governs its writes there, which is
-  right; joining both ledgers is stage 2.
+  starts `LEDGER`, then `fleet <name>: <path>`. Inside a governed repository it
+  names that repository's ledger and adds `the hooks also report to fleet
+  <name>`; such a lane checks with `buddy fleet status` instead. A lane whose
+  `status` fails, or names another ledger without that tail, says so in its
+  pane and stops: it is on no roster you can read.
+- **A lane inside a governed repository is on both rosters** (stage 2):
+  its `hello` says `also session <label> in fleet <name>`, its hooks drain
+  both inboxes, and its bare verbs act in the repository's ledger, so its
+  brief tells it to report with `buddy fleet msg orc-<name> "..."` and to
+  claim its slot with `buddy fleet claim`, in the slot form `buddy claim`
+  takes below (slot scopes only). The repository's gate governs its writes there, which is right. A
+  lane that `cd`s into one later keeps its fleet row moving.
 
 ## What works, and what is refused
 
@@ -99,15 +102,30 @@ tool call is ever refused for it:
   if it repeats.
 - `this session is not on fleet <name>'s roster` (from `busy`): run the
   `buddy hello --session <id> </dev/null` it names.
+- Beside a governed repository the first three end `this session is on no
+  fleet roster and gets no fleet mail (this directory's own ledger works as
+  before)`, and `busy` may add `this session is not on the roster of this
+  directory's own ledger`: run the `buddy hello` it names.
 
 A lane launched without the variable is simply off:
 `buddy who <its full session id>` refuses, which is how you see it. `/clear` in a lane mints a new
 session id: a new row, the old one's mail stranded (D-034).
 
-## From a governed repository
+## From a governed repository (both ledgers)
 
-A session whose own ledger is a repository's can still read a fleet and send
-into it by hand, each verb from a plain directory with the variable set, in a subshell:
-`cd ~/.buddy/fleets/<name> && BUDDY_FLEET=<name> buddy sessions`. Its own
-hooks never drain the fleet's mail. A session on both rosters at once is not
-built (stage 2 of `docs/NON-GIT-PLAN.md`).
+A coordinator living in a repository that ran `buddy init` (the operator's
+orchestrator pane) coordinates a fleet when it is STARTED with
+`BUDDY_FLEET=<name>`: its hooks keep it on both rosters and drain both
+inboxes into one digest, the fleet's mail under its own line. A session
+already running without the variable cannot join (no `join` was built): at
+its next handoff, launch the successor with the variable.
+
+- A bare verb acts in the repository's ledger. Act in the fleet with
+  `buddy fleet <verb>`: `buddy fleet sessions`, `buddy fleet msg <lane> "..."`,
+  `buddy fleet claim orc-<name>` (slot scopes only), `buddy fleet wait` on the
+  lanes' items, `buddy fleet ls`, `buddy fleet inbox`. Never `cd` into the
+  fleet's directory for this: with `$HOME` a governed worktree, discovery
+  finds that repository's ledger from there.
+- A reply to fleet mail goes with `buddy fleet msg`; a bare `buddy msg` to a
+  name only the fleet knows is refused as a miss.
+- `/loop` keep-alive on a fleet wait: `/loop buddy fleet wait check`.

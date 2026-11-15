@@ -189,14 +189,20 @@ if [ "$run_hermetic" = 1 ]; then
   # (TestBuddyMainOnlyCallsRun, fleet_reach_test.go), all in internal/cli
   # (Fable cross-check, F4: only the scan was pinned, so deleting or skipping
   # the other two left this gate green).
-  fleettests="TestGateNeverReachesTheFleetLedger TestGateVerdictsIgnoreTheFleet TestBuddyMainOnlyCallsRun"
+  # D-193 adds the two that keep `buddy fleet gate`/`commit-gate` out:
+  # TestFleetVerbSetIsBounded holds the set (neither is a member) and
+  # TestFleetVerbActsInTheFleetOnly the refusal at dispatch (a cmdFleetVerb
+  # that skipped its set check dies there, not in the set test: the
+  # cross-check). cmdFleetVerb dispatches through its table parameter, which
+  # the scan's verbs skip hides (the panel's gate lens).
+  fleettests="TestGateNeverReachesTheFleetLedger TestGateVerdictsIgnoreTheFleet TestBuddyMainOnlyCallsRun TestFleetVerbSetIsBounded TestFleetVerbActsInTheFleetOnly"
   fleetrun=$(go test ./internal/cli -run "^($(echo $fleettests | tr ' ' '|'))\$" -count=1 -v 2>&1) || { echo "check.sh: the fleet gate's tests failed (D-191):" >&2; echo "$fleetrun" >&2; exit 1; }
   for t in $fleettests; do
     echo "$fleetrun" | grep -q "^--- PASS: $t " || { echo "check.sh: $t did not run and pass by name (deleted, renamed or skipped?) — re-point this gate in the same commit (D-191)" >&2; exit 1; }
   done
   fleetlist=$(grep '^var fleetForbidden = ' internal/cli/fleet_reach_test.go || true)
-  for fn in openFleetLedger openSessionLedger mustFleetLedger fleetLedgerPath cmdInitFleet fleetHomeRel; do
-    echo "$fleetlist" | grep -q "\"$fn\"" || { echo "check.sh: fleetForbidden no longer names $fn, so the gate's call-graph scan stopped asking about it (D-191)" >&2; exit 1; }
+  for fn in openFleetLedger openSessionLedger mustFleetLedger fleetLedgerPath cmdInitFleet fleetHomeRel besideOf; do
+    echo "$fleetlist" | grep -q "\"$fn\"" || { echo "check.sh: fleetForbidden no longer names $fn, so the gate's call-graph scan stopped asking about it (D-191; besideOf, the fleet opened beside a home ledger: D-193)" >&2; exit 1; }
   done
   # The roots are read inside forbiddenFrom and envFleetFrom, the scans' own
   # functions: the test names the same call again in a control, which a

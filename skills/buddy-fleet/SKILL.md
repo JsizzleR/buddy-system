@@ -542,8 +542,9 @@ When the operator asks you to coordinate lanes in plain directories, outside
 every repository, read `outside-git.md` beside this file: the fleet ledger,
 its launch, its refusals and its loop. Kept here:
 
-- Only on the operator's word, `buddy init --fleet <name>`; you and each lane start with `BUDDY_FLEET=<name>` (on a herdr tab, `herdr tab create ... --env BUDDY_FLEET=<name>`; `claude --bg` carries none), in a directory with no ledger of its own.
+- Only on the operator's word, `buddy init --fleet <name>`; you and each lane start with `BUDDY_FLEET=<name>` (on a herdr tab, `herdr tab create ... --env BUDDY_FLEET=<name>`; `claude --bg` carries none), each in a plain directory or a governed repository (below).
 - The gate never reads a fleet ledger: it reserves no file and has no brake, so a lane claims only its slot and `buddy pause` is refused; say so in every brief.
+- Started with the variable inside a governed repository, a session is on both rosters; it acts in the fleet with `buddy fleet <verb>`, a bare verb staying the repository's.
 
 ## Codex lanes and adapters
 

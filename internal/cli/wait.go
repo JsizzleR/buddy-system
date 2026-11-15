@@ -130,7 +130,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 		a := fence.Line(fs.Arg(0), 128)
 		hint := ""
 		if flags, _ := onFlags([]string{fs.Arg(0)}); flags != "" {
-			hint = "; did you mean `buddy wait" + flags + "`?"
+			hint = "; did you mean `" + buddyCmd(env) + " wait" + flags + "`?"
 		}
 		return usageRefusal(fmt.Sprintf("wait takes its claims as --on <slug>, got %s — flags after it would be IGNORED%s",
 			strconv.Quote(a), hint), usageWait)
@@ -188,9 +188,9 @@ func cmdWaitDeclare(args []string, env Env) error {
 	}
 	codex := nativeSource == EnvCodexThread || env.getenv(EnvCodexThread) != ""
 	if codex {
-		fmt.Fprintln(env.Stdout, "Codex: run `buddy wait check` in "+where+" to read its wait; automatic scheduling is unsupported and cache timing is unknown")
+		fmt.Fprintln(env.Stdout, "Codex: run `"+buddyCmd(env)+" wait check` in "+where+" to read its wait; automatic scheduling is unsupported and cache timing is unknown")
 	} else {
-		fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where))
+		fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where, buddyCmd(env)))
 	}
 	if len(w.Targets) == 0 {
 		// A timer never lands, so no verdict ever ends it early: the park it
@@ -200,7 +200,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 		// declaring shell reads; measured, nothing said it anywhere, and a
 		// forgotten timer checks on until its deadline and shows the session
 		// as waiting while it works.
-		fmt.Fprintln(env.Stdout, timerEndAdvice(self, si))
+		fmt.Fprintln(env.Stdout, timerEndAdvice(self, si, buddyCmd(env)))
 	}
 	if replaced != nil {
 		fmt.Fprintf(env.Stdout, "replaced your open wait on %s (declared %s ago)\n", targetsPhrase(now, replaced.Targets), span(now.Sub(replaced.Since)))
@@ -280,7 +280,7 @@ func cmdWaitCheck(args []string, env Env) error {
 		}
 		fmt.Fprintf(&b, "NO WAIT: nothing is registered for this session%s — %s\n", last, stop)
 	case r.Verdict == store.WaitLanded:
-		b.WriteString(landedLines(now, w, stop))
+		b.WriteString(landedLines(now, w, stop, buddyCmd(env)))
 	case r.Verdict == store.WaitExpired:
 		b.WriteString(expiredLines(now, w, stop))
 	default:
@@ -315,9 +315,9 @@ func cmdWaitCheck(args []string, env Env) error {
 
 // landedLines and expiredLines are a check's verdict as it prints it, shared
 // with `wait --block` (D-095) so the two cannot say a verdict two ways.
-func landedLines(now time.Time, w store.Wait, stop string) string {
+func landedLines(now time.Time, w store.Wait, stop, bin string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "LANDED: %s%s — the wait is over after %s; %s\n", targetsPhrase(now, w.Targets), handedPhrase(w, 0), span(now.Sub(w.Since)), stop)
+	fmt.Fprintf(&b, "LANDED: %s%s — the wait is over after %s; %s\n", targetsPhrase(now, w.Targets), handedPhrase(w, 0, bin), span(now.Sub(w.Since)), stop)
 	if c := riderCaveat(w); c != "" {
 		b.WriteString(c + "\n")
 	}
@@ -373,8 +373,8 @@ func cmdWaitClear(args []string, env Env) error {
 	if env.getenv(EnvCodexThread) != "" || env.getenv(EnvHarness) == "codex" {
 		stop = "schedule no further check"
 	}
-	fmt.Fprintf(env.Stdout, "cleared the wait of %s on %s (declared %s ago, %d check(s)) — its next `buddy wait check` says NO WAIT; %s\n",
-		fence.Line(si.Label, 64), targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), w.Checks, stop)
+	fmt.Fprintf(env.Stdout, "cleared the wait of %s on %s (declared %s ago, %d check(s)) — its next `%s wait check` says NO WAIT; %s\n",
+		fence.Line(si.Label, 64), targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), w.Checks, buddyCmd(env), stop)
 	return nil
 }
 
@@ -466,7 +466,7 @@ func targetPhrase(now time.Time, t store.WaitTarget) string {
 // `buddy ls | grep <its id>` six times for exactly this sentence.
 // In hook output (room > 0) a list longer than room is counted instead, so
 // the LANDED line stays inside maxHookWaitLine however many claims moved.
-func handedPhrase(w store.Wait, room int) string {
+func handedPhrase(w store.Wait, room int, bin string) string {
 	var handed []string
 	for _, t := range w.Targets {
 		if t.HandedToWaiter {
@@ -480,7 +480,7 @@ func handedPhrase(w store.Wait, room int) string {
 	if room > 0 && len(list) > room {
 		list = fmt.Sprintf("%d of them", len(handed))
 	}
-	return " — " + list + " handed to you: yours now, open, with its scopes (`buddy who <slug>` prints them)"
+	return " — " + list + " handed to you: yours now, open, with its scopes (`" + bin + " who <slug>` prints them)"
 }
 
 // outcomePhrase is a holder's reported outcome as every view renders it (D-049):
@@ -734,10 +734,10 @@ func nextCheck(now, deadline time.Time, c store.ContextSample, observed bool) st
 // names the session: a bare `wait clear` there cleared the DECLARER's wait,
 // measured, and the lane's timer stayed open; the fleet skill says to tell
 // the lane.
-func timerEndAdvice(self bool, si store.SessionInfo) string {
-	clear := "`buddy wait clear`"
+func timerEndAdvice(self bool, si store.SessionInfo, bin string) string {
+	clear := "`" + bin + " wait clear`"
 	if !self {
-		clear = "`buddy wait clear --session " + fence.Line(si.SessionID, 128) + "`"
+		clear = "`" + bin + " wait clear --session " + fence.Line(si.SessionID, 128) + "`"
 	}
 	return "a timer never lands: it ends at its deadline or at " + clear
 }
@@ -749,16 +749,16 @@ func timerEndAdvice(self bool, si store.SessionInfo) string {
 // what a check costs (a turn of about three cache reads, D-054), what it
 // does, and a fixed-interval fallback, all of which the core skill's "Before
 // you park" holds; the check itself says when the next is due.
-func keepAliveAdvice(now time.Time, c store.ContextSample, observed bool, where string) string {
+func keepAliveAdvice(now time.Time, c store.ContextSample, observed bool, where, bin string) string {
 	label, pays, known := cacheTier(c, observed)
 	switch {
 	case !pays:
 		return fmt.Sprintf("keep-alive: none: the last observed cache write (%s ago) was on the %s tier", age(now, c.TierAt), label)
 	case !known:
-		return "keep-alive: no cache tier observed for this session yet: /loop buddy wait check in " + where
+		return "keep-alive: no cache tier observed for this session yet: /loop " + bin + " wait check in " + where
 	default:
-		return fmt.Sprintf("keep-alive: cache %s tier (last written %s ago): /loop buddy wait check in %s, every %s",
-			label, age(now, c.TierAt), where, span(keepAlivePeriod))
+		return fmt.Sprintf("keep-alive: cache %s tier (last written %s ago): /loop %s wait check in %s, every %s",
+			label, age(now, c.TierAt), bin, where, span(keepAlivePeriod))
 	}
 }
 
@@ -883,9 +883,9 @@ func askHolderLine(st *store.Store, env Env, now time.Time, w store.Wait, caller
 		if w.ReadySHA != "" {
 			continue
 		}
-		cmd := "buddy msg <the holder of " + slug + "> (its name cannot be pasted back as printed)"
+		cmd := buddyCmd(env) + " msg <the holder of " + slug + "> (its name cannot be pasted back as printed)"
 		if to := msgTargetFor(st, t.Slug, t.Holder.SessionID); fence.Line(to, 128) == to && reachesOnly(st, to, t.Holder.SessionID) {
-			cmd = "buddy msg " + shellQuote(to) + ` "<ask>"`
+			cmd = buddyCmd(env) + " msg " + shellQuote(to) + ` "<ask>"`
 		}
 		ask = append(ask, cmd)
 	}
@@ -943,7 +943,7 @@ func openWaitOf(st *store.Store, si store.SessionInfo) (store.Wait, bool, error)
 // the arm unreachable. A Codex session reads LANDED from `buddy wait check`,
 // whose advice already speaks Codex. TestCodexBeatNeverReachesWaitNotice pins
 // the refusal; a beat that one day accepts Codex must word this again.
-func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, func() error) {
+func waitNotice(st *store.Store, me store.SessionInfo, now time.Time, bin string) (string, func() error) {
 	nothing := func() error { return nil }
 	w, ok, err := openWaitOf(st, me)
 	if err != nil || !ok || w.Told || w.Verdict(now) != store.WaitLanded {
@@ -953,8 +953,8 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, f
 	if caveat != "" {
 		caveat = " " + caveat
 	}
-	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s%s. `buddy wait check` clears it; then stop the /loop that runs it.%s\n",
-		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), handedPhrase(w, hookHandedRoom), notePhrase(w), caveat)
+	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s%s. `%s wait check` clears it; then stop the /loop that runs it.%s\n",
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`"+bin+" status` lists every one"), handedPhrase(w, hookHandedRoom, bin), notePhrase(w), bin, caveat)
 	return line, func() error { return st.MarkWaitTold(me.SessionID, w.Decl) }
 }
 
@@ -973,14 +973,14 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time) (string, f
 // named as the earlier run's, never as this session's, with the line that
 // would declare it again — only the claims still open, because the others
 // have landed.
-func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex bool) string {
+func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex bool, bin string) string {
 	w, ok, err := st.WaitOf(si.SessionID)
 	if err != nil || !ok {
 		return ""
 	}
 	if w.IsOpen() && w.Incarnation == si.Incarnation {
 		head := fmt.Sprintf("BUDDY: you are WAITING on %s — declared %s ago, %s%s.",
-			targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy status` lists every one"), span(now.Sub(w.Since)), deadlinePhrase(now, w), notePhrase(w))
+			targetsWithin(now, w.Targets, hookTargetsRoom, "`"+bin+" status` lists every one"), span(now.Sub(w.Since)), deadlinePhrase(now, w), notePhrase(w))
 		// The advice follows the verdict and the tier, as the declaration's
 		// does (Codex code pass): a wait that is over needs one check to take
 		// its verdict, not a loop, and on a tier where a keep-alive does not
@@ -988,13 +988,13 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex 
 		label, pays, _ := cacheTier(sampleOf(st, si))
 		switch {
 		case codex:
-			return head + " Run `buddy wait check` in this Codex thread to read the verdict; automatic scheduling is unsupported and cache timing is unknown.\n"
+			return head + " Run `" + bin + " wait check` in this Codex thread to read the verdict; automatic scheduling is unsupported and cache timing is unknown.\n"
 		case w.Verdict(now) != store.WaitPending:
-			return head + " Run `buddy wait check` once to take the verdict; no loop needs arming.\n"
+			return head + " Run `" + bin + " wait check` once to take the verdict; no loop needs arming.\n"
 		case !pays:
 			return head + " No keep-alive on the " + label + " cache tier.\n"
 		default:
-			return head + " The harness keeps scheduled checks for the session only, not on disk: if no /loop running `buddy wait check` is scheduled here, re-arm it: /loop buddy wait check\n"
+			return head + " The harness keeps scheduled checks for the session only, not on disk: if no /loop running `" + bin + " wait check` is scheduled here, re-arm it: /loop " + bin + " wait check\n"
 		}
 	}
 	if w.Incarnation == si.Incarnation || w.Reason != "ended" || !now.Before(w.Deadline) {
@@ -1007,7 +1007,7 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex 
 	// The earlier run's wait is closed, so `status` no longer shows it; the
 	// claims it named that are still open are in `buddy ls`.
 	head := fmt.Sprintf("BUDDY: an earlier run of this session id was WAITING on %s (declared %s ago, deadline in %s); that wait ended with it.",
-		targetsWithin(now, w.Targets, hookTargetsRoom, "`buddy ls` lists the open ones"), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)))
+		targetsWithin(now, w.Targets, hookTargetsRoom, "`"+bin+" ls` lists the open ones"), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)))
 	open := openTargets(w.Targets)
 	if len(w.Targets) > 0 && len(open) == 0 {
 		return head + " Its claims have all closed since: nothing is left to wait for.\n"
@@ -1018,18 +1018,18 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex 
 	}
 	flags, unpastable := onFlags(slugs)
 	if len(open) > 0 && unpastable == len(open) {
-		return head + " Its open claims' slugs cannot be pasted back as printed; `buddy ls` lists them.\n"
+		return head + " Its open claims' slugs cannot be pasted back as printed; `" + bin + " ls` lists them.\n"
 	}
 	// Never a command cut short: pasted, it would wait on fewer claims than
 	// the earlier wait named, and nothing on the line would say which.
 	if len(flags) > hookFlagsRoom {
-		return head + fmt.Sprintf(" Its %d open claims are too many to write here as one command; `buddy ls` lists them.\n", len(open))
+		return head + fmt.Sprintf(" Its %d open claims are too many to write here as one command; `%s ls` lists them.\n", len(open), bin)
 	}
 	arm := ""
 	if _, pays, _ := cacheTier(sampleOf(st, si)); pays && !codex {
-		arm = ", then /loop buddy wait check"
+		arm = ", then /loop " + bin + " wait check"
 	}
-	return head + " To wait again: buddy wait" + flags + " --until " + span(left) + arm + unpastableNote(unpastable) + "\n"
+	return head + " To wait again: " + bin + " wait" + flags + " --until " + span(left) + arm + unpastableNote(unpastable) + "\n"
 }
 
 // waiterNote is msg's arm for a recipient with a declared wait: the
@@ -1212,7 +1212,7 @@ func slotNote(conflicts []store.Conflict) string {
 // SUGGESTS and never registers — a refusal is a fact about a claim, not
 // about what the refused session means to do next (D-016: declared or
 // nothing).
-func waitSuggestion(conflicts []store.Conflict) string {
+func waitSuggestion(conflicts []store.Conflict, bin string) string {
 	seen := map[string]bool{}
 	var slugs []string
 	for _, c := range conflicts {
@@ -1227,8 +1227,8 @@ func waitSuggestion(conflicts []store.Conflict) string {
 	case len(slugs) == 0:
 		return ""
 	case flags == "":
-		return "to be told when it frees: buddy wait --on <slug> — the slug(s) above cannot be pasted back as printed, so none is written as a command\n"
+		return "to be told when it frees: " + bin + " wait --on <slug> — the slug(s) above cannot be pasted back as printed, so none is written as a command\n"
 	default:
-		return "to be told when it frees: buddy wait" + flags + unpastableNote(unpastable) + "\n"
+		return "to be told when it frees: " + bin + " wait" + flags + unpastableNote(unpastable) + "\n"
 	}
 }

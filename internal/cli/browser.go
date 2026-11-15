@@ -75,13 +75,21 @@ func beatOffSuccess(h hookInput, env Env) bool {
 	}
 	// beat's own ledger, a fleet's included (D-191), and still silent in
 	// every arm: this runs on PreToolUse, where output could refuse a call.
-	st, _, err := openSessionLedger(h.Cwd, env)
+	st, rc, err := openSessionLedger(h.Cwd, env)
 	if err != nil {
 		return true
 	}
 	defer st.Close()
 	if me, known, err := st.SessionByID(h.SessionID); err == nil && known && me.Live() {
 		_ = st.RecordBrowserUse(h.SessionID, me.Incarnation)
+	}
+	// And in the fleet beside a home ledger (D-193), whose coordinator reads
+	// the lane's EXIT line there before closing its pane. Silent too.
+	if fb := besideOf(st, rc, env); fb.ok() {
+		defer fb.close()
+		if me, known, err := fb.st.SessionByID(h.SessionID); err == nil && known && me.Live() {
+			_ = fb.st.RecordBrowserUse(h.SessionID, me.Incarnation)
+		}
 	}
 	return true
 }

@@ -424,8 +424,8 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 		for _, c := range held {
 			slugs = append(slugs, c.Slug)
 		}
-		tail = fmt.Sprintf(" — ending now would leave the claim(s) held; `buddy release <slug>` first: %s",
-			joinCapped(slugs, 512))
+		tail = fmt.Sprintf(" — ending now would leave the claim(s) held; `%s release <slug>` first: %s",
+			buddyCmd(env), joinCapped(slugs, 512))
 	}
 	fmt.Fprintln(env.Stdout, "EXIT         "+strings.Join(clauses, "; ")+tail)
 	return nil
@@ -514,7 +514,18 @@ func ledgerLine(env Env, rc repoContext) {
 		fmt.Fprintf(env.Stdout, "LEDGER       fleet %s: %s (coordination only: no file claim, gate or brake)\n",
 			fence.Field(rc.fleet, 64), fence.Line(rc.ledger, 512))
 	default:
-		fmt.Fprintf(env.Stdout, "LEDGER       %s, this directory's own; %s=%s is not used here\n",
-			fence.Line(rc.ledger, 512), EnvFleet, fence.Field(f, 64))
+		// Stage 2 (D-193): the hooks keep the session on the fleet too, and
+		// a typed verb still acts here; `buddy fleet <verb>` acts there. Only
+		// a fleet that is there: the tail is what a lane's brief checks for
+		// (outside-git.md), and it was printed for a malformed or absent
+		// name too (the cross-check). The ledger is found, not opened: a fleet
+		// that exists but will not open is the hooks' to report.
+		if err := fleetFindable(env, f); err != nil {
+			fmt.Fprintf(env.Stdout, "LEDGER       %s, this directory's own (a bare verb acts here); the hooks report to no fleet: %s\n",
+				fence.Line(rc.ledger, 512), fence.Line(err.Error(), 512))
+			return
+		}
+		fmt.Fprintf(env.Stdout, "LEDGER       %s, this directory's own (a bare verb acts here); the hooks also report to fleet %s: act there with `buddy fleet <verb>`\n",
+			fence.Line(rc.ledger, 512), fence.Field(f, 64))
 	}
 }

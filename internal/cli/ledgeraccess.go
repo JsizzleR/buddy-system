@@ -106,7 +106,9 @@ func explainLedgerAccessIn(verb string, err error, env Env) error {
 	// resolved whose ledger file is not there (never `buddy init`ed): openRepo
 	// says errNoLedger for both and the verb fell back to the fleet, so this
 	// must too (Codex code pass, finding 5).
-	noHome := errors.Is(rerr, errNoLedger)
+	// Under `buddy fleet` (D-193) the verb never looked at a home ledger: the
+	// directory's is not the one that failed, whatever discovery finds.
+	noHome := errors.Is(rerr, errNoLedger) || env.fleetOnly
 	if rerr == nil && rc.ledger != "" {
 		if _, serr := os.Lstat(rc.ledger); errors.Is(serr, syscall.ENOENT) {
 			noHome = true

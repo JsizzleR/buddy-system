@@ -727,6 +727,35 @@ func addColumnIfMissing(tx *sql.Tx, table, column, decl string) error {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+// MainFile is the file SQLite actually opened for this store, as it reports
+// it (`PRAGMA database_list`), not the path the caller asked for. A session
+// on two ledgers (NON-GIT-PLAN stage 2) compares the two by this: the path
+// asked for can differ from the file opened (Open's raw `file:` spelling
+// decodes %XX, D-191's Open paragraph), and two connections to ONE file
+// nested in two write transactions wait on themselves until busy_timeout
+// (the Codex design pass, Q2).
+func (s *Store) MainFile() (string, error) {
+	rows, err := s.db.Query(`PRAGMA database_list`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int
+		var name, file string
+		if err := rows.Scan(&seq, &name, &file); err != nil {
+			return "", err
+		}
+		if name == "main" {
+			return file, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return "", errors.New("no main database")
+}
+
 func newToken() string {
 	b := make([]byte, 8)
 	rand.Read(b)

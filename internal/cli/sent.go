@@ -144,7 +144,7 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 		case si.Target != store.AllTarget:
 			head += "; " + wakes[0]
 		default:
-			head += fmt.Sprintf("; %d addressed session(s) still have it queued and can be woken: buddy sent %d names each wake address", len(wakes), si.ID)
+			head += fmt.Sprintf("; %d addressed session(s) still have it queued and can be woken: %s sent %d names each wake address", len(wakes), buddyCmd(env), si.ID)
 		}
 		fmt.Fprintln(env.Stdout, head)
 		return

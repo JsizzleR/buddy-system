@@ -1,7 +1,9 @@
 # Buddy outside git: one pane over independent investigations
 
 Status: stage 1b BUILT (2026-11-15, D-191: the fleet ledger, `buddy init --fleet`; its
-record says where the code met this plan); stages 0, 1a, 2 and 3 not built. The rest
+record says where the code met this plan); stage 2 BUILT (2026-11-15, D-193: a session on
+both ledgers and `buddy fleet <verb>`; `join` dropped, and the hand path in 5.1 withdrawn);
+stages 0, 1a and 3 not built. The rest
 of this paragraph is the plan as written, 2026-11-14. **This supersedes the version at
 1d36f8b**, which answered another question (file claims in one untracked
 directory, through a `.git` pointer file): the operator rejected the pointer
@@ -236,7 +238,9 @@ ledger. A session that lives in a governed repository can still read a fleet's
 roster and send into it by hand, each verb run from a plain directory with the
 variable set (`(cd <fleet home>/<name> && BUDDY_FLEET=<name> buddy sessions)`);
 that is section 3's hand path without the git, with the same limits (its own
-hooks never drain the fleet's mail). Stage 2 is what removes them.
+hooks never drain the fleet's mail). Stage 2 is what removes them. (WITHDRAWN by
+D-193: with `$HOME` a governed worktree, discovery finds that repository's
+ledger from the fleet's directory; `buddy fleet <verb>` forces the fleet.)
 
 ### 5.2 Resolution, the same for every hook verb and every typed verb
 
@@ -252,7 +256,7 @@ hooks never drain the fleet's mail). Stage 2 is what removes them.
 | State | `hello` | `beat`, `busy`, `idle`, `bye` | typed verbs | `gate` |
 | --- | --- | --- | --- | --- |
 | variable unset | silent (N0) | silent | exit 1, as today | as today |
-| a home ledger exists here | registers there; one line: "`BUDDY_FLEET=<name>` is not used here: this directory has its own ledger" | as today | the home ledger | as today |
+| a home ledger exists here | registers there; one line: "`BUDDY_FLEET=<name>` is not used here: this directory has its own ledger" (stage 2, D-193: registers in both) | as today (stage 2: both ledgers) | the home ledger (stage 2: `buddy fleet <verb>` acts in the fleet) | as today |
 | set, the fleet's ledger opens | registers, drains, prints the digest | heartbeat, drain, idle report, context sample, handoff line | work (section 6) | as today |
 | set, the name is malformed | one line on stdout saying so | `busy` prints the same line at each prompt; the rest are silent; all exit 0 | exit 1, `refused: ...` | as today |
 | set, no such fleet (no directory, or no `buddy.db` in it) | one line: "names no fleet ledger on this machine (looked in <path>): this session is on no roster and gets no mail; its coordinator creates it with `buddy init --fleet <name>`" | `busy` prints the same line at each prompt; the rest are silent; all exit 0 | exit 1 with the same words | as today |

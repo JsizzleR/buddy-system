@@ -137,6 +137,73 @@ func (s *Store) StopTurn(sessionID, label string, since, fenceAt time.Time, drai
 	return out, nil
 }
 
+// StopHold is StopTurn for a session on TWO ledgers (a home ledger and a
+// fleet's, NON-GIT-PLAN stage 2): this ledger's fence, its mail read and its
+// idle mark stay ONE transaction, as StopTurn's are, so D-099's race stays
+// closed on each ledger (a msg that commits first is read here; one that
+// commits after finds the idle mark). What changes is who decides that the
+// turn is held: body, which writes the one Stop document and may carry the
+// OTHER ledger's mail in it (the caller nests that ledger's StopHold inside
+// this body).
+//
+// body gets this ledger's queued mail (none when drain is false or the fence
+// refused this Stop) and whether the fence ADMITTED it, and returns the ids of
+// this ledger's messages it wrote and whether the turn is held (a document
+// went out). Held: those ids are marked delivered and no idle mark is made, an
+// earlier one retracted, as StopDrained does. Not held: the idle mark, as
+// StopTurn writes it. Refused by the fence: nothing of this ledger's is
+// written whatever body returns, and body is still called, because the other
+// ledger's Stop may be this incarnation's even when this one is a late
+// predecessor's or does not know the session (a fleet lane in a repository
+// it never registered in; the Codex design pass, Q7). WHY A SECOND FUNCTION
+// and not a parameter on StopTurn: the fence must be applied per ledger (the
+// design pass, finding 2: a fleet drain nested inside the home's admitted Stop
+// delivered fleet mail to a fleet incarnation that started after the turn),
+// and StopTurn's single-ledger shape is D-099's, left byte for byte.
+func (s *Store) StopHold(sessionID, label string, since, fenceAt time.Time, drain bool, body func(msgs []InboxMsg, admitted bool) ([]int64, bool, error)) (StopOutcome, error) {
+	out := StopNone
+	err := s.tx(func(tx *sql.Tx) error {
+		inc, ok, err := idleFence(tx, sessionID, since, fenceAt)
+		if err != nil {
+			return err
+		}
+		var msgs []InboxMsg
+		if ok && drain {
+			if msgs, err = s.Undelivered(sessionID, label); err != nil {
+				return err
+			}
+		}
+		ids, held, err := body(msgs, ok)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		if len(ids) > 0 {
+			if err := s.markDelivered(tx, sessionID, ids); err != nil {
+				return err
+			}
+		}
+		if held {
+			if _, err := tx.Exec(`DELETE FROM session_idle WHERE session_id=?`, sessionID); err != nil {
+				return err
+			}
+			out = StopDrained
+			return nil
+		}
+		if err := s.writeIdle(tx, sessionID, inc, since); err != nil {
+			return err
+		}
+		out = StopIdle
+		return nil
+	})
+	if err != nil {
+		return StopNone, err
+	}
+	return out, nil
+}
+
 // InboxRead is one message re-read by a session it is addressed to, with
 // that session's delivery of it.
 type InboxRead struct {

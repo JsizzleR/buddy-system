@@ -124,6 +124,21 @@ type fleetErr struct {
 	// busy_timeout is no symlink and no missing directory, and the lookup's
 	// "fix the fleet home" sentence sent the session to repair what was sound.
 	opened bool
+	// beside: the fleet was looked for BESIDE a home ledger the session still
+	// uses (stage 2, D-193). "On no roster and gets no mail" would then be
+	// false: the session is on its directory's roster and gets that mail, so
+	// the sentence says what is lost is the fleet's (the Codex design pass,
+	// Q4: qualify the failure as the fleet's roster and mail only).
+	beside bool
+}
+
+// rosterLoss is what a fleet that did not open costs the session, in the
+// sentence's words.
+func (e fleetErr) rosterLoss() string {
+	if e.beside {
+		return "this session is on no fleet roster and gets no fleet mail (this directory's own ledger works as before)"
+	}
+	return "this session is on no roster and gets no mail"
 }
 
 func (e fleetErr) Unwrap() error { return e.cause }
@@ -132,11 +147,11 @@ func (e fleetErr) Error() string {
 	name := fence.Line(e.name, 64)
 	switch e.kind {
 	case fleetMalformed:
-		return fmt.Sprintf("%s=%s is not a fleet name (1 to 64 of a-z, 0-9 and '-', starting with a letter or digit): this session is on no roster and gets no mail; relaunch it with a well-formed name",
-			EnvFleet, strconv.Quote(name))
+		return fmt.Sprintf("%s=%s is not a fleet name (1 to 64 of a-z, 0-9 and '-', starting with a letter or digit): %s; relaunch it with a well-formed name",
+			EnvFleet, strconv.Quote(name), e.rosterLoss())
 	case fleetAbsent:
-		return fmt.Sprintf("%s=%s names no fleet ledger on this machine (looked in %s): this session is on no roster and gets no mail; its coordinator creates it with `buddy init --fleet %s`",
-			EnvFleet, name, fence.Line(e.path, 512), name)
+		return fmt.Sprintf("%s=%s names no fleet ledger on this machine (looked in %s): %s; its coordinator creates it with `buddy init --fleet %s`",
+			EnvFleet, name, fence.Line(e.path, 512), e.rosterLoss(), name)
 	}
 	where := ""
 	if e.path != "" {
@@ -146,8 +161,8 @@ func (e fleetErr) Error() string {
 		return fmt.Sprintf("fleet ledger error (%s): the fleet %s%s opened and then a read or write failed, so this session's last change to it may not have been recorded. It is usually transient (another session holding the write lock): the next hook or verb retries. If it repeats, ask the operator; never delete it, it holds every lane's messages, waits and outcomes. No tool call is refused for this: a fleet ledger guards nothing",
 			fence.Line(causeText(e.cause), 1024), name, where)
 	}
-	return fmt.Sprintf("fleet ledger unavailable (%s): the fleet %s%s cannot be opened or read, so this session is on no roster and gets no mail. Fix what the cause names (the fleet home, the fleet's directory and its buddy.db must be the user's own real directories and file, not symlinks), or ask the operator; never delete it, it holds every lane's messages, waits and outcomes. No tool call is refused for this: a fleet ledger guards nothing",
-		fence.Line(causeText(e.cause), 1024), name, where)
+	return fmt.Sprintf("fleet ledger unavailable (%s): the fleet %s%s cannot be opened or read, so %s. Fix what the cause names (the fleet home, the fleet's directory and its buddy.db must be the user's own real directories and file, not symlinks), or ask the operator; never delete it, it holds every lane's messages, waits and outcomes. No tool call is refused for this: a fleet ledger guards nothing",
+		fence.Line(causeText(e.cause), 1024), name, where, e.rosterLoss())
 }
 
 func causeText(err error) string {
@@ -373,6 +388,26 @@ func gitMarks(dir string) error {
 // KEPT SEPARATE from openSessionLedger for stage 2 (a session with both a home
 // and a fleet ledger, the next item): that stage opens both, and calls this
 // half on its own.
+// fleetFindable is openFleetLedger's name check and path walk without the
+// open: whether name is a fleet ledger on this machine, for who's LEDGER line
+// beside a home (D-193). It reaches fleetLedgerPath, so the gate's call-graph
+// scan forbids it with no entry of its own.
+//
+// Its error is beside's: who's line is printed only where a home ledger is in
+// use, and "this session is on no roster and gets no mail" denied the home's
+// roster and mail, which stand (the Codex re-verify, round 1, finding 2).
+func fleetFindable(env Env, name string) error {
+	if !fleetNameRE.MatchString(name) {
+		return fleetErr{kind: fleetMalformed, name: name, beside: true}
+	}
+	_, err := fleetLedgerPath(env, name)
+	if fe := (fleetErr{}); errors.As(err, &fe) {
+		fe.beside = true
+		err = fe
+	}
+	return err
+}
+
 func openFleetLedger(env Env) (*store.Store, repoContext, error) {
 	name := env.getenv(EnvFleet)
 	if name == "" {
@@ -405,6 +440,12 @@ func openFleetLedger(env Env) (*store.Store, repoContext, error) {
 // `commit-gate` may name this function or openFleetLedger
 // (TestGateNeverReachesTheFleetLedger).
 func openSessionLedger(dir string, env Env) (*store.Store, repoContext, error) {
+	if env.fleetOnly {
+		// `buddy fleet <verb>` (D-193): the fleet and nothing else, whatever
+		// the directory or git's variables would find. Unset, it is refused
+		// before the verb runs (cmdFleetVerb); errNoLedger here is that row.
+		return openFleetLedger(env)
+	}
 	st, rc, err := openRepo(dir, env)
 	if !errors.Is(err, errNoLedger) {
 		return st, rc, err
@@ -692,21 +733,36 @@ func quietFleet(err error) bool {
 //   - A repository's own ledger governs here and this session is not on it
 //     (the lifecycle lens, finding 1): a lane registered in its fleet and then
 //     cd'd into a repository, or the repository was `buddy init`ed after.
-//     Its fleet row stops moving: no beat or bye reaches it, so the row goes
-//     GONE with its slot claim open, and the coordinator's wait on it does not
-//     land. Joining both ledgers is stage 2; this item says so, at every
-//     prompt, where the session reads.
+//     Before stage 2 its fleet row stopped moving and went GONE with its slot
+//     claim open. Stage 2 (D-193) keeps the fleet row moving (the hooks beat
+//     both ledgers), so what is left to say is the home's half: this
+//     directory's peers do not see the session and its mail here goes nowhere
+//     until it registers.
 //
 // A known session gets nothing: hello's own not-used line covered it once.
-func busyRosterNote(rc repoContext, session string, known bool, env Env) string {
+// other says the session's OTHER ledger serves it this prompt (D-193): for the
+// first row, a home ledger beside the fleet, whose mail and peers still work
+// (the panel's gate lens: "it gets no mail" was false there); for the second,
+// a fleet that opened and has not failed, the only case in which its row
+// still moves (the docs lens: a fleet that did not open got that sentence
+// beside its own "on no fleet roster" one, in one document).
+func busyRosterNote(rc repoContext, session string, known bool, env Env, other bool) string {
 	f := env.getenv(EnvFleet)
 	if known || f == "" {
 		return ""
+	}
+	if rc.fleet != "" && other {
+		return fmt.Sprintf("BUDDY: this session is not on fleet %s's roster (its SessionStart ran before the fleet ledger was there, or could not open it): it gets no fleet mail and no fleet peer sees it (this directory's own ledger works as before). `buddy hello --session %s </dev/null` registers it in both\n",
+			fence.Line(rc.fleet, 64), fence.Line(session, 128))
 	}
 	if rc.fleet != "" {
 		return fmt.Sprintf("BUDDY: this session is not on fleet %s's roster (its SessionStart ran before the fleet ledger was there, or could not open it): it gets no mail and no peer sees it. `buddy hello --session %s </dev/null` registers it\n",
 			fence.Line(rc.fleet, 64), fence.Line(session, 128))
 	}
-	return fmt.Sprintf("BUDDY: %s=%s is not used here: this directory has its own ledger (%s), where this session is not registered, so its fleet row stops moving and goes GONE with any slot claim open. Work from the directory it was launched in, or report this to its coordinator\n",
-		EnvFleet, fence.Line(f, 64), fence.Line(rc.ledger, 512))
+	if !other {
+		return fmt.Sprintf("BUDDY: this session is not on the roster of this directory's own ledger (%s): it started outside it, or before `buddy init` here. Peers here do not see it and its mail here goes nowhere. `buddy hello --session %s </dev/null` registers it here\n",
+			fence.Line(rc.ledger, 512), fence.Line(session, 128))
+	}
+	return fmt.Sprintf("BUDDY: this session is not on the roster of this directory's own ledger (%s): it started outside it, or before `buddy init` here. Its fleet %s row still moves, but peers here do not see it and its mail here goes nowhere. `buddy hello --session %s </dev/null` registers it in both\n",
+		fence.Line(rc.ledger, 512), fence.Line(f, 64), fence.Line(session, 128))
 }

@@ -153,10 +153,11 @@ func TestFleetUnsetIsTodayByteForByte(t *testing.T) {
 	}
 }
 
-// 5.2, row "a home ledger exists here": the home ledger wins, hello says so in
-// one line, and the typed verbs use the home ledger. The control is the same
-// hello with the variable unset: no such line.
-func TestFleetHomeLedgerWins(t *testing.T) {
+// 5.2, row "a home ledger exists here", as stage 2 reads it (D-193): the home
+// ledger is still the session's own and the typed verbs' (a file claim is
+// granted there), and hello joins the fleet beside it, saying so. The control
+// is the same hello with the variable unset: no fleet line, no LEDGER line.
+func TestFleetHomeStaysTheVerbsLedger(t *testing.T) {
 	boundedParallel(t)
 	fe := newFleet(t)
 	fe.initFleet(t, "inv")
@@ -176,24 +177,26 @@ func TestFleetHomeLedgerWins(t *testing.T) {
 	}
 	fe.env[EnvFleet] = "inv"
 	out, _, code = fe.hook(t, "hello", "sess-b", fe.repo)
-	if code != 0 || !strings.Contains(out, "BUDDY: BUDDY_FLEET=inv is not used here: this directory has its own ledger") {
+	// Stage 2 (D-193): the home ledger is still the session's own, its first
+	// line the home's, and the fleet is joined beside it, not instead.
+	if code != 0 || !strings.HasPrefix(out, "BUDDY: you are session ") || !strings.Contains(out, "BUDDY: also session ") {
 		t.Fatalf("hello in a governed repository with BUDDY_FLEET set: code %d %q", code, out)
 	}
-	if strings.Contains(out, "in fleet inv") {
-		t.Fatalf("a home ledger's digest must not call itself the fleet's: %q", out)
+	if strings.Contains(out, "is not used here") || strings.Contains(out, ") in fleet inv: a coordination-only") {
+		t.Fatalf("a home ledger's digest must not call itself the fleet's, nor say the fleet is unused: %q", out)
 	}
-	// Registered in the home ledger, not the fleet's.
+	// Registered in the home ledger, and in the fleet's beside it.
 	if out, _, _ := fe.as(t, "sess-b", fe.repo, "sessions"); !strings.Contains(out, "sess-b") {
 		t.Fatalf("sess-b missing from the home roster: %q", out)
 	}
 	fleetRoster, _, _ := fe.as(t, "sess-b", fe.plain, "sessions")
-	if strings.Contains(fleetRoster, "sess-b") {
-		t.Fatalf("sess-b registered in the fleet too: %q", fleetRoster)
+	if !strings.Contains(fleetRoster, "sess-b") {
+		t.Fatalf("sess-b missing from the fleet's roster: %q", fleetRoster)
 	}
 	// The typed verbs: the LEDGER line names the home ledger first, and a
 	// file claim (refused in a fleet) is granted, because this is the home.
 	out, _, code = fe.as(t, "sess-b", fe.repo, "status")
-	if code != 0 || !strings.HasPrefix(out, "LEDGER       ") || !strings.Contains(out, "this directory's own; BUDDY_FLEET=inv is not used here") {
+	if code != 0 || !strings.HasPrefix(out, "LEDGER       ") || !strings.Contains(out, "this directory's own (a bare verb acts here); the hooks also report to fleet inv") {
 		t.Fatalf("status's first line must name the home ledger: %q", out)
 	}
 	if _, errw, code := fe.as(t, "sess-b", fe.repo, "claim", "notes", "--desc", "d", "--scope", "notes.md"); code != 0 {
@@ -578,10 +581,11 @@ func TestFleetBusyRepeatsTheLineWhileItLasts(t *testing.T) {
 	}
 }
 
-// 9.1, "the lane's cwd becomes a directory with its own ledger": its hooks
-// follow the home ledger, its fleet mail is not drained there, and is drained
-// again from its plain directory (the control).
-func TestFleetLaneInsideAGovernedRepoFollowsTheHome(t *testing.T) {
+// 9.1, "the lane's cwd becomes a directory with its own ledger", closed by
+// stage 2 (D-193): its hooks beat the fleet beside the home, so its fleet mail
+// is drained from inside the repository. The control is the same beat with
+// the variable unset, which does not reach the fleet.
+func TestFleetLaneInsideAGovernedRepoKeepsItsFleet(t *testing.T) {
 	boundedParallel(t)
 	fe := newFleet(t)
 	fe.initFleet(t, "inv")
@@ -595,16 +599,22 @@ func TestFleetLaneInsideAGovernedRepoFollowsTheHome(t *testing.T) {
 	if _, errw, code := fe.as(t, "orc-1", orc, "msg", "lane-1", "fleet mail"); code != 0 {
 		t.Fatal(errw)
 	}
+	// The control: with the variable unset (as 1b did beside a home), the
+	// beat from the repository does not reach the fleet.
+	delete(fe.env, EnvFleet)
 	out, _, code := fe.hook(t, "beat", "lane-1", fe.repo)
 	if code != 0 || strings.Contains(out, "fleet mail") {
-		t.Fatalf("inside a governed repository the fleet's mail is not drained: code %d %q", code, out)
+		t.Fatalf("control: unset, the fleet's mail is not drained: code %d %q", code, out)
 	}
-	if out, _, _ := fe.as(t, "orc-1", orc, "sent"); !strings.Contains(out, "0 of 1 with a recorded delivery") {
-		t.Fatalf("the fleet message must still be queued: %q", out)
+	fe.env[EnvFleet] = "inv"
+	// Stage 2 closes the plan's 9.1 row (D-193): the lane that cd'd into a
+	// governed repository still beats its fleet and drains its mail there.
+	out, _, code = fe.hook(t, "beat", "lane-1", fe.repo)
+	if code != 0 || !strings.Contains(promptContext(t, out), "fleet mail") {
+		t.Fatalf("inside a governed repository the fleet's mail is drained: code %d %q", code, out)
 	}
-	out, _, _ = fe.hook(t, "beat", "lane-1", fe.plain)
-	if !strings.Contains(promptContext(t, out), "fleet mail") {
-		t.Fatalf("control: from its plain directory the lane drains it: %q", out)
+	if out, _, _ := fe.as(t, "orc-1", orc, "sent"); !strings.Contains(out, "1 of 1 with a recorded delivery") {
+		t.Fatalf("the fleet message must be marked delivered: %q", out)
 	}
 }
 
@@ -1519,11 +1529,12 @@ func TestFleetBusySaysASessionIsNotOnTheRoster(t *testing.T) {
 	}
 }
 
-// The panel's lifecycle lens, finding 1: a fleet lane that moves into a
-// governed repository is not registered there, and busy says its fleet row
-// stops moving. Controls: BUDDY_FLEET unset says nothing, and a session the
-// repository knows says nothing.
-func TestFleetBusyInAGovernedRepoSaysTheRowStops(t *testing.T) {
+// The panel's lifecycle lens, finding 1 (D-191), as stage 2 reads it (D-193):
+// a fleet lane that moves into a governed repository is not registered there;
+// its fleet row keeps moving now, and busy says the home's half. Controls:
+// BUDDY_FLEET unset says nothing, and a session the repository knows says
+// nothing.
+func TestFleetBusyInAGovernedRepoSaysTheHomeLacksIt(t *testing.T) {
 	boundedParallel(t)
 	fe := newFleet(t)
 	fe.initAndHello(t)
@@ -1532,10 +1543,12 @@ func TestFleetBusyInAGovernedRepoSaysTheRowStops(t *testing.T) {
 	fe.hook(t, "hello", "lane-1", fe.plain)
 	out, _, _ := fe.hook(t, "busy", "lane-1", fe.repo)
 	ctx := promptContext(t, out)
-	if !strings.Contains(ctx, "BUDDY_FLEET=inv is not used here") || !strings.Contains(ctx, "goes GONE") {
+	// Stage 2 (D-193): the fleet row keeps moving, so the line is the home's
+	// half: this directory's roster does not have the session.
+	if !strings.Contains(ctx, "is not on the roster of this directory's own ledger") || !strings.Contains(ctx, "Its fleet inv row still moves") || strings.Contains(ctx, "goes GONE") {
 		t.Fatalf("busy in a governed repo for a fleet lane: %q", ctx)
 	}
-	if out, _, _ := fe.hook(t, "busy", "sess-a", fe.repo); strings.Contains(promptContext(t, out), "not used here") {
+	if out, _, _ := fe.hook(t, "busy", "sess-a", fe.repo); strings.Contains(promptContext(t, out), "not on the roster") {
 		t.Fatalf("control: a session the repository knows: %q", out)
 	}
 	delete(fe.env, EnvFleet)

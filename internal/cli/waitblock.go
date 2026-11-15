@@ -158,7 +158,7 @@ func blockOn(st *store.Store, env Env, si store.SessionInfo, w store.Wait) error
 		case store.WaitPending:
 			continue
 		case store.WaitLanded:
-			line = landedLines(now, row, stop)
+			line = landedLines(now, row, stop, buddyCmd(env))
 		default:
 			line, exit = expiredLines(now, row, stop), waitExit{blockExpired}
 		}

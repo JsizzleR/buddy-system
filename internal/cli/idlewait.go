@@ -86,7 +86,16 @@ func recordTurnEnd(st *store.Store, h hookInput, env Env, withBase bool) error {
 		// "idle" for a session that is working.
 		return nil
 	}
-	var since, fence time.Time
+	since, fence := sampleTurn(st, h, env, r, withBase)
+	return stopTurn(st, h, env, since, fence)
+}
+
+// sampleTurn is the Stop's footprint and base for the turn r read, each
+// fenced by the incarnation st holds, and the since and fence its idle mark
+// takes. Split from recordTurnEnd for a session on both ledgers (D-193): one
+// transcript read, a sample in each ledger against that ledger's own
+// incarnation, then one Stop for both (stopBoth).
+func sampleTurn(st *store.Store, h hookInput, env Env, r turnRead, withBase bool) (since, fence time.Time) {
 	switch {
 	case r.pendingAt.IsZero() && r.ok:
 		// The reply is on disk. THE SAMPLE IS FENCED BY THE TURN'S TIME, the
@@ -125,7 +134,24 @@ func recordTurnEnd(st *store.Store, h hookInput, env Env, withBase bool) error {
 	}
 	// Neither: nothing readable, and the mark is written unfenced and dated by
 	// the write, as it was before issue #11.
-	return stopTurn(st, h, env, since, fence)
+	return since, fence
+}
+
+// idleBoth is the Stop for a session on both ledgers (D-193): one read of the
+// transcript, the footprint in each ledger (the base in the home only: the
+// fleet keeps none, D-191), then stopBoth. A fleet that did not open is
+// today's Stop on the home, exactly.
+func idleBoth(st *store.Store, fb *fleetBeside, h hookInput, env Env) error {
+	if !fb.ok() {
+		return recordTurnEnd(st, h, env, true)
+	}
+	r := readTurn(h.TranscriptPath, h.PromptID)
+	if r.superseded {
+		return nil
+	}
+	since, fence := sampleTurn(st, h, env, r, true)
+	sampleTurn(fb.st, h, env, r, false)
+	return stopBoth(st, fb, h, env, since, fence)
 }
 
 // stopLead opens a Stop's held-open turn. It is buddy's own line, ahead of
