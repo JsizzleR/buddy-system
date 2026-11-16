@@ -14727,19 +14727,33 @@ turn <id> <status> (progress, not completion)` to `detail` (`no turn listed` for
 The status never moves `state`: a turn `inProgress` beside an idle thread, or `completed` beside an
 active one, is reported as it is. Only the four enumerated `TurnStatus` values and an id of 1 to
 128 bytes from `[A-Za-z0-9-_./:]` are carried (invariant 9); any other shape, a page of two, or a
-non-page reply carries nothing and is not an error. The server's own error reply (a new
+non-page reply carries nothing and is not an error. The thread status that leads `detail`
+goes through `fence.Line` at 64 bytes (it was carried raw before this entry; the cross-check
+below). The server's own error reply (a new
 `codexRPCError`, same text as before) keeps today's `thread/read` answer exactly: no error, no
 refusal. A transport loss or the 30 s control deadline is the backend's `unknown` with the
 error; the controller's receipt then keeps its last event-stream state beside `error`, as for a
 `thread/read` that fails today (inspect never overwrites the stream's state). The receipt journal's format is unchanged: progress rides in the existing `detail`
-string. The capability's reason says what it reads and that the turns/list read is fixture-tested
-and unadmitted on 0.169.0; nothing promotes readiness (D-079, D-156).
+string. The capability's reason says what it reads and that no admitted build is sent the
+turns/list read; nothing promotes readiness (D-079, D-156).
+
+**Sent to no build until one is measured.** The fallback covers a build that REJECTS
+`thread/turns/list`, not one that accepts it and ignores `itemsView: notLoaded`. That build
+answers with the latest turn's items; past the 4 MiB frame bound the frame ends the transport
+(USAGE "Control and approval channels") and with it the live worker, mid-turn, where
+`thread/read` alone was bounded: the unqualified read the reconcile capability declines. So
+inspect sends it only when the launched version (the admitted record's `Version`, held by the
+backend from launch) is in `codexTurnsListBuilds`, a set in reviewed code that is EMPTY today.
+Every admitted build, and an unknown version, gets the `thread/read` answer exactly. Keyed by
+version, not an admission tier: a tier would need a suite and a record format change, and a
+record could then grant it.
 
 **Admitted builds.** 0.162.1, 0.164.0 and 0.165.0 (the retained packages under
 `~/.buddy/harness/codex/`, read only with `LC_ALL=C grep -a`) all carry the strings
 `thread/turns/list`, `notLoaded` and `sortDirection`. That is string evidence, not their schema;
 `codex.go`'s `ReadTurn` comment already records a five-field params struct with an `itemsView` in
-0.160.0. Hence the fallback: a build that rejects the method or a param keeps the old answer.
+0.160.0. Hence the fallback, for a build that rejects the method or a param, and the empty set:
+that a build HONOURS `notLoaded` is in no evidence.
 
 **Sandbox: the request field did not change.** `ThreadStartParams` and `ThreadResumeParams` still
 carry `sandbox?: SandboxMode | null`, `"read-only" | "workspace-write" | "danger-full-access"`.
@@ -14768,11 +14782,20 @@ SandboxPolicy` ("Legacy sandbox policy retained for compatibility"), a tagged ob
   `sandbox.type` to the requested mode (`readOnly` for `read-only`, `workspaceWrite` with the
   worktree among `writableRoots` for `workspace-write`) and `activePermissionProfile` as observed.
   That is a runner change, qualified only by running it.
-- A live inspect on the admitted build: the `thread/turns/list` reply under `notLoaded`, its size on
-  a long thread, and the method's answer on each admitted build, none of which is measured here.
+- To add a version to `codexTurnsListBuilds` (0.169.0 or any other), its admission measures, on that
+  launched build: `thread/turns/list` with inspect's exact params is ANSWERED (not rejected), mid-turn
+  (latest turn `inProgress`) and after it, on a thread whose latest turn holds items well past
+  4 MiB (a command output of several MiB); the reply is a page of at most one `Turn` with `items`
+  empty and `itemsView` `notLoaded`; and its frame stays far under the bound while the worker
+  survives. The frames are kept as the admission's evidence; a reviewed commit then adds the version.
+- Before that, inspect's turns/list call gets its own short deadline (a child context of a few
+  seconds), so a reply the read loop cannot key (an error with `id: null`) or none keeps the
+  `thread/read` answer, rather than holding `Controller.mu` for the 30 s control deadline and
+  returning `unknown` with an error where it returned `{busy, "active"}`. Unreachable while the set
+  is empty, so not built here; the unanswered-read test then changes from `unknown` to the fallback.
 - `check-interrupted.py` refuses an adapter `thread/read` or `thread/turns/list` frame in a reconcile
-  wire. Inspect now sends both, so a suite that adds an inspect to that wire is refused, as a
-  `thread/read` there already was.
+  wire. Inspect sends both on a measured build, so a suite that adds an inspect to that wire is
+  refused, as a `thread/read` there already was.
 - `thread/read` with `includeTurns` is documented as deprecated in 0.169.0 in favour of
   `thread/turns/list` and `thread/items/list`, both in the stable schema with `limit`. A bounded
   `reconcile` (withdrawn, D-075) could use them once qualified.
@@ -14782,13 +14805,19 @@ anywhere on the wire, over four thread/turn status pairs; a method-not-found and
 rejection keep `{busy, "active"}`, positive control the first test; an unanswered read is `unknown`
 with an error, not the fallback; eight reply shapes (an empty page, an id with a newline, an id
 with a control byte, a 129-byte id, a 128-byte id carried, an unknown status, two turns, a
-non-page) and `{}`, `null`, `{"data":null}`, each carrying nothing beside the empty page's `no
-turn listed`. `cmd/buddy-adapter/main_test.go`: the fake Codex answers `thread/turns/list`, and the
-adapter's inspect receipt carries `{busy, "active; latest turn turn-1 inProgress (progress, not
-completion)"}`. Mutation, in a private rsync'd copy: 10 of 10 killed (no fallback; fallback on any
+non-page, an empty id, an id spelling out a verdict with spaces, an id holding U+2028) and `{}`,
+`null`, `{"data":null}`, each carrying nothing beside the empty page's `no turn listed`. Those run
+with the launched build marked measured; by default (no build, or another build measured) inspect
+sends no `thread/turns/list` and answers `{busy, "active"}` whatever the fake would list, the
+launched build measured the positive control. A thread status with a newline, an escape or 200
+bytes is fenced and capped, a plain one untouched. `cmd/buddy-adapter/main_test.go`: the fake Codex answers `thread/turns/list`, and the
+adapter's inspect receipt carries `{busy, "active"}`: no admitted build is sent it. Mutation, in a private rsync'd copy: 10 of 10 killed (no fallback; fallback on any
 error; progress moving state; no id check; no status enum; no page-length check; `itemsView`
 `summary`; `limit` 0; a 129-byte id allowed; a null `data` read as an empty page, killed by the
-three null-shape cases' assertions, not a panic).
+three null-shape cases' assertions, not a panic). The cross-check fold's, the same way: 6 of 6
+(the fence removed; its cap widened; the version gate removed; the gate on any listed version; the
+empty-id check removed, killed by the empty-id case; the id charset widened to any rune past
+0x1f, killed by the spaces and U+2028 cases).
 
 **Review** (lite): a scoped adversarial self-review raised 5 and fixed 2 (this entry cited D-077 for
 reconcile's withdrawal, which is D-075's; an unused record line in the fake Codex). It answered 3:
@@ -14800,11 +14829,17 @@ receipt's last event state beside `error`. ANSWERED: that is the controller's de
 inspect (it never overwrites the stream's state), unchanged here; changing it changes every
 harness's receipt, and the wording above now says so. (2) `{}`, `null` and `{"data":null}` read as
 an empty page. FIXED: `data` must be an explicit array, with the three shapes tested and the
-mutant killed. One round, as the tier says.
+mutant killed. One round, as the tier says. Then ONE fold, from an optional Fable 5.2 cross-check
+(read-only), with no new Codex round; it raised 4. (1) An accepting build that ignores `notLoaded`
+could end the worker through the frame bound. FIXED: the empty version set above. (2) Two mutants
+survived (the empty-id check, the id charset). FIXED: three cases. (3) An unkeyable reply or none
+held `Controller.mu` for the control deadline and turned the old answer into `unknown`. ANSWERED:
+unreachable on every build now, the fix shape under Open. (4) The thread status rode `detail` raw
+and unbounded, before this entry. FIXED in its own commit: `fence.Line`, 64 bytes.
 
 ### Where it lives
-- code: `internal/harness/codex.go` (`Inspect`, `latestTurn`, `codexPlainTurnID`,
-  `codexRPCError`, the `inspect` capability)
+- code: `internal/harness/codex.go` (`Inspect`, `codexTurnsListBuilds`, `codexStatusCap`,
+  `latestTurn`, `codexPlainTurnID`, `codexRPCError`, the `inspect` capability)
 - tests: `internal/harness/codex_test.go`, `cmd/buddy-adapter/main_test.go`
 - docs: `docs/USAGE.md` "Control and approval channels"
 - index: CLAUDE.md § Decisions, the "Codex, adapter" line

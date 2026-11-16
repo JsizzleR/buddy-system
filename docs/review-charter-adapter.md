@@ -106,11 +106,15 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     HEAD. Do not propose per-checker version lists or hand-written records.
 
 135. **Codex inspect reads the latest turn as progress, never state (D-197).** `state` is
-    `thread/read`'s thread status; `thread/turns/list {limit: 1, sortDirection: desc,
+    `thread/read`'s thread status, which leads `detail` through `fence.Line` at 64 bytes.
+    Only to a launched version in `codexTurnsListBuilds` (EMPTY: no admitted build is
+    measured to honour `notLoaded`, and one that ignores it could send a frame past the
+    4 MiB bound and end the worker), `thread/turns/list {limit: 1, sortDirection: desc,
     itemsView: notLoaded}` adds the latest turn's id (1-128 bytes, `[A-Za-z0-9-_./:]`) and
     one of the four `TurnStatus` values to `detail`, and nothing for any other shape. A
     server error reply keeps the `thread/read` answer; a transport loss or deadline is
     `unknown`. 0.169.0's `thread/sample` is a prompted model response with unbounded text,
     experimental-only. The sandbox request field is unchanged in 0.169.0; checking the reply's
     `SandboxPolicy` is owed by its admission. Do not propose: `thread/sample` in inspect, a turn
-    status moving `state`, or a sandbox suite in `admissionSuites` that refuses committed records.
+    status moving `state`, a sandbox suite in `admissionSuites` that refuses committed records,
+    or a version in `codexTurnsListBuilds` without D-197's measurement.

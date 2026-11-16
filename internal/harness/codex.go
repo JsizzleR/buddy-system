@@ -141,7 +141,7 @@ func (c *codexBackend) Capabilities() Capabilities {
 	return Capabilities{
 		"start":                  {Support: "experimental", Reason: "Codex app-server v2 contract (" + codexAdapterContract + ") for exactly the admitted packages; launched workers only"},
 		"send":                   {Support: "experimental", Reason: "turn/start or exact-turn turn/steer; native acceptance is not worker acknowledgement"},
-		"inspect":                {Support: "experimental", Reason: "thread/read runtime status, plus the latest turn's id and status from thread/turns/list (limit 1, itemsView notLoaded), progress only, never completion; the turns/list read is fixture-tested and unadmitted on 0.169.0, and a rejected one keeps the thread/read answer; not a ledger or validation verdict"},
+		"inspect":                {Support: "experimental", Reason: "thread/read runtime status; the latest turn's id and status from thread/turns/list (limit 1, itemsView notLoaded), progress only, never completion, is sent to no admitted build until an admission measures that it honours notLoaded; not a ledger or validation verdict"},
 		"reconcile":              {Support: "unsupported", Reason: "the 0.160.0 history read (thread/read includeTurns) is unbounded; an oversized reply would end the live worker's transport, and a paged read is not qualified"},
 		"resume":                 resume,
 		"interrupt":              {Support: "experimental", Reason: "turn/interrupt with explicit native thread and turn IDs"},
@@ -436,6 +436,12 @@ func (c *codexBackend) Inspect(ctx context.Context, nativeID string) (Observatio
 	// active, notLoaded, systemError), and State reads the raw value, which
 	// it only ever compares.
 	obs := Observation{State: codexState(result.Thread.Status.Type), Detail: fence.Line(result.Thread.Status.Type, codexStatusCap)}
+	c.mu.Lock()
+	version := c.launchedVersion
+	c.mu.Unlock()
+	if !codexTurnsListBuilds[version] {
+		return obs, nil
+	}
 	progress, err := c.latestTurn(ctx, nativeID)
 	if err != nil {
 		var rejected *codexRPCError
@@ -452,6 +458,21 @@ func (c *codexBackend) Inspect(ctx context.Context, nativeID string) (Observatio
 	return obs, nil
 }
 
+// codexTurnsListBuilds names the launched versions (the admitted record's
+// Version) on which inspect sends thread/turns/list. Empty, on purpose: the
+// fallback below covers a build that REJECTS the request, not one that
+// accepts it and ignores itemsView notLoaded. Such a build answers with the
+// latest turn's items; past the 4 MiB frame bound that frame ends the
+// transport and with it the live worker, mid-turn, where thread/read alone
+// was bounded. That is the unqualified read reconcile is withdrawn for. The
+// admitted builds (0.162.1, 0.164.0, 0.165.0) carry the method's strings, but
+// nobody has measured that they honour notLoaded, so every one of them, and
+// an unknown version, gets today's thread/read answer exactly (Fable
+// cross-check of D-197). A version is added here, in reviewed code, only by
+// an admission that measured it; D-197 says what that measures. Keyed by
+// version, not tier: a record cannot grant it.
+var codexTurnsListBuilds = map[string]bool{}
+
 // latestTurn is inspect's bounded progress read (D-197, #106). The issue
 // proposed 0.169.0's thread/sample; its schema refutes that: thread/sample is
 // experimental-only and runs a NEW model response over the thread from a
@@ -466,8 +487,9 @@ func (c *codexBackend) Inspect(ctx context.Context, nativeID string) (Observatio
 // moves State: an inProgress or completed turn is activity, not a verdict on
 // the work. Only an enumerated status and a plain id are carried; anything
 // else reports nothing, not an error. The 4 MiB frame bound stands: a server
-// that ignored notLoaded and sent a frame past it ends the transport, as any
-// oversized frame does, and no test pretends otherwise (D-197).
+// that ignored notLoaded and sent a frame past it would end the transport, as
+// any oversized frame does, which is why this is sent only to a build in
+// codexTurnsListBuilds, and no test pretends otherwise (D-197).
 func (c *codexBackend) latestTurn(ctx context.Context, nativeID string) (string, error) {
 	raw, err := c.call(ctx, "thread/turns/list", map[string]any{"threadId": nativeID, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"})
 	if err != nil {

@@ -475,9 +475,11 @@ func TestAdapterOperatorDescriptorAdmission(t *testing.T) {
 			t.Fatal(err)
 		}
 		state := a.await(t, "inspect receipt", func(v map[string]any) bool { return v["request_id"] == "inspect" })
-		// D-197: the latest turn is progress in the detail; the state is
-		// still thread/read's, and a turn in progress is not completion.
-		if obs, _ := state["state"].(map[string]any); obs["state"] != "busy" || obs["detail"] != "active; latest turn turn-1 inProgress (progress, not completion)" {
+		// D-197: the state and detail are thread/read's alone. The fake
+		// would list turn-1 inProgress if asked, so this detail also says
+		// inspect never sent thread/turns/list to a build nobody measured
+		// to honour notLoaded (every admitted build, today).
+		if obs, _ := state["state"].(map[string]any); obs["state"] != "busy" || obs["detail"] != "active" {
 			t.Fatalf("inspect observation %v", state["state"])
 		}
 		pending, _ := state["approvals"].([]any)
