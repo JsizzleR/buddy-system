@@ -719,7 +719,7 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 		}
 		c.mu.Unlock()
 		if existed {
-			c.emit(Event{Kind: "approval_resolved", NativeSessionID: c.nativeID, TurnID: approval.turnID, ResultStatus: "cancelled", Approval: &Approval{ID: approval.id, NativeSessionID: c.nativeID, TurnID: approval.turnID, ItemID: approval.toolID, NativeApprovalID: key, Kind: "can_use_tool"}})
+			c.emit(Event{Kind: "approval_resolved", NativeSessionID: c.nativeID, TurnID: approval.turnID, ResultStatus: "cancelled", Approval: &Approval{ID: approval.id, NativeSessionID: c.nativeID, TurnID: approval.turnID, ItemID: displayNativeID(approval.toolID), NativeApprovalID: displayNativeID(key), Kind: "can_use_tool"}})
 		}
 	case "assistant":
 		if !f.IsReplay && f.SessionID == c.nativeID {
@@ -802,14 +802,25 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 			// Both are native strings in a receipt's native_event (D-198).
 			errText = "native result: " + fence.Line(f.Subtype, nativeTokenCap) + "/" + fence.Line(f.TerminalReason, nativeTokenCap)
 		}
+		// The status is the native terminal_reason, compared raw above, and
+		// recovery compares the STORED status against its enum
+		// (claude_recovery.go: completed, aborted_*). fence.Line strips a
+		// zero-width or bidi character, so storing its output would turn
+		// `aborted_tools​` into a terminal `aborted_tools` that was never
+		// sent (D-199, self-review). A reason fence.Field would alter (a
+		// control, a format character, a space, past the cap: a status is
+		// one token) is stored as unknown, so it can neither collide nor
+		// carry raw text; its fenced text stays in errText (such a reason
+		// is never "completed", so errText is set). An ordinary reason is
+		// stored as it came.
 		status := f.TerminalReason
-		if status == "" {
+		if status == "" || fence.Field(status, nativeTokenCap) != status {
 			status = "unknown"
 		}
 		if boundary != "" {
 			status = "local_compact_completed"
 		}
-		c.emit(Event{Kind: "result", NativeSessionID: c.nativeID, TurnID: turn, ItemID: boundary, ResultRef: f.UUID, ResultStatus: status, Err: errText})
+		c.emit(Event{Kind: "result", NativeSessionID: c.nativeID, TurnID: turn, ItemID: boundary, ResultRef: displayNativeID(f.UUID), ResultStatus: status, Err: errText})
 		if turn != "" {
 			c.emit(Event{Kind: "idle", NativeSessionID: c.nativeID, TurnID: turn})
 		}
@@ -907,8 +918,8 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 		renewals.unknown(lost)
 	}
 	c.emit(Event{Kind: "approval", NativeSessionID: c.nativeID, TurnID: turn, Approval: &Approval{
-		ID: append(json.RawMessage(nil), id...), NativeSessionID: c.nativeID, TurnID: turn, ItemID: req.ToolUseID,
-		NativeApprovalID: key, Kind: "can_use_tool", Detail: append(json.RawMessage(nil), raw...)}})
+		ID: append(json.RawMessage(nil), id...), NativeSessionID: c.nativeID, TurnID: turn, ItemID: displayNativeID(req.ToolUseID),
+		NativeApprovalID: displayNativeID(key), Kind: "can_use_tool", Detail: append(json.RawMessage(nil), raw...)}})
 	return nil
 }
 

@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // ErrNotSubmitted denotes a definite refusal before any native side effect.
@@ -122,6 +124,27 @@ const nativeErrorCap = 512
 // nativeTokenCap bounds a native identifier spliced into an error (a result
 // subtype or terminal reason): short names, 64 as codexStatusCap.
 const nativeTokenCap = 64
+
+// nativeIDCap bounds a native identifier a receipt only DISPLAYS (D-199): an
+// item id, a native approval id, a result reference. Each was the server's
+// string verbatim, up to the 4 MiB frame bound, in every native_event and,
+// for an approval, in the pending list every later receipt repeats. 128 is
+// the slug cap (invariant 9) and codexPlainTurnID's bound; real ids (UUIDs,
+// toolu_ ids) are under 64.
+const nativeIDCap = 128
+
+// displayNativeID fences an identifier nothing echoes back to the adapter:
+// fence.Field, so it stays one token (a space shows as ␣) and a value made
+// only of controls stays NONEMPTY (∅) where the controller tests emptiness;
+// an absent id stays absent (omitempty). An ordinary id is byte-for-byte
+// unchanged. Never for an id the operator or the server sends back (the Codex
+// thread and turn ids, a request id): a fenced copy would not match (D-199).
+func displayNativeID(id string) string {
+	if id == "" {
+		return ""
+	}
+	return fence.Field(id, nativeIDCap)
+}
 
 type Event struct {
 	Kind            string    `json:"kind"`

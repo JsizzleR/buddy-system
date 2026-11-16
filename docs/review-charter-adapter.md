@@ -128,3 +128,10 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     Do not propose: fencing at the journal or the emitter as well (`fence.Line` is not
     idempotent, and the emitter rewrites `error` from `err.Error()`); a server-written string
     spliced into an adapter error unfenced.
+    A native id a receipt only displays (a Codex item and approval id, a Claude tool_use_id,
+    approval id and result uuid) goes through `displayNativeID` (`fence.Field`, 128) where the
+    event is made (D-199); a Claude terminal reason the fence would alter is stored `unknown`,
+    since recovery compares the stored status against an enum. The KEYS stay exact: the Codex
+    thread and turn ids and a request id (`Approval.ID`) are sent back, and a fenced copy would
+    match nothing; bounding them is a refusal, a full-tier item. Do not propose: fencing a key;
+    storing a fenced value something compares against a fixed set.

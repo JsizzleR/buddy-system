@@ -14983,3 +14983,115 @@ the result test's identical operands. It found no behaviour that reads the error
   `contract.go` (`nativeErrorCap`, `nativeTokenCap`)
 - tests: `internal/harness/native_error_test.go`
 - index: CLAUDE.md § Decisions, the "Codex, adapter" line
+
+## D-199 — `buddy-adapter` fences the native identifiers a receipt only displays (a Codex item id and approval id, a Claude tool_use_id, approval id and result uuid) with `fence.Field` at 128 bytes where the event is made, and stores a Claude terminal reason the fence would alter as `unknown`; the ids the adapter is sent back stay exact and are left open
+
+**Context.** D-198 left open "other native strings in `native_event`"; orc-2's lite lane
+(operator, 2026-11-16 ~22:06Z) audited both backends by reading the code on af4710d. Nothing
+was launched. Every receipt is `json.Encoder` output, so a C0 control, U+2028 and U+2029
+were escaped already; what was open is size (to the 4 MiB frame bound) and format characters
+(bidi, zero-width), on the journal and on the coordinator's stream, for an approval also in
+the pending list every later receipt repeats.
+
+**The audit** (native wire value → where it is stored → verdict; lines on the fix's tree):
+
+| Value | Source | Verdict |
+|---|---|---|
+| Claude session id | launch, resume (`claude.go:174`, :254) | validated: `claudeValidUUID` |
+| Claude turn id | ours (`claudeUUID`); a frame's uuid matched to it | validated: ours |
+| Claude compaction boundary id (`ItemID`) | `claude.go:673` | validated: `claudeValidUUID` |
+| Claude result `uuid` → `ResultRef` | `claude.go:823` | **was raw; fenced** |
+| Claude `terminal_reason` → `ResultStatus` | `claude.go:816` | **was raw; fixed** (below) |
+| Claude result subtype, reason in `Err` | `claude.go:803` | fenced (D-198) |
+| Claude `tool_use_id` → approval `ItemID` | `claude.go:921`, cancel :722 | **was raw; fenced** |
+| Claude request id → `NativeApprovalID` | `claude.go:922`, :722 | **was raw; fenced** (a display copy) |
+| Claude request id → `Approval.ID` | `claude.go:921` | raw, a KEY: open |
+| Claude, Codex version output | `--version`, 4 KiB bound | validated: exact match to the record |
+| Codex thread id → identity, every event | `codex.go:277` | raw, a KEY: open |
+| Codex turn id → `TurnID`, `Delivery`, `ResultRef` | `codex.go:415`, :869, :896, :935, :954 | raw, a KEY: open |
+| Codex compaction item id (`ItemID`) | `codex.go:869` | **was raw; fenced** |
+| Codex approval `itemId`, `approvalId` | `codex.go:896` | **was raw; fenced** |
+| Codex request id → `Approval.ID` | `codex.go:896` | raw, a KEY: open |
+| Codex approval method → `Kind` | `codex.go:896` | validated: the case's closed set |
+| Codex turn status → `ResultStatus` | `codex.go:954` | validated: completed, interrupted, failed |
+| Codex thread status → `Detail` | `codex.go:445` | fenced (D-197) |
+| Codex latest turn id, status (progress) | `codex.go:525` | validated: `codexPlainTurnID`, an enum (D-197) |
+| Codex history turn status | `codex.go:596` | validated: an enum |
+| approval detail, summary | `controller.go:1036` | fenced summary, exact detail to 16 KiB (F-22) |
+| renewal paths, gap reasons | `controller.go:943` on | fenced (D-078); reasons are ours |
+| native errors | D-198's four sites | fenced (D-198) |
+| diagnose: versions | `diagnostic.go:99`, :135 | fenced, 128 |
+| diagnose: `captured_at` | `diagnostic.go:134` | **was parsed, unbounded; fenced, 64** (Codex) |
+| native stderr (worker, `--version` probe) | `process.go:142`, `executable.go:91` | raw to the adapter's stderr: open (Codex) |
+| descendants | the OS process table | pids and times only, no argv |
+
+**Decision.** A DISPLAY-ONLY id (nothing sends it back to the adapter or the server) goes
+through `displayNativeID` (`contract.go`) where the event is made: `fence.Field` at
+`nativeIDCap` = 128 (the slug cap; `codexPlainTurnID`'s bound), so it stays one token and a
+value of controls alone stays nonempty (`∅`) where the controller tests emptiness; an absent
+id stays absent. An ordinary id is byte-for-byte unchanged. The Codex approval kept in
+`c.approvals` carries the fenced copies; Codex answers by `a.ID` alone and Claude by its own
+raw `toolID`, so no answer changes. Claude's `terminal_reason`: recovery compares the STORED
+`result_status` against an enum (`claude_recovery.go:64`: completed, aborted_streaming,
+aborted_tools), and `fence.Line` strips a zero-width character, so its output would turn
+`aborted_tools` plus U+200B into a terminal `aborted_tools` that was never sent (self-review,
+measured by a test). A reason `fence.Field` would alter (a control, a format character, a
+space, past 64 bytes: a status is one token) is stored as `unknown`; its fenced text stays in
+`error`, set because such a reason is never `completed`. An ordinary reason is
+stored as it came. A display id may collide after fencing (`fence.Line` is not injective,
+by contract). Nothing in the adapter reads one back: not the controller, not recovery (it
+tests a result reference for emptiness only), not an answer. The qualification checkers do:
+they find the raw trace frame by the receipt's `result_ref` or `item_id` and count distinct
+references (`check-claude-resume.py:65`, `check-compaction.py:72`, `check-claude-gate.py:803`;
+Codex's lite pass). A hostile id there now fails the checker, where it matched before: a
+checker reads evidence, and a reference it cannot match is evidence it cannot attribute, so
+failing is the closed side; every real id matches as before. `captured_at`, though parsed as
+RFC 3339, admits any number of fraction digits, and went into diagnose's `Detail` whole:
+`fence.Line` at 64 (any real one is at most 35 bytes, unchanged).
+
+**Left open, its own item (full tier):** the KEYS. The Codex thread id is the identity
+(every request's `threadId`, the ledger's `--session`, resume's match); the Codex turn id is
+echoed for approve (`takeApproval`'s exact match), steer and interrupt; a request id
+(`Approval.ID`, both backends) is the decision's key. A fenced copy of a hostile one matches
+nothing, and a charset check at the source is a refusal: either changes what the adapter
+refuses, which this lite brief excludes. Real ones are UUIDs (UUIDv7 for Codex) and pass any
+fence unchanged. Outside the adapter (not fixed, reported): the Codex thread id reaches the
+ledger as `session_id` unchecked (`BeginLogical` requires nonempty only) and, with no
+`--label`, eight bytes of it seed the default label (`store.go:1038`); `buddy`'s listings
+render session ids and labels through `internal/fence` (11 `fence.*(…SessionID…)` sites in
+`internal/cli`, a grep, not an audit). Also open, in the adapter: a worker's and a version
+probe's stderr go to the adapter's stderr raw (`process.go:142`, `executable.go:91`), an
+operator's terminal, not a receipt; bounding it means owning that stream, its own item.
+
+**Tests** (`internal/harness/native_id_test.go`): one table through each fixed source (Codex
+compaction and approval events; Claude approval, cancel and result frames): a newline and
+CRLF, U+2028/U+2029/NEL, ESC plus U+202E plus U+200B, a space, controls alone, 1 MiB, and the
+ordinary value plus U+200B each come back on one line, one token, nonempty, within the literal
+cap; the ordinary value is unchanged (positive control); an absent Codex id stays absent; every
+hostile reason is stored `unknown` and named in `error`, and `aborted_tools`,
+`aborted_streaming` and `completed` each plus a zero-width or bidi character are stored
+`unknown` and not read terminal by `claudeRecovery`, while the real `aborted_tools` is (the
+positive control); a 10,000-digit `captured_at` comes back within 64 bytes, a real one
+unchanged. A hostile Claude request id still
+answers its approval with the receipt's `Approval.ID`, and Claude is answered with its raw
+`tool_use_id`. Mutation, in a private rsync'd copy: each of the eight sites unfenced, either
+cap raised to 4 MiB, `fence.Line` for `fence.Field`, no empty passthrough, the request id
+fenced, the status stored raw, the status stored fenced, its guard by `fence.Line`,
+`captured_at` unfenced: each fails; the control passes.
+
+**Review** — lite. Self-review raised 2, fixed: a status fenced INTO the recovery enum (above),
+and a status with a space stored as it came (the guard is `fence.Field`, a status is one
+token). One Codex code pass, xhigh, adapter charter, over `af4710d..580b48e`: raised 4;
+fixed 2: `captured_at` unbounded, and the entry's errors (stale line numbers, an
+`aborted_tools` test it claimed and lacked); answered 2: the checkers' correlation and native
+stderr (both above). It found no runtime reader of a fenced id and no site whose fence a
+test would miss.
+
+### Where it lives
+- code: `internal/harness/contract.go` (`nativeIDCap`, `displayNativeID`), `codex.go`
+  (`nativeEvent`), `claude.go` (`frame`, `permission`), `diagnostic.go` (`captured_at`)
+- tests: `internal/harness/native_id_test.go`
+- index: CLAUDE.md § Decisions, the "Codex, adapter" line; GIVEN 137 (its core stub names
+  D-199; its full text carries the paragraph). The core charter had 3 bytes free, so GIVEN
+  135's stub was shortened on orc-2's word (#1361): "Codex inspect: latest turn is progress,
+  not state", Do-not-propose `thread/sample`; its full text unchanged, D-197 kept.

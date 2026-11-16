@@ -865,7 +865,8 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 				kind = "compaction_completed"
 			}
 			c.mu.Unlock()
-			c.emit(Event{Kind: kind, NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: p.Item.ID})
+			// The item id is displayed only; the turn id is a key (D-199).
+			c.emit(Event{Kind: kind, NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: displayNativeID(p.Item.ID)})
 			return
 		}
 		if envelope.Method == "item/completed" && p.Item.Type == "fileChange" {
@@ -892,7 +893,7 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 			c.mu.Unlock()
 			return
 		}
-		a := Approval{ID: append(json.RawMessage(nil), envelope.ID...), NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: p.ItemID, NativeApprovalID: p.ApprovalID, Kind: envelope.Method, Detail: append(json.RawMessage(nil), envelope.Params...)}
+		a := Approval{ID: append(json.RawMessage(nil), envelope.ID...), NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: displayNativeID(p.ItemID), NativeApprovalID: displayNativeID(p.ApprovalID), Kind: envelope.Method, Detail: append(json.RawMessage(nil), envelope.Params...)}
 		if previous, exists := c.seenApprovals[key]; exists {
 			if previous.Kind == a.Kind && bytes.Equal(previous.Detail, a.Detail) {
 				c.mu.Unlock()

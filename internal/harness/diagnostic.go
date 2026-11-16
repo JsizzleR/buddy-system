@@ -127,7 +127,11 @@ func Diagnose(kind string, launch *Launch, evidence *DiagnosticEvidence) Harness
 		r.Evidence = Observation{State: "invalid", Detail: "capture requires an RFC3339 timestamp"}
 		return r
 	}
-	r.Evidence = Observation{State: "supplied_snapshot", Detail: evidence.CapturedAt}
+	// RFC 3339 admits any number of fraction digits, so a parsed timestamp
+	// is charset-clean but not bounded: 10,000 digits passed whole into
+	// Detail (D-199, Codex's lite pass). 64 holds any real one (35 bytes
+	// with nanoseconds and an offset) unchanged.
+	r.Evidence = Observation{State: "supplied_snapshot", Detail: fence.Line(evidence.CapturedAt, 64)}
 	r.CapturedVersion = fence.Line(evidence.Version, 128)
 	r.CapturedVersionCompatibility = "unsupported"
 	if admissionOutputKnown(kind, evidence.Version) {
