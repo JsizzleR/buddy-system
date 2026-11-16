@@ -89,9 +89,16 @@ type codexReply struct {
 // codexRPCError is the server's own error reply to a request: the request
 // reached it and was answered, unlike a transport loss or a timeout, whose
 // outcome is unknown. Inspect tells the two apart (D-197).
+//
+// raw is the server's JSON, up to the 4 MiB frame bound, and Error() is what
+// becomes a receipt's error on the journal and the coordinator's stream
+// (D-198): it is fenced to one line and bounded there, once, where it is
+// made. raw itself stays exact for whoever inspects the type.
 type codexRPCError struct{ raw json.RawMessage }
 
-func (e *codexRPCError) Error() string { return "Codex RPC rejected request: " + string(e.raw) }
+func (e *codexRPCError) Error() string {
+	return "Codex RPC rejected request: " + fence.Line(string(e.raw), nativeErrorCap)
+}
 
 type codexEnvelope struct {
 	ID     json.RawMessage `json:"id"`

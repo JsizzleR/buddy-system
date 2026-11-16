@@ -14920,3 +14920,66 @@ longer parse as a flag, and a whitespace-only prompt now gives NO VERDICT.
 - tests: `scripts/check-codex-review.sh` (the stub's route and cap, `onstdin`, the `big` case)
 - index: CLAUDE.md § Decisions, the "Review, models" line
 - charter: GIVEN 136, a core stub; full text in `docs/review-charter-process.md`
+
+## D-198 — `buddy-adapter` fences and bounds a native server's error text where the error is made: a Codex RPC error reply, a Claude `control_response` error and a Claude settings refusal at 512 bytes, a Claude result's subtype and terminal reason at 64 each, through `fence.Line`
+
+**Context.** The #106 fold lane (D-197) reported, unverified, that a receipt's `error` carries a
+server's raw error text. Measured by reading the code on 637eab2; nothing was launched.
+
+**The paths.** Three errors splice server-written text, each unbounded but for the 4 MiB frame:
+`codexRPCError.Error()` (`internal/harness/codex.go:99`, built at :801 from the reply's `error`
+JSON verbatim), `"Claude refused control request: " + f.Response.Error` (`claude.go:697`), and
+the result's `errText`, `"native result: " + subtype + "/" + terminal_reason` (`claude.go:803`),
+carried as `Event.Err`. A fourth, found by the lite Codex pass: the settings checker's refusals
+name the settings' own keys, hook events and matchers (`%s` unquoted at `claude.go:1003` before
+the fix, `%q` at six more), from the native `get_settings` reply (`effectiveSettings`, :325) or
+the worker's settings files (:933), up to 128 KiB. They reach a receipt by `r.Error = err.Error()` in `receiptEmitter`
+(`cmd/buddy-adapter/main.go:398`) and in `Controller.Handle`'s send and `OperatorApprove`
+(`controller.go:638`, :640, :653, :717, :732); every `%v`/`%w` wrap (`ErrNotSubmitted`, "outcome
+unknown") carries the same text; `Event.Err` rides in `native_event` (`presentEvent`, :746 on).
+Two sinks: the exclusive receipt journal (`persist`, :240) and the receipt stream on stdout,
+which the coordinator reads: a model's context when the driver is a session. Both are
+`json.Encoder` output, so the one-line half held already (Go escapes C0 controls, U+2028 and
+U+2029), but the size did not, and format characters (bidi overrides, zero-width) passed raw.
+Read back: `buddy diagnose` never reads `error` (`internal/cli/diagnostic.go`); the check and
+qualify scripts test it for truth, for local substrings ("unfinished or uncertain", "context
+deadline exceeded"), or for `native result: error_during_execution/<status>` exactly; no listing
+renders it in a column. Not server text, left alone: the ledger's `Buddy refused: <stderr>`
+(`ledger.go:32`, our own `buddy`, which fences its peer values), transport errors (`proc.Err()`),
+the renewal receipt's error (already `fence.Line` at 512, `controller.go:953`).
+
+**Decision.** Fence at the places the error is made, once: `fence.Line(raw, 512)` for the
+Codex reply and the Claude error (`nativeErrorCap`, `contract.go`: the desc cap and the renewal
+error's bound; a JSON-RPC code and message fit whole), `fence.Line(v, 64)` for each Claude result
+token (`nativeTokenCap`, as `codexStatusCap`), and the settings checker's whole refusal at its
+one boundary (`claudeSettingsCompatibility` wraps `claudeSettingsCheck`), 512. The prefix stays; `codexRPCError.raw` stays exact.
+Rejected: fencing at the two sinks, since `fence.Line` is not idempotent (a second pass escapes
+the ⏎ the first made, and the renewal error is fenced already) and the emitter overwrites a
+receipt's error from `err.Error()`, so journal and stream would differ unless both fenced the raw
+error; and a change to `internal/fence` or the journal's format (none needed). Left open: other
+native strings in `native_event` (`ResultStatus` is Claude's raw `terminal_reason`, `claude.go:812`)
+are identifiers, not error text, and were outside this item.
+
+**Tests** (`internal/harness/native_error_test.go`): one table through all four sources (the
+settings one by an unsupported hook event, the `%s` site): a
+newline-and-CRLF value, U+2028/U+2029/NEL, a 1 MiB value and an ESC-plus-U+202E value each come
+back on one line, free of the control, within the literal cap; the ordinary value (a real JSON-RPC
+error, `error_during_execution/aborted_tools`, `PostToolUse`) is byte-for-byte the old text
+(positive control); the result's two operands always differ. Mutation, in a
+private rsync'd copy: each of the four sites unfenced fails its four hostile cases and passes its
+ordinary one (the settings case uses 64 KiB: past 128 KiB the checker refuses the input first);
+`nativeErrorCap` or `nativeTokenCap` raised to 4 MiB fails the oversized case (it first survived,
+the test then checking against the constant; the caps are now literals in the test); the
+result rendering `Subtype` twice fails the ordinary case (Codex: identical operands hid it).
+
+**Review** — lite. Self-review raised 1, fixed (the surviving cap mutant above). One Codex code
+pass, xhigh, adapter charter, over `637eab2..18cc9ba`: raised 2, fixed: the settings path, and
+the result test's identical operands. It found no behaviour that reads the error text (the one
+`errors.As` takes the type; recovery tests emptiness; the scripts' exact match is unchanged).
+
+### Where it lives
+- code: `internal/harness/codex.go` (`codexRPCError`), `claude.go` (control_response, result,
+  `claudeSettingsCompatibility`),
+  `contract.go` (`nativeErrorCap`, `nativeTokenCap`)
+- tests: `internal/harness/native_error_test.go`
+- index: CLAUDE.md § Decisions, the "Codex, adapter" line

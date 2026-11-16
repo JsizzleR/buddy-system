@@ -28,6 +28,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // Which native builds this adapter may launch, with which Mod profile and
@@ -689,7 +691,10 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 		if ch != nil {
 			var err error
 			if f.Response.Subtype != "success" {
-				err = errors.New("Claude refused control request: " + f.Response.Error)
+				// The native error is Claude's text, unbounded but for the
+				// frame: fenced and bounded here, where it becomes the
+				// receipt's error (D-198).
+				err = errors.New("Claude refused control request: " + fence.Line(f.Response.Error, nativeErrorCap))
 			}
 			select {
 			case ch <- claudeReply{err: err, data: f.Response.Data}:
@@ -794,7 +799,8 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 		c.mu.Unlock()
 		errText := ""
 		if f.IsError != nil && *f.IsError || f.Subtype != "success" || (f.TerminalReason != "" && f.TerminalReason != "completed") {
-			errText = "native result: " + f.Subtype + "/" + f.TerminalReason
+			// Both are native strings in a receipt's native_event (D-198).
+			errText = "native result: " + fence.Line(f.Subtype, nativeTokenCap) + "/" + fence.Line(f.TerminalReason, nativeTokenCap)
 		}
 		status := f.TerminalReason
 		if status == "" {
@@ -945,7 +951,21 @@ const (
 	claudeHookTimeoutMaxSeconds = 600
 )
 
+// claudeSettingsCompatibility's refusals name the settings' own keys, hook
+// events and matchers, from the native get_settings reply (effectiveSettings)
+// or the worker's settings files, up to 128 KiB: one, `%s` unquoted, could
+// carry a newline or a bidi override into the receipt's error, and any could
+// carry 128 KiB (D-198, Codex's lite pass). Fenced and bounded at this one
+// boundary, so every refusal below and both callers are covered; an ordinary
+// refusal is byte-for-byte what it was.
 func claudeSettingsCompatibility(data []byte, expectedCommand string) error {
+	if err := claudeSettingsCheck(data, expectedCommand); err != nil {
+		return errors.New(fence.Line(err.Error(), nativeErrorCap))
+	}
+	return nil
+}
+
+func claudeSettingsCheck(data []byte, expectedCommand string) error {
 	if len(data) > 128<<10 {
 		return errors.New("Claude hook settings exceed the bounded adapter contract")
 	}

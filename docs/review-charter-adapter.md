@@ -118,3 +118,13 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     `SandboxPolicy` is owed by its admission. Do not propose: `thread/sample` in inspect, a turn
     status moving `state`, a sandbox suite in `admissionSuites` that refuses committed records,
     or a version in `codexTurnsListBuilds` without D-197's measurement.
+
+137. **A native server's error text is fenced where the error is made (D-198).** A Codex RPC
+    error reply (`codexRPCError.Error()`), a Claude `control_response` error and a Claude
+    settings refusal (`claudeSettingsCompatibility`, whose refusals name the settings' own keys
+    and hook events) go through `fence.Line` at 512 bytes, a Claude result's subtype and
+    terminal reason at 64 each, before the error becomes a receipt's `error` or
+    `native_event.error` on the journal and the stream. `codexRPCError.raw` stays exact.
+    Do not propose: fencing at the journal or the emitter as well (`fence.Line` is not
+    idempotent, and the emitter rewrites `error` from `err.Error()`); a server-written string
+    spliced into an adapter error unfenced.

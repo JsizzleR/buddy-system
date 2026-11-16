@@ -109,6 +109,20 @@ type ApprovalDecision struct {
 	TurnID          string          `json:"turn_id,omitempty"`
 	Decision        string          `json:"decision"`
 }
+
+// nativeErrorCap bounds the part of an error a native server wrote (a Codex
+// RPC error reply, a Claude control_response error) before it becomes a
+// receipt's error (D-198). The error was the server's text verbatim, up to
+// the 4 MiB frame bound, on every receipt the journal keeps and the
+// coordinator reads. 512 is the desc cap (invariant 9) and the bound the
+// renewal receipt already puts on its ledger error; it keeps a JSON-RPC
+// code and message whole.
+const nativeErrorCap = 512
+
+// nativeTokenCap bounds a native identifier spliced into an error (a result
+// subtype or terminal reason): short names, 64 as codexStatusCap.
+const nativeTokenCap = 64
+
 type Event struct {
 	Kind            string    `json:"kind"`
 	ResultStatus    string    `json:"result_status,omitempty"`
