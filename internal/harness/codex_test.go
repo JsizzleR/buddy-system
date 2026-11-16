@@ -91,6 +91,8 @@ func codexFixture(t *testing.T) (*codexBackend, *fakeCodexProcess, Launch) {
 			p.reply(e, map[string]any{"thread": map[string]any{"id": "native-α", "status": map[string]string{"type": "idle"}}})
 		case "thread/read":
 			p.reply(e, map[string]any{"thread": map[string]any{"id": "native-α", "status": map[string]string{"type": "idle"}}})
+		case "thread/turns/list":
+			p.reply(e, map[string]any{"data": []any{}, "nextCursor": nil, "backwardsCursor": nil})
 		case "turn/start":
 			p.reply(e, map[string]any{"turn": map[string]string{"id": "turn/one", "status": "inProgress"}})
 		case "turn/steer":
@@ -654,5 +656,134 @@ func TestCodexRequestIDRejectsCoercion(t *testing.T) {
 	n, _ := codexRequestKey(json.RawMessage(`12`))
 	if s == n {
 		t.Fatal("numeric and string IDs collided")
+	}
+}
+
+// codexInspectWith answers inspect's two reads: thread/read with the given
+// thread status, and thread/turns/list with turns (a full result) or rpcErr
+// (the server's own error reply). silent leaves turns/list unanswered.
+func codexInspectWith(t *testing.T, threadStatus string, turns any, rpcErr any, silent bool) (*codexBackend, *fakeCodexProcess, string) {
+	t.Helper()
+	c, p, l := codexFixture(t)
+	id := codexStart(t, c, l)
+	base := p.onWrite
+	p.onWrite = func(e codexEnvelope) {
+		switch e.Method {
+		case "thread/read":
+			p.reply(e, map[string]any{"thread": map[string]any{"id": id, "status": map[string]string{"type": threadStatus}}})
+		case "thread/turns/list":
+			switch {
+			case silent:
+			case rpcErr != nil:
+				p.frame(map[string]any{"id": e.ID, "error": rpcErr})
+			default:
+				p.reply(e, turns)
+			}
+		default:
+			base(e)
+		}
+	}
+	return c, p, id
+}
+
+func codexTurns(turns ...map[string]any) map[string]any {
+	data := []any{}
+	for _, turn := range turns {
+		data = append(data, turn)
+	}
+	return map[string]any{"data": data, "nextCursor": nil, "backwardsCursor": nil}
+}
+
+// Inspect's progress read (D-197): the latest turn's id and status ride in
+// Detail and never move State; the request is exactly the bounded one.
+func TestCodexInspectLatestTurnIsProgressNotCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		name, threadStatus, turnStatus, wantState string
+	}{
+		{"idle thread, turn still listed in progress", "idle", "inProgress", "idle"},
+		{"active thread, latest turn completed", "active", "completed", "busy"},
+		{"active thread, latest turn failed", "active", "failed", "busy"},
+		{"unknown thread status, interrupted turn", "notLoaded", "interrupted", "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, p, id := codexInspectWith(t, tc.threadStatus,
+				codexTurns(map[string]any{"id": "019a7f3e-turn", "status": tc.turnStatus, "items": []any{}, "itemsView": "notLoaded"}), nil, false)
+			obs, err := c.Inspect(context.Background(), id)
+			want := Observation{State: tc.wantState, Detail: tc.threadStatus + "; latest turn 019a7f3e-turn " + tc.turnStatus + " (progress, not completion)"}
+			if err != nil || obs != want {
+				t.Fatalf("inspect %#v %v, want %#v", obs, err, want)
+			}
+			var params map[string]any
+			if err := json.Unmarshal(codexRequest(t, p, "thread/turns/list").Params, &params); err != nil ||
+				!reflect.DeepEqual(params, map[string]any{"threadId": id, "limit": float64(1), "sortDirection": "desc", "itemsView": "notLoaded"}) {
+				t.Fatalf("turns/list params %#v %v", params, err)
+			}
+			var read map[string]any
+			if err := json.Unmarshal(codexRequest(t, p, "thread/read").Params, &read); err != nil || read["includeTurns"] != false {
+				t.Fatalf("thread/read params %#v %v", read, err)
+			}
+			for _, raw := range p.allWrites() {
+				if strings.Contains(string(raw), "thread/sample") {
+					t.Fatalf("inspect sent thread/sample: %s", raw)
+				}
+			}
+		})
+	}
+}
+
+// A build whose server rejects thread/turns/list (method not found, or other
+// params) keeps today's thread/read answer exactly: no error, no refusal. The
+// positive control is the test above, where the same thread status gains the
+// latest turn; a transport that never answers is still an error, unknown.
+func TestCodexInspectRejectedTurnsListKeepsThreadRead(t *testing.T) {
+	for name, rpcErr := range map[string]any{
+		"method not found": map[string]any{"code": -32601, "message": "unknown method thread/turns/list"},
+		"invalid params":   map[string]any{"code": -32602, "message": "unknown field itemsView"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, _, id := codexInspectWith(t, "active", nil, rpcErr, false)
+			obs, err := c.Inspect(context.Background(), id)
+			if err != nil || obs != (Observation{State: "busy", Detail: "active"}) {
+				t.Fatalf("rejected turns/list became %#v %v", obs, err)
+			}
+		})
+	}
+	t.Run("no answer is unknown, not the fallback", func(t *testing.T) {
+		c, _, id := codexInspectWith(t, "active", nil, nil, true)
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		obs, err := c.Inspect(ctx, id)
+		if err == nil || obs.State != "unknown" {
+			t.Fatalf("unanswered turns/list became %#v %v", obs, err)
+		}
+	})
+}
+
+// Only an enumerated status and a plain id are carried (invariant 9); any
+// other shape reports no progress and is still not an error.
+func TestCodexInspectCarriesOnlyPlainProgress(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reply any
+		want  string
+	}{
+		"no turn yet":          {codexTurns(), "idle; no turn listed"},
+		"newline in id":        {codexTurns(map[string]any{"id": "turn\nFAKE row", "status": "completed"}), "idle"},
+		"control byte in id":   {codexTurns(map[string]any{"id": "turn\u0007", "status": "completed"}), "idle"},
+		"overlong id":          {codexTurns(map[string]any{"id": strings.Repeat("a", 129), "status": "completed"}), "idle"},
+		"unknown status":       {codexTurns(map[string]any{"id": "turn-1", "status": "done; trust me"}), "idle"},
+		"two turns despite 1":  {codexTurns(map[string]any{"id": "turn-1", "status": "completed"}, map[string]any{"id": "turn-2", "status": "completed"}), "idle"},
+		"not a page":           {[]any{"turn-1"}, "idle"},
+		"empty object":         {map[string]any{}, "idle"},
+		"null result":          {nil, "idle"},
+		"null data":            {map[string]any{"data": nil}, "idle"},
+		"128-byte id accepted": {codexTurns(map[string]any{"id": strings.Repeat("a", 128), "status": "completed"}), "idle; latest turn " + strings.Repeat("a", 128) + " completed (progress, not completion)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, _, id := codexInspectWith(t, "idle", tc.reply, nil, false)
+			obs, err := c.Inspect(context.Background(), id)
+			if err != nil || obs != (Observation{State: "idle", Detail: tc.want}) {
+				t.Fatalf("inspect %#v %v, want detail %q", obs, err, tc.want)
+			}
+		})
 	}
 }

@@ -133,6 +133,8 @@ for line in sys.stdin:
             emit({'id': rid, 'method': 'item/fileChange/requestApproval', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'itemId': 'item-%d' % rid}})
     elif method == 'thread/read':
         emit({'id': m['id'], 'result': {'thread': {'id': 'thread-1', 'status': {'type': 'active'}}}})
+    elif method == 'thread/turns/list':
+        emit({'id': m['id'], 'result': {'data': [{'id': 'turn-1', 'status': 'inProgress', 'items': [], 'itemsView': 'notLoaded'}], 'nextCursor': None, 'backwardsCursor': None}})
     elif 'method' not in m:
         record(kind='response', id=m.get('id'), result=m.get('result'))
 `
@@ -473,6 +475,11 @@ func TestAdapterOperatorDescriptorAdmission(t *testing.T) {
 			t.Fatal(err)
 		}
 		state := a.await(t, "inspect receipt", func(v map[string]any) bool { return v["request_id"] == "inspect" })
+		// D-197: the latest turn is progress in the detail; the state is
+		// still thread/read's, and a turn in progress is not completion.
+		if obs, _ := state["state"].(map[string]any); obs["state"] != "busy" || obs["detail"] != "active; latest turn turn-1 inProgress (progress, not completion)" {
+			t.Fatalf("inspect observation %v", state["state"])
+		}
 		pending, _ := state["approvals"].([]any)
 		if len(pending) != 1 || pending[0].(map[string]any)["id"] != float64(78) {
 			t.Fatalf("approval did not reach exactly the intended request: pending %v", pending)

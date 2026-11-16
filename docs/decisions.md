@@ -14698,3 +14698,115 @@ now nothing. Each fold has its case and its killed mutant above. One round, as t
 - charter: GIVEN 130
 - evidence: this entry (the probe's scratch repo, ledger and recorder logs are not retained)
 - amends: D-190 (its "Mail (#107), measured only in part")
+
+## D-197 — Codex inspect reads the latest turn's id and status with `thread/turns/list` (limit 1, newest first, items not loaded) as PROGRESS in `detail`, never moving `state`; a rejected read keeps the `thread/read` answer; 0.169.0's `thread/sample` is refuted for inspect (#106)
+
+**Context.** #106 proposed that `buddy-adapter`'s Codex inspect take "a bounded sample of a turn
+in flight" with 0.169.0's `thread/sample` (#60620) instead of reading thread history, and that the
+admission suites cover 0.169.0's permission serialization rework (#60472, #60702), since the
+backend sends `"sandbox": launch.PermissionMode`. Measured from the installed codex-cli 0.169.0's
+OFFLINE output only (`app-server generate-json-schema` and `generate-ts`, with and without
+`--experimental`); nothing was launched, and no build is admitted or qualified by this entry
+(D-156).
+
+**`thread/sample` is not a read.** It is in the `--experimental` schema only. Its params REQUIRE
+`threadId`, `expectedTurnId` (the thread's latest turn, "which must be finished ... unless
+`allowInProgressTurn` is true") and `prompt`; optional `effort`, `disableMcp`, `interruptOnCancel`,
+`threadSource`, `turnTrigger`, `responsesapiClientMetadata`. The reply is `{sourceTurnId,
+responseId, text: string|null ("Assistant text from the response"), inputTokens,
+cachedInputTokens, outputTokens}`, and `thread/sample/cancel` exists. So it runs a NEW model
+response over the thread's window. An inspect built on it would spend a provider request per look
+and put model text, steered by the worker's untrusted context, into an observation; and the schema
+bounds neither `text` (no `maxLength`) nor the output. The issue's premise is refuted, and inspect
+does not use it.
+
+**Decision.** Inspect keeps `thread/read` (`includeTurns: false`) for `state`, as before. It then
+sends the STABLE (non-experimental) `thread/turns/list {threadId, limit: 1, sortDirection: "desc",
+itemsView: "notLoaded"}`, which returns at most one `Turn` without its items, and appends `latest
+turn <id> <status> (progress, not completion)` to `detail` (`no turn listed` for an empty page).
+The status never moves `state`: a turn `inProgress` beside an idle thread, or `completed` beside an
+active one, is reported as it is. Only the four enumerated `TurnStatus` values and an id of 1 to
+128 bytes from `[A-Za-z0-9-_./:]` are carried (invariant 9); any other shape, a page of two, or a
+non-page reply carries nothing and is not an error. The server's own error reply (a new
+`codexRPCError`, same text as before) keeps today's `thread/read` answer exactly: no error, no
+refusal. A transport loss or the 30 s control deadline is the backend's `unknown` with the
+error; the controller's receipt then keeps its last event-stream state beside `error`, as for a
+`thread/read` that fails today (inspect never overwrites the stream's state). The receipt journal's format is unchanged: progress rides in the existing `detail`
+string. The capability's reason says what it reads and that the turns/list read is fixture-tested
+and unadmitted on 0.169.0; nothing promotes readiness (D-079, D-156).
+
+**Admitted builds.** 0.162.1, 0.164.0 and 0.165.0 (the retained packages under
+`~/.buddy/harness/codex/`, read only with `LC_ALL=C grep -a`) all carry the strings
+`thread/turns/list`, `notLoaded` and `sortDirection`. That is string evidence, not their schema;
+`codex.go`'s `ReadTurn` comment already records a five-field params struct with an `itemsView` in
+0.160.0. Hence the fallback: a build that rejects the method or a param keeps the old answer.
+
+**Sandbox: the request field did not change.** `ThreadStartParams` and `ThreadResumeParams` still
+carry `sandbox?: SandboxMode | null`, `"read-only" | "workspace-write" | "danger-full-access"`.
+0.169.0 adds `permissions?: string | null` ("Named profile id for this thread. Cannot be combined
+with `sandbox`."), which the backend does not send. The rework is in the REPLY: `sandbox:
+SandboxPolicy` ("Legacy sandbox policy retained for compatibility"), a tagged object (`readOnly`,
+`workspaceWrite` with `writableRoots`, `dangerFullAccess`, `externalSandbox`), plus
+`activePermissionProfile: {id, extends} | null`. Nothing was changed for it here (below).
+
+**Cut.**
+- `thread/sample` in inspect: above.
+- The oversized-reply bound test the brief asked for. The 4 MiB frame bound stands: a frame past it
+  ends the transport, by design (USAGE "Control and approval channels"), so a test that an oversized
+  reply does not end it would test a transport change nobody made. `notLoaded` keeps the reply to one
+  turn's metadata; a server that ignored it and sent a frame past the bound would end the transport,
+  as any oversized frame does.
+- An `admissionSuites` entry for the reply's sandbox policy: it makes every committed Codex record
+  (0.162.1, 0.164.0, 0.165.0) refuse at launch (`record_tier_unearned`), a change to what the
+  adapter refuses (full tier). A launch refusal on a mismatched policy: the same. A clause in
+  `check-adapters.py`: the start suite's runner talks only to `buddy-adapter`, and none of its
+  evidence records the `thread/start` reply, so the clause would read a file no runner writes.
+
+**Open (what an operator-run admission of 0.169.0 still owes).**
+- The start suite has to capture the native `thread/start` reply, with a frame observer like the
+  ones `qualify-uncertain.py` and `qualify-interrupted.py` use. Its checker then holds
+  `sandbox.type` to the requested mode (`readOnly` for `read-only`, `workspaceWrite` with the
+  worktree among `writableRoots` for `workspace-write`) and `activePermissionProfile` as observed.
+  That is a runner change, qualified only by running it.
+- A live inspect on the admitted build: the `thread/turns/list` reply under `notLoaded`, its size on
+  a long thread, and the method's answer on each admitted build, none of which is measured here.
+- `check-interrupted.py` refuses an adapter `thread/read` or `thread/turns/list` frame in a reconcile
+  wire. Inspect now sends both, so a suite that adds an inspect to that wire is refused, as a
+  `thread/read` there already was.
+- `thread/read` with `includeTurns` is documented as deprecated in 0.169.0 in favour of
+  `thread/turns/list` and `thread/items/list`, both in the stable schema with `limit`. A bounded
+  `reconcile` (withdrawn, D-075) could use them once qualified.
+
+**Tests.** `internal/harness/codex_test.go`: the request's exact params and no `thread/sample`
+anywhere on the wire, over four thread/turn status pairs; a method-not-found and an invalid-params
+rejection keep `{busy, "active"}`, positive control the first test; an unanswered read is `unknown`
+with an error, not the fallback; eight reply shapes (an empty page, an id with a newline, an id
+with a control byte, a 129-byte id, a 128-byte id carried, an unknown status, two turns, a
+non-page) and `{}`, `null`, `{"data":null}`, each carrying nothing beside the empty page's `no
+turn listed`. `cmd/buddy-adapter/main_test.go`: the fake Codex answers `thread/turns/list`, and the
+adapter's inspect receipt carries `{busy, "active; latest turn turn-1 inProgress (progress, not
+completion)"}`. Mutation, in a private rsync'd copy: 10 of 10 killed (no fallback; fallback on any
+error; progress moving state; no id check; no status enum; no page-length check; `itemsView`
+`summary`; `limit` 0; a 129-byte id allowed; a null `data` read as an empty page, killed by the
+three null-shape cases' assertions, not a panic).
+
+**Review** (lite): a scoped adversarial self-review raised 5 and fixed 2 (this entry cited D-077 for
+reconcile's withdrawal, which is D-075's; an unused record line in the fake Codex). It answered 3:
+a server that never answers `thread/turns/list` costs one inspect the 30 s control deadline, as
+any unanswered request does; the admitted builds' params are unverified, hence the fallback and
+Open; `check-interrupted.py`'s wire rule is under Open. One Codex code pass, xhigh,
+`CODEX_CHARTER=adapter`, over `98ed357..992cd66`, raised 2. (1) A timed-out turns/list leaves the
+receipt's last event state beside `error`. ANSWERED: that is the controller's design for any failed
+inspect (it never overwrites the stream's state), unchanged here; changing it changes every
+harness's receipt, and the wording above now says so. (2) `{}`, `null` and `{"data":null}` read as
+an empty page. FIXED: `data` must be an explicit array, with the three shapes tested and the
+mutant killed. One round, as the tier says.
+
+### Where it lives
+- code: `internal/harness/codex.go` (`Inspect`, `latestTurn`, `codexPlainTurnID`,
+  `codexRPCError`, the `inspect` capability)
+- tests: `internal/harness/codex_test.go`, `cmd/buddy-adapter/main_test.go`
+- docs: `docs/USAGE.md` "Control and approval channels"
+- index: CLAUDE.md § Decisions, the "Codex, adapter" line
+- evidence: this entry (the generated schemas were scratch; regenerate with
+  `codex app-server generate-ts --experimental --out <dir>` on 0.169.0)

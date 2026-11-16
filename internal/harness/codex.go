@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -78,6 +79,13 @@ type codexReply struct {
 	err    error
 }
 
+// codexRPCError is the server's own error reply to a request: the request
+// reached it and was answered, unlike a transport loss or a timeout, whose
+// outcome is unknown. Inspect tells the two apart (D-197).
+type codexRPCError struct{ raw json.RawMessage }
+
+func (e *codexRPCError) Error() string { return "Codex RPC rejected request: " + string(e.raw) }
+
 type codexEnvelope struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
@@ -126,7 +134,7 @@ func (c *codexBackend) Capabilities() Capabilities {
 	return Capabilities{
 		"start":                  {Support: "experimental", Reason: "Codex app-server v2 contract (" + codexAdapterContract + ") for exactly the admitted packages; launched workers only"},
 		"send":                   {Support: "experimental", Reason: "turn/start or exact-turn turn/steer; native acceptance is not worker acknowledgement"},
-		"inspect":                {Support: "experimental", Reason: "thread/read runtime status; not a ledger or validation verdict"},
+		"inspect":                {Support: "experimental", Reason: "thread/read runtime status, plus the latest turn's id and status from thread/turns/list (limit 1, itemsView notLoaded), progress only, never completion; the turns/list read is fixture-tested and unadmitted on 0.169.0, and a rejected one keeps the thread/read answer; not a ledger or validation verdict"},
 		"reconcile":              {Support: "unsupported", Reason: "the 0.160.0 history read (thread/read includeTurns) is unbounded; an oversized reply would end the live worker's transport, and a paged read is not qualified"},
 		"resume":                 resume,
 		"interrupt":              {Support: "experimental", Reason: "turn/interrupt with explicit native thread and turn IDs"},
@@ -413,7 +421,82 @@ func (c *codexBackend) Inspect(ctx context.Context, nativeID string) (Observatio
 		return Observation{State: "unknown"}, errors.New("Codex inspect reply has a mismatched native thread ID")
 	}
 	// Read-only inspection never overwrites newer event-stream state.
-	return Observation{State: codexState(result.Thread.Status.Type), Detail: result.Thread.Status.Type}, nil
+	obs := Observation{State: codexState(result.Thread.Status.Type), Detail: result.Thread.Status.Type}
+	progress, err := c.latestTurn(ctx, nativeID)
+	if err != nil {
+		var rejected *codexRPCError
+		if errors.As(err, &rejected) {
+			// A build without the method (or with other params) rejects the
+			// request: that is today's answer, never an error or a refusal.
+			return obs, nil
+		}
+		return Observation{State: "unknown"}, err
+	}
+	if progress != "" {
+		obs.Detail += "; " + progress
+	}
+	return obs, nil
+}
+
+// latestTurn is inspect's bounded progress read (D-197, #106). The issue
+// proposed 0.169.0's thread/sample; its schema refutes that: thread/sample is
+// experimental-only and runs a NEW model response over the thread from a
+// required prompt, replying with assistant text the schema does not bound. An
+// inspect built on it would spend a provider request per look and put model
+// text, steered by the worker's untrusted context, into an observation. What
+// inspect wants is the latest turn's id and status: the stable
+// thread/turns/list with limit 1, newest first, itemsView notLoaded, which
+// returns one Turn without its items (the string is in the 0.162.1, 0.164.0
+// and 0.165.0 binaries; its params there are not schema-checked, hence the
+// fallback above). The status is reported as PROGRESS in Detail and never
+// moves State: an inProgress or completed turn is activity, not a verdict on
+// the work. Only an enumerated status and a plain id are carried; anything
+// else reports nothing, not an error. The 4 MiB frame bound stands: a server
+// that ignored notLoaded and sent a frame past it ends the transport, as any
+// oversized frame does, and no test pretends otherwise (D-197).
+func (c *codexBackend) latestTurn(ctx context.Context, nativeID string) (string, error) {
+	raw, err := c.call(ctx, "thread/turns/list", map[string]any{"threadId": nativeID, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"})
+	if err != nil {
+		return "", err
+	}
+	// Data is a pointer so that {}, null and {"data":null} carry nothing:
+	// only an explicit empty array says no turn is listed.
+	var page struct {
+		Data *[]struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &page) != nil || page.Data == nil || len(*page.Data) > 1 {
+		return "", nil
+	}
+	if len(*page.Data) == 0 {
+		return "no turn listed", nil
+	}
+	turn := (*page.Data)[0]
+	switch turn.Status {
+	case "inProgress", "completed", "interrupted", "failed":
+	default:
+		return "", nil
+	}
+	if !codexPlainTurnID(turn.ID) {
+		return "", nil
+	}
+	return "latest turn " + turn.ID + " " + turn.Status + " (progress, not completion)", nil
+}
+
+// codexPlainTurnID admits Codex's UUIDv7 turn ids and the fixtures' plain
+// spellings, and nothing that could break a line or a column (invariant 9).
+func codexPlainTurnID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./:", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // ReadTurn refuses before making any native request (F-08). The only history
@@ -672,7 +755,7 @@ func (c *codexBackend) readLoop(proc codexProcess) {
 			if ch != nil {
 				reply := codexReply{result: envelope.Result}
 				if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
-					reply.err = fmt.Errorf("Codex RPC rejected request: %s", envelope.Error)
+					reply.err = &codexRPCError{raw: append(json.RawMessage(nil), envelope.Error...)}
 				}
 				select {
 				case ch <- reply:

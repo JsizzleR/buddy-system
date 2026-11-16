@@ -2730,7 +2730,11 @@ Each stdin request supplies `schema`, a caller request `id`, `operation` and
 the complete captured `identity` object. `send` takes a queued `message_id`,
 never an assignment body; the native input is a bounded peer wake asking for
 explicit adapter-inbox retrieval. `inspect` projects native and ledger
-observations. `interrupt` requires the exact native `turn_id` and reports a
+observations. For Codex its `state` is `thread/read`'s thread status; the
+latest turn's id and status, read with `thread/turns/list` (one turn, items not
+loaded), follow in `detail` as progress and never move the state: a turn
+`inProgress` or `completed` is activity, not completed work. A server that
+rejects that read leaves today's `thread/read` answer (D-197). `interrupt` requires the exact native `turn_id` and reports a
 request, not completion. Native events carry result references and statuses;
 transport loss remains unknown, not a logical session end.
 Continuously consume adapter stdout. If a stalled consumer fills the bounded
