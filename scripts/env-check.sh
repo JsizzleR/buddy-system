@@ -115,7 +115,7 @@ worktrees-tmp|/tmp is a symlink to /private/tmp on macOS, and path checks on a w
 scratch|transcripts and harness scratch grow without bound; 4.7 GB and 6.6 GB on one machine
 sandbox|under the Claude Code Bash sandbox, worktree and integration git calls fail unless run with it off
 summaries|subagent progress summaries add an estimated 20% to subagent spend, unseen by any transcript
-code-mode|with Code Mode on the gate was measured to refuse, but mail on a background-code poll event is unmeasured
+code-mode|with Code Mode on the gate was measured to refuse; mail lost on late code output is now skipped (D-195), not re-measured live
 codex-skill-copy|a SKILL.md under ~/.agents/skills or the Codex skills directory that is not the shipped one is stale
 codex-gate|plain Codex is gated only by a hand-wired hooks.json, and an absent hook is a silent allow; only where ~/.codex exists'
 
@@ -625,15 +625,17 @@ esac
 # in a scratch repo: the gate DENIED an inner Edit of a peer-held file and an
 # inner shell apply_patch with its own reasons, the control edit went through,
 # and the inner payloads carry tool_name and file_path as the gate reads them;
-# so the gate needs no change. Still unmeasured: whether mail busy drains on a
-# background-code poll event (UserPromptSubmit, source poll_event) reaches the
-# model, or is marked delivered unread (#107). That is why this row is a WARN and
-# not a PASS: advice, so the operator decides. On is the process environment
+# so the gate needs no change. Mail (#107, D-195): measured on 2.1.325, a
+# message queued after a Stop was marked delivered unread when background
+# code's late output opened a turn (2 of 2), and a hook's context on a poll
+# event is discarded; buddy now skips those drains, but that skip has not been
+# re-measured live on an installed build. That is why this row is still a WARN
+# and not a PASS: advice, so the operator decides. On is the process environment
 # (enough on its own) or env of the user settings, the only two places Code
 # Mode reads it (a project's settings are ignored for it, per the docs).
 cv=${CLAUDE_CODE_EXPERIMENTAL_CODE_MODE:-}
-cwhy="the gate was measured to refuse inner Edit and Bash calls there (Claude Code 2.1.325, D-190); whether mail drained on a background-code poll event reaches the model is unmeasured (#107)"
-cfix="nothing to change for the gate; to rule out the mail question, start lanes without CLAUDE_CODE_EXPERIMENTAL_CODE_MODE and remove it from env of $CSET (no sudo; reversible: set it again; a session started in Code Mode resumes only with it on)"
+cwhy="the gate was measured to refuse inner Edit and Bash calls there (Claude Code 2.1.325, D-190); mail queued after a Stop was measured marked delivered unread on late code output (2 of 2), and buddy now skips those drains (D-195), not re-measured live on an installed build"
+cfix="nothing to change for the gate; to rule out the mail loss until that skip is re-measured, start lanes without CLAUDE_CODE_EXPERIMENTAL_CODE_MODE and remove it from env of $CSET (no sudo; reversible: set it again; a session started in Code Mode resumes only with it on)"
 case $cv in
 1|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|[Oo][Nn])
 	verdict WARN code-mode "Code Mode is on (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=$cv in this environment): $cwhy"

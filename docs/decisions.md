@@ -14531,3 +14531,170 @@ unrecorded verdict change). No round 2 was needed.
 - charter: GIVEN 134
 - amends: D-191 (its Open paragraph's gate-side fix, symlink and `%XX`, is made here; the
   repository side of `TestFleetDirectoryAsACommonDirIsRefused` now refuses)
+
+## D-195 — Code Mode mail (#107) MEASURED, and fixed: background code's output that lands after the turn's Stop opens a turn whose hook context never reaches the model, and a late inner call's beat marked mail delivered into it (2 of 2); busy's context on a poll_event is discarded too; so busy on `source: poll_event` and beat on a `repl_` call or a late REPL call drain nothing, as for a subagent (D-099); amends D-190
+
+2026-11-16 · issue #107. Lane codemode-107 (Opus 5.5 at high), run r1116a, under orc-2. Class code, tier lite.
+amends: D-190 (its "Mail (#107), measured only in part": now measured).
+
+**The operator's decision**, relayed in the lane's brief, said in orc-2's pane at 2026-11-16 about
+05:17Z: "yes", to ONE probe session launched with `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` on that
+launch only and `--permission-mode auto` from its start, plus the folder-trust dialog for the
+probe's scratch repo and Code Mode's first-use confirmation should it reappear. Only folder trust
+appeared ("Quick safety check ..."), answered Yes. Code Mode's confirmation did not: both
+`codeModeCaveatsAcceptedV1` and `codeModeAutoModeCaveatAcceptedV1` were already `true` in
+`~/.claude.json` before the launch (D-190's probe). Afterwards `~/.claude.json` holds a new
+`projects["<scratchpad>/cmprobe/repo"].hasTrustDialogAccepted: true`, beside D-190's own entry for
+its scratch repo. The operator removes these or keeps them; the lane left them.
+
+**The probe** (D-190's recipe). Claude Code 2.1.325, Sonnet 5.5. A scratch repo outside this one
+with its own `git init` and `buddy init` ledger; ONE interactive session in a herdr tab: `env -u
+CLAUDE_CODE_SESSION_ID -u CODEX_THREAD_ID CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --settings
+<scratch>/probe-settings.json --session-id <uuid> --model claude-sonnet-5-5 --permission-mode auto`.
+Startup: "Code Mode (experimental) is on", "auto mode on". The settings file added recorders on
+UserPromptSubmit, Stop, SessionStart, and PreToolUse/PostToolUse matcher `*`: each appended the raw
+payload (later also the scratch ledger's delivered message ids, read at the hook's own start) and
+exited 0. The user settings' buddy hooks loaded unchanged. Messages were queued with `buddy msg
+<probe id> --from probe-driver "<token>"` from the scratch repo; delivery read with `buddy sent N`.
+
+**How background code works there** (the REPL tool's own description, quoted by the probe, and the
+recorded payloads). In auto a REPL call only dispatches its script and returns `(dispatched #N)`;
+the harness then adds a `Poll` call to the same reply, which waits until the script ends or
+something else arrives. A script's result comes back as Poll's tool result: `<event
+kind="repl-eval" eval="N">` with its `<log>` and `<result>`/`<error>`. A shell command a script
+starts without awaiting runs on after the script returns; what its `.then(self.log)` logs arrives
+later as late output under the same eval number, and when the turn has already ended, "results
+start your next turn when they land". Script time is capped at 30 s (inner tool calls excluded):
+an awaited 90 s timer failed with "REPL execution timed out after 30000ms of script time".
+
+**Measured.**
+- The positive control: eleven UserPromptSubmit payloads with `"source": "poll_event"`, each
+  carrying the turn's `prompt_id` and, as `prompt`, the event markup; none of the ten typed prompts'
+  payloads has a `source`. In a live turn the poll_event fired inside the harness-added Poll call
+  (PreToolUse Poll, UserPromptSubmit poll_event, PostToolUse Poll, within ~50 ms); the turn an
+  after-Stop output opens carries a synthetic Poll that fired no tool hook. Either way the model
+  receives the event as Poll's tool result, never as a prompt.
+- Order, at every poll event: the REPL call's own PostToolUse fires when its script SETTLES, not at
+  dispatch, after any inner call's PostToolUse, and ~20 ms before the poll_event UserPromptSubmit.
+- A typed prompt (contrast): busy drained message #1; the model quoted its token, and the
+  transcript holds a `hook_additional_context` attachment from UserPromptSubmit.
+- Code that finishes while the turn is live: a message queued during a 25 s awaited inner shell was
+  drained by beat on the inner Bash PostToolUse (#7); one queued during a 20 s pure-JS wait was
+  drained by beat on the REPL's PostToolUse (#9). The model quoted both ("PostToolUse:Bash hook
+  additional context", "PostToolUse:REPL ..."). No loss.
+- Code whose output lands AFTER the turn's Stop (an un-awaited `$` shell with `.then(self.log)`;
+  Stop's payload showed `background_tasks: [{type: "code", status: "running"}]`), a message queued
+  after that Stop: LOST, twice in two runs (#3, 75 s shell; #8, 45 s shell). Each was recorded
+  delivered in the second the late output landed; the model, asked to quote everything that came
+  with the output, answered "BUDDY MESSAGES lines: NONE", and neither token is anywhere in the
+  transcript. The late turn's events: PostToolUse Bash (the inner call, `tool_use_id` `repl_...`,
+  `prompt_id` of the turn whose Stop already ran), PostToolUse REPL (`tool_response.late: true`,
+  the same old `prompt_id`), UserPromptSubmit poll_event, then a Stop under a NEW `prompt_id`.
+- Which hook drained it (#8): the ledger read at each recorder's start showed it undelivered at
+  the inner Bash PostToolUse and delivered by the REPL PostToolUse 25 ms later, so beat drained it.
+  Replayed by hand against the scratch ledger, beat on each late PostToolUse payload and busy on the
+  poll_event payload each drained a fresh message.
+- #107 as asked: the scratch recorder (its script, not a settings file) then emitted
+  `additionalContext` "RECMARK-<time>" on every poll_event UserPromptSubmit. Neither marker, the
+  in-turn one nor the after-Stop one, is in the transcript or the model's quote. A UserPromptSubmit
+  hook's context on a poll_event is discarded. busy was never first to find mail in these runs
+  (a PostToolUse beat precedes it by ~20 ms), but whatever it drains there is lost.
+- Side finding: the operator's own background-run hook denies an inner `$` call that carries a
+  timeout (Code Mode's `$(cmd, ms)` sends it as the Bash `timeout`); the denied call's `.then`
+  never runs, so its late output never comes. The first late-output attempt was this, not a loss.
+
+So the loss #107 predicted is real, and wider than it said: D-099's class (mail marked delivered
+into a context that is not the session's), reached by beat on a late PostToolUse as well as by busy
+on a poll_event, only when background code's output lands after the turn's Stop.
+
+**The fix** (orc-2's ruling on an independent Fable read of the measurement, relayed by `buddy msg`
+at 05:37Z; the orchestrator's decision, not the operator's word). Stateless, D-099's guard shape:
+- `busy`: a UserPromptSubmit with `source: poll_event` retracts the idle mark (home and, beside it,
+  the fleet's, D-193) and returns before anything is composed: no drain, no unreadable fleet's
+  line (it repeats at the next typed prompt), and no handoff line,
+  since `HandoffTell` claims its step while the note is composed and a discarded document would
+  silence that step for good.
+- `beat`: a PostToolUse whose `tool_use_id` starts `repl_`, or a REPL call whose
+  `tool_response.late` is true, is treated as a subagent's call: heartbeat, claim renewal, footprint, browser count and
+  the dirty-path warning stand; no drain, no authority or LANDED notice, here or in the fleet
+  beside (`beatBeside`), and it sits above `drainBoth`.
+- `hookInput` gains `source`, `tool_use_id` and `tool_response`, all three raw (`rawString` reads
+  the first two): the struct is the gate's decoder too, and a typed field fails the whole decode,
+  which there is a DENY, on a value of another shape; a tool's response is an object for Bash and
+  REPL but a string or an array elsewhere.
+
+Before coding, the recorder log answered the ruling's question: a LATE inner call's
+`tool_use_id` is `repl_`-prefixed in auto (3 of 3; D-190 saw it under acceptEdits), with no `late`
+field; `late: true` is on the late REPL PostToolUse only (3 of 3), never on a REPL call that
+settles in its turn. So both measured late drains are closed by a payload key. The cost: an inner
+call inside a live turn also drains nothing now (it did reach the model, #7), so its mail waits
+for the REPL call's own PostToolUse when the script settles (#9's path), a delay of the script's
+length; the payload cannot tell an in-turn inner call from a late one.
+
+**Considered and cut.** busy alone: misses the measured loss, whose drainer was beat. Keying beat on
+the idle mark: `BeatFrom` deletes it before the drain, so the late inner Bash beat clears it and
+the late REPL beat 25 ms later drains (#8's order), a background subagent's beat after a Stop
+clears it too, and keeping it through beat breaks sessions with no `busy` wired and Stop-held
+turns. Keying on a stopped turn's `prompt_id` (a late PostToolUse carries the turn whose Stop
+ran): needs a `session_idle` column, a schema bump, full tier; out of this item.
+
+**Tests** (`internal/cli/codemode_test.go`). `TestCodeModeOutputDrainsNothing`, table-driven on
+the recorded shapes: the late inner Bash, the late REPL and the poll event write nothing and
+leave the message queued (beat still the heartbeat), each followed by the positive control that
+the next main-thread beat delivers it; the controls that drain are a REPL call settling in its
+turn, an ordinary call, `late: false`, `late` not a bool, `late` on another tool, a string and an
+array response, `repl_` not at the start of the id, a `tool_use_id` and a `source` that are not
+strings, a typed prompt and a prompt with another source. `TestPollEventKeepsTheHandoffLine`,
+`TestPollEventRetractsTheIdleMark`, `TestPollEventRetractsBothIdleMarks` (both ledgers; control:
+the Stop's own marks), `TestPollEventWritesNoFleetLine` (control: the typed prompt names the
+missing fleet) and `TestGateDecodesCodeModeFieldsOfAnyShape` (an object `source`, a number
+`tool_use_id`, a bool `tool_response` leave an unclaimed write allowed; control: a payload the
+gate cannot decode is refused). Mutation, in a private rsync'd copy: 13 of 13 killed (busy's guard off;
+busy's guard after the handoff note; the fleet retraction off; the fleet line written on a poll
+event; beat's guard off; the `repl_` arm off; the `late` arm off; the `late` arm on any tool;
+`HasPrefix` to `Contains`; any source a poll; an undecodable response counted late; `source` and
+`tool_use_id` typed as strings). The first run's busy-guard mutant matched the fleet-line guard's
+text first, so it was rerun aimed at `busyTurn` and killed.
+
+**Open.**
+- Not re-measured live: that needs this build installed, which a lane does not do. A re-check
+  repeats the after-Stop trial above on an installed build and finds the message delivered by the
+  late turn's Stop hold or the next prompt, with its token quoted.
+- The Stop hold (D-099) is not measured under Code Mode; the late turn's Stop is where the mail
+  these guards leave queued is now delivered when no tool call comes first.
+- A late inner call's dirty-path warning still prints (the subagent guard keeps it) and is marked
+  shown, so after a Stop it can be consumed unseen; advisory, once per file.
+- The keys are 2.1.325's payload shapes. A release that drops the `repl_` prefix or the `late`
+  field reopens the late drain; one that re-routes a typed prompt through `source: poll_event`
+  would stop busy's drain (beat and the Stop still deliver).
+- The env-check `code-mode` row stays WARN (orc-2): reworded to the measured loss and this skip,
+  not re-measured live; PASS only after such a probe.
+
+**Observation, outside this repo.** The operator's own background-run hook (not buddy's) denies
+an inner `$` call that carries a timeout, since Code Mode's `$(cmd, ms)` sends it as the Bash
+`timeout`, and the denied call's `.then` never runs. Recorded only; nothing there was changed.
+
+**Review** (lite): a scoped adversarial self-review raised 6 (an over-long comment line;
+the entry's claim that every poll event fires inside a recorded Poll call, false after a Stop;
+the poll-event count, 11 and not the 7 reported to orc-2 mid-run; an unreadable fleet's line
+still written on a poll event; a late inner call's dirty warning consumed unseen; busy's footprint
+resample skipped on a poll event), fixed the first 3 and answered the rest (the fleet line
+repeats at every prompt, until Codex's finding 3 cut it anyway; the dirty warning is under Open;
+the footprint is an observation the next prompt or Stop records). One Codex code pass, xhigh,
+over `0bc858c..143f1a6`, raised 3, all fixed in this commit: (1) `source` and `tool_use_id` as
+string fields made a payload with another shape fail the shared decode, a DENY in the gate
+(`"source":{}` on a Read); now raw. (2) `late: true` on a non-REPL tool suppressed its drain; the
+arm is the REPL tool's only. (3) A poll event under a missing fleet still wrote the fleet's line;
+now nothing. Each fold has its case and its killed mutant above. One round, as the tier says.
+
+### Where it lives
+- code: `internal/cli/cli.go` (`hookInput`'s `Source`, `ToolUseID`, `ToolResponse`;
+  `pollEvent`, `codeOutput`; the guard in `busyTurn`; `sub` in `cmdBeat`)
+- tests: `internal/cli/codemode_test.go`
+- docs: `docs/USAGE.md` "Mail under Code Mode (D-195)"
+- env-check: the `code-mode` row (`scripts/env-check.sh`) and its QA-9 cases
+  (`scripts/check-env-check.sh`)
+- index: CLAUDE.md § Decisions, the "Gate recognition" line, beside D-189, D-190
+- charter: GIVEN 130
+- evidence: this entry (the probe's scratch repo, ledger and recorder logs are not retained)
+- amends: D-190 (its "Mail (#107), measured only in part")

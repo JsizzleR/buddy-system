@@ -1115,6 +1115,16 @@ SessionStart a subagent's compaction fires under the session's id (it carries
 drain holds the ledger's write lock from its read to its mark, so parallel
 tool calls deliver a message once.
 
+**Mail under Code Mode (D-195).** Claude Code's experimental Code Mode runs
+hooks on background code's output, and when that output lands after the
+turn's Stop, no hook's context in the turn it opens reaches the model
+(measured on 2.1.325: two messages marked delivered unread). So `busy` on a
+prompt with `source: poll_event` only retracts the idle mark, and `beat` on a
+call a script made (`tool_use_id` `repl_…`) or on a REPL call re-reported late
+(`tool_response.late`) beats like a subagent's call and drains nothing. Mail
+waits for the next main-thread call, the REPL call's own PostToolUse when its
+script settles in its turn, or the Stop.
+
 **Re-reading a message (D-099).** `buddy inbox <id>` (or `#<id>`) re-prints
 one message addressed to you, by id, label or a broadcast that named you,
 whatever its state, fenced as a drain prints it, then one line saying whether

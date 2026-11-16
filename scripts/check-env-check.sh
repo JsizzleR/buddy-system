@@ -588,9 +588,9 @@ fi
 chmod 755 "$HOMEFX/.claude"
 printf '%s\n' "$GOODSET" > "$SET"
 
-# code-mode (D-190). Off is PASS; on, in the process environment or in env of
-# the user settings, is WARN naming the measured gate and the unmeasured mail
-# question, with the fix line. The WARN cases are the positive control that
+# code-mode (D-190, D-195). Off is PASS; on, in the process environment or in
+# env of the user settings, is WARN naming the measured gate and the measured
+# mail loss buddy now skips (not re-measured live), with the fix line. The WARN cases are the positive control that
 # the variable is read at all (QA-1's GOODSET, without it, is PASS); the
 # environment alone is enough for WARN beside a malformed file, which alone is
 # CANNOT-ASSESS. A value Code Mode would not take (0) is PASS.
@@ -600,9 +600,9 @@ row code-mode | grep -q '^\[PASS\] *code-mode *Code Mode is not on: not set in t
 $(row code-mode)"
 FX_CODEMODE=1; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEMODE
 r=$(row code-mode)
-printf '%s\n' "$r" | grep -q '^\[WARN\] *code-mode *Code Mode is on (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 in this environment): the gate was measured to refuse inner Edit and Bash calls there (Claude Code 2.1.325, D-190); whether mail drained on a background-code poll event reaches the model is unmeasured (#107)' || fail "QA-9: Code Mode on in the env must WARN:
+printf '%s\n' "$r" | grep -q '^\[WARN\] *code-mode *Code Mode is on (CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 in this environment): the gate was measured to refuse inner Edit and Bash calls there (Claude Code 2.1.325, D-190); mail queued after a Stop was measured marked delivered unread on late code output (2 of 2), and buddy now skips those drains (D-195), not re-measured live on an installed build' || fail "QA-9: Code Mode on in the env must WARN:
 $r"
-printf '%s\n' "$r" | grep -qF "fix: nothing to change for the gate; to rule out the mail question, start lanes without CLAUDE_CODE_EXPERIMENTAL_CODE_MODE and remove it from env of $SET (no sudo; reversible: set it again; a session started in Code Mode resumes only with it on)" || fail "QA-9: the code-mode fix line:
+printf '%s\n' "$r" | grep -qF "fix: nothing to change for the gate; to rule out the mail loss until that skip is re-measured, start lanes without CLAUDE_CODE_EXPERIMENTAL_CODE_MODE and remove it from env of $SET (no sudo; reversible: set it again; a session started in Code Mode resumes only with it on)" || fail "QA-9: the code-mode fix line:
 $r"
 [ "$rc" -eq 0 ] && [ -z "$(shape "$out")" ] || fail "QA-9: a code-mode WARN (rc=$rc) shape:$(shape "$out")"
 FX_CODEMODE=On; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_CODEMODE

@@ -475,6 +475,66 @@ type hookInput struct {
 		NotebookPath string `json:"notebook_path"`
 		Command      string `json:"command"`
 	} `json:"tool_input"`
+	// Source, ToolUseID and ToolResponse are read for ONE question: is this
+	// event Code Mode's code output (codeOutput, pollEvent; D-195)? Source is
+	// also SessionStart's word (startup, resume ...), which nothing here reads.
+	// ALL THREE STAY RAW, because this struct is the gate's decoder too: a
+	// typed field fails the whole decode on a value of another shape, and a
+	// failed decode is a DENY (Codex code pass: `"source":{}` on a Read turned
+	// an allow into "cannot unmarshal object into ... hookInput.source"). A
+	// tool response's shape is the tool's (an object for Bash and REPL, a
+	// string or an array elsewhere); the other two are strings in every
+	// payload seen, and rawString reads anything else as "".
+	Source       json.RawMessage `json:"source"`
+	ToolUseID    json.RawMessage `json:"tool_use_id"`
+	ToolResponse json.RawMessage `json:"tool_response"`
+}
+
+// rawString is a raw JSON value read as a string, "" when it is absent or
+// not a string.
+func rawString(r json.RawMessage) string {
+	var s string
+	if json.Unmarshal(r, &s) != nil {
+		return ""
+	}
+	return s
+}
+
+// pollEvent says this UserPromptSubmit is Code Mode's code output, not a
+// prompt: the harness runs UserPromptSubmit hooks on what background code
+// produces, with `source: poll_event` (measured, Claude Code 2.1.325: 11
+// recorded; none of 10 typed prompts carried a source). The model receives
+// that output as a Poll tool's result, and a hook's additionalContext on it
+// is DISCARDED, in-turn and after a Stop alike (a marker emitted on every one
+// never reached the transcript; D-195). So busy writes nothing there, not
+// even an unreadable fleet's line (cmdBusy): it repeats at every prompt, so
+// the next typed one carries it.
+func (h hookInput) pollEvent() bool { return rawString(h.Source) == "poll_event" }
+
+// codeOutput says this PostToolUse is one Code Mode may fire after the turn
+// that owns it has ended, when a script's late output starts a new turn
+// (D-195, 2.1.325, 3 of 3 each): the inner call a script made (its
+// tool_use_id is `repl_<uuid>`, where a model's own call is `toolu_...`), or
+// the REPL call itself re-reported for that late output (tool_response.late
+// is true; never on a REPL call that settles in its turn). Measured: a message
+// queued after the Stop was drained there, by the late inner call's beat, and
+// the model never saw it (2 of 2). An inner call's PostToolUse inside a live
+// turn does reach the model, but the two cannot be told apart from the
+// payload, so every inner call is treated alike: its turn's REPL PostToolUse,
+// when the script settles, delivers the mail instead, a delay of the script's
+// length. The late arm is the REPL tool's only (Codex code pass): another
+// tool's response that happens to say late:true is that tool's business.
+func (h hookInput) codeOutput() bool {
+	if strings.HasPrefix(rawString(h.ToolUseID), "repl_") {
+		return true
+	}
+	if h.ToolName != "REPL" {
+		return false
+	}
+	var r struct {
+		Late bool `json:"late"`
+	}
+	return json.Unmarshal(h.ToolResponse, &r) == nil && r.Late
 }
 
 // subagent says the hook fired inside a subagent: Claude Code adds agent_id
@@ -2271,6 +2331,9 @@ func cmdBusy(args []string, env Env) error {
 		return nil
 	}
 	if line := fleetLine(err); line != "" {
+		if h.pollEvent() {
+			return nil // discarded there; the next prompt says it (D-195)
+		}
 		// THE LINE AT EVERY PROMPT (D-191, the plan's 5.2; Codex pass over
 		// the plan, finding 2). A fleet that opened at SessionStart and was
 		// removed or went unreadable an hour later would otherwise stop
@@ -2304,6 +2367,21 @@ func busyTurn(st *store.Store, rc repoContext, fb *fleetBeside, h hookInput, env
 	}
 	// No subagent event opens a turn today; the guard is beat's (D-099).
 	if h.subagent() {
+		return false, nil
+	}
+	// Code Mode's code output (D-195): the idle mark is retracted, since the
+	// session is working, and nothing is written. A document here is
+	// discarded, so its mail would be marked delivered unread, and even the
+	// handoff line would be lost: HandoffTell claims its step while the note
+	// is composed. Mail waits for the next main-thread tool call or the
+	// Stop's hold (D-099; that hold is not yet measured under Code Mode). The
+	// fleet beside (D-193) gets the same retraction.
+	if h.pollEvent() {
+		if fb.ok() {
+			if err := fb.st.ClearIdle(h.SessionID); err != nil {
+				fb.fail(err)
+			}
+		}
 		return false, nil
 	}
 	me, known, err := st.SessionByID(h.SessionID)
@@ -2484,7 +2562,12 @@ func cmdBeat(args []string, env Env) error {
 	// one-shot notice addressed to the session (authority, LANDED). The
 	// dirty-path warning still shows: it is about the file THIS call
 	// touched, and the subagent is the one editing it.
-	sub := h.subagent()
+	//
+	// CODE MODE'S CODE OUTPUT (D-195) takes the same guard, for the same
+	// reason: a late inner call's beat drained a message the model never saw
+	// (measured, 2 of 2). The flag reaches beatBeside as well, so the fleet's
+	// LANDED line is spared too.
+	sub := h.subagent() || h.codeOutput()
 	if known && me.Live() && h.Harness != "codex" {
 		if u, ok := lastUsage(h.TranscriptPath); ok {
 			// sampleOfUsage, as Stop and busy record it: the declared handoff
