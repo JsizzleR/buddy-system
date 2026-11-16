@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 type codexProcess interface {
@@ -73,6 +75,11 @@ func (c *codexBackend) observeRenewals(m *renewalMailbox) {
 	c.renewals = m
 	c.mu.Unlock()
 }
+
+// codexStatusCap bounds the thread status type inspect carries into Detail.
+// The native values are short identifiers; 64 is the label/room cap
+// (invariant 9) and leaves room for one a later build adds.
+const codexStatusCap = 64
 
 type codexReply struct {
 	result json.RawMessage
@@ -420,8 +427,15 @@ func (c *codexBackend) Inspect(ctx context.Context, nativeID string) (Observatio
 	if err := json.Unmarshal(raw, &result); err != nil || result.Thread.ID != nativeID {
 		return Observation{State: "unknown"}, errors.New("Codex inspect reply has a mismatched native thread ID")
 	}
-	// Read-only inspection never overwrites newer event-stream state.
-	obs := Observation{State: codexState(result.Thread.Status.Type), Detail: result.Thread.Status.Type}
+	// Read-only inspection never overwrites newer event-stream state. The
+	// status type is the server's free string, and it is Detail's first
+	// words: unfenced, a newline in it forged a receipt line and its length
+	// was the server's to pick, while only the progress suffix below was
+	// held to a charset (Fable cross-check of D-197). It goes through the
+	// one fence, bounded; the native values are short identifiers (idle,
+	// active, notLoaded, systemError), and State reads the raw value, which
+	// it only ever compares.
+	obs := Observation{State: codexState(result.Thread.Status.Type), Detail: fence.Line(result.Thread.Status.Type, codexStatusCap)}
 	progress, err := c.latestTurn(ctx, nativeID)
 	if err != nil {
 		var rejected *codexRPCError

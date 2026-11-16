@@ -787,3 +787,29 @@ func TestCodexInspectCarriesOnlyPlainProgress(t *testing.T) {
 		})
 	}
 }
+
+// The thread status type is the server's string and leads Detail, so it is
+// fenced and bounded like any untrusted value read back (invariant 9): a
+// newline in it cannot forge a receipt line, and its length is not the
+// server's to pick. State still reads the raw value, so a forged status is
+// unknown. The plain status is the positive control: the fence leaves it be.
+func TestCodexInspectFencesThreadStatus(t *testing.T) {
+	rejected := map[string]any{"code": -32601, "message": "unknown method thread/turns/list"}
+	for name, tc := range map[string]struct {
+		status string
+		want   Observation
+	}{
+		"plain status untouched": {"active", Observation{State: "busy", Detail: "active"}},
+		"newline in status":      {"idle\nFAKE row", Observation{State: "unknown", Detail: "idle⏎FAKE row"}},
+		"overlong status":        {strings.Repeat("s", 200), Observation{State: "unknown", Detail: strings.Repeat("s", codexStatusCap) + "…[truncated]"}},
+		"escape in status":       {"idle\x1b[2J", Observation{State: "unknown", Detail: "idle[2J"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, _, id := codexInspectWith(t, tc.status, nil, rejected, false)
+			obs, err := c.Inspect(context.Background(), id)
+			if err != nil || obs != tc.want {
+				t.Fatalf("inspect %#v %v, want %#v", obs, err, tc.want)
+			}
+		})
+	}
+}
