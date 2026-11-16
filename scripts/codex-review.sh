@@ -49,7 +49,16 @@
 #     runs (header and echoed prompt within 1 s); only the reply comes at the end. This
 #     script still writes the out-file (reply and status) and <out-file>.transcript
 #     (codex's captured stdout and stderr) only after codex exits.
-#  2. `< /dev/null`. Without it codex can hang reading stdin.
+#  2. STDIN IS THE PROMPT FILE, never inherited, and the prompt is never an argv string.
+#     codex appends a piped stdin to an argv prompt, so an inherited stdin nobody closes
+#     can hang it; that is why this was `< /dev/null` with the prompt as ONE argv string.
+#     That string broke on Linux: execve refuses any one argument over MAX_ARG_STRLEN
+#     (131072 bytes) with E2BIG, the shell exits 126 and nothing runs (CI on 0bc858c,
+#     #108: a 131,952-byte all-parts prompt; macOS has no per-argument cap, so the local
+#     tier never saw it). Now `-` names stdin as the prompt and the folded prompt FILE is
+#     redirected in: a regular file reaches EOF, so the hang's cause cannot occur, and no
+#     argv string grows with the prompt (D-196, amends this item; D-157's foreground rule
+#     is untouched).
 #  3. MODEL AND EFFORT PINNED, and the run header VERIFIED rather than eyeballed.
 #     A silent downgrade turns a cross-model review into a same-family one — that is not
 #     a weaker gate, it is no gate at all, and it fails silently. The service TIER is
@@ -58,7 +67,9 @@
 #     it. The status line says `tier=<tier>(requested)`.
 #  4. ASCII-FOLDED prompt. macOS pgrep/pkill abort with "illegal byte sequence" on a
 #     UTF-8 pattern, so a prompt containing an em dash cannot be killed by `pkill -f` —
-#     you believe you cleaned up and you did not.
+#     you believe you cleaned up and you did not. Since D-196 the prompt is not in
+#     codex's argv, so that pattern no longer carries it; the fold stays, and with it
+#     check-charter.sh's check, through the same table, on what the reviewer reads (A5).
 #  5. NO CONCURRENT RUNS above a cap. Stacking codex processes is how one wedged run
 #     becomes four, and how "codex is too slow" gets recorded as an environment fact.
 #  6. A WATCHDOG, and what to do when it fires: cut the prompt's scope (it prints that,
@@ -463,7 +474,8 @@ echo "codex-review: model=$MODEL effort=$EFFORT tier=$TIER(requested) budget=${B
 # The caller's half of (1), beside the budget it has to cover (Codex report A7).
 echo "codex-review: the caller runs this in the FOREGROUND with a 600000 ms tool timeout: Claude Code's Bash tool backgrounds a call past its 120 s default, and a backgrounded pass can wedge (D-157)" >&2
 
-# (1)(2)(6) Foreground, stdin closed, watchdog.
+# (1)(2)(6) Foreground, stdin the prompt file, watchdog. perl and the child it forks
+# inherit that stdin, and `exec @ARGV` hands it to codex, which reads `-` from it.
 #
 # The fork+setpgid+TERM->KILL form, NOT `alarm; exec`. The simpler form is a measured
 # NO-OP against a Go child, because Go ignores an uncaught SIGALRM — and its verdict was
@@ -498,7 +510,7 @@ perl -MPOSIX -e '
 ' "$BUDGET" \
   codex exec -s read-only -m "$MODEL" -c model_reasoning_effort="$EFFORT" \
   -c service_tier="$TIER" -o "$TMP/reply" \
-  "$(cat "$TMP/prompt")" < /dev/null > "$TMP/out" 2>&1
+  - < "$TMP/prompt" > "$TMP/out" 2>&1
 rc=$?
 T1=$(date +%s)
 set -e

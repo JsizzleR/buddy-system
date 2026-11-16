@@ -46,3 +46,7 @@ main charter does (D-128, D-147). The chosen set and why the rest stay in full: 
     it per item. At the ceiling the lane folds narrowly, answers the rest in the commit, and
     records it open (D-106's folds regressed). Do not propose
     re-verifying "until it accepts" without a named ceiling.
+136. **`codex-review.sh` hands codex the prompt on stdin (`-`, the folded prompt file
+    redirected in), never as an argv string (D-196).** Linux's execve refuses one argument
+    over 131072 bytes (E2BIG, exit 126); macOS has no such cap. A file reaches EOF, so the
+    old `< /dev/null` hang cannot recur. Do not propose: the prompt back on argv.

@@ -4,7 +4,9 @@ WHY. macOS pgrep/pkill abort with "illegal byte sequence" on a UTF-8 pattern, so
 prompt carrying an em dash in a live run's argv cannot be matched or killed by
 pattern (codex-review.sh, its item 4; D-122). Every non-ASCII character therefore
 leaves as ASCII: the ones the charter and prompts use get a readable spelling here,
-and anything else becomes `?` through encode("ascii", "replace").
+and anything else becomes `?` through encode("ascii", "replace"). Since D-196 the
+prompt reaches codex on stdin, not argv, so that pattern no longer carries it; the
+fold stays, and with it the check below on what the reviewer reads.
 
 That fallback is lossy, and it lied once: `fence.Field` renders a space as `␣` and an
 empty result as `∅`, the two GIVENs about that package said so, and the table had

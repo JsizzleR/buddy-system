@@ -45,6 +45,16 @@ cat > "$T/bin/codex" <<'STUB'
 # Stub codex: STUB_MODE picks the run; every launch is logged to $STUB_LOG.
 [ "${1:-}" = exec ] || exit 64
 [ "${2:-}" = busy ] && { sleep 60; exit 0; }
+# Linux's execve refuses any ONE argument over MAX_ARG_STRLEN (131072 bytes, NUL
+# included) with E2BIG, and the shell then exits 126 having run nothing (#108, D-196);
+# macOS has no per-argument cap. The stub refuses the same way on every platform, so a
+# prompt that rides argv fails here on the machine that would have passed it. BEFORE the
+# launch is logged: a refused exec launched nothing, and a case's launch count must say
+# so (Fable cross-check).
+argmax=0 LC_ALL=C
+for a; do [ ${#a} -le "$argmax" ] || argmax=${#a}; done
+echo "$argmax" > "$STUB_LOG.argmax"
+[ "$argmax" -lt 131072 ] || { echo "stub codex: Argument list too long (an argument of $argmax bytes)" >&2; exit 126; }
 echo launched >> "$STUB_LOG"
 echo $$ > "$STUB_LOG.pid"
 # Like real codex, the header echoes what argv asked for (-m, -c model_reasoning_effort),
@@ -56,7 +66,13 @@ for a; do
   case $prev$a in -cmodel_reasoning_effort=*) effort=${a#model_reasoning_effort=} ;; esac
   prev=$a prompt=$a
 done
-printf '%s' "$prompt" > "$STUB_LOG.prompt"
+# Like real codex, `-` reads the prompt from stdin; any other last word IS the prompt.
+# The route is recorded, so a check can tell a prompt on stdin from one on argv.
+if [ "$prompt" = - ]; then
+  echo stdin > "$STUB_LOG.via"; cat > "$STUB_LOG.prompt"; prompt=$(cat "$STUB_LOG.prompt")
+else
+  echo argv > "$STUB_LOG.via"; printf '%s' "$prompt" > "$STUB_LOG.prompt"
+fi
 rc=0 sleep=0 write=1 nomodel=0
 case ${STUB_MODE:-ok} in
   ok) ;;
@@ -110,6 +126,9 @@ fail() { echo "check-codex-review: FAIL $*" >&2; fails=$((fails + 1)); }
 run() {
   _n=$1 _want=$2 _out=$3; shift 3
   : > "$T/log"
+  # The route and argv records are per launch: one left by an earlier case would let
+  # onstdin pass a case whose launch never recorded either.
+  rm -f "$T/log.via" "$T/log.argmax"
   set +e
   ( cd "${RUNDIR:-$T/repo}" && env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 "$@" \
     sh "$SCRIPT" "${PROMPT:-$T/prompt}" "$_out" > "$T/stdout.$_n" 2> "$T/stderr.$_n" )
@@ -123,6 +142,13 @@ rows() { if [ -f "$REC" ]; then grep -c . "$REC"; else echo 0; fi; }
 # lastrow <field-number>... — those fields of the record's last row, space-joined.
 lastrow() { tail -1 "$REC" | awk -F '\t' -v want="$*" 'BEGIN { n = split(want, w, " ") } { for (i = 1; i <= n; i++) printf "%s%s", $w[i], (i < n ? " " : "\n") }'; }
 has() { grep -qF -- "$2" "$1"; }
+# onstdin <name> -- the last launch read its prompt from stdin (`-`) and no argv string
+# came near the prompt's size (D-196). 4096: the longest word the script itself passes
+# is a temp path or a pinned `-c` value, well under it.
+onstdin() {
+  [ "$(cat "$T/log.via" 2>/dev/null)" = stdin ] || fail "$1: the prompt reached codex on $(cat "$T/log.via" 2>/dev/null || echo nothing), want stdin"
+  [ "$(cat "$T/log.argmax" 2>/dev/null || echo 999999)" -lt 4096 ] || fail "$1: an argv string of $(cat "$T/log.argmax") bytes reached codex"
+}
 stale() { echo "SENTINEL-7f3a old verdict from an earlier pass" > "$1"; echo "SENTINEL-7f3a old transcript" > "$1.transcript"; }
 # charter_of <parts-word> — the charter those parts make, unfolded, in the script's order
 # (adapter, install, testinfra, process; D-128, D-147, D-158).
@@ -146,6 +172,7 @@ prefix_is() {
 O=$T/out/ok.txt; stale "$O"
 run ok 0 "$O" CODEX_NO_CHARTER=0
 [ "$launched" -eq 1 ] || fail "ok: stub launched $launched times, want 1"
+onstdin ok
 [ "$(first "$O")" = "REPLY: one finding. model: gpt-6-astra" ] || fail "ok: first line is '$(first "$O")', want the reply"
 has "$O" SENTINEL-7f3a && fail "ok: the stale verdict survived a pass that ran"
 has "$O.transcript" SENTINEL-7f3a && fail "ok: the stale transcript survived a pass that ran"
@@ -262,7 +289,18 @@ for v in core:core+install+testinfra adapter:core+adapter+install+testinfra proc
   case $parts in *adapter*) [ $a = 1 ] || fail "parts-$val: the adapter file did not reach codex" ;; *) [ $a = 0 ] || fail "parts-$val: the adapter file reached codex unasked" ;; esac
   case $parts in *process) [ $p = 1 ] || fail "parts-$val: the process file did not reach codex" ;; *) [ $p = 0 ] || fail "parts-$val: the process file reached codex unasked" ;; esac
   prefix_is "parts-$val" "$parts"
+  onstdin "parts-$val"
 done
+
+# --- a prompt over Linux's per-argument cap (#108, D-196): CI's all-parts prompt was
+# 131,952 bytes and exited 126 on argv. On stdin it runs, and arrives byte for byte. ---
+awk 'BEGIN { for (i = 0; i < 2200; i++) printf "line %04d of a prompt over MAX_ARG_STRLEN; 71 bytes, newline included.\n", i }' > "$T/big"
+[ "$(wc -c < "$T/big")" -gt 131072 ] || fail "big: the fixture is $(wc -c < "$T/big") bytes, not over the cap"
+O=$T/out/big.txt
+PROMPT=$T/big; run big 0 "$O"; PROMPT=
+[ "$launched" -eq 1 ] || fail "big: stub launched $launched times, want 1"
+onstdin big
+cmp -s "$T/big" "$T/log.prompt" || fail "big: the prompt codex read is not the prompt file"
 
 # --- the code-area parts (D-158): CODEX_DIFF drops a part only when git names the diff's
 # paths and none is in its area; everything else sends the part or refuses. Each case is
@@ -459,4 +497,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts, 21 CODEX_DIFF picks + 23 area paths + 6 refusals, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"
+echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts on stdin, a prompt over 128 KiB, 21 CODEX_DIFF picks + 23 area paths + 6 refusals, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"

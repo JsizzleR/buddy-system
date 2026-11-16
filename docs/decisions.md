@@ -14845,3 +14845,78 @@ and unbounded, before this entry. FIXED in its own commit: `fence.Line`, 64 byte
 - index: CLAUDE.md § Decisions, the "Codex, adapter" line
 - evidence: this entry (the generated schemas were scratch; regenerate with
   `codex app-server generate-ts --experimental --out <dir>` on 0.169.0)
+
+## D-196 — codex-review.sh hands codex the prompt on stdin (`-` and the folded prompt file redirected in), never as an argv string: Linux refuses one argument over 131072 bytes and the all-parts prompt crossed it (#108, CI red since 0bc858c); amends `codex-review.sh`'s header item 2, D-157's foreground rule untouched
+
+2026-11-16 · issue #108. Lane argv-108 (Opus 5.5 at high), run r1116b, under orc-2. Class code, tier lite.
+amends: `codex-review.sh` header item 2 (`< /dev/null`), which no entry recorded. Not D-157: its
+foreground rule, the watchdog, the slots and the header check are unchanged.
+
+**What was wrong** — CI `check` was red on 0bc858c (run 43796742785) and 98ed357 (run
+43926202277), each with exactly one failing check: `check-codex-review: FAIL parts-all: exit 126`,
+then the header mismatch (`model=<none>`) and "the adapter file did not reach codex" that follow
+from a run that never started. The script ran `perl <watchdog> ... codex exec ... "$(cat
+"$TMP/prompt")" < /dev/null`: the whole prompt was ONE argv string, of perl's exec and of codex's.
+Linux's execve refuses any single argument or environment string longer than MAX_ARG_STRLEN (32
+pages, 131072 bytes with its NUL, since 2.6.23) with E2BIG, and the shell reports an exec that
+fails for any reason but ENOENT as 126. The all-parts prompt was 131,952 bytes on 0bc858c and
+132,178 on 98ed357 (D-194's GIVEN 134 pushed it over). macOS has no per-argument cap (one ARG_MAX
+for argv and env together, about 1 MiB), so every local hermetic run stayed green. Not reproduced
+on Linux: the figures and the exit code are the documented E2BIG path, and the stub below now
+refuses as Linux does on every platform. It was not only a test failure: on Linux a real
+`CODEX_CHARTER=all` pass, or any prompt over 128 KiB, could not launch.
+
+**Why stdin was `/dev/null`** — header item 2: "Without it codex can hang reading stdin." `codex
+exec --help` (0.169.0): with no PROMPT argument, or `-`, the prompt is read from stdin; "if stdin
+is piped and a prompt is also provided, stdin is appended as a `<stdin>` block". An argv prompt
+beside an inherited stdin nobody closes (an agent harness's pipe) waits for an EOF that never
+comes; `/dev/null` gave it one at once.
+
+**Decision** — the launch is now `codex exec ... -o "$TMP/reply" - < "$TMP/prompt"`. The folded
+prompt FILE is perl's stdin, inherited by the forked child and by codex through `exec @ARGV`.
+A regular file reaches EOF, so the hang's cause cannot occur, and with `-` there is no second
+`<stdin>` block. No argv string grows with the prompt: the longest is a temp path or a pinned
+`-c` value. The caller's own stdin (`codex-review.sh -`) is read into the prompt file first and
+never reaches codex. Item 4's fold stays: its pkill reason no longer covers codex's argv, but
+check-charter.sh checks the reviewer's text through the same table (A5).
+
+Rejected: a prompt file named by a flag (0.169.0 has none for exec), and splitting the charter
+to fit under the cap (a later GIVEN or a larger diff crosses it again, and the cap is Linux's
+only).
+
+**Tests** (`scripts/check-codex-review.sh`): the stub codex records the prompt's route (`-`
+reads stdin; any other last word is the prompt) and its longest argv string, and refuses, exit
+126, any argv string of 131072 bytes or more, as Linux's execve would. `onstdin` asserts the
+route is stdin and no argv string reaches 4096 bytes, on the `ok` case and each of the four
+charter-parts cases; a new `big` case sends a 156,200-byte prompt and asserts exit 0, stdin, and
+the prompt codex read is the prompt file byte for byte. Positive control: every existing case
+passes unchanged. Mutation, in a private rsync'd copy: the argv form put back fails `ok`,
+`parts-core`, `parts-adapter`, `parts-process` (argv route, argv strings of 120,111 to 128,450
+bytes), `parts-all` (exit 126 and CI's two follow-on failures, word for word) and `big` (exit
+126, the prompt not the file).
+
+**Measured on the real route** — this lane's lite Codex pass ran through the worktree's new
+script (codex-cli 0.169.0, `CODEX_DIFF=98ed357..167a457`, a 112,623-byte prompt): exit 0 in 52 s,
+`header=ok got=gpt-6-astra/xhigh`, a reply in `-o`'s file, `tokens=66389`; its transcript echoes
+the prompt once under `user` and carries no `<stdin>` block. One run, on macOS.
+
+**Review** — lite. Self-review raised 1, fixed: `run()` left the previous case's route and argv
+records in place, so `onstdin` could pass a case whose launch recorded neither; both are removed
+before each run. One Codex code pass, xhigh, over `98ed357..167a457`: no findings.
+Restacked onto 338421d (adapter-sample-106, D-197, which took GIVEN 135) on orc-2's word: this
+GIVEN became 136 and its core stub was cut to the bytes left; no new Codex round for either.
+A Fable 5.2 cross-check of 0022d83, relayed by orc-2 (read-only; in a private copy the check
+was GREEN and the argv form put back gave 17 FAILs), raised 3, all fixed with the restack and no
+new Codex round: (1) the core charter over its ceiling (the stub above); (2) the stub logged its
+launch BEFORE the per-argument refusal, so on the argv mutant `big`'s launch count held where a
+real E2BIG launches nothing: the refusal now comes first, and that assertion dies on the mutant
+(18 FAILs); (3) the fixture's comment miscounted its 71-byte lines. It also recorded, no change
+needed: a prompt's trailing newlines are no longer stripped, a prompt beginning with `-` can no
+longer parse as a flag, and a whitespace-only prompt now gives NO VERDICT.
+
+### Where it lives
+- code: `scripts/codex-review.sh` (header item 2, item 4's note, the launch line);
+  `scripts/ascii-fold.py` (docstring: the argv reason)
+- tests: `scripts/check-codex-review.sh` (the stub's route and cap, `onstdin`, the `big` case)
+- index: CLAUDE.md § Decisions, the "Review, models" line
+- charter: GIVEN 136, a core stub; full text in `docs/review-charter-process.md`
