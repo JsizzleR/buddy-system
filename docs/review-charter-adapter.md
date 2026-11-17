@@ -135,3 +135,8 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     thread and turn ids and a request id (`Approval.ID`) are sent back, and a fenced copy would
     match nothing; bounding them is a refusal, a full-tier item. Do not propose: fencing a key;
     storing a fenced value something compares against a fixed set.
+    A native child's stderr (worker, `--version` probe) reaches the adapter's stderr through
+    a pump on a pipe of its own (D-200): each line `native stderr: ` plus `fence.Line` at
+    1,024, 64 KiB per child, drained past it; Close finishes it before the close report.
+    Do not propose: the child on the adapter's descriptor; an io.Writer exec copies from
+    (Wait then waits for an EOF an escaped holder withholds); a raw copy kept beside it.

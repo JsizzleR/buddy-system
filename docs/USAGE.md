@@ -2725,6 +2725,14 @@ report always says `unattributable: unknown` and never that the tree is empty.
 If the record could not be written, the adapter says so on stderr: the file
 then holds an older observation, and a resume reads that one.
 
+**Native stderr is fenced (D-200).** A worker's and a `--version` probe's own
+stderr reach the adapter's stderr through a pipe it reads, one line per native
+line: `native stderr: ` and the line through `internal/fence` (escapes and
+format characters dropped, at most 1,024 bytes, `…[truncated]` past it). Past
+64 KiB per child the adapter says so once, keeps reading so the child never
+blocks, and prints how many lines and bytes it did not show when the stream
+ends. Close returns after the worker's last line, so the close report follows it.
+
 Claude additionally requires at least one accepted wake and, for every recorded
 wake, an exact native input UUID, a terminal result (`completed`, or the measured
 cancellations `aborted_streaming` and `aborted_tools`, D-075) and a subsequent

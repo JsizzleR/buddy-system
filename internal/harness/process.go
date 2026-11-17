@@ -2,7 +2,9 @@ package harness
 
 // Native protocols use framed JSON, not terminal output. A bounded scanner and
 // single serialized writer keep a malformed or interrupted frame from becoming
-// a plausible control receipt. Stderr stays on stderr and is never parsed.
+// a plausible control receipt. Stderr is never parsed: it is rendered, one
+// fenced and prefixed line per native line, onto the adapter's stderr
+// (native_stderr.go, D-200).
 //
 // PROCESS OWNERSHIP (F-07). The worker runs as the leader of its own process
 // group, so ending the transport ends the tools the harness started, not just
@@ -73,6 +75,8 @@ type JSONProcess struct {
 	pgid   int
 	stdin  *os.File
 	stdout *os.File
+	// stderr renders the child's stderr onto the adapter's (D-200).
+	stderr *nativeStderr
 	lines  chan json.RawMessage
 	// done: the reader finished AND the leader was reaped.
 	done chan struct{}
@@ -139,15 +143,26 @@ func startJSONProcess(ctx context.Context, auth *LaunchAuthorization, executable
 		clean = append(clean, entry)
 	}
 	cmd.Env = append(clean, env...)
-	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Our own pipe, never os.Stderr and never an io.Writer exec would copy
+	// from (its goroutine makes Wait wait for EOF, which an escaped holder
+	// withholds): the pump fences each native line (D-200).
+	errPump, errWrite, err := newNativeStderr(nativeStderrOut())
+	if err != nil {
+		return nil, err
+	}
+	cmd.Stderr = errWrite
 	in, err := cmd.StdinPipe()
 	if err != nil {
+		errWrite.Close()
+		errPump.abandon()
 		return nil, err
 	}
 	stdin, ok := in.(*os.File)
 	if !ok {
 		in.Close()
+		errWrite.Close()
+		errPump.abandon()
 		return nil, errors.New("native input pipe lacks cancellable writes")
 	}
 	// Our own pipe, not StdoutPipe: Wait closes a StdoutPipe reader, and Close
@@ -155,6 +170,8 @@ func startJSONProcess(ctx context.Context, auth *LaunchAuthorization, executable
 	out, outWrite, err := os.Pipe()
 	if err != nil {
 		in.Close()
+		errWrite.Close()
+		errPump.abandon()
 		return nil, err
 	}
 	cmd.Stdout = outWrite
@@ -178,12 +195,17 @@ func startJSONProcess(ctx context.Context, auth *LaunchAuthorization, executable
 		in.Close()
 		out.Close()
 		outWrite.Close()
+		// Any child was killed and reaped inside Spawn: what it wrote is in
+		// the pipe, and the pump reaches EOF once our write end closes.
+		errWrite.Close()
+		errPump.finish(terminateGrace)
 		return nil, err
 	}
-	// Only the child and its descendants hold the write end now, so EOF means
+	// Only the child and its descendants hold the write ends now, so EOF means
 	// every holder is gone.
 	outWrite.Close()
-	p := &JSONProcess{cmd: cmd, pgid: cmd.Process.Pid, stdin: stdin, stdout: out, lines: make(chan json.RawMessage, 128),
+	errWrite.Close()
+	p := &JSONProcess{cmd: cmd, pgid: cmd.Process.Pid, stdin: stdin, stdout: out, stderr: errPump, lines: make(chan json.RawMessage, 128),
 		done: make(chan struct{}), stop: make(chan struct{}), exited: make(chan struct{}), reaped: make(chan struct{}), writeLock: make(chan struct{}, 1),
 		auth: auth, samplerStop: make(chan struct{}), samplerDone: make(chan struct{}), signal: syscall.Kill, trace: func(string) {}, scanning: func() {}, reading: func() {}}
 	every := descendantScanInterval
@@ -516,5 +538,8 @@ func (p *JSONProcess) Close() error {
 	// A descendant that left the group can still hold the write end of
 	// stdout; without this the reader, done and Events never finish.
 	_ = p.stdout.Close()
+	// The same for stderr, after the leader's last lines are rendered, so the
+	// adapter's close report follows every native line (D-200).
+	p.stderr.finish(drainCap)
 	return nil
 }

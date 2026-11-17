@@ -15096,6 +15096,100 @@ test would miss.
   135's stub was shortened on orc-2's word (#1361): "Codex inspect: latest turn is progress,
   not state", Do-not-propose `thread/sample`; its full text unchanged, D-197 kept.
 
+## D-200 — `buddy-adapter` renders a native child's stderr (a worker's, a `--version` probe's) through a pipe it reads: one `native stderr: ` line per native line, through `fence.Line` at 1,024 bytes, at most 64 KiB per child, drained past it and counted at the end
+
+**Context.** D-199 left open: a worker's and a version probe's stderr went to the adapter's
+stderr raw (`process.go:142`, `executable.go:91` on 00fa1e3: `cmd.Stderr = os.Stderr`), so the
+child, a hook it ran, or a descendant still holding the descriptor wrote to the adapter's
+readers verbatim. orc-2's lite lane (operator, 2026-11-17 ~04:20Z) measured who those readers
+are by reading the code; nothing was launched.
+
+**The readers** (lines on 00fa1e3):
+
+| Reader | Where | Reads |
+|---|---|---|
+| operator's terminal, a herdr pane | USAGE's launch example (`docs/USAGE.md:2561`), run by hand | everything; ANSI, OSC and bidi act there |
+| a qualify runner | saves it as `adapter.stderr` (`qualify-adapters.py:40`, `qualify-codex.py:316`, `qualify-claude.py:418`); quotes it whole in its own exception on an early exit (`qualify-adapters.py:52`, `qualify-codex.py:328`) | the file; its exception text |
+| the checkers | `check-adapters.py:88`: Codex's own log of the hook denial, by substring (`DENIAL`); `close_line` (`check-claude-gate.py:264`): exactly one line starting `buddy-adapter: worker closed (`, from `check-adapters.py:107`, `check-claude-gate.py:822`, `check-claude-jobs.py:91`, `check-claude-mods.py:116`, `check-codex-gate.py:476`, and `qualify-claude-jobs.py:105`; the adapter's refusal by substring (`check-claude-gate.py:811`, `check-claude-mods.py:122`); `evidence_sha256` binds the file's bytes, whatever they are | lines and substrings |
+| a coordinator model | the saved file, or the Bash tool output it ran the adapter under | the text, in its context |
+
+Neither D-074 nor D-077 says native stderr is raw by design; `process.go`'s header said it
+"stays on stderr and is never parsed", and the second clause is the intent. A native line
+could forge the close report (a second one fails `close_line`; one alone, from an adapter that
+died before its own, passes it), drive a terminal, or put a newline-free megabyte into a
+model's context. No reader needs the native bytes: the one checker that reads native text
+wants an ASCII substring of a short line.
+
+**Decision.** The child's stderr is a pipe of the adapter's own (`native_stderr.go`), never
+its descriptor, and never an `io.Writer` exec copies from: exec's copying goroutine makes
+`Wait` wait for EOF, which a descendant that left the group withholds, so `terminate` would
+hang (the reason stdout is a pipe of its own). A pump renders each native line as
+`native stderr: ` (not the adapter's `buddy-adapter:`, so no native line reads as the
+adapter's) plus `fence.Line` at `nativeStderrLineCap` = 1,024 bytes; a raw line past the
+reader's cap+2 bytes is cut there, drained unread and always marked `…[truncated]`, even when
+fencing shrank it under the cap, a partial rune at the cut dropped. Past
+`nativeStderrTotalCap` = 64 KiB rendered per child (a flood bound sized for a model reading
+the file, ~16k tokens; native stderr volume was not measured) it says so once, keeps
+draining, since a child blocked on a full stderr pipe would wedge mid-turn, and prints the
+lines and bytes not shown when the stream ends. A write error on the adapter's stderr is
+ignored and the pump keeps draining. `Close` and the probe (after its one `Wait`) call
+`finish`: it waits for EOF and, while another holder keeps the pipe open, releases our read
+end once nothing is unread, or at its bound (`drainCap`, 1 s for the probe) with unread bytes
+dropped, as `releaseAfterExit` does for stdout; it returns after the pump's last line, so the
+close report main prints follows every native line. A pump blocked writing to an adapter
+stderr nobody drains cannot be interrupted by closing the read end, so `finish` stops
+waiting one bound later and leaves it blocked; the adapter's own next stderr write would
+block the same way. The pump closes its read end at EOF itself. A descendant still writing
+then meets a closed pipe, as its stdout writes already did; nothing signals it (D-077).
+
+Rejected: a raw copy beside the fenced one (no reader needs it); a tail kept past the cap
+(the head carries a start-up failure; the cap bounds a flood, it is not a log).
+
+**What a checker accepts** is unchanged: no checker or runner was edited. On real evidence
+the Codex denial log line (~150 ASCII bytes) still matches as a substring after the prefix;
+a Codex log coloured with ANSI would show `[31m`-style residue, not inside the denial's
+value (not measured: no run). A native line can no longer count as the close report. The
+refusal substring checks still match a native line that carries the text; out of scope.
+
+**Tests** (`internal/harness/native_stderr_test.go`): a table through the pump (an ordinary
+line and the Codex denial log unchanged after the prefix, the positive controls; CRLF and a
+last line without a newline; a newline-free 1 MiB flood; an over-cap line and the next one
+whole; a line exactly at the cap with CRLF whole and one byte over cut; 3,000 escapes, cut
+and marked though fenced to nothing; a cut inside a rune; ANSI and OSC; U+2028, U+2029, NEL,
+a lone CR; bidi and zero-width; a forged close report; a literal marker; an empty line; no
+input), each line checked for the prefix, no control or format character, valid UTF-8 and
+the line bound; ~1 MB through the pump is read to its last byte and rendered within 64 KiB
+plus the notice and the exact count. Through the real paths: a worker writing escapes,
+U+2028, a forged close report, a 1 MiB line and the denial log renders four fenced lines,
+the last before `Close` returns; with the pump held until `finish` begins, all 50 lines the
+leader left unread are rendered, each in order, before `Close` returns; the read end is closed
+at EOF; `Close` returns within its bound while the pump is blocked writing; a descendant that left the group
+writing stderr forever does not hold `Close` past its bound or the stream past its cap; a
+version probe's escapes and U+2029 are fenced and its version still read. Mutation, in a
+private rsync'd copy: either child back on `os.Stderr`, no `fence.Line`, no prefix, the line
+cap at 4 MiB, no stream cap, no draining past it, `Close` without `finish`, a `finish` that
+never releases or releases at once or waits unbounded, no release at EOF, no marker when fencing shrank a cut line, no partial-rune
+trim, the reader's buffer at the cap, no CR trim, no closing count: each fails; the control
+passes. The release-at-once mutant survived the first suite (the pump had always drained by
+`Close`), so the held-pump test was added.
+
+**Review** — lite. Self-review raised 2, fixed 2: a line exactly at the cap was marked
+truncated (the reader's buffer was the cap, with no room for its newline), and the
+cut-inside-a-rune test passed without exercising the trim. One Codex code pass, xhigh, adapter
+charter, over `00fa1e3..306ef68`: raised 3, fixed 3: `finish` waited forever on a pump
+blocked writing to an undrained adapter stderr (Close and the probe hung); the read end
+leaked a descriptor at a normal EOF; the held-pump test checked only the count and the last
+line.
+
+### Where it lives
+- code: `internal/harness/native_stderr.go`; `process.go` (`startJSONProcess`, `Close`);
+  `executable.go` (`probeNativeVersion`)
+- tests: `internal/harness/native_stderr_test.go`
+- docs: USAGE "Structured adapters" (escaped descendants); GIVEN 137's adapter full text; the
+  "Codex, adapter" line of CLAUDE.md § Decisions. GIVEN 137's core stub names D-200; the core
+  charter had 5 bytes free, so GIVEN 72's stub was shortened on orc-2's word (#1376): "an
+  automatic upgrade", its full text unchanged.
+
 ## D-201 — The ledger creates a session row only for an id `fence.ValidSessionID` admits (1-128 bytes of `A-Za-z0-9._-`, a letter or digit first, not `all`, not `s-`-led), checked where a row is created and nowhere else; a native id's refusal names no alias; one short-id derivation; a session id is printed as a command only when the predicate admits it
 
 **Context.** D-199 left open, outside the adapter: a Codex thread id entered the ledger as

@@ -88,13 +88,23 @@ func probeNativeVersion(ctx context.Context, executable string) (string, error) 
 	// Even a version probe of a pinned build must not let it update itself
 	// (D-079); the worker's own environment carries the same setting.
 	cmd.Env = append(os.Environ(), "DISABLE_AUTOUPDATER=1")
-	cmd.Stdout, cmd.Stderr = writer, os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
+	// The probe's stderr is fenced like a worker's (D-200), and finished
+	// after the final group signal and the one Wait, below.
+	errPump, errWrite, err := newNativeStderr(nativeStderrOut())
+	if err != nil {
 		writer.Close()
 		return "", err
 	}
+	cmd.Stdout, cmd.Stderr = writer, errWrite
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		writer.Close()
+		errWrite.Close()
+		errPump.abandon()
+		return "", err
+	}
 	writer.Close()
+	errWrite.Close()
 	const limit = 4096
 	type readResult struct {
 		data []byte
@@ -127,6 +137,7 @@ wait:
 	// The leader remains unreaped through this final group signal.
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	waitErr := cmd.Wait()
+	errPump.finish(time.Second)
 	if result == nil {
 		select {
 		case out := <-read:
