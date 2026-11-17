@@ -294,7 +294,7 @@ func TestShortIDArmIsLiteralAndCaseExact(t *testing.T) {
 func TestResolveTargetRefusesWhenTheCanonicalIDIsAnotherSessionsLabel(t *testing.T) {
 	st, _ := openTest(t)
 	hello(t, st, "sess-a", "alpha", "/tmp/repo")
-	hello(t, st, "sess-b", "sess-a", "/tmp/wtB") // B's label IS A's id
+	legacyHello(t, st, "sess-b", "sess-a", "/tmp/wtB") // B's label IS A's id
 
 	_, err := st.ResolveTarget("alpha")
 	if !errors.Is(err, ErrAmbiguousTarget) {

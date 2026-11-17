@@ -103,7 +103,7 @@ func TestResumeByIDLiftsALegacyRowOnALabelNobodyElseWears(t *testing.T) {
 	for _, word := range []string{"sess-a", "s-0a1b2c3d"} {
 		t.Run(word, func(t *testing.T) {
 			st, _ := openTest(t)
-			a := hello(t, st, "sess-a", "wt/s-0a1b2c3d", "/tmp/a")
+			a := legacyHello(t, st, "sess-a", "wt/s-0a1b2c3d", "/tmp/a")
 			hello(t, st, "sess-b", "bravo", "/tmp/b")
 			legacyPause(t, st, a.Label)
 			r := resumeWord(t, st, word)
@@ -118,7 +118,7 @@ func TestResumeByIDLiftsALegacyRowOnALabelNobodyElseWears(t *testing.T) {
 // (1), a session labelled `all`: its resume must not lift the fleet brake.
 func TestResumeOfASessionLabelledAllKeepsTheFleetPause(t *testing.T) {
 	st, _ := openTest(t)
-	a := hello(t, st, "sess-a", AllTarget, "/tmp/a")
+	a := legacyHello(t, st, "sess-a", AllTarget, "/tmp/a")
 	b := hello(t, st, "sess-b", "bravo", "/tmp/b")
 	if _, err := st.Pause(mustResolve(t, st, AllTarget), "everyone stop"); err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestResumeKeepsAPauseOnALabelThatIsAnotherSessionsID(t *testing.T) {
 	if _, err := st.Pause(mustResolve(t, st, b.SessionID), "b stop"); err != nil {
 		t.Fatal(err)
 	}
-	a = hello(t, st, a.SessionID, b.SessionID, "/tmp/a") // a relabels itself as b's id
+	a = legacyHello(t, st, a.SessionID, b.SessionID, "/tmp/a") // a relabels itself as b's id
 	if a.Label != b.SessionID {
 		t.Fatalf("fixture: relabel did not take, label %q", a.Label)
 	}
@@ -271,10 +271,10 @@ func TestBrakeRefusesAWordThatMovedBeforeItsWrite(t *testing.T) {
 	}
 	// Each move makes `x` mean something else after it resolved to c.
 	moves := map[string]func(t *testing.T, st *Store){
-		"a live session now wears x": func(t *testing.T, st *Store) { hello(t, st, "sess-d", "x", "/tmp/d") },
+		"a live session now wears x": func(t *testing.T, st *Store) { legacyHello(t, st, "sess-d", "x", "/tmp/d") },
 		"two live sessions now wear x": func(t *testing.T, st *Store) {
-			hello(t, st, "sess-d", "x", "/tmp/d")
-			hello(t, st, "sess-e", "x", "/tmp/e")
+			legacyHello(t, st, "sess-d", "x", "/tmp/d")
+			legacyHello(t, st, "sess-e", "x", "/tmp/e")
 		},
 		"x was released": func(t *testing.T, st *Store) {
 			if err := st.Release("sess-c", mustResolve(t, st, "sess-c").Incarnation, "x"); err != nil {

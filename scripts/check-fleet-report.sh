@@ -115,7 +115,13 @@ B="$L/-b" # listed as the relative line "-b"
 as() { r=$1 s=$2; shift 2; (cd "$r" && CLAUDE_CODE_SESSION_ID=$s command buddy "$@" </dev/null); }
 # reg <repo> <session> <label> — a hand-run hello: registers no process, so a
 # later bye ends the session (an unbound row, D-025).
-reg() { (cd "$1" && command buddy hello --session "$2" --label "$3" >/dev/null </dev/null); }
+reg() { (cd "$1" && command buddy hello --session "$2" >/dev/null </dev/null) && seedlabel "$1/.git/buddy.db" "$2" "$3"; }
+# seedlabel <ledger> <session> <label> — writes a label straight into the row, as a
+# ledger from before D-206 holds it: a hostile label is refused at hello now,
+# and this check is about what the REPORT prints for one that is stored.
+seedlabel() { python3 -I -B -c 'import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); n=c.execute("UPDATE sessions SET label=? WHERE session_id=?",(sys.argv[2],sys.argv[3])).rowcount; c.commit()
+sys.exit(0 if n==1 else 1)' "$1" "$3" "$2"; }
 db() { sqlite3 -init /dev/null -batch "$1/.git/buddy.db" "$2" </dev/null; }
 
 (cd "$A" && buddy init >/dev/null)

@@ -64,14 +64,14 @@ func TestCLILedgerRealBinaryCapturedQueueAndLifecycle(t *testing.T) {
 	}
 	defer st.Close()
 	l := CLILedger{Binary: binary, Worktree: repo}
-	worker, err := l.Begin(ctx, "claude", "claude-native", "Claude worker")
+	worker, err := l.Begin(ctx, "claude", "claude-native", "claude-worker")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !worker.Valid() || worker.Harness != "claude" || worker.SessionID != "claude-native" {
 		t.Fatalf("Claude identity not preserved: %+v", worker)
 	}
-	sender, err := l.Begin(ctx, "codex", "codex-native", "Codex sender")
+	sender, err := l.Begin(ctx, "codex", "codex-native", "codex-sender")
 	if err != nil {
 		t.Fatal(err)
 	}

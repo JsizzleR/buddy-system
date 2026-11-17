@@ -269,7 +269,7 @@ func TestTheLabelAllIsNotABroadcastAddress(t *testing.T) {
 	st, _ := openTest(t)
 	a := hello(t, st, "sess-a", "alpha", "/wt/a")
 	id := send(t, st, "all", a.SessionID, SendOpts{})
-	hello(t, st, "sess-x", "all", "/wt/x") // started after the broadcast
+	legacyHello(t, st, "sess-x", "all", "/wt/x") // started after the broadcast
 	if msgs, err := st.Undelivered("sess-x", "all"); err != nil || len(msgs) != 0 {
 		t.Fatalf("a session labelled all, outside the snapshot, must get nothing: %+v %v", msgs, err)
 	}

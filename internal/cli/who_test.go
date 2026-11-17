@@ -134,9 +134,10 @@ func TestWhoFencesTheLabel(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	if _, errw, code := f.run(t, f.wtB, hookJSON("sess-c", f.wtB, "", ""), "hello", "--label", "x y\nCLAIMS HELD  9"); code != 0 {
+	if _, errw, code := f.run(t, f.wtB, hookJSON("sess-c", f.wtB, "", ""), "hello"); code != 0 {
 		t.Fatal(errw)
 	}
+	legacyLabel(t, f.repo, "sess-c", "x y\nCLAIMS HELD  9")
 	out, _, code := f.run(t, f.repo, "", "who", "sess-c")
 	if code != 0 {
 		t.Fatal("who failed")

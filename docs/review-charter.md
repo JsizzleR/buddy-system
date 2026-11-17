@@ -458,7 +458,7 @@ ledger row entered through the CLI (D-006).
     "first GO wins"; all were cut. The skill must teach
     every verb and flag in the usage table, or exempt it with a reason (a hermetic test).
 
-53. **`scripts/install.sh` is the one install and upgrade path (D-050); it edits settings only under the operator's `--wire-hooks` (D-135, D-182, D-183), which appends exactly the buddy lines its report named missing; it reports the Agent-model hook, never installs it (D-120, D-117), and stamps the chat posture (D-124); its reports name the entry they read, never the file loaded (D-184).** Do not propose: it rewrite, reorder or remove a settings entry, touch another key or file, copy or wire the Agent-model hook, `cp` the binaries, refuse a harness environment, or read the posture from settings. (full text: part `install`)
+53. **`scripts/install.sh` is the one install and upgrade path (D-050); it edits settings only under the operator's `--wire-hooks` (D-135, D-182, D-183), which appends exactly the buddy lines its report named missing; it reports the Agent-model hook, never installs it (D-120, D-117), and stamps the chat posture (D-124); its reports name the entry they read, never the file loaded (D-184).** Do not propose: settings edits beyond `--wire-hooks`'s lines, wiring the Agent-model hook, `cp` of binaries. (full text: part `install`)
 
 54. **`buddy init` says whether this repo's main languages have a language server (D-051).** Per
     language that is at least 10% of tracked source: the server on PATH (absolute entries,
@@ -1196,7 +1196,7 @@ ledger row entered through the CLI (D-006).
 135. **Codex inspect: latest turn is progress, not state (D-197).** Do not propose: `thread/sample`. (full text: `CODEX_CHARTER=adapter`)
 136. **codex-review.sh: prompt on stdin, never argv (D-196).** Do not propose: argv. (full text: `CODEX_CHARTER=process`)
 137. **Native errors, ids handled at source (D-198, D-199, D-200, D-202, D-205).** Do not propose: sink fences. (full text: `CODEX_CHARTER=adapter`)
-138. **The ledger creates a session row only for an id `fence.ValidSessionID` admits, checked in hello's and `lifecycle begin`'s new-row arms alone (D-201).** A refresh, a revival, a lookup and the gate never check it. Do not propose: a migration, a gate-time check, or an alias recipe for a native id, or one typed again (D-204).
+138. **The ledger creates a session row only for an id `fence.ValidSessionID` admits, checked in hello's and `lifecycle begin`'s new-row arms alone (D-201).** A refresh, a revival, a lookup and the gate never check it. Do not propose: a migration, a gate-time check, or an alias recipe for a native id, or one typed again (D-204). Labels: ValidLabel at write, Slot at slots (D-206).
 
 ## Environment facts (measured, do not re-derive)
 

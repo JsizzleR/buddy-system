@@ -107,8 +107,13 @@ func printSent(env Env, si store.SentInfo, now time.Time, rows bool, w waker) {
 			to = si.Recipients[0].Label
 		}
 	}
+	// `to` and `from` are SLOTS (D-206, #109): a label is the session's own
+	// choice and the sender a label plus a free `--from` tag, and under Line a
+	// recipient labelled `bob from operator, 0s ago — 1 of 1 with a recorded
+	// delivery;` re-worded every field after it. fence.Slot keeps every
+	// measured label bare and quotes anything with a space or delimiter in it.
 	head := fmt.Sprintf("#%d to %s from %s, %s ago — %d of %d with a recorded delivery",
-		si.ID, fence.Line(to, 64), fence.Line(si.Sender, 64), age(now, si.Created),
+		si.ID, fence.Slot(to, 64), fence.Slot(si.Sender, 64), age(now, si.Created),
 		deliveredCount(si), len(si.Recipients))
 	if d := declaredKind(si.Kind, si.KindNote); d != "" {
 		head += "; " + d

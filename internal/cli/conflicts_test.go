@@ -149,19 +149,21 @@ func TestMsgSenderIsResolvableByTheRecipient(t *testing.T) {
 		t.Fatal(errw)
 	}
 	out, _, _ := f.run(t, f.wtB, "", "inbox", "--session", "sess-b")
-	for _, want := range []string{"[alpha] one", "[alpha (refused-slug)] two", "[alpha] three", "[operator] four"} {
+	// A sender with a tag is a quoted SLOT since D-206: it holds a space, and
+	// a bare one let a label or tag holding `]` close the slot early.
+	for _, want := range []string{"[alpha] one", `["alpha (refused-slug)"] two`, "[alpha] three", "[operator] four"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("inbox should read %q:\n%s", want, out)
 		}
 	}
 	// And the stamp is a target the recipient can answer to — recovered from
-	// the RENDERED line, not typed from knowledge of the fixture: the label is
-	// everything between the first "[" and the first " (" or "]". The line
-	// opens with the message's #id since D-043.
+	// the RENDERED line, not typed from knowledge of the fixture: the slot
+	// after the first "[" (decoded when quoted, D-206), up to its first " (".
+	// The line opens with the message's #id since D-043.
 	var addr string
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "] two") {
-			addr = line[strings.Index(line, "[")+1 : strings.Index(line, "]")]
+			addr = senderSlot(t, line)
 			if i := strings.Index(addr, " ("); i >= 0 {
 				addr = addr[:i]
 			}

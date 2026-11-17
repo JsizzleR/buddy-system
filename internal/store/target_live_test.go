@@ -199,7 +199,7 @@ func TestResolveTargetEndedSessionIDStillWinsFirst(t *testing.T) {
 // form beats an ended session whose label is spelled like it.
 func TestResolveTargetLiveShortFormBeatsAnEndedLabel(t *testing.T) {
 	st, _ := openTest(t)
-	gone := hello(t, st, "sess-gone", "s-1111aaaa", "/tmp/wtA")
+	gone := legacyHello(t, st, "sess-gone", "s-1111aaaa", "/tmp/wtA")
 	if err := st.Bye(gone.SessionID, gone.Incarnation); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestResolveTargetLiveLabelBeatsAnEndedHoldersSlug(t *testing.T) {
 	if err := st.Claim(gone.SessionID, gone.Incarnation, "the-item", "left open", []string{"internal/x"}); err != nil {
 		t.Fatal(err)
 	}
-	live := hello(t, st, "sess-live", "the-item", "/tmp/wtB")
+	live := legacyHello(t, st, "sess-live", "the-item", "/tmp/wtB")
 	if err := st.Bye(gone.SessionID, gone.Incarnation); err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestResolveTargetEndedTierKeepsLabelBeforeSlug(t *testing.T) {
 	if err := st.Claim(holder.SessionID, holder.Incarnation, "x", "left open", []string{"internal/x"}); err != nil {
 		t.Fatal(err)
 	}
-	wearer := hello(t, st, "sess-wearer", "x", "/tmp/wtB")
+	wearer := legacyHello(t, st, "sess-wearer", "x", "/tmp/wtB")
 	for _, si := range []SessionInfo{holder, wearer} {
 		if err := st.Bye(si.SessionID, si.Incarnation); err != nil {
 			t.Fatal(err)
@@ -298,7 +298,7 @@ func TestResolveTargetEndedTierKeepsLabelBeforeSlug(t *testing.T) {
 func TestResolveTargetCollisionCheckReadsEndedLabels(t *testing.T) {
 	st, _ := openTest(t)
 	hello(t, st, "sess-a", "alpha", "/tmp/wtA")
-	b := hello(t, st, "sess-b", "sess-a", "/tmp/wtB")
+	b := legacyHello(t, st, "sess-b", "sess-a", "/tmp/wtB")
 	if err := st.Bye(b.SessionID, b.Incarnation); err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestResolveTargetCollisionOnAnEndedTargetOffersNoBroadcast(t *testing.T) {
 	if err := st.Bye(a.SessionID, a.Incarnation); err != nil {
 		t.Fatal(err)
 	}
-	hello(t, st, "sess-b", "sess-a", "/tmp/wtB")
+	legacyHello(t, st, "sess-b", "sess-a", "/tmp/wtB")
 	_, err := st.ResolveTarget("alpha")
 	if !errors.Is(err, ErrAmbiguousTarget) {
 		t.Fatalf("the collision must refuse, got %v", err)

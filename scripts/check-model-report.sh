@@ -217,7 +217,13 @@ TA="$PA/$SA.jsonl" TB="$PB/$SB.jsonl" TD="$WORK/tx/$SD.jsonl" TE="$WORK/tx/$SE.j
 at() { jq -rn --argjson s "$1" 'now + $s | floor | todate'; }
 # req <time> <request-id> <model> [content-json]
 req() { printf '{"type":"assistant","timestamp":"%s","requestId":"%s","message":{"model":"%s","usage":{"input_tokens":3,"cache_read_input_tokens":1,"cache_creation_input_tokens":2,"output_tokens":4}%s}}\n' "$1" "$2" "$3" "${4:+,\"content\":$4}"; }
-hello() { printf '{"session_id":"%s","cwd":"%s"}' "$1" "$2" | B hello --label "$3" >/dev/null; }
+hello() { printf '{"session_id":"%s","cwd":"%s"}' "$1" "$2" | B hello >/dev/null && seedlabel "$REPO/.git/buddy.db" "$1" "$3"; }
+# seedlabel <ledger> <session> <label> — writes a label straight into the row, as a
+# ledger from before D-206 holds it: a hostile label is refused at hello now,
+# and this check is about what the REPORT prints for one that is stored.
+seedlabel() { python3 -I -B -c 'import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); n=c.execute("UPDATE sessions SET label=? WHERE session_id=?",(sys.argv[2],sys.argv[3])).rowcount; c.commit()
+sys.exit(0 if n==1 else 1)' "$1" "$3" "$2"; }
 beat() { printf '{"session_id":"%s","cwd":"%s","transcript_path":"%s","tool_name":"Bash","tool_input":{}}' "$1" "$2" "$3" | B beat >/dev/null; }
 
 long=$(printf 'MARKLONG%.0s' $(seq 75)) # 600 bytes

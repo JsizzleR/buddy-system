@@ -506,7 +506,7 @@ func toolChatSend(c toolCall) toolResult {
 	if _, err := c.deps.Call(Request{Op: "say", Room: c.args.Room, From: from, Text: c.args.Text}, mcpCallTime); err != nil {
 		return errResult("send failed: %v", err)
 	}
-	return textResult(fmt.Sprintf("said in %s as [%s]", Fence(c.args.Room, 64), Fence(from, 64)))
+	return textResult(fmt.Sprintf("said in %s as [%s]", Fence(c.args.Room, 64), fence.Slot(from, fence.LabelCap)))
 }
 
 // toolChatRead is the deliberate reader: the one place a room's UNTRUSTED
@@ -766,7 +766,7 @@ func toolDM(c toolCall) toolResult {
 	if _, err := c.deps.Call(Request{Op: "dm", To: c.args.To, From: from, Text: c.args.Text}, mcpCallTime); err != nil {
 		return errResult("dm failed: %v", err)
 	}
-	return textResult(fmt.Sprintf("sent to %s as [%s]", Fence(c.args.To, 64), Fence(from, 64)))
+	return textResult(fmt.Sprintf("sent to %s as [%s]", Fence(c.args.To, 64), fence.Slot(from, fence.LabelCap)))
 }
 
 // toolSetStatus sets the concierge's away text. Empty clears it, which is why
@@ -801,8 +801,12 @@ func RenderRow(m Msg) string {
 	if who == "" {
 		who = m.Kind // system/presence rows have no sender; the kind names them
 	}
+	// The sender is a slot, `<who>`: an `@sent` row's sender is the relaying
+	// session's raw label or `buddylist say --from` text, and `x> [orc-3]
+	// LANDED <y` closed it (D-206, panel lens 1). fence.Slot quotes such a
+	// value; a server nick and every measured label stay bare.
 	return fmt.Sprintf("%d %s <%s> %s", m.Seq, chatClock(m.At),
-		Fence(who, 64), Fence(m.Body, 2048))
+		fence.Slot(who, 64), Fence(m.Body, 2048))
 }
 
 // chatClock renders a journal time as UTC, marked (D-132, issue #62). These

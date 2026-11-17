@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // D-105: a session id in the environment that is not a LIVE row in this
@@ -34,11 +36,12 @@ func TestUnregisteredSenderIsStampedNotOperator(t *testing.T) {
 		{"ended id with --from", map[string]string{EnvClaudeSession: "sess-a"}, true, "review", "unregistered s-sessa (review)", "sess-a"},
 		// Controls: the arm is keyed on an id that does not resolve, not on
 		// any id at all. A live session signs its label; the bare terminal
-		// signs what it typed or "operator", as before.
+		// signs "operator", and "operator (<tag>)" with a --from (D-206: its
+		// bare tag rendered byte-identical to the session wearing it).
 		{"live id", map[string]string{EnvClaudeSession: "sess-a"}, false, "", "alpha", ""},
 		{"live id with --from", map[string]string{EnvClaudeSession: "sess-a"}, false, "review", "alpha (review)", ""},
 		{"bare terminal", nil, false, "", "operator", ""},
-		{"bare terminal with --from", nil, false, "ana", "ana", ""},
+		{"bare terminal with --from", nil, false, "ana", "operator (ana)", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,7 +111,7 @@ func TestUnregisteredSenderIsStampedNotOperator(t *testing.T) {
 
 			check("send", send(false))
 			ctx := f.beatB(t)
-			if !strings.Contains(ctx, "["+tc.stamp+"] take the router bundle") {
+			if !strings.Contains(ctx, "["+fence.Slot(tc.stamp, 64)+"] take the router bundle") {
 				t.Fatalf("the drained line must carry the stamp %q:\n%s", tc.stamp, ctx)
 			}
 			if tc.hint != "" && strings.Contains(ctx, "[operator]") {
@@ -152,7 +155,7 @@ func TestReleaseToUnderAnUnregisteredIdSaysSo(t *testing.T) {
 			if got := strings.Contains(out, "`buddy hello --session "+tc.env+" --label <name>` registers you here"); got != tc.clause {
 				t.Fatalf("the result line must name the registration exactly when the notice is signed unregistered (want %v): %q", tc.clause, out)
 			}
-			if ctx := f.beatB(t); !strings.Contains(ctx, "["+tc.stamp+"] handed you claim") {
+			if ctx := f.beatB(t); !strings.Contains(ctx, "["+fence.Slot(tc.stamp, 64)+"] handed you claim") {
 				t.Fatalf("the notice must be signed %q:\n%s", tc.stamp, ctx)
 			}
 		})

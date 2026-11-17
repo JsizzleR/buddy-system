@@ -182,6 +182,11 @@ func cmdLifecycle(args []string, env Env) error {
 			return fmt.Errorf("lifecycle begin refused: native session id %s cannot be registered in this ledger (D-201); the outcome is certain and nothing was written; do not retry under another id",
 				fence.Field(session, fence.SessionIDCap))
 		}
+		if errors.Is(err, store.ErrLabelRefused) {
+			// Certain, like the id's (D-206): say so, so a caller does not read
+			// a refused label as an uncertain registration and retry it.
+			return fmt.Errorf("lifecycle begin refused: %w; the outcome is certain and nothing was written", err)
+		}
 		if err != nil {
 			return fencedErr(err)
 		}

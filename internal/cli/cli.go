@@ -1811,6 +1811,8 @@ func chatOff(env Env) bool {
 
 func cmdHello(args []string, env Env) (err error) {
 	session, label, _ := helloFlags(args)
+	// Where the label came from words its refusal and its warning (D-206).
+	labelFrom := "--label"
 	// Named by --session, the caller need not BE the session (usually the
 	// operator's terminal), and `buddy inbox` there resolves no one: the
 	// Codex count line below then names the id (Codex review of B4).
@@ -1825,6 +1827,7 @@ func cmdHello(args []string, env Env) (err error) {
 		// fenced wherever it renders, and the label-worn-twice warning below
 		// fires for it the same way.
 		label = env.getenv(EnvLabel)
+		labelFrom = "$" + EnvLabel
 	}
 	dir := env.Cwd
 	// The process and the terminal are recorded ONLY for a hook-driven hello
@@ -1936,7 +1939,7 @@ func cmdHello(args []string, env Env) (err error) {
 		defer func() {
 			// A refused id is not the fleet failing (D-201, panel): it is
 			// said as itself, never as a transient fleet error.
-			if err != nil && !digestOut && !isSessionIDRefused(err) {
+			if err != nil && !digestOut && !isSessionIDRefused(err) && !errors.Is(err, store.ErrLabelRefused) {
 				if _, werr := io.WriteString(env.Stdout, fleetLine(fleetOpsErr(rc, err))); werr == nil {
 					err = nil
 				}
@@ -1953,6 +1956,29 @@ func cmdHello(args []string, env Env) (err error) {
 		top = dir
 	}
 	si, err := st.HelloFrom(session, label, top, proc, terminal)
+	// A REFUSED LABEL (D-206). Hand-run: refused, nothing written, the
+	// operator is there to read it. Hook-driven: registered anyway, under the
+	// stored or default label, and said in the digest below, never a failed
+	// SessionStart (invariant 2: an unregistered session holds no claim and
+	// every gated write it makes refuses). The ledger is the one checker; this
+	// only chooses the answer, so a clause the CLI does not know (another
+	// session's id or open slug) is answered the same way (lens 3). The fleet
+	// beside then gets "" (keep its own label), not this refused one.
+	labelNote := ""
+	if errors.Is(err, store.ErrLabelRefused) {
+		if !hookDriven {
+			return labelRefusal(err, labelFrom)
+		}
+		refusal := err
+		label = ""
+		if si, err = st.HelloFrom(session, "", top, proc, terminal); err == nil {
+			where := "this directory's ledger"
+			if rc.fleet != "" {
+				where = "fleet " + fence.Line(rc.fleet, 64)
+			}
+			labelNote = labelRefusedLine(refusal, labelFrom, where, si.Label)
+		}
+	}
 	if isSessionIDRefused(err) {
 		where := "this directory's ledger"
 		if rc.fleet != "" {
@@ -1998,6 +2024,8 @@ func cmdHello(args []string, env Env) (err error) {
 			b.WriteString(besideHelloLine(fb, fsi))
 		}
 	}
+	// In b, before the claims list takes the room left: the budget counts it.
+	b.WriteString(labelNote)
 	if codex {
 		b.WriteString(codexHelloHelpLine)
 	} else {
@@ -2907,7 +2935,11 @@ func inboxLine(m store.InboxMsg, batch map[int64]bool, now time.Time) string {
 	if len(links) > 0 {
 		head += strings.Join(links, "; ") + " — "
 	}
-	return fmt.Sprintf("%s[%s] %s\n", head, fence.Line(m.From, 64), fence.Line(m.Body, 4096))
+	// [sender] is a SLOT (D-206): a label is its holder's choice and a tag
+	// free text, and under Line `orc-3] fine. [operator` opened the line as
+	// orc-3's. fence.Slot keeps every measured label bare and quotes the rest,
+	// so the first `] ` after a bare slot, or the closing quote, ends it.
+	return fmt.Sprintf("%s[%s] %s\n", head, fence.Slot(m.From, 64), fence.Line(m.Body, 4096))
 }
 
 // declaredKind renders what the SENDER declared the message to be (D-045,
@@ -3103,7 +3135,7 @@ func writeClaimsList(b *strings.Builder, claims []store.ClaimInfo, si store.Sess
 		// injected into EVERY session's context at SessionStart, so an
 		// unfenced newline fabricates a line that reads as buddy's own.
 		lines[i] = fmt.Sprintf("  - %s (%s)%s: %s — %sscopes: %s\n",
-			fence.Line(c.Slug, 128), fence.Line(owner, 64), mark,
+			fence.Line(c.Slug, 128), fence.Slot(owner, 64), mark,
 			fence.Line(c.Desc, 512), sharedWord(c.Shared), scopeList(c.Scopes))
 	}
 	for i, c := range claims {
@@ -3901,6 +3933,7 @@ func cmdClaim(args []string, env Env) error {
 	}
 	stuckFormed(env, st, si.SessionID, si.SessionID, []string{slug})
 	offSlotNote(env, st, si.SessionID, slug)
+	fmt.Fprint(env.Stdout, slugWornNote(st, si.SessionID, slug))
 	return nil
 }
 
@@ -5401,11 +5434,11 @@ func msgBody(args []string, env Env) (string, error) {
 // (BUDDY_SESSION, then native Claude/Codex identity) — never whoAmI's cwd inference,
 // which can refuse or guess, and a message must never be refused for want of a
 // signature. No session in the environment is the operator at a terminal, and
-// the sender is what they typed or "operator", as before.
+// the sender is "operator", or "operator (<tag>)" with a --from (D-206).
 //
 // RESIDUAL: the stamp resolves when the rendered label equals the stored one.
-// The inbox renders the sender through fence.Line(_, 64), so a label over 64
-// bytes, or one carrying a newline or a space, is shown altered and the shown
+// The inbox renders the sender through fence.Slot(_, 64) (D-206), so a label
+// over 64 bytes, or one carrying a newline or a space, is shown quoted or altered and the shown
 // form no longer matches exactly. Default labels ("<worktree-base>/s-<8hex>")
 // are short and plain; a hand-chosen --label is the caller's own risk, and it
 // was already so for `buddy msg <label>`.
@@ -5489,8 +5522,15 @@ func senderFor(st *store.Store, env Env, from string) (sender, unregistered stri
 	switch {
 	case label == "" && from == "":
 		return "operator", ""
-	case label == "":
+	case label == "" && from == "operator":
 		return from, ""
+	case label == "":
+		// The bare terminal's tag stays a TAG (D-206): signed as the bare
+		// `--from` text, `--from orc-3` rendered byte-identical to orc-3's own
+		// message (panel lens 1 and 2). A session with its ids unset is the
+		// bare terminal by construction (invariant 6); its tag is never a
+		// signature.
+		return "operator (" + from + ")", ""
 	case from == "" || from == label:
 		return label, unregistered
 	default:

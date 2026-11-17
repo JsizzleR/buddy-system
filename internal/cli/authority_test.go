@@ -298,12 +298,12 @@ func TestAFailedAuthorityMarkDoesNotSkipInboxAcknowledgement(t *testing.T) {
 		t.Fatalf("a failed advisory mark must not fail the beat: %s", errw)
 	}
 	ctx := additionalContext(t, out)
-	if !strings.Contains(ctx, "CLAUDE.md changed on disk") || !strings.Contains(ctx, "[bravo] ping") {
+	if !strings.Contains(ctx, "CLAUDE.md changed on disk") || !strings.Contains(ctx, `["operator (bravo)"] ping`) {
 		t.Fatalf("both the notice and the message:\n%s", ctx)
 	}
 	out, _, _ = f.run(t, f.repo, hookJSON("sess-a", f.repo, "Bash", ""), "beat")
 	ctx = additionalContext(t, out)
-	if strings.Contains(ctx, "[bravo] ping") {
+	if strings.Contains(ctx, `["operator (bravo)"] ping`) {
 		t.Fatalf("the message must have been acknowledged despite the failed mark:\n%s", ctx)
 	}
 	if !strings.Contains(ctx, "CLAUDE.md changed on disk") {

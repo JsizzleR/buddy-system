@@ -129,7 +129,7 @@ func TestGateNamesEveryPair(t *testing.T) {
 func TestGateStuckWordsFitTheHook(t *testing.T) {
 	boundedParallel(t)
 	r := newRiderFx(t)
-	if _, errw, code := r.run(t, r.repo, hookJSON("sess-e", r.repo, "", ""), "hello", "--label", strings.Repeat("L", 64)); code != 0 {
+	if _, errw, code := r.run(t, r.repo, hookJSON("sess-e", r.repo, "", ""), "hello", "--label", strings.Repeat("l", 64)); code != 0 { // the widest label the rule admits (D-206)
 		t.Fatalf("hello e: %s", errw)
 	}
 	path := "src/" + strings.Repeat("p", 500) + ".go"

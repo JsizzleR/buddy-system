@@ -151,7 +151,7 @@ existing verbs and measured pieces; what is new is writing them as one loop.
 `tickets/`, made with `git init` and `buddy init` and never committed to;
 each session's cwd is its own `tickets/T-<n>/`, so all eight share one
 ledger (a cwd inside the repo finds it). Each wears its ticket as its label
-(`BUDDY_LABEL=T-<n>` on the tab, D-089) and claims its own directory, for
+(`BUDDY_LABEL=t-<n>` on the tab, D-089; lower case since D-206) and claims its own directory, for
 addressing rather than protection. MCP-only work is untouched by the gate (a
 call with no path is allowed) and `beat` runs on every tool, so mail
 reaches each one. The orchestrator of the tickets lives in that repo too:

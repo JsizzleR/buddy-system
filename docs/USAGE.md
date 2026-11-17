@@ -998,8 +998,9 @@ queued for bravo — …; message #12; signed "unregistered s-66a24e29": your se
 
 The stamp is a notice, not a reply address: unlike a label it resolves to no
 target, so a reply waits for the label the sender registers. Only the bare
-terminal, with no session id in its environment, signs as `operator` (or as
-what `--from` typed).
+terminal, with no session id in its environment, signs as `operator`, or
+`operator (<tag>)` with `--from` (D-206); a sender holding a space or a delimiter
+renders quoted, `["alpha (tag)"]`.
 
 With no text on the command line, the body is read from **stdin** — unless stdin
 is a terminal, where it prints the usage line rather than waiting at a cursor:
@@ -1038,7 +1039,13 @@ queueing a row that would match nothing and reporting success. `buddy msg all` g
 live at send time; a session created later never inherits it, and an
 undelivered broadcast expires after 24 hours. `hello` takes its label from
 `--label`, or else from `$BUDDY_LABEL` (D-089), so a launcher that sets
-`BUDDY_LABEL=<lane>` on the lane's tab makes `buddy msg <lane>` reach it. `hello`
+`BUDDY_LABEL=<lane>` on the lane's tab makes `buddy msg <lane>` reach it. A
+supplied label is 1-64 of `a-z 0-9 . _ -`, a letter or digit at each end, not
+`all`, `operator`, `you`, `agent` or `s-`-led, and not another session's id or
+another live session's open, unparked slug (D-206); a derived default label and
+your stored one re-asserted are never checked. A hook's `hello` with one outside
+that registers you under your stored or default label and says so in the digest;
+a hand-run `hello` or `lifecycle begin` refuses and writes nothing. `hello`
 warns, once, when your `--label` (or `$BUDDY_LABEL`) is already worn by another live session: every `pause` or `msg` to
 that label is refused as ambiguous, naming the live candidates.
 

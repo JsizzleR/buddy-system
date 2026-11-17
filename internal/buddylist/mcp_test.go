@@ -339,7 +339,7 @@ func TestMCPUntrustedNamesRenderOnOneLine(t *testing.T) {
 		{"chat_send echoes room and label",
 			MCPDeps{Call: ok, Label: func() string { return "me\nfake: label" }},
 			`{"name":"chat_send","arguments":{"room":"lobby\nfake: room","text":"x"}}`,
-			"said in lobby⏎fake: room as [me⏎fake: label]", false},
+			"said in lobby⏎fake: room as [\"me⏎fake: label\"]", false}, // a slot, quoted (D-206)
 		{"chat_send failure quotes the daemon's text",
 			MCPDeps{Call: errOn("say", "ERROR :Closing link\nfake: row")},
 			`{"name":"chat_send","arguments":{"room":"lobby","text":"x"}}`,

@@ -69,6 +69,11 @@ type fleetBeside struct {
 	// row an older binary wrote under such an id still refreshes, while the
 	// fleet, which has no row, refuses to create one (panel).
 	refused string
+	// labelNote is hello's WARNING when the fleet refused the label the home
+	// accepted (D-206): a fleet-relative collision, another fleet session's
+	// id or open slug. The fleet half then registered keeping its own label,
+	// never failed: a label is not a reason to drop off the fleet's roster.
+	labelNote string
 }
 
 // besideOf opens the fleet BUDDY_FLEET names BESIDE a home ledger the
@@ -185,7 +190,7 @@ func besideHelloLine(fb *fleetBeside, si store.SessionInfo) string {
 	if !fb.ok() {
 		return fb.line()
 	}
-	return fmt.Sprintf("BUDDY: also session %s in fleet %s, a coordination-only ledger with no file claim, gate or brake: its mail and waits ride this session's hooks. A bare verb acts in this directory's ledger; act in the fleet with `buddy fleet <verb> ...` (its claims are slots: --scope .buddy/slot/<item>)\n",
+	return fb.labelNote + fmt.Sprintf("BUDDY: also session %s in fleet %s, a coordination-only ledger with no file claim, gate or brake: its mail and waits ride this session's hooks. A bare verb acts in this directory's ledger; act in the fleet with `buddy fleet <verb> ...` (its claims are slots: --scope .buddy/slot/<item>)\n",
 		fence.Line(si.Label, 64), fence.Line(fb.name(), 64))
 }
 
@@ -578,6 +583,16 @@ func helloBeside(fb *fleetBeside, session, label, top string, proc store.ProcRef
 		return store.SessionInfo{}
 	}
 	si, err := fb.st.HelloFrom(session, label, top, proc, terminal)
+	if errors.Is(err, store.ErrLabelRefused) {
+		// The same answer as the home's on a hook (lens 3, Codex design
+		// pass): keep this ledger's own label, or mint its default, and say
+		// so. Never fb.fail, which would read as the fleet being down.
+		refusal := err
+		si, err = fb.st.HelloFrom(session, "", top, proc, terminal)
+		if err == nil {
+			fb.labelNote = labelRefusedLine(refusal, "the label", "fleet "+fence.Line(fb.rc.fleet, 64), si.Label)
+		}
+	}
 	if isSessionIDRefused(err) {
 		fb.st.Close()
 		fb.st = nil

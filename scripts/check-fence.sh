@@ -16,6 +16,7 @@
 # .Terminal (the last is read from an ENVIRONMENT and printed into other
 # sessions' context, which is the same trigger).
 # A statement that names one of those must call fence.Line, fence.Field,
+# fence.Slot (Line, quoted when it could close a delimited slot; D-206),
 # Fence or scopeList at least as many times as it names them. scopeList is the
 # one renderer of a claim's scope list (D-066): it fences each scope with
 # fence.Field. Counting it by name is an allowance, so clause 3 below checks
@@ -47,7 +48,7 @@ scan() {
       if (stmt == "") return
       if (stmt !~ /fence: not peer text/) {
         tmp = stmt; nf = gsub(/\.(Label|Slug|Desc|Scopes|Worktree|Body|From|Note|Terminal)([^A-Za-z0-9_]|$)/, "&", tmp)
-        tmp = stmt; nfence = gsub(/fence\.Line\(|fence\.Field\(|[^a-zA-Z]Fence\(|[^a-zA-Z]scopeList\(/, "&", tmp)
+        tmp = stmt; nfence = gsub(/fence\.Line\(|fence\.Field\(|fence\.Slot\(|[^a-zA-Z]Fence\(|[^a-zA-Z]scopeList\(/, "&", tmp)
         if (nf > nfence) printf "%s:%d: %d peer field(s), %d fence call(s): %s\n", FILENAME, start, nf, nfence, stmt
       }
       stmt = ""

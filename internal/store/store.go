@@ -945,6 +945,9 @@ func (s *Store) helloFrom(sessionID, label, worktree string, pid int, proc ProcR
 			if err := ValidSessionID(sessionID); err != nil {
 				return err
 			}
+			if err := checkLabel(tx, sessionID, label); err != nil {
+				return err
+			}
 			inc = newToken()
 			if label == "" {
 				label = defaultLabel(worktree, sessionID)
@@ -957,6 +960,10 @@ func (s *Store) helloFrom(sessionID, label, worktree string, pid int, proc ProcR
 		case err != nil:
 			return err
 		case ended.Valid:
+			// A supplied label is checked before anything is written (D-206).
+			if err := checkLabel(tx, sessionID, label); err != nil {
+				return err
+			}
 			// Orphan the old incarnation's open claims BEFORE reviving:
 			// once ended is cleared below, orphanEnded's ended-IS-NOT-NULL
 			// subquery no longer matches this session, and the claims would
@@ -982,6 +989,9 @@ func (s *Store) helloFrom(sessionID, label, worktree string, pid int, proc ProcR
 				return err
 			}
 		default:
+			if err := checkLabel(tx, sessionID, label); err != nil {
+				return err
+			}
 			// An empty label means "keep the one you have" (labels are pause/msg
 			// targets and must not drift under a session — see defaultLabel), so
 			// NULLIF turns it into NULL and COALESCE falls through to the stored

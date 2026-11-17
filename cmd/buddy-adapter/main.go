@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/harness"
 )
 
@@ -115,6 +116,15 @@ func run(args []string) error {
 	}
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	// The label is checked HERE, before anything launches (D-206): the
+	// ledger's own refusal comes at `lifecycle begin`, after thread/start has
+	// already made a worker, which the controller must then close and leave
+	// for the operator (D-201's shape). This is the lexical half; a label that
+	// collides with another session's id or open slug is still the ledger's
+	// to refuse at begin, the one residual.
+	if *label != "" && !fence.ValidLabel(*label) {
+		return fmt.Errorf("--label %s refused before launch: %s", fence.Slot(*label, fence.LabelCap), fence.LabelRule)
 	}
 	// A bounded, passive wait (A-02): the cap keeps an operator from parking a
 	// resume indefinitely behind a worker that will never exit by itself, and

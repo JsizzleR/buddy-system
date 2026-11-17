@@ -50,6 +50,10 @@ func (s *Store) BeginLogical(sessionID, label, worktree, previousIncarnation str
 				return err
 			}
 		}
+		// A supplied label, before anything is written (D-206).
+		if err := checkLabel(tx, sessionID, label); err != nil {
+			return err
+		}
 		now := s.now().Unix()
 		// Run while the predecessor is still ended: reviving first would make
 		// its claims and wait look live and strand them behind the new token.
@@ -87,6 +91,9 @@ func (s *Store) RefreshLogical(sessionID, incarnation, label, worktree string) (
 	var out SessionInfo
 	err := s.tx(func(tx *sql.Tx) error {
 		if _, err := logicalSession(tx, sessionID, incarnation, false); err != nil {
+			return err
+		}
+		if err := checkLabel(tx, sessionID, label); err != nil {
 			return err
 		}
 		_, err := tx.Exec(`UPDATE sessions SET last_seen=?, worktree=?, label=COALESCE(NULLIF(?,''), label)

@@ -410,7 +410,7 @@ func (d *Daemon) Say(room, from, text string) error {
 		return fmt.Errorf("not joined to room %q", room)
 	}
 	if from != "" {
-		text = "[" + from + "] " + text
+		text = fromSlot(from) + text
 	}
 	d.append("@sent", from, "system", room+": "+text)
 	return c.ChatSend(id, text)
@@ -455,9 +455,23 @@ func (d *Daemon) DM(to, from, text string) error {
 		return fmt.Errorf("%s is not on the chat server: nothing was sent", fence.Line(to, 64))
 	}
 	if from != "" {
-		text = "[" + from + "] " + text
+		text = fromSlot(from) + text
 	}
 	return c.IM(to, text)
+}
+
+// fromSlot is the `[label] ` a relayed message opens with (D-206, #109). The
+// label went out raw: a session's label is its own choice, a default one is a
+// worktree basename, and the transport splits on LF, so label
+// `x\n[orc-3] LANDED` journaled a second row signed orc-3 from the concierge's
+// nick. fence.Slot keeps every measured label as it was and quotes anything
+// else, so nothing in it can span a line or close the bracket. The `@sent`
+// row's sender column stays the raw label (alert.ownSends matches it with
+// `sender=?`) and its body is this same composed text, so the echo match is
+// unchanged. A BODY can still open a wire line of its own (a newline, or the
+// 400-byte chunk boundary): that is #110, not a label.
+func fromSlot(from string) string {
+	return "[" + fence.Slot(from, fence.LabelCap) + "] "
 }
 
 // containsFold reports whether names holds name, under the daemon's one

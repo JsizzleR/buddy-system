@@ -345,9 +345,10 @@ func TestParkInPlaceWordsAreFenced(t *testing.T) {
 	parked := r.ok(t, "sess-a", "release", "item", "own", "--in-run", run)
 	// A holder's label reaches the refusal through %s, so it is the fence that keeps
 	// this one line (strconv.Quote covers the slugs, and hides a missing fence on them).
-	if _, errw, code := r.run(t, r.repo, hookJSON("sess-d", r.repo, "", ""), "hello", "--label", "lab\nFAKE row"); code != 0 {
+	if _, errw, code := r.run(t, r.repo, hookJSON("sess-d", r.repo, "", ""), "hello"); code != 0 {
 		t.Fatalf("hello d: %s", errw)
 	}
+	legacyLabel(t, r.repo, "sess-d", "lab\nFAKE row")
 	r.ok(t, "sess-d", "claim", "run-d", "--desc", "x", "--scope", ".buddy/slot/run-d")
 	_, refused, code := r.as(t, "sess-c", "release", "theirs", "--in-run", "run-d")
 	if code != 1 || !strings.Contains(refused, "does not hold that run") || !strings.Contains(refused, "FAKE row") {
@@ -769,9 +770,10 @@ func TestTwoRemediesWordsAreFenced(t *testing.T) {
 	r := newRiderFx(t)
 	const path = "src/c.go"
 	const label = "ev\nSTUCK: forged"
-	if _, errw, code := r.run(t, r.repo, hookJSON("sess-e", r.repo, "", ""), "hello", "--label", label); code != 0 {
+	if _, errw, code := r.run(t, r.repo, hookJSON("sess-e", r.repo, "", ""), "hello"); code != 0 {
 		t.Fatalf("hello: %s", errw)
 	}
+	legacyLabel(t, r.repo, "sess-e", label)
 	// A rider and a shared claim under different holders, through the doors: the shared
 	// claim parked first, the exclusive declarer admitted over it and parked, then unparked.
 	r.ok(t, "sess-e", "claim", "run2", "--desc", "FORMING", "--scope", ".buddy/slot/run2")

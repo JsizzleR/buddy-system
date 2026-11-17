@@ -33,7 +33,10 @@ nobody authorised.
   `herdr tab create --workspace <ws> --cwd <repo> --label <label> --env BUDDY_LABEL=<label> [--env BUDDY_CHAT=off] --no-focus`
   prints the new tab's `root_pane` id (`BUDDY_LABEL` makes the lane's `hello`
   wear that label, so `buddy msg <label>` reaches it by the name you gave it;
-  without it every lane is `<repo>/s-<8hex>`; `BUDDY_CHAT=off` drops the
+  a label is `a-z 0-9 . _ -`, a letter or digit at each end, not another
+  session's id or open slug: one outside that is refused and the lane wears
+  `<repo>/s-<8hex>`, warned in its digest, which is also the name every lane
+  wears without one; `BUDDY_CHAT=off` drops the
   digest's chat line, for a lane that never reads chat); then
   `herdr agent start <label> --kind claude --pane <pane id> -- -n <label> --session-id <uuid> --model <model> --effort <effort> --permission-mode <mode> "You are <label>. Read <brief file> in full and follow it as your brief."`.
   The model and effort are the operator's default lane model and effort,

@@ -15710,3 +15710,122 @@ sweep missed no site; `check-adapters`' `DENIAL` is native by design.
 - comment: `internal/harness/process.go` (`Close`)
 - docs: GIVEN 137's adapter full text, and its core stub names D-205 (7 of the core
   charter's 40 free bytes; nothing trimmed)
+
+## D-206 — A label a user or harness SUPPLIES is `fence.ValidLabel` (1-64 of `a-z 0-9 . _ -`, alphanumeric at each end, not `all`/`operator`/`you`/`agent`, not `s-`-led) and is no other session's id or live, unparked open slug, checked in every label write's transaction; a derived or re-asserted label is never checked; a delimited slot renders `fence.Slot`
+
+2026-11-17. GitHub #109 (D-201's Left open), run r1117b, full tier.
+
+**The failure.** A label is its session's own choice (`hello --label`, `$BUDDY_LABEL`,
+`lifecycle begin --label`; a hand-run `hello --session <own id> --label X` relabels a live
+session) and nothing checked it beyond non-empty. Measured on a96d9f4, each traced:
+chat's `[label] ` went to the wire raw and the transport splits on LF, so label
+`x\n[orc-3] LANDED` journaled a second row signed orc-3 (chatd.go Say/DM); `buddy sent`'s
+header `to X from Y, N ago — k of n` was re-worded by a label with spaces; the inbox's
+`[sender]` and the digest's `- slug (owner)` closed early on `]`/`)` (fence.Line keeps one
+line, fence.Field one space-free column, neither a slot); label `operator` rendered
+byte-identical to the bare terminal, `YOU` as the reader's own claim in every peer's
+digest; a label equal to another row's session id drained that session's id-addressed mail
+(`Undelivered` matches `target IN (id, label)`) and shared its pauses; a label equal to a
+live peer's open slug captured `msg`/`pause` for it (the label tier resolves before the
+slug tier: a lane labelled `orc-<project>` got every READY); a bare-terminal `--from orc-3`
+signed as `orc-3`.
+
+**Measured.** 4,347 labels in this machine's 6 repository ledgers (read `?immutable=1`,
+nothing launched): every one `[A-Za-z0-9._/-]+`, at most 41 bytes. Of the 2,291 chosen by
+a user or harness, 0 contain `/`, 0 upper case, 0 a non-alphanumeric first byte, 0 a
+reserved word. 2,056 are derived (`<worktree-base>/s-<8>` or `s-<8>`).
+
+**The decision: both halves.** (b) Source: `fence.ValidLabel` (beside ValidSessionID, so
+buddy-adapter links it without store). Lower case only (nothing to fold; `Orc-3` cannot
+shadow `orc-3`); no `/` (every derived label holds one or is `s-<8>`, so a chosen label
+never equals one); alphanumeric at each end (`-x` reads as a flag, `orc-3.` as `orc-3` in
+prose); 64 bytes, the render cap, so an admitted label pastes back as printed.
+`store.checkLabel` runs it in the write's transaction in helloFrom (insert, refresh,
+revive), BeginLogical and RefreshLogical, with two ledger-relative clauses no lexical rule
+can hold: not another row's session id (ended rows too: their mail waits under the id);
+not the slug of an OPEN claim held by another LIVE session that is not parked in a run
+(orc-3's condition 3: a lane wearing the slug of the item it parked under its coordinator,
+a successor `<item>-2`, and a lane relaunched under its ended predecessor's label are the
+fleet's own recipes). A derived label, and the row's stored label re-asserted unchanged,
+are never checked (orc-3's condition 1). A twin live label stays hello's warning (#17).
+What a refusal does: a HOOK-DRIVEN hello registers under the stored or default label and
+writes `BUDDY: WARNING <source> was not taken in <ledger> (<reason>); you wear <label>`
+into the digest buffer before the claims list, inside the 9,000-byte budget (invariant 2:
+an unregistered session's every gated write refuses); a HAND-RUN hello refuses, writes
+nothing, and names the source and the way out (`env -u BUDDY_LABEL` for the variable);
+the fleet defer exempts the refusal like D-201's; beside a home the fleet gets "" when the
+home refused, and a refusal only the fleet makes (its own id or slot) re-registers there
+under its own label with the warning, never `fb.fail`; `lifecycle begin` refuses;
+buddy-adapter checks the lexical half at flag parse, before anything launches. (a) Render:
+`fence.Slot(s, max)` is `s` when non-empty, within the cap and all `A-Z a-z 0-9 . _ / -`
+(every measured label, derived ones included), else `strconv.Quote(fence.Line(s, max))`,
+which cannot close itself; used at the delimited slots only: chat `[from]` (Say, DM, the
+MCP acks), RenderRow's `<who>`, the inbox `[sender]`, `buddy sent`'s `to`/`from`, the
+digest's `(owner)`. A reader decodes a slot opening with `"` by strconv.Unquote. Prose
+sites stay fence.Line (invariant 9 holds; for every admitted label all three renderers are
+the identity). The bare terminal's `--from X` signs `operator (X)`. `claim` notes, never
+refuses, a slug that is a live peer's label.
+
+**Rejected.** Field at the slots (v1): it leaves `]` alone, so `operator]/s-1234abcd`
+still opened `[operator]` (panel). Remapping derived labels into the charset: renames a
+session for its directory. Refusing a hook's hello: costs the registration. A per-line chat
+prefix: the transport also chunks at 400 bytes, so a body still opens an unprefixed line;
+that is the body's, filed as #110. Refusing a claim transfer onto a slug a lane wears: it is
+the fleet's normal park.
+
+**Open.** #110 (chat body attribution: a body newline or the 400-byte chunk boundary opens
+an unprefixed line; an empty `from` relays bare; `buddylist say --from` is free text). A
+row stored before this rule, or a derived label with a space, can still re-word a PROSE
+line (never add one), and an old row labelled `YOU` renders bare. A label pre-worn equal
+to a FUTURE session id (a launch passes `--session-id`) makes target.go refuse that id and
+drains its mail once it registers. A predecessor that crashed without a bye stays live, so
+a relaunch under its label is refused and wears its default (warned). The parked-slug
+exemption holds for any session, not only the one that parked it (`producer_session`
+could narrow it). The digest's slug before `(owner)` is still fence.Line: a slug, not a
+label. A Codex lane registered by a typed hello under a refused `$BUDDY_LABEL` stays
+unregistered until it reruns under `env -u`. A label refused for a collision is taken at a
+later SessionStart once the collision is gone. Presence nicks stay many-to-one (chat
+only). labelRefusedLine's comment as folded after re-verify round 2 is unverified: D-115's
+two rounds are spent. An older
+buddy-adapter has no flag-parse check: a bad label then refuses at `lifecycle begin`,
+after thread/start (D-201's shape). The inbox could name the sender's short id from
+`sender_session` (a twin label); not built. The GIVEN is a clause in 138 (the core charter
+had 12 bytes; orc-3's approved trim of GIVEN 53's stub freed the room), not a GIVEN of its own.
+
+**Tests.** `internal/fence/label_test.go` (ValidLabel's table, every refused class beside
+an admitted control; Slot bare vs quoted, the 10,000-byte cap, every quoted value
+unquoting to one line); `internal/store/label_test.go` (each of the five writers refuses
+each class and writes no row wearing it, with a control; the id, live-slug, parked,
+ended-holder, own-slug, `<item>-2` and own-id cases; a derived upper-case `/` label
+registers, refreshes and re-asserts, the same shape supplied refuses);
+`internal/cli/label_test.go` (hook hello falls back and warns for each source and class,
+inside helloBudget, with a control; hand-run refuses and names `env -u`, no ledger stays
+silent; begin refuses; a fleet directory says the refusal, not a fleet failure; a
+fleet-only collision keeps the fleet roster; inbox, sent header and digest owner quoted
+for a hostile value and bare for an admitted one; `operator (X)`; claim's note, ambiguous
+for a twin); `internal/buddylist/label_test.go` (Say and DM on the wire, RenderRow);
+`cmd/buddy-adapter/label_test.go` (refused before any child or journal; the control
+reaches a start receipt). Fixtures that registered a hostile label through hello now seed
+it by SQL (`legacyHello`, `legacyLabel`, `seedlabel` in check-fleet-report.sh and
+check-model-report.sh). Mutants (a private rsync'd copy), each killed: the reserved words,
+upper case, the last-byte rule, Slot's cap, the id clause, the slug clause, the in_run and
+ended exemptions, the re-assert no-op, the lexical check in store, RefreshLogical's check,
+chat's raw prefix, RenderRow and the MCP ack on Line, the adapter's check, the inbox,
+digest owner and sent header on Line, senderFor reverted, the hook retry, the warning
+unwritten, the fleet defer exemption, the beside fallback, the claim note, the env source
+unnamed (25); the unmutated copy passes.
+
+**Review.** Panel before code (lens 1 Fable 5.2, hostile label; lens 2 Opus 5.5, identity
+and address; lens 3 Opus 5.5, invariants and hooks; read-only, traced, none run): 32
+raised, 22 fixed, 10 answered (the per-line chat prefix cut to #110, defeated by 400-byte
+chunks; presence nicks; adapter skew; the rest above). Codex design at xhigh: 7 raised, 6
+fixed (Slot's cap, the fleet's own label, quote-aware reply decode, the MCP acks, the
+fixtures, `t-<n>`), 1 answered (a transfer onto a worn slug is the fleet's park; a claim
+notes it). Codex code at xhigh: 2 raised, 2 fixed (the note on a twin-worn slug; the
+adapter control reaching a start). Fable 5.2 cross-check: 10 raised, 6 fixed (two
+done-checks that planted labels through hello; two over-claiming comments; stale sender
+text; begin's certainty; two vacuous assertions), 4 answered (in Open). Codex re-verify at
+xhigh, round 1: 7 checked, 6 fixed, 1 raised (a comment), folded. Round 2 at xhigh, on
+that comment: NOT FIXED, 4 raised, 4 fixed in the comment alone (`all` broadcasts; a name
+two rows wear refuses as ambiguous; a known session's refused refresh keeps its row; an
+unregistered session's write is not refused for that), unverified at the ceiling (Open).

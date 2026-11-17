@@ -137,8 +137,8 @@ func TestInsertArmsRefuseUnregistrableIDs(t *testing.T) {
 func TestAmbiguousTargetListIsOneTokenPerName(t *testing.T) {
 	st, _ := openTest(t)
 	const forged = "x (s-aaaa), victim"
-	hello(t, st, "sess-a", forged, "/w/a")
-	hello(t, st, "sess-b", forged, "/w/b")
+	legacyHello(t, st, "sess-a", forged, "/w/a") // a row from before D-206's rule
+	legacyHello(t, st, "sess-b", forged, "/w/b")
 	_, err := st.ResolveTarget(forged)
 	if !errors.Is(err, ErrAmbiguousTarget) {
 		t.Fatalf("control: two sessions wear the label: %v", err)
