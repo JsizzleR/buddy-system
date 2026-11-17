@@ -15095,3 +15095,131 @@ test would miss.
   D-199; its full text carries the paragraph). The core charter had 3 bytes free, so GIVEN
   135's stub was shortened on orc-2's word (#1361): "Codex inspect: latest turn is progress,
   not state", Do-not-propose `thread/sample`; its full text unchanged, D-197 kept.
+
+## D-201 — The ledger creates a session row only for an id `fence.ValidSessionID` admits (1-128 bytes of `A-Za-z0-9._-`, a letter or digit first, not `all`, not `s-`-led), checked where a row is created and nowhere else; a native id's refusal names no alias; one short-id derivation; a session id is printed as a command only when the predicate admits it
+
+**Context.** D-199 left open, outside the adapter: a Codex thread id entered the ledger as
+`session_id` with only a non-empty check, and with no `--label` eight BYTES of it seeded the
+default label. orc-2 opened a full-tier lane on it (operator, 2026-11-17 ~04:20Z). The audit
+(on 00fa1e3, nothing launched) found a sessions row CREATED in exactly two places,
+`store.helloFrom`'s no-row arm and `BeginLogical`'s missing arm; every path reaches one: the
+SessionStart hook's payload id, hand-run `hello --session`, `$BUDDY_SESSION`, the harness
+variables, the fleet beside a home (`helloBeside`), and `lifecycle begin` (the adapter passes
+the Codex server's `thread.id`). Every other verb looks an id up and refuses one not live.
+The render sweep found the paste rule (print an id as a command only if it pastes back as
+printed) applied three times, three ways, and missing at nine sites, where an id fenced for
+display was printed as a command: `sess<TAB>x` pasted as `sess x`, another session. The
+`sessions` id column went through `fence.Line` (a column, invariant 9), and target.go's
+ambiguity list through one whole-message Line, so a label `x (s-aaaa), victim` forged a
+candidate. Measured ids (file names only): 6199 of 6199 retained Codex rollouts UUIDv7, 1230
+of 1230 Claude transcripts UUIDv4, 79 of 79 `docs/admissions` ids UUID-shaped.
+
+**Decision.** (A) `fence.ValidSessionID` is the one predicate, in `internal/fence` because
+buddy-adapter links fence and not store and must agree with the ledger; `store.ValidSessionID`
+wraps it as `ErrSessionIDRefused`, returned only from the two create arms, inside their
+transaction (a refused hello or begin writes nothing). A refresh, a revival (an ended row
+revived by its exact `--previous` token), a lookup and the gate never check it: a row an older
+binary wrote keeps working, with no migration and no schema change. The gate's code and its
+verdict for identical ledger state are unchanged (invariant 3); a refused id is confined to
+the never-registered state: it holds no claim, peers' claims still refuse it, only `pause all`
+brakes it. What it refuses and why: whitespace, controls, bidi and zero-width characters
+(render differently from what they key); any non-ASCII byte; `/` (a default label is
+`<base>/s-<8>`); shell and markdown metacharacters (ids are pasted from code spans); a
+leading `-` (a flag even quoted); `:` (no measured id has one); `all` (a reserved target); any
+`s-` prefix (it would win the exact-id tier over a live session's short form). 128 is the cap
+every renderer fences an id at, so an admitted id is never cut and pastes back as printed.
+
+(B) Wording by source (orc-2's ruling on a Fable 5.2 lens): a NATIVE id (hook payload,
+`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, `lifecycle begin`) is told "do not say hello
+under another id" with no charset recipe: an alias registered by hand claims as the alias
+while the gate judges the payload id, so the session is refused on its own claim
+(TestNativeRefusalNamesNoAlias). A CHOSEN id (`--session`, `$BUDDY_SESSION`) gets the rule, unless it equals the harness's
+own id (`idSource`: that is the native id typed again). What being unregistered costs is said
+per ledger: in the directory's, it holds no claim and only `pause all` brakes it; in a fleet
+(no brake, slots only), it is off the fleet's roster. A typed verb's refusal for an ENDED row
+an older binary wrote names its revival (`hello` revives it; only creation is checked).
+A hook-driven refusal is ONE stdout line and exit 0 (the wired SessionStart line drops
+stderr and cannot block); hand-run, an error. In a fleet it is said as itself, never as a
+transient fleet error (the deferred handler and `helloBeside` know the sentinel).
+`lifecycle begin` says the outcome is certain and nothing was written.
+
+(C) `store.ShortID`, one derivation for `defaultLabel` and cli's `shortSession` (and so the
+short-form target tier): a byte loop keeping `A-Za-z0-9._`, the first eight, `s-?` when none
+(`s-invalid` is the real short form of the valid id `invalid`). For every admitted id it is
+byte-for-byte the old cut, so no stored label changes. (D) `pasteID`: an id is printed as
+part of a command only when the predicate admits it, on the RAW id (never a fenced copy:
+`x<ZWSP>y` fences to the admitted `xy`), else a placeholder or the native advice; applied at
+fleet.go's four roster notes, ghstack.go's hello remedy and release line, errUncorroborated,
+assertedNotLive, `bye --force`, helloCountLine, unregisteredClause, byeRemedy and wait's
+timer advice, `msgTargetFor`'s fallback to the holder's id (an older row under `all`
+printed `buddy msg 'all'`, a broadcast), and `transfer.go`'s re-registered refusal. dirty.go's `buddy msg` operand refuses a label `all` (a broadcast) or one its
+fence alters. `sessions` prints the id and worktree through `fence.Field`; sweep fences the
+id at 128, not 64, through `fence.Field`; the ambiguity list fences each name with `fence.Field`.
+
+**Rejected.** A check in the gate or every hook: a fail-closed verdict change for an id the
+harness chose, denying every tool call, to protect nothing the gate stores. Fencing at render
+only: leaves the label derivation and the short tier to every future renderer, and had
+already missed nine command sites. Normalizing a hostile id into a valid one at entry: a
+different key, which the next hook's raw payload id matches nothing against (D-199's keys).
+A charset on labels: D-089's free text, fenced at render, stands.
+
+**Consequences.** A non-charset Codex thread id now fails `begin` after `thread/start`; the
+controller closes the backend and leaves its start barrier for the operator, and its wrapper
+("outcome may be uncertain") contradicts begin's own "the outcome is certain" (Fable). The
+adapter does not yet call `fence.ValidSessionID`: that call, refusing the id when
+`thread/start` returns it, is keys-fence's. The `--shared` advice
+and the gh-stack slot loop to a hello that refuses for such an id; a refused hello does no
+`cleanupEnded` housekeeping (claim and sweep still do).
+
+**Left open** (reported, not this item): `controller.go` interpolates the session id
+unquoted into `buddy adapter inbox --session` (keys-fence); `chatd.go` sends `[label]` raw to
+IRC, where a newline splits it; `sent.go`'s header fields are forgeable by a label;
+`leftover-report.py` keeps a third short-id copy (display only, identical for ASCII); labels
+have no charset (D-089); a typed verb's `assertedNotLive` words a `--session` equal to the
+harness's own id as chosen (its caller in `wait.go` is another lane's file this round).
+
+**Tests.** `internal/fence/sessionid_test.go` and `internal/store/sessionid_test.go`: the
+predicate's table (UUIDv4, UUIDv7, `sess-a`, exactly 128 admitted; every refused class,
+129 bytes, empty), both create arms refusing with no row, a legacy row's refresh and revival,
+ShortID. `internal/cli/sessionid_test.go`: every entry path (hook, `--session`,
+`$BUDDY_SESSION`, the harness variable, `lifecycle begin`) refuses each hostile id, worded by
+source, with two controls; the alias trap; the gate for an unregistrable id (unclaimed allowed,
+a peer's claim refused, `pause all` denies: the armed control); a legacy hostile row still
+works and renders one token; every paste site with a valid control; the fleet says a refusal
+as itself, fleet-only and beside a home, each ledger's cost its own; sweep prints a 100-byte
+id whole and a spaced one as one token; an ended legacy row is named revivable and hello
+revives it; the harness's own id typed as `--session` is worded native; unregisteredClause
+by source; bye's `--force` remedy, assertedNotLive on the raw id (`x<ZWSP>y`), the gh-stack
+slot's other-ledger arm and a legacy holder `all` (slug and id) each get the placeholder;
+transfer's re-registered refusal (`internal/store/transfer_test.go`). Tests that registered
+an id the ledger now refuses seed it as an older binary's row by SQL. Mutation, in a private
+rsync'd copy, scoped to the D-201 tests: the predicate's 10 (faddde4); the wiring's 28 (each
+create arm unchecked, ShortID as the byte cut or a bare `s-`, pasteID always true, each paste
+site reverted, reachArg without its `all` test or its fence, the sessions id and worktree
+columns by Line, the ambiguity list raw, sweep at 64, the native advice with a recipe,
+hello's hook source lost, idRefusal not unwrapping, helloBeside's and the deferred handler's
+refusal arms removed, a hook refusal as an error, hello's and begin's wording generic); the
+folds' 10. Each fails; three survived at first (the gh-stack other-ledger arm, bye's
+`--force` remedy, the worktree column) and got their tests; two that did not compile were
+respelled; the controls pass.
+
+**Review** — full. Design: a panel of three read-only lenses (entry paths on Opus 5.5, the
+gate and identity on Fable 5.2, listings on Opus 5.5) and a Codex design pass at xhigh, 17
+raised together, each folded or recorded open above. Code: a Codex code pass at xhigh, 3
+raised, 3 fixed (the `all` fallback, the fleet's cost, the ended row). A Fable 5.2
+cross-check, 11 raised (3 the same as Codex's), 11 fixed, 2 of them answered in part (the
+adapter's call is keys-fence's; assertedNotLive's wait.go caller). Codex re-verify at xhigh:
+round 1, 1 raised, 1 fixed (msgTargetFor's slug arm took the broadcast resolution); round 2,
+0 raised (D-115's ceiling).
+
+### Where it lives
+- code: `internal/fence/sessionid.go` (`ValidSessionID`, `SessionIDCap`, `SessionIDRule`),
+  `internal/store/sessionid.go` (`ErrSessionIDRefused`), `store.go` (`helloFrom`,
+  `ShortID`), `logical.go` (`BeginLogical`), `target.go`, `transfer.go`;
+  `internal/cli/sessionid.go` (`pasteID`, `idSource`, `unregistrableAdvice`,
+  `idRefusalLine`, `helloRefused`), `cli.go`, `fleet.go`, `fleetboth.go`, `ghstack.go`,
+  `stale.go` (`msgTargetFor`, `byeRemedy`), `dirty.go`, `lifecycle.go`, `wait.go`
+- tests: `internal/fence/sessionid_test.go`, `internal/store/sessionid_test.go`,
+  `internal/store/transfer_test.go`, `internal/cli/sessionid_test.go`, `ghstack_test.go`; `scripts/check-fleet-report.sh` seeds its planted id
+- index: CLAUDE.md § Decisions, the "Identity" line; GIVEN 138 (core, 303 bytes), its room made by
+  shortening GIVEN 119's stub on orc-2's word (#1390), 119's full text whole in the install part
