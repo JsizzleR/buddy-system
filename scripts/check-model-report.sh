@@ -503,7 +503,7 @@ sqlite3 "$WORK/old.db" 'PRAGMA user_version=18;'
 old=$( cd "$REPO" && BUDDY_LEDGER="$WORK/old.db" sh "$ROOT/scripts/model-report.sh" 2>&1 ) &&
 	fail "a schema-18 ledger was read:
 $old"
-printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 18; this report reads schema 19 only$' ||
+printf '%s\n' "$old" | grep -q '^model-report: the ledger is at schema 18; this report reads schemas 19 and 20 only$' ||
 	fail "the schema refusal did not name the version:
 $old"
 sqlite3 "$WORK/old.db" 'PRAGMA user_version=19;'

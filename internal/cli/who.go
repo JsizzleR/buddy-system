@@ -287,7 +287,7 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 	if declared {
 		c, observed := sampleOf(st, si)
 		fmt.Fprintf(env.Stdout, "WAITING      on %s — declared %s ago, %s, %s; %s%s%s\n",
-			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), deadlinePhrase(now, w), lastCheckPhrase(now, w),
+			waitPhrase(now, w), span(now.Sub(w.Since)), deadlinePhrase(now, w), lastCheckPhrase(now, w),
 			observedRequest(now, c, observed), readyPhrase(w), notePhrase(w))
 	} else {
 		fmt.Fprintln(env.Stdout, "WAITING      none declared")

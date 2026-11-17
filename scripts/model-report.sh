@@ -148,7 +148,7 @@
 #
 # KNOBS
 #   BUDDY_LEDGER         the ledger (default: <git common dir>/buddy.db of
-#                        the cwd; cost-report.sh's knob), at schema 19
+#                        the cwd; cost-report.sh's knob), at schema 19 or 20
 #   BUDDY_MODEL_FLOOR    items a cell needs before its rates mean anything
 #                        (default 10, the operator's number, 5.2(b))
 #   CLAUDE_PROJECTS_DIR  where transcripts live (default ~/.claude/projects)
@@ -235,8 +235,9 @@ q() { (cd "$work" && sqlite3 -batch -noheader -separator '	' 'file:l.db?mode=ro&
 # "no such column"), and a newer one may mean something else by them.
 schema=$(echo 'PRAGMA user_version;' | q)
 case "$schema" in
-	19) ;;
-	*) echo "model-report: the ledger is at schema $schema; this report reads schema 19 only" >&2; exit 2 ;;
+	# 20 (D-208) adds session_waits.mail_after, which nothing here reads.
+	19 | 20) ;;
+	*) echo "model-report: the ledger is at schema $schema; this report reads schemas 19 and 20 only" >&2; exit 2 ;;
 esac
 
 # One row per item claim, every field already in its rendered form, plus

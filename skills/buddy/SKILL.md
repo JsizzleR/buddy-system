@@ -156,18 +156,19 @@ by itself, so decide BEFORE you end a turn that something else will end:
   EXPIRES at its deadline. Whatever the tier, schedule a check of the run
   itself: is its pid still that job? Gone with no final status line is a failed run, not a
   slow one; output growing or flat says neither.
-- **Handed your work in and parked** for the orchestrator or the operator:
-  the same timer, sized to when you expect them. Already waiting on a run
-  (`--on <run> --ready`)? KEEP it, with its loop if the tier passes the hour:
-  a new declaration replaces it, dropping your READY and the run's outcome.
+- **Parked for your orchestrator's message:** `buddy wait --for-mail --until
+  <when> --block` under run_in_background (a broadcast or your own send never
+  lands it). For the operator, the same timer. On a run (`--on <run>
+  --ready`)? KEEP it, with its loop past the hour: a new declaration drops
+  your READY.
 - **Arm nothing** if your wake is due within about 50 minutes (a job's
   exit, a promised message).
-- **Woken first by something else** (the run's completion notice, a message,
-  the operator): `buddy wait clear`, then stop the loop (ScheduleWakeup
-  `stop: true`).
+- **Woken first by something else** (a completion notice, the operator):
+  `buddy wait clear`, then stop the loop (ScheduleWakeup `stop: true`); a
+  mail wait only if you no longer want the message.
 - **Not for a park with no known end** (overnight, "until the operator is
   back"): a check is a turn of about three requests, each reading your whole
-  prompt. On one fleet's week, past four hours it cost what it saved.
+  prompt.
 - **Pace from the check:** wake after the seconds it prints (`next check in
   50m (3000s from now)`); sooner keeps nothing warmer.
 

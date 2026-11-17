@@ -172,7 +172,10 @@ unset _v
 
 # The schema versions whose tables and columns the queries below were checked
 # against (store.schemaVersion). Add one only after reading its migration.
-known=19
+# 20 (D-208) adds session_waits.mail_after; a mail wait landed and not yet
+# closed is counted below as an open wait past its deadline once that passes,
+# as a landed claim wait already is.
+known="19 20"
 stale=1800 # store.StaleAfter
 keep=86400 # store.BroadcastKeep
 

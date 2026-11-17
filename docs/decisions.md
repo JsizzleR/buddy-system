@@ -15829,3 +15829,101 @@ xhigh, round 1: 7 checked, 6 fixed, 1 raised (a comment), folded. Round 2 at xhi
 that comment: NOT FIXED, 4 raised, 4 fixed in the comment alone (`all` broadcasts; a name
 two rows wear refuses as ambiguous; a known session's refused refresh keeps its row; an
 unregistered session's write is not refused for that), unverified at the ceiling (Open).
+
+## D-208 — `buddy wait --for-mail` lands when a session has mail: a direct message still queued, or one sent after the declaration, delivered or not; never a broadcast, its own send or adapter mail; schema 20 adds `session_waits.mail_after` (amends D-033, D-095, D-203)
+
+2026-11-17 · run r1117b, full tier, lane msg-wait. The operator, in orc-3's pane at about
+08:40Z: "go ahead and work the remaining issues", over "the keep-alive's missing zero-cost
+wait on a message"; orc-3 set the tier full at about 17:10Z on the operator's word in its
+pane; **the schema change was accepted by the operator in this lane's own pane at about
+17:11Z** (D-109: never by relay), then narrowed from two columns to one on orc-3's call
+(#1451), as said in this lane's pane. What `wait` refuses grows by usage refusals only (below);
+the gate, claims, the commit gate, the drains, `internal/fence` and the invariants are
+untouched. The design note, with every review finding and its disposition, is
+`docs/MSG-WAIT-PLAN.md`.
+
+**What was measured** (the code; nothing launched). D-203's second case is this gap: a lane
+waiting for its coordinator's GO ran `buddy wait --until 90m`, armed an 1800 s wakeup, and
+was woken 40 s earlier by the message; the stale wake cost 5 requests at ~286k. `--block`
+refused a wait with no `--on` (D-095), so a session parked for mail had no wake of its own:
+the sender's harness wake (D-039, the sender's choice), the keep-alive loop (mail read up to
+50 minutes late), or a hand-rolled poll of `status`. And mail can sit queued long after it
+is sent: each hook drain is bounded (20 messages, ~8 KiB), a Stop holds a turn open once,
+and under Codex every hook drain refuses.
+
+**Decided.** `wait --for-mail [--until] [--note] [--block]` declares a wait whose LANDED is
+"you have mail". A message counts when it is to the waiter's id (`target`, which `Send`
+stores resolved; a legacy label-addressed row only once delivered), is not adapter mail
+(D-076), was not sent by the waiter, is not a broadcast, and is either above the watermark
+(delivered or not) or has no delivery to the waiter recorded BEFORE the declaration (mail
+still queued, whatever its id). Arrival is monotone: a later drain never un-lands it (the
+first rule, "no delivery row", let a drain turn `who`'s LANDED back into STILL WAITING; Codex
+code pass). A delivery in the declaring second counts: one spurious short turn. The watermark,
+`COALESCE(MAX(msg_id), 0)`, is read inside the declaration's write transaction; a mail
+re-declaration over the session's own open mail wait keeps it and its `since` (a fresh `since`
+over a kept watermark dropped a message queued before the old declaration and drained between
+the two; Codex re-verify); `since` is otherwise read only for an age and an order. The arrival is a correlated
+subquery in `waitsWhere`'s one SELECT (one snapshot), behind `CASE` on `mail_after` so a
+claim wait never runs it; `Wait.Landed` judges it before the timer arm, so `wait check`, the
+block, beat's notice, `who`, `wait ls`, msg's waiter note and hello all say one verdict
+(GIVEN 36), MAIL winning over EXPIRED. `wait clear` on a landed mail wait closes it
+`landed` and prints the MAIL line. The MAIL line names the sender from the ledger only
+(`fence.Field` of its label and `store.ShortID`, or "a sender with no session" / "an
+unknown sender"), never `inbox.sender`, which is a sender's own text and would reach a model
+in buddy's voice; it says `buddy inbox` while the message is queued (`inbox <id>` marks
+nothing and the next drain would inject the body again) and `buddy inbox <id>` once a
+delivery is recorded. The keep-alive line's stop step for a mail wait: woken by the mail,
+clear nothing; woken by anything else, leave it unless the message is no longer wanted
+(D-203's "woken first: clear" would end a wait whose mail has not come).
+
+**Refused, writing nothing:** `--for-mail` with `--on` or `--ready`; for a session that is
+not the harness's own (the declaration's `self` test: `--session`, a foreign
+`$BUDDY_SESSION`, no native id), since a block's completion notice reaches only the harness
+that ran it; over the session's own open `--ready` wait, which it would replace, dropping the
+READY (orc-3, #1421). `--block` with no `--on` stays refused unless `--for-mail`.
+
+**Schema 20:** `session_waits.mail_after INTEGER NOT NULL DEFAULT -1`, one ALTER arm; -1 is
+every existing row (its verdict unchanged), `>= 0` a mail wait (0 is an empty inbox's
+watermark, so the test is never `> 0`). The upsert SETs it on every declaration: without
+that a timer declared after a mail wait inherits the watermark. No index. Checked: a 19 hook
+against a 20 ledger gets `ErrLedgerNewer` and the gate denies (D-037); a 20 dev build
+against a 19 ledger without `BUDDY_MIGRATE=1` is refused (D-136); a 19 `--block` already
+running reads named columns harmlessly to its end. `model-report.sh` and `fleet-report.sh`
+read 19 and 20 (nothing they read changed), their done-checks with them.
+
+**Cut.** `--from <session>`: a coordinator handing off past 300k gets a new session id, so the
+successor's GO would never match and the lane would sleep to its deadline; a wake from
+anyone else costs one short turn and grants nothing. Broadcasts: one `buddy msg all` from a
+shell with no session reads as the operator and would end every parked mail wait at once;
+today that send wakes nobody, and it still reaches sessions by the drains. A pseudo-target
+row (`claim_id = "mail:…"`): a schema change in disguise. A non-declaring `inbox --block`:
+no WAITING in any view and no keep-alive. `msg` dropping its wake clause for a recipient with
+a mail wait: the ledger cannot see the block alive (D-095), so a woken-first session takes
+one redundant short turn when its block lands on the same message; accepted.
+
+**Left open.** Watching a fleet ledger and the directory's both (D-193): the wait watches the
+ledger it was declared in, a second item. Whether Codex notices a background job's exit:
+unmeasured, nothing launched. The 24 h sweep deletes a message by its `created`, so a mail
+wait landed by a QUEUED message up to a day old can read STILL WAITING again after a sweep,
+inside its deadline (Fable cross-check; beat's notice, already told, is not repeated):
+recorded, not guarded. `fleet-report.sh` counts an open landed wait past its
+deadline as expired, as it does a claim wait's.
+
+**Tests.** `internal/store/waitmail_test.go`: what counts, case by case, each "does not land"
+with a positive control; the sender from the ledger; an empty inbox; the upsert; the kept
+watermark and `since`; the READY refusal and its control; clear of a landed wait; MAIL over EXPIRED;
+19 → 20 from a timer and a READY row. `internal/cli/waitmail_test.go`: the block's MAIL exit
+(queued, drained, after a broadcast, from a bare shell with `--from` text), the refusals with
+controls, the views and clear, a check landing mail, hello after a revival, the no-block step's whole
+`buddy wait check` and `buddy fleet wait check`.
+
+**Review (full tier).** Panel (hostile sender/drainer on Fable 5.2, verdict machinery and
+migration on Opus 5.5): 29 raised, 27 fixed, 2 answered (a running 19 block after migration;
+fleet-report's expired count). Codex design @xhigh: 8 raised, 8 fixed. Codex code @xhigh: 3
+raised, 3 fixed (arrival made monotone; the sender label's fence test; the same-second rule
+stated). Fable cross-check: 12 raised (6 findings, 6 test gaps), 9 fixed, 3 answered (the 24 h
+sweep, recorded above; the block's first read waits one 15 s poll as D-095's does; the
+migration's column shape, which ALTER appends last with the same declaration). Codex re-verify
+@xhigh, round 1: 2 raised, 2 fixed (a re-declaration kept the watermark but not `since`; the
+no-block step named a bare `wait check`); round 2: 0 raised. Each fold's test was watched to fail
+with the fold reverted (27 mutants across the item, all killed).

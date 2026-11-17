@@ -827,7 +827,7 @@ ledger row entered through the CLI (D-006).
     (D-094).** Every other view keeps its 512-byte cap. Do not propose lifting the cap
     elsewhere or adding `--json`.
 
-96. **`wait --on <slug> --block` exits with the verdict (D-095, amending D-033).** 0 LANDED, 3
+96. **`wait --on <slug> --block` exits with the verdict (D-095, amending D-033, D-208).** 0 LANDED, 3
     EXPIRED, 4 cleared or replaced, 5 session ended; the check's own line; the row closed after
     the write. Autocommit reads every 15 s: never a check, never a keep-alive, no lock across a
     sleep (the one write is cleanupEnded's, only for an ended holder). Buddy still wakes nothing:

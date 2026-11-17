@@ -53,7 +53,9 @@ import (
 )
 
 const usageWait = "usage: buddy wait [--on <slug>]... [--until <dur>] [--note <text>] [--ready <commit>] [--block] [--session <id>]   declare what you wait on\n" +
+	"       buddy wait --for-mail [--until <dur>] [--note <text>] [--block]   wait for a direct message to THIS session (D-208)\n" +
 	"                (default --until 3h, ceiling 12h; no --on is a timer that expires and never lands;\n" +
+	"                 --for-mail lands on mail already queued or sent after it, never on a broadcast or your own send;\n" +
 	"                 --ready HEAD|<commit>: count your work in on the run the claim guards, ready at that commit;\n" +
 	"                 --block: then stay running until the verdict, exit 0 LANDED, 3 EXPIRED, 4 cleared or replaced,\n" +
 	"                 5 session ended — run it with run_in_background, so the harness's completion notice is the wake)\n" +
@@ -118,6 +120,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 	note := fs.String("note", "", "what you mean to do when it lands (shown back to you, fenced)")
 	ready := fs.String("ready", "", "HEAD or a commit: your work is ready at it, for the run the awaited claim guards (D-049)")
 	block := fs.Bool("block", false, "after declaring, stay running until the wait lands, expires, is cleared or the session ends (D-095)")
+	forMail := fs.Bool("for-mail", false, "land when a direct message to this session is queued or arrives; not a broadcast, not your own send (D-208)")
 	var session string
 	sessionFlag(fs, &session)
 	if help, err := parseFlags(fs, args, usageWait, env); help || err != nil {
@@ -135,7 +138,10 @@ func cmdWaitDeclare(args []string, env Env) error {
 		return usageRefusal(fmt.Sprintf("wait takes its claims as --on <slug>, got %s — flags after it would be IGNORED%s",
 			strconv.Quote(a), hint), usageWait)
 	}
-	if *block && len(on) == 0 {
+	if *forMail && (len(on) > 0 || *ready != "") {
+		return usageRefusal("--for-mail names no claim: \"every claim closed\" (--on, --ready) and \"you have mail\" are two meanings of LANDED; nothing was recorded", usageWait)
+	}
+	if *block && len(on) == 0 && !*forMail {
 		// A timer never lands, so a blocked timer is a sleep that ends in
 		// EXPIRED: the harness's own timer does that without a ledger.
 		return usageRefusal("--block waits for a claim to land, and a wait with no --on is a timer that only expires; nothing was recorded", usageWait)
@@ -168,12 +174,6 @@ func cmdWaitDeclare(args []string, env Env) error {
 			return err
 		}
 	}
-	w, replaced, err := st.DeclareWaitReady(si.SessionID, si.Incarnation, on, *until, *note, readySHA)
-	if err != nil {
-		return fencedErr(err)
-	}
-	now := nowOf(env)
-	c, observed := sampleOf(st, si)
 	// "THIS session" only when the harness says the caller IS the session
 	// that waits: a `--session B` from session A's shell would otherwise tell
 	// A to arm a loop whose checks speak for A (Codex code pass).
@@ -182,7 +182,26 @@ func cmdWaitDeclare(args []string, env Env) error {
 	if nativeErr != nil || nativeID != si.SessionID {
 		where, self = "session "+fence.Line(si.Label, 64), false
 	}
-	fmt.Fprintf(env.Stdout, "WAITING on %s — deadline in %s%s%s\n", targetsPhrase(now, w.Targets), span(w.Deadline.Sub(now)), readyPhrase(w), notePhrase(w))
+	if *forMail && !self {
+		// The same test as "THIS session", not whether --session was given:
+		// a $BUDDY_SESSION naming another session, or no native id at all,
+		// sends a block's completion notice to a harness that is not the
+		// waiter's, or to none (verdict panel lens).
+		return usageRefusal("--for-mail is for the harness's own session: a mail wait's wake is its block's completion notice, which reaches only the harness that ran it, and this one is not "+fence.Line(si.Label, 64)+"'s; nothing was recorded", usageWait)
+	}
+	var w store.Wait
+	var replaced *store.Wait
+	if *forMail {
+		w, replaced, err = st.DeclareMailWait(si.SessionID, si.Incarnation, *until, *note)
+	} else {
+		w, replaced, err = st.DeclareWaitReady(si.SessionID, si.Incarnation, on, *until, *note, readySHA)
+	}
+	if err != nil {
+		return fencedErr(err)
+	}
+	now := nowOf(env)
+	c, observed := sampleOf(st, si)
+	fmt.Fprintf(env.Stdout, "WAITING on %s — deadline in %s%s%s\n", waitPhrase(now, w), span(w.Deadline.Sub(now)), readyPhrase(w), notePhrase(w))
 	if ask := askHolderLine(st, env, now, w, nativeID); ask != "" {
 		fmt.Fprintln(env.Stdout, ask)
 	}
@@ -190,9 +209,9 @@ func cmdWaitDeclare(args []string, env Env) error {
 	if codex {
 		fmt.Fprintln(env.Stdout, "Codex: run `"+buddyCmd(env)+" wait check` in "+where+" to read its wait; automatic scheduling is unsupported and cache timing is unknown")
 	} else {
-		fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where, buddyCmd(env), waitClearCmd(self, si, buddyCmd(env))))
+		fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where, buddyCmd(env), wokenStep(w, waitClearCmd(self, si, buddyCmd(env)), buddyCmd(env))))
 	}
-	if len(w.Targets) == 0 {
+	if len(w.Targets) == 0 && !w.IsMail() {
 		// A timer never lands, so no verdict ever ends it early: the park it
 		// covers (a session's own run, a lane waiting for its orchestrator,
 		// D-054) ends with a wake buddy never sees — the harness's completion
@@ -203,7 +222,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 		fmt.Fprintln(env.Stdout, timerEndAdvice(self, si, buddyCmd(env)))
 	}
 	if replaced != nil {
-		fmt.Fprintf(env.Stdout, "replaced your open wait on %s (declared %s ago)\n", targetsPhrase(now, replaced.Targets), span(now.Sub(replaced.Since)))
+		fmt.Fprintf(env.Stdout, "replaced your open wait on %s (declared %s ago)\n", waitPhrase(now, *replaced), span(now.Sub(replaced.Since)))
 	}
 	if *block {
 		return blockOn(st, env, si, w)
@@ -287,7 +306,7 @@ func cmdWaitCheck(args []string, env Env) error {
 		}
 		fmt.Fprintf(&b, "NO WAIT: nothing is registered for this session%s — %s\n", last, stop)
 	case r.Verdict == store.WaitLanded:
-		b.WriteString(landedLines(now, w, stop, buddyCmd(env)))
+		b.WriteString(landedLines(now, w, si.Label, stop, buddyCmd(env)))
 	case r.Verdict == store.WaitExpired:
 		b.WriteString(expiredLines(now, w, stop))
 	default:
@@ -296,7 +315,7 @@ func cmdWaitCheck(args []string, env Env) error {
 			pacing = "Codex scheduling is unsupported; cache timing is unknown"
 		}
 		fmt.Fprintf(&b, "STILL WAITING on %s — %s so far, deadline in %s; %s\n",
-			targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)), pacing)
+			waitPhrase(now, w), span(now.Sub(w.Since)), span(w.Deadline.Sub(now)), pacing)
 	}
 	b.WriteString(observedRequest(now, c, observed) + "\n")
 	// ONE write, so "the verdict was written" is one fact and not three.
@@ -322,8 +341,25 @@ func cmdWaitCheck(args []string, env Env) error {
 
 // landedLines and expiredLines are a check's verdict as it prints it, shared
 // with `wait --block` (D-095) so the two cannot say a verdict two ways.
-func landedLines(now time.Time, w store.Wait, stop, bin string) string {
+func landedLines(now time.Time, w store.Wait, label, stop, bin string) string {
 	var b strings.Builder
+	if w.IsMail() {
+		if !w.Mail.Found {
+			// Closed landed by another read (a check, a clear) whose message
+			// no longer reads as an arrival here (swept, or a row this build
+			// cannot see): say the recorded verdict, never an invented #0
+			// (Codex code pass).
+			fmt.Fprintf(&b, "MAIL: the wait of session %s was closed as landed (mail had come) — `%s inbox` shows anything still queued; the wait is over after %s; %s\n",
+				fence.Line(label, 64), bin, span(now.Sub(w.Since)), stop)
+			return b.String()
+		}
+		fmt.Fprintf(&b, "MAIL: %s for session %s — %s; the wait is over after %s; %s\n",
+			arrivalPhrase(w.Mail), fence.Line(label, 64), readMailStep(w.Mail, bin), span(now.Sub(w.Since)), stop)
+		if w.Note != "" {
+			fmt.Fprintf(&b, "note: %s\n", fence.Line(w.Note, maxWaitNote))
+		}
+		return b.String()
+	}
 	fmt.Fprintf(&b, "LANDED: %s%s — the wait is over after %s; %s\n", targetsPhrase(now, w.Targets), handedPhrase(w, 0, bin), span(now.Sub(w.Since)), stop)
 	if c := riderCaveat(w); c != "" {
 		b.WriteString(c + "\n")
@@ -380,8 +416,15 @@ func cmdWaitClear(args []string, env Env) error {
 	if env.getenv(EnvCodexThread) != "" || env.getenv(EnvHarness) == "codex" {
 		stop = "schedule no further check"
 	}
+	if w.Reason == "landed" {
+		// A mail wait whose mail had come is closed landed, not cleared
+		// (D-208, store.ClearWait): the one verdict, said here as a check
+		// would say it, so a block that reads the close says the same.
+		_, err := io.WriteString(env.Stdout, landedLines(now, *w, si.Label, stop+" (it had already landed, so it was closed as landed, not cleared)", buddyCmd(env)))
+		return err
+	}
 	fmt.Fprintf(env.Stdout, "cleared the wait of %s on %s (declared %s ago, %d check(s)) — its next `%s wait check` says NO WAIT; %s\n",
-		fence.Line(si.Label, 64), targetsPhrase(now, w.Targets), span(now.Sub(w.Since)), w.Checks, buddyCmd(env), stop)
+		fence.Line(si.Label, 64), waitPhrase(now, *w), span(now.Sub(w.Since)), w.Checks, buddyCmd(env), stop)
 	return nil
 }
 
@@ -419,7 +462,7 @@ func cmdWaitLs(args []string, env Env) error {
 	for _, w := range waits {
 		fmt.Fprintf(env.Stdout, "wait %-24s declared %s ago, %s, %s; on %s%s\n",
 			fence.Field(labels[w.SessionID], 64), span(now.Sub(w.Since)), deadlinePhrase(now, w), lastCheckPhrase(now, w),
-			targetsPhrase(now, w.Targets), notePhrase(w))
+			waitPhrase(now, w), notePhrase(w))
 	}
 	return nil
 }
@@ -593,6 +636,61 @@ func targetsPhrase(now time.Time, ts []store.WaitTarget) string {
 	return strings.Join(parts, "; ")
 }
 
+// waitPhrase is what a wait waits on, for every view: a mail wait's phrase,
+// or targetsPhrase's. ONE function so no view can call a mail wait "a timer
+// (it never lands)" — msg's waiterNote would say so to the very sender whose
+// message lands it (verdict panel lens).
+func waitPhrase(now time.Time, w store.Wait) string {
+	if !w.IsMail() {
+		return targetsPhrase(now, w.Targets)
+	}
+	if w.Mail.Found {
+		return "mail (" + arrivalPhrase(w.Mail) + ")"
+	}
+	return fmt.Sprintf("mail (a direct message after #%d, or one still queued; a broadcast or its own send does not land it)", w.MailAfter)
+}
+
+// arrivalPhrase names what landed a mail wait: its id, how many more, and
+// its sender AS THE LEDGER HAS IT — the label of the sending session, through
+// fence.Field so it is one token, and its short id. NEVER inbox.sender: that
+// is the sender's own free text (`--from`, verbatim when it has no session),
+// and this line reaches a model as buddy's own words on a completion notice,
+// outside the inbox's untrusted header, where a crafted name could write the
+// rest of the line (hostile panel lens; invariants 8 and 9).
+func arrivalPhrase(m store.MailArrival) string {
+	more := ""
+	if m.More > 0 {
+		// After the sender, so the others are not read as the same sender's.
+		more = fmt.Sprintf(" (and %d more)", m.More)
+	}
+	var from string
+	switch {
+	case !m.SenderKnown:
+		from = "an unknown sender"
+	case m.SenderSession == "":
+		from = "a sender with no session"
+	default:
+		from = fence.Field(m.SenderLabel, 64) + " (" + store.ShortID(m.SenderSession) + ")"
+	}
+	state := "queued"
+	if m.Delivered {
+		state = "delivery recorded"
+	}
+	return fmt.Sprintf("#%d from %s, %s%s", m.ID, from, state, more)
+}
+
+// readMailStep is how to read what landed. QUEUED names plain `inbox`, which
+// drains and marks: `inbox <id>` marks nothing, so the next drain would put
+// the body into context a second time. DELIVERED names `inbox <id>`, a
+// re-read: a delivery row proves a write to some shell, not that this model
+// saw it (another shell's `inbox --session` records one).
+func readMailStep(m store.MailArrival, bin string) string {
+	if m.Delivered {
+		return fmt.Sprintf("re-read it with `%s inbox %d`", bin, m.ID)
+	}
+	return "read it with `" + bin + " inbox`"
+}
+
 // openTargets is the targets still being waited on: open and held by somebody
 // else. A claim handed to the waiter is open and over (D-093), so it is never
 // "still open" in an EXPIRED line, nor re-declared by hello's paste-back
@@ -623,6 +721,9 @@ func notePhrase(w store.Wait) string {
 func deadlinePhrase(now time.Time, w store.Wait) string {
 	switch w.Verdict(now) {
 	case store.WaitLanded:
+		if w.IsMail() {
+			return fmt.Sprintf("LANDED: mail #%d is here (a check clears it)", w.Mail.ID)
+		}
 		for _, t := range w.Targets {
 			if t.HandedToWaiter {
 				return "LANDED: every claim it waits on has closed or been handed to it (a check clears it)"
@@ -795,12 +896,32 @@ func keepAliveAdvice(now time.Time, c store.ContextSample, observed bool, where,
 }
 
 // keepAliveArm is the advice both arming arms share (D-203): skip, arm, stop.
-// clear is waitClearCmd's: declared for another session, the declarer reads
-// this line too, and a bare clear there would clear its own wait.
-func keepAliveArm(where, bin, clear string) string {
+// woken is wokenStep's: the stop step for the wait declared.
+func keepAliveArm(where, bin, woken string) string {
 	return "arm nothing if a wake is due within " + span(keepAlivePeriod) + " (a job's exit, a promised message); else `/loop " + bin +
-		" wait check` in " + where + ", no interval (it self-paces; an interval makes a cron); woken first: " + clear +
-		", then stop the loop (ScheduleWakeup stop: true)"
+		" wait check` in " + where + ", no interval (it self-paces; an interval makes a cron); " + woken
+}
+
+// wokenStep is the keep-alive line's stop step. clear is waitClearCmd's:
+// declared for another session, the declarer reads this line too, and a bare
+// clear there would clear its own wait.
+//
+// A MAIL WAIT HAS ITS OWN (D-208, amending D-203). "Woken first: clear" was
+// for a timer standing in for an outside wake. A mail wait is not over until
+// the mail comes: a lane woken by its own test job that cleared would have
+// no mail wake left (verdict panel lens), and one woken by the mail itself
+// that cleared would turn its block's MAIL into CLEARED.
+//
+// bin is buddyCmd's: the no-block step names the WHOLE command. A bare
+// `wait check` is the shell's own builtin, which leaves the buddy wait open,
+// and a fleet declaration checked by a bare `buddy` reads the wrong ledger
+// (Codex re-verify).
+func wokenStep(w store.Wait, clear, bin string) string {
+	if w.IsMail() {
+		return "woken by your mail: clear nothing, it has landed (its block says MAIL and closes it; with no block, run `" + bin + " wait check` once); woken by anything else: leave it, and " +
+			clear + " only if you no longer want the message; once it lands, stop the loop (ScheduleWakeup stop: true)"
+	}
+	return "woken first: " + clear + ", then stop the loop (ScheduleWakeup stop: true)"
 }
 
 // observedRequest is the check's last line: what the ledger's newest
@@ -994,8 +1115,12 @@ func waitNotice(st *store.Store, me store.SessionInfo, now time.Time, bin string
 	if caveat != "" {
 		caveat = " " + caveat
 	}
+	what := targetsWithin(now, w.Targets, hookTargetsRoom, "`"+bin+" status` lists every one")
+	if w.IsMail() {
+		what = waitPhrase(now, w)
+	}
 	line := fmt.Sprintf("BUDDY: your wait LANDED — %s%s%s. `%s wait check` clears it; then stop the /loop that runs it.%s\n",
-		targetsWithin(now, w.Targets, hookTargetsRoom, "`"+bin+" status` lists every one"), handedPhrase(w, hookHandedRoom, bin), notePhrase(w), bin, caveat)
+		what, handedPhrase(w, hookHandedRoom, bin), notePhrase(w), bin, caveat)
 	return line, func() error { return st.MarkWaitTold(me.SessionID, w.Decl) }
 }
 
@@ -1020,8 +1145,12 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex 
 		return ""
 	}
 	if w.IsOpen() && w.Incarnation == si.Incarnation {
+		what := targetsWithin(now, w.Targets, hookTargetsRoom, "`"+bin+" status` lists every one")
+		if w.IsMail() {
+			what = waitPhrase(now, w)
+		}
 		head := fmt.Sprintf("BUDDY: you are WAITING on %s — declared %s ago, %s%s.",
-			targetsWithin(now, w.Targets, hookTargetsRoom, "`"+bin+" status` lists every one"), span(now.Sub(w.Since)), deadlinePhrase(now, w), notePhrase(w))
+			what, span(now.Sub(w.Since)), deadlinePhrase(now, w), notePhrase(w))
 		// The advice follows the verdict and the tier, as the declaration's
 		// does (Codex code pass): a wait that is over needs one check to take
 		// its verdict, not a loop, and on a tier where a keep-alive does not
@@ -1045,6 +1174,26 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex 
 	if left < time.Minute {
 		left = time.Minute
 	}
+	arm := ""
+	if _, pays, _ := cacheTier(sampleOf(st, si)); pays && !codex {
+		arm = ", then /loop " + bin + " wait check"
+	}
+	if w.IsMail() {
+		// The mail form of "its claims have all closed since" (D-208): what
+		// arrived for the ended row is computed before any recipe is printed,
+		// because a re-declaration takes a NEW watermark (a new incarnation's
+		// row is not its own open mail wait) and would sleep over it.
+		head := fmt.Sprintf("BUDDY: an earlier run of this session id was WAITING on mail (declared %s ago, deadline in %s); that wait ended with it.",
+			span(now.Sub(w.Since)), span(w.Deadline.Sub(now)))
+		if w.Mail.Found {
+			return head + " Mail came since (" + arrivalPhrase(w.Mail) + "): " + readMailStep(w.Mail, bin) + "; nothing is left to wait for.\n"
+		}
+		block := " --block (under run_in_background)"
+		if codex {
+			block = ""
+		}
+		return head + " To wait again: " + bin + " wait --for-mail --until " + span(left) + block + arm + "\n"
+	}
 	// The earlier run's wait is closed, so `status` no longer shows it; the
 	// claims it named that are still open are in `buddy ls`.
 	head := fmt.Sprintf("BUDDY: an earlier run of this session id was WAITING on %s (declared %s ago, deadline in %s); that wait ended with it.",
@@ -1066,10 +1215,6 @@ func waitHelloLines(st *store.Store, si store.SessionInfo, now time.Time, codex 
 	if len(flags) > hookFlagsRoom {
 		return head + fmt.Sprintf(" Its %d open claims are too many to write here as one command; `%s ls` lists them.\n", len(open), bin)
 	}
-	arm := ""
-	if _, pays, _ := cacheTier(sampleOf(st, si)); pays && !codex {
-		arm = ", then /loop " + bin + " wait check"
-	}
 	return head + " To wait again: " + bin + " wait" + flags + " --until " + span(left) + arm + unpastableNote(unpastable) + "\n"
 }
 
@@ -1081,7 +1226,7 @@ func waiterNote(st *store.Store, si store.SessionInfo, now time.Time) string {
 	if err != nil || !ok {
 		return "" // a note never costs the send (D-032)
 	}
-	return fmt.Sprintf("; it declared a wait %s ago on %s, %s, %s", span(now.Sub(w.Since)), targetsPhrase(now, w.Targets),
+	return fmt.Sprintf("; it declared a wait %s ago on %s, %s, %s", span(now.Sub(w.Since)), waitPhrase(now, w),
 		deadlinePhrase(now, w), lastCheckPhrase(now, w))
 }
 

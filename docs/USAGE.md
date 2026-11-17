@@ -1544,6 +1544,32 @@ buddy wait --on api-work --until 3h --block     # run_in_background; exit 0 when
 # LANDED: claim "api-work" released 4s ago — the wait is over after 41m; stop any /loop that runs `buddy wait check` (schedule no further check)
 ```
 
+**Waiting for a message (D-208).** `buddy wait --for-mail [--until <dur>]
+[--block]` lands when you have mail: a direct message to this session that is
+still queued (whenever it was sent: mail the drains have not handed you yet
+counts), or one sent after the declaration, delivered or not (so a message you
+already read with `buddy inbox` still ends the block instead of leaving it to
+its deadline). A broadcast never lands it, nor does your own send, nor adapter
+mail. It names no claim: `--on` or `--ready` with it is refused, and so is a
+mail wait declared for another session (`--session`, or a `$BUDDY_SESSION`
+that is not the harness's): the block's completion notice reaches only the
+harness that ran it. It is also refused over your own open `--ready` wait,
+which it would replace, dropping your READY; `buddy wait clear` drops that
+deliberately. The verdict line names the sender from the ledger (its label and
+short id, or `a sender with no session`), never a sender's `--from` text, and
+says how to read the message: plain `buddy inbox` while it is queued, `buddy
+inbox <id>` once a delivery is recorded. `wait clear` on a mail wait whose mail
+has come closes it as landed and prints the same MAIL line. The keep-alive
+line's stop step differs: woken by the mail, clear nothing; woken by anything
+else, leave the wait standing unless you no longer want the message.
+
+```sh
+buddy wait --for-mail --until 90m --block       # run_in_background; exit 0 when mail comes
+# WAITING on mail (a direct message after #1412, or one still queued; a broadcast or its own send does not land it) — deadline in 1h30m
+# BLOCKING until mail lands it (a direct message to this session; a broadcast or its own send does not): … — exit 0 LANDED, 3 EXPIRED, 4 cleared or replaced, 5 this session ended
+# MAIL: #1421 from orc-3 (s-d31d610f), queued for session lane-x — read it with `buddy inbox`; the wait is over after 12m; stop any /loop that runs `buddy wait check` (schedule no further check)
+```
+
 A session parked waiting for a peer — a claim to be released, a serialized
 hour-long test tier, a review slot — runs no turn, and every prompt-cache
 entry here is written on the **1-hour tier**. Past the hour its next request

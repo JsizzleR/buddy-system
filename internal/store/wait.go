@@ -130,7 +130,66 @@ type Wait struct {
 	Reason      string    // "landed", "expired", "cleared", "ended" once cleared
 	ReadySHA    string    // D-049: the commit the waiter declared its work ready at, or ""
 	Targets     []WaitTarget
+	// MailAfter is a MAIL wait's watermark (D-208): the inbox's highest
+	// msg_id when it was declared, 0 on an empty inbox; -1 for every other
+	// wait. IsMail is the one test (never MailAfter > 0).
+	MailAfter int64
+	mail      bool
+	// Mail is what has arrived for a mail wait, read in the same SELECT as
+	// the row (one snapshot); zero for any other wait, or when nothing has.
+	Mail MailArrival
 }
+
+// MailArrival is the first message that lands a mail wait (a QUEUED one
+// first, so the line points at what is still unread, never at a message
+// already drained while a later one waits: Fable cross-check), and how many do.
+//
+// WHAT COUNTS (D-208). A message to the waiter that is not adapter mail
+// (D-076: its own register), not the waiter's own send (a lane's correction
+// or broadcast never wakes itself), not a broadcast, and either QUEUED (to
+// the waiter's id with no delivery row for it, whatever its id: mail that sat
+// unread under the drain's bounds, a held Stop or a Codex harness whose hooks
+// never drain must not be slept over) or ARRIVED (above the watermark, to the
+// waiter's id or delivered to it, so a message a woken session already drained
+// with `buddy inbox` still ends the wait instead of leaving it to its deadline).
+//
+// MONOTONE: what counts keeps counting. The queued arm was first "no delivery
+// row", and a message queued before the declaration then LEFT it when drained:
+// `who` said LANDED, the next check STILL WAITING (Codex code pass, GIVEN 36).
+// So a message at or below the watermark is excluded only by a delivery
+// recorded BEFORE the declaration (`delivered < since`), which a later drain
+// cannot write. A delivery in the declaring second counts: a spurious landing
+// on mail just read costs one short turn; a lost one, the deadline.
+//
+// NOT BROADCASTS. One `buddy msg all` from any shell with no session reads as
+// the operator; landing on it would end every parked mail wait at once, a
+// turn each at full context, every fifteen seconds it is repeated. Today that
+// send wakes nobody (no wake clause is named for a broadcast), and it still
+// reaches the session by the drains (hostile panel lens).
+//
+// TARGETS ARE SESSION IDS. Send stores the resolved id (inbox.go), so the
+// direct arm is `target = waiter` and there is no label arm: a label is peer
+// text a session can set to another's id, and a label that changed between a
+// drain and a read would un-land a wait (two panel lenses). A legacy row
+// addressed by label still counts once it is delivered.
+type MailArrival struct {
+	Found bool
+	ID    int64
+	More  int // how many more count besides ID
+	// SenderKnown false: the message's sender_session was NULL (unresolved).
+	// SenderSession "" with SenderKnown is a send from no session. Neither
+	// is ever inbox.sender, a sender's own free text.
+	SenderKnown   bool
+	SenderSession string
+	SenderLabel   string // the ledger's label for SenderSession; peer text: the caller fences it
+	Created       time.Time
+	Delivered     bool // the waiter has a delivery row for ID
+}
+
+// IsMail reports whether the wait waits on mail (D-208). A flag the scan
+// sets, not MailAfter >= 0: the zero Wait would otherwise read as a mail wait
+// (Fable cross-check).
+func (w Wait) IsMail() bool { return w.mail }
 
 // IsOpen reports whether nothing has closed the row yet. It says nothing
 // about whether the wait is OVER — Verdict does.
@@ -155,6 +214,9 @@ const (
 // parked on something outside the ledger (an external test tier) keeps its
 // cache and its inbox without inventing a claim to wait on.
 func (w Wait) Landed() bool {
+	if w.IsMail() {
+		return w.Mail.Found
+	}
 	if len(w.Targets) == 0 {
 		return false
 	}
@@ -227,6 +289,26 @@ func (s *Store) DeclareWait(sessionID, incarnation string, slugs []string, until
 // an ancestry test would fail every correctly integrated item (Codex and Fable
 // design passes). A timer has nobody to hand readiness to, so it is refused.
 func (s *Store) DeclareWaitReady(sessionID, incarnation string, slugs []string, until time.Duration, note, readySHA string) (Wait, *Wait, error) {
+	return s.declareWait(sessionID, incarnation, slugs, until, note, readySHA, false)
+}
+
+// DeclareMailWait declares a wait that lands when mail comes (D-208): no
+// targets, the watermark read INSIDE the declaration's write transaction
+// (sends serialize on that lock and AUTOINCREMENT never reuses an id, so every
+// later message is above it). Refused, writing nothing, over the session's own
+// open --ready wait: one row per session, so the mail wait would REPLACE the
+// READY and drop the run's outcome (orc-3's call, 2026-11-17). Over its own
+// open mail wait it KEEPS that watermark and its `since`: a message drained
+// between the old block's last read and this declaration would otherwise land
+// neither.
+func (s *Store) DeclareMailWait(sessionID, incarnation string, until time.Duration, note string) (Wait, *Wait, error) {
+	return s.declareWait(sessionID, incarnation, nil, until, note, "", true)
+}
+
+func (s *Store) declareWait(sessionID, incarnation string, slugs []string, until time.Duration, note, readySHA string, mail bool) (Wait, *Wait, error) {
+	if mail && (len(slugs) > 0 || readySHA != "") {
+		return Wait{}, nil, ErrWaitRefused{Why: "a mail wait names no claim: \"every claim closed\" and \"you have mail\" are two meanings of LANDED; nothing was recorded"}
+	}
 	if readySHA != "" && len(slugs) == 0 {
 		return Wait{}, nil, ErrWaitRefused{Why: "--ready says whose run your work is ready for, so it needs --on <slug>: a timer has nobody to hand it to; nothing was recorded"}
 	}
@@ -281,6 +363,23 @@ func (s *Store) DeclareWaitReady(sessionID, incarnation string, slugs []string, 
 			p := prev[0]
 			replaced = &p
 		}
+		mailAfter, since := int64(-1), now.Unix()
+		if mail {
+			if replaced != nil && replaced.ReadySHA != "" {
+				return ErrWaitRefused{Why: "you have an open --ready wait, and a mail wait would replace it and drop your READY and the run's outcome; `buddy wait clear` drops it deliberately; nothing was recorded"}
+			}
+			if replaced != nil && replaced.IsMail() {
+				// The watermark AND `since`: mailCounts excludes a message at
+				// or below the watermark only by a delivery before `since`,
+				// so a fresh `since` over a kept watermark dropped one queued
+				// before the old declaration and drained between the two
+				// (Codex re-verify). `since` is otherwise read only for an
+				// age and an order; the deadline is the new declaration's.
+				mailAfter, since = replaced.MailAfter, replaced.Since.Unix()
+			} else if err := tx.QueryRow(`SELECT COALESCE(MAX(msg_id), 0) FROM inbox`).Scan(&mailAfter); err != nil {
+				return err
+			}
+		}
 		// One row per session and its targets with it: the old declaration's
 		// targets go whatever state it was in, because nothing reads a
 		// declaration that is no longer the session's.
@@ -288,12 +387,16 @@ func (s *Store) DeclareWaitReady(sessionID, incarnation string, slugs []string, 
 			return err
 		}
 		decl := newToken()
-		if _, err := tx.Exec(`INSERT INTO session_waits (session_id, incarnation, decl, since, deadline, note, last_check, checks, told, cleared, reason, ready_sha)
-			VALUES (?,?,?,?,?,?,0,0,0,NULL,NULL,?)
+		// mail_after is SET on every declaration, -1 for a non-mail one: an
+		// upsert leaves an unnamed column as it was, and a timer or claim wait
+		// declared after a mail wait would inherit its watermark and land on
+		// mail (migration panel lens).
+		if _, err := tx.Exec(`INSERT INTO session_waits (session_id, incarnation, decl, since, deadline, note, last_check, checks, told, cleared, reason, ready_sha, mail_after)
+			VALUES (?,?,?,?,?,?,0,0,0,NULL,NULL,?,?)
 			ON CONFLICT(session_id) DO UPDATE SET incarnation=excluded.incarnation, decl=excluded.decl, since=excluded.since,
 				deadline=excluded.deadline, note=excluded.note, last_check=0, checks=0, told=0, cleared=NULL, reason=NULL,
-				ready_sha=excluded.ready_sha`,
-			sessionID, incarnation, decl, now.Unix(), now.Add(until).Unix(), note, readySHA); err != nil {
+				ready_sha=excluded.ready_sha, mail_after=excluded.mail_after`,
+			sessionID, incarnation, decl, since, now.Add(until).Unix(), note, readySHA, mailAfter); err != nil {
 			return err
 		}
 		for i, t := range targets {
@@ -423,6 +526,12 @@ func (s *Store) CloseWait(sessionID, decl, reason string) (bool, error) {
 
 // ClearWait withdraws the caller's open wait (reason "cleared") and returns
 // it; nil when there was none to clear, which is not an error.
+//
+// A MAIL wait whose mail has come is closed "landed" instead (D-208), judged
+// in this transaction: a session that read MAIL in `who` and cleared would
+// otherwise get CLEARED from its block, two verdicts for one wait (GIVEN 36).
+// The caller prints the verdict the returned Reason names. Claim waits keep
+// the plain clear.
 func (s *Store) ClearWait(sessionID, incarnation string) (*Wait, error) {
 	var out *Wait
 	err := s.tx(func(tx *sql.Tx) error {
@@ -435,11 +544,15 @@ func (s *Store) ClearWait(sessionID, incarnation string) (*Wait, error) {
 			return err
 		}
 		w := got[0]
-		if _, err := tx.Exec(`UPDATE session_waits SET cleared=?, reason='cleared' WHERE session_id=? AND decl=?`,
-			now.Unix(), sessionID, w.Decl); err != nil {
+		reason := "cleared"
+		if w.IsMail() && w.Landed() {
+			reason = "landed"
+		}
+		if _, err := tx.Exec(`UPDATE session_waits SET cleared=?, reason=? WHERE session_id=? AND decl=?`,
+			now.Unix(), reason, sessionID, w.Decl); err != nil {
 			return err
 		}
-		w.Cleared, w.Reason = now, "cleared"
+		w.Cleared, w.Reason = now, reason
 		out = &w
 		return nil
 	})
@@ -532,7 +645,21 @@ func cleanupEnded(tx *sql.Tx, now int64) error {
 // single SELECT is a single snapshot. The claim and holder
 // columns are LEFT JOINed because a claim row can be gone (sweep deletes
 // closed rows past its ttl) and a target must survive that as "closed".
+// mailCounts is the one predicate for "message m lands mail wait w" (see
+// MailArrival), written once and used for both the first arrival and the
+// count, so the two cannot disagree. Every arm excludes adapter mail.
+const mailCounts = `m.target<>'all'
+	AND NOT EXISTS (SELECT 1 FROM adapter_messages a WHERE a.msg_id=m.msg_id)
+	AND (m.sender_session IS NULL OR m.sender_session<>w.session_id)
+	AND (m.target=w.session_id OR EXISTS
+		(SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=w.session_id))
+	AND (m.msg_id>w.mail_after OR NOT EXISTS
+		(SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=w.session_id AND d.delivered<w.since))`
+
 func waitsWhere(q querier, where string, args ...any) ([]Wait, error) {
+	// The mail columns are behind CASE on mail_after so a wait that is not a
+	// mail wait (every claim wait beat reads on every tool call) never runs
+	// the inbox subqueries.
 	rows, err := q.Query(`SELECT w.session_id, w.incarnation, w.decl, w.since, w.deadline, w.note, w.last_check, w.checks, w.told,
 			COALESCE(w.cleared,0), COALESCE(w.reason,''), w.ready_sha,
 			COALESCE(t.claim_id,''), COALESCE(t.slug,''), COALESCE(c.state,''), COALESCE(c.renewed,0),
@@ -540,8 +667,17 @@ func waitsWhere(q querier, where string, args ...any) ([]Wait, error) {
 			COALESCE(h.session_id,''), COALESCE(h.incarnation,''), COALESCE(h.label,''), COALESCE(h.worktree,''),
 			COALESCE(h.started,0), COALESCE(h.last_seen,0), COALESCE(h.ended,0),
 			COALESCE(r.claim_id,''), COALESCE(rh.label,''), COALESCE(r.created,0),
-			COALESCE(c.session_id,''), COALESCE(c.incarnation,'')
+			COALESCE(c.session_id,''), COALESCE(c.incarnation,''),
+			w.mail_after, COALESCE(mm.msg_id,0), mm.sender_session, COALESCE(ms.label,''), COALESCE(mm.created,0),
+			CASE WHEN mm.msg_id IS NULL THEN 0 ELSE EXISTS
+				(SELECT 1 FROM inbox_delivery d WHERE d.msg_id=mm.msg_id AND d.session_id=w.session_id) END,
+			CASE WHEN w.mail_after<0 THEN 0 ELSE (SELECT COUNT(*) FROM inbox m WHERE `+mailCounts+`) END
 		FROM session_waits w
+		LEFT JOIN inbox mm ON mm.msg_id = CASE WHEN w.mail_after<0 THEN NULL ELSE COALESCE(
+			(SELECT MIN(m.msg_id) FROM inbox m WHERE `+mailCounts+` AND NOT EXISTS
+				(SELECT 1 FROM inbox_delivery d WHERE d.msg_id=m.msg_id AND d.session_id=w.session_id)),
+			(SELECT MIN(m.msg_id) FROM inbox m WHERE `+mailCounts+`)) END
+		LEFT JOIN sessions ms ON ms.session_id=mm.sender_session
 		LEFT JOIN session_wait_targets t ON t.decl=w.decl AND t.session_id=w.session_id
 		LEFT JOIN claims c ON c.claim_id=t.claim_id
 		LEFT JOIN sessions h ON h.session_id=c.session_id
@@ -560,13 +696,23 @@ func waitsWhere(q querier, where string, args ...any) ([]Wait, error) {
 		var t WaitTarget
 		var renewed int64
 		var reopenedID, ownerID, ownerInc string
+		var mailSender sql.NullString
+		var mailCount int
 		if err := rows.Scan(&w.SessionID, &w.Incarnation, &w.Decl, unixScan{&w.Since}, unixScan{&w.Deadline}, &w.Note,
 			unixScan{&w.LastCheck}, &w.Checks, &told, unixScan{&w.Cleared}, &w.Reason, &w.ReadySHA,
 			&t.ClaimID, &t.Slug, &t.State, &renewed, &t.Outcome, &t.OutcomeNote,
 			&t.Holder.SessionID, &t.Holder.Incarnation, &t.Holder.Label, &t.Holder.Worktree,
 			unixScan{&t.Holder.Started}, unixScan{&t.Holder.LastSeen}, unixScan{&t.Holder.Ended},
-			&reopenedID, &t.ReopenedBy, unixScan{&t.ReopenedAt}, &ownerID, &ownerInc); err != nil {
+			&reopenedID, &t.ReopenedBy, unixScan{&t.ReopenedAt}, &ownerID, &ownerInc,
+			&w.MailAfter, &w.Mail.ID, &mailSender, &w.Mail.SenderLabel, unixScan{&w.Mail.Created},
+			&w.Mail.Delivered, &mailCount); err != nil {
 			return nil, err
+		}
+		w.mail = w.MailAfter >= 0
+		if w.Mail.ID != 0 {
+			w.Mail.Found = true
+			w.Mail.More = mailCount - 1
+			w.Mail.SenderKnown, w.Mail.SenderSession = mailSender.Valid, mailSender.String
 		}
 		w.Told = told != 0
 		t.Reopened = reopenedID != ""

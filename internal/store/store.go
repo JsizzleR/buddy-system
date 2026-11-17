@@ -369,7 +369,11 @@ CREATE TABLE IF NOT EXISTS session_waits (
 	-- D-049: the commit the waiter declared its work READY at, full object
 	-- name, or '' (not declared ready). The waiter's declaration, never
 	-- checked against any tree.
-	ready_sha   TEXT NOT NULL DEFAULT ''
+	ready_sha   TEXT NOT NULL DEFAULT '',
+	-- D-208: a MAIL wait's watermark, the inbox's highest msg_id when it was
+	-- declared (0 on an empty inbox); -1 is every other wait. Never > 0 as the
+	-- test: 0 is a mail wait.
+	mail_after  INTEGER NOT NULL DEFAULT -1
 );
 -- The claims a declaration waits on, resolved ONCE to claim ids (D-013). The
 -- slug is kept as declared for display only; landing is judged on the id.
@@ -394,6 +398,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // 18 adds claims.in_run, based_on, producer_session and producer_incarnation
 // (D-133), ALTER arms.
 // 19 adds session_browser (D-134).
+// 20 adds session_waits.mail_after (D-208), an ALTER arm.
 // 16 adds session_context.handoff_step (D-096), an ALTER arm.
 // 15 adds captured adapter message identities and receiving endpoint reports.
 // 14 adds claims.outcome, claims.outcome_note and session_waits.ready_sha
@@ -414,7 +419,7 @@ CREATE INDEX IF NOT EXISTS session_wait_targets_session ON session_wait_targets(
 // ledger and cannot add a missing column to an existing one — a column would
 // need an ALTER arm of its own, for a row that is not part of a session's
 // identity and is absent for most of them.
-const schemaVersion = 19
+const schemaVersion = 20
 
 // Store wraps the ledger database. The clock is a seam; tests pin it.
 type Store struct {
@@ -694,6 +699,14 @@ func migrateTx(db *sql.DB, beforeSchema func(tx *sql.Tx, ver int) error) error {
 			if err := addColumnIfMissing(tx, "claims", col, "TEXT NOT NULL DEFAULT ''"); err != nil {
 				return err
 			}
+		}
+	}
+	// D-208. No wait waited on mail before this, which is what -1 says: every
+	// existing row keeps its verdict. No index rides the column (an index on
+	// it in the script above would fail every older ledger before this arm).
+	if ver < 20 {
+		if err := addColumnIfMissing(tx, "session_waits", "mail_after", "INTEGER NOT NULL DEFAULT -1"); err != nil {
+			return err
 		}
 	}
 	if !hadRecipientTable {

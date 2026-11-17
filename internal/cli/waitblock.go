@@ -101,8 +101,14 @@ func (e Env) sleep(d time.Duration) {
 // key: a newer declaration is a different wait, and this block was not asked
 // to wait on it.
 func blockOn(st *store.Store, env Env, si store.SessionInfo, w store.Wait) error {
-	fmt.Fprintf(env.Stdout, "BLOCKING until it lands: the ledger is re-read every %s (reads only; not a check) — exit 0 LANDED, %d EXPIRED, %d cleared or replaced, %d this session ended\n",
-		span(waitBlockPoll), blockExpired, blockCleared, blockEnded)
+	what := "it lands"
+	if w.IsMail() {
+		// Said here because this is the line the session reads when the
+		// block exits: what it was waiting for, and what does not end it.
+		what = "mail lands it (a direct message to this session; a broadcast or its own send does not)"
+	}
+	fmt.Fprintf(env.Stdout, "BLOCKING until %s: the ledger is re-read every %s (reads only; not a check) — exit 0 LANDED, %d EXPIRED, %d cleared or replaced, %d this session ended\n",
+		what, span(waitBlockPoll), blockExpired, blockCleared, blockEnded)
 	stop := "stop any /loop that runs `buddy wait check` (schedule no further check)"
 	for {
 		env.sleep(waitBlockPoll)
@@ -158,7 +164,7 @@ func blockOn(st *store.Store, env Env, si store.SessionInfo, w store.Wait) error
 		case store.WaitPending:
 			continue
 		case store.WaitLanded:
-			line = landedLines(now, row, stop, buddyCmd(env))
+			line = landedLines(now, row, si.Label, stop, buddyCmd(env))
 		default:
 			line, exit = expiredLines(now, row, stop), waitExit{blockExpired}
 		}
