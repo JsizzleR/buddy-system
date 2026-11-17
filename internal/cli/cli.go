@@ -450,8 +450,8 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     and ask what is reserved HERE — it never reads prose
               wait [--on <slug>]... [--until 3h] [--note <text>]   declare what you are
                                     waiting on (a deadline is required: default 3h, at most
-                                    12h). Claude: arm this session's /loop buddy wait check
-                                    (~50m on its 1h cache tier). Codex: run buddy wait check
+                                    12h). Claude: arm /loop buddy wait check, no interval,
+                                    only if its reply says to. Codex: run buddy wait check
                                     in its own thread; scheduling unsupported, cache unknown.
                                     Checks report STILL WAITING / LANDED / EXPIRED / NO WAIT.
                                     wait clear · wait ls.  A wait reserves nothing.
@@ -3163,9 +3163,15 @@ const helloInboxCountLine = 128
 // NAMES, NOT GLOSSES (D-123). Each name carried a parenthetical saying what
 // it was for; `buddy --help` and the skill say that, and the digest pays for
 // every byte at every start. The names all stay (D-046).
+//
+// The loop is CONDITIONAL (#139). The line said "then arm your own `/loop
+// buddy wait check`" after D-203 made the declaration's own reply the one
+// that says whether to arm (arm nothing if a wake is due within 50m), so
+// every session start taught the unneeded wake D-203 measured. The digest
+// defers to that reply; the wait row in `--help` says the same.
 const helloHelpLead = "BUDDY: `buddy --help` lists every verb. Easy to miss: `buddy claim <slug> --dry-run` `--shared`; `buddy wait --on <slug>` or `--until 2h` alone"
 const helloHelpTail = "; `buddy msg --measured|--lead|--relay` `--supersedes <id>`; `buddy sent`; `buddy ids take`.\n"
-const helloHelpLine = helloHelpLead + ", then arm your own `/loop buddy wait check`" + helloHelpTail
+const helloHelpLine = helloHelpLead + ", then `/loop buddy wait check` only if its reply says to" + helloHelpTail
 const codexHelloHelpLine = helloHelpLead + ", then `buddy wait check` in your own Codex thread (no automatic scheduling)" + helloHelpTail
 
 // writeHelloClaims renders the digest's claims list inside room bytes

@@ -451,6 +451,41 @@ func (j *Journal) KnowsRoom(room string) (bool, error) {
 	return true, nil
 }
 
+// RoomSpellings returns every room name the journal holds whose fold (the one
+// rule, invariant 13) is folded, in byte order. It exists for #124's
+// canonicalisation (Daemon.canonicalRoom): rows carry the spelling they were
+// journalled under, which is not always the configured one (a `--rooms` case
+// changed over retained history), so a served room is read by the spelling
+// the JOURNAL holds, not by the config's.
+//
+// Fold is NFC plus Go's ToLower, which SQLite cannot express (its NOCASE is
+// ASCII-only: a second normalization), so the distinct names are walked one
+// covering seek each on messages_room_seq (the walk alert.go measured at
+// 0.04 ms over 60k rows) and folded here. It runs only for a served room read
+// in a spelling that holds no rows of its own.
+func (j *Journal) RoomSpellings(folded string) ([]string, error) {
+	rows, err := j.db.Query(`WITH RECURSIVE r(room) AS (
+		SELECT MIN(room) FROM messages
+		UNION ALL
+		SELECT (SELECT MIN(room) FROM messages WHERE room > r.room) FROM r WHERE r.room IS NOT NULL
+	) SELECT room FROM r WHERE room IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var room string
+		if err := rows.Scan(&room); err != nil {
+			return nil, err
+		}
+		if fold(room) == folded {
+			out = append(out, room)
+		}
+	}
+	return out, rows.Err()
+}
+
 func (j *Journal) Stat(session string, mentions []string) ([]RoomStat, error) {
 	clause, margs, err := mentionClause(mentions)
 	if err != nil {

@@ -165,6 +165,14 @@ func (d *Daemon) dispatch(req Request) Response {
 		if req.Room == "" {
 			return Response{Error: "read needs room"}
 		}
+		// A served room is read, and its cursor keyed, by the spelling the
+		// journal holds it under (#124); an unserved one keeps the caller's, so
+		// it is read exactly or refused below. See canonicalRoom.
+		room, err := d.canonicalRoom(req.Room)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		req.Room = room
 		opts := ReadOpts{Room: req.Room, After: req.After, Before: req.Before,
 			Tail: req.Tail, Limit: req.Limit, Mentions: req.Mentions}
 		if req.SinceLast {
@@ -230,6 +238,15 @@ func (d *Daemon) dispatch(req Request) Response {
 		// an equivalent mutation, recorded rather than chased with a test that
 		// cannot exist — what the guard actually prevents is a second query on
 		// every read of a busy room.
+		//
+		// A SERVED ROOM IN ANOTHER SPELLING (#124). This arm always folded
+		// (servesRoom), so `LOBBY` counted as served and was not refused, while
+		// Journal.Read and the cursor took the raw spelling: OK and empty for a
+		// busy room, the failure above by a second road, and a send to the
+		// same spelling worked because Say folds. canonicalRoom at the top of
+		// the arm closes it: a served name reaches the journal in the spelling
+		// its rows carry, so a served room's empty read here is a quiet one,
+		// and an unserved name is still read and refused in its exact spelling.
 		if len(msgs) == 0 {
 			if served := d.servesRoom(fold(req.Room)); served == "" {
 				known, kerr := d.cfg.Journal.KnowsRoom(req.Room)
@@ -253,7 +270,13 @@ func (d *Daemon) dispatch(req Request) Response {
 		if req.Session == "" || req.Room == "" {
 			return Response{Error: "ack needs session and room"}
 		}
-		cur, err := d.cfg.Journal.SetCursor(req.Session, req.Room, req.Seq)
+		// The same cursor the read arm keys (#124): an ack spelled `LOBBY`
+		// moved a cursor no read of the served room would ever consult.
+		room, err := d.canonicalRoom(req.Room)
+		if err != nil {
+			return Response{Error: err.Error()}
+		}
+		cur, err := d.cfg.Journal.SetCursor(req.Session, room, req.Seq)
 		if err != nil {
 			return Response{Error: err.Error()}
 		}
@@ -315,6 +338,50 @@ func (d *Daemon) dispatch(req Request) Response {
 	default:
 		return Response{Error: fmt.Sprintf("unknown op %q", req.Op)}
 	}
+}
+
+// canonicalRoom is the spelling a room is read, cursored and acked by (#124).
+// A name that does not fold (invariant 13's rule, as Say and servesRoom fold)
+// to a configured room comes back untouched. A served one comes back as the
+// spelling the JOURNAL holds its rows under: the caller's own when it has
+// rows (one seek), else the one journalled spelling that folds equal
+// (RoomSpellings; the configured one first when several do), else the
+// configured spelling, a served room with no history, truthfully quiet.
+//
+// The journal's spelling, not the config's: the Codex pass on the first draft
+// (which returned the configured spelling) named `--rooms Lobby` restarted
+// over retained `lobby` rows, where an exact read of `lobby` that had
+// returned them then answered OK and empty. Rows carry the name they were
+// journalled under (ChatJoin.Room, the server's echo), and that is not
+// always the config's.
+//
+// Canonicalised, not refused (D-024's refusal names the rooms): a send to
+// `LOBBY` is accepted because Say folds, so a read refusing the name its own
+// send just took would be the asymmetry D-024 closed, the other way round.
+// An UNSERVED name is not folded: the read arm reads it exactly and refuses
+// it, naming the rooms, when it holds nothing, so it is never answered quiet.
+func (d *Daemon) canonicalRoom(room string) (string, error) {
+	folded := fold(room)
+	served := d.servesRoom(folded)
+	if served == "" {
+		return room, nil
+	}
+	if known, err := d.cfg.Journal.KnowsRoom(room); err != nil || known {
+		return room, err
+	}
+	spellings, err := d.cfg.Journal.RoomSpellings(folded)
+	if err != nil {
+		return "", err
+	}
+	for _, s := range spellings {
+		if s == served {
+			return s, nil
+		}
+	}
+	if len(spellings) > 0 {
+		return spellings[0], nil
+	}
+	return served, nil
 }
 
 // defaultCallTimeout bounds a socket round-trip. Five seconds is what every

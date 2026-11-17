@@ -16367,3 +16367,36 @@ and `ls`. The Fable cross-check (8 raised, 4 fixed, 4 answered: open items 6-8 a
 entry itself) found the live-process remedy, four unnamed render sites, the unwatched discard and
 an uncontrolled pin; 3 s of one writer and three readers on two handles tore 0 of 33,844 reads.
 Codex re-verify round 1 (xhigh: 0 raised) confirmed the five folds; round 2 was not needed.
+
+## D-213 — A served room is read, cursored and acked by the spelling its journal rows carry, so another letter case or a trailing space reads the room, never a quiet one; the digest's help line and `--help`'s wait row arm `/loop buddy wait check` only if the declaration's reply says to (amends D-024, D-203)
+
+2026-11-17. GitHub #124, #139 (the 2026-11 audit's chat and docs findings), run r1117d, lane room-hints, lite tier. Each reproduced by a test watched to fail on 6fb58ac in a private copy.
+
+**The failures.**
+- **#124.** The read arm asked `servesRoom(fold(room))`, so `LOBBY` (or `lobby `) counted as served and was not refused, then `Journal.Read` ran `room=?` with the raw spelling: OK, 0 messages, for a room holding 2 (reproduced: exact 2, `LOBBY`/`Lobby`/`lobby `/` LOBBY\t` 0 each). A send to the same spelling worked, because `Say` folds. The `since_last` cursor and `ack` were keyed by the raw spelling, so one room had a cursor per spelling. `chat_status(room=...)` filtered with `==`: `LOBBY` listed `(no rooms in the journal)`. D-024's failure, an empty read that looks like a quiet room, back for a room the daemon serves. `unknown_room_test.go`'s `LOBBY` subtest asserted only "not refused", so it passed on the bug.
+- **#139.** D-203 changed the declaration's keep-alive line (arm nothing if a wake is due within 50m; else `/loop buddy wait check`, no interval), the skills and USAGE, and missed two texts: the SessionStart digest's help line ("then arm your own `/loop buddy wait check`", read at every start) and `--help`'s wait row ("arm this session's /loop buddy wait check (~50m on its 1h cache tier)", the interval shape D-203 removed). Read from code; no session was observed misreading them.
+
+**The rule.**
+- `Daemon.canonicalRoom`, at the top of the read arm and in `ack`: a name that folds (invariant 13's rule, `fold`, as `Say` and `servesRoom` fold) to a configured room becomes the spelling the JOURNAL holds it under: the caller's own when it has rows (one seek), else the journalled spelling that folds equal (`Journal.RoomSpellings`, a covering-index walk of the distinct names, folded in Go; the configured one first when several do), else the configured spelling (a served room with no history: truthfully quiet). The read, the `since_last` cursor and the ack key one room. An unserved name keeps the caller's exact spelling: read exactly, or refused naming the rooms (D-024 unchanged), never quiet. `chat_status`'s room filter folds both sides.
+- Canonicalise, not refuse: D-140 and D-024 refuse a name the daemon neither serves nor remembers. A served room in another spelling is a room the daemon serves, and `Say` accepts that spelling; refusing the read of a name its own send took would be D-024's asymmetry the other way round.
+- The digest's line: "`--until 2h` alone, then `/loop buddy wait check` only if its reply says to" (+10 bytes). The wait row: "Claude: arm /loop buddy wait check, no interval, only if its reply says to." Both still teach `wait check` (`TestHelloHelpLineTeachesTheTimerWait`, `TestHelloHelpLineNamesOnlyWhatHelpAnswers`).
+
+**Considered and cut.**
+- *The configured spelling as the canonical one* (the first draft). Codex: `--rooms Lobby` restarted over retained `lobby` rows turned an exact read of `lobby`, which returned them, into OK and empty, and acked a cursor `stat` never consults. Rows carry the name the server echoed on join, not always the config's.
+- *Folding an UNSERVED name against the journal's rooms.* The read already refuses such a name when its exact spelling holds nothing, naming the rooms, so it is never quiet; a room dropped from `--rooms` is read by its exact spelling.
+- *Naming `--block` in the digest.* Bytes at every start, and the core skill and CLAUDE.md's Parking clause carry it.
+
+**Open.**
+- A configured name that does not FOLD to the journalled one (Codex: IRC's `--rooms '#lobby'` journals `lobby`, `ircwire/client.go`) reads `#lobby` as served and quiet, as before this change; `lobby` is read exactly. The daemon does not know what IRC is, so no `#` rule here.
+- Rows of one room under two spellings (history under `lobby`, new rows under `Lobby`) read one spelling's rows; the configured one first.
+- `alertack` keys the raw spelling (Codex, pre-existing): its caller acks the `room` an alert returned, the journal's own.
+- Cursor rows written under a raw spelling that held no rows stay in `read_cursor`, consulted by nothing. No migration: they never answered a read.
+- `docs/DEMO-RUN.md` quotes the old digest line; it is a captured run, left as captured.
+
+**Tests.** `internal/buddylist/roomhints_test.go`: `TestReadOfAServedRoomInAnotherSpellingReadsTheRoom` (four spellings against the exact read's 2 as positive control; `since_last` and `ack` share one cursor; an unserved `ARCHIVED` with history in `archived` refused, naming the rooms), `TestServedRoomReadsByTheJournalsSpelling` (configured `Lobby` over journalled `lobby`, and `lobby` over `LoBBy`; a served room with no history in any spelling is OK and empty, the control), `TestChatStatusRoomFilterFolds`. `internal/cli/roomhints_test.go`: `TestWaitAdviceDefersToTheDeclarationsReply` (both texts condition the loop, carry no `50m`/`every`, and what follows `/loop` parses to no interval under D-203's `loopInterval`; the two old texts are the controls). Mutants (a private rsync'd copy), each killed: no canonicalisation; folding an unserved name; the configured spelling as canonical (the first draft); no journalled-spelling fallback; `RoomSpellings` comparing raw; the ack raw; the read raw; `chat_status` exact; each old text back; `, every 50m` after the row's `/loop`. The unmutated copy passes.
+
+**Review** (lite). Self-review: 2 raised, 1 fixed (`chat_status`'s exact room filter, the same quiet-for-busy answer), 1 answered (`unknown_room_test.go`'s `LOBBY` subtest asserted only "not refused" and passed on the bug: left, the new test holds the count). Codex@xhigh code, one pass: 3 raised, 2 fixed (the configured-spelling regression above; this entry's claim that the configured and journalled spellings agree), 1 answered (`alertack`, Open).
+
+### Where it lives
+- index: CLAUDE.md "Alerts, presence" and "Parking" lines
+- code: `internal/buddylist/socket.go` (`dispatch` read and ack arms, `canonicalRoom`), `internal/buddylist/journal.go` (`RoomSpellings`), `internal/buddylist/mcp.go` (`toolChatStatus`), `internal/cli/cli.go` (`helloHelpLine`, `usage`'s wait row)

@@ -654,9 +654,13 @@ func toolChatStatus(c toolCall) toolResult {
 	}
 	stats := resp.Stats
 	if c.args.Room != "" {
+		// Folded (invariant 13's rule), as the daemon's read and ack arms fold
+		// a served room (#124): an exact match listed no rows for `LOBBY`,
+		// "(no rooms in the journal)" for a busy room.
 		var only []RoomStat
+		want := fold(c.args.Room)
 		for _, st := range stats {
-			if st.Room == c.args.Room {
+			if fold(st.Room) == want {
 				only = append(only, st)
 			}
 		}
