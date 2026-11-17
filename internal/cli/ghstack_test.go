@@ -377,21 +377,18 @@ func TestGateGHStackHolderStates(t *testing.T) {
 		wantGateBoth(t, f, f.repo, "sess-a", "gh stack rebase", false, "") // a stale holder is still the holder
 	})
 	t.Run("silent-id-quoted", func(t *testing.T) {
-		// The holder's id is pasted back as a shell word: a space in it is
-		// quoted, a newline in it is named instead of printed as a command.
+		// The holder's id is pasted back only under pasteID's rule (D-201): an
+		// id with a space or a newline (a row an older binary wrote; the
+		// ledger no longer registers one) is named instead of printed.
 		f := newFixture(t)
 		f.initAndHello(t)
-		if _, errw, code := f.run(t, f.repo, hookJSON("sess c", f.repo, "", ""), "hello", "--label", "charlie"); code != 0 {
-			t.Fatalf("hello: %s", errw)
-		}
+		legacySession(t, f, "sess c", "charlie")
 		claimGHSlot(t, f, "sess c", "restack")
 		f.clock = f.clock.Add(store.StaleAfter + time.Minute)
-		wantGateBoth(t, f, f.repo, "sess-b", "gh stack rebase", true, "ask the operator: buddy release gh-stack --session 'sess c'")
+		wantGateBoth(t, f, f.repo, "sess-b", "gh stack rebase", true, "ask the operator: buddy release <the slug> --session <the holder's id> (neither pastes back as printed)")
 		g := newFixtureNamed(t, "other")
 		g.initAndHello(t)
-		if _, errw, code := g.run(t, g.repo, hookJSON("sess\nd", g.repo, "", ""), "hello", "--label", "delta"); code != 0 {
-			t.Fatalf("hello: %s", errw)
-		}
+		legacySession(t, g, "sess\nd", "delta")
 		claimGHSlot(t, g, "sess\nd", "restack")
 		g.clock = g.clock.Add(store.StaleAfter + time.Minute)
 		wantGateBoth(t, g, g.repo, "sess-b", "gh stack rebase", true, "buddy release <the slug> --session <the holder's id> (neither pastes back as printed)")

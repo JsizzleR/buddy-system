@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // Target resolution for the three verbs that address ANOTHER session: `pause`,
@@ -198,7 +200,9 @@ func resolveFrom(target string, all []SessionInfo, owner string, taken bool) (Ta
 	ambiguous := func(form string, hits []SessionInfo) error {
 		names := make([]string, 0, len(hits))
 		for _, h := range hits {
-			names = append(names, h.Label+" ("+h.SessionID+")")
+			// One token each (invariant 9, D-201): a label `x (s-aaaa), victim`
+			// forged a candidate in this list through the whole-message Line.
+			names = append(names, fence.Field(h.Label, 64)+" ("+fence.Field(h.SessionID, fence.SessionIDCap)+")")
 		}
 		return fmt.Errorf("%w: %q names %d sessions as a %s (%s); use a full session id",
 			ErrAmbiguousTarget, target, len(hits), form, strings.Join(names, ", "))

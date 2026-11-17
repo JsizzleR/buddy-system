@@ -938,6 +938,13 @@ func (s *Store) helloFrom(sessionID, label, worktree string, pid int, proc ProcR
 		err := tx.QueryRow(`SELECT incarnation, ended FROM sessions WHERE session_id=?`, sessionID).Scan(&inc, &ended)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
+			// The one place this function CREATES a row, so the one place it
+			// checks the id (D-201). A refresh or revival of a row an older
+			// binary wrote keeps working; returning here rolls the transaction
+			// back, so a refused hello writes nothing, not even a process.
+			if err := ValidSessionID(sessionID); err != nil {
+				return err
+			}
 			inc = newToken()
 			if label == "" {
 				label = defaultLabel(worktree, sessionID)
@@ -1035,15 +1042,40 @@ func registerProc(tx *sql.Tx, sessionID string, proc ProcRef, now int64) error {
 // told the operator nothing). Minted once at first hello and stable after —
 // labels are pause/msg targets, so they must not drift under a session.
 func defaultLabel(worktree, sessionID string) string {
-	id := strings.ReplaceAll(sessionID, "-", "")
-	if len(id) > 8 {
-		id = id[:8]
-	}
+	id := ShortID(sessionID)
 	base := path.Base(strings.TrimSuffix(worktree, "/"))
 	if base == "." || base == "/" || base == "" {
-		return "s-" + id
+		return id
 	}
-	return base + "/s-" + id
+	return base + "/" + id
+}
+
+// ShortID is the "s-<8>" short form of a session id: the suffix of its default
+// label, the target tier that matches it (target.go), and the stamp a message
+// from an unregistered id is signed with (cli's shortSession), so the three
+// cannot drift (D-201).
+//
+// It used to cut eight BYTES of the id with its hyphens removed, so a hostile
+// id could split a UTF-8 rune or carry a bidi, zero-width, space or `/` into a
+// label and a column (D-199's lead). It now keeps only A-Z a-z 0-9 . _ (a
+// byte loop: everything kept is one byte) and the first eight of those. For
+// every id fence.ValidSessionID admits, and so every id registered from now
+// on, that is byte-for-byte the old cut: hyphens were dropped there too and
+// nothing else in such an id is dropped here. No stored label changes; this
+// mints only new ones. An id with nothing to keep gets "s-?": "s-invalid"
+// was considered and is a REAL short form, of the valid id `invalid` (panel).
+func ShortID(sessionID string) string {
+	b := make([]byte, 0, 8)
+	for i := 0; i < len(sessionID) && len(b) < 8; i++ {
+		c := sessionID[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' {
+			b = append(b, c)
+		}
+	}
+	if len(b) == 0 {
+		return "s-?"
+	}
+	return "s-" + string(b)
 }
 
 // Bye marks a session ended — and does NOTHING to claims. It deliberately

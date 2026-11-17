@@ -39,7 +39,6 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
@@ -185,15 +184,17 @@ func (s staleness) holderPhrase(now time.Time) string {
 // transaction as its effect, and refuses. Nothing here is a verdict: the claim
 // refuses exactly as before until the operator acts (invariant 11).
 //
-// The id is written as a command only when it pastes back as printed (the
-// ledger does not restrict a session id's characters; ghSlotHolder's rule),
-// and never when it starts with "-": shell quoting does not stop `bye` reading
+// The id is written as a command only when it pastes back as printed (an
+// older binary's row may hold any id; pasteID's rule since D-201), and never
+// when it starts with "-": shell quoting does not stop `bye` reading
 // it as a flag, and an id `--help` printed `buddy bye --help`, which shows the
 // usage and ends nothing (Codex code pass).
 func byeRemedy(session string) string {
 	bye := "buddy bye <the holder's id> (it cannot be pasted back as printed)"
-	if session != "" && !strings.HasPrefix(session, "-") && fence.Line(session, 128) == session {
-		bye = "buddy bye " + shellQuote(session)
+	// pasteID (D-201) is this rule and stricter: an admitted id is never
+	// empty, never `-`-leading, and pastes back as printed.
+	if p, ok := pasteID(session); ok {
+		bye = "buddy bye " + p
 	}
 	return bye + ", then a plain buddy sweep"
 }

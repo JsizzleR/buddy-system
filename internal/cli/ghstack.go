@@ -388,7 +388,13 @@ func ghStackSlotHeld(st *store.Store, h hookInput, env Env, sub, where string) s
 	if where != "" {
 		// A claim needs a live sessions row in THAT ledger (D-088: a second
 		// ledger coordinates with nobody), so the hello comes first (the panel).
-		fmt.Fprintf(&b, " (in %s, after buddy hello --session %s there)", fence.Line(where, 512), fence.Line(h.SessionID, 128))
+		// The paste rule (D-201): a payload id hello would refuse is not a
+		// remedy, and no alias is offered for it.
+		if p, ok := pasteID(h.SessionID); ok {
+			fmt.Fprintf(&b, " (in %s, after buddy hello --session %s there)", fence.Line(where, 512), p)
+		} else {
+			fmt.Fprintf(&b, " (in %s, where this session's id cannot be registered, D-201: tell the operator)", fence.Line(where, 512))
+		}
 	}
 	b.WriteString("; one restack at a time, by the skill's \"Restacking a dependent lane\" recipe; a claim an overlapping one refuses is named by the refusal; refusing.")
 	return b.String()
@@ -405,13 +411,14 @@ func ghStackSlotHeld(st *store.Store, h hookInput, env Env, sub, where string) s
 // as a command only when it pastes back as printed (the panel): the slug and
 // the id are both shell-quoted, and a value the fence would alter (a newline,
 // an over-long id) is named instead of printed as a command (the Codex code
-// pass: the ledger does not restrict a session id's characters).
+// pass: an older binary's row may hold any id). The id half is pasteID's
+// rule since D-201.
 func ghSlotHolder(env Env, st *store.Store, c store.ClaimInfo) string {
 	now := nowOf(env)
 	seen := age(now, c.Owner.LastSeen)
 	release := "buddy release <the slug> --session <the holder's id> (neither pastes back as printed)"
-	if fence.Line(c.Slug, 128) == c.Slug && fence.Line(c.Owner.SessionID, 128) == c.Owner.SessionID {
-		release = "buddy release " + shellQuote(c.Slug) + " --session " + shellQuote(c.Owner.SessionID)
+	if p, ok := pasteID(c.Owner.SessionID); ok && fence.Line(c.Slug, 128) == c.Slug {
+		release = "buddy release " + shellQuote(c.Slug) + " --session " + p
 	}
 	switch readHolders(env, st).state(now, c.Owner) {
 	case holderEnded:

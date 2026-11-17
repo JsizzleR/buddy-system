@@ -176,6 +176,12 @@ func cmdLifecycle(args []string, env Env) error {
 	}
 	if event == "begin" {
 		si, err := st.BeginLogical(session, label, top, previous)
+		if isSessionIDRefused(err) {
+			// The adapter's native id (D-201): certain, not retryable, and
+			// never to be replaced by another id. No charset recipe.
+			return fmt.Errorf("lifecycle begin refused: native session id %s cannot be registered in this ledger (D-201); the outcome is certain and nothing was written; do not retry under another id",
+				fence.Field(session, fence.SessionIDCap))
+		}
 		if err != nil {
 			return fencedErr(err)
 		}

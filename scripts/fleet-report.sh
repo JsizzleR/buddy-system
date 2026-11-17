@@ -75,8 +75,10 @@
 # a fixed word, or an identifier validated in SQL before it leaves sqlite3:
 #   a session    s-<8hex>: its id with '-' removed, first 8 characters, and
 #                only if all 8 are hex ("s-(id not hex)" otherwise). An id
-#                arrives from the harness or `hello --session`, so it is not
-#                trusted to be hex either.
+#                arrives from the harness or `hello --session`; buddy now
+#                registers only ids fence.ValidSessionID admits (D-201), but a
+#                row an older binary wrote is not, so it is not trusted to be
+#                hex either.
 #   a claim      its claim_id, only if it is 1..64 hex characters.
 #   a message    its msg_id, an integer.
 #   a pause      its control id; its target as `all`, as s-<8hex> when it is

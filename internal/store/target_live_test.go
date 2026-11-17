@@ -406,7 +406,12 @@ func TestResolveTargetLiveLabelAmbiguityDoesNotFallToTheSlug(t *testing.T) {
 // other name, and `all` itself is still the broadcast (its positive control).
 func TestResolveTargetRefusesASessionWhoseIDIsAll(t *testing.T) {
 	st, _ := openTest(t)
-	hello(t, st, "all", "zulu", "/tmp/wtZ")
+	// The ledger no longer registers the id `all` (D-201); a row an older
+	// binary wrote under it is what this guards, seeded as that binary would.
+	hello(t, st, "zulu-seed", "zulu", "/tmp/wtZ")
+	if _, err := st.db.Exec(`UPDATE sessions SET session_id='all' WHERE session_id='zulu-seed'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.ResolveTarget("zulu"); !errors.Is(err, ErrAmbiguousTarget) {
 		t.Fatalf("a session whose id is the reserved word must refuse, got %v", err)
 	}

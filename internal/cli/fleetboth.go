@@ -64,6 +64,11 @@ type fleetBeside struct {
 	st  *store.Store
 	rc  repoContext
 	err error
+	// refused is hello's line when the fleet would not register this
+	// session's id (D-201): said as itself, never as a fleet failure. A home
+	// row an older binary wrote under such an id still refreshes, while the
+	// fleet, which has no row, refuses to create one (panel).
+	refused string
 }
 
 // besideOf opens the fleet BUDDY_FLEET names BESIDE a home ledger the
@@ -147,6 +152,9 @@ func (fb *fleetBeside) fail(err error) {
 // line is the fleet's 5.2 sentence when it did not open or failed after, ""
 // otherwise (and for no fleet half at all).
 func (fb *fleetBeside) line() string {
+	if fb != nil && fb.refused != "" {
+		return fb.refused
+	}
 	if fb == nil || fb.err == nil {
 		return ""
 	}
@@ -565,11 +573,17 @@ func byeBeside(fb *fleetBeside, session string, from store.ProcRef, env Env) {
 // column: the home's root, shown and never used to place a path) and returns
 // its row. A failure here is the fleet's: fb is marked failed and hello's
 // digest carries the sentence.
-func helloBeside(fb *fleetBeside, session, label, top string, proc store.ProcRef, terminal string) store.SessionInfo {
+func helloBeside(fb *fleetBeside, session, label, top string, proc store.ProcRef, terminal, idFrom string) store.SessionInfo {
 	if !fb.ok() {
 		return store.SessionInfo{}
 	}
 	si, err := fb.st.HelloFrom(session, label, top, proc, terminal)
+	if isSessionIDRefused(err) {
+		fb.st.Close()
+		fb.st = nil
+		fb.refused = idRefusalLine(session, idFrom, "fleet "+fence.Line(fb.rc.fleet, 64))
+		return store.SessionInfo{}
+	}
 	if err != nil {
 		fb.fail(err)
 	}

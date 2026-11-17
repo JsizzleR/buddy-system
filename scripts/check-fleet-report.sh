@@ -157,10 +157,12 @@ as "$B" "$SD" claim d-work --desc "$(plant DESC)" --scope d >/dev/null
 db "$B" "UPDATE claims SET renewed = renewed - 7200;"
 
 # The planted-ID ledger. A session id is the caller's (`hello --session`, a
-# hook payload) and buddy does not validate it, so one carrying a newline and
-# a 600-byte line goes in through hello, claim and pause; a claim id is
-# minted by buddy, so the planted one goes in by SQL, as the legacy pause row
-# does. Both must print as "(id not hex)". A pause on a UUID whose session row
+# hook payload); buddy refuses to REGISTER one outside fence.ValidSessionID
+# (D-201), but a row an older binary wrote keeps working, so one carrying a
+# newline and a 600-byte line is seeded as that row (registered under a
+# valid stand-in, then renamed by SQL) and goes on through claim and pause; a
+# claim id is minted by buddy, so the planted one goes in by SQL, as the
+# legacy pause row does. Both must print as "(id not hex)". A pause on a UUID whose session row
 # is gone prints its s-<8hex>; it is an id, not a name.
 P="$WORK/planted-ids"
 mkrepo "$P"
@@ -169,7 +171,8 @@ SIDP=$(plant SID)
 # Two planted claim ids, one per guard: short with a newline (the hex test
 # alone refuses it), and 600 hex characters (the length bound alone does).
 HEX600=$(awk 'BEGIN { for (i = 0; i < 300; i++) printf "ab" }')
-reg "$P" "$SIDP" p
+reg "$P" plant-sid-seed p
+db "$P" "UPDATE sessions SET session_id = '$SIDP' WHERE session_id = 'plant-sid-seed';"
 reg "$P" "$SF" pf
 reg "$P" "$SG" pg
 as "$P" "$SIDP" claim p-work --desc x --scope p >/dev/null

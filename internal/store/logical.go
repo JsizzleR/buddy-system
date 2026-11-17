@@ -42,6 +42,14 @@ func (s *Store) BeginLogical(sessionID, label, worktree, previousIncarnation str
 		case !missing && (previousIncarnation == "" || current != previousIncarnation):
 			return fmt.Errorf("%w: previous incarnation does not match the ended session", ErrLogicalIdentity)
 		}
+		// The missing arm CREATES a row, so it alone checks the id (D-201),
+		// before cleanupEnded writes anything: a revival of an older binary's
+		// ended row, by its exact previous token, still succeeds.
+		if missing {
+			if err := ValidSessionID(sessionID); err != nil {
+				return err
+			}
+		}
 		now := s.now().Unix()
 		// Run while the predecessor is still ended: reviving first would make
 		// its claims and wait look live and strand them behind the new token.

@@ -227,15 +227,15 @@ func TestWhoseAdvisoryNamesCodexInbox(t *testing.T) {
 
 // The Codex hello's named-session hint (a900b07) printed `buddy inbox
 // --session <id>` with the id fenced but not shell-quoted (codex-probe's pass
-// on a900b07, P2, relayed by orc-19 as a lead). A session id is free text
-// (`hello --session` validates nothing), so an id with a space pasted as two
-// arguments and the named command refused. It is quoted the way a pasted
-// slug is (shellQuote, D-066): bare when safe, so `sess-b`'s line in
-// TestCodexHelloCountNamesInbox is unchanged (the control), single-quoted
-// otherwise. The test runs exactly what the line names, through a shell.
+// on a900b07, P2, relayed by orc-19 as a lead). An id with a space pasted as
+// two arguments and the named command refused. Since D-201 the ledger
+// registers only ids fence.ValidSessionID admits, which paste as one shell
+// word bare; the test runs exactly what the line names, through a shell, for
+// such ids. An older binary's row with a space or a quote gets no command
+// (TestCodexHelloNamedHintNeverNamesARewrittenID).
 func TestCodexHelloNamedHintQuotesTheID(t *testing.T) {
 	boundedParallel(t)
-	for _, id := range []string{"sess x", "it's;echo hi"} {
+	for _, id := range []string{"sess.x_2", "019a7f3e-5b2c-7d41-9e0f-123456789abc"} {
 		t.Run(id, func(t *testing.T) {
 			f := newFixture(t)
 			if out, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
@@ -282,7 +282,9 @@ func TestCodexHelloNamedHintQuotesTheID(t *testing.T) {
 // of `sess<TAB>x` printed `buddy inbox --session 'sess x'`, which names a
 // different live session and drains ITS mail. Such a line names `buddy inbox`
 // run as itself, and that command delivers the right session's mail. The
-// control is the pasteable id in TestCodexHelloNamedHintQuotesTheID.
+// control is the pasteable id in TestCodexHelloNamedHintQuotesTheID. Both
+// rows are an older binary's (legacySession): the ledger no longer registers
+// either id (D-201), and a row that exists must still be rendered safely.
 func TestCodexHelloNamedHintNeverNamesARewrittenID(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
@@ -290,9 +292,7 @@ func TestCodexHelloNamedHintNeverNamesARewrittenID(t *testing.T) {
 		t.Fatalf("init: %s %s", out, errw)
 	}
 	for _, s := range [][2]string{{"sess\tx", "tabbed"}, {"sess x", "spaced"}} {
-		if _, errw, code := f.run(t, f.wtB, "", "hello", "--session", s[0], "--label", s[1]); code != 0 {
-			t.Fatal(errw)
-		}
+		legacySession(t, f, s[0], s[1])
 		if _, errw, code := f.run(t, f.repo, "", "msg", s[1], "--from", "ana", "for "+s[1]); code != 0 {
 			t.Fatal(errw)
 		}

@@ -11,6 +11,7 @@ import (
 // the dry run, a real send, and bravo's drain, because the stamp is stored at
 // the send and every later view renders the stored string.
 func TestUnregisteredSenderIsStampedNotOperator(t *testing.T) {
+	const refusedHint = "(cannot be registered)"
 	const ghost = "66a24e29-1111-2222-3333-444444444444"
 	cases := []struct {
 		name  string
@@ -24,9 +25,11 @@ func TestUnregisteredSenderIsStampedNotOperator(t *testing.T) {
 		{"absent id with --from", map[string]string{EnvClaudeSession: ghost}, false, "review", "unregistered s-66a24e29 (review)", ghost},
 		{"absent codex id", map[string]string{EnvCodexThread: ghost}, false, "", "unregistered s-66a24e29", ghost},
 		{"absent BUDDY_SESSION", map[string]string{EnvSession: ghost}, false, "", "unregistered s-66a24e29", ghost},
-		// The id is pasted as ONE shell word, or not at all.
-		{"an id with a space", map[string]string{EnvSession: "two words"}, false, "", "unregistered s-two word", "'two words'"},
-		{"an id with a newline", map[string]string{EnvSession: "two\nlines"}, false, "", "unregistered s-two⏎line", "<your session id>"},
+		// An id the ledger would not register (D-201) gets no hello remedy at
+		// all, and its stamp is store.ShortID's: the old byte cut carried the
+		// space and the newline (fenced, ⏎) into the stored sender.
+		{"an id with a space", map[string]string{EnvSession: "two words"}, false, "", "unregistered s-twowords", refusedHint},
+		{"an id with a newline", map[string]string{EnvSession: "two\nlines"}, false, "", "unregistered s-twolines", refusedHint},
 		{"ended id", map[string]string{EnvClaudeSession: "sess-a"}, true, "", "unregistered s-sessa", "sess-a"},
 		{"ended id with --from", map[string]string{EnvClaudeSession: "sess-a"}, true, "review", "unregistered s-sessa (review)", "sess-a"},
 		// Controls: the arm is keyed on an id that does not resolve, not on
@@ -80,6 +83,12 @@ func TestUnregisteredSenderIsStampedNotOperator(t *testing.T) {
 				if tc.hint == "" {
 					if strings.Contains(out, "unregistered") || strings.Contains(out, clause) {
 						t.Fatalf("%s: a registered sender or the bare terminal gets no clause: %q", what, out)
+					}
+					return
+				}
+				if tc.hint == refusedHint {
+					if !strings.Contains(out, `signed "unregistered `) || !strings.Contains(out, "it cannot be registered (D-201)") || strings.Contains(out, "--session") {
+						t.Fatalf("%s: an unregistrable id gets no hello remedy: %q", what, out)
 					}
 					return
 				}

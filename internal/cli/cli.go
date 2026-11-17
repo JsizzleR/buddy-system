@@ -1358,12 +1358,14 @@ type errUncorroborated struct {
 }
 
 func (e errUncorroborated) Error() string {
+	// The id is printed as a command only under the paste rule (D-201).
+	paste := pasteIDOr(e.match.SessionID, "<its session id>")
 	return fmt.Sprintf(
 		"this worktree is registered to %s (%s), but %d sessions are live here and nothing in the\n"+
 			"directory shows you are that one — if you are, `--session %s` says so (or export %s=%s\n"+
 			"once for this shell). A worktree records where a session STARTED, not who is calling.",
 		fence.Line(e.match.Label, 64), fence.Line(e.match.SessionID, 128), e.liveTotal,
-		fence.Line(e.match.SessionID, 128), EnvSession, fence.Line(e.match.SessionID, 128))
+		paste, EnvSession, paste)
 }
 
 // whoAmI resolves the identity of the CALLER of an agent verb.
@@ -1476,6 +1478,9 @@ func whoAmI(st *store.Store, env Env, explicit string) (store.SessionInfo, error
 // worse one, since both fallback arms are already conditional.
 func assertedNotLive(st *store.Store, id, from string, known bool, rest []struct{ id, from string }) error {
 	var b strings.Builder
+	// The raw id is kept for the paste rule below (D-201): checking the fenced
+	// copy would approve `sess x` for a raw `sess<TAB>x` (Codex design pass).
+	raw := id
 	id = fence.Line(id, 128) // asserted by the caller, echoed to a tool result
 	if known {
 		fmt.Fprintf(&b, "session %s (from %s) has ended", id, from)
@@ -1496,8 +1501,15 @@ func assertedNotLive(st *store.Store, id, from string, known bool, rest []struct
 	if !known {
 		verb = "registers"
 	}
-	fmt.Fprintf(&b, " — if that is really you, `buddy hello --session %s` %s it here; otherwise %s",
-		id, verb, clearing(from))
+	if p, ok := pasteID(raw); ok {
+		fmt.Fprintf(&b, " — if that is really you, `buddy hello --session %s` %s it here; otherwise %s",
+			p, verb, clearing(from))
+	} else {
+		// No hello remedy for an id hello refuses (D-201). A native id gets no
+		// charset recipe: an alias registered by hand is refused by the gate
+		// on its own claims, which judges the harness id (orc-2's ruling).
+		fmt.Fprintf(&b, " — that id cannot be registered (D-201); %s", unregistrableAdvice(from))
+	}
 	return errors.New(b.String())
 }
 
@@ -1732,6 +1744,11 @@ func cmdHello(args []string, env Env) (err error) {
 	// operator's terminal), and `buddy inbox` there resolves no one: the
 	// Codex count line below then names the id (Codex review of B4).
 	namedByFlag := session != ""
+	// Where the id came from words a refusal to register it (D-201).
+	idFrom := ""
+	if namedByFlag {
+		idFrom = "--session"
+	}
 	if label == "" {
 		// The flag wins. Then the same path --label takes: stored as given,
 		// fenced wherever it renders, and the label-worn-twice warning below
@@ -1784,6 +1801,7 @@ func cmdHello(args []string, env Env) (err error) {
 			return errors.New("hello --session and hook session_id disagree; refusing to redirect a lifecycle event")
 		}
 		session, dir = h.SessionID, h.Cwd
+		idFrom = "hook"
 		codex = false
 		a, _ := hookAnchor(h, env)
 		proc = a.Ref
@@ -1803,7 +1821,7 @@ func cmdHello(args []string, env Env) (err error) {
 		// Not hook-driven: take the harness's own id so a hand-run hello
 		// registers the session that is actually running, never a new one.
 		var err error
-		session, _, err = environmentSession(env)
+		session, idFrom, err = environmentSession(env)
 		if err != nil {
 			return err
 		}
@@ -1845,7 +1863,9 @@ func cmdHello(args []string, env Env) (err error) {
 		// pass, finding 2). Deferred, so every return below is covered, and
 		// only while nothing was written, as busy's is.
 		defer func() {
-			if err != nil && !digestOut {
+			// A refused id is not the fleet failing (D-201, panel): it is
+			// said as itself, never as a transient fleet error.
+			if err != nil && !digestOut && !isSessionIDRefused(err) {
 				if _, werr := io.WriteString(env.Stdout, fleetLine(fleetOpsErr(rc, err))); werr == nil {
 					err = nil
 				}
@@ -1862,10 +1882,17 @@ func cmdHello(args []string, env Env) (err error) {
 		top = dir
 	}
 	si, err := st.HelloFrom(session, label, top, proc, terminal)
+	if isSessionIDRefused(err) {
+		where := "this directory's ledger"
+		if rc.fleet != "" {
+			where = "fleet " + fence.Line(rc.fleet, 64)
+		}
+		return helloRefused(env, session, idFrom, where, hookDriven)
+	}
 	if err != nil {
 		return err
 	}
-	fsi := helloBeside(fb, session, label, top, proc, terminal)
+	fsi := helloBeside(fb, session, label, top, proc, terminal, idFrom)
 	// The copy of each watched file this session starts with (D-167): a
 	// later checkout of the same bytes, in this tree or a worktree it makes,
 	// is then not announced as a change. Best-effort, like the notice. Not
@@ -2212,7 +2239,7 @@ func cmdBye(args []string, env Env) error {
 		fmt.Fprintf(env.Stderr, "buddy bye: %s\n", msg)
 		return nil
 	}
-	return fmt.Errorf("%s; kill it, or `buddy bye %s --force` to end the registration anyway", msg, fence.Line(session, 128))
+	return fmt.Errorf("%s; kill it, or `buddy bye %s --force` to end the registration anyway", msg, pasteIDOr(session, "<its session id>"))
 }
 
 // cmdIdle is the Stop hook: the turn is over and the session is waiting at
@@ -2884,11 +2911,14 @@ const helloBudget = 9000
 // a DIFFERENT session, and `buddy inbox --session 'sess x'` would drain that
 // session's mail and mark it delivered (Codex code pass). That id is not
 // printed as a command; the session runs `buddy inbox` as itself, the
-// unregisteredClause rule.
+// unregisteredClause rule. Since D-201 the test is pasteID's (the ledger now
+// registers only ids fence.ValidSessionID admits, but a row an older binary
+// wrote may hold anything): an admitted id is printed bare, since quoting
+// would not change it, and a backtick can no longer end the code span.
 func helloCountLine(codex, named bool, rest int, id string) string {
 	switch {
-	case codex && named && fence.Line(id, 128) == id:
-		return fmt.Sprintf("BUDDY: %d queued message(s) not shown here; no tool call delivers them under Codex: that session runs `buddy inbox --session %s`.\n", rest, shellQuote(id))
+	case codex && named && fence.ValidSessionID(id): // pasteID's rule (D-201)
+		return fmt.Sprintf("BUDDY: %d queued message(s) not shown here; no tool call delivers them under Codex: that session runs `buddy inbox --session %s`.\n", rest, id)
 	case codex && named:
 		return fmt.Sprintf("BUDDY: %d queued message(s) not shown here; no tool call delivers them under Codex: that session runs `buddy inbox` as itself (its id does not paste as printed).\n", rest)
 	case codex:
@@ -4613,7 +4643,7 @@ func cmdSweep(args []string, env Env) error {
 	}
 	for _, o := range r.OrphanedClaims {
 		fmt.Fprintf(env.Stdout, "  %s %s held by %s (%s)\n", verb, fence.Field(o.Slug, 128), fence.Field(o.Label, 64),
-			fence.Line(o.SessionID, 64))
+			fence.Line(o.SessionID, fence.SessionIDCap))
 	}
 	if *dry {
 		fmt.Fprintf(env.Stdout, "sweep --dry-run: would orphan %d, would delete %d (nothing written; open claims of live sessions are never touched", r.Orphaned, r.Deleted)
@@ -5400,13 +5430,10 @@ func senderFor(st *store.Store, env Env, from string) (sender, unregistered stri
 // shortSession is the "s-<8hex>" suffix of the default label a hello under
 // that id would mint (store's defaultLabel: "<worktree-base>/s-<8hex>", how
 // the room and `buddy ls` name it), so the stamp matches that suffix.
-func shortSession(id string) string {
-	id = strings.ReplaceAll(id, "-", "")
-	if len(id) > 8 {
-		id = id[:8]
-	}
-	return "s-" + id
-}
+//
+// One derivation, store.ShortID (D-201): it used to be a second copy of the
+// byte cut, and an unregistered id is exactly the one no entry check sees.
+func shortSession(id string) string { return store.ShortID(id) }
 
 // unregisteredClause is what a send says about a sender senderFor stamped
 // `unregistered` (D-105): the fact and the one command that changes it. A
@@ -5415,13 +5442,15 @@ func shortSession(id string) string {
 // BUDDY_SESSION of "two words" printed bare would register "two" (Codex code
 // pass, D-105); the stale note's rule for a name it cannot print as typed.
 func unregisteredClause(id string) string {
-	paste := "<your session id>"
-	if fence.Line(id, 128) == id {
-		paste = shellQuote(id)
+	head := "signed " + strconv.Quote("unregistered "+fence.Line(shortSession(id), 64)) +
+		": your session id was not found as a live session in this ledger (never said hello here, or ended); "
+	p, ok := pasteID(id)
+	if !ok {
+		// Never a hello remedy for an id hello refuses (D-201), and no alias:
+		// an id from the harness is how the gate judges this session.
+		return head + "it cannot be registered (D-201); tell the operator, and do not say hello under another id"
 	}
-	return "signed " + strconv.Quote("unregistered "+fence.Line(shortSession(id), 64)) +
-		": your session id was not found as a live session in this ledger (never said hello here, or ended); `buddy hello --session " +
-		paste + " --label <name>` registers you here"
+	return head + "`buddy hello --session " + p + " --label <name>` registers you here"
 }
 
 func cmdInbox(args []string, env Env) error {
@@ -5648,7 +5677,7 @@ func cmdSessions(args []string, env Env) error {
 		// scannable down a 300-row listing.
 		fmt.Fprintf(env.Stdout, "%s %-24s %-11s started %-4s seen %-4s  %s  (%s)%s\n",
 			mark, fence.Field(si.Label, 64), state, age(now, si.Started), age(now, si.LastSeen),
-			fence.Line(si.Worktree, 512), fence.Line(si.SessionID, 128), notes[si.SessionID])
+			fence.Field(si.Worktree, 512), fence.Field(si.SessionID, fence.SessionIDCap), notes[si.SessionID])
 	}
 	if folded != "" {
 		fmt.Fprintln(env.Stdout, folded)

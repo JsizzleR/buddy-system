@@ -357,7 +357,7 @@ func renderDirtyWarn(rel string, peers []store.DirtyRecord, now time.Time) strin
 	if reachable != "" {
 		// No trailing punctuation after a command line: a period there reads as
 		// part of the command to anyone about to run it.
-		fmt.Fprintf(&b, "\n  to reach them:  buddy msg %s \"...\"\n", shellArg(reachable))
+		fmt.Fprintf(&b, "\n  to reach them:  buddy msg %s \"...\"\n", reachArg(reachable))
 		b.WriteString(warnFooter)
 		return b.String()
 	} else {

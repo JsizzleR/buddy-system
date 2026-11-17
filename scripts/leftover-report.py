@@ -378,7 +378,10 @@ def pick(states, sessions, now, evidence):
 
 def short(sid):
     # Folded: a ledger's session id is the caller's (`hello --session`), and
-    # one carrying a newline printed a second row (Codex code pass, P1).
+    # one carrying a newline printed a second row (Codex code pass, P1). buddy
+    # now registers only ids fence.ValidSessionID admits (D-201), for which
+    # this equals store.ShortID; a row an older binary wrote still needs the
+    # fold. Display only.
     return fold("s-" + sid.replace("-", "")[:8], 16)
 
 

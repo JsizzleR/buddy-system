@@ -752,17 +752,17 @@ func busyRosterNote(rc repoContext, session string, known bool, env Env, other b
 		return ""
 	}
 	if rc.fleet != "" && other {
-		return fmt.Sprintf("BUDDY: this session is not on fleet %s's roster (its SessionStart ran before the fleet ledger was there, or could not open it): it gets no fleet mail and no fleet peer sees it (this directory's own ledger works as before). `buddy hello --session %s </dev/null` registers it in both\n",
-			fence.Line(rc.fleet, 64), fence.Line(session, 128))
+		return fmt.Sprintf("BUDDY: this session is not on fleet %s's roster (its SessionStart ran before the fleet ledger was there, or could not open it): it gets no fleet mail and no fleet peer sees it (this directory's own ledger works as before). %s\n",
+			fence.Line(rc.fleet, 64), helloRemedy(session, "registers it in both"))
 	}
 	if rc.fleet != "" {
-		return fmt.Sprintf("BUDDY: this session is not on fleet %s's roster (its SessionStart ran before the fleet ledger was there, or could not open it): it gets no mail and no peer sees it. `buddy hello --session %s </dev/null` registers it\n",
-			fence.Line(rc.fleet, 64), fence.Line(session, 128))
+		return fmt.Sprintf("BUDDY: this session is not on fleet %s's roster (its SessionStart ran before the fleet ledger was there, or could not open it): it gets no mail and no peer sees it. %s\n",
+			fence.Line(rc.fleet, 64), helloRemedy(session, "registers it"))
 	}
 	if !other {
-		return fmt.Sprintf("BUDDY: this session is not on the roster of this directory's own ledger (%s): it started outside it, or before `buddy init` here. Peers here do not see it and its mail here goes nowhere. `buddy hello --session %s </dev/null` registers it here\n",
-			fence.Line(rc.ledger, 512), fence.Line(session, 128))
+		return fmt.Sprintf("BUDDY: this session is not on the roster of this directory's own ledger (%s): it started outside it, or before `buddy init` here. Peers here do not see it and its mail here goes nowhere. %s\n",
+			fence.Line(rc.ledger, 512), helloRemedy(session, "registers it here"))
 	}
-	return fmt.Sprintf("BUDDY: this session is not on the roster of this directory's own ledger (%s): it started outside it, or before `buddy init` here. Its fleet %s row still moves, but peers here do not see it and its mail here goes nowhere. `buddy hello --session %s </dev/null` registers it in both\n",
-		fence.Line(rc.ledger, 512), fence.Line(f, 64), fence.Line(session, 128))
+	return fmt.Sprintf("BUDDY: this session is not on the roster of this directory's own ledger (%s): it started outside it, or before `buddy init` here. Its fleet %s row still moves, but peers here do not see it and its mail here goes nowhere. %s\n",
+		fence.Line(rc.ledger, 512), fence.Line(f, 64), helloRemedy(session, "registers it in both"))
 }
