@@ -301,3 +301,34 @@ func TestFleetSaysAnIDRefusalAsItself(t *testing.T) {
 		t.Fatalf("beside: the fleet's refusal must be said as itself:\n%s\n%s", out, errw)
 	}
 }
+
+// sweep names an orphaned claim's holder by its whole id (D-201): it fenced
+// the id at 64 while every other renderer fenced it at 128, so an admitted
+// id of 65-128 bytes was printed cut, and the printed id named no session.
+// A 100-byte id is admitted (the control), holds a claim, ends, and
+// `sweep --dry-run` must print it uncut.
+func TestSweepPrintsAWholeAdmittedID(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	if out, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatalf("init: %s %s", out, errw)
+	}
+	long := "a" + strings.Repeat("0123456789", 9) + "bcdefghij" // 100 bytes
+	if len(long) != 100 || !fence.ValidSessionID(long) {
+		t.Fatalf("control: the id must be admitted and 100 bytes (%d)", len(long))
+	}
+	if _, errw, code := f.run(t, f.repo, hookJSON(long, f.repo, "", ""), "hello"); code != 0 || !ledgerHasSession(t, f, long) {
+		t.Fatalf("hello: %d %s", code, errw)
+	}
+	f.claimFor(t, long, "long-work", "x", "w")
+	if _, errw, code := f.run(t, f.repo, hookJSON(long, f.repo, "", ""), "bye"); code != 0 {
+		t.Fatalf("bye: %s", errw)
+	}
+	out, errw, code := f.run(t, f.repo, "", "sweep", "--dry-run")
+	if code != 0 || !strings.Contains(out, "would orphan long-work") {
+		t.Fatalf("control: the dry run must name the claim: %d %q %q", code, out, errw)
+	}
+	if !strings.Contains(out, "("+long+")") {
+		t.Fatalf("sweep must print the holder's whole id:\n%s", out)
+	}
+}

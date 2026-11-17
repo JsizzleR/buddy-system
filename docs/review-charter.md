@@ -1110,7 +1110,7 @@ ledger row entered through the CLI (D-006).
     taken over 3d ago into a count that `--all` lists; a folded block is still held. Do not propose
     restoring the advice to the line.
 
-119. **Removal is `scripts/uninstall.sh [--chat] [--dry-run]`, run by `buddy uninstall` (D-125): chat first, buddy last, one lock with install (D-126), `--chat` once D-124's stamp reads off; it removes hook lines, MCP registrations and the oscar and ergo agents provably for what it removed, settings last (D-173, D-176), and the router's files (D-178, D-179); a skill directory not provably an installed copy's is left whole (D-181).** Other settings, ledgers and the journal are reported, never touched. Do not propose: a `--purge`, editing other settings, killing a daemon or a process, or removing buddy before chat. (full text: part `install`)
+119. **Removal is `scripts/uninstall.sh`, run by `buddy uninstall` (D-124, D-125, D-126, D-173, D-176, D-178, D-179, D-181): chat first, buddy last, one lock with install.** Do not propose: a `--purge`, editing other settings, killing a daemon or a process, or removing buddy before chat. (full text: part `install`)
 
 120. **hello obeys the chat posture install.sh stamped, below an explicit `BUDDY_CHAT` (D-127,
     amends D-124).** `BUDDY_CHAT` (trimmed, store.Fold) `off` mutes the hint and `on` prints it
@@ -1196,6 +1196,7 @@ ledger row entered through the CLI (D-006).
 135. **Codex inspect: latest turn is progress, not state (D-197).** Do not propose: `thread/sample`. (full text: `CODEX_CHARTER=adapter`)
 136. **codex-review.sh: prompt on stdin, never argv (D-196).** Do not propose: argv. (full text: `CODEX_CHARTER=process`)
 137. **Native errors, display ids fenced at source (D-198, D-199).** Do not propose: sink fences. (full text: `CODEX_CHARTER=adapter`)
+138. **The ledger creates a session row only for an id `fence.ValidSessionID` admits, checked in hello's and `lifecycle begin`'s new-row arms alone (D-201).** A refresh, a revival, a lookup and the gate never check it. Do not propose: a migration, a gate-time check, or an alias recipe for a native id.
 
 ## Environment facts (measured, do not re-derive)
 
