@@ -3,7 +3,7 @@
 #
 # HERMETIC: sh, git and the repo. The machine is never judged: every command
 # env-check.sh reads (uname, sw_vers, go, df, mdutil, ps, tmutil, pmset, du,
-# crontab, buddy) is a STUB in a directory that is the whole PATH, beside
+# crontab, sysctl, buddy) is a STUB in a directory that is the whole PATH, beside
 # symlinks to the real awk, sed, grep, dirname, basename, cat, id, git and
 # cmp (/bin/sh is named absolutely). Each stub answers
 # from a scenario directory and appends its argv to a log. HOME is a fixture;
@@ -16,7 +16,7 @@
 #     worktree move, ...) and the fixture tree lists the same files as before.
 #     Control: a planted script that makes two such calls through the same
 #     stubs, which the same detector MUST report.
-#   - EVERY VERDICT ARM: a good machine is 16 PASS, exit 0, no fix line; a bad
+#   - EVERY VERDICT ARM: a good machine is 18 PASS, exit 0, no fix line; a bad
 #     one is FAIL (old Go, a full disk), WARN on every advice check, and exit
 #     1; a non-macOS box is CANNOT-ASSESS wherever the tool is missing, never
 #     PASS. A subfolder of an indexed volume is CANNOT-ASSESS, not PASS
@@ -30,6 +30,11 @@
 #     a NaN file, which a plain json.loads would read, is CANNOT-ASSESS; a
 #     Codex skill copy is WARN only when readable and different, and absence
 #     under a directory that cannot be searched is not proof.
+#   - THE MEMORY ROWS (QA-10; D-209, #144): ram-sessions at its 2048 MB a
+#     session boundary, counted over the larger of 12 and the claude processes
+#     ps shows, CANNOT-ASSESS with no RAM size; user-mcp WARN only on a
+#     user-scope server that runs a command, never on a remote or local-scope
+#     one, CANNOT-ASSESS on a file it cannot read.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -100,9 +105,15 @@ echo "/dev/disk3s5 1000 500 $(cat "$SC/df_avail") $(cat "$SC/df_used")% $m"' ;;
 		mdutil) stub "$d" mdutil '[ "$1" = -s ] || { echo "stub mdutil: only -s is read-only" >&2; exit 1; }
 f=$SC/mdutil; [ -n "${STUB_CACHEVOL:-}" ] && [ "$2" = "$STUB_CACHEVOL" ] && f=$SC/mdutil_cache
 case $(cat "$f") in on) printf "%s:\n\tIndexing enabled. \n" "$2" ;; off) printf "%s:\n\tIndexing and searching disabled.\n" "$2" ;; *) printf "%s:\n\tError: unknown indexing state.\n" "$2" ;; esac' ;;
-		ps) stub "$d" ps 'echo " 1000  0.1 /usr/libexec/other"
+		ps) stub "$d" ps '[ -e "$SC/ps_empty" ] && exit 1
+echo " 1000  0.1 /usr/libexec/other"
 [ -s "$SC/fseventsd" ] && echo " $(cat "$SC/fseventsd") /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Support/fseventsd"
+i=0; while [ "$i" -lt "$(cat "$SC/claude_n" 2>/dev/null || echo 0)" ]; do echo " 250000  1.0 /Users/u/.local/bin/claude"; i=$((i + 1)); done
+echo " 3000  0.0 /usr/local/bin/claude-helper"
 echo " 2000  0.0 /sbin/launchd"' ;;
+		sysctl) stub "$d" sysctl '[ "$*" = "-n hw.memsize" ] || { echo "stub sysctl: $* is not the one read" >&2; exit 1; }
+[ -s "$SC/memsize" ] || { echo "sysctl: unknown oid" >&2; exit 1; }
+cat "$SC/memsize"' ;;
 		tmutil) stub "$d" tmutil 'case $1 in
 destinationinfo) if [ "$(cat "$SC/tm_dest")" = none ]; then echo "tmutil: No destinations configured."; exit 1; else echo "Name : Backup"; fi ;;
 isexcluded) echo "[$(cat "$SC/tm_excluded")]  $2" ;;
@@ -158,7 +169,7 @@ $out"
 
 # mutations <log> — every logged call that would change the machine.
 mutations() {
-	grep -E '^(go env -w|go env -u|mdutil -i|mdutil -E|mdutil -X|tmutil (add|remove)exclusion|pmset -c|pmset -a|pmset -b|killall|sudo|caffeinate|launchctl|crontab -[er]|git .*worktree (move|add|remove|prune))' "$1" || true
+	grep -E '^(sysctl -w|sysctl [^ ]*=|go env -w|go env -u|mdutil -i|mdutil -E|mdutil -X|tmutil (add|remove)exclusion|pmset -c|pmset -a|pmset -b|killall|sudo|caffeinate|launchctl|crontab -[er]|git .*worktree (move|add|remove|prune))' "$1" || true
 }
 # The control: a planted pair of mutating calls, through the same stubs, that
 # the detector MUST report, beside a read it must NOT.
@@ -201,13 +212,19 @@ shape() {
 		END { print bad }'
 }
 
-ALL="uname sw_vers go python3 buddy df mdutil ps tmutil pmset du crontab sudo killall caffeinate launchctl"
+ALL="uname sw_vers go python3 buddy df mdutil ps tmutil pmset du crontab sysctl sudo killall caffeinate launchctl"
 
 # QA-1: a good machine: every check PASS, exit 0, nothing written, no fix line.
 BIN_A="$WORK/bin-a"; mkbin "$BIN_A" $ALL
 SC_A="$WORK/sc-a"
 scenario "$SC_A" os=Darwin go_version=1.27.1 gocache="$HOMEFX/Library/Caches/go-build" df_avail=104857600 df_used=50 \
-	mdutil=off fseventsd="2048  0.3" tm_dest=none tm_excluded=Excluded pm_sleep=0 du_kb=1048576
+	mdutil=off fseventsd="2048  0.3" tm_dest=none tm_excluded=Excluded pm_sleep=0 du_kb=1048576 \
+	memsize=68719476736 claude_n=3
+# user-mcp's good file: a remote user-scope server and a LOCAL-scope one that
+# runs a command, neither of which starts a process in every session.
+CJ="$HOMEFX/.claude.json"
+GOODCJ='{"mcpServers": {"docs": {"type": "http", "url": "https://example.invalid/mcp"}}, "projects": {"/p": {"mcpServers": {"pw": {"command": "npx"}}}}}'
+printf '%s\n' "$GOODCJ" > "$CJ"
 printf '<plist><string>%s</string></plist>\n' 'go clean -cache' > "$HOMEFX/Library/LaunchAgents/com.example.trim.plist"
 : > "$TMPFX/claude-$(id -u)/one"
 SET="$HOMEFX/.claude/settings.json"
@@ -217,11 +234,11 @@ before=$(snapshot)
 run "$BIN_A" "$SC_A" --checkout "$CO"
 [ "$rc" -eq 0 ] || fail "QA-1: a good machine must exit 0 (rc=$rc):
 $out"
-[ "$(printf '%s\n' "$out" | grep -c '^\[PASS\]')" -eq 16 ] || fail "QA-1: want 16 PASS lines:
+[ "$(printf '%s\n' "$out" | grep -c '^\[PASS\]')" -eq 18 ] || fail "QA-1: want 18 PASS lines:
 $out"
 printf '%s\n' "$out" | grep -q 'fix:' && fail "QA-1: a PASS has a fix line:
 $out"
-printf '%s\n' "$out" | grep -qx 'env-check: 16 PASS, 0 WARN, 0 FAIL, 0 CANNOT-ASSESS\. A WARN is advice; only a FAIL exits non-zero\.' || fail "QA-1: the count line:
+printf '%s\n' "$out" | grep -qx 'env-check: 18 PASS, 0 WARN, 0 FAIL, 0 CANNOT-ASSESS\. A WARN is advice; only a FAIL exits non-zero\.' || fail "QA-1: the count line:
 $out"
 printf '%s\n' "$out" | grep -q '^env-check: not repeated here: hooks, gate entry, chat and handoff size (sh scripts/install.sh reports them); language servers (buddy init); harness compatibility (buddy diagnose)\.$' || fail "QA-1: the footer must name what install.sh, buddy init and buddy diagnose report:
 $out"
@@ -229,7 +246,7 @@ $out"
 [ "$before" = "$(snapshot)" ] || fail "QA-1: the run wrote into the fixture"
 # The stubs were reached (the control that the scenario drove the verdicts):
 # each read-only command appears in the log at least once.
-for t in uname go df mdutil ps tmutil pmset du; do
+for t in uname go df mdutil ps tmutil pmset du sysctl; do
 	grep -q "^$t " "$LOG" || fail "QA-1: $t was never called; the PASS lines came from somewhere else"
 done
 
@@ -255,10 +272,12 @@ $out"
 # WARNs; the checkout is its own indexed volume (the sudo mdutil fix); exit
 # 1; one fix line under each; still nothing written and nothing mutated.
 BIN_B="$WORK/bin-b"; mkbin "$BIN_B" uname sw_vers go df mdutil ps tmutil pmset du crontab sudo killall caffeinate launchctl
-BIN_B3="$WORK/bin-b3"; mkbin "$BIN_B3" uname sw_vers go python3 df mdutil ps tmutil pmset du crontab sudo killall caffeinate launchctl
+BIN_B3="$WORK/bin-b3"; mkbin "$BIN_B3" uname sw_vers go python3 df mdutil ps tmutil pmset du crontab sysctl sudo killall caffeinate launchctl
 SC_B="$WORK/sc-b"
 scenario "$SC_B" os=Darwin go_version=1.25.3 gocache="$HOMEFX/Library/Caches/go-build" df_avail=1048576 df_used=99 \
-	mdutil=on fseventsd="2097152  3.0" tm_dest=yes tm_excluded=Included pm_sleep=10 du_kb=6291456
+	mdutil=on fseventsd="2097152  3.0" tm_dest=yes tm_excluded=Included pm_sleep=10 du_kb=6291456 \
+	memsize=25769803776 claude_n=15
+printf '%s\n' '{"mcpServers": {"pw": {"command": "npx", "args": ["-y", "x"]}, "fs": {"type": "stdio", "command": "node"}, "docs": {"type": "http", "url": "https://example.invalid/mcp"}}}' > "$CJ"
 rm -f "$HOMEFX/Library/LaunchAgents/com.example.trim.plist"
 git -C "$CO" worktree add -q "$TMPFX/wt-under-tmp" HEAD
 printf '{"sandbox": {"enabled": true}, "env": {"CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1"}}\n' > "$SET"
@@ -275,6 +294,7 @@ FAIL disk-free
 WARN go-cache-spotlight
 WARN checkout-spotlight
 WARN fseventsd
+WARN ram-sessions
 WARN go-cache-trim
 WARN time-machine
 WARN ac-sleep
@@ -283,6 +303,7 @@ WARN scratch
 WARN sandbox
 WARN summaries
 WARN code-mode
+WARN user-mcp
 WARN codex-skill-copy'
 [ "$(verdicts "$out")" = "$want" ] || fail "QA-3: verdicts:
 $(verdicts "$out")
@@ -301,6 +322,12 @@ printf '%s\n' "$out" | grep -q 'not installed yet' || fail "QA-3: no buddy anywh
 printf '%s\n' "$out" | grep -q 'irreversible' || fail "QA-3: the scratch fix says irreversible"
 printf '%s\n' "$out" | grep -q 'fix: "env": {"CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES": "1"} in .*(no sudo; reversible' || fail "QA-3: the summaries fix line:
 $out"
+printf '%s\n' "$out" | grep -q '^\[WARN\] *ram-sessions *24 GB RAM over 15 sessions (the larger of a 12-session fleet and the 15 Claude Code process(es) running now, every repository.s) is 1638 MB a session (advice under 2048' || fail "QA-3: ram-sessions prints RAM, sessions, per session and the threshold:
+$out"
+printf '%s\n' "$out" | grep -q '^\[WARN\] *user-mcp *2 user-scope MCP server(s) in .*\.claude\.json run a command (and 1 remote): each starts a process in EVERY Claude Code session' || fail "QA-3: user-mcp counts the two that run a command, typed or not:
+$out"
+printf '%s\n' "$out" | grep -q 'fix: claude mcp list names them; re-add one most sessions never use with claude mcp add --scope project .*(no sudo; reversible' || fail "QA-3: the user-mcp fix line:
+$out"
 [ -z "$(mutations "$LOG")" ] || fail "QA-3: a mutating call was made: $(mutations "$LOG")"
 [ "$before" = "$(snapshot)" ] || fail "QA-3: the run wrote into the fixture"
 
@@ -317,7 +344,7 @@ printf '%s\n' "$out" | grep -q 'python3 MISSING' || fail "QA-4: the WARN names p
 # ...and with no python3 to run gate-hook.py's decode, a settings file that
 # exists is not read some other way: both settings rows CANNOT-ASSESS
 # (QA-3, the same file with python3, is the control: WARN on both).
-for r in sandbox summaries code-mode; do
+for r in sandbox summaries code-mode user-mcp; do
 	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-4: no python3 must leave $r CANNOT-ASSESS:
 $out"
 done
@@ -331,7 +358,7 @@ SC_C="$WORK/sc-c"
 scenario "$SC_C" os=Linux go_version=1.27.0 gocache="$HOMEFX/.cache/go-build" df_avail=104857600 df_used=40 \
 	fseventsd= du_kb=1024 crontab='0 */3 * * * go clean -cache'
 git -C "$CO" worktree remove --force "$TMPFX/wt-under-tmp"
-printf '%s\n' "$GOODSET" > "$SET"; rm -rf "$HOMEFX/.agents"
+printf '%s\n' "$GOODSET" > "$SET"; rm -rf "$HOMEFX/.agents"; printf '%s\n' "$GOODCJ" > "$CJ"
 run "$BIN_C" "$SC_C" --checkout "$CO"
 [ "$rc" -eq 0 ] || fail "QA-5: CANNOT-ASSESS must not fail the run (rc=$rc):
 $out"
@@ -342,6 +369,7 @@ PASS disk-free
 CANNOT-ASSESS go-cache-spotlight
 CANNOT-ASSESS checkout-spotlight
 CANNOT-ASSESS fseventsd
+CANNOT-ASSESS ram-sessions
 PASS go-cache-trim
 CANNOT-ASSESS time-machine
 CANNOT-ASSESS ac-sleep
@@ -350,6 +378,7 @@ PASS scratch
 PASS sandbox
 PASS summaries
 PASS code-mode
+PASS user-mcp
 PASS codex-skill-copy'
 [ "$(verdicts "$out")" = "$want" ] || fail "QA-5: verdicts:
 $(verdicts "$out")
@@ -371,12 +400,13 @@ scenario "$SC_D" crontab='# 0 */3 * * * go clean -cache'
 : > "$SC_D/du_fail"
 printf '<plist><key>EnvironmentVariables</key><dict><key>GOCACHE</key><string>/x</string></dict></plist>\n' > "$HOMEFX/Library/LaunchAgents/com.example.env.plist"
 printf '{"env": \n' > "$SET"
+printf '{"mcpServers": \n' > "$CJ"
 mkdir -p "$HOMEFX/.agents/skills/buddy/SKILL.md"
 run "$BIN_A" "$SC_D" --checkout "$WORK/missing"
 [ "$rc" -eq 0 ] || fail "QA-7: CANNOT-ASSESS must not fail the run (rc=$rc):
 $out"
 for v in 'CANNOT-ASSESS checkout-spotlight' 'CANNOT-ASSESS worktrees-tmp' 'CANNOT-ASSESS scratch' 'WARN go-cache-trim' \
-	'CANNOT-ASSESS sandbox' 'CANNOT-ASSESS summaries' 'CANNOT-ASSESS code-mode' 'CANNOT-ASSESS codex-skill-copy'; do
+	'CANNOT-ASSESS sandbox' 'CANNOT-ASSESS summaries' 'CANNOT-ASSESS code-mode' 'CANNOT-ASSESS user-mcp' 'CANNOT-ASSESS codex-skill-copy'; do
 	verdicts "$out" | grep -qx "$v" || fail "QA-7: want '$v' when the read fails:
 $out"
 done
@@ -388,7 +418,7 @@ printf '%s\n' "$out" | grep -q 'is not JSON this check can read (JSONDecodeError
 $out"
 printf '%s\n' "$out" | grep -q "could not establish absence or equality for: $HOMEFX/.agents/skills/buddy/SKILL.md" || fail "QA-7: a SKILL.md that is a directory is named:
 $out"
-rm -f "$HOMEFX/Library/LaunchAgents/com.example.env.plist"; rm -rf "$HOMEFX/.agents"; printf '%s\n' "$GOODSET" > "$SET"
+rm -f "$HOMEFX/Library/LaunchAgents/com.example.env.plist"; rm -rf "$HOMEFX/.agents"; printf '%s\n' "$GOODSET" > "$SET"; printf '%s\n' "$GOODCJ" > "$CJ"
 # A go stub that sees the holding env is the control that the script sets it:
 # QA-1's toolchain PASS came through this stub, which refuses without it.
 grep -q '^go version' "$LOG" || fail "QA-7: go version was not reached"
@@ -398,9 +428,9 @@ grep -q '^go version' "$LOG" || fail "QA-7: go version was not reached"
 run "$BIN_A" "$SC_A" --checkout "$CO" --list
 [ "$rc" -eq 0 ] || fail "QA-6: --list rc=$rc"
 [ ! -s "$LOG" ] || fail "QA-6: --list ran a command: $(cat "$LOG")"
-[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 17 ] || fail "QA-6: --list must name the 17 checks:
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 19 ] || fail "QA-6: --list must name the 19 checks:
 $out"
-for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd go-cache-trim time-machine ac-sleep worktrees-tmp scratch sandbox summaries code-mode codex-skill-copy codex-gate; do
+for c in platform toolchain path-bin disk-free go-cache-spotlight checkout-spotlight fseventsd ram-sessions go-cache-trim time-machine ac-sleep worktrees-tmp scratch sandbox summaries code-mode user-mcp codex-skill-copy codex-gate; do
 	printf '%s\n' "$out" | grep -q "^$c " || fail "QA-6: --list does not name $c"
 done
 run "$BIN_A" "$SC_A" --checkout "$CO" --help
@@ -700,7 +730,7 @@ $r"
 fi
 chmod 755 "$AG"; rm -rf "$HOMEFX/.agents"
 FX_HOME=; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_HOME
-for r in sandbox summaries code-mode codex-skill-copy; do
+for r in sandbox summaries code-mode user-mcp codex-skill-copy; do
 	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-9: an empty HOME must leave $r CANNOT-ASSESS:
 $out"
 done
@@ -709,7 +739,7 @@ $(row codex-skill-copy)"
 # HOME not set at all: every row still prints (set -u aborted the script at
 # the first $HOME before), the HOME-rooted ones CANNOT-ASSESS, scratch too.
 FX_HOME_UNSET=1; run "$BIN_A" "$SC_A" --checkout "$CO"; unset FX_HOME_UNSET
-for r in sandbox summaries code-mode codex-skill-copy scratch; do
+for r in sandbox summaries code-mode user-mcp codex-skill-copy scratch; do
 	verdicts "$out" | grep -qx "CANNOT-ASSESS $r" || fail "QA-9: an unset HOME must leave $r CANNOT-ASSESS:
 $out"
 done
@@ -737,6 +767,78 @@ $out"
 [ "$(printf '%s\n' "$out" | grep -c 'codex-skill-copy')" -eq 1 ] && row codex-skill-copy | grep -q "cx?\[PASS\] *forged/skills is absent" ||
 	fail "QA-9: the CODEX_HOME path must print on its own row, its newline as ?:
 $out"
+# QA-10 (D-209, #144): the memory rows, arm by arm. ram-sessions divides RAM
+# by the larger of a 12-session fleet and the processes ps names `claude` (a
+# `claude-helper` the ps stub always prints is not one): 24 GiB over 12 is
+# exactly 2048 MB a session, PASS at the boundary; a 13th running session
+# tips it to WARN, so the live count is read (the positive control for the
+# processes); 2 running on 16 GiB still divides by 12 (the floor's control);
+# no RAM size is CANNOT-ASSESS, never PASS.
+SC_M="$WORK/sc-m"; cp -R "$SC_A" "$SC_M"
+scenario "$SC_M" memsize=25769803776 claude_n=0
+run "$BIN_A" "$SC_M" --checkout "$CO"
+row ram-sessions | grep -qx '\[PASS\] *ram-sessions *24 GB RAM over 12 sessions (the larger of a 12-session fleet and the 0 Claude Code process(es) running now, every repository.s) is 2048 MB a session' || fail "QA-10: 24 GiB over 12 sessions is 2048 MB, PASS at the boundary:
+$(row ram-sessions)"
+scenario "$SC_M" claude_n=13
+run "$BIN_A" "$SC_M" --checkout "$CO"
+row ram-sessions | grep -q '^\[WARN\] *ram-sessions *24 GB RAM over 13 sessions (.* the 13 Claude Code process(es) running now, .*) is 1890 MB a session (advice under 2048' || fail "QA-10: 13 running sessions must count over the 12 floor:
+$(row ram-sessions)"
+[ -z "$(shape "$out")" ] || fail "QA-10: ram-sessions WARN shape:$(shape "$out")"
+scenario "$SC_M" memsize=17179869184 claude_n=2
+run "$BIN_A" "$SC_M" --checkout "$CO"
+row ram-sessions | grep -q '^\[WARN\] *ram-sessions *16 GB RAM over 12 sessions (.* the 2 Claude Code process(es) running now, .*) is 1365 MB a session' || fail "QA-10: 2 running sessions still divide by the 12-session fleet:
+$(row ram-sessions)"
+# A process table ps could not read is a count nobody took: never "0 running".
+: > "$SC_M/ps_empty"
+run "$BIN_A" "$SC_M" --checkout "$CO"
+row ram-sessions | grep -q '^\[WARN\] *ram-sessions *16 GB RAM over 12 sessions (the larger of a 12-session fleet and the Claude Code processes running now, uncounted: ps gave nothing) is 1365 MB' || fail "QA-10: an unreadable process table must say uncounted:
+$(row ram-sessions)"
+scenario "$SC_M" memsize=25769803776
+run "$BIN_A" "$SC_M" --checkout "$CO"
+row ram-sessions | grep -q '^\[CANNOT-ASSESS\] *ram-sessions *24 GB RAM over 12 sessions (.*uncounted: ps gave nothing) is 2048 MB a session, a floor: .* so no PASS' || fail "QA-10: 2048 MB on an uncounted floor must be CANNOT-ASSESS, never PASS (Codex code pass):
+$(row ram-sessions)"
+[ -z "$(shape "$out")" ] || fail "QA-10: ram-sessions floor CANNOT-ASSESS shape:$(shape "$out")"
+rm -f "$SC_M/ps_empty" "$SC_M/memsize"
+run "$BIN_A" "$SC_M" --checkout "$CO"
+row ram-sessions | grep -q '^\[CANNOT-ASSESS\] *ram-sessions *sysctl -n hw.memsize gave no RAM size .*; 2 Claude Code process(es) running now' || fail "QA-10: no RAM size must be CANNOT-ASSESS:
+$(row ram-sessions)"
+[ -z "$(shape "$out")" ] || fail "QA-10: ram-sessions CANNOT-ASSESS shape:$(shape "$out")"
+grep -q '^sysctl -n hw.memsize$' "$LOG" || fail "QA-10: the RAM size did not come from sysctl -n hw.memsize: $(cat "$LOG")"
+
+# user-mcp: WARN only on a user-scope server that runs a command (QA-3: two,
+# one typed stdio, one untyped, beside a remote one); here one is enough, and
+# no file, {}, an empty table, remote servers (a url wins over a command) and
+# a local-scope server that runs one are PASS. A table that is not an object,
+# a file that is not one, and NaN (read only by the shared decode's refusal)
+# are CANNOT-ASSESS, never PASS.
+cj() { printf '%s\n' "$1" > "$CJ"; }
+cj '{"mcpServers": {"pw": {"command": "npx"}}}'
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row user-mcp | grep -q '^\[WARN\] *user-mcp *1 user-scope MCP server(s) in .* run a command (and 0 remote)' || fail "QA-10: one server that runs a command must WARN:
+$(row user-mcp)"
+[ "$rc" -eq 0 ] && [ -z "$(shape "$out")" ] || fail "QA-10: a user-mcp WARN (rc=$rc) shape:$(shape "$out")"
+for c in '{}' '{"mcpServers": {}}' '{"mcpServers": {"r": {"type": "sse", "url": "http://127.0.0.1:1/sse"}, "s": {"command": "x", "url": "u"}}}' "$GOODCJ"; do
+	cj "$c"; run "$BIN_A" "$SC_A" --checkout "$CO"
+	row user-mcp | grep -q '^\[PASS\] *user-mcp *no user-scope MCP server in .* runs a command' || fail "QA-10: $c must PASS user-mcp:
+$(row user-mcp)"
+done
+for c in '{"mcpServers": []}' '[1]' '{"mcpServers": {"pw": {"command": "npx"}}, "x": NaN}'; do
+	cj "$c"; run "$BIN_A" "$SC_A" --checkout "$CO"
+	row user-mcp | grep -q '^\[CANNOT-ASSESS\] *user-mcp *.*\.claude\.json: .*; how many user-scope MCP servers start in every session is unknown' || fail "QA-10: $c must be CANNOT-ASSESS:
+$(row user-mcp)"
+	[ -z "$(shape "$out")" ] || fail "QA-10: $c shape:$(shape "$out")"
+done
+# Its own reason, not a crash's: a table that is not an object is named so
+# (a reader that crashed on it says "could not run", the same verdict).
+cj '{"mcpServers": []}'; run "$BIN_A" "$SC_A" --checkout "$CO"
+row user-mcp | grep -q 'json: its mcpServers is not a JSON object; how many' || fail "QA-10: a list for mcpServers must be named as such:
+$(row user-mcp)"
+rm -f "$CJ"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+row user-mcp | grep -q '^\[PASS\] *user-mcp *no .*\.claude\.json: no user-scope MCP server' || fail "QA-10: no ~/.claude.json must PASS:
+$(row user-mcp)"
+cj "$GOODCJ"
+
 # Python is passed with -c, never a heredoc: macOS /bin/sh writes a heredoc to
 # a temporary file (Codex code pass). Control: the same pattern finds one.
 heredoc() { grep -n '<<' "$1" | grep -v '^[0-9]*:[[:space:]]*#' || true; }
@@ -744,4 +846,4 @@ printf 'x=$(python3 - <<%sPY%s\n' "'" "'" > "$WORK/heredoc-ctl"
 [ -n "$(heredoc "$WORK/heredoc-ctl")" ] || fail "QA-9: the heredoc detector missed its planted control"
 [ -z "$(heredoc "$ROOT/scripts/env-check.sh")" ] || fail "QA-9: env-check.sh holds a heredoc (a temporary file under macOS sh): $(heredoc "$ROOT/scripts/env-check.sh")"
 
-echo "check-env-check: GREEN (QA-1 good machine 16 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 13 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN + settings rows CANNOT-ASSESS without it, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks, QA-9 sandbox WARN with and without the wait-check clause + summaries and code-mode PASS/WARN/CANNOT-ASSESS by env and settings + codex-skill-copy PASS/WARN/CANNOT-ASSESS, through gate-hook.py's decode (NaN, depth) + glob in CODEX_HOME + unset HOME + unresolvable symlink + newline in a path + no heredoc; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"
+echo "check-env-check: GREEN (QA-1 good machine 18 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 15 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN + settings rows CANNOT-ASSESS without it, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks, QA-9 sandbox WARN with and without the wait-check clause + summaries and code-mode PASS/WARN/CANNOT-ASSESS by env and settings + codex-skill-copy PASS/WARN/CANNOT-ASSESS, through gate-hook.py's decode (NaN, depth) + glob in CODEX_HOME + unset HOME + unresolvable symlink + newline in a path + no heredoc, QA-10 ram-sessions at its 2048 MB boundary over max(12, running) + CANNOT-ASSESS without a RAM size, user-mcp WARN only on a user-scope command, PASS on remote and local scope, CANNOT-ASSESS unread; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"

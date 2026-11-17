@@ -16121,3 +16121,72 @@ migration's column shape, which ALTER appends last with the same declaration). C
 @xhigh, round 1: 2 raised, 2 fixed (a re-declaration kept the watermark but not `since`; the
 no-block step named a bare `wait check`); round 2: 0 raised. Each fold's test was watched to fail
 with the fold reverted (27 mutants across the item, all killed).
+
+## D-209 — A coordinator admits lanes one at a time, each after the last one's first report and a memory check that counts the whole machine; a resume after a crash follows `skills/buddy-fleet/resume.md`; `env-check.sh` WARNs on RAM per session and on user-scope MCP servers that run a command (amends D-144)
+
+2026-11-17 · issue #144 (repo side); lane mem-admit
+
+**Measured** (#144, from the kernel log and transcripts of two hard freezes on one 24 GB
+macOS laptop): about 30 Claude Code sessions across four repositories' fleets; one
+coordinator resumed 12 lanes 3 s apart, as "Opening lanes" advised for starts ("one background
+start per lane, a few seconds apart, then wait for all", D-144), and several re-ran
+whole-package Go tests, a mutation battery and a `-race` run in the same minute. Free memory
+fell from 6.6 GB to 0.1 GB in a minute, the compressor and swap ran out, and macOS suspended
+apps one every 5 s, Terminal among them, which holds every lane: nothing recovers from that,
+twice in 30 minutes. A cold compile of the largest package peaked at 2.3 GB while free memory
+moved 0.3 GB (macOS absorbs it from file cache), so lanes that read free memory seconds apart
+all see headroom. A user-scope `npx` MCP server cost about 220 MB in every session (2.4 GB
+over 12); 25 of 1,277 sessions in 30 days called one of its tools. A Claude process starts
+near 250 MB.
+
+**The decision.** D-144's timeout rule stands: a Claude lane's start runs to its timeout, so
+it runs in the background or with a short `--timeout`, and a timed-out start is confirmed by
+the lane's first report or `buddy who`, never retried. What it amends is the cadence: lanes
+are admitted ONE AT A TIME, the next only after the previous lane's first report AND a
+memory check that counts what is already booked on the machine, every repository's sessions
+and heavy jobs (the operator's machine-wide gate or reading where there is one; otherwise free
+memory less a heavy job's peak for each running lane that may start one). A resume after a
+crash or reboot is the same rule with a recipe, `skills/buddy-fleet/resume.md`, which the fleet
+SKILL.md points at: the coordinator first; a dead coordinator's claims taken in one
+`buddy release <run> orc-<project> <parked riders> --to <own id> --session <dead id>`, then
+`buddy bye <dead id>` (verified in a scratch ledger on this build: three claims handed in one
+transaction, the rider still PARKED in the run, produced by its lane; `bye` refused while the
+"dead" session's process was alive, which is D-091's guard); lanes one at a time by priority;
+a lane past its handoff size not resumed, its successor started from a note the coordinator
+writes from worktree, transcript tail and claims; a resumed lane re-runs at most one heavy job
+at a time and says what it re-ran. The skill names no gate, model, date or operator default
+(D-114): the operator's own gate is the operator's.
+
+`env-check.sh` gains two read-only rows. **ram-sessions**: `sysctl -n hw.memsize` over the
+larger of a 12-session fleet (the largest the script's checks were measured under) and the
+processes named `claude` in its one `ps` sample, WARN under 2,048 MB a session, the numbers
+and the threshold printed (a judgement, as disk-free's 88%); no RAM size is CANNOT-ASSESS.
+**user-mcp**: the top-level `mcpServers` of `~/.claude.json` (user scope), read through
+gate-hook.py's one decode like the settings rows; WARN on any that runs a command (type
+`stdio`, or none with a `command`), counted, never named; a remote one (a `url`) starts no
+process and is only counted; project and local scope are not read. The fix line names `claude
+mcp add --scope project|local` and `claude mcp remove <name> --scope user`, the user's to run.
+
+**Considered and cut.** A buddy verb that books memory: buddy's ledger is per repository and
+cannot see another repository's fleet, which is the whole problem; that is #144's proposal 4,
+a machine-wide admission slot, left open there. Counting sessions by `buddy sessions`: one
+ledger again. A `--sessions N` flag on env-check: the 12 baseline plus the live count covers
+the measured case without a new flag to teach.
+
+**Left open.** The machine-wide admission slot (#144, proposal 4). The `claude` process count
+misses a session run under another name (`node`, an npm install), so a count can be low; the
+12-session floor bounds what that costs. The 2 GB threshold is one machine's evidence.
+
+**Tests.** `scripts/check-env-check.sh` QA-10, arm by arm: ram-sessions at 2,048 MB (24 GiB over
+the 12 floor, PASS), 13 running sessions over the floor (WARN), 2 running on 16 GiB still over
+12 (WARN), an empty `ps` (uncounted: WARN on 16 GiB, CANNOT-ASSESS on 24 GiB, where the 12 is a
+floor and cannot PASS), no RAM size (CANNOT-ASSESS); user-mcp WARN on one command, PASS on no
+file, `{}`, an empty table, remote servers and a local-scope command, CANNOT-ASSESS on a list
+table (named as such), a non-object file and NaN. QA-1, -3, -4, -5, -7 and -9 carry both rows.
+Nine mutants of env-check.sh, each killed. `TestSkillSplitPointsAtTheFleetSkill` holds the
+pointer to `resume.md` (it failed on a wrapped pointer first).
+
+**Review (lite).** Self-review: 2 raised, 2 fixed (an empty `ps` printed "0 running"; a list
+for `mcpServers` landed CANNOT-ASSESS only by a crash, so its test asserted nothing specific).
+Codex code @xhigh: 2 raised, 2 fixed (an uncounted `ps` could still PASS at 24 GiB on the floor
+alone; `buddy sessions` without `--all` hides a lane whose process died, the crash case).

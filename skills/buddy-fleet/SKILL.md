@@ -51,12 +51,11 @@ nobody authorised.
   that answers `timed out waiting for agent startup` has usually started the
   lane anyway, but herdr then does not know it by label: wait on it by pane
   id, and check `buddy who <its full session id>` (D-122). On a Claude lane
-  the start runs to its timeout every time, so a launcher that starts lanes
-  one after another pays N x the timeout: start them in parallel (one
-  background start per lane, a few seconds apart, then wait for all) or pass
-  a short timeout (`herdr agent start … --timeout 10000`). Never retry a
-  timed-out start: confirm each lane by its first `buddy msg` or by
-  `buddy who <its full session id>`; retry only on `agent_pane_busy` (D-144).
+  the start runs to its timeout every time: run it in the background, or
+  pass a short timeout (`herdr agent start … --timeout 10000`), rather than
+  wait it out. Never retry a timed-out start: confirm the lane by its first
+  `buddy msg` or by `buddy who <its full session id>`; retry only on
+  `agent_pane_busy` (D-144).
   Pass the mode the operator decided for lanes, never a more permissive one
   than your own. Without the flag a lane starts in manual mode (D-056), and
   every tool call it makes, each `buddy msg` report included, waits for an
@@ -69,6 +68,20 @@ nobody authorised.
   `herdr agent start <label> --kind codex --pane <pane id> -- -s workspace-write -a on-request "You are <label>. Read <brief file> in full and follow it as your brief."`;
   its brief says to request escalation for every buddy call up front
   (Harness boundaries).
+- **Admit lanes one at a time, never in a burst** (D-209). Start the next
+  lane only after the previous one's first report AND a memory check that
+  counts what is already booked on the MACHINE: every repository's sessions
+  and heavy jobs (a whole-package or `-race` test run, a done-check, a VM),
+  not only your fleet's. A free-memory reading cannot see a lane that has
+  started but not yet peaked, so lanes started seconds apart each see
+  headroom and all start: 12 lanes resumed 3 s apart on a 24 GB machine ran
+  tests in one minute, swap ran out, and the OS suspended the terminal
+  holding every lane, a hard freeze (#144). Use the machine-wide gate or
+  reading your operator names; with none, free memory (`memory_pressure -Q`
+  on macOS) less a heavy job's peak (2.3 GB measured for one cold Go link)
+  for each running lane that may start one. The operator's lane cap is a
+  ceiling, not a target. After a crash or reboot, read
+  `resume.md` beside this file before you resume anything.
 - **A launch must not hand the lane your identity.** A herdr tab's shell takes
   the herdr server's environment, and `claude --bg` the claude daemon's, so
   neither leaks your `CLAUDE_CODE_SESSION_ID` (D-085). A lane started as a
@@ -176,7 +189,7 @@ before you would open it:
 - **Hand off before you are full**, at the operator's handoff size: a prompt that opens a turn says when you reach it (the optional `busy` hook), and your `buddy sessions` row shows it (`prompt 521k`). A new batch of lanes past the operator's batch-boundary size, if they set one, gets a fresh coordinator too (D-117).
 - Launch a coordinator, and its successor, in a herdr tab, `herdr tab create … --env BUDDY_HANDOFF_AT=<the operator's size>`, never `claude --bg`: the size never reaches a background session.
 - Start no background job you will not see finish: a job you start is your session's child, and nothing hands it to a successor.
-- Taking over: say what you found in one `buddy msg` to your predecessor and deliver its wake address, never your pane alone; it hands on when that arrives (D-192).
+- Taking over: say what you found in one `buddy msg` to your predecessor and deliver its wake address, never your pane alone; it hands on when that arrives (D-192). One that died cannot: `resume.md`, step 2.
 - Hand every claim on in ONE `buddy release <run> orc-<project> <parked riders> --to <successor>`; never release a run to have it claimed afresh: a new claim id lands every rider's wait with no outcome and loses its READY (D-063).
 - Never hand on `.buddy/slot/browser`: keep it, list it, and stay open until its work is over (D-134).
 - Account for every running job before you say you are done (D-065).

@@ -178,6 +178,7 @@ var skillFiles = []string{
 	"../../skills/buddy-fleet/not-code.md",
 	"../../skills/buddy-fleet/outside-git.md",
 	"../../skills/buddy-fleet/restack.md",
+	"../../skills/buddy-fleet/resume.md",
 	"../../skills/model-router/SKILL.md",
 	"../../skills/model-router/reference.md",
 	"../../skills/model-router/router.py",

@@ -40,7 +40,8 @@
 # (the volume's indexing state; `-i` would change it and is never run),
 # `ps`, `tmutil destinationinfo|isexcluded`, `pmset -g custom`, `du` of
 # ~/.claude/projects, a directory listing of the harness's scratch root, the
-# user's LaunchAgents plists, `crontab -l`, ~/.claude/settings.json (through
+# user's LaunchAgents plists, `crontab -l`, `sysctl -n hw.memsize`,
+# ~/.claude/settings.json and ~/.claude.json (each through
 # scripts/gate-hook.py's one decode, python3 -I -B), two variables of its own
 # environment, `cmp` of each shipped SKILL.md against the copies under
 # ~/.agents/skills and Codex's skills directory, and, where Codex's directory
@@ -108,6 +109,7 @@ disk-free|a full disk fails builds with a message read as a compile error, and S
 go-cache-spotlight|a Go build cache indexed by Spotlight keeps fseventsd busy under parallel builds
 checkout-spotlight|a tree of worktrees indexed by Spotlight does the same, measured at 77-96% CPU
 fseventsd|fseventsd leaks under long uptimes; 10 GB resident after 24 days on one machine
+ram-sessions|30 sessions on 24 GB, resumed in a burst, ran swap out and froze the machine twice
 go-cache-trim|Go trims only entries unused 5 days; one cache passed 100 GB inside that under a fleet
 time-machine|a build cache in a Time Machine backup is gigabytes of churn per backup
 ac-sleep|a maintenance sleep on AC froze an unattended run; three checks ran 5-16x slow
@@ -116,6 +118,7 @@ scratch|transcripts and harness scratch grow without bound; 4.7 GB and 6.6 GB on
 sandbox|under the Claude Code Bash sandbox, worktree and integration git calls fail unless run with it off
 summaries|subagent progress summaries add an estimated 20% to subagent spend, unseen by any transcript
 code-mode|with Code Mode on the gate was measured to refuse; mail lost on late code output is now skipped (D-195), not re-measured live
+user-mcp|a user-scope MCP server that runs a command starts in every session of every repository; about 220 MB each
 codex-skill-copy|a SKILL.md under ~/.agents/skills or the Codex skills directory that is not the shipped one is stale
 codex-gate|plain Codex is gated only by a hand-wired hooks.json, and an absent hook is a silent allow; only where ~/.codex exists'
 
@@ -306,8 +309,10 @@ on)
 	fi ;;
 esac
 
-# fseventsd: resident set and CPU, from one ps sample.
-set -- $(ps -axo rss=,pcpu=,comm= 2>/dev/null | awk '$3 ~ /(^|\/)fseventsd$/ { print $1, $2; exit }')
+# fseventsd: resident set and CPU, from one ps sample, which ram-sessions
+# below reads too.
+PSOUT=$(ps -axo rss=,pcpu=,comm= 2>/dev/null || true)
+set -- $(printf '%s\n' "$PSOUT" | awk '$3 ~ /(^|\/)fseventsd$/ { print $1, $2; exit }')
 if [ $# -ne 2 ]; then
 	verdict CANNOT-ASSESS fseventsd "no fseventsd in the process table (not macOS, or ps unreadable)"
 	fix "nothing to apply"
@@ -322,6 +327,47 @@ else
 		fix "the two spotlight lines above; a sample at a quiet moment says whether this was the build you just ran"
 	else
 		verdict PASS fseventsd "${rssmb} MB resident, ${cpu}% CPU"
+	fi
+fi
+
+# ram-sessions (D-209, #144): RAM over the sessions this machine may run at
+# once. Measured on one 24 GB macOS laptop: about 30 Claude Code sessions
+# across four repositories' fleets, then 12 lanes resumed 3 s apart running
+# tests in one minute, ran swap out; macOS suspended the terminal holding
+# every lane and the box froze twice. A session starts at about 250 MB, a
+# user-scope MCP server adds about 220 MB to every one (user-mcp, below), and
+# one cold Go link peaked at 2.3 GB. So the advice threshold is 2 GB a
+# session, a judgement printed with the numbers, as disk-free does. The
+# session count is the larger of a 12-session fleet (the largest these checks
+# were measured under) and the Claude Code processes running NOW, in every
+# repository: a process named `claude` in the ps sample above, an
+# observation that misses a session run under another name (node, for an
+# npm install). With no ps sample the 12 is a floor: it can still WARN, never
+# PASS (Codex code pass). `sysctl -n hw.memsize` is a read; off macOS there is
+# none.
+memb=""
+have sysctl && memb=$(sysctl -n hw.memsize 2>/dev/null || true)
+case $memb in *[!0-9]*) memb="" ;; esac
+nlive=$(printf '%s\n' "$PSOUT" | awk '$NF ~ /(^|\/)claude$/ { n++ } END { print n + 0 }')
+# An unreadable process table is a count nobody took, never "0 running".
+livetxt="the $nlive Claude Code process(es) running now, every repository's"
+[ -n "$PSOUT" ] || livetxt="the Claude Code processes running now, uncounted: ps gave nothing"
+nexp=12
+[ "$nlive" -le "$nexp" ] || nexp=$nlive
+if [ -z "$memb" ]; then
+	verdict CANNOT-ASSESS ram-sessions "sysctl -n hw.memsize gave no RAM size (not macOS, or no sysctl); ${livetxt#the }"
+	fix "nothing to apply; size a fleet by hand at about 2 GB of RAM a session, every repository's sessions counted"
+else
+	memmb=$((memb / 1048576)); per=$((memmb / nexp))
+	rwhy="$((memmb / 1024)) GB RAM over $nexp sessions (the larger of a 12-session fleet and $livetxt) is $per MB a session"
+	if [ "$per" -lt 2048 ]; then
+		verdict WARN ram-sessions "$rwhy (advice under 2048: a session starts near 250 MB, each user-scope MCP server adds about 220 MB to it, one cold Go link peaked at 2.3 GB; 24 GB under about 30 sessions froze twice)"
+		fix "run fewer sessions at once across all repositories, and admit each lane only after the last one's first report and a memory check (the fleet skill's Opening lanes; no sudo; reversible)"
+	elif [ -z "$PSOUT" ]; then
+		verdict CANNOT-ASSESS ram-sessions "$rwhy, a floor: the sessions running now were not counted, so no PASS"
+		fix "ps -axo comm= by hand, as the user, and count the Claude Code sessions across every repository"
+	else
+		verdict PASS ram-sessions "$rwhy"
 	fi
 fi
 
@@ -466,7 +512,10 @@ absent_proven() {
 # The reader, passed with -c, not a heredoc: macOS /bin/sh writes a heredoc to
 # a temporary file, a write this script promises not to make (Codex code
 # pass). So the program holds no single quote.
-CSET_PY='import importlib.util
+# DECODE_PY is the shared head: it decodes argv[1] into s, a JSON object, or
+# prints `unread <why>` and exits; CSET_PY and MCP_PY (user-mcp, below) each
+# append their own reading of s to it.
+DECODE_PY='import importlib.util
 import sys
 
 path, gate_hook = sys.argv[1:]
@@ -485,7 +534,8 @@ except (OSError, ValueError, RecursionError) as e:
 if not isinstance(s, dict):
     print("unread it is not a JSON object")
     sys.exit(0)
-
+'
+CSET_PY=$DECODE_PY'
 
 def get(d, *keys):
     for k in keys:
@@ -654,6 +704,66 @@ case $cv in
 			verdict PASS code-mode "Code Mode is not on: not set in this environment or in env of $CSET (a project's settings are ignored for it)"
 		fi ;;
 	esac ;;
+esac
+
+# user-mcp (D-209, #144): an MCP server in the top-level mcpServers of
+# ~/.claude.json is user scope, and Claude Code starts every one of them in
+# every session of every repository. One that runs a command (stdio: a
+# `command`, type absent or "stdio") is a local process per session: one
+# `npx -y` server measured about 220 MB a session (npm plus node), 2.4 GB
+# across 12 sessions, and 25 of 1,277 sessions in 30 days ever called one of
+# its tools. A remote one (a url) starts no process and is only counted. A
+# project-scope (.mcp.json) or local-scope (projects.<path>.mcpServers) server
+# starts only where it is used, so neither is counted. Read through the same
+# decode as the settings rows (DECODE_PY); it prints counts, never a name.
+MCP_PY=$DECODE_PY'
+m = s.get("mcpServers")
+if m is None:
+    m = {}
+if not isinstance(m, dict):
+    print("unread its mcpServers is not a JSON object")
+    sys.exit(0)
+
+
+def local(v):
+    if not isinstance(v, dict) or "url" in v:
+        return False
+    t = v.get("type")
+    return t == "stdio" or (t is None and "command" in v)
+
+
+n = sum(1 for v in m.values() if local(v))
+print("ok %d %d" % (n, len(m) - n))
+'
+CJSON=${HOME:-}/.claude.json
+if [ -z "${HOME:-}" ]; then
+	mcp="unread HOME is unset, so there is no ~/.claude.json to read"; CJSON="~/.claude.json"
+elif [ ! -e "$CJSON" ] && [ ! -L "$CJSON" ]; then
+	if absent_proven "$CJSON"; then mcp=absent; else mcp="unread its directory cannot be searched"; fi
+elif ! have python3; then
+	mcp="unread no python3 to decode it"
+elif [ ! -r "$SCRIPTS/gate-hook.py" ]; then
+	mcp="unread no $SCRIPTS/gate-hook.py to decode it with"
+else
+	mcp=$(python3 -I -B -c "$MCP_PY" "$CJSON" "$SCRIPTS/gate-hook.py" 2>/dev/null || true)
+	[ -n "$mcp" ] || mcp="unread python3 could not run scripts/gate-hook.py's decode on it"
+fi
+case $mcp in
+absent) verdict PASS user-mcp "no $CJSON: no user-scope MCP server" ;;
+unread\ *)
+	verdict CANNOT-ASSESS user-mcp "$CJSON: ${mcp#unread }; how many user-scope MCP servers start in every session is unknown"
+	fix "claude mcp list by hand, as the user: a user-scope server there starts in every session" ;;
+ok\ *)
+	set -- ${mcp#ok }
+	if [ "$1" -ge 1 ]; then
+		verdict WARN user-mcp "$1 user-scope MCP server(s) in $CJSON run a command (and $2 remote): each starts a process in EVERY Claude Code session, in every repository; one npx server measured about 220 MB a session, 2.4 GB across 12"
+		fix "claude mcp list names them; re-add one most sessions never use with claude mcp add --scope project (the repository's .mcp.json) or --scope local (one project), then claude mcp remove <name> --scope user (no sudo; reversible: add it back with --scope user)"
+	else
+		verdict PASS user-mcp "no user-scope MCP server in $CJSON runs a command ($2 remote, which start no process)"
+	fi ;;
+*)
+	verdict CANNOT-ASSESS user-mcp "$CJSON: the reader gave no answer"
+	fix "claude mcp list by hand, as the user" ;;
 esac
 
 # codex-skill-copy (D-186): Codex 0.169.0 loads user skills from

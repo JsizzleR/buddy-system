@@ -737,7 +737,7 @@ ledger row entered through the CLI (D-006).
     process table, which the sandbox refuses, so a sandboxed red says nothing about the
     tree); a Codex session's JOBS line always says "cannot say" (its hooks bind no process,
     D-068), so its DONE words are its account of its jobs. A Claude lane's start runs to its
-    timeout with the lane usually starting (D-144), confirmed by `buddy who`: lanes start in parallel or with a short `--timeout`, a
+    timeout with the lane usually starting (D-144), confirmed by `buddy who`: one lane starts at a time, in the background (D-209), a
     timed-out start is never retried, only `agent_pane_busy` is. Do not propose a sandbox skip for
     that test, a JOBS arm that anchors a Codex process, a buddy launch helper, or a state list
     in place of the default wait.
