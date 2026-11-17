@@ -230,6 +230,19 @@ func TestLegacyHostileRowStillWorks(t *testing.T) {
 	if strings.Contains(out, "\t") || !strings.Contains(out, "(old␣id)") {
 		t.Fatalf("the sessions id column must be one Field token: %q", out)
 	}
+	// The worktree column too (invariant 9): a path with a space, which an
+	// operator's directory can hold, was two tokens before the id column.
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(f.repo, ".git", "buddy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET worktree='/w/my tree' WHERE session_id=?`, legacy); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if out, _, _ := f.run(t, f.repo, "", "sessions"); !strings.Contains(out, "/w/my␣tree") {
+		t.Fatalf("the sessions worktree column must be one Field token: %q", out)
+	}
 }
 
 // The render sites of the paste rule, each with a valid control.

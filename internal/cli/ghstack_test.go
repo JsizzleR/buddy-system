@@ -418,6 +418,17 @@ func TestGateGHStackHolderStates(t *testing.T) {
 		if !denied || !strings.Contains(reason, "ask the holder: buddy msg <the holder> (its name cannot be pasted back as printed)") || strings.Contains(reason, "buddy msg 'all'") {
 			t.Fatalf("a legacy id `all` must get the placeholder, never a broadcast: %q", reason)
 		}
+		// Slugged `all` too: the slug resolves to the broadcast, whose ID is
+		// `all`, the holder's (Codex re-verify).
+		g := newFixtureNamed(t, "other")
+		g.initAndHello(t)
+		legacySession(t, g, "all", "allie")
+		mustClaim(t, g, g.repo, "all", "all", ".buddy/slot/gh-stack")
+		out, _, _ = g.run(t, g.repo, bashHookJSON("sess-b", g.repo, "gh stack rebase"), "gate")
+		reason, denied = decodeDeny(t, out)
+		if !denied || !strings.Contains(reason, "ask the holder: buddy msg <the holder>") || strings.Contains(reason, "buddy msg all") || strings.Contains(reason, "buddy msg 'all'") {
+			t.Fatalf("slug and id `all`: the placeholder, never a broadcast: %q", reason)
+		}
 	})
 	t.Run("gone", func(t *testing.T) {
 		f := newFixture(t)

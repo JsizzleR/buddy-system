@@ -308,10 +308,12 @@ func renewalOnlyNote(now, renewed time.Time) string {
 // id is the second choice because it is long, and exact; and only under the
 // paste rule (D-201), else "" and the caller's placeholder: an older binary's
 // row under the id `all` printed `buddy msg 'all'`, a broadcast, when its
-// slug did not resolve (Codex code pass).
+// slug did not resolve (Codex code pass). The slug arm refuses the broadcast
+// resolution too, reachesOnly's test: a slug `all` resolves to every session
+// with ID `all`, which equalled such a holder's id (Codex re-verify).
 func msgTargetFor(st *store.Store, slug, holder string) string {
 	if st != nil {
-		if t, err := st.ResolveTarget(slug); err == nil && t.ID == holder {
+		if t, err := st.ResolveTarget(slug); err == nil && t.Via != "all" && t.ID == holder {
 			return slug
 		}
 	}
