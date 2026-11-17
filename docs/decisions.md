@@ -15204,13 +15204,15 @@ folds' 10. Each fails; three survived at first (the gh-stack other-ledger arm, b
 respelled; the controls pass.
 
 **Review** — full. Design: a panel of three read-only lenses (entry paths on Opus 5.5, the
-gate and identity on Fable 5.2, listings on Opus 5.5) and a Codex design pass at xhigh, 17
-raised together, each folded or recorded open above. Code: a Codex code pass at xhigh, 3
-raised, 3 fixed (the `all` fallback, the fleet's cost, the ended row). A Fable 5.2
-cross-check, 11 raised (3 the same as Codex's), 11 fixed, 2 of them answered in part (the
-adapter's call is keys-fence's; assertedNotLive's wait.go caller). Codex re-verify at xhigh:
-round 1, 1 raised, 1 fixed (msgTargetFor's slug arm took the broadcast resolution); round 2,
-0 raised (D-115's ceiling).
+gate and identity on Fable 5.2, listings on Opus 5.5), 23 raised (9, 9 and 5, counted per
+lens with their overlaps; each folded or recorded open above, the split between fixed and
+answered not recorded); a Codex design pass at xhigh, 5 raised, 4 fixed, 1 answered (the
+adapter command, keys-fence's). Code: a Codex code pass at xhigh, 3 raised, 3 fixed (the
+`all` fallback, the fleet's cost, the ended row). A Fable 5.2 cross-check, 11 raised (3 the
+same as Codex's), 9 fixed, 2 answered (the adapter's call is keys-fence's; assertedNotLive's
+wait.go caller). Codex re-verify at xhigh, two rounds: 1 raised, 1 fixed (round 1:
+msgTargetFor's slug arm took the broadcast resolution; round 2 raised nothing, D-115's
+ceiling).
 
 ### Where it lives
 - code: `internal/fence/sessionid.go` (`ValidSessionID`, `SessionIDCap`, `SessionIDRule`),
