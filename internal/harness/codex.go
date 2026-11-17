@@ -7,6 +7,7 @@ package harness
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,27 +33,36 @@ type codexProcess interface {
 type codexStarter func(context.Context, *LaunchAuthorization, string, []string, string, []string) (codexProcess, error)
 
 type codexBackend struct {
-	executable    string
-	start         codexStarter
-	version       func(context.Context, string) (string, error)
-	opMu          sync.Mutex
-	mu            sync.Mutex
-	process       codexProcess
-	nativeID      string
-	activeTurn    string
-	state         string
-	started       bool
-	closed        bool
-	seq           uint64
-	pending       map[string]chan codexReply
-	approvals     map[string]Approval
-	seenApprovals map[string]Approval
-	finished      map[string]bool
-	events        chan Event
-	done          chan struct{}
-	stop          chan struct{}
-	closeOnce     sync.Once
-	stopOnce      sync.Once
+	executable string
+	start      codexStarter
+	version    func(context.Context, string) (string, error)
+	opMu       sync.Mutex
+	mu         sync.Mutex
+	process    codexProcess
+	nativeID   string
+	activeTurn string
+	state      string
+	started    bool
+	closed     bool
+	seq        uint64
+	pending    map[string]chan codexReply
+	approvals  map[string]Approval
+	// seenApprovals keeps, per request key, the kind and a digest of the
+	// exact params for the reuse rule, never the params: a request flood
+	// with 4 MiB params held every one for the worker's life (adapter-drops,
+	// the panel's hostile-server lens).
+	seenApprovals map[string]codexSeen
+	// refused holds, for the turn in progress, a digest of each request the
+	// adapter refused or left unlisted (adapter-drops): an identical replay
+	// publishes nothing, and past codexRefusalCap distinct ones the
+	// transport ends. Cleared when a turn goes idle.
+	refused   map[[32]byte]bool
+	finished  map[string]bool
+	events    chan Event
+	done      chan struct{}
+	stop      chan struct{}
+	closeOnce sync.Once
+	stopOnce  sync.Once
 	// Completed-write observation (D-078): the mailbox and this launch's
 	// generation. A fileChange renews only inside the turn this launch has
 	// active, so a completion replayed from an earlier launch never does.
@@ -108,6 +118,114 @@ type codexEnvelope struct {
 	Error  json.RawMessage `json:"error"`
 }
 
+// codexSeen is what the reuse rule compares for a request key: its kind and
+// the digest of its exact params.
+type codexSeen struct {
+	kind   string
+	digest [32]byte
+}
+
+// Bounds on what a native server can make the adapter hold (adapter-drops).
+// Measured, Codex 0.160.0 asks at most 2 approvals per run (the A-07
+// rerun's 19 requests); 64 is the room cap (invariant 9), far past a real
+// turn and far short of a flood. Past either, the transport ends naming the
+// count: a server asking that much is not one the operator can follow.
+const (
+	codexPendingCap = 64
+	codexRefusalCap = 64
+)
+
+// Decoding the Codex wire (adapter-drops). nativeEvent decoded every method
+// into ONE struct, so a field one method types differently from another
+// failed the whole Unmarshal and dropped the notification whole: `"turnId": 7`
+// on turn/completed left the adapter busy for good (D-202's Open). Measured on
+// the 0.160.0 wire, remoteControl/status/changed sends `status` as a STRING
+// where thread/status/changed sends an object: the class, live. Go struct
+// tags also match keys case-insensitively, so {"turn":{"id":"t1","ID":"t2"}}
+// read t2 in a struct and t1 in an exact reader; the Python checkers read
+// exact keys. So the wire is read through these: exact keys, each method its
+// own fields, and a field's JSON kind named from its first byte, a fixed
+// vocabulary an error can carry without echoing the value.
+
+// jsonKind names a raw value's kind: absent, null, string, number, object,
+// array or bool. Never the value.
+func jsonKind(raw json.RawMessage) string {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 {
+		return "absent"
+	}
+	switch t[0] {
+	case 'n':
+		return "null"
+	case '"':
+		return "string"
+	case '{':
+		return "object"
+	case '[':
+		return "array"
+	case 't', 'f':
+		return "bool"
+	}
+	return "number"
+}
+
+// codexObject reads an exact-key JSON object; a null, an array or a scalar
+// is not one (a map decode would take null as an empty object).
+func codexObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 || t[0] != '{' {
+		return nil, false
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(t, &m) != nil {
+		return nil, false
+	}
+	return m, true
+}
+
+// codexStr reads the string at an exact-key path. kind is "string" only
+// when the value at the end of the path is one; otherwise that value's kind,
+// and "absent" when the path cannot reach it (a missing key, or an
+// intermediate that is no object: `"turn": "x"` has no turn.id, and must not
+// report the intermediate's "string" as the field's).
+func codexStr(obj map[string]json.RawMessage, path ...string) (s, kind string) {
+	var raw json.RawMessage
+	for i, key := range path {
+		if i > 0 {
+			next, ok := codexObject(raw)
+			if !ok {
+				return "", "absent"
+			}
+			obj = next
+		}
+		raw = obj[key]
+	}
+	if v, ok := jsonString(raw); ok {
+		return v, "string"
+	}
+	return "", jsonKind(raw)
+}
+
+// codexDecodeEnvelope reads a frame's id, method, params, result and error
+// by exact key. A frame that is no object, or whose method is present and
+// neither a string nor null, is malformed, as a struct decode made it; a
+// bare `null` frame, which a struct decode let through as empty, is too.
+func codexDecodeEnvelope(raw json.RawMessage) (codexEnvelope, bool) {
+	obj, ok := codexObject(raw)
+	if !ok {
+		return codexEnvelope{}, false
+	}
+	e := codexEnvelope{ID: obj["id"], Params: obj["params"], Result: obj["result"], Error: obj["error"]}
+	if m, present := obj["method"]; present && jsonKind(m) != "null" {
+		s, ok := jsonString(m)
+		if !ok {
+			return codexEnvelope{}, false
+		}
+		e.Method = s
+	}
+	return e, true
+}
+
 // NewCodex requires an absolute executable and resolves it once, so the
 // version probe and the launch name the same file (executable.go, F-23).
 func NewCodex(executable string) (Backend, error) {
@@ -122,7 +240,7 @@ func NewCodex(executable string) (Backend, error) {
 
 func newCodex(executable string, start codexStarter) *codexBackend {
 	return &codexBackend{executable: executable, start: start, state: "unknown", version: probeNativeVersion,
-		pending: make(map[string]chan codexReply), approvals: make(map[string]Approval), seenApprovals: make(map[string]Approval),
+		pending: make(map[string]chan codexReply), approvals: make(map[string]Approval), seenApprovals: make(map[string]codexSeen), refused: make(map[[32]byte]bool),
 		finished: make(map[string]bool), events: make(chan Event, 128), done: make(chan struct{}), stop: make(chan struct{}),
 		pendingMethod: make(map[string]string), ownTurns: make(map[string]bool)}
 }
@@ -401,28 +519,18 @@ func (c *codexBackend) Send(ctx context.Context, nativeID, text string) (Deliver
 	if err != nil {
 		return Delivery{State: "unknown"}, err
 	}
-	var result struct {
-		TurnID string `json:"turnId"`
-		Turn   struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		} `json:"turn"`
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return Delivery{State: "unknown"}, err
-	}
-	if method == "turn/start" {
-		result.TurnID = result.Turn.ID
-	}
-	if result.TurnID == "" || (method == "turn/steer" && result.TurnID != turn) {
+	// The reader's own reading of this reply (adapter-drops): per method,
+	// exact keys, so a field the method never uses cannot fail it.
+	turnID := codexReplyTurnID(method, raw)
+	if turnID == "" || (method == "turn/steer" && turnID != turn) {
 		return Delivery{State: "unknown"}, errors.New("Codex input reply has a missing or mismatched turn ID")
 	}
 	c.mu.Lock()
-	if !c.finished[result.TurnID] {
-		c.activeTurn, c.state = result.TurnID, "busy"
+	if !c.finished[turnID] && !c.closed {
+		c.activeTurn, c.state = turnID, "busy"
 	}
 	c.mu.Unlock()
-	return Delivery{State: "delivered", TurnID: result.TurnID, ResultRef: result.TurnID}, nil
+	return Delivery{State: "delivered", TurnID: turnID, ResultRef: turnID}, nil
 }
 
 func (c *codexBackend) Inspect(ctx context.Context, nativeID string) (Observation, error) {
@@ -665,17 +773,29 @@ func (c *codexBackend) takeApproval(ctx context.Context, decision ApprovalDecisi
 	if decision.Decision == "allow" {
 		native = "accept"
 	}
-	var detail struct {
-		AvailableDecisions []json.RawMessage `json:"availableDecisions"`
-	}
-	if json.Unmarshal(a.Detail, &detail) != nil {
+	// By exact key, as admission reads it (codexOffersDecline): a struct
+	// tag matched `AvailableDecisions` too, and a later `null` alias erased
+	// a list that offered only decline, so allow sent accept (the Codex code
+	// pass, adapter-drops).
+	detail, ok := codexObject(a.Detail)
+	if !ok {
 		return nil, nil, errors.New("Codex approval detail is malformed")
 	}
-	if detail.AvailableDecisions != nil {
+	if raw, present := detail["availableDecisions"]; present && jsonKind(raw) != "null" {
+		options, ok := jsonArray(raw)
+		if !ok {
+			return nil, nil, errors.New("Codex approval detail is malformed")
+		}
 		available := false
-		for _, option := range detail.AvailableDecisions {
-			var value string
-			if json.Unmarshal(option, &value) == nil && value == native {
+		for _, option := range options {
+			value, ok := jsonString(option)
+			if !ok {
+				// A list the adapter cannot read whole is no offer: skipping
+				// the non-string let ["accept",7] admit accept (the Codex
+				// re-verify).
+				return nil, nil, errors.New("Codex approval detail is malformed")
+			}
+			if value == native {
 				available = true
 			}
 		}
@@ -737,21 +857,23 @@ func codexCanonicalID(key string) json.RawMessage {
 }
 
 // codexReplyTurnID reads the turn id a turn/start (turn.id) or turn/steer
-// (turnId) reply names; Send applies its own missing and mismatch checks.
+// (turnId) reply names, each method its own field by exact key: one struct
+// for both made a mistyped field the method never uses (a turn/start reply's
+// `"turnId": 7`) fail the decode, and the reader then ended the transport
+// over a delivered turn (adapter-drops). Send reads the same function, so
+// the reader and Send cannot disagree; Send applies its own missing and
+// mismatch checks.
 func codexReplyTurnID(method string, result json.RawMessage) string {
-	var r struct {
-		TurnID string `json:"turnId"`
-		Turn   struct {
-			ID string `json:"id"`
-		} `json:"turn"`
-	}
-	if json.Unmarshal(result, &r) != nil {
+	obj, ok := codexObject(result)
+	if !ok {
 		return ""
 	}
+	path := []string{"turnId"}
 	if method == "turn/start" {
-		return r.Turn.ID
+		path = []string{"turn", "id"}
 	}
-	return r.TurnID
+	id, _ := codexStr(obj, path...)
+	return id
 }
 
 // codexKeyFault is the error a key fault ends the transport with: the field
@@ -759,79 +881,248 @@ func codexReplyTurnID(method string, result json.RawMessage) string {
 // stays true, so the ordinary "disconnected" receipt is not read as EOF.
 func codexKeyFault(where, field, value, active string) string {
 	msg := where + ": " + nativeKeyRefusal(field, value) + "; the adapter cannot address it and ended the transport"
+	return codexEndTail(msg, active)
+}
+
+// codexEnded is the error every other fault the adapter ends the transport
+// over carries (adapter-drops): a fixed leading phrase, so it reads apart from
+// EOF ("native output stream closed") and a server's own disconnect, then the
+// method (always a case's literal, never the frame's method), the field and
+// its JSON kind, never the value; then D-202's tail.
+func codexEnded(msg, active string) string {
+	return codexEndTail("the adapter ended the transport: "+msg, active)
+}
+
+func codexEndTail(msg, active string) string {
 	if active != "" {
 		msg += "; active turn " + active + " ended unobserved"
 	}
 	return msg + "; the logical session is not ended and stays live in the ledger, and a wake in flight stays unknown"
 }
 
-// keyFault ends the transport over a turn id the adapter would have to store
-// and send back (D-202), the path a reused request id takes. Called with c.mu
-// held, from the reader; it unlocks.
-func (c *codexBackend) keyFault(where, field, value string) {
+// codexKindPhrase names a kind in a sentence: "absent", "null", "empty" (a
+// string with no bytes), or "a JSON number".
+func codexKindPhrase(kind string) string {
+	if kind == "absent" || kind == "null" || kind == "empty" {
+		return kind
+	}
+	return "a JSON " + kind
+}
+
+// endLocked ends the transport with the error text made from the active
+// turn it ends. Called with c.mu held, from the reader; it unlocks.
+func (c *codexBackend) endLocked(text func(active string) string) {
 	active := c.activeTurn
 	c.closed, c.state, c.activeTurn = true, "unknown", ""
 	c.approvals = make(map[string]Approval)
 	proc := c.process
 	nativeID := c.nativeID
 	c.mu.Unlock()
-	c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: nativeID, Err: codexKeyFault(where, field, value, active)})
+	c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: nativeID, Err: text(active)})
 }
 
-// refuseApproval handles an approval request whose turn id is plain but whose
-// request id cannot be a key (D-202): a string outside nativeKey, a number
-// that is not a canonical int64. It never ends the worker for that alone: a
-// command or file change that offers decline is declined natively, answered
-// by the id exactly as Codex sent it, and published as approval_refused so
-// the operator learns approvals are being refused. Any other method has no
-// answer the adapter supports: the transport ends. An id that is not a
-// string or a number (absent, null, an object) cannot be answered at all,
-// since {"id":null} is a notification: dropped, as before. Called with c.mu
-// held; it unlocks.
-func (c *codexBackend) refuseApproval(envelope codexEnvelope, threadID, turnID, itemID string) {
+// keyFault ends the transport over a turn id the adapter would have to store
+// and send back (D-202), the path a reused request id takes. Called with c.mu
+// held, from the reader; it unlocks.
+func (c *codexBackend) keyFault(where, field, value string) {
+	c.endLocked(func(active string) string { return codexKeyFault(where, field, value, active) })
+}
+
+// fieldFault ends the transport over a field a state-moving method needs and
+// the adapter cannot read (adapter-drops): dropping the notification is what
+// left the adapter busy for good. method is the case's literal. Called with
+// c.mu held; it unlocks.
+func (c *codexBackend) fieldFault(method, field, kind, want string) {
+	c.endLocked(func(active string) string {
+		return codexEnded("Codex "+method+" "+field+" is "+codexKindPhrase(kind)+", where "+want+" was expected", active)
+	})
+}
+
+// codexDigest identifies one native request for the refusal set: its method,
+// its id's exact bytes and its params' exact bytes.
+func codexDigest(method string, id, params json.RawMessage) [32]byte {
+	h := sha256.New()
+	h.Write([]byte(method))
+	h.Write([]byte{0})
+	h.Write(bytes.TrimSpace(id))
+	h.Write([]byte{0})
+	h.Write(params)
+	var d [32]byte
+	copy(d[:], h.Sum(nil))
+	return d
+}
+
+// codexOffersDecline reports whether a command or file-change request
+// offers `decline`; no availableDecisions list means every decision is.
+func codexOffersDecline(method string, params map[string]json.RawMessage) bool {
+	if method != "item/commandExecution/requestApproval" && method != "item/fileChange/requestApproval" {
+		return false
+	}
+	raw, present := params["availableDecisions"]
+	if !present || jsonKind(raw) == "null" {
+		return true
+	}
+	options, ok := jsonArray(raw)
+	if !ok {
+		return false
+	}
+	for _, option := range options {
+		if value, ok := jsonString(option); ok && value == "decline" {
+			return true
+		}
+	}
+	return false
+}
+
+// refuseApproval handles an approval request the adapter cannot list: its id
+// cannot be a key (D-202: a string outside nativeKey, a number that is not a
+// canonical int64, or a kind that is no id at all) or it carries no turn id
+// (adapter-drops; it was dropped, natively pending and unlisted). Never the
+// worker's end by itself where something can release it:
+//   - a command or file change offering decline, by an id that can be
+//     answered: declined natively by the id exactly as Codex sent it, and
+//     published as approval_refused (answered; the worker keeps running);
+//   - otherwise nothing can be answered (permissions, user input and
+//     elicitation have no answer the adapter supports even with a good id;
+//     takeApproval refuses them): it is left natively pending ONLY when the
+//     backend tracks an active turn that is the request's own (or the
+//     request names none), and published as observation_gap naming that
+//     turn: the controller then reads pending approvals as unknown, never
+//     absent, and Interrupt accepts that turn id. Ending the transport for it
+//     (D-202) killed the turn's work over a request a good id would only
+//     have listed unanswerable. Where no tracked turn is its turn, nothing
+//     the receipt could name would release it: the transport ends.
+//
+// A request is refused once per turn: an identical replay publishes nothing
+// (a decline is written again, the server asked again), and past
+// codexRefusalCap distinct ones the transport ends. Called with c.mu held; it
+// unlocks.
+func (c *codexBackend) refuseApproval(method string, envelope codexEnvelope, params map[string]json.RawMessage, turnID, itemID string, keyErr error, finished bool) {
 	trimmed := bytes.TrimSpace(envelope.ID)
-	if len(trimmed) == 0 || !(trimmed[0] == '"' || trimmed[0] == '-' || trimmed[0] >= '0' && trimmed[0] <= '9') {
+	idKind := jsonKind(trimmed)
+	reason := "carries no turn id"
+	if finished {
+		// turnID passed nativeKey when its turn was tracked.
+		reason = "names turn " + turnID + ", which has finished"
+	}
+	value := string(trimmed)
+	if keyErr != nil {
+		switch idKind {
+		case "string":
+			s, _ := jsonString(trimmed)
+			value = s // the decoded length, on every path
+			reason = nativeKeyRefusal("id", s)
+		case "number":
+			reason = "id is not a canonical int64 (" + strconv.Itoa(len(trimmed)) + " bytes)"
+		default:
+			reason = "id is " + codexKindPhrase(idKind) + ", which cannot be answered"
+		}
+		if turnID == "" {
+			reason += " and it carries no turn id"
+		} else if finished {
+			reason += " and it names turn " + turnID + ", which has finished"
+		}
+	}
+	answerable := idKind == "string" || idKind == "number"
+	digest := codexDigest(method, trimmed, envelope.Params)
+	replay := c.refused[digest]
+	if !replay && len(c.refused) >= codexRefusalCap {
+		c.endLocked(func(active string) string {
+			return codexEnded("Codex sent "+strconv.Itoa(codexRefusalCap)+" requests since the last idle the adapter could not list", active)
+		})
+		return
+	}
+	if answerable && codexOffersDecline(method, params) {
+		c.refused[digest] = true
+		proc := c.process
+		nativeID := c.nativeID
+		c.mu.Unlock()
+		if writeRefusal(proc, map[string]any{"id": json.RawMessage(append([]byte(nil), trimmed...)), "result": map[string]string{"decision": "decline"}}) != nil {
+			// Not answered, so no receipt says "declined". A failed Encode has
+			// closed the transport, but a deadline that ran out waiting for the
+			// write lock has not, and the request would stay natively pending
+			// with nothing listed: end it here either way.
+			c.mu.Lock()
+			if keyErr != nil {
+				c.keyFault("Codex "+method+" (its decline could not be written)", "request id", value)
+				return
+			}
+			c.endLocked(func(active string) string {
+				return codexEnded("Codex "+method+" request "+reason+": its decline could not be written", active)
+			})
+			return
+		}
+		if !replay {
+			c.emit(Event{Kind: "approval_refused", NativeSessionID: nativeID, TurnID: turnID, ItemID: displayNativeID(itemID), Err: "Codex approval request " + reason + "; declined natively, the worker keeps running"})
+		}
+		return
+	}
+	if replay {
 		c.mu.Unlock()
 		return
 	}
-	reason := "Codex approval request id is not a canonical int64 (" + strconv.Itoa(len(trimmed)) + " bytes)"
-	value := string(trimmed)
-	var s string
-	if json.Unmarshal(trimmed, &s) == nil {
-		reason = "Codex approval request " + nativeKeyRefusal("id", s)
-		value = s // the decoded length, on every path
-	}
-	declinable := false
-	if envelope.Method == "item/commandExecution/requestApproval" || envelope.Method == "item/fileChange/requestApproval" {
-		var detail struct {
-			AvailableDecisions []json.RawMessage `json:"availableDecisions"`
-		}
-		if json.Unmarshal(envelope.Params, &detail) == nil {
-			declinable = detail.AvailableDecisions == nil
-			for _, option := range detail.AvailableDecisions {
-				var value string
-				if json.Unmarshal(option, &value) == nil && value == "decline" {
-					declinable = true
-				}
-			}
-		}
-	}
-	if !declinable {
-		c.keyFault("Codex "+envelope.Method, "request id", value)
+	active := c.activeTurn
+	if turnID == "" {
+		// A request naming no turn is not the active turn's: scoped to it,
+		// that turn's idle cleared the gap and every later receipt read
+		// absent while the request still waited (the Fable cross-check).
+		// Unscoped, as unlistedRequest, and never an end by itself: an
+		// elicitation need not belong to a turn (unmeasured).
+		c.refused[digest] = true
+		nativeID := c.nativeID
+		c.mu.Unlock()
+		c.emit(Event{Kind: "observation_gap", NativeSessionID: nativeID, ItemID: displayNativeID(itemID),
+			Err: "Codex " + method + " request " + reason + "; no native refusal is on offer, so it stays pending natively and is not listed, and no turn of its own can be interrupted"})
 		return
 	}
-	proc := c.process
+	if active == "" || turnID != active {
+		if keyErr != nil && idKind == "string" {
+			// D-202's wording, kept for the key refusal it names.
+			c.keyFault("Codex "+method+" (no native refusal on offer and no tracked turn of its own to interrupt)", "request id", value)
+			return
+		}
+		c.endLocked(func(active string) string {
+			return codexEnded("Codex "+method+" request "+reason+": no native refusal is on offer and no tracked turn of its own can be interrupted", active)
+		})
+		return
+	}
+	c.refused[digest] = true
+	nativeID := c.nativeID
 	c.mu.Unlock()
-	if writeRefusal(proc, map[string]any{"id": json.RawMessage(append([]byte(nil), trimmed...)), "result": map[string]string{"decision": "decline"}}) != nil {
-		// Not answered, so no receipt says "declined". A failed Encode has
-		// closed the transport, but a deadline that ran out waiting for the
-		// write lock has not, and the request would stay natively pending
-		// with nothing listed: end it here either way.
-		c.mu.Lock()
-		c.keyFault("Codex "+envelope.Method+" (its decline could not be written)", "request id", value)
+	c.emit(Event{Kind: "observation_gap", NativeSessionID: nativeID, TurnID: active, ItemID: displayNativeID(itemID),
+		Err: "Codex " + method + " request " + reason + "; no native refusal is on offer, so it stays pending natively and is not listed; interrupting turn " + active + " is the only control on offer (whether that releases the request is unmeasured)"})
+}
+
+// unlistedRequest handles a REQUEST (it carries an id) the adapter does not
+// handle: a method outside the five approval methods, or one of them for
+// another thread or none it can read (adapter-drops). On app-server stdio the
+// adapter is the only client, so a request it drops stays natively pending
+// for good; some may block no turn at all (an auth refresh: unmeasured), so
+// it is never an end by itself. Nothing is written (how Codex treats a
+// JSON-RPC error answer is unmeasured) and an UNSCOPED observation_gap is
+// published, no turn named, which the controller clears only at the end of
+// the logical session or the transport. what is already safe to render: a
+// case's literal or fence.Field of the method; another thread's id is never
+// echoed. Measured: 0 such requests in the 1,458 frames Codex 0.160.0 sent the
+// A-07 rerun's adapters (its 19 requests were all command approvals). Called
+// with c.mu held; it unlocks.
+func (c *codexBackend) unlistedRequest(what string, envelope codexEnvelope) {
+	digest := codexDigest(what, envelope.ID, envelope.Params)
+	if c.refused[digest] {
+		c.mu.Unlock()
 		return
 	}
-	c.emit(Event{Kind: "approval_refused", NativeSessionID: threadID, TurnID: turnID, ItemID: displayNativeID(itemID), Err: reason + "; declined natively, the worker keeps running"})
+	if len(c.refused) >= codexRefusalCap {
+		c.endLocked(func(active string) string {
+			return codexEnded("Codex sent "+strconv.Itoa(codexRefusalCap)+" requests since the last idle the adapter could not list", active)
+		})
+		return
+	}
+	c.refused[digest] = true
+	nativeID := c.nativeID
+	c.mu.Unlock()
+	c.emit(Event{Kind: "observation_gap", NativeSessionID: nativeID,
+		Err: "Codex " + what + "; the adapter does not handle it, answered nothing and listed nothing, and it may stay pending natively for the transport's life"})
 }
 
 func (c *codexBackend) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -891,11 +1182,42 @@ func (c *codexBackend) terminal(proc codexProcess, event Event) {
 	}
 }
 
+// repairIdle is the one place a thread/read answer moves the backend
+// (adapter-drops): a thread the server reports idle, while the backend is
+// busy with NO tracked turn, becomes idle. Busy with no turn is reached by a
+// thread/status/changed `active` (a replayed one, after turn/completed) and
+// by a resume into an active thread; from there Send refused every wake
+// ("active turn is unknown; inspect before sending") and inspect moved
+// nothing, so the advice had no path. It runs on the reader, where the reply
+// is claimed, so it is ordered against every notification: done from
+// Inspect's goroutine, a thread/status/changed `active` the reader took after
+// the read (a server-started turn, auto-compact-0 measured) would be
+// overwritten by the older idle, and Send would turn/start into a running
+// turn (orc-3's condition). Only from state "busy" exactly: never from ended
+// (thread/archived leaves closed false) or unknown, never with a tracked turn
+// (turn/completed is that turn's authority), never once closed. The
+// controller is told nothing: its state is not moved by inspect (D-197).
+// Adding a build to codexTurnsListBuilds must revisit this: its progress
+// read is a second answer about the same turn.
+func (c *codexBackend) repairIdle(result json.RawMessage) {
+	obj, ok := codexObject(result)
+	if !ok {
+		return
+	}
+	thread, _ := codexStr(obj, "thread", "id")
+	status, _ := codexStr(obj, "thread", "status", "type")
+	c.mu.Lock()
+	if status == "idle" && thread != "" && thread == c.nativeID && !c.closed && c.state == "busy" && c.activeTurn == "" {
+		c.state = "idle"
+	}
+	c.mu.Unlock()
+}
+
 func (c *codexBackend) readLoop(proc codexProcess) {
 	defer close(c.events)
 	for raw := range proc.Read() {
-		var envelope codexEnvelope
-		if err := json.Unmarshal(raw, &envelope); err != nil {
+		envelope, ok := codexDecodeEnvelope(raw)
+		if !ok {
 			c.terminal(proc, Event{Kind: "disconnected", Err: "malformed Codex JSON frame"})
 			return
 		}
@@ -936,6 +1258,11 @@ func (c *codexBackend) readLoop(proc codexProcess) {
 					return
 				}
 			}
+			// Before the caller is handed the reply, so an inspect that
+			// returns has already seen its own repair (mutation check).
+			if ch != nil && !failed && method == "thread/read" {
+				c.repairIdle(envelope.Result)
+			}
 			if ch != nil {
 				reply := codexReply{result: envelope.Result}
 				if failed {
@@ -950,9 +1277,19 @@ func (c *codexBackend) readLoop(proc codexProcess) {
 					// The slot is buffered, so a reply landing after Send's
 					// ctx ended still marks it: that turn is still the one
 					// this launch requested.
+					//
+					// The reader also installs it as the active turn, here,
+					// before it reads the next frame (adapter-drops, Codex
+					// design pass): Send set it only once scheduled, so an
+					// approval request read right after this reply found no
+					// active turn and could be refused as unaddressable.
+					// Send's own set stays, the same value.
 					if method == "turn/start" && turn != "" {
 						c.mu.Lock()
 						c.ownTurns[turn] = true
+						if !c.closed && !c.finished[turn] {
+							c.activeTurn, c.state = turn, "busy"
+						}
 						c.mu.Unlock()
 					}
 				default:
@@ -977,94 +1314,216 @@ func (c *codexBackend) readLoop(proc codexProcess) {
 	c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: nativeID, Err: detail})
 }
 
+// nativeEvent reads one notification or server request, each method its own
+// fields by exact key (adapter-drops; the helpers above say why). What a
+// field the method needs does when it cannot be read is decided by what the
+// adapter does with it:
+//   - state-moving (busy, idle, ended, a request the worker waits on): the
+//     transport ends, naming the method, the field and its kind; a dropped
+//     turn/completed left the adapter busy for good;
+//   - a request the adapter cannot list: refuseApproval or unlistedRequest;
+//   - an observation (a compaction item, a status flag, a resolution): the
+//     observation is dropped, and a renewal it would have offered reports
+//     coverage unknown;
+//   - display-only (an item or approval id): the field is left out.
+//
+// A method the adapter does not use is never decoded past the envelope.
 func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
-	var p struct {
-		ThreadID   string          `json:"threadId"`
-		TurnID     string          `json:"turnId"`
-		ItemID     string          `json:"itemId"`
-		ApprovalID string          `json:"approvalId"`
-		RequestID  json.RawMessage `json:"requestId"`
-		Item       struct {
-			ID      string          `json:"id"`
-			Type    string          `json:"type"`
-			Status  string          `json:"status"`
-			Changes json.RawMessage `json:"changes"`
-		} `json:"item"`
-		Turn struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		} `json:"turn"`
-		Status struct {
-			Type string `json:"type"`
-		} `json:"status"`
-	}
-	if json.Unmarshal(envelope.Params, &p) != nil {
+	method := envelope.Method
+	if kind := jsonKind(envelope.ID); kind != "absent" && kind != "null" && !codexApprovalMethod(method) {
+		// A frame with an id is a request, whatever its method: read as a
+		// notification it moved state (a thread/status/changed `active`)
+		// while the request stayed natively pending and unlisted (the Codex
+		// code pass, adapter-drops).
+		c.mu.Lock()
+		if c.closed || c.nativeID == "" {
+			c.mu.Unlock()
+			return
+		}
+		c.unlistedRequest("request "+fence.Field(method, nativeTokenCap)+" (a method the adapter does not handle as a request)", envelope)
 		return
 	}
+	switch method {
+	case "turn/started", "turn/completed", "thread/archived", "thread/deleted", "thread/closed",
+		"item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request":
+		c.stateEvent(method, envelope)
+	case "item/started", "item/completed", "serverRequest/resolved", "thread/status/changed":
+		c.observationEvent(method, envelope)
+	}
+	// Any other method here is a notification the adapter does not use:
+	// nothing waits on it. A request was handled above.
+}
+
+func codexApprovalMethod(method string) bool {
+	switch method {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request":
+		return true
+	}
+	return false
+}
+
+// stateEvent: method is one of nativeEvent's state-moving literals.
+func (c *codexBackend) stateEvent(method string, envelope codexEnvelope) {
+	params, isObject := codexObject(envelope.Params)
 	c.mu.Lock()
 	nativeID := c.nativeID
-	if c.closed || nativeID == "" || p.ThreadID != nativeID {
+	if c.closed || nativeID == "" {
 		c.mu.Unlock()
 		return
 	}
-	switch envelope.Method {
-	case "item/started", "item/completed":
-		// History compaction neither ends a logical session nor completes its
-		// assignments. Keep exact item/turn identity without changing control
-		// state; a delayed observation cannot clear a newer approval or turn.
-		if p.Item.Type == "contextCompaction" && p.Item.ID != "" && p.TurnID != "" {
-			if !nativeKey(p.TurnID) {
-				// An observation only, keyed on nothing: dropped. The same
-				// turn's turn/started or turn/completed ends the transport
-				// (D-202); ending it here would kill a worker mid-compaction
-				// for an id the adapter never keys on.
-				c.mu.Unlock()
+	approval := codexApprovalMethod(method)
+	if idKind := jsonKind(envelope.ID); approval && (idKind == "absent" || idKind == "null") {
+		// {"id":null} or no id: a notification, nothing waits (D-202).
+		c.mu.Unlock()
+		return
+	}
+	thread, threadKind := "", jsonKind(envelope.Params)
+	if isObject {
+		thread, threadKind = codexStr(params, "threadId")
+	}
+	if !isObject || threadKind != "string" || thread == "" {
+		if approval {
+			// A request with no thread the adapter can read: an MCP
+			// elicitation need not belong to one (unmeasured), so it is
+			// never an end by itself.
+			c.unlistedRequest(method+" request with no readable thread id", envelope)
+			return
+		}
+		if !isObject {
+			c.fieldFault(method, "params", jsonKind(envelope.Params), "an object")
+			return
+		}
+		if threadKind == "string" {
+			threadKind = "empty" // "is a JSON string" would misname it
+		}
+		c.fieldFault(method, "threadId", threadKind, "a thread id")
+		return
+	}
+	if thread != nativeID {
+		if approval {
+			c.unlistedRequest(method+" request for another thread", envelope)
+			return
+		}
+		c.mu.Unlock() // another thread's notification is not ours
+		return
+	}
+	switch method {
+	case "turn/started":
+		id, kind := codexStr(params, "turn", "id")
+		if kind != "string" {
+			c.fieldFault(method, "turn.id", kind, "a turn id")
+			return
+		}
+		if c.finished[id] {
+			c.mu.Unlock()
+			return
+		}
+		if !nativeKey(id) {
+			c.keyFault("Codex turn/started", "turn id", id)
+			return
+		}
+		c.activeTurn, c.state = id, "busy"
+		c.mu.Unlock()
+		c.emit(Event{Kind: "busy", NativeSessionID: thread, TurnID: id})
+	case "turn/completed":
+		id, kind := codexStr(params, "turn", "id")
+		if kind != "string" {
+			c.fieldFault(method, "turn.id", kind, "a turn id")
+			return
+		}
+		// A replay of a finished turn never ends anything, whatever its
+		// status: checked before the status.
+		if c.finished[id] {
+			c.mu.Unlock()
+			return
+		}
+		if !nativeKey(id) {
+			// Dropping it would leave the adapter busy for good with a turn
+			// it cannot see finish (D-202); an empty id fails nativeKey too.
+			c.keyFault("Codex turn/completed", "turn id", id)
+			return
+		}
+		status, statusKind := codexStr(params, "turn", "status")
+		if statusKind != "string" || status != "completed" && status != "interrupted" && status != "failed" {
+			// Today's drop left the adapter busy for good (adapter-drops).
+			// Idle is not inferred: an unknown status may be a turn that is
+			// not over (inProgress), and idle would admit a turn/start into
+			// it. A status is a token, so a string one is shown fenced
+			// (D-198), anything else by kind.
+			shown := "status " + codexKindPhrase(statusKind)
+			if statusKind == "string" {
+				shown = "status " + fence.Field(status, nativeTokenCap)
+			}
+			if c.activeTurn == "" || c.activeTurn == id {
+				c.endLocked(func(active string) string {
+					return codexEnded("Codex turn/completed reported turn "+id+" finished with an unrecognised "+shown+"; the adapter does not infer idle", active)
+				})
 				return
 			}
-			kind := "compaction_started"
-			if envelope.Method == "item/completed" {
-				kind = "compaction_completed"
-			}
+			// Another turn's: it moves no state, so it never ends the
+			// worker running the active one. Its listed approvals stay and
+			// may be stale: a gap until the next idle.
+			active := c.activeTurn
 			c.mu.Unlock()
-			// The item id is displayed only; the turn id is a key (D-199).
-			c.emit(Event{Kind: kind, NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: displayNativeID(p.Item.ID)})
+			c.emit(Event{Kind: "observation_gap", NativeSessionID: thread, TurnID: active,
+				Err: "Codex turn/completed reported turn " + id + ", not the active turn, finished with an unrecognised " + shown + "; its listed approvals may be stale"})
 			return
 		}
-		if envelope.Method == "item/completed" && p.Item.Type == "fileChange" {
-			// Only an observation for renewal (D-078): no control state
-			// changes, and nothing is emitted on the event channel.
-			active := p.TurnID != "" && p.TurnID == c.activeTurn && c.ownTurns[p.TurnID]
-			m, generation := c.renewals, c.generation
-			c.mu.Unlock()
-			if !active {
-				return
+		c.finished[id] = true
+		delete(c.ownTurns, id)
+		active := c.activeTurn == "" || c.activeTurn == id
+		if active {
+			c.activeTurn, c.state = "", "idle"
+			c.refused = make(map[[32]byte]bool)
+		}
+		for key, a := range c.approvals {
+			if a.TurnID == id {
+				delete(c.approvals, key)
 			}
-			paths, renew, lost := codexFileChangePaths(p.Item.Status, p.Item.Changes)
-			if renew {
-				m.offer(generation, paths)
-			}
-			if lost != "" {
-				m.unknown(lost)
-			}
+		}
+		c.mu.Unlock()
+		c.emit(Event{Kind: "result", NativeSessionID: thread, TurnID: id, ResultRef: id, ResultStatus: status})
+		if active {
+			c.emit(Event{Kind: "idle", NativeSessionID: thread, TurnID: id})
+		}
+	case "thread/archived", "thread/deleted":
+		c.state, c.activeTurn = "ended", ""
+		c.approvals = make(map[string]Approval)
+		c.mu.Unlock()
+		c.emit(Event{Kind: "ended", NativeSessionID: thread})
+	case "thread/closed":
+		// Unloading a thread is not archiving or ending its logical session.
+		c.state, c.activeTurn = "unknown", ""
+		c.closed = true
+		c.approvals = make(map[string]Approval)
+		proc := c.process
+		c.mu.Unlock()
+		c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: thread, Err: "Codex thread unloaded; logical end was not observed"})
+	default: // the five approval requests
+		turnID, turnKind := codexStr(params, "turnId")
+		switch turnKind {
+		case "string":
+		case "absent", "null":
+			turnID = ""
+		default:
+			c.fieldFault(method, "turnId", turnKind, "a turn id")
 			return
 		}
-	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request":
-		if p.TurnID == "" || c.finished[p.TurnID] {
-			c.mu.Unlock()
+		finished := turnID != "" && c.finished[turnID]
+		if turnID != "" && !finished && !nativeKey(turnID) {
+			c.keyFault("Codex "+method, "turn id", turnID)
 			return
 		}
-		if !nativeKey(p.TurnID) {
-			c.keyFault("Codex "+envelope.Method, "turn id", p.TurnID)
-			return
-		}
-		key, err := codexRequestKey(envelope.ID)
-		if err != nil {
-			c.refuseApproval(envelope, p.ThreadID, p.TurnID, p.ItemID)
-			return
-		}
-		a := Approval{ID: codexCanonicalID(key), NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: displayNativeID(p.ItemID), NativeApprovalID: displayNativeID(p.ApprovalID), Kind: envelope.Method, Detail: append(json.RawMessage(nil), envelope.Params...)}
-		if previous, exists := c.seenApprovals[key]; exists {
-			if previous.Kind == a.Kind && bytes.Equal(previous.Detail, a.Detail) {
+		// Display-only: a non-string is left out, the request kept.
+		itemID, _ := codexStr(params, "itemId")
+		approvalID, _ := codexStr(params, "approvalId")
+		key, keyErr := codexRequestKey(envelope.ID)
+		seen := codexSeen{kind: method, digest: sha256.Sum256(envelope.Params)}
+		// The reuse rule runs before any refusal: a declined reuse wrote a
+		// decline to the LISTED request's id, which stayed listed (the Fable
+		// cross-check, adapter-drops).
+		if previous, exists := c.seenApprovals[key]; keyErr == nil && exists {
+			if previous == seen {
 				c.mu.Unlock()
 				return
 			}
@@ -1076,94 +1535,162 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 			c.approvals = make(map[string]Approval)
 			proc := c.process
 			c.mu.Unlock()
-			c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: p.ThreadID, Err: "Codex reused an approval request ID for different work"})
+			c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: thread, Err: "Codex reused an approval request ID for different work"})
+			return
+		}
+		if keyErr != nil || turnID == "" || finished {
+			// An empty turn id was dropped, the request natively pending and
+			// unlisted (D-202's Open): an approval the operator answers
+			// names its turn, so it is refused, never listed turn-less. A
+			// FRESH request naming a finished turn was dropped the same way
+			// (a replay of a seen one stopped above; the Codex code pass).
+			c.refuseApproval(method, envelope, params, turnID, itemID, keyErr, finished)
+			return
+		}
+		a := Approval{ID: codexCanonicalID(key), NativeSessionID: thread, TurnID: turnID, ItemID: displayNativeID(itemID), NativeApprovalID: displayNativeID(approvalID), Kind: method, Detail: append(json.RawMessage(nil), envelope.Params...)}
+		if len(c.approvals) >= codexPendingCap {
+			c.endLocked(func(active string) string {
+				return codexEnded("Codex asked for more than "+strconv.Itoa(codexPendingCap)+" approvals at once", active)
+			})
 			return
 		}
 		c.approvals[key] = a
-		c.seenApprovals[key] = a
+		c.seenApprovals[key] = seen
 		c.mu.Unlock()
-		c.emit(Event{Kind: "approval", NativeSessionID: p.ThreadID, TurnID: p.TurnID, Approval: &a})
-		return
-	case "serverRequest/resolved":
-		if key, err := codexRequestKey(p.RequestID); err == nil {
-			a, exists := c.approvals[key]
-			delete(c.approvals, key)
-			if exists {
-				c.mu.Unlock()
-				c.emit(Event{Kind: "approval_resolved", NativeSessionID: p.ThreadID, TurnID: a.TurnID, Approval: &a})
-				return
-			}
-		}
-	case "turn/started":
-		if c.finished[p.Turn.ID] {
-			c.mu.Unlock()
-			return
-		}
-		if !nativeKey(p.Turn.ID) {
-			c.keyFault("Codex turn/started", "turn id", p.Turn.ID)
-			return
-		}
-		c.activeTurn, c.state = p.Turn.ID, "busy"
+		c.emit(Event{Kind: "approval", NativeSessionID: thread, TurnID: turnID, Approval: &a})
+	}
+}
+
+// observationEvent: method is one of nativeEvent's observation literals.
+// Nothing here ends the transport.
+func (c *codexBackend) observationEvent(method string, envelope codexEnvelope) {
+	params, isObject := codexObject(envelope.Params)
+	c.mu.Lock()
+	if c.closed || c.nativeID == "" {
 		c.mu.Unlock()
-		c.emit(Event{Kind: "busy", NativeSessionID: p.ThreadID, TurnID: p.Turn.ID})
-		return
-	case "turn/completed":
-		// An empty id fails nativeKey too (D-202): dropped, it left the
-		// adapter busy with a turn it could not see finish.
-		if c.finished[p.Turn.ID] {
-			c.mu.Unlock()
-			return
-		}
-		if !nativeKey(p.Turn.ID) {
-			// Dropping it would leave the adapter busy for good with a turn
-			// it cannot see finish (D-202).
-			c.keyFault("Codex turn/completed", "turn id", p.Turn.ID)
-			return
-		}
-		if p.Turn.Status != "completed" && p.Turn.Status != "interrupted" && p.Turn.Status != "failed" {
-			c.mu.Unlock()
-			return
-		}
-		c.finished[p.Turn.ID] = true
-		delete(c.ownTurns, p.Turn.ID)
-		active := c.activeTurn == "" || c.activeTurn == p.Turn.ID
-		if active {
-			c.activeTurn, c.state = "", "idle"
-		}
-		for key, a := range c.approvals {
-			if a.TurnID == p.Turn.ID {
-				delete(c.approvals, key)
-			}
-		}
-		c.mu.Unlock()
-		c.emit(Event{Kind: "result", NativeSessionID: p.ThreadID, TurnID: p.Turn.ID, ResultRef: p.Turn.ID, ResultStatus: p.Turn.Status})
-		if active {
-			c.emit(Event{Kind: "idle", NativeSessionID: p.ThreadID, TurnID: p.Turn.ID})
-		}
-		return
-	case "thread/status/changed":
-		// A status without turn identity cannot clear a newer active turn. The
-		// turn/completed event carries the comparison needed for that mutation.
-		if p.Status.Type == "active" {
-			c.state = "busy"
-		}
-	case "thread/archived", "thread/deleted":
-		c.state, c.activeTurn = "ended", ""
-		c.approvals = make(map[string]Approval)
-		c.mu.Unlock()
-		c.emit(Event{Kind: "ended", NativeSessionID: p.ThreadID})
-		return
-	case "thread/closed":
-		// Unloading a thread is not archiving or ending its logical session.
-		c.state, c.activeTurn = "unknown", ""
-		c.closed = true
-		c.approvals = make(map[string]Approval)
-		proc := c.process
-		c.mu.Unlock()
-		c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: p.ThreadID, Err: "Codex thread unloaded; logical end was not observed"})
 		return
 	}
-	c.mu.Unlock()
+	ownActive := c.activeTurn != "" && c.ownTurns[c.activeTurn]
+	renewals := c.renewals
+	// lost drops the observation; an item/completed during an owned turn may
+	// have been a completed write, so its renewal coverage is reported
+	// unknown (D-078), never missed in silence.
+	lost := func(why string) {
+		c.mu.Unlock()
+		if method == "item/completed" && ownActive {
+			renewals.unknown("a Codex item/completed " + why + " during an owned turn")
+		}
+	}
+	thread, threadKind := "", ""
+	if isObject {
+		thread, threadKind = codexStr(params, "threadId")
+	}
+	if !isObject || threadKind != "string" {
+		lost("had no readable thread id")
+		return
+	}
+	if thread != c.nativeID {
+		c.mu.Unlock()
+		return
+	}
+	switch method {
+	case "item/started", "item/completed":
+		itemType, itemKind := codexStr(params, "item", "type")
+		if itemKind != "string" {
+			lost("had no readable item type")
+			return
+		}
+		turnID, turnKind := codexStr(params, "turnId")
+		// History compaction neither ends a logical session nor completes its
+		// assignments. Keep exact item/turn identity without changing control
+		// state; a delayed observation cannot clear a newer approval or turn.
+		if itemType == "contextCompaction" {
+			itemID, _ := codexStr(params, "item", "id")
+			if itemID == "" || !nativeKey(turnID) {
+				// An observation only, keyed on nothing: dropped. The same
+				// turn's turn/started or turn/completed ends the transport
+				// over a bad turn id (D-202); ending it here would kill a
+				// worker mid-compaction for an id the adapter never keys on.
+				c.mu.Unlock()
+				return
+			}
+			kind := "compaction_started"
+			if method == "item/completed" {
+				kind = "compaction_completed"
+			}
+			c.mu.Unlock()
+			// The item id is displayed only; the turn id is a key (D-199).
+			c.emit(Event{Kind: kind, NativeSessionID: thread, TurnID: turnID, ItemID: displayNativeID(itemID)})
+			return
+		}
+		if method != "item/completed" || itemType != "fileChange" {
+			c.mu.Unlock()
+			return
+		}
+		// Only an observation for renewal (D-078): no control state
+		// changes, and nothing is emitted on the event channel.
+		if turnKind != "string" {
+			lost("fileChange had no readable turn id")
+			return
+		}
+		active := turnID != "" && turnID == c.activeTurn && c.ownTurns[turnID]
+		generation := c.generation
+		c.mu.Unlock()
+		if !active {
+			return
+		}
+		status, _ := codexStr(params, "item", "status")
+		var changes json.RawMessage
+		if item, ok := codexObject(params["item"]); ok {
+			changes = item["changes"]
+		}
+		paths, renew, gone := codexFileChangePaths(status, changes)
+		if renew {
+			renewals.offer(generation, paths)
+		}
+		if gone != "" {
+			renewals.unknown(gone)
+		}
+	case "serverRequest/resolved":
+		raw := params["requestId"]
+		key, err := codexRequestKey(raw)
+		if err != nil {
+			if len(c.approvals) == 0 {
+				c.mu.Unlock()
+				return
+			}
+			// The resolution of a listed request may be the one lost: the
+			// list may be stale, a gap until the next idle.
+			active := c.activeTurn
+			c.mu.Unlock()
+			c.emit(Event{Kind: "observation_gap", NativeSessionID: thread, TurnID: active,
+				Err: "a Codex serverRequest/resolved named a request id the adapter cannot read (" + codexKindPhrase(jsonKind(raw)) + "); the listed approvals may be stale"})
+			return
+		}
+		a, exists := c.approvals[key]
+		delete(c.approvals, key)
+		c.mu.Unlock()
+		if exists {
+			c.emit(Event{Kind: "approval_resolved", NativeSessionID: thread, TurnID: a.TurnID, Approval: &a})
+		}
+	case "thread/status/changed":
+		// A status without turn identity cannot clear a newer active turn;
+		// turn/completed carries the comparison needed for that mutation.
+		// An idle status while the backend is busy with NO tracked turn is
+		// the one it may repair (adapter-drops): a replayed `active` after
+		// turn/completed left Send refusing every wake for good.
+		switch status, _ := codexStr(params, "status", "type"); status {
+		case "active":
+			c.state = "busy"
+		case "idle":
+			if c.state == "busy" && c.activeTurn == "" {
+				c.state = "idle"
+			}
+		}
+		c.mu.Unlock()
+	default:
+		c.mu.Unlock()
+	}
 }
 
 // codexFileChangePaths classifies one fileChange item/completed. Measured on

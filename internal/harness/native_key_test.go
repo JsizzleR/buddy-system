@@ -328,7 +328,9 @@ func TestCodexNotificationTurnKeys(t *testing.T) {
 // A request id alone outside the key set never ends the worker when the
 // request can be declined: the decline answers the id as Codex sent it, and
 // approval_refused is published. Other methods, or no decline on offer, end
-// the transport; an id that is no string or number is dropped as before.
+// the transport when no tracked turn of the request's own can be
+// interrupted (here none is started); an id that is absent or null is a
+// notification, dropped; any other non-id ends it the same way.
 func TestCodexRequestKeyRefusal(t *testing.T) {
 	approval := func(id any, method string, extra map[string]any) map[string]any {
 		params := map[string]any{"threadId": "", "turnId": "turn/one", "itemId": "item/one"}
@@ -357,7 +359,11 @@ func TestCodexRequestKeyRefusal(t *testing.T) {
 		{"permissions", "a b", "item/permissions/requestApproval", nil, "disconnected"},
 		{"missing", nil, cmd, nil, "dropped"},
 		{"null", json.RawMessage("null"), cmd, nil, "dropped"},
-		{"object", map[string]int{"n": 1}, cmd, nil, "dropped"},
+		// No string or number: it cannot be answered. Dropped, it stayed
+		// natively pending and unlisted; with no tracked turn of its own to
+		// interrupt, the transport ends (adapter-drops; a tracked turn makes
+		// it an observation_gap, native_drop_test.go).
+		{"object", map[string]int{"n": 1}, cmd, nil, "ended"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, p, l := codexFixture(t)
@@ -366,7 +372,7 @@ func TestCodexRequestKeyRefusal(t *testing.T) {
 			f["params"].(map[string]any)["threadId"] = id
 			before := len(p.allWrites())
 			p.frame(f)
-			if tc.want != "disconnected" {
+			if tc.want != "disconnected" && tc.want != "ended" {
 				// A barrier, sent only where the transport stays open: the
 				// fake's channel is closed by a disconnect.
 				p.notify("turn/started", map[string]any{"threadId": id, "turn": map[string]string{"id": "turn/one"}})
@@ -379,6 +385,10 @@ func TestCodexRequestKeyRefusal(t *testing.T) {
 				}
 			case "disconnected":
 				if e.Kind != "disconnected" || !strings.Contains(e.Err, "request id outside the plain key set") {
+					t.Fatalf("not ended: %#v", e)
+				}
+			case "ended":
+				if e.Kind != "disconnected" || !strings.Contains(e.Err, "id is a JSON object, which cannot be answered") {
 					t.Fatalf("not ended: %#v", e)
 				}
 			case "approval_refused":

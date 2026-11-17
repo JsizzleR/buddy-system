@@ -127,10 +127,17 @@ type Controller struct {
 	// recorded (F-11), and cleared only by an observation that establishes
 	// the approval set (idle or ended). Until then no receipt says absent.
 	observationGap string
-	life           context.Context
-	endLife        context.CancelFunc
-	ledgerTimeout  time.Duration
-	closed         bool
+	// unscopedGap is an observation_gap that names no turn (adapter-drops): a
+	// request for another thread, one with no readable thread, or for a method
+	// the adapter does not handle, left natively pending. An idle of OUR turn
+	// says nothing about it, so only ended or disconnected clears it (Codex
+	// design pass): cleared on idle, every later receipt said absent while
+	// that request still waited.
+	unscopedGap   string
+	life          context.Context
+	endLife       context.CancelFunc
+	ledgerTimeout time.Duration
+	closed        bool
 	// launched is the authorization the running worker was spawned through:
 	// it holds the canonical ownership record, close report included.
 	launched *LaunchAuthorization
@@ -260,14 +267,21 @@ func (c *Controller) receipt(op string) Receipt {
 	if !c.saved.Identity.Valid() || c.state.State == "unknown" {
 		pending.State = "unknown"
 	}
-	if c.observationGap != "" {
-		pending = Observation{State: "unknown", Detail: c.observationGap}
+	gap := c.observationGap
+	if c.unscopedGap != "" {
+		if gap != "" {
+			gap += "; "
+		}
+		gap += c.unscopedGap
+	}
+	if gap != "" {
+		pending = Observation{State: "unknown", Detail: gap}
 	}
 	if len(aps) > 0 {
 		pending = Observation{State: "observed"}
-		if c.observationGap != "" {
+		if gap != "" {
 			pending.State = "unknown"
-			pending.Detail = "the listed approvals are last observations and may be stale; the set may be incomplete: " + c.observationGap
+			pending.Detail = "the listed approvals are last observations and may be stale; the set may be incomplete: " + gap
 		}
 	}
 	candidate := ""
@@ -787,7 +801,15 @@ func (c *Controller) Observe(ctx context.Context, e Event) (Receipt, error) {
 		// let receipts derive pending_approval "observed_absent" from it,
 		// while a dropped approval sat unanswerable. Known approvals stay
 		// listed; the set is no longer claimed complete.
-		c.observationGap = fmt.Sprintf("native %s event was not recorded: %s", fence.Line(e.Kind, 64), fence.Line(err.Error(), 256))
+		gap := fmt.Sprintf("native %s event was not recorded: %s", fence.Line(e.Kind, 64), fence.Line(err.Error(), 256))
+		if e.Kind == "observation_gap" && e.TurnID == "" {
+			// An unscoped gap stays unscoped: the backend never republishes
+			// it, and as a turn gap the next idle cleared it (the Fable
+			// cross-check, adapter-drops).
+			c.unscopedGap = gap
+		} else {
+			c.observationGap = gap
+		}
 		c.state = Observation{State: "unknown", Detail: "native event not recorded; activity and pending approvals unknown"}
 		r = c.receipt("event")
 		r.NativeEvent = presentEvent(e)
@@ -831,6 +853,9 @@ func (c *Controller) observe(ctx context.Context, e Event) (Receipt, error) {
 			c.approvals = map[string]Approval{}
 			c.observationGap = ""
 		}
+		if e.Kind == "ended" {
+			c.unscopedGap = ""
+		}
 	case "approval":
 		if e.Approval == nil || e.Approval.NativeSessionID != c.saved.Identity.SessionID {
 			return r, errors.New("invalid approval event")
@@ -860,6 +885,9 @@ func (c *Controller) observe(ctx context.Context, e Event) (Receipt, error) {
 		}
 	case "disconnected":
 		c.state = Observation{State: "unknown", Detail: "native transport disconnected; session end not observed"}
+		// A request no turn scoped belonged to this connection; a successor
+		// observes its own (the line below).
+		c.unscopedGap = ""
 		// Old prompts survive in the journal as history, never as actionable
 		// requests on a dead connection. A successor must observe its own requests.
 		c.approvals = map[string]Approval{}
@@ -878,6 +906,40 @@ func (c *Controller) observe(ctx context.Context, e Event) (Receipt, error) {
 		// idle turn, consumed inbox body, resolved approval or completed job.
 	case "result", "acknowledged":
 		// A native result references a TURN, not an assignment's completion.
+		// It does end that turn's requests: the backend has dropped them
+		// (Codex turn/completed), and a turn that is not the active one
+		// gets no idle, so the controller listed them for good, each answer
+		// refused by the backend (Codex design pass, adapter-drops).
+		if e.Kind == "result" && e.TurnID != "" {
+			dropped := false
+			for key, a := range c.approvals {
+				if a.TurnID == e.TurnID {
+					delete(c.approvals, key)
+					dropped = true
+				}
+			}
+			// As approval_resolved: waiting_for_approval with nothing listed
+			// is a state no receipt should carry (the Fable cross-check).
+			if dropped && len(c.approvals) == 0 {
+				c.state = Observation{State: "unknown", Detail: "approval turn ended; next native activity not yet observed"}
+			}
+		}
+	case "observation_gap":
+		// The backend could not list a native request or resolution and left
+		// it as it was (adapter-drops): pending approvals read unknown with
+		// this reason, never absent. With a turn it is that turn's gap, which
+		// idle or ended clears; with none it is unscoped, cleared only by
+		// ended or disconnected. The reason is the backend's fixed text with
+		// native values already fenced; it is bounded again here. No state
+		// moves. Claude recovery ignores the kind (claude_recovery.go).
+		if e.Approval != nil || e.Err == "" {
+			return r, errors.New("observation_gap carries a reason and no approval")
+		}
+		if e.TurnID != "" {
+			c.observationGap = fence.Line(e.Err, nativeErrorCap)
+		} else {
+			c.unscopedGap = fence.Line(e.Err, nativeErrorCap)
+		}
 	case "approval_refused":
 		// The backend answered a request natively (deny or decline) because
 		// its id could not be a key (D-202). Nothing pending changes and no

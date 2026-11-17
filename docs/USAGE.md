@@ -2797,6 +2797,15 @@ Continuously consume adapter stdout. If a stalled consumer fills the bounded
 native output queue, the adapter closes native input and its owned child;
 output EOF, malformed native frames and a frame past the 4 MiB bound also close
 that transport, as uncertainty: pending approval becomes unknown, never absent.
+So does a Codex notification that moves state (`turn/started`,
+`turn/completed`, `thread/archived|deleted|closed`, an approval request) with
+a field the adapter needs and cannot read: each method is read by exact key,
+its own fields only, and the error starts `the adapter ended the transport:`,
+naming the method, the field and its JSON kind, never the value; a
+`turn/completed` whose status is not `completed`, `interrupted` or `failed`
+ends it when that turn is the active one or none is tracked (idle is never
+inferred). Dropped,
+such a notification left the adapter busy for good (D-207).
 
 The worker runs in its own process group, so a terminal `^C` does not reach it
 directly. Close, and INT/TERM/HUP to the adapter, end that group: SIGTERM, then
@@ -2845,11 +2854,28 @@ integer request id is its canonical decimal, and a Codex thread id meets the
 ledger's session-id rule. An `approval` carries the request id as its decoded
 value's JSON. A thread id outside the rule refuses the start or resume before
 the ledger is touched; a turn id outside it ends the transport (`disconnected`,
-its error naming the field, the length and the turn it ended); a request id
-alone outside it is answered natively (a Claude deny, a Codex decline where
-offered, else the transport ends) and published as an `approval_refused`
-native event with the reason in `error` and no approval: nothing pending
-changes and the worker keeps running. The pending list in a
+its error naming the field, the length and the turn it ended). A request the
+adapter cannot list (a request id outside the rule; a Codex request with no
+turn id) is answered natively where a refusal is on offer (a Claude deny; a
+Codex decline of a command or file change, by an id that is a string or a
+number) and published as `approval_refused`, reason in `error`, no approval:
+nothing pending changes and the worker keeps running. Where none is on offer
+(Codex permissions, user input and elicitation have no supported answer even
+with a good id), it is left natively pending ONLY when the adapter tracks an
+active turn that is the request's own, and published as `observation_gap`
+naming that turn: `pending_approval` then reads `unknown` with the reason
+until the next idle or the end, and interrupting that turn is the one control
+on offer (whether it releases the request is unmeasured); one naming another
+turn, or a finished one, ends the transport. A request naming no turn, and a
+Codex REQUEST the adapter does not handle (another method, a method it reads
+only as a notification, another thread, no readable thread), is answered with
+nothing and published as an `observation_gap` with no turn, which only `ended`
+or `disconnected` clears; so is an unreadable `serverRequest/resolved` while
+no turn is tracked (with one, that turn's gap). A request id that is absent or
+`null` is a notification and is ignored. At most 64 approvals are listed at
+once and 64 requests refused or left unlisted since the last idle; past either
+the transport ends
+(D-207). The pending list in a
 receipt carries a `detail_sha256` and a fenced summary of at most 512 bytes.
 Exact detail travels once, in the `native_event`, up to 16 KiB; beyond that it
 is marked `detail_omitted`. Coordinator stdin cannot approve. An operator UI may

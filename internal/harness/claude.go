@@ -67,7 +67,7 @@ type claudeBackend struct {
 	waiters            map[string]chan claudeReply
 	approvals          map[string]claudePermission
 	seenApprovals      map[string]string
-	results            map[string]bool
+	results            map[[32]byte]bool
 	// Completed-write observation (claude_renewal.go, D-078): the mailbox,
 	// this launch's generation, and the outstanding main-thread file-tool
 	// uses awaiting their tool_result, bounded in count and bytes.
@@ -103,7 +103,7 @@ func NewClaude(executable string) (Backend, error) {
 
 func newClaude(executable string) *claudeBackend {
 	c := &claudeBackend{executable: executable, probe: probeNativeVersion, state: "unknown", events: make(chan Event, 64), op: make(chan struct{}, 1),
-		done: make(chan struct{}), stop: make(chan struct{}), waiters: make(map[string]chan claudeReply), approvals: make(map[string]claudePermission), seenApprovals: make(map[string]string), results: make(map[string]bool)}
+		done: make(chan struct{}), stop: make(chan struct{}), waiters: make(map[string]chan claudeReply), approvals: make(map[string]claudePermission), seenApprovals: make(map[string]string), results: make(map[[32]byte]bool)}
 	c.op <- struct{}{}
 	return c
 }
@@ -766,12 +766,18 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 		if f.SessionID != c.nativeID || f.UUID == "" {
 			return errors.New("Claude result lacks native identity/reference")
 		}
+		// Keyed by the uuid's digest (adapter-drops): the raw uuid, up to
+		// the 4 MiB frame bound, was kept per result frame for the worker's
+		// life, though it is display-only (ResultRef is displayNativeID) and
+		// never sent back. 32 bytes per entry; one entry per distinct result
+		// frame, a turn's or a background notification's.
+		resultKey := sha256.Sum256([]byte(f.UUID))
 		c.mu.Lock()
-		if c.results[f.UUID] {
+		if c.results[resultKey] {
 			c.mu.Unlock()
 			return nil
 		}
-		c.results[f.UUID] = true
+		c.results[resultKey] = true
 		turn := ""
 		boundary := ""
 		// Native results also arrive for background notifications. The result
@@ -857,8 +863,11 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 	}
 	if req.Subtype != "can_use_tool" {
 		// Unknown controls cannot become approvals or implicit permissions.
-		return c.proc.Write(map[string]any{"type": "control_response", "response": map[string]any{
-			"subtype": "error", "request_id": id, "error": "unsupported Buddy adapter control request"}})
+		// Written under writeRefusal's deadline (adapter-drops): with no
+		// deadline a server that stops reading stdin held the reader in
+		// Encode, publishing nothing, the adapter showing busy for good.
+		return claudeAnswerWritten("reply to an unsupported control request", writeRefusal(c.proc, map[string]any{"type": "control_response", "response": map[string]any{
+			"subtype": "error", "request_id": id, "error": "unsupported Buddy adapter control request"}}))
 	}
 	var input map[string]json.RawMessage
 	if req.ToolName == "" || req.ToolUseID == "" || json.Unmarshal(req.Input, &input) != nil || input == nil {
@@ -923,12 +932,13 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 		// replay is ignored and a reused id for different work still
 		// closes admission. The operator is not asked and nothing is
 		// published; the model sees the denial message.
+		// Under writeRefusal's deadline, as above (adapter-drops).
 		proc := c.proc
 		c.mu.Unlock()
-		return proc.Write(map[string]any{"type": "control_response", "response": map[string]any{
+		return claudeAnswerWritten("deny of a subagent's or turn-less request", writeRefusal(proc, map[string]any{"type": "control_response", "response": map[string]any{
 			"subtype": "success", "request_id": json.RawMessage(append([]byte(nil), id...)), "response": map[string]any{
 				"behavior": "deny", "toolUseID": req.ToolUseID,
-				"message": "Denied by the Buddy adapter: only the captured worker's active input can request operator approval"}}})
+				"message": "Denied by the Buddy adapter: only the captured worker's active input can request operator approval"}}}))
 	}
 	c.approvals[key] = claudePermission{id: answerID, input: append(json.RawMessage(nil), req.Input...), toolID: req.ToolUseID, turnID: turn, requiresInteraction: req.RequiresInteraction}
 	c.state = "waiting_approval"
@@ -942,6 +952,20 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 		ID: answerID, NativeSessionID: c.nativeID, TurnID: turn, ItemID: displayNativeID(req.ToolUseID),
 		NativeApprovalID: displayNativeID(key), Kind: "can_use_tool", Detail: append(json.RawMessage(nil), raw...)}})
 	return nil
+}
+
+// claudeAnswerWritten wraps the error of a native answer the reader writes
+// itself (the F-07 answers), which the reader then publishes as the
+// transport's end: a bare "context deadline exceeded" named neither what
+// was being written nor that the adapter ended it (adapter-drops). A worker
+// ended this way cannot be resumed (no terminal result is journalled); only
+// a server that stopped draining its stdin reaches it, which had already
+// wedged the worker.
+func claudeAnswerWritten(what string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("Claude %s could not be written within %s: %s; the adapter ended the transport; the logical session is not ended and stays live in the ledger", what, nativeRefusalWrite, fence.Line(err.Error(), nativeErrorCap))
 }
 
 // refuseApproval answers a well-formed can_use_tool whose request id cannot be

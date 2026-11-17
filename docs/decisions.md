@@ -15830,6 +15830,200 @@ that comment: NOT FIXED, 4 raised, 4 fixed in the comment alone (`all` broadcast
 two rows wear refuses as ambiguous; a known session's refused refresh keeps its row; an
 unregistered session's write is not refused for that), unverified at the ceiling (Open).
 
+## D-207 — `buddy-adapter` reads each Codex method's own fields by exact key; a field a state-moving method cannot read ends the transport, never drops the event; a request with no native refusal on offer stays pending only under its own tracked turn, published as `observation_gap` (else the transport ends); Claude's F-07 answers carry the write deadline (amends D-202)
+
+2026-11-17 · run r1117b, lane adapter-drops (Opus 5.5 at high), under orc-3. Class code, tier full.
+The item: D-202's **Open.** paragraph, the native events the adapter dropped whole.
+
+**The class, measured live.** `nativeEvent` decoded every Codex method into ONE struct, so a
+field one method types differently from another failed the whole `json.Unmarshal` and the
+notification was dropped: `"turnId": 7` on turn/completed left the adapter busy for good
+(every later Send a `turn/steer` of a finished turn, refused natively). Measured, nothing
+launched, on the 2026-10-13 A-07 rerun archive (Codex 0.160.0, 1,458 frames Codex sent the
+adapters, extracted into scratch): every field the adapter reads arrives with the expected
+type, but `remoteControl/status/changed` sends `status` as a STRING (21 frames) where
+`thread/status/changed` sends an object (93): the shared struct dropped it whole. Harmless
+there (unused), the class live on the wire. Go struct tags also match keys
+case-insensitively: `{"turn":{"id":"t1","ID":"t2"}}` read `t2`; the Python checkers read
+exact keys. Other drops of the same class: a turn/completed whose status is not
+completed / interrupted / failed (busy for good, not in D-202's Open); an approval request
+with an empty turn id (natively pending, unlisted); a REQUEST for a method the adapter does
+not handle or another thread (on app-server stdio the adapter is the only client, so a
+dropped request stays pending for good). The 19 id-bearing requests in the archive are all
+`item/commandExecution/requestApproval`; 0 outside the five methods (orc-3's count).
+
+**Decision.** The wire is read through `codexObject` / `codexStr` / `codexDecodeEnvelope`
+(`codex.go`): exact keys, each method its own fields, a field's JSON kind named from its
+first byte (absent, null, string, number, object, array, bool; never the value). A method
+the adapter does not use is never decoded past the envelope. By what the adapter does with
+the field:
+- **state-moving** (turn/started, turn/completed, thread/archived|deleted|closed, the five
+  approval requests): `params`, `threadId`, `turn.id`, `turnId` unreadable ends the
+  transport (`disconnected`, error `the adapter ended the transport: Codex <literal method>
+  <field> is <kind>, where … was expected`, then D-202's tail). A non-key string keeps
+  D-202's text. turn/completed: threadId, turn.id, `finished` (a replay ends nothing), then
+  status: an unusable status ends the transport when that turn is the active one or none is
+  tracked (the status shown through `fence.Field` at 64: a token, D-198), never idle
+  inferred (an unknown status may be a turn not over; idle would admit a turn/start into
+  it); for another turn it moves nothing and publishes a turn-scoped gap.
+- **a request the adapter cannot list** (`refuseApproval`): a request id outside D-202's
+  rule, a Codex request with no turn id, or a FRESH one naming a finished turn (each was
+  dropped; a replay of one seen stops first, and the reuse rule runs before any refusal:
+  a declined reuse answered the LISTED request's id). A command or file change
+  offering decline, by an id that is a string or a number: declined natively by the id as
+  sent, `approval_refused` (TurnID empty when it named none). Otherwise nothing can be
+  answered (permissions, user input and elicitation have no supported answer even with a
+  good id: `takeApproval` refuses them): it is left natively pending ONLY when the backend
+  tracks an active turn that is the request's own, and published as the new non-terminal
+  **`observation_gap`** naming that turn; one naming no turn gets an UNSCOPED gap and is
+  never an end by itself (scoped to the active turn, that turn's idle cleared it while the
+  request still waited); else the transport ends (D-202 ended it in every such case,
+  killing the turn's work over a request a good id would only list unanswerable). An absent
+  or `null` id is a notification: ignored (D-202).
+- **a request the adapter does not handle** (`unlistedRequest`: another method, a method
+  it reads only as a notification, carrying an id (a `thread/status/changed` request moved
+  the backend busy), another thread, no readable thread): nothing written (how Codex treats a JSON-RPC error answer is
+  unmeasured), an UNSCOPED `observation_gap` (no turn), never an end by itself (some may
+  block no turn, e.g. an auth refresh: unmeasured). Its method through `fence.Field`.
+- **observation**: a compaction item, `thread/status/changed`, `serverRequest/resolved`
+  dropped; a fileChange item/completed (or one with no readable thread or item type) during
+  an owned turn reports renewal coverage unknown (D-078); an unreadable resolution with
+  approvals listed is a turn-scoped gap.
+- **display-only** (`itemId`, `approvalId`): a non-string is left out, the request kept.
+- **bounds**: at most 64 approvals listed at once and 64 requests refused or unlisted
+  since the last idle of the active turn (digest set, an identical replay publishes
+  nothing; a declined one is declined again), the next ends the transport naming the
+  count; `seenApprovals` keeps the kind and a sha256 of the params, not the params (a flood
+  held 4 MiB each for the worker's life). Its COUNT, like `finished`'s, grows with
+  distinct ids over the worker's life (about 200 bytes each: answered, the reuse rule
+  needs every id it has seen; forgetting one lets a reused id name different work).
+- **answering**: `Approve` reads `availableDecisions` by exact key too: a struct tag
+  matched `AvailableDecisions`, and a later `null` alias erased a decline-only list, so
+  allow sent `accept`.
+
+**`observation_gap` in the controller.** Its own case (the default arm made it an F-11 gap
+with state unknown): with a turn it sets `observationGap`, cleared by idle or ended as
+before; with none it sets `unscopedGap`, cleared only by ended or disconnected (an idle of
+OUR turn says nothing about another thread's request: the Codex design pass). The receipt
+renders both, in the listed-approvals branch too, so `pending_approval` reads `unknown` with
+the reason, never `observed_absent`, while a request waits unlisted: published as
+`approval_refused` with state unmoved (the first design), every later receipt said absent
+(all three panel lenses). An unscoped gap the ledger could not record stays unscoped (as
+F-11's turn gap the next idle cleared it, and the backend never republishes it). A result
+that drops the last listed approval moves the state off `waiting_for_approval`, as
+`approval_resolved` does. Claude recovery ignores the kind (`claude_recovery.go`; adding it
+to the activity arm with an empty turn would make every worker unresumable). A `result` with
+a turn id drops the controller's approvals for that turn: the backend had, and a turn that is
+not the active one gets no idle, so they were listed for good.
+
+**Busy with no tracked turn** (a replayed `active` after turn/completed, or a resume into an
+active thread): Send refused every wake ("inspect before sending") and inspect moved
+nothing. Now a `thread/status/changed` idle, and a `thread/read` reply saying idle, CLAIMED
+ON THE READER (orc-3's condition; never from Inspect's goroutine, where an older idle would
+overwrite a newer `active` the reader had taken and Send would turn/start into a running
+turn), set the BACKEND idle, only from `busy` exactly with no tracked turn and not closed
+(never from ended or unknown). The controller is told nothing (D-197 stands). Adding a build
+to `codexTurnsListBuilds` must revisit this. The reader also installs the active turn from a
+claimed turn/start reply before the next frame (Codex design pass: a request read right after
+the reply found no tracked turn). `codexReplyTurnID` reads per method (turn/start `turn.id`,
+turn/steer `turnId`) and Send reuses it: a mistyped field the method never uses ended the
+transport over a delivered turn.
+
+**Claude.** The F-07 answers the reader writes (the subagent or turn-less deny, the
+unsupported-control reply) go through `writeRefusal` (10 s, D-202); a failure is wrapped
+(`claudeAnswerWritten`: what, the deadline, "the adapter ended the transport", the session
+live). Such a worker cannot be resumed (no journalled terminal result); only a server not
+draining stdin reaches it. `c.results` keys a sha256 of the result uuid (32 bytes, not up to
+4 MiB per result frame; one entry per distinct result frame, a count that grows with input:
+answered). The Claude frame decoder's whole-frame strictness is kept: a mismatch ENDS the
+transport loudly.
+
+**What each choice shows** (the brief's question). End: receipt `disconnected` with the
+cause, state unknown, approvals cleared, the child closed, the logical session live,
+resumable by build (every admitted Codex record grants resume). Leave pending: receipt
+`observation_gap` naming the turn, state unmoved (busy), `pending_approval` unknown, the
+worker natively blocked until the coordinator interrupts that turn (the id is in the
+receipt; whether interrupt releases the request is unmeasured). Drop (rejected everywhere a
+field moves state): busy with nothing pending, for good.
+
+**The operator's and orc-3's rulings.** orc-3's GO (#1425, a Fable 5.2 ruling, orc-3's call,
+not the operator's): `observation_gap` yes; the idle repair only on the reader; the Claude
+result-correlation fold NO (below).
+
+**Open.** A request read before the thread id is set (on a fresh start the reader runs on
+past thread/start's reply while `launch` sets the id) is still dropped whole: no turn exists
+before turn/start, so no approval can name one, but an unhandled request could (speculative,
+unmeasured). Send from state `unknown` still has no repair (by design: only `busy` with no
+tracked turn is repaired). The qualify re-run of the admitted builds through this code (D-081,
+operator-run). The shapes of permissions, user-input and elicitation requests on any build
+(none measured), whether `turn/interrupt` releases a pending one, and whether an unhandled
+server request blocks native work. A forwarded Claude host request id. D-202's resume-replay
+hypothesis. Claude (the Codex design pass, ruled out of this item by orc-3): a result naming
+the active input whose other correlation evidence is missing or contradictory (`null`
+`queued_turn_count`) still leaves the worker busy with nothing published (`claude.go`
+`frame`, result arm); unmeasured, not a dropped event.
+
+**Tests** (`internal/harness/native_drop_test.go`; `native_key_test.go`'s object-id case now
+expects the end): every state-moving field unreadable (turn/completed `params` array and
+null, `threadId` number, absent and empty, `turn.id`, status absent, a number, unknown,
+`inProgress` and hostile; turn/started `turn.id` an object; an approval's `turnId` a number;
+thread/archived `threadId` a bool), each beside its well-formed twin as the positive control,
+the error checked for the leading phrase, the field's kind, no native byte, the D-202 tail
+and the child closed; an unknown status of another turn moving nothing, and with no tracked
+turn ending; an unused field (`remoteControl/status/changed`'s string status, a
+case-variant key) dropping nothing; the unanswerable verdicts (declined natively by the id
+as sent, left pending under its own turn, an unscoped gap for a request naming none, ended
+for another turn's); a fresh request on a finished turn declined or ended, its replay
+silent; the reuse rule before any refusal; a request on a notification method an unscoped
+gap that moves no state; an unhandled request an unscoped gap, its replay silent; the 64
+caps, the refusal set cleared at idle; `Approve` reading `availableDecisions` by exact key
+and refusing a list with a non-string; the idle repair from busy only (Inspect and status),
+on the reader (one P, a turn-less `active`, twenty runs), needing the replied thread; the
+turn/start reply installing the active turn before the next frame; `codexReplyTurnID` per
+method; the envelope's exact keys; a fileChange or resolution that cannot be read; the
+controller's two gap scopes, an unrecorded unscoped gap staying unscoped, ended clearing it,
+listed approvals beside it unknown, a result dropping its turn's approvals and leaving no
+`waiting_for_approval`; Claude recovery ignoring the kind; the F-07 answers' deadline; the
+result-uuid digest (every key 32 bytes).
+Mutation (a private rsync copy, one `go test` at a time): 55 mutants, 54 killed, two of
+them by the test binary's timeout (a hang: the busy-forever shape), not an assertion; one
+survived, the repair's `!c.closed` guard (answered: every call on a closed backend is
+refused before its state is read). The first lane's survivor (the idle repair firing with
+a tracked turn) was fixed by ordering and a test; the Fable cross-check's surviving mutants
+are among the 54.
+
+**Review** — full. Lanes adapter-drops then adapter-drops-2 (Opus 5.5 at high; the first
+past its handoff size). Design panel (read-only subagents): Opus 5.5 on a hostile or buggy
+native server, Opus 5.5 on the controller's state machine and the journal, Fable 5.2 on the
+operator's view and invariants 2 and 9: 27 raised (11, 8, 8), folded into the design's
+revision (b'). Codex design pass, xhigh, adapter charter: 8 raised, 6 fixed in (b''), 2
+answered. orc-3's GO (#1425). Codex code pass, xhigh, adapter charter, the working tree on
+a96d9f4: 6 raised; fixed 5 (`Approve` read `availableDecisions` through a struct tag, so a
+`null` alias erased a decline-only list; a request id on a notification method moved state
+unlisted; a fresh request on a finished turn dropped; the digest and reader-order tests
+passing with their fixes reverted), answered 1 (`seenApprovals`' count, above). Fable 5.2
+cross-check, the same tree: 24 raised; fixed 19 (a turn-less request scoped to the active
+turn, cleared by its idle while still pending; an unrecorded unscoped gap made a turn gap;
+the reuse rule bypassed through a refusal, declining the listed request's id; a result
+leaving `waiting_for_approval` with nothing listed; ten tests that passed with their guard
+removed, among them the reader-order one; a vacuous `errors.Is`; four doc misstatements),
+answered 5 (an unreadable resolution with no tracked turn is unscoped: fail-closed, now
+documented; a mistyped `turnId` on a declinable request ends, as every state-moving field
+does; a request before the thread id is set, and Send from `unknown`: Open; the counts that
+grow with input: above; the repair's `!c.closed` guard, the mutant that survives). Codex re-verify, xhigh, two rounds (the ceiling): round
+one 1 raised (`["accept",7]` still admitted accept: a non-string element was skipped), fixed;
+round two 0 raised.
+
+### Where it lives
+- code: `internal/harness/codex.go` (`codexObject`, `codexStr`, `codexDecodeEnvelope`,
+  `nativeEvent`, `stateEvent`, `observationEvent`, `refuseApproval`, `unlistedRequest`,
+  `repairIdle`, `fieldFault`, `codexReplyTurnID`), `claude.go` (`permission`,
+  `claudeAnswerWritten`, `c.results`), `controller.go` (`observe`, `receipt`, `unscopedGap`)
+- tests: `internal/harness/native_drop_test.go`; `native_key_test.go` (object id)
+- docs: `docs/USAGE.md` "Control and approval channels"
+- index: CLAUDE.md § Decisions, the "Codex, adapter" line; GIVEN 137 (core stub gains the
+  number; adapter part, its D-207 sentence)
+
 ## D-208 — `buddy wait --for-mail` lands when a session has mail: a direct message still queued, or one sent after the declaration, delivered or not; never a broadcast, its own send or adapter mail; schema 20 adds `session_waits.mail_after` (amends D-033, D-095, D-203)
 
 2026-11-17 · run r1117b, full tier, lane msg-wait. The operator, in orc-3's pane at about

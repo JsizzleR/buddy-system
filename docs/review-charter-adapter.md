@@ -140,6 +140,8 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     request id alone gets the native deny/decline and `approval_refused`. Do not propose:
     fencing a key; a key check in `Identity.Valid`, `approvalIDKey` or journal reload (refuses
     a whole older journal); storing a fenced value something compares against a fixed set.
+    D-207: a Codex field a state-moving method cannot read ends the transport; a request
+    with no refusal on offer pends as `observation_gap` (its turn or none), else ends. No drop.
     A native child's stderr (worker, `--version` probe) reaches the adapter's stderr through
     a pump on a pipe of its own (D-200): each line `native stderr: ` plus `fence.Line` at
     1,024, 64 KiB per child, drained past it; Close finishes it before the close report.
