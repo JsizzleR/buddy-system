@@ -737,7 +737,9 @@ func nextCheck(now, deadline time.Time, c store.ContextSample, observed bool) st
 func timerEndAdvice(self bool, si store.SessionInfo, bin string) string {
 	clear := "`" + bin + " wait clear`"
 	if !self {
-		clear = "`" + bin + " wait clear --session " + fence.Line(si.SessionID, 128) + "`"
+		// The paste rule (D-201): an id that would not paste back as printed
+		// is never written as a command.
+		clear = "`" + bin + " wait clear --session " + pasteIDOr(si.SessionID, "<its session id>") + "`"
 	}
 	return "a timer never lands: it ends at its deadline or at " + clear
 }
