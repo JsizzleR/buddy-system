@@ -15574,3 +15574,74 @@ timer line's clear. "Carries no every" overstated: a label `every 50m` prints mi
 prose now says the fixed words, and the trailing rule cannot fire since the stop clause ends
 the line. Answered: `bin` cannot carry a path or a backtick (`buddyCmd` returns `buddy` or
 `buddy fleet` only).
+
+## D-205 — The qualify checkers count an adapter refusal only on the adapter's own stderr lines (`buddy-adapter: `-led), never on a native child's `native stderr: ` line; `Close`'s wait on an escaped stderr writer is its bound, by design (amends D-200)
+
+**Context.** D-200 left two notes open. Its "What a checker accepts": "the refusal substring
+checks still match a native line that carries the text; out of scope". And its bound:
+`Close` may wait `drainCap` (4 s) on an escaped flooder. orc-3's lite lane (operator,
+2026-11-17 ~08:40Z, "work the remaining issues") swept every `scripts/check-*.py` and
+`qualify-*.py` on a96d9f4 for a refusal matched by substring in an adapter's stderr. Nothing
+was launched.
+
+**The sweep.** Three sites had the shape: `check-claude-gate.py`'s `managed_refusal` (the
+`allowManagedHooksOnly` refusal `in` the managed case's `adapter.stderr`),
+`check-claude-mods.py`'s refused admissions (`start["error"] in` the case's
+`adapter.stderr`), and `check-recovery.py`'s `stale_resume_before_native_launch`
+(`"logical session identity refused" in` the stale resume's captured stderr, which carries
+the version probe's native lines too). A native child, or its probe, that printed the
+refusal satisfied a check the adapter never answered. Line-anchored already: `close_line`
+(every close-report reader). Native by design: `check-adapters.py`'s `DENIAL`, which is
+Codex's own log of the hook denial, so a `native stderr: ` line is where it belongs.
+
+**Decision.** `adapter_said(text, needle)` (`check-claude-gate.py`, with a twin in
+`check-recovery.py`, which loads `check-mixed-fleet.py`) counts the needle only after the
+`buddy-adapter: ` prefix that begins a line. Lines are split on `\n` alone. Since D-200 every
+native line begins `native stderr: `, and its fenced text cannot hold a newline, so a native
+line can never begin with the adapter's prefix, even when it spells that prefix after its
+own. The runners take a refusal from the start event's error, and the adapter prints that
+error as `buddy-adapter: <err>` on one line, so real evidence is judged as before. Rejected:
+exact equality with `buddy-adapter: ` + refusal, which would refuse an adapter error that
+wraps the event's text; an empty-needle guard, because both callers already require a
+non-empty refusal (its mutant survived, so it was dead code). Answered, not fixed: evidence
+from an adapter built before D-200 carries native stderr raw, where a native line can begin
+`buddy-adapter: `. The argument holds only for a post-D-200 adapter, and no checker binds an
+adapter build to D-200.
+
+**The bound** (read from `native_stderr.go` and `process.go`). `finish` cannot tell an escaped
+writer that outpaces the pump from the leader's last lines (`pipePending` reports both as
+unread), so it waits until `drainCap` and then releases. With the pump also blocked writing
+an undrained adapter stderr, it waits one more `drainCap`. So `Close` is bounded at
+terminateGrace + SIGKILL + `drainCap` against a flooder, and one `drainCap` more in that
+second case. Both bounds are tested (`TestJSONProcessCloseBoundedDespiteEscapedStderrWriter`,
+`...BlockedAdapterStderr`). It is the design: the leader is reaped before `finish` begins, and
+dropping earlier would drop its unread lines. Releasing as soon as the bytes pending at reap
+had been read would need a FIONREAD count and a pump byte counter. That is not narrow, and it
+would only shorten a bounded wait in an anomaly the close report already names. Fixed:
+`Close`'s comment claimed only terminateGrace plus SIGKILL as its bound.
+
+**Tests.** Each self-test's positive fixture now puts a native line beside the adapter's
+refusal line. New file damage: `check-claude-gate`'s managed refusal only on a native line,
+bare and with `buddy-adapter: ` spelled after the native prefix (each failing
+`managed_refusal`); `check-claude-mods`'s the same on `observer-refused` and
+`permissive-refused`; `check-recovery`'s two receipt mutations, plus a null stderr, now NAMED (the self-test
+requires that exact check to fail, not just any check). Mutants, in a private rsync'd copy,
+each failing on its new case: the helper back to a whole-file substring (all three
+checkers), the prefix allowed anywhere in the line (all three), the twin back to a substring,
+the twin without its string guard (a crash). The control passes.
+
+**Review**: lite. The self-review raised 3, fixed 2 and answered 1. Fixed: the empty-needle
+guard was dead code, and `Close`'s comment was stale. Answered: pre-D-200 evidence, above.
+One Codex code pass, at xhigh with the adapter charter, over `a96d9f4..5cbf0fa`, raised 1
+and fixed 1. A null `stale_resume.stderr` crashed `check-recovery` without its verdict:
+`check-mixed-fleet`'s `Evidence.check` catches the old substring's `TypeError` (a failed
+check) but not `.split`'s `AttributeError`. The twin now refuses a non-string. Codex confirmed the rest: no native rendering (line, over-cap
+notice, closing count) can begin with the adapter's prefix; real evidence still passes; the
+sweep missed no site; `check-adapters`' `DENIAL` is native by design.
+
+### Where it lives
+- checkers: `scripts/check-claude-gate.py` (`adapter_said`, `native_refusal`,
+  `ADAPTER_PREFIX`), `scripts/check-claude-mods.py`, `scripts/check-recovery.py`
+- comment: `internal/harness/process.go` (`Close`)
+- docs: GIVEN 137's adapter full text, and its core stub names D-205 (7 of the core
+  charter's 40 free bytes; nothing trimmed)

@@ -530,7 +530,13 @@ func (p *JSONProcess) WriteContext(ctx context.Context, v any) error {
 
 // Close ends write admission, then the owned process group, then releases the
 // reader. It returns once the leader is reaped (bounded by terminateGrace plus
-// SIGKILL delivery), so a caller about to exit has actually ended the group.
+// SIGKILL delivery), so a caller about to exit has actually ended the group,
+// and the leader's stderr is rendered: up to drainCap more while a descendant
+// that left the group keeps stderr unread (an escaped writer outpacing the
+// pump looks the same as the leader's last lines, so finish waits the bound
+// out rather than drop them), and one drainCap past that when the pump is
+// blocked writing an adapter stderr nobody drains. Both are tested bounds
+// (native_stderr_test.go), the design and not a hang (D-205).
 func (p *JSONProcess) Close() error {
 	p.setErr(errors.New("native transport closed by the adapter"))
 	p.shutdownInput("close")

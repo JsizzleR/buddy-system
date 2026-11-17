@@ -21,6 +21,22 @@ base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
 
+ADAPTER_PREFIX = "buddy-adapter: "
+
+
+def adapter_said(text, needle):
+    """The adapter itself wrote `needle` on one of its own stderr lines: twin
+    of check-claude-gate.py's adapter_said (its comment says why), kept here
+    because this checker loads check-mixed-fleet.py. The stale resume's
+    stderr carries the version probe's native lines too (D-200), each
+    `native stderr: `-led, which never begins a line with ADAPTER_PREFIX.
+    Not a string is not evidence: check-mixed-fleet's Evidence.check does not
+    catch, so a null stderr crashed the checker without its verdict (Codex
+    code pass)."""
+    return isinstance(text, str) and any(v.startswith(ADAPTER_PREFIX) and needle in v[len(ADAPTER_PREFIX):]
+               for v in text.split("\n"))
+
+
 def evidence_paths(r):
     """Every original this checker reads (F-37: none was bound before). Repository
     objects are content-addressed already; ledgers and fetches are not."""
@@ -182,7 +198,7 @@ def validate(receipt):
             e.one(r["after_delayed"], "SELECT incarnation,state FROM claims WHERE slug='renewed-guard'") ==
             {"incarnation": r["renewed_identity"]["incarnation"], "state": "open"})
     e.check("stale_resume_before_native_launch", lambda: r["stale_resume"]["exit_code"] != 0 and
-            "logical session identity refused" in r["stale_resume"]["stderr"] and
+            adapter_said(r["stale_resume"]["stderr"], "logical session identity refused") and
             r["stale_resume"]["trace_before"] == r["stale_resume"]["trace_after"])
     e.check("closed_claims_and_children", lambda: not e.rows(r["ledger"], "SELECT claim_id FROM claims WHERE state='open'") and
             all(s["adapter_exit"] == 0 and not s["unparsed"] and s["native_child_exit"]["status"] == "observed_absent"
@@ -228,14 +244,24 @@ def self_test(receipt):
         (("stale_resume", "exit_code"), 0),
         (("stale_resume", "trace_after"), "wrong"),
         (("sessions", "successor", "native_child_exit", "status"), "unknown"),
+        # D-200's note: the refusal on a native line alone (the version probe's
+        # stderr rides in the same stream) is not the adapter saying it, bare
+        # or with the adapter's prefix spelled after the native one. Named, so
+        # the stale-resume check is what refuses it.
+        (("stale_resume", "stderr"), "native stderr: logical session identity refused\n",
+         "stale_resume_before_native_launch"),
+        (("stale_resume", "stderr"), "native stderr: " + ADAPTER_PREFIX + "logical session identity refused\n",
+         "stale_resume_before_native_launch"),
+        (("stale_resume", "stderr"), None, "stale_resume_before_native_launch"),
     ]
-    for path, value in changes:
+    for path, value, *check in changes:
         broken = copy.deepcopy(receipt)
         node = broken
         for key in path[:-1]:
             node = node[key]
         node[path[-1]] = value
-        if validate(broken)["passed"]:
+        verdict = validate(broken)
+        if verdict["passed"] or (check and verdict["checks"].get(check[0]) is not False):
             raise AssertionError("validator accepted broken evidence: " + repr(path))
     return {"positive": True, "rejected_mutations": len(changes)}
 
@@ -353,7 +379,7 @@ def synthetic(root):
          "renewed_identity": renewed,
          "before_delayed": s.ledger("before-delayed", claims=[guard]),
          "after_delayed": s.ledger("after-delayed", claims=[guard]),
-         "stale_resume": {"exit_code": 1, "stderr": "buddy-adapter: logical session identity refused\n",
+         "stale_resume": {"exit_code": 1, "stderr": "native stderr: codex-cli fixture\nbuddy-adapter: logical session identity refused\n",
                           "trace_before": "t-7", "trace_after": "t-7"}}
     r["ledger"] = s.ledger("final", sessions=[(renewed["session_id"], renewed["incarnation"], None)],
                            claims=[guard[:4] + ("released", "pass")], delivered=delivered_rows,

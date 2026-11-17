@@ -1195,7 +1195,7 @@ ledger row entered through the CLI (D-006).
 134. **A repository ledger that is a fleet's file DENIES (D-194, amends D-191's Open):** `openLedgerAt` and init refuse, before the open, a ledger or a sidecar (`-wal`, `-shm`, `-journal`, beside the resolved database) whose path, resolved by SQLite's own walk, lands directly in a directory of `$HOME/.buddy/fleets` (`os.SameFile`); an error, never `errNoLedger`. No check with `$HOME` empty or relative or the fleet home not stat-able as a directory: never a fleet-wide deny. `store.Open` percent-escapes its path (`%XX`, `?`, `#`). Only `repoLedgerFleetAlias` may name `fleetHomeRel` from a gate root; it names no store or sql selector. Do not propose: a post-open `MainFile` check (the open may migrate), or a deny on a fleet-home error.
 135. **Codex inspect: latest turn is progress, not state (D-197).** Do not propose: `thread/sample`. (full text: `CODEX_CHARTER=adapter`)
 136. **codex-review.sh: prompt on stdin, never argv (D-196).** Do not propose: argv. (full text: `CODEX_CHARTER=process`)
-137. **Native errors, ids handled at source (D-198, D-199, D-200, D-202).** Do not propose: sink fences. (full text: `CODEX_CHARTER=adapter`)
+137. **Native errors, ids handled at source (D-198, D-199, D-200, D-202, D-205).** Do not propose: sink fences. (full text: `CODEX_CHARTER=adapter`)
 138. **The ledger creates a session row only for an id `fence.ValidSessionID` admits, checked in hello's and `lifecycle begin`'s new-row arms alone (D-201).** A refresh, a revival, a lookup and the gate never check it. Do not propose: a migration, a gate-time check, or an alias recipe for a native id.
 
 ## Environment facts (measured, do not re-derive)

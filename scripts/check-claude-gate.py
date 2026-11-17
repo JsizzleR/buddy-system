@@ -70,7 +70,8 @@ BUILTIN_MODS = [{"name": "cc-plugin-agents-md", "path": "builtin", "source": "cc
                 {"name": "cc-plugin-plugin-authoring", "path": "builtin", "source": "cc-plugin-plugin-authoring@builtin"}]
 GATE_MATCHER = "^(Edit|Write|NotebookEdit)$"
 HEX64 = set("0123456789abcdef")
-CLOSE_PREFIX = "buddy-adapter: worker closed ("
+ADAPTER_PREFIX = "buddy-adapter: "
+CLOSE_PREFIX = ADAPTER_PREFIX + "worker closed ("
 
 
 class Evidence:
@@ -259,6 +260,24 @@ def proc_record(e, name, identity, receipt, executable, survivors=()):
             close["trigger"] == "close" and close["unattributable"] == "unknown" and close["unknown"] == [] and
             got == want and captured == want and close["ended"] == [] and
             close["group"].startswith("SIGTERM to group %d," % proc["leader"]["pgid"]))
+
+
+def adapter_said(text, needle):
+    """The adapter itself wrote `needle`, on one of its own stderr lines.
+
+    D-200 left the refusal checks matching the saved adapter.stderr by
+    substring, and that file carries the native child's lines too: a native
+    child (or its version probe) that printed the refusal text satisfied a
+    check the adapter never answered. Since D-200 every native line arrives
+    as `native stderr: ` plus the fenced line, so a native line never begins
+    with ADAPTER_PREFIX, even one that spells the prefix after its own; a
+    line that begins with it is the adapter's. Lines are split on "\n" only:
+    the pump and Go's Fprintln both end a record there, and splitlines'
+    other separators would cut an adapter line that quotes one into a
+    fragment. check-recovery.py keeps a twin (it loads
+    check-mixed-fleet.py, not this file)."""
+    return any(v.startswith(ADAPTER_PREFIX) and needle in v[len(ADAPTER_PREFIX):]
+               for v in text.split("\n"))
 
 
 def close_line(e, name, survivors=()):
@@ -808,7 +827,7 @@ def validate(r, receipt_path):
     e.check("managed_refusal", lambda: "allowManagedHooksOnly" in e.json(MANAGED + "result.json")["refusal"] and
             e.json(MANAGED + "result.json")["adapter_exit"] == 1 and e.absent(MANAGED + "worker.json") and
             [v.get("error") for v in e.json(MANAGED + "adapter-events.json")] == [e.json(MANAGED + "result.json")["refusal"]] and
-            e.json(MANAGED + "result.json")["refusal"] in e.text(MANAGED + "adapter.stderr") and
+            adapter_said(e.text(MANAGED + "adapter.stderr"), e.json(MANAGED + "result.json")["refusal"]) and
             e.sha(MANAGED + "claude-managed-fixture") == r["managed_hook_refusal"]["observer_sha256"] and
             observer_native(e, MANAGED + "claude-managed-fixture") == (str(native_path()), ["--managed-settings", '{"allowManagedHooksOnly":true}']) and
             e.json(MANAGED + "launch.json")["gate_command"] == parse_gate_case(e, MANAGED) and
@@ -1216,7 +1235,9 @@ def synthetic(root, tag, version=SYNTHETIC_VERSION):
     write(root, MANAGED + "launch.json", dict(launch, gate_command="'%s' hook --receipt '%s' --buddy '%s'" %
                                                (root / "bin/buddy-adapter", root / MANAGED / "worker.json", root / "bin/buddy")))
     write(root, MANAGED + "adapter-events.json", [dict(event("start"), error=refusal)])
-    write(root, MANAGED + "adapter.stderr", "buddy-adapter: " + refusal + "\n")
+    # A native line beside the adapter's own: the refusal check reads past it.
+    write(root, MANAGED + "adapter.stderr", "native stderr: warn: managed settings in force\n"
+                                            "buddy-adapter: " + refusal + "\n")
     write(root, MANAGED + "native-observations.jsonl", jsonl([{"type": "buddy_fixture_native_process", "pid": 401}]))
     managed = {"refusal": refusal, "adapter_exit": 1, "observer_sha256": sha_file(root / MANAGED / "claude-managed-fixture"),
                "cleanup_observation": {"status": "observed_absent", "observed_pids": [401], "remaining_or_unknown_pids": []}}
@@ -1241,6 +1262,16 @@ def synthetic(root, tag, version=SYNTHETIC_VERSION):
                      "checks": {k: True for k in (RENEWAL_CHECKS if qualified else UNQUALIFIED_RENEWAL_CHECKS)}}}
     write(root, "result.json", r)
     return r
+
+
+def native_refusal(root, name, spelled):
+    """Rewrite an adapter.stderr so its refusal line is a native one: the
+    adapter's own line becomes `native stderr: ` + `spelled` + the refusal."""
+    path = Path(root) / name
+    text = path.read_text()
+    if ADAPTER_PREFIX not in text:
+        raise AssertionError("no adapter line to make native in " + name)
+    write(root, name, text.replace(ADAPTER_PREFIX, "native stderr: " + spelled))
 
 
 def file_mutations(root, r):
@@ -1292,6 +1323,12 @@ def file_mutations(root, r):
         ("peer approval accepted", edit_json("adapter-events.json",
             lambda rows: [v.pop("error") for v in rows if v.get("request_id") == "peer-approval-refused"]), "peer_cannot_approve"),
         ("managed refusal captured identity", lambda: write(root, MANAGED + "worker.json", "{}"), "managed_refusal"),
+        # D-200's note: the refusal text on a native line alone is not the
+        # adapter saying it, bare or with the adapter's prefix spelled after
+        # the native one.
+        ("managed refusal only on a native line", lambda: native_refusal(root, MANAGED + "adapter.stderr", ""), "managed_refusal"),
+        ("managed refusal on a native line that spells the prefix",
+         lambda: native_refusal(root, MANAGED + "adapter.stderr", ADAPTER_PREFIX), "managed_refusal"),
         ("journal names another identity", edit_lines("worker.json.events",
             lambda rows: rows[1]["identity"].update(incarnation="other")), "captured_identity"),
         ("escaped descendant left running", edit_json("worker.json.proc",

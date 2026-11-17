@@ -145,3 +145,6 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     1,024, 64 KiB per child, drained past it; Close finishes it before the close report.
     Do not propose: the child on the adapter's descriptor; an io.Writer exec copies from
     (Wait then waits for an EOF an escaped holder withholds); a raw copy kept beside it.
+    A qualify checker counts an adapter refusal only after a `buddy-adapter: ` that begins
+    a line (`adapter_said`, D-205); Close waiting `drainCap` on an escaped writer is its
+    bound. Do not propose: a substring of the whole stderr; an earlier release there.

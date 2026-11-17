@@ -119,7 +119,7 @@ def validate(r, receipt_path):
         # the refusal names the inventory, and the adapter said so and exited 1.
         return (common and REFUSAL in start["error"] and c["refusal"] == start["error"] and c["exit_code"] == 1 and
                 e.absent(name + "/receipt.json") and not start["identity"]["session_id"] and
-                start["error"] in e.text(name + "/adapter.stderr") and
+                g.adapter_said(e.text(name + "/adapter.stderr"), start["error"]) and
                 g.proc_record(e, name + "/receipt.json.proc", None, receipt, observer))
     for name in ("builtin-admission", "observer-refused", "permissive-refused"):
         e.check(name, lambda name=name: admission(name))
@@ -242,7 +242,9 @@ def synthetic(root, tag):
             error = "initialize Claude streaming transport: " + REFUSAL
             start = {"operation": "start", "identity": {"schema": "", "harness": "", "session_id": "", "incarnation": ""},
                      "error": error}
-            g.write(root, name + "/adapter.stderr", "buddy-adapter: " + error + "\n")
+            # A native line beside the adapter's own: the refusal check reads past it.
+            g.write(root, name + "/adapter.stderr", "native stderr: warn: plugin directory loaded\n"
+                                                    "buddy-adapter: " + error + "\n")
             g.write(root, name + "/receipt.json.proc", g.proc_source(receipt, None, root / name / "claude-observer"))
             c.update(refusal=error, exit_code=1)
         else:
@@ -344,6 +346,12 @@ def file_mutations(root, r):
         # Added after a mutation run found these guards unexercised (2026-10-13).
         ("permissive Mod source changed and re-hashed", lambda: rehash_mod(root, r), "fixture_mods"),
         ("refused case captured a receipt", lambda: g.write(root, "observer-refused/receipt.json", "{}"), "observer-refused"),
+        # D-200's note: the refusal on a native line alone is not the adapter
+        # saying it, bare or with the adapter's prefix spelled after the native one.
+        ("refusal only on a native line", lambda: g.native_refusal(root, "observer-refused/adapter.stderr", ""),
+         "observer-refused"),
+        ("refusal on a native line that spells the prefix",
+         lambda: g.native_refusal(root, "permissive-refused/adapter.stderr", g.ADAPTER_PREFIX), "permissive-refused"),
         ("refusal without the Mod loaded, .proc agreeing", lambda: unload_mod(root, "permissive-refused"), "permissive-refused"),
         ("frames changed after hashing", lambda: g.write(root, "native-gate-control/native-frames.json",
             json.loads((root / "native-gate-control/native-frames.json").read_text()) + [{"type": "keep_alive"}]),
