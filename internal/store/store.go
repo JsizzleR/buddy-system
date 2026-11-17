@@ -430,6 +430,14 @@ type Store struct {
 	// write there and prove the two scans see one snapshot. nil in
 	// production.
 	betweenReads func()
+	// betweenClaimReads and betweenOwnerLoad are TEST SEAMS too, one per gap
+	// (issue #126): between claimsWhereQ's claim statement and its scope
+	// statement, and between OwnerOf's scope scan and its load of the claim it
+	// chose. A test lands a peer's write in the gap and proves the reader saw
+	// one snapshot. Separate fields because one placed at both would fire twice
+	// per OwnerOf and a peer's second write would refuse. nil in production.
+	betweenClaimReads func()
+	betweenOwnerLoad  func()
 }
 
 // Open opens (creating if needed) the ledger at dbPath. now==nil uses the wall clock.
@@ -911,6 +919,13 @@ type SessionInfo struct {
 	Started     time.Time
 	LastSeen    time.Time
 	Ended       time.Time // zero if live
+	// Missing says a claim names this session and the ledger has no row for
+	// it (issue #126): every other field but SessionID is a zero value, so
+	// Live() reads true and nothing here is a fact about the holder. Set only
+	// by claimsWhereQ. Nothing deletes a sessions row; a hand-edited ledger
+	// does, and the claim still refuses at every door, so a view or a deny
+	// that renders it must say the row is missing, never live or silent.
+	Missing bool
 }
 
 // ProcRef names a process well enough to tell a live one from a recycled
@@ -1794,11 +1809,20 @@ func (s *Store) Claims(includeClosed bool) ([]ClaimInfo, error) {
 	if includeClosed {
 		where = ``
 	}
-	return s.claimsWhere(where)
+	var out []ClaimInfo
+	err := s.readSnapshot(func(q querier) error {
+		var err error
+		out, err = claimsWhereQ(q, s.betweenClaimReads, where)
+		return err
+	})
+	return out, err
 }
 
-// claimsWhere lists claims matching a WHERE clause over c (claims) and ses
-// (sessions), with scopes attached.
+// claimsWhereQ lists claims matching a WHERE clause over c (claims) and ses
+// (sessions), with scopes attached, on q: the caller's read snapshot. Never call
+// it on s.db, and never call a snapshotting wrapper (Claims, ClaimsTouching) from
+// inside a snapshot: a nested readSnapshot takes a SECOND connection and a second
+// snapshot without any error, which is the tear back (concurrency panel, #126).
 //
 // Two queries, not 1+N: the scopes of every matching claim come back in one
 // statement keyed by the SAME where clause, then attach in Go. The earlier
@@ -1806,12 +1830,31 @@ func (s *Store) Claims(includeClosed bool) ([]ClaimInfo, error) {
 // claim_scopes until claim_scopes_claim existed. Scopes stay sorted by scope
 // within a claim, as the per-claim query sorted them — listings and the
 // commit gate's output are compared by eye and by tests.
-func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
-	rows, err := s.db.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed, c.shared, c.job_pid, c.job_born, c.job_boot,
-			ses.session_id, ses.incarnation, ses.label, ses.worktree, ses.pid, ses.started, ses.last_seen, COALESCE(ses.ended,0),
+//
+// ONE SNAPSHOT (issue #126). The move from 1+N to two statements ran them as two
+// autocommit reads, each its own WAL snapshot, so a peer committing between them
+// tore the pairing: a refresh (same claim id, REPLACED scopes) listed `desc-a`
+// with `desc-b`'s scopes, a release listed a claim open with no scopes, and a
+// `release --to` (same id, new owner) paired the old owner with the new holder's
+// scopes, which gh-stack's slot check reads as the CALLER holding the slot: a
+// verdict. Measured: 18 reads under one writer. This is #13's defect (D-023) come
+// back under a comment that still said it could not happen; the fix is the same
+// mechanism ClaimForecastWords already uses, not a new one.
+//
+// LEFT JOIN sessions (issue #126). An INNER JOIN dropped a claim whose session row
+// is absent, and OwnerOf read the zero rows as "not held": the gate ALLOWED what
+// the claim door (a LEFT JOIN, conflicts.go) refused. A claim refuses at every door
+// whether or not its holder has a row, so every reader loads it: the owner's id
+// comes from the claim row, every other owner column is COALESCEd to its zero
+// value (unixScan refuses a NULL), and Owner.Missing says which zeros are not
+// facts. Reached only by a hand-edited ledger today: nothing deletes sessions rows.
+func claimsWhereQ(q querier, between func(), where string, args ...any) ([]ClaimInfo, error) {
+	rows, err := q.Query(`SELECT c.claim_id, c.incarnation, c.slug, c.descr, c.state, c.created, c.renewed, c.shared, c.job_pid, c.job_born, c.job_boot,
+			c.session_id, COALESCE(ses.incarnation,''), COALESCE(ses.label,''), COALESCE(ses.worktree,''), COALESCE(ses.pid,0),
+			COALESCE(ses.started,0), COALESCE(ses.last_seen,0), COALESCE(ses.ended,0), ses.session_id IS NULL,
 			c.in_run, `+runSlugSQL("in_run")+`, `+runOpenSQL+`, c.based_on, `+runSlugSQL("based_on")+`,
 			COALESCE((SELECT p.label FROM sessions p WHERE p.session_id=c.producer_session),'')
-		FROM claims c JOIN sessions ses ON ses.session_id=c.session_id `+where+` ORDER BY c.created`, args...)
+		FROM claims c LEFT JOIN sessions ses ON ses.session_id=c.session_id `+where+` ORDER BY c.created`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1821,7 +1864,7 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 		var c ClaimInfo
 		if err := rows.Scan(&c.ClaimID, &c.Incarnation, &c.Slug, &c.Desc, &c.State, unixScan{&c.Created}, unixScan{&c.Renewed}, &c.Shared, &c.Job.PID, &c.Job.Born, &c.Job.Boot,
 			&c.Owner.SessionID, &c.Owner.Incarnation, &c.Owner.Label, &c.Owner.Worktree, &c.Owner.PID,
-			unixScan{&c.Owner.Started}, unixScan{&c.Owner.LastSeen}, unixScan{&c.Owner.Ended},
+			unixScan{&c.Owner.Started}, unixScan{&c.Owner.LastSeen}, unixScan{&c.Owner.Ended}, &c.Owner.Missing,
 			&c.InRun, &c.InRunSlug, &c.InRunOpen, &c.BasedOn, &c.BasedOnSlug, &c.Producer); err != nil {
 			return nil, err
 		}
@@ -1833,8 +1876,11 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 	if len(out) == 0 {
 		return nil, nil
 	}
-	srows, err := s.db.Query(`SELECT cs.claim_id, cs.scope FROM claim_scopes cs WHERE cs.claim_id IN
-			(SELECT c.claim_id FROM claims c JOIN sessions ses ON ses.session_id=c.session_id `+where+`)
+	if between != nil {
+		between()
+	}
+	srows, err := q.Query(`SELECT cs.claim_id, cs.scope FROM claim_scopes cs WHERE cs.claim_id IN
+			(SELECT c.claim_id FROM claims c LEFT JOIN sessions ses ON ses.session_id=c.session_id `+where+`)
 		ORDER BY cs.claim_id, cs.scope`, args...)
 	if err != nil {
 		return nil, err
@@ -1883,12 +1929,57 @@ func (s *Store) claimsWhere(where string, args ...any) ([]ClaimInfo, error) {
 // admits nobody (issue #65), and a shared one admits nobody (issue #66): the caller's
 // shared claim clears a shared hold (mineShared) and never an exclusive one. Only that run id reaches exempts below, with no inRun: this
 // door asks only whether the foreign claim yields to the caller, never the reverse.
+//
+// ONE SNAPSHOT, AND A CHOSEN CLAIM THAT DOES NOT LOAD DENIES (issue #126). The
+// scan picks an id and the load materializes it; as two autocommit reads, a
+// refresh or release between them named a claim whose printed scopes did not
+// cover the path, or one already released. Both now read one snapshot. The load
+// used to go through an INNER JOIN on sessions, so a claim whose session row was
+// absent loaded zero rows and the answer was "not held" while `buddy claim`
+// refused it; claimsWhereQ now LEFT JOINs. A chosen id that still loads anything
+// but one row is an ERROR, which every caller turns into a deny (invariant 2):
+// it is reachable (a claim_id stored as a BLOB joins in the scan and never equals
+// the TEXT the load binds, Fable panel), and whatever reaches it next must not
+// read as free. readSnapshot's own error is returned, never dropped:
+// TwoRemediesAt's `_ =` shape here would be a fail-open on a failed BEGIN.
 func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error) {
 	rel := fold(relPath)
-	rows, err := s.db.Query(`SELECT cs.folded, cs.claim_id, c.session_id, c.shared, c.in_run, ` + runOpenSQL + `, c.based_on FROM claim_scopes cs
-		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open'`)
+	var out ClaimInfo
+	var held bool
+	err := s.readSnapshot(func(q querier) error {
+		claimID, err := blockingClaim(q, rel, excludeSession)
+		if err != nil || claimID == "" {
+			return err
+		}
+		if s.betweenOwnerLoad != nil {
+			s.betweenOwnerLoad()
+		}
+		claims, err := claimsWhereQ(q, nil, `WHERE c.claim_id=?`, claimID)
+		if err != nil {
+			return err
+		}
+		if len(claims) != 1 {
+			return fmt.Errorf("claim %s covers %s but loaded %d rows, not 1; refusing rather than reading it as free", claimID, relPath, len(claims))
+		}
+		out, held = claims[0], true
+		return nil
+	})
 	if err != nil {
 		return ClaimInfo{}, false, err
+	}
+	return out, held, nil
+}
+
+// blockingClaim is OwnerOf's scan, on q: the id of the claim that stops rel
+// being edited by excludeSession, or "" when none does. Its rows close here, in
+// the function that opens them: a Rows left open when readSnapshot's fn returns
+// hangs conn.Close (measured, concurrency panel), and on the gate that is a hung
+// hook rather than a deny.
+func blockingClaim(q querier, rel, excludeSession string) (string, error) {
+	rows, err := q.Query(`SELECT cs.folded, cs.claim_id, c.session_id, c.shared, c.in_run, ` + runOpenSQL + `, c.based_on FROM claim_scopes cs
+		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open'`)
+	if err != nil {
+		return "", err
 	}
 	defer rows.Close()
 	type covering struct {
@@ -1904,7 +1995,7 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 		var c covering
 		var owner string
 		if err := rows.Scan(&c.folded, &c.id, &owner, &c.marks.shared, &c.marks.inRun, &c.marks.runOpen, &c.marks.basedOn); err != nil {
-			return ClaimInfo{}, false, err
+			return "", err
 		}
 		if !scopeCovers(c.folded, rel) {
 			continue
@@ -1919,7 +2010,7 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 		foreign = append(foreign, c)
 	}
 	if err := rows.Err(); err != nil {
-		return ClaimInfo{}, false, err
+		return "", err
 	}
 	exclusive, shared := "", ""
 	for _, c := range foreign {
@@ -1939,14 +2030,7 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 	if claimID == "" && !mineShared {
 		claimID = shared
 	}
-	if claimID == "" {
-		return ClaimInfo{}, false, nil
-	}
-	claims, err := s.claimsWhere(`WHERE c.claim_id=?`, claimID)
-	if err != nil || len(claims) == 0 {
-		return ClaimInfo{}, false, err
-	}
-	return claims[0], true, nil
+	return claimID, nil
 }
 
 // SessionByID returns the session row for id, if it exists. A point query for

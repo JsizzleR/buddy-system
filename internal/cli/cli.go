@@ -3210,7 +3210,7 @@ func writeClaimsList(b *strings.Builder, claims []store.ClaimInfo, si store.Sess
 	var order []int
 	for i, c := range claims {
 		mark := h.judge(now, c).helloMark(now) // the holder's, not the renewal's (D-090)
-		owner := c.Owner.Label
+		owner := holderName(c.Owner)
 		if c.Owner.SessionID == si.SessionID {
 			owner = "YOU"
 			order = append(order, i)
@@ -3796,6 +3796,11 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) string
 			loc = fmt.Sprintf("%s (in %s)", rel, where)
 			suffix = " — in the TARGET repo's buddy ledger"
 		}
+		// The holder as the deny names it. One whose session row is MISSING
+		// (issue #126: a hand-edited ledger; OwnerOf now loads it) has no label,
+		// and an empty label printed "claimed by session  (slug ...": nobody named.
+		// Its id, from the claim row, is what every other door names it by.
+		holder := fence.Line(holderName(c.Owner), fence.SessionIDCap)
 		// A SHARED hold refuses only a session that has not joined it (D-042),
 		// so its deny names the one move that clears it, and the residual the
 		// word "shared" does not remove. Unless a rider refuses that move (issue #67):
@@ -3806,9 +3811,15 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) string
 			if stuck := st.TwoRemediesAt(h.SessionID, rel); len(stuck) > 0 {
 				advice = gateStuckWords(stuck, where)
 			}
+			// A shared hold whose holder has no row still admits a claim alongside
+			// it, so the advice stands; what it lacked was that nothing frees the
+			// claim itself until the operator acts (Codex code pass, #126).
+			if c.Owner.Missing {
+				advice += " Its holder's session row is MISSING from the ledger, so nobody will answer: ask the operator to free it with " + missingRemedy(c.Owner.SessionID) + "."
+			}
 			return fmt.Sprintf("%s is inside scope %q claimed SHARED by session %s (slug %q: %s)%s. %s",
 				fence.Line(loc, 512), scopeList(c.Scopes),
-				fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, advice)
+				holder, fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, advice)
 		}
 		// permissionDecisionReason is shown to the model on every deny, so it
 		// is a context-injection sink like the digest above.
@@ -3836,12 +3847,16 @@ func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) string
 		// sessions share cannot tell who is calling, and `sweep --force` frees
 		// only a holder silent past ForceAfter.
 		remedy := "A holder that has said bye is freed by any session's `buddy claim` or a plain `buddy sweep`; one that went silent needs the operator's `buddy release <slug> --session <its id>`, or `buddy sweep --force` once it is silent 24h."
-		if readHolders(env, st).state(nowOf(env), c.Owner) == holderGone {
+		switch readHolders(env, st).state(nowOf(env), c.Owner) {
+		case holderGone:
 			remedy = "Its holder's harness process is GONE, so it will not answer: ask the operator to free it with " + byeRemedy(c.Owner.SessionID) + "."
+		case holderMissing:
+			// Neither remedy above frees it: both need the row (issue #126).
+			remedy = "Its holder's session row is MISSING from the ledger, so nobody will answer: ask the operator to free it with " + missingRemedy(c.Owner.SessionID) + "."
 		}
 		return fmt.Sprintf("%s is inside scope %q claimed by session %s (slug %q: %s)%s.%s Coordinate or claim different scopes. %s",
 			fence.Line(loc, 512), scopeList(c.Scopes),
-			fence.Line(c.Owner.Label, 64), fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, parked, remedy)
+			holder, fence.Line(c.Slug, 128), fence.Line(c.Desc, 512), suffix, parked, remedy)
 	}
 	return ""
 }
@@ -4801,7 +4816,13 @@ func cmdLs(args []string, env Env) error {
 		// STALE when the HOLDER is quiet (D-090). An unrenewed claim of a
 		// live holder prints plain: the age column beside it is the renewal.
 		state := c.State
-		if h.judge(now, c).kind == staleQuiet {
+		owner := fence.Field(holderName(c.Owner), fence.SessionIDCap)
+		switch {
+		case c.Owner.Missing:
+			// No label to print and no age to call stale (#126, Codex code pass):
+			// the id names it, and `whose` carries the remedy.
+			state += " MISSING"
+		case h.judge(now, c).kind == staleQuiet:
 			state += " STALE"
 		}
 		// Slug, label, scopes and desc are peer-controlled free text, and ls
@@ -4810,7 +4831,7 @@ func cmdLs(args []string, env Env) error {
 		// with a newline fabricated a claim row in every other session's
 		// listing (invariant 9).
 		fmt.Fprintf(env.Stdout, "%-24s %-24s %-14s %6s  %s%s%s — %s\n",
-			fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), state, age(now, c.Renewed),
+			fence.Field(c.Slug, 128), owner, state, age(now, c.Renewed),
 			sharedWord(c.Shared), parkWords(c), scopeList(c.Scopes), fence.Line(c.Desc, 512))
 	}
 	return nil

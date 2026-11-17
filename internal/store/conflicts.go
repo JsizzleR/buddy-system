@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strings"
@@ -368,7 +369,17 @@ func (q connQuerier) Query(query string, args ...any) (*sql.Rows, error) {
 // in WAL mode: it pins a snapshot, blocks no writer and is blocked by none.
 // database/sql's Begin cannot do this here, because the DSN's
 // _txlock=immediate makes every driver-level BEGIN take the write lock.
-func (s *Store) readSnapshot(fn func(q querier) error) error {
+//
+// THE COMMIT'S ERROR IS READ (issue #126). It was a bare deferred Exec. A
+// connection whose read transaction did not end goes back to database/sql's pool
+// still pinned to its snapshot, and the driver's session reset checks only its
+// interrupt state, so every later plain read on it sees the frozen past and its
+// writes fail SQLITE_BUSY_SNAPSHOT (measured, concurrency panel, by returning a
+// conn without COMMIT). Since the gate's OwnerOf reads through here, a failed
+// COMMIT is now this call's error (the gate denies) and the connection is
+// discarded, never pooled. No COMMIT failure of a WAL read transaction is known;
+// this is the guard, not a fix of an observed one.
+func (s *Store) readSnapshot(fn func(q querier) error) (err error) {
 	ctx := context.Background()
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
@@ -376,13 +387,28 @@ func (s *Store) readSnapshot(fn func(q querier) error) error {
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, `BEGIN DEFERRED`); err != nil {
+		discardConn(conn)
 		return err
 	}
 	// A read transaction has nothing to roll back, but ending it releases
 	// the snapshot; COMMIT and ROLLBACK are equivalent here and COMMIT is
-	// what a reader expects to see.
-	defer conn.ExecContext(ctx, `COMMIT`)
+	// what a reader expects to see. fn's rows must be closed by now: an open
+	// Rows makes conn.Close wait for it.
+	defer func() {
+		if _, cerr := conn.ExecContext(ctx, `COMMIT`); cerr != nil {
+			discardConn(conn)
+			if err == nil {
+				err = fmt.Errorf("ending a read snapshot: %w", cerr)
+			}
+		}
+	}()
 	return fn(connQuerier{conn})
+}
+
+// discardConn makes database/sql close conn instead of pooling it: a driver
+// connection answering ErrBadConn is never reused.
+func discardConn(conn *sql.Conn) {
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 }
 
 // ErrScopeNotHeld says a partial release named a scope the claim does not hold
@@ -560,10 +586,16 @@ func (s *Store) ClaimsTouching(relPath string) ([]ClaimTouch, error) {
 	// `CLAIMED BY api-work` with `scopes: docs`: a claim reported as covering a
 	// path whose recorded scopes do not cover it, or a released claim rendered
 	// as held. Reading every open claim once and matching against the scopes
-	// that came back with it cannot disagree with itself, and it is the same
-	// consistency `buddy ls` already has rather than a new class of read.
+	// that came back with it is the same consistency `buddy ls` has.
+	//
+	// It held only while the read WAS one snapshot. claimsWhere's later move from
+	// 1+N queries to two ran them as two autocommit reads, and this comment kept
+	// saying the read "cannot disagree with itself" while it did (issue #126):
+	// both now run in readSnapshot (Claims). gh-stack's slot check reads this, and
+	// a `release --to` between the two statements paired the old owner with the
+	// slot scope: the caller admitted to a slot another session held.
 	rel := fold(relPath)
-	all, err := s.claimsWhere(`WHERE c.state='open'`)
+	all, err := s.Claims(false)
 	if err != nil {
 		return nil, err
 	}

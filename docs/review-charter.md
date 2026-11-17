@@ -202,7 +202,7 @@ ledger row entered through the CLI (D-006).
     both annotate an unrenewed claim by its HOLDER (D-090, GIVEN 91), and a refusal prints
     the whole set even when there is only one conflict.
 
-27. **`buddy whose <path>` reports the claim registers first, then `DIRTY IN` (D-023).**
+27. **`buddy whose <path>` reports the claim registers first, then `DIRTY IN` (D-023, D-211).**
     `CLAIMED BY` is invariant 14 containment and the relation the gate reads; `HELD UNDER`
     is a claim on a path inside the one asked about and reserves nothing about it — they
     are kept apart on purpose. The claim lookup consults NO FILESYSTEM (a claim under a

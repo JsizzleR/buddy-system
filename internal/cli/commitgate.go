@@ -306,7 +306,7 @@ func cmdCommitGate(args []string, env Env) int {
 		}
 		c := g.claim
 		fmt.Fprintf(w, "      claim %q held by %s (%s)\n", fence.Line(c.Slug, 128),
-			fence.Line(c.Owner.Label, 64), h.gateHolder(now, c))
+			fence.Line(holderName(c.Owner), fence.SessionIDCap), h.gateHolder(now, c))
 		fmt.Fprintf(w, "      scope %s%s — %s\n\n",
 			sharedWord(c.Shared), scopeList(c.Scopes), fence.Line(c.Desc, 512))
 	}

@@ -16223,3 +16223,147 @@ alone; `buddy sessions` without `--all` hides a lane whose process died, the cra
 - GIVEN: 34 (amended)
 - code: `internal/cli/cli.go` (`flagRegion`, `isFlagSpelling`, `parseFlags`, `cmdMsg`, `cmdRelease`), `internal/store/wait.go` (`whyNoOpenClaim`)
 - docs: USAGE's opening paragraph, "Messages", "One long run closes out several sessions"; core skill's LANDED step
+
+## D-211 — Every claim reader reads ONE snapshot, and a claim whose holder has no session row holds at every door: `claimsWhere` runs its two statements in `readSnapshot` and LEFT JOINs sessions; `OwnerOf` scans and loads in one snapshot, and a chosen claim that does not load is an error (the gate denies); `readSnapshot` reports its COMMIT; a missing holder is said as MISSING with the one recipe that frees it (amends D-023)
+
+2026-11-17 · issue #126 · run r1117c, full tier, lane claims-snapshot. The operator, in
+orc-5's pane at about 19:40Z: "sounds good", to running the audit's code issues as full-tier
+lanes; orc-5's GO on the design (#1535) and its cli.go sequencing (#1539); rebased onto 6fb58ac at
+orc-6's word (#1551). No schema change:
+the ledger stays at 20. The gate's verdict changes only where the claim door already refused
+(below); `internal/fence` and the invariants are untouched.
+
+**What was wrong** (reproduced at 39c0c92, the issue's recovered tests). `claimsWhere` read
+claims and then their scopes as two autocommit statements, each its own WAL snapshot, through
+an INNER JOIN on sessions. (1) A peer committing between them tore the pairing: one writer
+alternating a refresh tore `Claims()` within 18 reads (`desc-a scopes=b`); a release listed a
+claim OPEN with no scopes. This is D-023's (#13) defect back: the 1+N to 2-query move kept the
+comment saying the read "cannot disagree with itself". (2) `OwnerOf` chose a blocking claim in
+a scan with no sessions join, then loaded it through `claimsWhere`; a claim whose session row
+is absent loaded zero rows and the answer was "not held": the gate ALLOWED what `buddy claim`
+(a LEFT JOIN since D-026) refused. Its second form: a dangling shared claim chosen first hid a
+LIVE shared claim of a third session. Reached only by a hand-edited ledger: nothing deletes a
+sessions row.
+
+**What the audit and the reviews found beyond the issue.** (a) gh-stack's slot check
+(`ghStackSlotHeld`) is a VERDICT read through `ClaimsTouching`, and `release --to` keeps the
+claim id and changes its owner (transfer.go): a hand-on and a re-claim landing between the two
+statements paired the OLD owner with the new holder's slot scope, so the caller was admitted to
+a slot another session held (Codex design pass; the invariants lens). (b) A third fail-open with
+a LIVE owner (Fable lens): a `claim_id` stored as a BLOB joins blob-to-blob in the scan and never
+equals the TEXT the load binds, so the load misses and the old code read "free"; the door refused.
+(c) `readSnapshot` discarded its deferred COMMIT's error; a connection returned to the pool still
+inside its read transaction serves a frozen snapshot to every later plain read and fails writes
+with SQLITE_BUSY_SNAPSHOT (measured by the concurrency lens by pooling one without COMMIT; the
+driver's session reset checks only its interrupt state). No COMMIT failure of a WAL read is known.
+(d) The issue's "a release between scan and load reads as free" is wrong: the load has no state
+filter, so it loads the RELEASED row and the gate denies naming it (wording, not a verdict; both
+lenses and Codex).
+
+**Decided.**
+- `claimsWhereQ(q, between, where, args)` runs both statements on the caller's querier;
+  `Claims` and `ClaimsTouching` call it inside `readSnapshot` (the mechanism ClaimForecastWords
+  already uses: a hand-issued BEGIN DEFERRED on one connection pins the snapshot at the first
+  read and blocks no writer). It is never called on `s.db` and never from inside a snapshot
+  through a snapshotting wrapper: a nested `readSnapshot` takes a second pooled connection and a
+  second snapshot without any error (measured), which is the tear back.
+- `OwnerOf`'s scan (`blockingClaim`, its Rows closed in the function that opens them: an open
+  Rows when fn returns hangs `conn.Close`, measured 3 s, and on the gate that is a hung hook) and
+  its load run in ONE snapshot, and `readSnapshot`'s error is returned (TwoRemediesAt's `_ =`
+  shape there would read a failed BEGIN as free). A chosen id that loads anything but one row is
+  an ERROR, which every caller already turns into a deny (`denyIfHeld`, the commit gate's
+  `commitGateBroken`, gh-stack): invariant 2.
+- Both statements LEFT JOIN sessions; the owner's id comes from the claim row, every other owner
+  column is COALESCEd to its zero value (`unixScan` refuses a NULL, so one dangling row would
+  otherwise fail every view), and `SessionInfo.Missing` (`ses.session_id IS NULL`, SELECT-only)
+  says which zeros are not facts.
+- `readSnapshot` reads COMMIT's error: it becomes the call's error, and the connection is
+  discarded (`conn.Raw` answering `driver.ErrBadConn`), never pooled.
+- Views and denies (`holders.state` gains `holderMissing`, checked before `!Live()`): a missing
+  holder is "session row MISSING from the ledger", whatever the claim's age (a fresh renewal
+  otherwise printed a plain row), never "live", "SILENT" or STALE-by-age, and the remedy named is
+  the one a test RUNS and watches free the claim: `buddy hello --session <id> </dev/null`, then
+  `buddy bye <id>`, then a plain `buddy sweep` (a hand-run hello writes the row back, a plain bye
+  ends it since no process is registered, a plain sweep orphans an ended session's claims),
+  and, when the holder's harness still runs (its `session_procs` rows outlive the deleted row,
+  so the plain bye refuses), that the holder is alive: ask it, or `buddy bye <id> --force`
+  (Fable cross-check, run as named). An id that does not paste back is one hello refuses too
+  (D-201), so that arm names no recipe.
+  `sweep --force` and `release --session <id>` are never named: both need the row, and the
+  panel watched each free nothing. `conflictNotes` matches a missing holder by the session id the
+  refusal names it by (labelOf's fallback), not the empty label.
+- gh-stack admits the caller's own covering claim only when its session row exists: with the
+  LEFT JOIN, matching the claim's session id alone turned today's deny for a caller with no row
+  (the claim door: "not live; run buddy hello first") into an allow (Codex, Fable).
+- A missing holder is NAMED by its session id (`holderName`) wherever a label went: the
+  gate's deny (both arms; the SHARED arm also gains the MISSING words, its claim-alongside advice
+  still true), the commit gate, gh-stack's deny, `whose` and `ls` (state `open MISSING`) and
+  the hello digest; an empty label had printed "claimed by session  (" with nobody named.
+
+**Verdict changes, all toward the claim door's answer.** A path under a claim whose holder has no
+row: gate and commit gate allowed, now deny. A BLOB-id claim: allowed, now denied as a ledger read
+failure. gh-stack: the transfer tear's allow is gone; a caller's own slot claim with no row stays
+denied. Nothing that was denied is now allowed.
+
+**Latency** (the invariants lens, private copy): `readSnapshot` costs about 1.4 us a call;
+`OwnerOf` over 50 claims and 150 scopes measured 0.35-0.5 ms a path before and after, inside
+run-to-run noise; BEGIN DEFERRED takes no lock and the first SELECT the same WAL read mark a bare
+SELECT does, so no new writer contention. A 500-path commit gate was already ~0.2 s (one full
+`claim_scopes` scan per path); it gains ~0.7 ms.
+
+**Open, recorded and not changed.** (1) The caller's OWN claim whose session row is gone still
+clears a peer's shared hold at the gate (OwnerOf reads ownership from the claim row; the claim
+door says the caller is not live). Pinned by `TestOwnDanglingSharedStillClearsASharedHold` so a
+refactor cannot move it silently. (2) The commit gate reads one snapshot per staged path, so a
+refresh mid-loop groups later paths under the first-loaded claim's scopes: wording only, each
+path's verdict true at its instant. (3) Inner joins on sessions that are not verdicts:
+`orphanedFrom`, the label check's live-slug test (label.go), `dirtyWhere` (observations,
+invariant 10). (4) `runOpenSQL` reads a run whose holder has no row as CLOSED, so its riders
+yield to nobody and their declarations wake, as for an ended run-holder; `declaredRun` still calls
+it open in `--based-on`'s note (wording). (5) The COMMIT-failure discard is a guard with no known
+trigger; its test forces the failure by ending the transaction inside fn and watches the
+connection close. (6) `buddy claim --dry-run` against a missing holder still prints `to be told
+when it frees: buddy wait --on <slug>`, and that wait fails `sql: no rows in result set` (a
+refusal, raw words); `who <slug>`/`msg <slug>` say it is not an open slug; a wait target's holder
+carries no Missing flag (Fable cross-check; outside this diff). (7) A claim whose `session_id` is
+stored as a BLOB: the claim door (SQL `=`) counts it the caller's, OwnerOf (a Go `==`) does not,
+so the gate holds where the door would not refuse: the safe direction, pre-existing, same
+hand-edit class as the BLOB claim id (Fable). (8) "Never call claimsWhereQ on s.db" is a comment,
+not a type: `*sql.DB` satisfies `querier`, and typing it would reach every `readSnapshot` caller;
+each of today's three readers has a seam test that dies on it (mutations M1-M3).
+
+**Test shape.** `internal/store/claimsnapshot_test.go`: `TestClaimReadersSeeOneSnapshot`, 3
+readers (Claims, ClaimsTouching, OwnerOf) x 4 peer writes landed IN the gap by two new per-gap
+seams (`betweenClaimReads`, `betweenOwnerLoad`; separate because one field at both fires twice
+per OwnerOf) through a second Store handle: refresh, release, hand-on then refresh, hand-on to
+the reader. Each asserts the WHOLE pre-write claim (desc, state, owner, scopes; `held` alone passes
+on the torn code), that its seam fired once, and that a read after sees the write.
+`TestADanglingClaimHoldsAtEveryReader` (both forms, controls before the delete),
+`TestAChosenClaimThatDoesNotLoadRefuses` (the BLOB id; control: TEXT id held),
+`TestOwnerOfReturnsASnapshotFailure` (closed Store), `TestReadSnapshotReportsItsCommit`, and the
+residual pin. `internal/cli/claimsnapshot_test.go`: `TestAMissingSessionRowHoldsAndItsRemedyFreesIt`
+(gate, claim refusal, `whose`, commit gate; control: a holder with a row is never MISSING; then
+runs the named remedy and the edit is allowed) and `TestGHStackSlotNeedsTheCallersRow` (control:
+admitted with its row). The issue's 20 s timing repro is not kept: on fixed code it runs its full
+deadline, and it could pass vacuously.
+
+**Mutations** (private rsync'd copies, each run under the memory gate): 18 of 18
+killed, none failing to build. Store: Claims outside the snapshot; OwnerOf's load, and its scan,
+outside it; each statement's JOIN made INNER on its own; the zero-row guard read as free; OwnerOf
+dropping readSnapshot's error; COMMIT's error ignored; Missing never set; COALESCE dropped on
+`last_seen`. Cli: gh-stack admitting a Missing own claim; `holderMissing` dropped from `state`;
+`judge` ignoring Missing on a fresh claim; `conflictNotes` matching the empty label; denyIfHeld's
+remedy arm, its id-for-label, its SHARED arm's words; `ls`'s MISSING. After the Fable cross-check
+found `discardConn` unwatched (its mutant survived), `TestReadSnapshotReportsItsCommit` asserts
+the connection closes.
+
+**Reviews.** A three-lens panel on the design note (concurrency and invariants/latency on Opus
+5.5, the fail-open door on Fable 5.2: 29 raised, 11 reproduced in private copies) found the BLOB
+id, the gh-stack verdict, the false remedies, the COMMIT discard, the open-Rows hang and the
+nested-snapshot slip, and corrected the audit's "release reads as free". The Codex design pass
+(xhigh: 5 raised, 4 fixed, 1 answered: the audit correction) found the gh-stack transfer tear and
+required the Missing rendering. The Codex code pass (xhigh: 2 raised, 2 fixed): the SHARED deny
+and `ls`. The Fable cross-check (8 raised, 4 fixed, 4 answered: open items 6-8 above and the
+entry itself) found the live-process remedy, four unnamed render sites, the unwatched discard and
+an uncontrolled pin; 3 s of one writer and three readers on two handles tore 0 of 33,844 reads.
+Codex re-verify round 1 (xhigh: 0 raised) confirmed the five folds; round 2 was not needed.

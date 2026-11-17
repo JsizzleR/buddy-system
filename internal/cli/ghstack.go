@@ -361,7 +361,12 @@ func ghStackSlotHeld(st *store.Store, h hookInput, env Env, sub, where string) s
 		if !touching[i].Covers {
 			continue // a claim UNDER the slot reserves nothing of it
 		}
-		if h.SessionID != "" && touching[i].Claim.Owner.SessionID == h.SessionID {
+		// The caller's own claim admits only when its session row exists (issue
+		// #126). ClaimsTouching now LEFT JOINs sessions, so a claim whose row is
+		// gone carries the claim's own session id: matching on that alone would
+		// turn today's deny for a caller with no row (the claim door says "not
+		// live; run buddy hello first") into an allow (Codex design pass, Fable).
+		if h.SessionID != "" && touching[i].Claim.Owner.SessionID == h.SessionID && !touching[i].Claim.Owner.Missing {
 			return ""
 		}
 		if holder == nil {
@@ -382,7 +387,7 @@ func ghStackSlotHeld(st *store.Store, h hookInput, env Env, sub, where string) s
 		// the only peer text here, each fenced, all on this one line
 		// (invariant 9).
 		fmt.Fprintf(&b, "%s is held by session %s (slug %q: %s; %s)%s. When it is free: buddy claim gh-stack --desc \"<what, and when you release>\" --scope %s",
-			ghStackSlot, fence.Line(holder.Owner.Label, 64), fence.Line(holder.Slug, 128), fence.Line(holder.Desc, 512),
+			ghStackSlot, fence.Line(holderName(holder.Owner), fence.SessionIDCap), fence.Line(holder.Slug, 128), fence.Line(holder.Desc, 512),
 			ghSlotHolder(env, st, *holder), in, ghStackSlot)
 	}
 	if where != "" {
@@ -421,6 +426,8 @@ func ghSlotHolder(env Env, st *store.Store, c store.ClaimInfo) string {
 		release = "buddy release " + shellQuote(c.Slug) + " --session " + p
 	}
 	switch readHolders(env, st).state(now, c.Owner) {
+	case holderMissing:
+		return "session row MISSING from the ledger — nobody will answer; ask the operator: " + missingRemedy(c.Owner.SessionID)
 	case holderEnded:
 		return "session ENDED — nobody will answer; your own buddy claim displaces it"
 	case holderGone:

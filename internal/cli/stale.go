@@ -54,6 +54,12 @@ const (
 	holderEnded                     // the session said bye
 	holderGone                      // it registered processes and none of them exists any more
 	holderSilent                    // not seen past StaleAfter
+	// holderMissing: the claim names a session the ledger has no row for
+	// (issue #126; only a hand-edited ledger does this). Checked FIRST: the row's
+	// zero values read as live (no end time) and silent (no last-seen), and the
+	// remedies those arms name free nothing here (`sweep --force` and
+	// `release --session` both need the row: measured by the panel).
+	holderMissing
 )
 
 // staleKind is the judgement on one claim.
@@ -99,6 +105,8 @@ func readHolders(env Env, st *store.Store) holders {
 // is a session that is still there (the roster prints both).
 func (h holders) state(now time.Time, si store.SessionInfo) holderState {
 	switch {
+	case si.Missing:
+		return holderMissing
 	case !si.Live():
 		return holderEnded
 	case h.allGone(si.SessionID):
@@ -127,6 +135,13 @@ func (h holders) allGone(sessionID string) bool {
 func (h holders) judge(now time.Time, c store.ClaimInfo) staleness {
 	s := staleness{session: c.Owner.SessionID, renewed: c.Renewed, seen: c.Owner.LastSeen,
 		ended: c.Owner.Ended, holder: h.state(now, c.Owner)}
+	// A holder with no session row is said whatever the claim's age: a claim
+	// renewed a minute ago otherwise prints as a plain row, and nothing would
+	// say its holder does not exist (Codex design pass, #126).
+	if c.State == "open" && s.holder == holderMissing {
+		s.kind = staleQuiet
+		return s
+	}
 	// The zero-clock guard (issue #13): an unrecorded renewal is not 56
 	// years old, and "unknown" is not "abandoned".
 	if c.State != "open" || c.Renewed.IsZero() || now.Sub(c.Renewed) <= store.StaleAfter {
@@ -157,6 +172,8 @@ func slotClaim(scopes []string) bool {
 // holderPhrase says what the ledger knows about a quiet or live holder.
 func (s staleness) holderPhrase(now time.Time) string {
 	switch s.holder {
+	case holderMissing:
+		return "holder's session row is MISSING from the ledger"
 	case holderEnded:
 		return "holder ENDED " + age(now, s.ended) + " ago"
 	case holderGone:
@@ -199,6 +216,37 @@ func byeRemedy(session string) string {
 	return bye + ", then a plain buddy sweep"
 }
 
+// missingRemedy names what frees a claim whose holder has no session row
+// (issue #126): a hand-run hello writes the row back, a plain bye ends it (no
+// process is registered, so nothing refuses), and a plain sweep orphans an
+// ended session's claims. TestAMissingSessionRow runs exactly this and watches
+// the claim go. `sweep --force` and `release --session` are never named: both
+// need the row, and the panel watched each free nothing.
+//
+// A bye REFUSED because a process the holder registered still runs (its
+// session_procs rows outlive the deleted sessions row) means the holder is
+// alive: the words say so and name its two exits, asked or forced (Fable
+// cross-check, run as named). An id that does not paste back is one hello
+// refuses too (D-201), so that arm names no recipe at all.
+func missingRemedy(session string) string {
+	if p, ok := pasteID(session); ok {
+		return "buddy hello --session " + p + " </dev/null, then buddy bye " + p + ", then a plain buddy sweep" +
+			" (a bye refused because its process still runs means the holder is alive: ask it to release, or end it with buddy bye " + p + " --force)"
+	}
+	return "nothing a verb can do from here (its id cannot be pasted back as printed, and buddy hello refuses it)"
+}
+
+// holderName is a claim holder as a sentence or column names it: its label, or,
+// when its session row is MISSING (issue #126), its session id, since it has no
+// label and an empty one printed "held by  (" with nobody named. Raw: every
+// caller fences it for its own slot.
+func holderName(o store.SessionInfo) string {
+	if o.Missing {
+		return o.SessionID
+	}
+	return o.Label
+}
+
 // refusalNote is the tail of a REFUSED line (claim and dry run). It names
 // what to do, because that is what issue #18 found missing: a blocked
 // session could not tell "somebody is working on this" from "somebody left".
@@ -207,6 +255,9 @@ func byeRemedy(session string) string {
 func (s staleness) refusalNote(now time.Time, msgTarget string) string {
 	switch s.kind {
 	case staleQuiet:
+		if s.holder == holderMissing {
+			return fmt.Sprintf("  — %s; it still refuses, so ask the operator: %s", s.holderPhrase(now), missingRemedy(s.session))
+		}
 		if s.holder == holderGone {
 			return fmt.Sprintf("  — STALE: claim unrenewed %s, %s; it still refuses, so ask the operator: %s",
 				age(now, s.renewed), s.holderPhrase(now), byeRemedy(s.session))
@@ -230,6 +281,9 @@ func (s staleness) refusalNote(now time.Time, msgTarget string) string {
 func (s staleness) rowNote(now time.Time) string {
 	switch s.kind {
 	case staleQuiet:
+		if s.holder == holderMissing {
+			return fmt.Sprintf("  (%s; still refuses — ask the operator: %s)", s.holderPhrase(now), missingRemedy(s.session))
+		}
 		if s.holder == holderGone {
 			return fmt.Sprintf("  STALE (claim unrenewed %s, %s; still refuses — ask the operator: %s)", age(now, s.renewed), s.holderPhrase(now), byeRemedy(s.session))
 		}
@@ -278,7 +332,15 @@ func conflictNotes(env Env, st *store.Store, conflicts []store.Conflict, now tim
 	out := make([]string, len(conflicts))
 	for i, cf := range conflicts {
 		c, ok := bySlug[cf.Slug]
-		if !ok || c.Owner.Label != cf.Claimant || (cf.Session != "" && c.Owner.SessionID != cf.Session) {
+		// A holder with no session row has no label to match, and the refusal
+		// names it by its session id (labelOf's fallback), so that is its name
+		// here; matching the empty label instead dropped it to the renewal-only
+		// wording, which never says the row is missing (issue #126).
+		name := c.Owner.Label
+		if c.Owner.Missing {
+			name = c.Owner.SessionID
+		}
+		if !ok || name != cf.Claimant || (cf.Session != "" && c.Owner.SessionID != cf.Session) {
 			out[i] = renewalOnlyNote(now, cf.Renewed)
 			continue
 		}
@@ -331,6 +393,8 @@ func msgTargetFor(st *store.Store, slug, holder string) string {
 // but SILENT for 1m" (D-090).
 func (h holders) gateHolder(now time.Time, c store.ClaimInfo) string {
 	switch h.state(now, c.Owner) {
+	case holderMissing:
+		return "session row MISSING from the ledger — nobody will answer; ask the operator: " + missingRemedy(c.Owner.SessionID)
 	case holderEnded:
 		return "session ENDED — nobody will answer; a plain `buddy sweep` releases it"
 	case holderGone:

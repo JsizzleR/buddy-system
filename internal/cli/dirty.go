@@ -625,7 +625,7 @@ func printClaimRows(env Env, prefix string, claimed []store.ClaimTouch, now time
 		// refusal and the dry run both say it still refuses; so must this.
 		stale := h.judge(now, c).rowNote(now)
 		fmt.Fprintf(env.Stdout, "%s %-24s %-24s held %s%s\n",
-			prefix, fence.Field(c.Slug, 128), fence.Field(c.Owner.Label, 64), age(now, c.Created), stale)
+			prefix, fence.Field(c.Slug, 128), fence.Field(holderName(c.Owner), fence.SessionIDCap), age(now, c.Created), stale)
 		fmt.Fprintf(env.Stdout, "             %s%sscopes: %s\n", sharedWord(c.Shared), parkWords(c), scopeList(c.Scopes))
 	}
 	if extra > 0 {
