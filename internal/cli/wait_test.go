@@ -329,7 +329,17 @@ func TestWaitDeclareSaysWhomToAsk(t *testing.T) {
 func TestWaitAskNeverPastesABroadcast(t *testing.T) {
 	boundedParallel(t)
 	w := newWaitFx(t)
-	w.helloIn(t, w.repo, "all", "allie")
+	// The ledger no longer registers the id `all` (D-201): the row is an
+	// older binary's, seeded as that binary would have written it.
+	w.helloIn(t, w.repo, "allie-seed", "allie")
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(w.repo, ".git", "buddy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE sessions SET session_id='all' WHERE session_id='allie-seed'`); err != nil {
+		t.Fatal(err)
+	}
 	w.ok(t, "all", "claim", "zeta", "--desc", "x", "--scope", "internal/zeta")
 
 	if got := lines(w.ok(t, "sess-a", "wait", "--on", "api-work")); len(got) < 2 || got[1] != askLine {
