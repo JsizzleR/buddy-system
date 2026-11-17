@@ -705,11 +705,20 @@ func codexRequestKey(raw json.RawMessage) (string, error) {
 	case string:
 		return "s:" + v, nil
 	case json.Number:
-		if _, err := v.Int64(); err == nil {
+		// Only the canonical decimal spelling (D-202). The key was the raw
+		// spelling while the controller's approvalIDKey keys the parsed
+		// value, so `0` and `-0` were two pending approvals here and one
+		// there: the receipt listed one, the other stayed natively pending
+		// and unlisted, and an answer the coordinator re-spelled (JSON.stringify
+		// of -0 is "0") approved the request the receipt did not show. A
+		// non-canonical id is refused, never re-spelled: re-spelling would make
+		// the two collide here as well and answer a request by a spelling
+		// Codex never sent. Measured: Codex 0.160.0 sends 0 and 1.
+		if n, err := v.Int64(); err == nil && strconv.FormatInt(n, 10) == string(v) {
 			return "n:" + string(v), nil
 		}
 	}
-	return "", errors.New("Codex native request ID must be a string or int64")
+	return "", errors.New("Codex native request ID must be a string or a canonical int64")
 }
 
 func (c *codexBackend) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
