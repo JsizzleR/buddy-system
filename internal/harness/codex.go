@@ -273,6 +273,16 @@ func (c *codexBackend) launch(ctx context.Context, launch Launch, resumeID strin
 		_ = c.Close()
 		return "", errors.New("Codex start/resume returned a missing or mismatched native thread ID")
 	}
+	// The thread id is the identity: every request's threadId, the ledger's
+	// session id (lifecycle begin --session), resume's match, the wake text.
+	// It takes the ledger's own predicate (D-201), checked HERE, before
+	// ledger.Begin: a thread id the ledger would refuse, refused after the
+	// child is up, reads as an uncertain registration (D-202). Close kills
+	// the owned child; nothing has reached the ledger or a receipt.
+	if !fence.ValidSessionID(result.Thread.ID) {
+		_ = c.Close()
+		return "", fmt.Errorf("Codex start/resume returned a native thread ID outside the session-id rule (%s; %d bytes)", fence.SessionIDRule, len(result.Thread.ID))
+	}
 	c.mu.Lock()
 	c.nativeID = result.Thread.ID
 	c.state = codexState(result.Thread.Status.Type)
@@ -522,24 +532,10 @@ func (c *codexBackend) latestTurn(ctx context.Context, nativeID string) (string,
 	default:
 		return "", nil
 	}
-	if !codexPlainTurnID(turn.ID) {
+	if !nativeKey(turn.ID) {
 		return "", nil
 	}
 	return "latest turn " + turn.ID + " " + turn.Status + " (progress, not completion)", nil
-}
-
-// codexPlainTurnID admits Codex's UUIDv7 turn ids and the fixtures' plain
-// spellings, and nothing that could break a line or a column (invariant 9).
-func codexPlainTurnID(id string) bool {
-	if id == "" || len(id) > 128 {
-		return false
-	}
-	for _, r := range id {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./:", r)) {
-			return false
-		}
-	}
-	return true
 }
 
 // ReadTurn refuses before making any native request (F-08). The only history
@@ -703,7 +699,14 @@ func codexRequestKey(raw json.RawMessage) (string, error) {
 	}
 	switch v := value.(type) {
 	case string:
-		return "s:" + v, nil
+		// Only inside nativeKey, so a pending key is bounded and plain
+		// (D-202). Real approval ids are integers (0.160.0); string ids are
+		// the fixtures', and the replies to our own requests carry our
+		// decimal ids.
+		if nativeKey(v) {
+			return "s:" + v, nil
+		}
+		return "", errors.New("Codex native request ID is a string outside the plain key set")
 	case json.Number:
 		// Only the canonical decimal spelling (D-202). The key was the raw
 		// spelling while the controller's approvalIDKey keys the parsed
@@ -719,6 +722,116 @@ func codexRequestKey(raw json.RawMessage) (string, error) {
 		}
 	}
 	return "", errors.New("Codex native request ID must be a string or a canonical int64")
+}
+
+// codexCanonicalID is the request id an Approval carries: the JSON of the
+// DECODED key, so a string id spelled with \u escapes renders at most 130
+// bytes, not up to six times that, and every receipt spells one request one
+// way. Codex decodes the id it is answered with, so the answer is unchanged.
+func codexCanonicalID(key string) json.RawMessage {
+	if v, ok := strings.CutPrefix(key, "s:"); ok {
+		raw, _ := json.Marshal(v)
+		return raw
+	}
+	return json.RawMessage(strings.TrimPrefix(key, "n:"))
+}
+
+// codexReplyTurnID reads the turn id a turn/start (turn.id) or turn/steer
+// (turnId) reply names; Send applies its own missing and mismatch checks.
+func codexReplyTurnID(method string, result json.RawMessage) string {
+	var r struct {
+		TurnID string `json:"turnId"`
+		Turn   struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	if json.Unmarshal(result, &r) != nil {
+		return ""
+	}
+	if method == "turn/start" {
+		return r.Turn.ID
+	}
+	return r.TurnID
+}
+
+// codexKeyFault is the error a key fault ends the transport with: the field
+// and its length, never the value; the plain active turn it ended; and what
+// stays true, so the ordinary "disconnected" receipt is not read as EOF.
+func codexKeyFault(where, field, value, active string) string {
+	msg := where + ": " + nativeKeyRefusal(field, value) + "; the adapter cannot address it and ended the transport"
+	if active != "" {
+		msg += "; active turn " + active + " ended unobserved"
+	}
+	return msg + "; the logical session is not ended and stays live in the ledger, and a wake in flight stays unknown"
+}
+
+// keyFault ends the transport over a turn id the adapter would have to store
+// and send back (D-202), the path a reused request id takes. Called with c.mu
+// held, from the reader; it unlocks.
+func (c *codexBackend) keyFault(where, field, value string) {
+	active := c.activeTurn
+	c.closed, c.state, c.activeTurn = true, "unknown", ""
+	c.approvals = make(map[string]Approval)
+	proc := c.process
+	nativeID := c.nativeID
+	c.mu.Unlock()
+	c.terminal(proc, Event{Kind: "disconnected", NativeSessionID: nativeID, Err: codexKeyFault(where, field, value, active)})
+}
+
+// refuseApproval handles an approval request whose turn id is plain but whose
+// request id cannot be a key (D-202): a string outside nativeKey, a number
+// that is not a canonical int64. It never ends the worker for that alone: a
+// command or file change that offers decline is declined natively, answered
+// by the id exactly as Codex sent it, and published as approval_refused so
+// the operator learns approvals are being refused. Any other method has no
+// answer the adapter supports: the transport ends. An id that is not a
+// string or a number (absent, null, an object) cannot be answered at all,
+// since {"id":null} is a notification: dropped, as before. Called with c.mu
+// held; it unlocks.
+func (c *codexBackend) refuseApproval(envelope codexEnvelope, threadID, turnID, itemID string) {
+	trimmed := bytes.TrimSpace(envelope.ID)
+	if len(trimmed) == 0 || !(trimmed[0] == '"' || trimmed[0] == '-' || trimmed[0] >= '0' && trimmed[0] <= '9') {
+		c.mu.Unlock()
+		return
+	}
+	reason := "Codex approval request id is not a canonical int64 (" + strconv.Itoa(len(trimmed)) + " bytes)"
+	value := string(trimmed)
+	var s string
+	if json.Unmarshal(trimmed, &s) == nil {
+		reason = "Codex approval request " + nativeKeyRefusal("id", s)
+		value = s // the decoded length, on every path
+	}
+	declinable := false
+	if envelope.Method == "item/commandExecution/requestApproval" || envelope.Method == "item/fileChange/requestApproval" {
+		var detail struct {
+			AvailableDecisions []json.RawMessage `json:"availableDecisions"`
+		}
+		if json.Unmarshal(envelope.Params, &detail) == nil {
+			declinable = detail.AvailableDecisions == nil
+			for _, option := range detail.AvailableDecisions {
+				var value string
+				if json.Unmarshal(option, &value) == nil && value == "decline" {
+					declinable = true
+				}
+			}
+		}
+	}
+	if !declinable {
+		c.keyFault("Codex "+envelope.Method, "request id", value)
+		return
+	}
+	proc := c.process
+	c.mu.Unlock()
+	if writeRefusal(proc, map[string]any{"id": json.RawMessage(append([]byte(nil), trimmed...)), "result": map[string]string{"decision": "decline"}}) != nil {
+		// Not answered, so no receipt says "declined". A failed Encode has
+		// closed the transport, but a deadline that ran out waiting for the
+		// write lock has not, and the request would stay natively pending
+		// with nothing listed: end it here either way.
+		c.mu.Lock()
+		c.keyFault("Codex "+envelope.Method+" (its decline could not be written)", "request id", value)
+		return
+	}
+	c.emit(Event{Kind: "approval_refused", NativeSessionID: threadID, TurnID: turnID, ItemID: displayNativeID(itemID), Err: reason + "; declined natively, the worker keeps running"})
 }
 
 func (c *codexBackend) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -791,26 +904,57 @@ func (c *codexBackend) readLoop(proc codexProcess) {
 			if err != nil {
 				continue
 			}
+			// The reader claims the slot: a duplicate reply finds none, so it
+			// can neither reach Send nor mark a second turn ours (a buffered
+			// channel Send has already drained would take it). Send's own
+			// deferred delete is then a no-op.
 			c.mu.Lock()
 			ch := c.pending[key]
-			if c.pendingMethod[key] == "turn/start" && (len(envelope.Error) == 0 || string(envelope.Error) == "null") {
-				var started struct {
-					Turn struct {
-						ID string `json:"id"`
-					} `json:"turn"`
-				}
-				if json.Unmarshal(envelope.Result, &started) == nil && started.Turn.ID != "" {
-					c.ownTurns[started.Turn.ID] = true
+			method := c.pendingMethod[key]
+			delete(c.pending, key)
+			delete(c.pendingMethod, key)
+			c.mu.Unlock()
+			failed := len(envelope.Error) > 0 && string(envelope.Error) != "null"
+			// A turn reply's id is decided HERE, on the reader, never in Send
+			// (D-202). A turn id outside nativeKey names a turn the adapter can
+			// never interrupt, steer or approve, while the worker runs it: end
+			// the transport, and Send, never handed this reply, sees the
+			// disconnect and keeps the wake unknown. Ending it from Send would
+			// put a terminal event on c.events from a second goroutine, racing
+			// this loop's deferred close(c.events): a send on a closed channel.
+			turn := ""
+			if ch != nil && !failed && (method == "turn/start" || method == "turn/steer") {
+				turn = codexReplyTurnID(method, envelope.Result)
+				// Empty fails it too: a delivered turn the adapter cannot name.
+				if !nativeKey(turn) {
+					c.mu.Lock()
+					active := c.activeTurn
+					c.closed, c.state, c.activeTurn = true, "unknown", ""
+					c.approvals = make(map[string]Approval)
+					c.mu.Unlock()
+					c.terminal(proc, Event{Kind: "disconnected", Err: codexKeyFault("Codex "+method+" reply", "turn id", turn, active)})
+					return
 				}
 			}
-			c.mu.Unlock()
 			if ch != nil {
 				reply := codexReply{result: envelope.Result}
-				if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+				if failed {
 					reply.err = &codexRPCError{raw: append(json.RawMessage(nil), envelope.Error...)}
 				}
 				select {
 				case ch <- reply:
+					// Only the reply that claimed Send's slot marks its turn
+					// ours: a duplicate reply naming another turn used to
+					// mark that one too, letting a turn the adapter never
+					// reported renew claims (D-078) once it started (D-202).
+					// The slot is buffered, so a reply landing after Send's
+					// ctx ended still marks it: that turn is still the one
+					// this launch requested.
+					if method == "turn/start" && turn != "" {
+						c.mu.Lock()
+						c.ownTurns[turn] = true
+						c.mu.Unlock()
+					}
 				default:
 				}
 			}
@@ -869,6 +1013,14 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 		// assignments. Keep exact item/turn identity without changing control
 		// state; a delayed observation cannot clear a newer approval or turn.
 		if p.Item.Type == "contextCompaction" && p.Item.ID != "" && p.TurnID != "" {
+			if !nativeKey(p.TurnID) {
+				// An observation only, keyed on nothing: dropped. The same
+				// turn's turn/started or turn/completed ends the transport
+				// (D-202); ending it here would kill a worker mid-compaction
+				// for an id the adapter never keys on.
+				c.mu.Unlock()
+				return
+			}
 			kind := "compaction_started"
 			if envelope.Method == "item/completed" {
 				kind = "compaction_completed"
@@ -897,12 +1049,20 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 			return
 		}
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request":
-		key, err := codexRequestKey(envelope.ID)
-		if err != nil || p.TurnID == "" || c.finished[p.TurnID] {
+		if p.TurnID == "" || c.finished[p.TurnID] {
 			c.mu.Unlock()
 			return
 		}
-		a := Approval{ID: append(json.RawMessage(nil), envelope.ID...), NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: displayNativeID(p.ItemID), NativeApprovalID: displayNativeID(p.ApprovalID), Kind: envelope.Method, Detail: append(json.RawMessage(nil), envelope.Params...)}
+		if !nativeKey(p.TurnID) {
+			c.keyFault("Codex "+envelope.Method, "turn id", p.TurnID)
+			return
+		}
+		key, err := codexRequestKey(envelope.ID)
+		if err != nil {
+			c.refuseApproval(envelope, p.ThreadID, p.TurnID, p.ItemID)
+			return
+		}
+		a := Approval{ID: codexCanonicalID(key), NativeSessionID: p.ThreadID, TurnID: p.TurnID, ItemID: displayNativeID(p.ItemID), NativeApprovalID: displayNativeID(p.ApprovalID), Kind: envelope.Method, Detail: append(json.RawMessage(nil), envelope.Params...)}
 		if previous, exists := c.seenApprovals[key]; exists {
 			if previous.Kind == a.Kind && bytes.Equal(previous.Detail, a.Detail) {
 				c.mu.Unlock()
@@ -935,8 +1095,12 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 			}
 		}
 	case "turn/started":
-		if p.Turn.ID == "" || c.finished[p.Turn.ID] {
+		if c.finished[p.Turn.ID] {
 			c.mu.Unlock()
+			return
+		}
+		if !nativeKey(p.Turn.ID) {
+			c.keyFault("Codex turn/started", "turn id", p.Turn.ID)
 			return
 		}
 		c.activeTurn, c.state = p.Turn.ID, "busy"
@@ -944,7 +1108,19 @@ func (c *codexBackend) nativeEvent(envelope codexEnvelope) {
 		c.emit(Event{Kind: "busy", NativeSessionID: p.ThreadID, TurnID: p.Turn.ID})
 		return
 	case "turn/completed":
-		if p.Turn.ID == "" || c.finished[p.Turn.ID] || (p.Turn.Status != "completed" && p.Turn.Status != "interrupted" && p.Turn.Status != "failed") {
+		// An empty id fails nativeKey too (D-202): dropped, it left the
+		// adapter busy with a turn it could not see finish.
+		if c.finished[p.Turn.ID] {
+			c.mu.Unlock()
+			return
+		}
+		if !nativeKey(p.Turn.ID) {
+			// Dropping it would leave the adapter busy for good with a turn
+			// it cannot see finish (D-202).
+			c.keyFault("Codex turn/completed", "turn id", p.Turn.ID)
+			return
+		}
+		if p.Turn.Status != "completed" && p.Turn.Status != "interrupted" && p.Turn.Status != "failed" {
 			c.mu.Unlock()
 			return
 		}

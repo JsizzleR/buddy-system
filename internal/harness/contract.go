@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
@@ -129,7 +130,7 @@ const nativeTokenCap = 64
 // item id, a native approval id, a result reference. Each was the server's
 // string verbatim, up to the 4 MiB frame bound, in every native_event and,
 // for an approval, in the pending list every later receipt repeats. 128 is
-// the slug cap (invariant 9) and codexPlainTurnID's bound; real ids (UUIDs,
+// the slug cap (invariant 9) and nativeKey's bound; real ids (UUIDs,
 // toolu_ ids) are under 64.
 const nativeIDCap = 128
 
@@ -144,6 +145,64 @@ func displayNativeID(id string) string {
 		return ""
 	}
 	return fence.Field(id, nativeIDCap)
+}
+
+// nativeKey admits a native turn id or string request id the adapter STORES
+// or EMITS and is later sent back (D-202): 1..128 bytes of [A-Za-z0-9._:/-],
+// tested on the DECODED value. Such a key cannot be fenced where it is
+// rendered, because the receipt IS the round trip: the coordinator copies
+// turn_id and an approval's id out of a receipt into interrupt and approve,
+// and a fenced copy matches nothing (codex.go Interrupt, takeApproval). Raw,
+// it went up to the 4 MiB frame bound into every receipt, with bidi and
+// zero-width characters intact (D-199 left it open). Measured on the
+// 2026-10-13 A-07 rerun's Codex 0.160.0 traces: thread and turn ids are
+// 36-byte UUIDv7 but for one turn id `auto-compact-0` (so not a UUID check),
+// approval request ids are integers; Claude 2.1.291 and 2.1.312 request ids
+// are UUIDs. Inferred, not measured, for the admitted 0.162.1-0.165.0. A key
+// that passes is exactly what fence.Field(s, 128) returns, so every later
+// render is one token with no copy. Never inside Identity.Valid,
+// approvalIDKey or journal reload: those would refuse a whole older journal.
+// It was codexPlainTurnID (D-197), the progress turn id's check.
+func nativeKey(s string) bool {
+	if s == "" || len(s) > nativeIDCap {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if !(b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '-' || b == '_' || b == '.' || b == '/' || b == ':') {
+			return false
+		}
+	}
+	return true
+}
+
+// The native SESSION id (the Codex thread id) is not a nativeKey: it becomes
+// the ledger's session id through `buddy lifecycle begin --session`, so it
+// takes the ledger's own predicate, fence.ValidSessionID (D-201). A thread id
+// "a/b" passes nativeKey, and the ledger would then refuse it at Begin, after
+// the child is up, as an uncertain registration (D-202).
+
+// nativeKeyRefusal names a key the adapter refused without echoing it: the
+// field and its byte length only, so the error is bounded and one line.
+func nativeKeyRefusal(field, value string) string {
+	return fmt.Sprintf("%s outside the plain key set (%d bytes)", field, len(value))
+}
+
+// nativeRefusalWrite bounds the reader's own native answer to a request it
+// refuses (D-202): the reader writes it, so a server that stops reading its
+// stdin while the adapter echoes an id up to the frame bound would hold the
+// reader in Encode with no deadline, publishing nothing, until Close. Past
+// the bound WriteContext closes the transport and the reader reports the
+// disconnect; an approval_refused is published only after a write that
+// succeeded.
+const nativeRefusalWrite = 10 * time.Second
+
+func writeRefusal(w interface {
+	WriteContext(context.Context, any) error
+}, v any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), nativeRefusalWrite)
+	defer cancel()
+	return w.WriteContext(ctx, v)
 }
 
 type Event struct {

@@ -704,9 +704,16 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 	case "control_request":
 		return c.permission(f.RequestID, f.Request)
 	case "control_cancel_request":
-		key, err := claudeIDKey(f.RequestID)
-		if err != nil {
-			return err
+		key, ok := jsonString(f.RequestID) // null is not "" (D-202)
+		if !ok {
+			return errors.New("Claude control request id must be a native string")
+		}
+		if !nativeKey(key) {
+			// It matches no pending approval (each was admitted plain), and
+			// a tombstone would keep up to 4 MiB per frame for the worker's
+			// life: ignored (D-202), the empty id too. A later request by
+			// that id is refused on its own.
+			return nil
 		}
 		c.mu.Lock()
 		approval, existed := c.approvals[key]
@@ -829,9 +836,13 @@ func (c *claudeBackend) frame(raw json.RawMessage) error {
 }
 
 func (c *claudeBackend) permission(id, raw json.RawMessage) error {
-	key, err := claudeIDKey(id)
-	if err != nil {
-		return err
+	// A string id, the empty one included, is judged by nativeKey below
+	// (D-202): a well-formed can_use_tool by "" is denied natively, like any
+	// other id outside the key set, not a reason to end the worker. Only an
+	// id that is not a string at all is malformed.
+	key, ok := jsonString(id) // null is not "" (D-202)
+	if !ok {
+		return errors.New("Claude control request id must be a native string")
 	}
 	var req struct {
 		Subtype             string          `json:"subtype"`
@@ -854,6 +865,16 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 		// Malformed: no correct native answer can be formed, so close
 		// admission rather than guess one.
 		return errors.New("unsupported or malformed Claude approval identity")
+	}
+	if !nativeKey(key) {
+		return c.refuseApproval(id, key, req.ToolUseID)
+	}
+	// The id every receipt carries and Claude is answered by: the JSON of the
+	// decoded key, so one request is spelled one way and a \u-escaped id is
+	// not up to six times the cap (D-202). Claude decodes it; unchanged.
+	answerID, err := json.Marshal(key)
+	if err != nil {
+		return err
 	}
 	// Fingerprint the complete native request, including tool name,
 	// interaction-only requirements and future permission-relevant fields.
@@ -909,7 +930,7 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 				"behavior": "deny", "toolUseID": req.ToolUseID,
 				"message": "Denied by the Buddy adapter: only the captured worker's active input can request operator approval"}}})
 	}
-	c.approvals[key] = claudePermission{id: append(json.RawMessage(nil), id...), input: append(json.RawMessage(nil), req.Input...), toolID: req.ToolUseID, turnID: turn, requiresInteraction: req.RequiresInteraction}
+	c.approvals[key] = claudePermission{id: answerID, input: append(json.RawMessage(nil), req.Input...), toolID: req.ToolUseID, turnID: turn, requiresInteraction: req.RequiresInteraction}
 	c.state = "waiting_approval"
 	lost := c.recordFileToolLocked(req.ToolUseID, req.ToolName, req.Input)
 	renewals := c.renewals
@@ -918,8 +939,39 @@ func (c *claudeBackend) permission(id, raw json.RawMessage) error {
 		renewals.unknown(lost)
 	}
 	c.emit(Event{Kind: "approval", NativeSessionID: c.nativeID, TurnID: turn, Approval: &Approval{
-		ID: append(json.RawMessage(nil), id...), NativeSessionID: c.nativeID, TurnID: turn, ItemID: displayNativeID(req.ToolUseID),
+		ID: answerID, NativeSessionID: c.nativeID, TurnID: turn, ItemID: displayNativeID(req.ToolUseID),
 		NativeApprovalID: displayNativeID(key), Kind: "can_use_tool", Detail: append(json.RawMessage(nil), raw...)}})
+	return nil
+}
+
+// refuseApproval answers a well-formed can_use_tool whose request id cannot be
+// a key (D-202): outside nativeKey, so it could not be listed, answered by the
+// operator, or matched after a restart. Measured, Claude's ids are UUIDs
+// (randomUUID in 2.1.312; 2.1.291 traces); a forwarded host id is not
+// measured. Ending the transport, as a malformed frame does, would kill a
+// worker mid-turn that recovery then refuses to resume (no terminal result
+// is journalled), over one tool call. So the F-07 native deny, answered by
+// the id exactly as Claude sent it, with no tombstone (it would hold up to
+// 4 MiB per frame), and published as approval_refused, so the operator sees
+// approvals being refused instead of a busy worker with an empty pending list.
+func (c *claudeBackend) refuseApproval(id json.RawMessage, key, toolUseID string) error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return errors.New("Claude approval admission is closed")
+	}
+	proc, turn, nativeID := c.proc, c.active, c.nativeID
+	c.mu.Unlock()
+	if err := writeRefusal(proc, map[string]any{"type": "control_response", "response": map[string]any{
+		"subtype": "success", "request_id": json.RawMessage(append([]byte(nil), id...)), "response": map[string]any{
+			"behavior": "deny", "toolUseID": toolUseID,
+			"message": "Denied by the Buddy adapter: the request id is outside the plain key set, so no operator can answer it"}}}); err != nil {
+		// Not answered: the reader ends the transport on this error, and
+		// no receipt says "denied natively" over a deny that never went.
+		return err
+	}
+	c.emit(Event{Kind: "approval_refused", NativeSessionID: nativeID, TurnID: turn, ItemID: displayNativeID(toolUseID),
+		Err: "Claude approval request " + nativeKeyRefusal("id", key) + "; denied natively, the worker keeps running"})
 	return nil
 }
 

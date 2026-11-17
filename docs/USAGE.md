@@ -2805,7 +2805,18 @@ the cached SDK declarations do not describe them. Neither adapter can expand
 operator authority.
 
 Approval observations preserve the native request JSON ID (string or integer),
-native approval ID, session and turn/item references. The pending list in a
+native approval ID, session and turn/item references. The ids a coordinator
+copies back are KEYS and are checked where they arrive, never fenced (D-202):
+a turn id or string request id is 1-128 bytes of `A-Z a-z 0-9 . _ : / -`, an
+integer request id is its canonical decimal, and a Codex thread id meets the
+ledger's session-id rule. An `approval` carries the request id as its decoded
+value's JSON. A thread id outside the rule refuses the start or resume before
+the ledger is touched; a turn id outside it ends the transport (`disconnected`,
+its error naming the field, the length and the turn it ended); a request id
+alone outside it is answered natively (a Claude deny, a Codex decline where
+offered, else the transport ends) and published as an `approval_refused`
+native event with the reason in `error` and no approval: nothing pending
+changes and the worker keeps running. The pending list in a
 receipt carries a `detail_sha256` and a fenced summary of at most 512 bytes.
 Exact detail travels once, in the `native_event`, up to 16 KiB; beyond that it
 is marked `detail_omitted`. Coordinator stdin cannot approve. An operator UI may

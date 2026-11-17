@@ -88,9 +88,9 @@ func codexFixture(t *testing.T) (*codexBackend, *fakeCodexProcess, Launch) {
 		case "hooks/list":
 			p.reply(e, map[string]any{"data": []any{map[string]any{"cwd": root, "errors": []any{}, "warnings": []string{}, "hooks": []any{map[string]any{"enabled": true, "eventName": "preToolUse", "handlerType": "command", "command": "fixture-gate", "currentHash": "exact-reviewed-hash", "matcher": "^(apply_patch|Bash)$", "trustStatus": "trusted", "async": false}}}}})
 		case "thread/start", "thread/resume":
-			p.reply(e, map[string]any{"thread": map[string]any{"id": "native-α", "status": map[string]string{"type": "idle"}}})
+			p.reply(e, map[string]any{"thread": map[string]any{"id": "native-1", "status": map[string]string{"type": "idle"}}})
 		case "thread/read":
-			p.reply(e, map[string]any{"thread": map[string]any{"id": "native-α", "status": map[string]string{"type": "idle"}}})
+			p.reply(e, map[string]any{"thread": map[string]any{"id": "native-1", "status": map[string]string{"type": "idle"}}})
 		case "thread/turns/list":
 			p.reply(e, map[string]any{"data": []any{}, "nextCursor": nil, "backwardsCursor": nil})
 		case "turn/start":
@@ -157,7 +157,7 @@ func codexRequest(t *testing.T, p *fakeCodexProcess, method string) codexEnvelop
 func TestCodexControlPreservesIDsAndAcceptanceBoundary(t *testing.T) {
 	c, p, l := codexFixture(t)
 	id := codexStart(t, c, l)
-	if id != "native-α" {
+	if id != "native-1" {
 		t.Fatal(id)
 	}
 	start := codexRequest(t, p, "thread/start")
@@ -214,8 +214,8 @@ func TestCodexControlPreservesIDsAndAcceptanceBoundary(t *testing.T) {
 
 func TestCodexResumeByIDNeverPathOrHistory(t *testing.T) {
 	c, p, l := codexFixture(t)
-	id, err := c.Resume(context.Background(), l, "native-α", testAuthorization(t))
-	if err != nil || id != "native-α" {
+	id, err := c.Resume(context.Background(), l, "native-1", testAuthorization(t))
+	if err != nil || id != "native-1" {
 		t.Fatalf("resume %q %v", id, err)
 	}
 	e := codexRequest(t, p, "thread/resume")
@@ -376,7 +376,7 @@ func TestCodexGateRequiresShellPatchCoverage(t *testing.T) {
 }
 
 func TestCodexApprovalRoundtripRawIDAndCallbackID(t *testing.T) {
-	for _, requestID := range []json.RawMessage{json.RawMessage(`"request/α"`), json.RawMessage(`9007199254740993`)} {
+	for _, requestID := range []json.RawMessage{json.RawMessage(`"request/1"`), json.RawMessage(`9007199254740993`)} {
 		t.Run(string(requestID), func(t *testing.T) {
 			c, p, l := codexFixture(t)
 			id := codexStart(t, c, l)

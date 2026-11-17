@@ -156,13 +156,17 @@ func TestClaudeApprovalIDsFenced(t *testing.T) {
 	const tool, request = "toolu_01ABCdef", "req-7f3c"
 	for _, tc := range nativeIDCases() {
 		t.Run(tc.name, func(t *testing.T) {
+			// The request id is a KEY and stays plain (D-202: a hostile one
+			// is refused, native_key_test.go); the tool_use_id varies.
 			c := claudeIDBackend()
-			e := claudeApprovalFrame(t, c, nativeIDOr(tc, request), nativeIDOr(tc, tool))
+			e := claudeApprovalFrame(t, c, request, nativeIDOr(tc, tool))
 			checkNativeID(t, "item_id", e.Approval.ItemID, tool, tc, 128, true)
-			checkNativeID(t, "native_approval_id", e.Approval.NativeApprovalID, request, tc, 128, true)
+			if e.Approval.NativeApprovalID != request {
+				t.Fatalf("plain native_approval_id changed: %q", e.Approval.NativeApprovalID)
+			}
 
 			// The cancel names the same approval: the same fence.
-			b, _ := json.Marshal(map[string]any{"type": "control_cancel_request", "request_id": nativeIDOr(tc, request)})
+			b, _ := json.Marshal(map[string]any{"type": "control_cancel_request", "request_id": request})
 			if err := c.frame(b); err != nil {
 				t.Fatal(err)
 			}
@@ -171,24 +175,25 @@ func TestClaudeApprovalIDsFenced(t *testing.T) {
 				t.Fatalf("cancel not reported: %+v", r)
 			}
 			checkNativeID(t, "cancel item_id", r.Approval.ItemID, tool, tc, 128, true)
-			checkNativeID(t, "cancel native_approval_id", r.Approval.NativeApprovalID, request, tc, 128, true)
+			if r.Approval.NativeApprovalID != request {
+				t.Fatalf("cancel native_approval_id changed: %q", r.Approval.NativeApprovalID)
+			}
 		})
 	}
 }
 
-// The request id is a KEY: the operator's decision echoes Approval.ID, and a
-// fenced copy would match nothing. It stays exact, so even a hostile request
-// id answers its own approval, and the tool_use_id Claude is answered with is
-// the raw one, not the receipt's fenced copy.
-func TestClaudeHostileRequestIDStillRoundTrips(t *testing.T) {
+// The tool_use_id Claude is answered with is the raw one, not the receipt's
+// fenced copy. (The request id, a KEY, is refused outside nativeKey since
+// D-202; D-199 kept it exact and let a hostile one round-trip.)
+func TestClaudeHostileToolUseIDStillAnswered(t *testing.T) {
 	for _, tc := range nativeIDCases()[1:] {
 		t.Run(tc.name, func(t *testing.T) {
 			c := claudeIDBackend()
 			var wrote any
 			c.proc = &claudeFakeProcess{write: func(_ context.Context, v any) error { wrote = v; return nil }}
-			e := claudeApprovalFrame(t, c, tc.raw, tc.raw)
-			if id, _ := json.Marshal(tc.raw); string(e.Approval.ID) != string(id) {
-				t.Fatal("request id altered; the decision could not name it")
+			e := claudeApprovalFrame(t, c, "req-7f3c", tc.raw)
+			if string(e.Approval.ID) != `"req-7f3c"` {
+				t.Fatalf("request id altered: %s", e.Approval.ID)
 			}
 			d := ApprovalDecision{ID: e.Approval.ID, NativeSessionID: e.Approval.NativeSessionID, TurnID: e.Approval.TurnID, Decision: "deny"}
 			if err := c.Approve(context.Background(), d); err != nil {

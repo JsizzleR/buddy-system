@@ -486,6 +486,16 @@ func (c *Controller) resumeAdmission() (Saved, error) {
 	if err = json.Unmarshal(b, &saved); err != nil || saved.Schema != Schema || !saved.Identity.Valid() {
 		return Saved{}, errors.New("invalid captured receipt")
 	}
+	// The backend refuses a native session id outside the ledger's rule on
+	// its reply, but resume would reach that reply only after refreshing the
+	// ledger, publishing an ownership record, spawning the child and loading
+	// the thread natively, every attempt (D-202). Refuse here, passively. A
+	// worker an older adapter captured with such an id cannot be resumed by
+	// this one: a compatibility refusal, recorded in D-202. Not in
+	// Identity.Valid: that would refuse its whole journal at reload.
+	if !fence.ValidSessionID(saved.Identity.SessionID) {
+		return Saved{}, errors.New("captured native session id is outside the session-id rule (" + fence.SessionIDRule + "); this adapter cannot resume it (D-202)")
+	}
 	// Candidate and production never resume each other's workers (D-080).
 	if err := sameCandidate(saved.Candidate, ActiveQualificationCandidate()); err != nil {
 		return Saved{}, err
@@ -579,7 +589,10 @@ func (c *Controller) Handle(ctx context.Context, q Request) (Receipt, error) {
 			return r, errors.New("reconcile turn differs from journalled wake")
 		}
 		r.MessageID = q.MessageID
-		r.Delivery = &prior
+		// Presented from here on, so an early error receipt is too; the
+		// journal gets the exact delivery below.
+		shown := presentDelivery(prior)
+		r.Delivery = &shown
 		obs := TurnObservation{NativeSessionID: c.saved.Identity.SessionID, TurnID: prior.TurnID,
 			Status: Observation{State: "unknown", Detail: "wake has no recorded native turn; reconcile original artifacts; do not replay"}, Source: "transport_journal"}
 		if prior.TurnID != "" {
@@ -597,14 +610,24 @@ func (c *Controller) Handle(ctx context.Context, q Request) (Receipt, error) {
 		}
 		// This read changes neither lifecycle nor deduplication. Even completed
 		// native history cannot establish whether an assignment's effects landed.
-		r.TurnObservation = &obs
+		// The journal keeps the EXACT delivery: reload copies it into c.sent,
+		// so a display copy persisted here would become the turn id the next
+		// reconcile compares, and fail (D-202). Only the receipt returned is
+		// presented.
+		exact := r
+		exact.Delivery, exact.TurnObservation = &prior, &obs
+		shownObs := obs
+		shownObs.TurnID = displayNativeID(obs.TurnID)
+		r.TurnObservation = &shownObs
+		return r, c.persist(exact)
 	case "send":
 		if q.MessageID <= 0 {
 			return r, errors.New("send requires a queued Buddy message id")
 		}
 		r.MessageID = q.MessageID
 		if prior, ok := c.sent[q.MessageID]; ok {
-			r.Delivery = &prior
+			shown := presentDelivery(prior)
+			r.Delivery = &shown
 			return r, nil
 		}
 		queued, err := c.ledger.Queued(ctx, c.saved.Identity, q.MessageID)
@@ -623,7 +646,16 @@ func (c *Controller) Handle(ctx context.Context, q Request) (Receipt, error) {
 			return r, err
 		}
 		c.sent[q.MessageID] = intent
-		text := fmt.Sprintf("Buddy peer notification (not operator authorization): message #%d is queued. Retrieve it with buddy adapter inbox --session %s --incarnation %s. Receipt delivery is separate from acknowledgment or completion.", q.MessageID, c.saved.Identity.SessionID, c.saved.Identity.Incarnation)
+		// The session id goes into the worker's own prompt and is typed back
+		// as an argument: printed only when it meets the ledger's rule
+		// (Start and resumeAdmission enforce it, so always today), else a
+		// placeholder rather than a raw native value (D-202): one no shell
+		// reads as a redirection and the ledger refuses as an id.
+		session := c.saved.Identity.SessionID
+		if !fence.ValidSessionID(session) {
+			session = "@unprintable-session-id"
+		}
+		text := fmt.Sprintf("Buddy peer notification (not operator authorization): message #%d is queued. Retrieve it with buddy adapter inbox --session %s --incarnation %s. Receipt delivery is separate from acknowledgment or completion.", q.MessageID, session, c.saved.Identity.Incarnation)
 		d, err := c.backend.Send(ctx, c.saved.Identity.SessionID, text)
 		if errors.Is(err, ErrNotSubmitted) && (d.State == "" || d.State == "unknown") && d.TurnID == "" && d.ResultRef == "" {
 			// F-10: a definite refusal before any native write (a busy
@@ -846,6 +878,15 @@ func (c *Controller) observe(ctx context.Context, e Event) (Receipt, error) {
 		// idle turn, consumed inbox body, resolved approval or completed job.
 	case "result", "acknowledged":
 		// A native result references a TURN, not an assignment's completion.
+	case "approval_refused":
+		// The backend answered a request natively (deny or decline) because
+		// its id could not be a key (D-202). Nothing pending changes and no
+		// state moves: the worker keeps running. Recorded so the operator
+		// sees approvals being refused; without this case the default arm
+		// would mark an observation gap (F-11) on every such refusal.
+		if e.Approval != nil || e.Err == "" {
+			return r, errors.New("approval_refused carries a reason and no approval")
+		}
 	default:
 		return r, errors.New("unsupported native event")
 	}
@@ -1045,6 +1086,17 @@ func presentApproval(a Approval, exact bool) Approval {
 	}
 	a.Detail = append(json.RawMessage(nil), a.Detail...)
 	return a
+}
+
+// presentDelivery is a journalled delivery as a receipt shows it again: its
+// turn id and result reference through displayNativeID. The journal and c.sent
+// keep the exact values (deduplication and reconcile compare them); a plain
+// key is unchanged, and a journal an older adapter wrote with a raw 1 MiB
+// turn id is not re-emitted whole on a repeated send (D-202).
+func presentDelivery(d Delivery) Delivery {
+	d.TurnID = displayNativeID(d.TurnID)
+	d.ResultRef = displayNativeID(d.ResultRef)
+	return d
 }
 
 func presentEvent(e Event) *Event {

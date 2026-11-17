@@ -15320,6 +15320,173 @@ ceiling).
 - index: CLAUDE.md § Decisions, the "Identity" line; GIVEN 138 (core, 303 bytes), its room made by
   shortening GIVEN 119's stub on orc-2's word (#1390), 119's full text whole in the install part
 
+## D-202 — `buddy-adapter` checks the native round-trip KEYS where they arrive, never fences them: a turn id or string request id is 1-128 bytes of `[A-Za-z0-9._:/-]`, an integer request id its canonical decimal, a Codex thread id the ledger's session-id rule (D-201); a bad thread id refuses start and resume before the ledger, a bad turn id ends the transport, a bad request id alone is answered natively and published as `approval_refused`
+
+2026-11-17 · run r1117a, lanes keys-fence then keys-fence-2 at its handoff size (Opus 5.5 at
+high), under orc-2 then orc-3. Class code, tier full.
+The item D-199 left open: the Codex thread id, the Codex turn id and the request ids that
+become `Approval.ID` were stored and echoed raw, up to the 4 MiB frame bound, with bidi and
+zero-width characters intact (JSON already kept them on one line).
+
+**The receipt is the round trip, so a key cannot be fenced where it is rendered.** The
+coordinator copies `turn_id` and an approval's `id` out of a receipt into `interrupt` and
+`approve`. A fenced copy refuses the operator's decision instead of the harness's id: turn
+`t` plus U+200B renders `t`, and the interrupt by `t` is refused (`codex.go` Interrupt's exact
+match). A raw receipt fences nothing: a 4 MiB thread id rides in every receipt's identity, the
+ledger's session id and the worker's own wake text. Rejected with that: (a) fence only at
+render; (c) adapter-minted handles (every qualification checker correlates receipt ids with
+native trace ids, so every admitted build would need re-qualifying, and the identity is the
+ledger's session id).
+
+**Measured, nothing launched.** The 2026-10-13 A-07 rerun archive
+(`~/Archives/buddy-system/2026-10-13-a07-rerun/evidence.tar.zst`, extracted into scratch),
+Codex 0.160.0 app-server traces and adapter journals: thread ids 36-byte UUIDv7 (300 frames),
+turn ids UUIDv7 (222) and `auto-compact-0` (2: not a UUID, so the rule is a charset, not a UUID
+check), approval request ids INTEGERS (0 and 1 only); Claude 2.1.291 `can_use_tool` request ids
+UUIDs (23). Claude 2.1.312's binary (bytes read, not run): its structured-IO `sendRequest`
+defaults `requestId` to `randomUUID`. Forty local Codex rollout files (a panel lens, shapes
+only): thread and turn ids 36-byte hex-and-dash. 0.160.0 is not admitted: for the admitted
+0.162.1, 0.164.0 and 0.165.0 the shapes are INFERRED. The string request-id refusal is
+fixture-only for Codex; the integer path is the real one.
+
+**Decision.** One predicate, `nativeKey` (`contract.go`, was D-197's `codexPlainTurnID`), on
+the DECODED value, for every turn id and string request id the adapter stores or emits: a key
+that passes is exactly what `fence.Field(s, 128)` returns, so every later render is one token
+with no copy. The Codex THREAD id takes the ledger's predicate, `fence.ValidSessionID` (D-201):
+`a/b` passes `nativeKey`, and `ledger.Begin` would refuse it after the child is up, reading as
+an uncertain registration. Never inside `Identity.Valid`, `approvalIDKey` or journal reload:
+any of those would refuse a whole older journal. The verdict is by site:
+- thread id, the Start or Resume reply: refused, the owned child closed, before
+  `ledger.Begin`; and in `resumeAdmission`, passively, before the ledger refresh, the
+  ownership record or a spawn (it used to reach the reply only after all three, every retry).
+  A worker an older adapter captured with such an id cannot be resumed by this one: a
+  compatibility refusal.
+- turn id in a turn/start or turn/steer reply, empty or unreadable included: decided on the READER, which ends the transport
+  and never hands the reply to Send; Send sees the disconnect and keeps the wake `unknown`
+  (never `not_submitted`: the turn started natively). Ending it from Send would put a terminal
+  event on `c.events` from a second goroutine, racing the reader's deferred close (orc-2's
+  design ruling; read from code, not reproduced: the shape was never built). Only the reply
+  Send receives marks its turn ours (a duplicate reply used to mark a second turn, which could
+  then renew claims, D-078).
+- turn id in turn/started, turn/completed or an approval request: the transport ends
+  (`disconnected`), the path a reused request id takes; an empty one on turn/started or
+  turn/completed too (it was dropped before the check). Dropping turn/completed would leave the
+  adapter busy for good. The error names the field and byte length, never the value, the plain
+  active turn it ended, and that the logical session stays live in the ledger and a wake in
+  flight unknown, so the receipt is not read as EOF.
+- turn id in a Codex `contextCompaction` item: dropped (an observation only; the same turn's
+  turn/started or turn/completed ends the transport).
+- a request id alone (the turn id plain): never ends the worker by itself. Claude: the F-07
+  native deny, answered by the id as sent, no tombstone (it would hold up to 4 MiB per frame),
+  and the subagent branch alike: ending the transport would kill a worker mid-turn that
+  recovery then refuses to resume (no terminal result journalled), over one tool call. Codex
+  command or file change offering `decline`: a native decline by the id as sent. Codex
+  permissions, user input, elicitation, or no decline on offer: the transport ends. Each
+  native answer is written by the reader under a 10 s deadline (`writeRefusal`): a server that
+  stops reading its stdin would otherwise hold the reader in Encode, publishing nothing. A
+  refusal that was not written is never published as made: Claude's error ends the transport,
+  and Codex ends it through `keyFault` on any write error (a deadline spent waiting for the
+  write lock closes nothing by itself, and the request would stay natively pending and
+  unlisted). Each
+  native answer is published as a new non-terminal event, `approval_refused` (reason in
+  `error`, no approval; `NativeSessionID` the identity's, so Claude recovery is unaffected),
+  which the controller persists with state unmoved (without its case the default arm marked an
+  F-11 gap). A Codex id that is no string or number (absent, null, an object) cannot be
+  answered (`{"id":null}` is a notification): dropped, as before. A Claude id is a string
+  (the empty one included, denied like any other non-key) or malformed: `jsonString`, since
+  `null` decodes into `""` without error; a non-string still ends the transport, as before.
+- a Claude `control_cancel_request` by such an id: ignored before its tombstone (it matched
+  nothing and stored up to 4 MiB per frame).
+- canonical keys: an integer id only in its canonical decimal (`-0`, `1.0`, `1e0` refused,
+  never re-spelled; the first commit: the backend keyed the raw spelling, the controller the
+  parsed value, so `0` and `-0` were two backend approvals and one controller approval, and an
+  answer approved whichever the backend matched); an `Approval.ID` is its decoded key's JSON,
+  so a `\u`-escaped id is not up to six times the cap.
+- a journalled delivery a repeated send or a reconcile returns: its turn id and result
+  reference through `displayNativeID` (plain keys unchanged; an older journal's raw 1 MiB turn
+  id is not re-emitted whole), an early error receipt included; the journal and the dedup map
+  keep the exact values. Reconcile journals an exact copy: reload copies the journalled
+  delivery into the dedup map, so a persisted display copy became the turn id the next
+  reconcile compared, and refused (latent: no harness reads a turn yet).
+- the wake text prints the session id only if it meets the ledger's rule (always, after the
+  two checks above), else `@unprintable-session-id`: no shell reads it as a redirection, and
+  the ledger refuses it as an id. The thread-id refusal names the session-id rule and the
+  length, never the value. With both checks, an adapter-launched Codex worker never reaches
+  `ledger.Begin` with an id `lifecycle begin` would refuse, so Begin's "outcome may be
+  uncertain" wrapper (which D-201's certain refusal contradicts, a finding on ledger-sid) is
+  not reached that way; the wrapper itself is unchanged.
+
+**The operator's decision, 2026-11-17 about 04:48Z** (relayed by orc-2, as said in its pane):
+"yes to the remaining question": this refusal may go live on the admitted Codex builds
+(0.162.1, 0.164.0, 0.165.0) through install without a re-qualification run first, on evidence
+measured on the 0.160.0 wire and inferred for those builds.
+
+**Open.** `codex.go` `nativeEvent` drops a whole notification on ANY field type mismatch
+(`"turnId": 7` on turn/completed leaves the adapter busy for good): the remaining busy-forever
+hole, wider than keys. A qualify re-run of the admitted builds through this code (D-081,
+operator-run). Ending the transport for a refused request id on permissions, user input and
+elicitation (no supported native answer). A forwarded Claude host request id is unmeasured.
+An approval request with an EMPTY turn id is still dropped (pre-existing, the same class as
+the type-mismatch drop). A Claude result uuid is kept raw as a map key for the worker's life
+(`claude.go` `c.results`, outside this change; display-only, never sent back). A hypothesis,
+not measured: if Codex replays a prior turn's turn/started or turn/completed into a resumed
+thread and that history holds a turn id outside `nativeKey`, every resume ends after the
+ledger refresh and spawn; no measured Codex turn id is outside it. Claude's pre-existing F-07
+reader writes (the subagent deny) still carry no deadline; only the refusals this change adds
+do. Four mutants die by the test binary's timeout (a hang), not an assertion.
+
+**Tests** (`internal/harness/native_key_test.go`; fixtures `native-α`, `request/α` and
+`native-"approval` made plain in `codex_test.go` and `claude_test.go`; D-199's
+`TestClaudeHostileRequestIDStillRoundTrips`, which asserted the opposite, replaced by
+`TestClaudeHostileToolUseIDStillAnswered`): the predicate against the measured shapes and ten
+hostile keys (space, newline, bidi, zero-width, non-ASCII, `+`, NUL, 129 bytes, 1 MiB); the
+thread id at Start and Resume (plus `a/b`, `all`, `s-…`, `-x`), the child closed, a UUIDv7
+admitted; a hostile reply turn id ending the transport with an unknown wake for start and
+steer, the steer naming the turn it ended; the duplicate reply; each notification site with
+its plain twin; the request-id refusals (string, 1 MiB string, `1.5`, `-0`: declined and
+published, the worker kept; no decline offered and permissions: ended; absent, null, object:
+dropped); canonical string and integer spellings; the Claude refusal in both branches with no
+tombstone and its cancel; an empty request id and its cancel taking the same path, a `null`
+one refused as malformed; a refusal that could not be written never published as made, the
+transport ended both when the write closed it and when a deadline did not, every refusal
+written under a deadline; `approval_refused` in the controller; resume refused before the
+ledger is touched, the unedited receipt resuming; a republished 1 MiB turn id fenced while the
+dedup record stays exact; a reconcile journalling the exact delivery across two reloads (plain
+and hostile turn id), and its early error receipt presented. Empty turn ids join the reply and
+turn/started/completed cases. Mutation (private rsync'd copy): 38 mutants (the predicate's charset and cap, each check site removed or loosened, each verdict swapped, the canonical spellings, every fold's guard), each killed; the control passes before and after; four die by the test binary's timeout (a hang), not an assertion.
+
+**Review** — full. Design panel (read-only subagents): Opus 5.5 on the hostile reply and on the
+round trip, Fable 5.2 on the operator's view and invariants 2, 3 and 9: 24 raised, folded into
+the design's revision (b'). Codex design pass, xhigh, adapter charter: 6 raised, answered in
+(b') (five design changes; the sixth, admitted-build compatibility, measured where it could be
+and taken to the operator). orc-2's GO with five rulings (C1-C5). Codex code pass, xhigh,
+adapter charter, `faddde4..9898d47`: 4 raised; fixed 3 (a refusal published though its write
+failed; an empty Codex turn id bypassing the key verdict; an empty Claude request id ending
+the worker); answered 1 (a reply buffered after Send's ctx ended still marks its turn ours: it
+is still the turn this launch requested; accepted on re-verify). Fable 5.2 cross-check
+(read-only subagent, the same questions): 10 raised; fixed 7 (reconcile journalling the display
+copy, confirmed by its own test; the reply-slot comment; the refusal reported over a failed
+write, as Codex's; the reader's refusal write with no deadline; the thread-id refusal naming
+the wrong rule; a shell-active placeholder; two lengths for one id); answered 3 (a steer reply
+with a non-plain turn id ends the transport by design, the brief naming steer; the Claude
+result-uuid map and the resume-replay hypothesis, both recorded open; all three accepted on
+re-verify). Codex re-verify 1, xhigh, `9898d47..d4db990`: the nine folds, 7 confirmed fixed;
+raised 3 new, all fixed (a Codex decline timed out waiting for the write lock left the request
+pending with the transport open; a reconcile's early error returned the raw delivery; a Claude
+`null` id decoded as `""`). Codex re-verify 2, xhigh, `d4db990..8de958a`, the ceiling (D-115):
+the three confirmed fixed, 0 raised.
+
+### Where it lives
+- code: `internal/harness/contract.go` (`nativeKey`, `nativeKeyRefusal`, `writeRefusal`), `codex.go`
+  (`Start` reply, `readLoop`, `nativeEvent`, `keyFault`, `refuseApproval`, `codexRequestKey`,
+  `codexCanonicalID`), `claude.go` (`permission`, `refuseApproval`, cancel), `controller.go`
+  (`resumeAdmission`, `observe`, `presentDelivery`, reconcile, the wake text)
+- tests: `internal/harness/native_key_test.go`
+- docs: `docs/USAGE.md` "Control and approval channels"
+- index: CLAUDE.md § Decisions, the "Codex, adapter" line; GIVEN 137 (core stub, on orc-2's
+  word #1382: "Native errors, ids handled at source (D-198, D-199, D-202)"; full text in the
+  adapter part)
+
 ## D-203 — A wait declaration's keep-alive line names a self-paced `/loop` with no interval (never a cron), says to arm nothing when a wake is due within 50 minutes, and carries the stop step for a session woken first (amends D-033, D-167)
 
 2026-11-17 · run r1117a, lite. The operator, in orc-2's pane at about 04:50Z: "yes on the

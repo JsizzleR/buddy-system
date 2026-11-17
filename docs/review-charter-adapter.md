@@ -131,10 +131,15 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     A native id a receipt only displays (a Codex item and approval id, a Claude tool_use_id,
     approval id and result uuid) goes through `displayNativeID` (`fence.Field`, 128) where the
     event is made (D-199); a Claude terminal reason the fence would alter is stored `unknown`,
-    since recovery compares the stored status against an enum. The KEYS stay exact: the Codex
-    thread and turn ids and a request id (`Approval.ID`) are sent back, and a fenced copy would
-    match nothing; bounding them is a refusal, a full-tier item. Do not propose: fencing a key;
-    storing a fenced value something compares against a fixed set.
+    since recovery compares the stored status against an enum. The KEYS (the Codex thread and
+    turn ids, a request id) are sent back, so they are CHECKED where they arrive, never fenced
+    (D-202): a turn id or string request id within `nativeKey` (1-128 of `[A-Za-z0-9._:/-]`,
+    decoded), an integer id canonical, the thread id `fence.ValidSessionID`, also in
+    `resumeAdmission` before the ledger; a bad turn id ends the transport (a reply's on the
+    reader, never from Send: a second sender races the deferred close of `c.events`); a bad
+    request id alone gets the native deny/decline and `approval_refused`. Do not propose:
+    fencing a key; a key check in `Identity.Valid`, `approvalIDKey` or journal reload (refuses
+    a whole older journal); storing a fenced value something compares against a fixed set.
     A native child's stderr (worker, `--version` probe) reaches the adapter's stderr through
     a pump on a pipe of its own (D-200): each line `native stderr: ` plus `fence.Line` at
     1,024, 64 KiB per child, drained past it; Close finishes it before the close report.

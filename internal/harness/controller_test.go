@@ -14,6 +14,10 @@ type fakeBackend struct {
 	sends, approves, interrupts int
 	events                      chan Event
 	approveErr                  error
+	// sendTurn, when set, is the turn id Send reports (a raw native one).
+	sendTurn string
+	// lastText is the wake text the last Send was handed.
+	lastText string
 	// unrecorded models a backend path that returns a worker without
 	// spawning through its launch authorization; the controller must refuse it.
 	unrecorded bool
@@ -37,8 +41,12 @@ func (b *fakeBackend) Resume(_ context.Context, _ Launch, id string, auth *Launc
 	}
 	return id, nil
 }
-func (b *fakeBackend) Send(context.Context, string, string) (Delivery, error) {
+func (b *fakeBackend) Send(_ context.Context, _ string, text string) (Delivery, error) {
 	b.sends++
+	b.lastText = text
+	if b.sendTurn != "" {
+		return Delivery{State: "delivered", TurnID: b.sendTurn}, nil
+	}
 	return Delivery{State: "delivered", TurnID: "turn-1"}, nil
 }
 func (b *fakeBackend) Inspect(context.Context, string) (Observation, error) {

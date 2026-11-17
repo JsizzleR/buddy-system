@@ -44,11 +44,11 @@ for line in sys.stdin:
   if text=='no-replay': continue
   replay=dict(m,isReplay=True); replay.pop('origin'); emit(replay)
   if text in ('approval','interaction'):
-   emit({'type':'control_request','request_id':'native-"approval','request':{'subtype':'can_use_tool','tool_name':'Write','input':{'file_path':'file.txt','content':'hello'},'tool_use_id':'native-tool-id','requires_user_interaction':text=='interaction'}})
+   emit({'type':'control_request','request_id':'native-approval','request':{'subtype':'can_use_tool','tool_name':'Write','input':{'file_path':'file.txt','content':'hello'},'tool_use_id':'native-tool-id','requires_user_interaction':text=='interaction'}})
   elif text=='complete':
    emit({'type':'result','subtype':'success','is_error':False,'terminal_reason':'completed','uuid':'native-result-ref','session_id':sid,'user_message_uuid':active['uuid'],'user_message_uuids':[active['uuid']],'queued_turn_count':0})
  elif m['type']=='control_response':
-  r=m['response']; assert r['request_id']=='native-"approval'
+  r=m['response']; assert r['request_id']=='native-approval'
   assert r['response']['toolUseID']=='native-tool-id'
   assert 'updatedPermissions' not in r['response']
   if r['response']['behavior']=='allow':
@@ -160,7 +160,7 @@ func TestClaudeNativeWireApprovalAndResult(t *testing.T) {
 		t.Fatalf("ack lost native input UUID: %+v", ack)
 	}
 	e := claudeEvent(t, ctx, b, "approval")
-	if e.Approval == nil || string(e.Approval.ID) != `"native-\"approval"` || e.Approval.ItemID != "native-tool-id" {
+	if e.Approval == nil || string(e.Approval.ID) != `"native-approval"` || e.Approval.ItemID != "native-tool-id" {
 		t.Fatalf("approval identifiers lost: %+v", e.Approval)
 	}
 	observation, err := b.Inspect(ctx, id)
