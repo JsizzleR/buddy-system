@@ -106,10 +106,10 @@ the operator" means the holder itself has gone quiet: not seen for 30 minutes,
 its process GONE, or ended. Choose one:
 
 - **Wait for it:** `buddy wait --on <slug> [--until 3h] [--note "<why>"]`, then
-  arm your own `/loop buddy wait check`. Buddy wakes nothing: without that
-  loop, the wait is only a declaration. Each check is one tool call that
-  drains your inbox and says STILL WAITING / LANDED / EXPIRED / NO WAIT. On a
-  1-hour cache tier, it also keeps your prompt cache warm. When it says LANDED, stop the loop and claim again.
+  arm your own `/loop buddy wait check`. Without it the wait is only a
+  declaration: each check drains your inbox, says STILL WAITING / LANDED /
+  EXPIRED / NO WAIT and, on a 1-hour tier, keeps your cache warm. When it
+  says LANDED, stop the loop and claim again.
   `buddy wait clear` withdraws your wait; `buddy wait ls` lists everyone's.
 - **Or block on it in the background,** the default for a park you expect to
   end inside 50 minutes: `buddy wait --on <slug> --block`, run
@@ -142,32 +142,34 @@ only went silent, only the operator frees it: its process GONE, with a plain
 
 ## Before you park
 
-Your prompt cache (on the 1-hour tier) lives an hour after the last request
-that used it. Woken later than that, a session re-writes its whole prompt at
-twice the input rate; woken inside the hour, it reads it back for a small
-fraction of that. Nothing wakes you on time by itself, so decide BEFORE you
-end a turn that something else will end:
+Your prompt cache (1-hour tier) lives an hour past the last request that
+used it: woken later, a session re-writes its whole prompt at twice the input
+rate; inside the hour, it reads it for a fraction. Nothing wakes you on time
+by itself, so decide BEFORE you end a turn that something else will end:
 
 - **Your own long run** (a test tier you started in the background) that might
   run past the hour, from about 50 minutes, since run times vary:
   `buddy wait --until <its length plus slack> --note "<the run>"`,
   then arm `/loop buddy wait check` if the declaration's keep-alive line says
-  to (it will not on a 5-minute tier). With no `--on` the wait is a timer: it
-  never LANDS, and EXPIRES at its deadline. Whatever the tier, schedule a check
-  of the run itself: is its pid still that job? Gone with no final status line
-  is a failed run, not a slow one; output growing or flat says neither.
+  to (not on a 5-minute tier), with NO interval (`50m`, "every 50m": a cron,
+  rounded to 30m). With no `--on` the wait is a timer: it never LANDS, and
+  EXPIRES at its deadline. Whatever the tier, schedule a check of the run
+  itself: is its pid still that job? Gone with no final status line is a failed run, not a
+  slow one; output growing or flat says neither.
 - **Handed your work in and parked** for the orchestrator or the operator:
   the same timer, sized to when you expect them. Already waiting on a run
   (`--on <run> --ready`)? KEEP it, with its loop if the tier passes the hour:
   a new declaration replaces it, dropping your READY and the run's outcome.
+- **Arm nothing** if your wake is due within about 50 minutes (a job's
+  exit, a promised message).
 - **Woken first by something else** (the run's completion notice, a message,
-  the operator): `buddy wait clear`, and stop the loop.
+  the operator): `buddy wait clear`, then stop the loop (ScheduleWakeup
+  `stop: true`).
 - **Not for a park with no known end** (overnight, "until the operator is
   back"): a check is a turn of about three requests, each reading your whole
-  prompt from cache. Measured on one fleet's week, past four hours it cost as
-  much as it saved.
-- **Pace from the check:** schedule the next one when it says (`next check in
-  50m`). A shorter delay keeps nothing warmer.
+  prompt. On one fleet's week, past four hours it cost what it saved.
+- **Pace from the check:** wake after the seconds it prints (`next check in
+  50m (3000s from now)`); sooner keeps nothing warmer.
 
 ## Finding out who is who
 

@@ -15225,3 +15225,91 @@ ceiling).
   `internal/store/transfer_test.go`, `internal/cli/sessionid_test.go`, `ghstack_test.go`; `scripts/check-fleet-report.sh` seeds its planted id
 - index: CLAUDE.md § Decisions, the "Identity" line; GIVEN 138 (core, 303 bytes), its room made by
   shortening GIVEN 119's stub on orc-2's word (#1390), 119's full text whole in the install part
+
+## D-203 — A wait declaration's keep-alive line names a self-paced `/loop` with no interval (never a cron), says to arm nothing when a wake is due within 50 minutes, and carries the stop step for a session woken first (amends D-033, D-167)
+
+2026-11-17 · run r1117a, lite. The operator, in orc-2's pane at about 04:50Z: "yes on the
+keep alive lane", answering orc-2's proposal of this item. It changes what buddy ADVISES;
+no verb refuses anything new, and what `wait` and `wait check` grant is unchanged.
+
+**What was measured** (another project's session transcripts, read locally, counts only):
+
+- A coordinator ran `buddy wait --until 4h30m` and was told
+  `keep-alive: cache 1h tier (…): /loop buddy wait check in THIS session, every 50m`. It
+  obeyed. Claude Code's `/loop` skill (its text, read from the 2.1.326 binary; nothing
+  launched) takes a leading `^\d+[smhd]$` token, or else a trailing `every <N><unit>` or
+  `every <N> <unit-word>`, as the interval and turns it into a recurring cron, rounding an
+  interval that does not divide its unit "to the nearest clean interval". The session made
+  `CronCreate "17,47 * * * *"`: 7 fires where the self-paced loop gives about 4 (4h30m over
+  50m), each 2 requests at ~197k. With no interval, `/loop` is its dynamic mode: one
+  ScheduleWakeup at a time, the delay the model's, read here from the check's own
+  `next check in 50m (3000s from now)`.
+- A lane waiting for a MESSAGE (a timer; `--block` refuses one, D-095) ran
+  `buddy wait --until 90m`, got the same line, and armed a 1800 s ScheduleWakeup. The GO
+  message woke it 40 s before the wakeup; it ran no `wait clear` and stopped nothing, and the
+  stale wake cost 5 requests at ~286k.
+- The rules were installed and followed (D-054, D-162, D-167): the line, not the reader, was
+  the defect. D-167 had moved "woken first: clear it and stop the loop" into the skill alone,
+  where a session reads it once at load, not when it arms.
+
+**The rule.** `keepAliveAdvice`'s two arming arms (the 1h tier; no tier observed yet) end
+with one shared clause, `keepAliveArm`:
+`arm nothing if a wake is due within 50m (a job's exit, a promised message); else
+`/loop buddy wait check` in THIS session, no interval (it self-paces; an interval makes a
+cron); woken first: `buddy wait clear`, then stop the loop (ScheduleWakeup stop: true)`.
+The command stands alone in backticks, the line's fixed words carry no "every" (the
+session label in `where` is the only interpolated text, and the fixed stop clause always
+follows it), and the stop is the
+dynamic loop's real cancel (the `/loop` skill's step 6). Declared with `--session` for another
+session, the clear is `buddy wait clear --session <id>` (D-201's paste rule), shared with the
+timer's line through `waitClearCmd`: the declarer reads this line too, and a bare clear from
+its shell clears its own wait (D-054, measured; the self-review caught the first draft
+printing the bare form there). "Due within 50m" is the session's
+own judgement: buddy cannot see a background job or a promise, so it is wording, and no flag
+was added. The 5m arm (`keep-alive: none: …`), the check's `no next check` line, the timer's
+third line and the Codex line are unchanged. The skill's "Before you park" says NO interval
+(why: a cron, rounded to 30m), the arm-nothing case, and ScheduleWakeup `stop: true`; it was
+held net-neutral against its 28,672 ceiling by tightening its own prose. USAGE drops the
+`/loop 30m` fallback D-033 advised (a fixed interval still keeps the cache warm, at two
+checks an hour against 1.2; it is no longer advised). The fleet skill said nothing false
+("only the lane can stop its loop") and is unchanged. CLAUDE.md's Parking clause is still
+true and gains only the number. The charter's GIVEN 118 swaps D-167's "Do not propose
+restoring the advice to the line", which this amends, for "D-203 puts its skip and stop
+back, `/loop` bare", at the same bytes (the core charter has 5 to spare).
+
+**Cost of the words.** The arming line grows from about 110 to about 330 bytes on each 1h
+declaration (119 declarations in D-167's 14 days: about 26 KB, an estimate), against one
+avoided stale wake (5 requests at ~286k) or three avoided cron fires (6 requests at ~197k)
+per occurrence.
+
+**Considered and cut.**
+- *A flag declaring the expected wake* (`--woken-by job|msg`). Buddy would only echo it back;
+  the session that knows it is the one reading the line. Not without the operator.
+- *Printing the delay in seconds on the declaration.* The check already prints it, and the
+  dynamic loop runs the check first, so the first wakeup is paced by it.
+- *Naming CronDelete as the stop.* The line no longer leads to a cron; naming both would
+  invite one.
+- *Dropping the keep-alive for a background job past the hour.* D-054 measured those parks
+  cold (27 of 34) and priced the keep-alive; that stands. The 4h30m episode's cost was the
+  cron's extra fires, not the keep-alive.
+
+**Test shape.** `TestTheArmingLineCannotBecomeACron`: each arming arm (1h tier, no tier yet,
+declared for another session) holds the exact line, no "every" in any case, the backticked
+command exactly `/loop buddy wait check`, and both the command and the rest of the line
+pasted after `/loop` parse to no interval under a reimplementation of the skill's two rules;
+the old line's tail parsing to `50m` and a leading `5m` are the controls that the parser
+sees the defect; the 5m tier arms nothing and its check still says `no next check`. The
+existing exact-text tests take the new line. Mutants (a private rsync'd copy), each failing:
+`, every 50m` appended back; the skip clause dropped; the stop clause dropped; the no-tier
+arm's old text; the 5m arm also arming; the command's backticks dropped; `/loop 50m` as the
+command; the bare clear on a `--session` declaration, and on its no-tier arm (after the
+fold below). The unmutated copy passes (the
+control).
+
+**What the code review changed** (Codex, one pass at xhigh, folded once). The no-tier arm
+declared for another session was unheld: a bare clear there passed every assertion. It is a
+fourth case, and each case with a timer now requires the keep-alive's stop to name the
+timer line's clear. "Carries no every" overstated: a label `every 50m` prints mid-line; the
+prose now says the fixed words, and the trailing rule cannot fire since the stop clause ends
+the line. Answered: `bin` cannot carry a path or a backtick (`buddyCmd` returns `buddy` or
+`buddy fleet` only).

@@ -1494,8 +1494,8 @@ the file there changes only when that worktree pulls.
 buddy wait --on api-work --until 3h --note "then: rebase, run check.sh"
 # WAITING on claim "api-work" (held by repo/s-4856919d, seen 3m ago) — deadline in 3h0m; note: then: rebase, run check.sh
 # the holder is not told of this wait: ask it now what it is running, how long it has left, and to release as soon as it is done — buddy msg api-work "<ask>"
-# keep-alive: cache 1h tier (last written 2m ago): /loop buddy wait check in THIS session, every 50m
-/loop buddy wait check               # typed in the WAITING session: its own scheduler, self-paced
+# keep-alive: cache 1h tier (last written 2m ago): arm nothing if a wake is due within 50m (a job's exit, a promised message); else `/loop buddy wait check` in THIS session, no interval (it self-paces; an interval makes a cron); woken first: `buddy wait clear`, then stop the loop (ScheduleWakeup stop: true)
+/loop buddy wait check               # typed in the WAITING session: its own scheduler, self-paced, NO interval
 # STILL WAITING on claim "api-work" (held by …, seen 3m ago) — 1h12m so far, deadline in 1h48m; next check in 50m (3000s from now)
 # last observed request 50m ago read 398k, wrote 1k (mostly read from the cache)
 # … and once the holder runs `buddy release api-work`:
@@ -1556,11 +1556,11 @@ operator are all parked on nothing buddy holds. The timer form covers them:
 ```sh
 buddy wait --until 2h --note "own tier run, ~80 min"   # no --on: expires at the deadline, never lands
 # WAITING on a timer (no claim named: it never lands, it expires) — deadline in 2h0m; note: own tier run, ~80 min
-# keep-alive: cache 1h tier (…): /loop buddy wait check in THIS session, every 50m
+# keep-alive: cache 1h tier (…): arm nothing if a wake is due within 50m (…); else `/loop buddy wait check` in THIS session, no interval (…); woken first: …
 # a timer never lands: it ends at its deadline or at `buddy wait clear`
 /loop buddy wait check
 # … the run's completion notice (or a message, or the operator) wakes the session first:
-buddy wait clear                                        # and stop the loop
+buddy wait clear                                        # then stop the loop: ScheduleWakeup stop: true
 ```
 
 Measured over that fleet's week (129 sessions): 3 declared a wait and 1 armed
@@ -1586,8 +1586,20 @@ timer learns anyway (a Codex session has no beat: its `buddy wait check` says
 it). A refused `claim` prints the `buddy wait --on …` line that would wait for
 it; it never registers one.
 
-**Self-paced is the recommended form; `/loop 30m buddy wait check` is the
-fallback.** The check paces from itself: `next check in 50m`, or less when the
+**Self-paced is the form: `/loop` with NO interval (D-203).** Claude Code's
+`/loop` reads a leading `30m` or a trailing `every 50m` as an interval and
+makes it a cron; 50 minutes does not divide the hour, so it is rounded. The
+declaration's line used to end `, every 50m`, and a coordinator obeyed it as
+`17,47 * * * *`: 7 fires in a 4h30m wait instead of about 4. The line now
+names the bare command in backticks, says "no interval", and its fixed words
+carry no "every" (a label or path in it is not fixed, but the line's own words
+always follow it, so nothing it names can end the line). It also says when to arm nothing (a wake due within 50 minutes, such
+as a background job's exit or a promised message: that wake comes back warm)
+and the stop for a session woken first: `buddy wait clear`, then
+ScheduleWakeup with `stop: true`, the dynamic loop's cancel (a lane woken 40 s
+before its 1800 s wakeup, which it left armed, paid 5 stale requests). Buddy
+cannot know when the session expects its wake, so that is the session's
+judgement. The check paces from itself: `next check in 50m`, or less when the
 deadline is sooner. It does not pace from the ledger's cache clock, which lags
 one request, because a check runs before its own `beat` records it; a formula
 built on that clock pinged twice per period. Fifty minutes, not fifty-eight,
@@ -1595,9 +1607,9 @@ because the scheduler times the wake from the scheduling call and fires up to
 58 s late (measured: it rounds up to the next minute). Scheduled firings
 measured warm at up to 3,602 s after the previous request and cold at 3,633 s
 and beyond. The harness's own tool text says any delay up to an hour wakes
-warm; measured, 9 of 11 one-hour wakes came back cold. The fixed form can't
-express a uniform 50-minute cron period, so it pings every 30 minutes: two
-reads an hour instead of 1.2, and correct.
+warm; measured, 9 of 11 one-hour wakes came back cold. A fixed interval
+(`/loop 30m`) still keeps the cache warm, at two checks an hour instead of
+1.2; it is no longer advised.
 
 **What a keep-alive costs,** per hour of waiting, at list rates (1h write 2×
 base; reads $0.50/M on Opus 5, $0.20/M on Opus 5.5, $0.25/M on Fable 5.1), for

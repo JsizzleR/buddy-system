@@ -190,7 +190,7 @@ func cmdWaitDeclare(args []string, env Env) error {
 	if codex {
 		fmt.Fprintln(env.Stdout, "Codex: run `"+buddyCmd(env)+" wait check` in "+where+" to read its wait; automatic scheduling is unsupported and cache timing is unknown")
 	} else {
-		fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where, buddyCmd(env)))
+		fmt.Fprintln(env.Stdout, keepAliveAdvice(now, c, observed, where, buddyCmd(env), waitClearCmd(self, si, buddyCmd(env))))
 	}
 	if len(w.Targets) == 0 {
 		// A timer never lands, so no verdict ever ends it early: the park it
@@ -735,13 +735,20 @@ func nextCheck(now, deadline time.Time, c store.ContextSample, observed bool) st
 // measured, and the lane's timer stayed open; the fleet skill says to tell
 // the lane.
 func timerEndAdvice(self bool, si store.SessionInfo, bin string) string {
-	clear := "`" + bin + " wait clear`"
+	return "a timer never lands: it ends at its deadline or at " + waitClearCmd(self, si, bin)
+}
+
+// waitClearCmd is the clear a declaration's lines name, the timer's and the
+// keep-alive's stop step alike (D-203): `--session <id>` when declared for
+// another session, since a bare clear from the declaring shell clears the
+// declarer's own wait (D-054, measured).
+func waitClearCmd(self bool, si store.SessionInfo, bin string) string {
 	if !self {
 		// The paste rule (D-201): an id that would not paste back as printed
 		// is never written as a command.
-		clear = "`" + bin + " wait clear --session " + pasteIDOr(si.SessionID, "<its session id>") + "`"
+		return "`" + bin + " wait clear --session " + pasteIDOr(si.SessionID, "<its session id>") + "`"
 	}
-	return "a timer never lands: it ends at its deadline or at " + clear
+	return "`" + bin + " wait clear`"
 }
 
 // keepAliveAdvice is the declaration's second line: the cache tier observed,
@@ -751,17 +758,42 @@ func timerEndAdvice(self bool, si store.SessionInfo, bin string) string {
 // what a check costs (a turn of about three cache reads, D-054), what it
 // does, and a fixed-interval fallback, all of which the core skill's "Before
 // you park" holds; the check itself says when the next is due.
-func keepAliveAdvice(now time.Time, c store.ContextSample, observed bool, where, bin string) string {
+//
+// THE COMMAND IS SELF-PACED, AND THE LINE SAYS WHEN TO ARM NOTHING AND HOW TO
+// STOP (D-203). It ended `/loop buddy wait check in THIS session, every 50m`,
+// and Claude Code's /loop reads a trailing "every <N><unit>" as its
+// interval: a cron, and 50 minutes does not divide the hour, so the skill
+// rounds it. Measured in another project's sessions: a coordinator obeyed it
+// as `17,47 * * * *`, 7 fires in a 4h30m wait instead of about 4. A bare
+// `/loop <prompt>` is the skill's dynamic mode, one wakeup at a time, paced
+// by the check's own `next check in 50m (3000s …)`; so the line names the
+// command alone in backticks, says "no interval", and carries no "every".
+// The same investigation found a lane woken by the message it waited for 40 s
+// before a 1800 s wakeup, which it neither cleared nor stopped: 5 stale
+// requests. The skip and the stop step were the skill's only (D-167), and the
+// line is what a session reads at arm time, so both ride here; the stop is
+// the dynamic loop's real cancel, ScheduleWakeup with stop: true. Buddy
+// cannot know when the session expects its wake, so "a wake due within 50m"
+// is the session's own judgement, worded, not a flag.
+func keepAliveAdvice(now time.Time, c store.ContextSample, observed bool, where, bin, clear string) string {
 	label, pays, known := cacheTier(c, observed)
 	switch {
 	case !pays:
 		return fmt.Sprintf("keep-alive: none: the last observed cache write (%s ago) was on the %s tier", age(now, c.TierAt), label)
 	case !known:
-		return "keep-alive: no cache tier observed for this session yet: /loop " + bin + " wait check in " + where
+		return "keep-alive: no cache tier observed for this session yet: " + keepAliveArm(where, bin, clear)
 	default:
-		return fmt.Sprintf("keep-alive: cache %s tier (last written %s ago): /loop %s wait check in %s, every %s",
-			label, age(now, c.TierAt), bin, where, span(keepAlivePeriod))
+		return fmt.Sprintf("keep-alive: cache %s tier (last written %s ago): %s", label, age(now, c.TierAt), keepAliveArm(where, bin, clear))
 	}
+}
+
+// keepAliveArm is the advice both arming arms share (D-203): skip, arm, stop.
+// clear is waitClearCmd's: declared for another session, the declarer reads
+// this line too, and a bare clear there would clear its own wait.
+func keepAliveArm(where, bin, clear string) string {
+	return "arm nothing if a wake is due within " + span(keepAlivePeriod) + " (a job's exit, a promised message); else `/loop " + bin +
+		" wait check` in " + where + ", no interval (it self-paces; an interval makes a cron); woken first: " + clear +
+		", then stop the loop (ScheduleWakeup stop: true)"
 }
 
 // observedRequest is the check's last line: what the ledger's newest

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func TestWaitDeclareCheckLandOnceThenNoWait(t *testing.T) {
 	if got[1] != askLine {
 		t.Fatalf("the ask line (D-130):\n got %q\nwant %q", got[1], askLine)
 	}
-	if want := "keep-alive: cache 1h tier (last written 0s ago): /loop buddy wait check in THIS session, every 50m"; got[2] != want {
+	if want := "keep-alive: cache 1h tier (last written 0s ago): " + armLine("THIS session"); got[2] != want {
 		t.Fatalf("the arming line:\n%s", got[2])
 	}
 
@@ -241,7 +242,7 @@ func TestWaitTimerWithNoTierObservedYet(t *testing.T) {
 	boundedParallel(t)
 	w := newWaitFx(t) // no turn: nothing observed
 	got := lines(w.ok(t, "sess-a", "wait", "--until", "90m"))
-	if len(got) != 3 || got[1] != "keep-alive: no cache tier observed for this session yet: /loop buddy wait check in THIS session" {
+	if len(got) != 3 || got[1] != "keep-alive: no cache tier observed for this session yet: "+armLine("THIS session") {
 		t.Fatalf("the no-tier arming line:\n%s", strings.Join(got, "\n"))
 	}
 	if got[2] != "a timer never lands: it ends at its deadline or at `buddy wait clear`" {
@@ -370,7 +371,7 @@ func TestWaitArmsNothingOffTheHourTier(t *testing.T) {
 			w.turn(t, w.clock, 214_000, 1_200, tc.e5m, tc.e1h)
 			decl := lines(w.ok(t, "sess-a", "wait", "--on", "api-work"))[2] // after the ask line (D-130)
 			check := lines(w.ok(t, "sess-a", "wait", "check"))[0]
-			armed := strings.Contains(decl, "/loop buddy wait check in THIS session")
+			armed := strings.Contains(decl, "`/loop buddy wait check` in THIS session")
 			paced := strings.Contains(check, "next check in 50m")
 			if armed != tc.pays || paced != tc.pays {
 				t.Fatalf("pays=%v: armed=%v paced=%v\n%s\n%s", tc.pays, armed, paced, decl, check)
@@ -391,6 +392,116 @@ func TestWaitArmsNothingOffTheHourTier(t *testing.T) {
 				t.Fatalf("pays=%v: a timer must name its clear:\n%s", tc.pays, strings.Join(timer, "\n"))
 			}
 		})
+	}
+}
+
+// armLine is the arming advice both arming arms end with (D-203), spelled
+// out here rather than taken from keepAliveArm, so a change to the words is
+// a change to a test.
+func armLine(where string) string { return armLineClear(where, "`buddy wait clear`") }
+
+func armLineClear(where, clear string) string {
+	return "arm nothing if a wake is due within 50m (a job's exit, a promised message); else `/loop buddy wait check` in " + where +
+		", no interval (it self-paces; an interval makes a cron); woken first: " + clear + ", then stop the loop (ScheduleWakeup stop: true)"
+}
+
+// loopInterval applies Claude Code's /loop parsing rules (its skill text,
+// read from the 2.1.326 binary): a leading token like 5m, else a trailing
+// "every <N><unit>" or "every <N> <unit-word>", is the interval, and an
+// interval becomes a cron. "" is the skill's dynamic, self-paced mode.
+var (
+	loopLeading  = regexp.MustCompile(`^\d+[smhd]$`)
+	loopTrailing = regexp.MustCompile(`(?i)every\s+(\d+\s*[a-z]+)\s*$`)
+)
+
+func loopInterval(input string) string {
+	if f := strings.Fields(input); len(f) > 0 && loopLeading.MatchString(f[0]) {
+		return f[0]
+	}
+	if m := loopTrailing.FindStringSubmatch(input); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// The arming line must not turn into a cron (D-203). It ended "…, every
+// 50m", which /loop read as its interval; a coordinator ran it as
+// `17,47 * * * *`. Every arming arm (the 1h tier, no tier yet, declared for
+// another session) names a self-paced command, the skip, and the stop; the
+// whole line handed to /loop parses to no interval either way a session
+// might paste it. The old line is the positive control that the parser
+// sees the defect, and the 5m tier the control that nothing is armed.
+func TestTheArmingLineCannotBecomeACron(t *testing.T) {
+	boundedParallel(t)
+	if got := loopInterval("buddy wait check in THIS session, every 50m"); got != "50m" {
+		t.Fatalf("control: the old line's tail is /loop's interval, got %q", got)
+	}
+	if got := loopInterval("5m buddy wait check"); got != "5m" {
+		t.Fatalf("control: a leading interval, got %q", got)
+	}
+	cmd := regexp.MustCompile("`(/loop [^`]*)`")
+	for _, tc := range []struct {
+		name, sid string
+		args      []string
+		turn      bool
+		want      string
+	}{
+		{"1h tier", "sess-a", []string{"wait", "--on", "api-work"}, true, "keep-alive: cache 1h tier (last written 0s ago): " + armLine("THIS session")},
+		{"no tier yet", "sess-a", []string{"wait", "--until", "90m"}, false, "keep-alive: no cache tier observed for this session yet: " + armLine("THIS session")},
+		{"for another session", "sess-b", []string{"wait", "--session", "sess-a", "--until", "90m"}, true, "keep-alive: cache 1h tier (last written 0s ago): " + armLineClear("session alpha", "`buddy wait clear --session sess-a`")},
+		// Codex code pass: the no-tier arm declared for another session was
+		// unheld, so a bare clear there survived every assertion.
+		{"no tier yet, for another session", "sess-b", []string{"wait", "--session", "sess-a", "--until", "90m"}, false, "keep-alive: no cache tier observed for this session yet: " + armLineClear("session alpha", "`buddy wait clear --session sess-a`")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWaitFx(t)
+			if tc.turn {
+				w.turn(t, w.clock, 214_000, 1_200, 0, 1_200)
+			}
+			var line, timer string
+			for _, l := range lines(w.ok(t, tc.sid, tc.args...)) {
+				if strings.HasPrefix(l, "keep-alive:") {
+					line = l
+				}
+				if strings.HasPrefix(l, "a timer never lands") {
+					timer = l
+				}
+			}
+			if line != tc.want {
+				t.Fatalf("the arming line:\n got %q\nwant %q", line, tc.want)
+			}
+			// A timer's two lines name ONE clear: the timer's last span is
+			// the keep-alive's stop step.
+			if timer != "" {
+				clear := timer[strings.LastIndex(timer[:len(timer)-1], "`"):]
+				if !strings.Contains(line, "woken first: "+clear+", then stop the loop") {
+					t.Fatalf("the timer names %s and the keep-alive line does not:\n%s", clear, line)
+				}
+			}
+			if strings.Contains(strings.ToLower(line), "every") {
+				t.Fatalf("no \"every\" anywhere on the line: /loop takes a trailing one as a cron interval:\n%s", line)
+			}
+			m := cmd.FindStringSubmatch(line)
+			if m == nil || m[1] != "/loop buddy wait check" {
+				t.Fatalf("the command is the bare self-paced /loop, alone in backticks:\n%s", line)
+			}
+			if got := loopInterval(strings.TrimPrefix(m[1], "/loop ")); got != "" {
+				t.Fatalf("the command parses to interval %q", got)
+			}
+			if got := loopInterval(line[strings.Index(line, "/loop ")+len("/loop "):]); got != "" {
+				t.Fatalf("the rest of the line pasted after /loop parses to interval %q", got)
+			}
+		})
+	}
+	// The 5m tier arms nothing and its check says no next check.
+	w := newWaitFx(t)
+	w.turn(t, w.clock, 214_000, 1_200, 1_200, 0)
+	decl := lines(w.ok(t, "sess-a", "wait", "--on", "api-work"))[2]
+	if decl != "keep-alive: none: the last observed cache write (0s ago) was on the 5m tier" || strings.Contains(decl, "/loop") {
+		t.Fatalf("the 5m tier arms nothing:\n%s", decl)
+	}
+	if check := lines(w.ok(t, "sess-a", "wait", "check"))[0]; !strings.Contains(check, "no next check: the last observed cache write") {
+		t.Fatalf("the 5m tier's check says no next check:\n%s", check)
 	}
 }
 
@@ -741,11 +852,11 @@ func TestTheArmingLineNamesTheSessionThatMustArmIt(t *testing.T) {
 	boundedParallel(t)
 	w := newWaitFx(t)
 	out := w.ok(t, "sess-b", "wait", "--session", "sess-a", "--until", "1h")
-	if !strings.Contains(out, "/loop buddy wait check in session alpha") ||
+	if !strings.Contains(out, "`/loop buddy wait check` in session alpha") ||
 		strings.Contains(out, "THIS session") {
 		t.Fatalf("declared for alpha from bravo's shell:\n%s", out)
 	}
-	if out := w.ok(t, "sess-a", "wait", "--until", "1h"); !strings.Contains(out, "/loop buddy wait check in THIS session") {
+	if out := w.ok(t, "sess-a", "wait", "--until", "1h"); !strings.Contains(out, "`/loop buddy wait check` in THIS session") {
 		t.Fatalf("control: alpha's own declaration:\n%s", out)
 	}
 }

@@ -1107,8 +1107,8 @@ ledger row entered through the CLI (D-006).
     apart from "none" (D-065), "untrusted", every fence, verdict and EXIT/JOBS clause. Do not
     propose restoring an explanation the skill holds, or cutting a claim's description in hello.
     D-167: a wait declaration's keep-alive and timer lines say facts too, and `ids ls` folds blocks
-    taken over 3d ago into a count that `--all` lists; a folded block is still held. Do not propose
-    restoring the advice to the line.
+    taken over 3d ago into a count that `--all` lists; a folded block is still held. D-203 puts its
+    skip and stop back, `/loop` bare.
 
 119. **Removal is `scripts/uninstall.sh`, run by `buddy uninstall` (D-124, D-125, D-126, D-173, D-176, D-178, D-179, D-181): chat first, buddy last, one lock with install.** Do not propose: a `--purge`, editing other settings, killing a daemon or a process, or removing buddy before chat. (full text: part `install`)
 
