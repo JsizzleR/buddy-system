@@ -305,14 +305,17 @@ func renewalOnlyNote(now, renewed time.Time) string {
 // the order is no longer one list: a live holder's slug wins over an ended
 // session's label, and an ended holder's slug loses to a live label. The
 // resolution check below, not any order, is what keeps the answer right. The
-// id is the second choice because it is long, and exact.
+// id is the second choice because it is long, and exact; and only under the
+// paste rule (D-201), else "" and the caller's placeholder: an older binary's
+// row under the id `all` printed `buddy msg 'all'`, a broadcast, when its
+// slug did not resolve (Codex code pass).
 func msgTargetFor(st *store.Store, slug, holder string) string {
 	if st != nil {
 		if t, err := st.ResolveTarget(slug); err == nil && t.ID == holder {
 			return slug
 		}
 	}
-	return holder
+	return pasteIDOr(holder, "")
 }
 
 // gateHolder is the commit gate's description of a claim's holder, the way

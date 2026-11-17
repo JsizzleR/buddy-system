@@ -581,7 +581,7 @@ func helloBeside(fb *fleetBeside, session, label, top string, proc store.ProcRef
 	if isSessionIDRefused(err) {
 		fb.st.Close()
 		fb.st = nil
-		fb.refused = idRefusalLine(session, idFrom, "fleet "+fence.Line(fb.rc.fleet, 64))
+		fb.refused = idRefusalLine(session, idFrom, "fleet "+fence.Line(fb.rc.fleet, 64), true)
 		return store.SessionInfo{}
 	}
 	if err != nil {

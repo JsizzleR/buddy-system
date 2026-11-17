@@ -87,7 +87,7 @@ func TestUnregisteredSenderIsStampedNotOperator(t *testing.T) {
 					return
 				}
 				if tc.hint == refusedHint {
-					if !strings.Contains(out, `signed "unregistered `) || !strings.Contains(out, "it cannot be registered (D-201)") || strings.Contains(out, "--session") {
+					if !strings.Contains(out, `signed "unregistered `) || !strings.Contains(out, "no new session can be registered under it (D-201)") || strings.Contains(out, "--session") {
 						t.Fatalf("%s: an unregistrable id gets no hello remedy: %q", what, out)
 					}
 					return

@@ -375,3 +375,33 @@ func TestTransferClaimsMovesASetWhole(t *testing.T) {
 		}
 	})
 }
+
+// The re-registered refusal names the recipient's id in a `buddy who`
+// command only under the paste rule (D-201): an older binary's row under
+// `sess<TAB>c` printed `buddy who sess c`, another session (Fable
+// cross-check). The valid id is the control.
+func TestTransferReRegisteredNamesIDUnderThePasteRule(t *testing.T) {
+	for _, c := range []struct{ id, want, not string }{
+		{"sess-c", "`buddy who sess-c`", "<its session id>"},
+		{"sess\tc", "`buddy who <its session id>`", "buddy who sess"},
+	} {
+		st, _ := openTest(t)
+		a := hello(t, st, "sess-a", "alpha", "/wt/a")
+		hello(t, st, "sess-c", "charlie", "/wt/c")
+		if c.id != "sess-c" {
+			if _, err := st.db.Exec(`UPDATE sessions SET session_id=? WHERE session_id='sess-c'`, c.id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := st.Claim(a.SessionID, a.Incarnation, "run", "x", []string{"pkg"}); err != nil {
+			t.Fatal(err)
+		}
+		to := mustResolve(t, st, "charlie")
+		byeLive(t, st, c.id)
+		hello(t, st, c.id, "charlie", "/wt/c") // a refresh of an existing row: unchecked
+		_, _, err := st.TransferClaim(a.SessionID, a.Incarnation, "run", to)
+		if err == nil || !strings.Contains(err.Error(), "re-registered") || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), c.not) {
+			t.Fatalf("%q: want %q, not %q, in %v", c.id, c.want, c.not, err)
+		}
+	}
+}

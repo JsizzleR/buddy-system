@@ -174,7 +174,14 @@ func (s *Store) TransferClaimsInRun(sessionID, incarnation string, slugs []strin
 			return ErrTransferRefused{Why: fmt.Sprintf("%s said bye %s ago; hand it to a live session", toLabel, humanAge(now.Sub(time.Unix(ended.Int64, 0))))}
 		}
 		if inc != to.Incarnation {
-			return ErrTransferRefused{Why: fmt.Sprintf("%s re-registered after it was resolved (it is a new incarnation, not the one you named); check `buddy who %s` and hand it on again", toLabel, to.ID)}
+			// The id goes in a command only under the paste rule (D-201): an
+			// older binary's row under `sess<TAB>x` printed `buddy who sess x`,
+			// another session (Fable cross-check).
+			who := "<its session id>"
+			if fence.ValidSessionID(to.ID) {
+				who = to.ID
+			}
+			return ErrTransferRefused{Why: fmt.Sprintf("%s re-registered after it was resolved (it is a new incarnation, not the one you named); check `buddy who %s` and hand it on again", toLabel, who)}
 		}
 
 		var runID string

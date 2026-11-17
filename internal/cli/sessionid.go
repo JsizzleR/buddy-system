@@ -59,6 +59,20 @@ func nativeIDFrom(from string) bool {
 	return from == "hook" || from == EnvClaudeSession || from == EnvCodexThread
 }
 
+// idSource is where an id came from for its refusal's wording: a --session or
+// $BUDDY_SESSION value EQUAL to the harness's own id is that native id, typed
+// again, and gets the native wording; read by syntax alone, it got the
+// charset recipe, which is the alias trap (Fable cross-check).
+func idSource(env Env, id, from string) string {
+	if nativeIDFrom(from) {
+		return from
+	}
+	if nid, src, err := nativeSession(env); err == nil && nid != "" && nid == id {
+		return src
+	}
+	return from
+}
+
 // unregistrableAdvice is what to do about an id the ledger will not register,
 // worded by where it came from (orc-2's ruling, D-201). A NATIVE id gets no
 // charset recipe: a lane that followed one and ran `hello --session <alias>`
@@ -68,7 +82,7 @@ func nativeIDFrom(from string) bool {
 // alias trap, TestNativeRefusalNamesNoAlias). A chosen id gets the rule.
 func unregistrableAdvice(from string) string {
 	if nativeIDFrom(from) {
-		return "it is this session's harness id, so do not say hello under another id (the gate judges every tool call by the harness id, and would refuse an alias on its own claims); tell the operator. Until then this session can hold no claim, peers' claims still refuse it, and only `buddy pause all` brakes it"
+		return "it is this session's harness id, so do not say hello under another id (the gate judges every tool call by the harness id, and would refuse an alias on its own claims); tell the operator"
 	}
 	return "the ledger registers " + fence.SessionIDRule + "; give one that is"
 }
@@ -76,9 +90,22 @@ func unregistrableAdvice(from string) string {
 // idRefusalLine is the one-line refusal to register an id, for hello's
 // digest (a hook's stdout is the one place a SessionStart is read: the wired
 // line drops stderr) and for the fleet beside a home ledger.
-func idRefusalLine(id, from, where string) string {
-	return fmt.Sprintf("BUDDY: session id %s cannot be registered in %s (D-201): %s\n",
-		fence.Field(id, fence.SessionIDCap), where, unregistrableAdvice(from))
+//
+// What being unregistered costs depends on the ledger, so a native refusal
+// says it per ledger: a fleet has no brake (`pause` refuses there, D-191) and
+// claims only slots; a fleet refusing beside a home whose older-binary row
+// still refreshes leaves the home half registered, so the home's sentence
+// would be false there (Codex code pass).
+func idRefusalLine(id, from, where string, fleet bool) string {
+	cost := ""
+	if nativeIDFrom(from) {
+		cost = ". Until then this session can hold no claim here, peers' claims still refuse it, and only `buddy pause all` brakes it"
+		if fleet {
+			cost = ". Until then it is not on the fleet's roster: no fleet mail reaches it and it can hold no fleet slot"
+		}
+	}
+	return fmt.Sprintf("BUDDY: session id %s cannot be registered in %s (D-201): %s%s\n",
+		fence.Field(id, fence.SessionIDCap), where, unregistrableAdvice(from), cost)
 }
 
 // idRefusal is hello's error for a hand-run registration the ledger refused.
@@ -96,8 +123,8 @@ func (e idRefusal) Unwrap() error { return e.cause }
 // line on stdout and exit 0, as a fleet that did not open is said (D-191):
 // SessionStart cannot block, and stdout is all the session reads. Hand-run:
 // an error, so the status says it.
-func helloRefused(env Env, id, from, where string, hookDriven bool) error {
-	line := idRefusalLine(id, from, where)
+func helloRefused(env Env, id, from, where string, fleet, hookDriven bool) error {
+	line := idRefusalLine(id, from, where, fleet)
 	if hookDriven {
 		_, err := io.WriteString(env.Stdout, line)
 		return err

@@ -18,7 +18,7 @@ import (
 // Typed, because the caller words it by where the id came from: a native id
 // (hook payload, harness env) cannot be changed by the session and must not be
 // replaced by a hand-chosen alias, while a --session or $BUDDY_SESSION value
-// can be (cli's sessionIDRefusal).
+// can be (cli's unregistrableAdvice, by idFrom).
 var ErrSessionIDRefused = errors.New("session id refused")
 
 // ValidSessionID is the ledger's wrapper of fence.ValidSessionID: nil, or

@@ -1504,6 +1504,13 @@ func assertedNotLive(st *store.Store, id, from string, known bool, rest []struct
 	if p, ok := pasteID(raw); ok {
 		fmt.Fprintf(&b, " — if that is really you, `buddy hello --session %s` %s it here; otherwise %s",
 			p, verb, clearing(from))
+	} else if known {
+		// An ended row an older binary wrote revives under hello: the id is
+		// checked only where a row is CREATED (D-201), so "cannot be
+		// registered" was false here (Codex code pass). The command is named
+		// with a placeholder, since the id does not paste as printed.
+		fmt.Fprintf(&b, " — if that is really you, `buddy hello --session <that id>` re-registers it here (its ended row revives; the id does not paste as printed); otherwise %s",
+			clearing(from))
 	} else {
 		// No hello remedy for an id hello refuses (D-201). A native id gets no
 		// charset recipe: an alias registered by hand is refused by the gate
@@ -1887,12 +1894,12 @@ func cmdHello(args []string, env Env) (err error) {
 		if rc.fleet != "" {
 			where = "fleet " + fence.Line(rc.fleet, 64)
 		}
-		return helloRefused(env, session, idFrom, where, hookDriven)
+		return helloRefused(env, session, idSource(env, session, idFrom), where, rc.fleet != "", hookDriven)
 	}
 	if err != nil {
 		return err
 	}
-	fsi := helloBeside(fb, session, label, top, proc, terminal, idFrom)
+	fsi := helloBeside(fb, session, label, top, proc, terminal, idSource(env, session, idFrom))
 	// The copy of each watched file this session starts with (D-167): a
 	// later checkout of the same bytes, in this tree or a worktree it makes,
 	// is then not announced as a change. Best-effort, like the notice. Not
@@ -4471,7 +4478,7 @@ func releaseTo(st *store.Store, env Env, si store.SessionInfo, slugs []string, r
 	// "queued", never "told": delivery is the recipient's act (D-032).
 	line += fmt.Sprintf("; notice queued for them: message #%d", id)
 	if unregistered != "" {
-		line += "; " + unregisteredClause(unregistered)
+		line += "; " + unregisteredClause(env, unregistered)
 	}
 	wake := wakeClause(env, rcpt, nowOf(env), id)
 	if wake != "" {
@@ -4643,7 +4650,7 @@ func cmdSweep(args []string, env Env) error {
 	}
 	for _, o := range r.OrphanedClaims {
 		fmt.Fprintf(env.Stdout, "  %s %s held by %s (%s)\n", verb, fence.Field(o.Slug, 128), fence.Field(o.Label, 64),
-			fence.Line(o.SessionID, fence.SessionIDCap))
+			fence.Field(o.SessionID, fence.SessionIDCap))
 	}
 	if *dry {
 		fmt.Fprintf(env.Stdout, "sweep --dry-run: would orphan %d, would delete %d (nothing written; open claims of live sessions are never touched", r.Orphaned, r.Deleted)
@@ -4844,7 +4851,7 @@ func cmdMsg(args []string, env Env) error {
 		line := fmt.Sprintf("dry run: would send %d byte(s) to %s as %s — nothing was queued",
 			len(body), fence.Line(tgt.String(), 128), as)
 		if unregistered != "" {
-			line += "; " + unregisteredClause(unregistered)
+			line += "; " + unregisteredClause(env, unregistered)
 		}
 		fmt.Fprintln(env.Stdout, line)
 		return nil
@@ -4893,7 +4900,7 @@ func cmdMsg(args []string, env Env) error {
 	// on it (D-041): a sender reading `| head -1` must still learn it signed
 	// as nobody this ledger knows (D-105).
 	if unregistered != "" {
-		line += "; " + unregisteredClause(unregistered)
+		line += "; " + unregisteredClause(env, unregistered)
 	}
 	// The harness's own channel to a session at its prompt (D-039): named,
 	// never used — buddy wakes nothing. On the SAME line (D-041), because a
@@ -5441,14 +5448,19 @@ func shortSession(id string) string { return store.ShortID(id) }
 // is pasted shell-quoted, and only when the fence leaves it as it is: a
 // BUDDY_SESSION of "two words" printed bare would register "two" (Codex code
 // pass, D-105); the stale note's rule for a name it cannot print as typed.
-func unregisteredClause(id string) string {
+func unregisteredClause(env Env, id string) string {
 	head := "signed " + strconv.Quote("unregistered "+fence.Line(shortSession(id), 64)) +
 		": your session id was not found as a live session in this ledger (never said hello here, or ended); "
 	p, ok := pasteID(id)
 	if !ok {
 		// Never a hello remedy for an id hello refuses (D-201), and no alias:
 		// an id from the harness is how the gate judges this session.
-		return head + "it cannot be registered (D-201); tell the operator, and do not say hello under another id"
+		// "As a new session": an ended row an older binary wrote under it
+		// still revives (Codex code pass). Worded by where senderFor read it
+		// (environmentSession): a chosen $BUDDY_SESSION gets the rule, a
+		// harness id no alias (Fable cross-check).
+		_, from, _ := environmentSession(env)
+		return head + "no new session can be registered under it (D-201): " + unregistrableAdvice(idSource(env, id, from))
 	}
 	return head + "`buddy hello --session " + p + " --label <name>` registers you here"
 }

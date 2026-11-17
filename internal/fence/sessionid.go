@@ -9,9 +9,12 @@ package fence
 // to `buddy lifecycle begin`. If the adapter accepted an id the ledger refuses,
 // the worker would already exist when registration failed (thread/start runs
 // before begin), the controller would close it and leave its start barrier for
-// the operator. One predicate, linked by both, closes that gap by
-// construction. buddy-adapter links fence and harness and nothing else (`go
-// list -deps ./cmd/buddy-adapter`); importing store would link sqlite into it.
+// the operator. One predicate the adapter can link lets it refuse such an id
+// itself, the moment thread/start returns it, before anything else uses it;
+// that call is the keys-fence item's, and until it lands the gap is open
+// (D-201; the Fable cross-check found this comment claiming it closed). buddy-adapter
+// links fence and harness and nothing else (`go list -deps
+// ./cmd/buddy-adapter`); importing store would link sqlite into it.
 // store.ValidSessionID wraps this for the ledger's own refusal.
 //
 // WHAT IT ADMITS, MEASURED (file names only, nothing launched): 6199 of 6199

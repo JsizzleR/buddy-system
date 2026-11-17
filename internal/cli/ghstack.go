@@ -429,7 +429,7 @@ func ghSlotHolder(env Env, st *store.Store, c store.ClaimInfo) string {
 		return "live but SILENT for " + seen + " — ask the operator: " + release
 	default:
 		ask := "buddy msg <the holder> (its name cannot be pasted back as printed)"
-		if t := msgTargetFor(st, c.Slug, c.Owner.SessionID); fence.Line(t, 128) == t {
+		if t := msgTargetFor(st, c.Slug, c.Owner.SessionID); t != "" && fence.Line(t, 128) == t {
 			ask = "buddy msg " + shellQuote(t)
 		}
 		return "live, last seen " + seen + " — ask the holder: " + ask

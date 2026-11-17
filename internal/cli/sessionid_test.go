@@ -164,6 +164,9 @@ func TestNativeRefusalNamesNoAlias(t *testing.T) {
 	if !strings.Contains(out, "do not say hello under another id") || strings.Contains(out, "--session") {
 		t.Fatalf("the native refusal must forbid an alias and name no hello command:\n%s", out)
 	}
+	if !strings.Contains(out, "only `buddy pause all` brakes it") {
+		t.Fatalf("the home ledger's refusal says what being unregistered costs there:\n%s", out)
+	}
 	// What following a recipe would cost: register an alias and claim as it.
 	if _, errw, code := f.run(t, f.repo, "", "hello", "--session", "alias-1"); code != 0 {
 		t.Fatal(errw)
@@ -238,7 +241,7 @@ func TestPasteRuleSites(t *testing.T) {
 	}{
 		{"helloRemedy", func(id string) string { return helloRemedy(id, "registers it") }, "`buddy hello --session %s </dev/null` registers it"},
 		{"byeRemedy", byeRemedy, "buddy bye %s,"},
-		{"unregisteredClause", unregisteredClause, "`buddy hello --session %s --label <name>`"},
+		{"unregisteredClause", func(id string) string { return unregisteredClause(Env{Getenv: func(string) string { return "" }}, id) }, "`buddy hello --session %s --label <name>`"},
 		{"errUncorroborated", func(id string) string {
 			return errUncorroborated{match: store.SessionInfo{SessionID: id, Label: "l"}, liveTotal: 2}.Error()
 		}, "`--session %s`"},
@@ -282,6 +285,11 @@ func TestFleetSaysAnIDRefusalAsItself(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "cannot be registered in fleet f1") || strings.Contains(out, "fleet ledger") {
 		t.Fatalf("fleet-only hook: %d %q %q", code, out, errw)
 	}
+	// A fleet has no brake (pause refuses there) and claims only slots, so
+	// its refusal names the fleet's cost, never the home's (Codex code pass).
+	if strings.Contains(out, "pause all") || !strings.Contains(out, "not on the fleet's roster") {
+		t.Fatalf("fleet-only hook: the fleet's cost, not the home's: %q", out)
+	}
 	out, errw, code = fe.run(t, fe.plain, "", "hello", "--session", bad)
 	if code == 0 || !strings.Contains(errw, "cannot be registered in fleet f1") || strings.Contains(out+errw, "fleet ledger") {
 		t.Fatalf("fleet-only hand-run must refuse as itself: %d %q %q", code, out, errw)
@@ -299,6 +307,10 @@ func TestFleetSaysAnIDRefusalAsItself(t *testing.T) {
 	out, errw, code = fe.hook(t, "hello", bad, fe.repo)
 	if code != 0 || !strings.Contains(out, "cannot be registered in fleet f1") || strings.Contains(out, "fleet ledger error") {
 		t.Fatalf("beside: the fleet's refusal must be said as itself:\n%s\n%s", out, errw)
+	}
+	// The home row still refreshed, so "can hold no claim" would be false.
+	if strings.Contains(out, "can hold no claim here") || strings.Contains(out, "pause all") {
+		t.Fatalf("beside: the home half is registered; only the fleet's cost is said:\n%s", out)
 	}
 }
 
@@ -330,5 +342,163 @@ func TestSweepPrintsAWholeAdmittedID(t *testing.T) {
 	}
 	if !strings.Contains(out, "("+long+")") {
 		t.Fatalf("sweep must print the holder's whole id:\n%s", out)
+	}
+}
+
+// An ENDED row an older binary wrote under an id the predicate refuses still
+// revives under hello (the id is checked only where a row is created), so a
+// typed verb's refusal must name the revival, never "cannot be registered"
+// (Codex code pass). The hello afterwards is the positive control that the
+// remedy is true.
+func TestEndedLegacyRowIsNamedRevivable(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	if out, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatalf("init: %s %s", out, errw)
+	}
+	const legacy = "old:id"
+	legacySession(t, f, legacy, "old")
+	if _, errw, code := f.run(t, f.repo, hookJSON(legacy, f.repo, "", ""), "bye"); code != 0 {
+		t.Fatalf("bye: %s", errw)
+	}
+	f.env[EnvClaudeSession] = legacy
+	_, errw, code := f.run(t, f.repo, "", "status")
+	if code == 0 || !strings.Contains(errw, "has ended") || !strings.Contains(errw, "`buddy hello --session <that id>` re-registers it here") || strings.Contains(errw, "cannot be registered") {
+		t.Fatalf("an ended legacy row is revivable, and must be named so: %d %q", code, errw)
+	}
+	_, errw, code = f.run(t, f.repo, "", "hello")
+	delete(f.env, EnvClaudeSession)
+	if code != 0 {
+		t.Fatalf("control: hello under the legacy id revives its row: %d %q", code, errw)
+	}
+	if si, ok := func() (store.SessionInfo, bool) {
+		st, err := store.Open(filepath.Join(f.repo, ".git", "buddy.db"), func() time.Time { return f.clock })
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		si, ok, err := st.Session(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return si, ok
+	}(); !ok || !si.Live() {
+		t.Fatalf("the legacy row must be live after hello: %+v %v", si, ok)
+	}
+}
+
+// A --session value EQUAL to the harness's own id is that native id typed
+// again, so its refusal is the native one with no recipe (the alias trap);
+// a different chosen id is the control and gets the rule (Fable cross-check).
+func TestTypedNativeIDGetsTheNativeWording(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	if out, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatalf("init: %s %s", out, errw)
+	}
+	f.env[EnvClaudeSession] = "bad id"
+	defer delete(f.env, EnvClaudeSession)
+	_, errw, code := f.run(t, f.repo, "", "hello", "--session", "bad id")
+	if code == 0 || strings.Contains(errw, "A-Z a-z") || !strings.Contains(errw, "do not say hello under another id") {
+		t.Fatalf("the harness's own id typed as --session is native: %d %q", code, errw)
+	}
+	_, errw, code = f.run(t, f.repo, "", "hello", "--session", "other bad")
+	if code == 0 || !strings.Contains(errw, "A-Z a-z 0-9") {
+		t.Fatalf("control: a chosen id gets the rule: %d %q", code, errw)
+	}
+}
+
+// unregisteredClause is worded by where senderFor read the id: a chosen
+// $BUDDY_SESSION gets the rule, the harness's own id no alias (Fable
+// cross-check). Neither names a hello command for an id hello refuses.
+func TestUnregisteredClauseWordedBySource(t *testing.T) {
+	env := func(k, v string) Env {
+		return Env{Getenv: func(n string) string {
+			if n == k {
+				return v
+			}
+			return ""
+		}}
+	}
+	chosen := unregisteredClause(env(EnvSession, "two words"), "two words")
+	if !strings.Contains(chosen, "A-Z a-z 0-9") || strings.Contains(chosen, "another id") || strings.Contains(chosen, "--session") {
+		t.Fatalf("a chosen id gets the rule: %q", chosen)
+	}
+	native := unregisteredClause(env(EnvClaudeSession, "two words"), "two words")
+	if strings.Contains(native, "A-Z a-z") || !strings.Contains(native, "do not say hello under another id") || strings.Contains(native, "--session") {
+		t.Fatalf("a harness id gets no recipe: %q", native)
+	}
+}
+
+// sweep's holder id is one column token (invariant 9): an older binary's
+// row under `a b` printed two (Fable cross-check).
+func TestSweepIDIsOneToken(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	if out, errw, code := f.run(t, f.repo, "", "init"); code != 0 {
+		t.Fatalf("init: %s %s", out, errw)
+	}
+	legacySession(t, f, "a b", "spacey")
+	f.claimFor(t, "a b", "spacey-work", "x", "w")
+	if _, errw, code := f.run(t, f.repo, hookJSON("a b", f.repo, "", ""), "bye"); code != 0 {
+		t.Fatalf("bye: %s", errw)
+	}
+	out, errw, code := f.run(t, f.repo, "", "sweep", "--dry-run")
+	if code != 0 || !strings.Contains(out, "would orphan spacey-work") {
+		t.Fatalf("control: %d %q %q", code, out, errw)
+	}
+	if !strings.Contains(out, "(a␣b)") {
+		t.Fatalf("the id must be one token: %q", out)
+	}
+}
+
+// bye's --force remedy names the id only under the paste rule (D-201): an
+// older binary's live row under `sess<TAB>x`, still registered to a running
+// process, printed `buddy bye sess x --force`, which ends ANOTHER session.
+// TestByeWithNoAnchorIsRefusedByALiveRegistration is the valid-id control.
+func TestByeForceRemedyPasteRule(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	f.asProcess(200, 2, func() {
+		if _, errw, code := f.run(t, f.repo, hookJSON("sess-z", f.repo, "", ""), "hello", "--label", "zulu"); code != 0 {
+			t.Fatalf("hello: %s", errw)
+		}
+	})
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(f.repo, ".git", "buddy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`UPDATE sessions SET session_id='sess	x' WHERE session_id='sess-z'`,
+		`UPDATE session_procs SET session_id='sess	x' WHERE session_id='sess-z'`} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	_, errw, code := f.run(t, f.repo, "", "bye", "sess\tx")
+	if code == 0 || !strings.Contains(errw, "stays live") {
+		t.Fatalf("control: the live registration must refuse the bye: %d %q", code, errw)
+	}
+	if !strings.Contains(errw, "`buddy bye <its session id> --force`") || strings.Contains(errw, "buddy bye sess x") {
+		t.Fatalf("an unpasteable id gets the placeholder: %q", errw)
+	}
+}
+
+// assertedNotLive applies the paste rule to the RAW id: `x<ZWSP>y` fences
+// to `xy`, which the predicate admits, so a check of the fenced copy printed
+// `buddy hello --session xy`, another id (Codex design pass). sess-q is the
+// control: an unknown valid id gets its hello command.
+func TestAssertedNotLiveChecksTheRawID(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	_, errw, code := f.run(t, f.repo, "", "status", "--session", "sess-q")
+	if code == 0 || !strings.Contains(errw, "`buddy hello --session sess-q` registers it here") {
+		t.Fatalf("control: %d %q", code, errw)
+	}
+	_, errw, code = f.run(t, f.repo, "", "status", "--session", "x​y")
+	if code == 0 || strings.Contains(errw, "hello --session xy") || !strings.Contains(errw, "cannot be registered") {
+		t.Fatalf("the raw id decides: %d %q", code, errw)
 	}
 }

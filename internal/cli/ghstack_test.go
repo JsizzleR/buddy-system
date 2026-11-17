@@ -405,6 +405,20 @@ func TestGateGHStackHolderStates(t *testing.T) {
 			t.Fatalf("the message target must resolve to the holder: %q", reason)
 		}
 	})
+	t.Run("legacy-holder-id-all", func(t *testing.T) {
+		// msgTargetFor's fallback is the holder's id, under the paste rule
+		// (D-201): an older binary's row under the id `all` whose slug does not
+		// resolve printed `buddy msg 'all'`, a broadcast (Codex code pass).
+		f := newFixture(t)
+		f.initAndHello(t)
+		legacySession(t, f, "all", "allie")
+		claimGHSlot(t, f, "all", "restack")
+		out, _, _ := f.run(t, f.repo, bashHookJSON("sess-b", f.repo, "gh stack rebase"), "gate")
+		reason, denied := decodeDeny(t, out)
+		if !denied || !strings.Contains(reason, "ask the holder: buddy msg <the holder> (its name cannot be pasted back as printed)") || strings.Contains(reason, "buddy msg 'all'") {
+			t.Fatalf("a legacy id `all` must get the placeholder, never a broadcast: %q", reason)
+		}
+	})
 	t.Run("gone", func(t *testing.T) {
 		f := newFixture(t)
 		f.initAndHello(t)
@@ -443,6 +457,9 @@ func TestGateGHStackJurisdiction(t *testing.T) {
 			wantGateBoth(t, f, plain, "sess-a", cmd, true, "after buddy hello --session sess-a there")
 		})
 	}
+	// The paste rule (D-201): a payload id hello would refuse is no remedy;
+	// sess-a above is the control.
+	wantGateBoth(t, f, plain, "bad id", "cd "+shellArg(f.repo)+" && gh stack rebase", true, "where this session's id cannot be registered, D-201: tell the operator")
 	claimGHSlot(t, f, "sess-a", "restack in f")
 	// From an ungoverned cwd the holder is admitted into its own checkout, the
 	// other session is not.
