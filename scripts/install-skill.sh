@@ -310,8 +310,20 @@ done
 # HELD is one directory per LINE: a destination with a space in it, split on
 # whitespace, left its lock behind and every later install refused (Codex
 # code pass).
-HELD=""
-trap 'printf "%s\n" "$HELD" | while IFS= read -r d; do [ -n "$d" ] || continue; rm -f "$d/.install-skill.tmp.$$" "$d/.install-skill.files.$$"; rmdir "$d/.install-skill.lock" 2>/dev/null; done; true' EXIT INT TERM
+# A SIGNAL ENDS THE RUN, through the EXIT trap, which releases the locks ONCE (#120).
+# The cleanup was once the INT and TERM action too, with no `exit`: sh ran it and
+# resumed, so the install carried on with its locks gone, and the exit then ran the
+# same rmdir again, over a lock a second installer may have taken in between
+# (reproduced: TERM mid-run, every file installed after it, exit 1). install-lock.sh's
+# ilock_signals is the same three lines (D-126). WHILE THE LOCKS ARE TAKEN a signal is
+# only noted, and acted on once the lock just made is in HELD: an exit between the
+# mkdir and the append left a lock the cleanup could not see, and every later install
+# refused (Codex code pass).
+HELD="" sig=""
+trap 'printf "%s\n" "$HELD" | while IFS= read -r d; do [ -n "$d" ] || continue; rm -f "$d/.install-skill.tmp.$$" "$d/.install-skill.files.$$"; rmdir "$d/.install-skill.lock" 2>/dev/null; done; true' EXIT
+trap 'sig=129' HUP
+trap 'sig=130' INT
+trap 'sig=143' TERM
 for n in $NAMES; do
 	is_own "$n" && continue
 	d=$(dest "$n")
@@ -321,7 +333,12 @@ for n in $NAMES; do
 	fi
 	HELD="$HELD$d
 "
+	[ -z "$sig" ] || exit "$sig"
 done
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+[ -z "$sig" ] || exit "$sig"
 
 # install_one <src> <dest dir>: copy to a temp file beside the target and
 # rename over it, so a reader never sees half a file.

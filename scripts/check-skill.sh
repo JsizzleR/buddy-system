@@ -440,7 +440,74 @@ if out=$(BUDDY_SKILL_DIR="$WORK/up/buddy" sh "$C2/scripts/install-skill.sh" 2>&1
 echo "$out" | grep -q "^install-skill: $WORK/up/[a-z-]* has a physical path holding a newline; refusing" || fail "QA-15i: refused, but not for the newline: $out"
 [ -z "$(ls -A "$NLD")" ] || fail "QA-15i: a directory was made under the newline before the refusal"
 
+# QA-16: a signal mid-install ENDS the install, releasing every lock once
+# (#120). The INT/TERM trap once ran the cleanup and returned, and sh resumed
+# the loop: the locks were gone and the install carried on unlocked, and its
+# exit then ran the same rmdir again, over a lock a second installer could
+# have taken meanwhile (reproduced on 6fb58ac: after TERM, every file was
+# installed and the run exited 1). A `cp` on PATH parks the FIRST copy, the
+# one install_one makes after every lock is taken, until the signal is sent;
+# sh runs the trap when that cp returns. Control: the lock is held while the
+# copy is parked, so the signal lands inside the locked loop. TERM and HUP
+# only: a background job of a non-interactive sh starts with INT ignored, and
+# a trap cannot undo that (INT takes the same one-line exit).
+# QA-16b: the same with the signal landing while a LOCK is being made (Codex code
+# pass: an exit between the mkdir and recording it left a lock the cleanup could not
+# see, and every later install refused). A `mkdir` on PATH makes the first lock and
+# parks. Each shim parks until the case releases it (bounded at 60 s), so a loaded
+# machine cannot let the install finish before the signal; the copy shim copies FIRST,
+# so its temp file exists when the signal lands and the cleanup of it is tested too.
+mkdir "$WORK/shim16" "$WORK/shim16b"
+cat > "$WORK/shim16/cp" <<'EOF'
+#!/bin/sh
+/bin/cp "$@" || exit
+if [ ! -e "$QA16/called" ]; then
+	: > "$QA16/called"
+	i=0; while [ ! -e "$QA16/go" ] && [ $i -lt 1200 ]; do i=$((i + 1)); sleep 0.05; done
+fi
+EOF
+cat > "$WORK/shim16b/mkdir" <<'EOF'
+#!/bin/sh
+for a; do last=$a; done
+/bin/mkdir "$@" || exit
+case $last in
+*/.install-skill.lock)
+	if [ ! -e "$QA16/called" ]; then
+		: > "$QA16/called"
+		i=0; while [ ! -e "$QA16/go" ] && [ $i -lt 1200 ]; do i=$((i + 1)); sleep 0.05; done
+	fi ;;
+esac
+EOF
+chmod +x "$WORK/shim16/cp" "$WORK/shim16b/mkdir"
+for sig in copy:TERM:143 copy:HUP:129 lock:TERM:143 lock:HUP:129; do
+	at=${sig%%:*} s=${sig#*:}; want=${s#*:} s=${s%:*}
+	shim=$WORK/shim16; [ "$at" = copy ] || shim=$WORK/shim16b
+	c="QA-16 $at $s"
+	G="$WORK/qa16-$at-$s"; D16="$G/skills/buddy"; mkdir -p "$G"
+	QA16=$G PATH="$shim:$PATH" BUDDY_SKILL_DIR="$D16" sh scripts/install-skill.sh > "$G/out" 2>&1 &
+	p=$!
+	i=0; while [ ! -e "$G/called" ] && [ $i -lt 1200 ]; do i=$((i + 1)); sleep 0.05; done
+	[ -e "$G/called" ] || { kill -KILL "$p" 2>/dev/null || true; fail "$c: the parked step never started: $(cat "$G/out")"; }
+	ls -d "$G"/skills/*/.install-skill.lock >/dev/null 2>&1 || { : > "$G/go"; wait "$p" || true; fail "$c: no lock was held while the step was parked (control)"; }
+	if [ "$at" = copy ]; then
+		ls "$G"/skills/*/.install-skill.tmp.* >/dev/null 2>&1 || { : > "$G/go"; wait "$p" || true; fail "$c: no temp file while the copy was parked (control)"; }
+	fi
+	kill -"$s" "$p" || { : > "$G/go"; wait "$p" || true; fail "$c: the install was gone before the signal: $(cat "$G/out")"; }
+	: > "$G/go"
+	rc=0; wait "$p" || rc=$?
+	[ "$rc" = "$want" ] || fail "$c: the signalled install exited $rc, want $want (it did not stop): $(cat "$G/out")"
+	n16=$(grep -c '^install-skill: installed ' "$G/out" || true)
+	[ "$n16" -eq 0 ] || fail "$c: $n16 file(s) were installed after the signal: $(cat "$G/out")"
+	for dd in "$G"/skills/*; do
+		[ ! -e "$dd/.install-skill.lock" ] || fail "$c: the lock in $dd was left behind"
+		for x in "$dd"/.install-skill.tmp.* "$dd"/.install-skill.files.*; do
+			[ ! -e "$x" ] || fail "$c: a temp file was left in $dd: $x"
+		done
+	done
+	BUDDY_SKILL_DIR="$D16" sh scripts/install-skill.sh >/dev/null || fail "$c: the install after the signal was refused"
+done
+
 # QA-4: setup-clone.sh runs it — the step is wired, not merely available.
 grep -q 'scripts/install-skill.sh' scripts/setup-clone.sh || fail "QA-4: setup-clone.sh does not run install-skill.sh"
 
-echo "check-skill: GREEN (QA-1 fresh install of all $N, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + others added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob + lead beside the core, QA-8 a refused fleet dir installs none, QA-9 one dir for two refused, QA-10 fleet lock, QA-11 core dir named as another skill refused, QA-12 a short checkout refused, QA-13 a spaced destination releases its locks, QA-14 every file of a skill with a manifest: a dropped file removed, an edited one kept, a foreign one left, a bad manifest line and a subdirectory refused, a __pycache__ directory skipped, QA-15 a destination that is the checkout's own skipped, a linked one or another checkout's left, one inside this checkout, a dot knob anywhere, / and a newline above an absent one refused, a clone with no skills/ yet or a link to nothing above left, $qa15k, a stale file in a work tree kept as .bak)"
+echo "check-skill: GREEN (QA-1 fresh install of all $N, QA-2 current copies untouched, QA-3 stale single-file copy replaced + kept + others added, QA-4 wired into setup-clone, QA-5 symlink + directory refused, QA-6 one installer at a time, QA-7 fleet dir knob + lead beside the core, QA-8 a refused fleet dir installs none, QA-9 one dir for two refused, QA-10 fleet lock, QA-11 core dir named as another skill refused, QA-12 a short checkout refused, QA-13 a spaced destination releases its locks, QA-14 every file of a skill with a manifest: a dropped file removed, an edited one kept, a foreign one left, a bad manifest line and a subdirectory refused, a __pycache__ directory skipped, QA-16 TERM and HUP mid-copy and mid-lock end the install, releasing its locks and temp files once, QA-15 a destination that is the checkout's own skipped, a linked one or another checkout's left, one inside this checkout, a dot knob anywhere, / and a newline above an absent one refused, a clone with no skills/ yet or a link to nothing above left, $qa15k, a stale file in a work tree kept as .bak)"

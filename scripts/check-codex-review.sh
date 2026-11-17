@@ -81,6 +81,7 @@ case ${STUB_MODE:-ok} in
   prefix) model=gpt-6-astra-mini ;;
   effort) effort=high ;;
   slow) sleep=10 ;;
+  park) sleep=120 ;;
   noreply) write=0 ;;
   fail) rc=1 write=0 ;;
 esac
@@ -452,6 +453,44 @@ case $(first "$O") in "codex-review: NO VERDICT -- this pass has not finished"*)
 case $(first "$O.transcript") in "codex-review: NO VERDICT -- this pass has not finished"*) ;; *) fail "killed: transcript not armed" ;; esac
 grep -q launched "$T/log" || fail "killed: the stub never launched (the case tests nothing)"
 
+# --- a signal to the wrapper ends codex too (#128) ---
+# codex runs in its own process group, so ^C (INT to the terminal's group: sh and perl),
+# a hangup or a harness's TERM once killed perl alone and left codex running, reparented,
+# with no deadline (reproduced here on 6fb58ac: the stub survived every case). The
+# wrapper starts in a group of its own with INT at its default, as at a terminal (a
+# background job of this sh starts with INT ignored). Control: the stub is alive at the
+# signal, so a stub already gone cannot pass. And TERM to perl ALONE (a harness that
+# kills one pid): codex ends, and the wrapper, still running, reports codex's 143.
+# STUB_MODE=park sleeps 120 s, past any pause a loaded machine adds before the signal
+# (Codex code pass: `slow`'s 10 s could end the stub first and fail a correct tree).
+# sigstop <name> <signal> <want-rc> <group|perl>
+sigstop() {
+  _n=$1 _s=$2 _want=$3 _to=$4 O=$T/out/$1.txt; stale "$O"; : > "$T/log"; rm -f "$T/log.pid"
+  ( cd "$T/repo" && exec perl -e '$SIG{INT} = "DEFAULT"; setpgrp(0, 0); exec @ARGV or exit 127' env $CLEAN PATH="$T/bin:$PATH" STUB_LOG="$T/log" STUB_MODE=park CODEX_SLOTS=1000 CODEX_NO_CHARTER=1 CODEX_BUDGET=300 \
+    sh "$SCRIPT" "$T/prompt" "$O" > "$T/stdout.$_n" 2> "$T/stderr.$_n" ) &
+  K=$!
+  i=0; until [ -s "$T/log.pid" ]; do i=$((i + 1)); [ $i -lt 100 ] || break; sleep 0.1; done
+  _c=$(cat "$T/log.pid" 2>/dev/null || true)
+  if [ -z "$_c" ] || ! kill -0 "$_c" 2>/dev/null; then
+    fail "$_n: the stub was not running when the signal was due (the case tests nothing)"; kill -KILL -"$K" 2>/dev/null || true; wait "$K" 2>/dev/null || true; return 0
+  fi
+  if [ "$_to" = perl ]; then _k=$(LC_ALL=C ps -o ppid= -p "$_c" | tr -d ' '); else _k=-$K; fi
+  kill -"$_s" "$_k" 2>/dev/null || fail "$_n: the $_s could not be sent to $_k"
+  _rc=0; wait "$K" || _rc=$?
+  i=0; while kill -0 "$_c" 2>/dev/null && [ $i -lt 30 ]; do i=$((i + 1)); sleep 0.1; done
+  if kill -0 "$_c" 2>/dev/null; then
+    fail "$_n: codex (stub pid $_c) outlived the wrapper's $_s (ppid $(LC_ALL=C ps -o ppid= -p "$_c" | tr -d ' '))"; kill -KILL "$_c" 2>/dev/null || true
+  fi
+  [ "$_rc" -eq "$_want" ] || fail "$_n: the wrapper exited $_rc after $_s, want $_want (stderr: $(head -3 "$T/stderr.$_n" | tr '\n' ' '))"
+}
+for _sg in INT:130 HUP:129 TERM:143; do
+  sigstop "sig-${_sg%:*}" "${_sg%:*}" "${_sg#*:}" group
+  # Stopped before its end: the armed line stands, never a verdict read from a $TMP gone.
+  case $(first "$O") in "codex-review: NO VERDICT -- this pass has not finished"*) ;; *) fail "sig-${_sg%:*}: first line '$(first "$O")', want the armed NO VERDICT" ;; esac
+done
+sigstop sig-perl TERM 143 perl
+case $(first "$O") in "codex-review: NO VERDICT -- codex exited 143"*) ;; *) fail "sig-perl: first line '$(first "$O")', want codex's 143 reported" ;; esac
+
 # --- an out-file writable in a directory that is not: the result is still published ---
 mkdir "$T/ro"; O=$T/ro/v.txt; stale "$O"; chmod a-w "$T/ro"
 run rodir 0 "$O"
@@ -497,4 +536,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts on stdin, a prompt over 128 KiB, 21 CODEX_DIFF picks + 23 area paths + 6 refusals, killed mid-run, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"
+echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts on stdin, a prompt over 128 KiB, 21 CODEX_DIFF picks + 23 area paths + 6 refusals, killed mid-run, INT + HUP + TERM to the group and TERM to perl end codex, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"

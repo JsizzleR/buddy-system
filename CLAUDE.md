@@ -244,7 +244,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
 - Every new `scripts/check-*.sh` is invoked from `check.sh`: a done-check not
   invoked there is a feature nothing gates.
 - The `-race` legs are unscoped on purpose: this repo is a concurrency story
-  almost everywhere. ~17s hermetic, ~3s live — not worth an honesty problem.
+  almost everywhere. On CI `-race` is ~300 s of a ~741 s hermetic tier (#138,
+  median of 5 runs): the price of gating every package, paid knowingly.
 - Some gates are `grep`-shaped because `-race` structurally cannot see the class
   (measured). They come in two clauses: one for a new occurrence, one for the
   gate being quietly defeated by respelling the line it allows. Keep both.

@@ -25,11 +25,25 @@
 # almost everywhere — a reconnecting daemon, a socket server, per-session
 # hooks over a shared SQLite ledger — so a race leg scoped to one package
 # would leave the rest ungated, and a race no check can observe is a race
-# nobody will find. It costs ~17s hermetic and ~3s live (measured), which is
-# not enough saving to be worth an honesty problem. Issue #4: before this
-# existed, a real data race sat green at HEAD indefinitely, visible only to
-# someone who typed -race by hand.
+# nobody will find. Its cost, measured from CI log timestamps (#138: the
+# median of 5 runs on main, ubuntu, Go 1.26.8): ~300 s of a ~741 s hermetic
+# tier, internal/cli ~290 s and internal/store ~150 s of it (the "~17s" this
+# said before was stale by more than ten times; ~3 s live, measured locally
+# earlier). Paid knowingly: scoping it is the honesty problem. Issue #4:
+# before this existed, a real data race sat green at HEAD indefinitely,
+# visible only to someone who typed -race by hand.
 set -eu
+# EXIT 2 IS "NOT RUN", AND ONLY THE TWO PATHS THAT MEAN IT MAY SAY IT (#118).
+# Every leg below runs under set -e and its own status becomes this script's,
+# and gofmt exits 2 on a file it cannot parse: `fmt=$(gofmt -l ...)` ended
+# the run with 2 before any summary line, which a caller reading the code
+# takes for a passed hermetic half with the live leg absent (reproduced on
+# 6fb58ac by check-check.sh). A self-test whose argparse refuses a flag, or a
+# `go vet` that cannot load a package, does the same. So the mapping is one
+# trap, not a guard per leg: any 2 that did not come through `notrun=1` (an
+# unknown tier; no oscar binary) leaves as 1, a FAIL.
+notrun=
+trap 'rc=$?; [ "$rc" != 2 ] || [ -n "$notrun" ] || { echo "check.sh: FAIL -- a step above exited 2; exit 2 is reserved for \"not run\" (an unknown tier, or no live server binary), so this run exits 1 (#118)" >&2; exit 1; }' EXIT
 # The driver is not a session in any fixture ledger. Standalone done-checks
 # also scrub these in lib.sh; cover the Go and pre-push legs here as well.
 unset CODEX_THREAD_ID CODEX_SESSION_ID
@@ -55,7 +69,7 @@ CDPATH= cd -- "$(dirname -- "$0")/.."
 TIER=${1:-all}
 case "$TIER" in
   all|hermetic|live) ;;
-  *) echo "check.sh: unknown tier '$TIER' (want all, hermetic or live)" >&2; exit 2 ;;
+  *) echo "check.sh: unknown tier '$TIER' (want all, hermetic or live)" >&2; notrun=1; exit 2 ;;
 esac
 run_hermetic=1; run_live=1
 [ "$TIER" = live ] && run_hermetic=0
@@ -269,6 +283,7 @@ if [ "$run_hermetic" = 1 ]; then
   done_check leftover-report
   done_check uninstall
   done_check get-ergo
+  done_check check
 
   # WIRING GATE (D-116). A check cannot grep for its own invocation once it is
   # not invoked (the prose-budget plan's first Codex pass), so the assertion
@@ -281,7 +296,7 @@ if [ "$run_hermetic" = 1 ]; then
   # and a planted control it must agree with (b ran; a required check that
   # did not run and a discovered one that did not run are both reported, and
   # the one that ran is not).
-  required="commit-gate pre-push local-hooks fence charter codex-review index wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report receipt-check subagent-report libc-pin prose-budget cost-report env-check leftover-report uninstall get-ergo"
+  required="commit-gate pre-push local-hooks fence charter codex-review index wait skill install gate-line setup-clone startup-report wake-report fleet-report model-report receipt-check subagent-report libc-pin prose-budget cost-report env-check leftover-report uninstall get-ergo check"
   wiring() { # <ran> <required> <discovered> — every name in the last two not in the first
     for n in $2 $3; do
       case "$1" in *" $n "*) ;; *) echo "$n" ;; esac
@@ -452,7 +467,7 @@ if [ "$run_live" = 1 ]; then
     go test -race -tags oscarlive ./internal/buddylist -count=1
   else
     echo "check.sh: LIVE LEG NOT RUN — no .cache/oscar-server; run scripts/get-oscar.sh first" >&2
-    exit 2
+    notrun=1; exit 2
   fi
 fi
 

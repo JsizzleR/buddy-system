@@ -411,7 +411,14 @@ fi
 [ "$n" -eq 0 ] || echo "codex-review: $n of $SLOTS slots in use; starting in the free one." >&2
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/codex-review.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT INT TERM
+# The signal traps EXIT, and the EXIT trap cleans up once (#128, #120's shape): a trap
+# on INT or TERM with no `exit` removed $TMP and sh resumed the script, reading and
+# publishing from a directory already gone. sh holds a trap until its foreground perl
+# returns, so codex is ended (above) before this exit runs.
+trap 'rm -rf "$TMP"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ "$SRC" = "-" ]; then cat > "$TMP/raw"; else [ -f "$SRC" ] || die "no such prompt file: $SRC"; cat "$SRC" > "$TMP/raw"; fi
 [ -s "$TMP/raw" ] || die "the prompt is empty"
@@ -484,14 +491,54 @@ echo "codex-review: the caller runs this in the FOREGROUND with a 600000 ms tool
 # on the very instrument every review receipt rests on. Here the $timed_out LATCH is the
 # verdict (exit 124, unconditional once fired), the parent escalates TERM->KILL on the
 # process GROUP, waitpid retries EINTR, and a failed exec is a fail-closed 127.
+#
+# A SIGNAL TO perl ENDS codex TOO (#128). codex runs in its own process group, so ^C
+# (INT to the terminal's foreground group: sh and perl, not codex), a closed terminal
+# (HUP) or a harness ending the call (TERM) killed perl by the default action and left
+# codex reparented to pid 1: no deadline, a review slot held, writing `-o` into a $TMP
+# already gone (reproduced with a `sleep` stand-in: perl rc=143, child alive, ppid 1).
+# So INT, HUP and TERM get the timeout's TERM-then-KILL on the group, its flat 2 s grace
+# included, and perl exits 128+signal. The handler NEVER reaps: an unreaped child pins
+# its pid, so the group id cannot be reused under the KILL (Codex code pass: an early
+# reap let a busy machine hand -$pid to an unrelated group); a child already gone is
+# reaped, not signalled, and the alarm is disarmed, so a cancel begun is not then
+# reported as a timeout. (Dying of the signal instead was tried and
+# changed nothing measurable: the wrapper traps INT itself, below, so it exits 130 once
+# perl returns, whatever perl's status.) They are BLOCKED across the fork, so a signal
+# landing before the handlers exist is held, not fatal; the child unblocks before its
+# exec (exec keeps the mask) and keeps whatever dispositions perl inherited (a nohup's
+# ignored HUP), as before.
 set +e
 T0=$(date +%s)
 perl -MPOSIX -e '
   my $t = shift;
+  my $stops = POSIX::SigSet->new(SIGINT, SIGHUP, SIGTERM);
+  sigprocmask(SIG_BLOCK, $stops);
   my $pid = fork();
   die "fork: $!\n" unless defined $pid;
-  if ($pid == 0) { POSIX::setpgid(0, 0); exec @ARGV; exit 127; }
+  if ($pid == 0) {
+    POSIX::setpgid(0, 0);
+    sigprocmask(SIG_UNBLOCK, $stops);
+    exec @ARGV; exit 127;
+  }
   POSIX::setpgid($pid, $pid);
+  my ($stopped, $status) = ("", undef);
+  my $reaped = 0;
+  my $stop = sub {
+    return if $stopped;
+    $stopped = $_[0];
+    alarm 0;
+    return if $reaped;
+    # Asked of the kernel, not only the flag: a signal handled between the main loop
+    # waitpid and its `$reaped = 1` sees -1 here. 0 is a child alive or a zombie, either
+    # of which still pins the group id.
+    my $w = waitpid($pid, WNOHANG);
+    if ($w == $pid) { $reaped = 1; $status = $?; }
+    return if $reaped || $w < 0;
+    kill "TERM", -$pid; select undef, undef, undef, 2.0; kill "KILL", -$pid;
+  };
+  $SIG{$_} = $stop for qw(INT HUP TERM);
+  sigprocmask(SIG_UNBLOCK, $stops);
   my $timed_out = 0;
   my $deadline = time + $t;
   $SIG{ALRM} = sub {
@@ -500,10 +547,11 @@ perl -MPOSIX -e '
     kill "TERM", -$pid; select undef, undef, undef, 2.0; kill "KILL", -$pid;
   };
   alarm $t;
-  my ($waited, $status);
-  do { $waited = waitpid($pid, 0); $status = $? if $waited == $pid; } while $waited < 0 && $!{EINTR};
+  my $waited;
+  do { $waited = waitpid($pid, 0); if ($waited == $pid) { $reaped = 1; $status = $?; } } while $waited < 0 && $!{EINTR};
   alarm 0;
   exit 124 if $timed_out;
+  exit 128 + ({INT => 2, HUP => 1, TERM => 15}->{$stopped} || 15) if $stopped;
   exit 125 unless defined $status;
   exit(128 + ($status & 127)) if $status & 127;
   exit($status >> 8);
