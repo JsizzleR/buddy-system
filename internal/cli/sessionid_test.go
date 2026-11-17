@@ -515,3 +515,133 @@ func TestAssertedNotLiveChecksTheRawID(t *testing.T) {
 		t.Fatalf("the raw id decides: %d %q", code, errw)
 	}
 }
+
+// A typed verb's refusal for an id that a LOWER source asserts again counts
+// that source (D-204): `--session` equal to the harness's own id was worded
+// as chosen, so "otherwise re-run without --session" re-ran into the same id
+// from the harness variable, and an unregistrable one got the charset recipe
+// (the alias trap). One row per wording arm of assertedNotLive, each through
+// --session and $BUDDY_SESSION equal to $CLAUDE_CODE_SESSION_ID; the control
+// row per arm is a chosen id no other source carries, worded as before.
+func TestAssertedNotLiveCountsTheSameIDTwice(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	legacySession(t, f, "old:id", "old")
+	if _, errw, code := f.run(t, f.repo, hookJSON("old:id", f.repo, "", ""), "bye"); code != 0 {
+		t.Fatalf("bye legacy: %s", errw)
+	}
+	if _, errw, code := f.run(t, f.repo, "", "hello", "--session", "sess-e", "--label", "e"); code != 0 {
+		t.Fatalf("hello e: %s", errw)
+	}
+	if _, errw, code := f.run(t, f.repo, hookJSON("sess-e", f.repo, "", ""), "bye"); code != 0 {
+		t.Fatalf("bye e: %s", errw)
+	}
+	const rule = "A-Z a-z 0-9"
+	const native = "do not say hello under another id"
+	cases := []struct {
+		name, id, harness, buddy string
+		args                     []string
+		want, not                []string
+	}{
+		{"unknown, pastes", "sess-n", "sess-n", "", []string{"--session", "sess-n"},
+			[]string{"(from --session, the same id as $CLAUDE_CODE_SESSION_ID) has not said hello",
+				"registers it here; otherwise re-run without --session and clear $CLAUDE_CODE_SESSION_ID"}, nil},
+		{"unknown, pastes, control", "sess-n", "", "", []string{"--session", "sess-n"},
+			[]string{"(from --session) has not said hello", "registers it here; otherwise re-run without --session"},
+			[]string{"same id", "and clear"}},
+		{"ended, pastes", "sess-e", "sess-e", "", []string{"--session", "sess-e"},
+			[]string{"(from --session, the same id as $CLAUDE_CODE_SESSION_ID) has ended",
+				"re-registers it here; otherwise re-run without --session and clear $CLAUDE_CODE_SESSION_ID"}, nil},
+		{"ended, pastes, via BUDDY_SESSION", "sess-e", "sess-e", "sess-e", nil,
+			[]string{"(from BUDDY_SESSION, the same id as $CLAUDE_CODE_SESSION_ID) has ended",
+				"otherwise clear $BUDDY_SESSION and $CLAUDE_CODE_SESSION_ID"}, nil},
+		{"ended, pastes, control", "sess-e", "", "", []string{"--session", "sess-e"},
+			[]string{"(from --session) has ended", "re-registers it here; otherwise re-run without --session"},
+			[]string{"same id", "and clear"}},
+		{"ended, no paste", "old:id", "old:id", "", []string{"--session", "old:id"},
+			[]string{"(from --session, the same id as $CLAUDE_CODE_SESSION_ID) has ended",
+				"(its ended row revives; the id does not paste as printed); otherwise re-run without --session and clear $CLAUDE_CODE_SESSION_ID"}, nil},
+		{"ended, no paste, control", "old:id", "", "", []string{"--session", "old:id"},
+			[]string{"does not paste as printed); otherwise re-run without --session"}, []string{"same id", "and clear"}},
+		{"unregistrable", "bad id", "bad id", "", []string{"--session", "bad id"},
+			[]string{"(from --session, the same id as $CLAUDE_CODE_SESSION_ID)", "cannot be registered (D-201); it is this session's harness id, so " + native},
+			[]string{rule}},
+		{"unregistrable, via BUDDY_SESSION", "bad id", "bad id", "bad id", nil,
+			[]string{"(from BUDDY_SESSION, the same id as $CLAUDE_CODE_SESSION_ID)", native}, []string{rule}},
+		{"unregistrable, control", "bad id", "", "", []string{"--session", "bad id"},
+			[]string{"(from --session) has not said hello", rule + " . _ -"}, []string{native, "same id"}},
+		// The live lower source is reached only past every non-empty one above
+		// it: here $BUDDY_SESSION carries the same dead id.
+		{"live lower source", "sess-e", "sess-a", "sess-e", []string{"--session", "sess-e"},
+			[]string{"(from --session, the same id as $BUDDY_SESSION)",
+				"but CLAUDE_CODE_SESSION_ID names alpha (sess-a), which is live here: re-run without --session and clear $BUDDY_SESSION to use it"}, nil},
+		{"live lower source, control", "sess-e", "sess-a", "", []string{"--session", "sess-e"},
+			[]string{"which is live here: re-run without --session to use it"}, []string{"same id", "and clear"}},
+	}
+	for _, c := range cases {
+		f.env[EnvClaudeSession], f.env[EnvSession] = c.harness, c.buddy
+		_, errw, code := f.run(t, f.repo, "", append([]string{"status"}, c.args...)...)
+		delete(f.env, EnvClaudeSession)
+		delete(f.env, EnvSession)
+		if code == 0 {
+			t.Fatalf("%s: status must refuse %q: %q", c.name, c.id, errw)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(errw, w) {
+				t.Errorf("%s: want %q in:\n%s", c.name, w, errw)
+			}
+		}
+		for _, n := range c.not {
+			if strings.Contains(errw, n) {
+				t.Errorf("%s: must not say %q:\n%s", c.name, n, errw)
+			}
+		}
+	}
+
+	// A live harness variable is reached only if the other agrees with it: a
+	// later $CODEX_THREAD_ID on the dead id must be cleared too (Codex code
+	// pass).
+	f.env[EnvClaudeSession], f.env[EnvSession], f.env[EnvCodexThread] = "sess-a", "sess-e", "sess-e"
+	_, errw, code := f.run(t, f.repo, "", "status", "--session", "sess-e")
+	delete(f.env, EnvSession)
+	for _, w := range []string{"(from --session, the same id as $BUDDY_SESSION and $CODEX_THREAD_ID)",
+		"which is live here: re-run without --session and clear $BUDDY_SESSION and $CODEX_THREAD_ID to use it"} {
+		if code == 0 || !strings.Contains(errw, w) {
+			t.Errorf("natives disagree: want %q in: %d %q", w, code, errw)
+		}
+	}
+
+	// The remedies followed. The old one (drop --session and $BUDDY_SESSION
+	// only) leaves the natives disagreeing, and is refused; the new one
+	// reaches the live session.
+	_, errw, code = f.run(t, f.repo, "", "status")
+	if code == 0 || !strings.Contains(errw, "disagree") {
+		t.Fatalf("the old remedy, followed, still refuses: %d %q", code, errw)
+	}
+	delete(f.env, EnvCodexThread)
+	if _, errw, code := f.run(t, f.repo, "", "status"); code != 0 {
+		t.Fatalf("the new remedy, followed, reaches sess-a: %d %q", code, errw)
+	}
+	delete(f.env, EnvClaudeSession)
+
+	// wait check reads the natives alone; Codex's answers first, so the
+	// Claude variable on the same id is counted (Codex code pass). The
+	// control is Codex's alone.
+	for _, w := range []struct {
+		claude string
+		want   string
+		not    string
+	}{
+		{"sess-e", "(from CODEX_THREAD_ID, the same id as $CLAUDE_CODE_SESSION_ID) has ended — if that is really you, `buddy hello --session sess-e` re-registers it here; otherwise clear $CODEX_THREAD_ID and $CLAUDE_CODE_SESSION_ID", ""},
+		{"", "(from CODEX_THREAD_ID) has ended — if that is really you, `buddy hello --session sess-e` re-registers it here; otherwise clear $CODEX_THREAD_ID", "same id"},
+	} {
+		f.env[EnvCodexThread], f.env[EnvClaudeSession] = "sess-e", w.claude
+		_, errw, code := f.run(t, f.repo, "", "wait", "check")
+		delete(f.env, EnvCodexThread)
+		delete(f.env, EnvClaudeSession)
+		if code == 0 || !strings.Contains(errw, w.want) || w.not != "" && strings.Contains(errw, w.not) {
+			t.Errorf("wait check, claude=%q: want %q in: %d %q", w.claude, w.want, code, errw)
+		}
+	}
+}

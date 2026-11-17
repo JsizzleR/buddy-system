@@ -254,7 +254,14 @@ func cmdWaitCheck(args []string, env Env) error {
 		return err
 	}
 	if !known || !si.Live() {
-		return assertedNotLive(st, id, source, known, nil)
+		// Both harness variables may carry the id (nativeSession refuses only
+		// disagreement, and answers Codex's first): the Claude one is passed
+		// so the remedy clears both (D-204, Codex code pass).
+		var rest []struct{ id, from string }
+		if source == EnvCodexThread {
+			rest = append(rest, struct{ id, from string }{env.getenv(EnvClaudeSession), EnvClaudeSession})
+		}
+		return assertedNotLive(st, id, source, known, rest)
 	}
 	r, err := st.WaitCheck(si.SessionID, si.Incarnation)
 	if err != nil {

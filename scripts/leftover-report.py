@@ -77,6 +77,7 @@ pass nor fail). Exit 0: a report was produced. Exit 1: a usage refusal.
 """
 
 import ctypes
+import json
 import os
 import re
 import shutil
@@ -376,13 +377,26 @@ def pick(states, sessions, now, evidence):
     return "UNKNOWN", evidence, "no tie"
 
 
+SHORT_KEEP = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._")
+
+
 def short(sid):
-    # Folded: a ledger's session id is the caller's (`hello --session`), and
-    # one carrying a newline printed a second row (Codex code pass, P1). buddy
-    # now registers only ids fence.ValidSessionID admits (D-201), for which
-    # this equals store.ShortID; a row an older binary wrote still needs the
-    # fold. Display only.
-    return fold("s-" + sid.replace("-", "")[:8], 16)
+    """store.ShortID, ported (D-204): the first eight bytes of A-Z a-z 0-9 . _
+    in the id's UTF-8, "s-?" when none. A copy because this report is a
+    standalone python3 -I script reading a COPY of the ledger, with no buddy
+    binary to ask; it is held to Go's by one vector file both tests read
+    (internal/store/testdata/shortid.json). The copy it replaces cut eight
+    characters after dropping hyphens and folded the rest to '?', so a row an
+    older binary wrote under `sess x` read s-sess?x here and s-sessx in buddy:
+    one session under two names (D-201's Left open). Every byte kept is ASCII,
+    so the result is one token with no fold (invariant 9), and a str is read
+    by CHARACTER: a non-ASCII one is only ever non-ASCII bytes, all dropped,
+    so no encode is needed, and none can raise on a lone surrogate (Codex
+    code pass). Display only."""
+    if isinstance(sid, bytes):
+        sid = sid.decode("latin-1")   # one char per byte; >= 0x80 is dropped
+    kept = "".join(c for c in str(sid) if c in SHORT_KEEP)[:8]
+    return "s-" + kept if kept else "s-?"
 
 
 SAFE = re.compile(r"[^A-Za-z0-9._/@:+-]")
@@ -630,7 +644,8 @@ def self_test():
          ("UNKNOWN", "env", "s-feedface not in the ledgers read +1"))
     want("ended beside ended", att(proc([sid_a, "end-2"])), ("STALE", "env", "lane-a"))
     nl = {"x\nSTALE": {"label": "lane", "worktree": "/n", "ended": 1, "procs": []}}
-    want("ledger id folded", attribute(proc(cwd="/n/a"), nl, table, now)[2].split(" ")[1], "s-x?STALE")
+    # One token, and ShortID's: the newline is dropped, as buddy drops it (D-204).
+    want("ledger id one token", attribute(proc(cwd="/n/a"), nl, table, now)[2].split(" ")[1:3], ["s-xSTALE", "ended"])
     m1 = {}
     merge_sessions(m1, {"s": {"label": "a", "worktree": "/a", "ended": 5, "procs": []}})
     merge_sessions(m1, {"s": {"label": "b", "worktree": "/b", "ended": None, "procs": [(60, 6)]}})
@@ -643,6 +658,22 @@ def self_test():
     for e in (5, 9):
         merge_sessions(m3, {"s": {"label": "a", "worktree": "/a", "ended": e, "procs": []}})
     want("merge ended latest", m3["s"]["ended"], 9)
+
+    # The vectors store.ShortID's test reads too (D-204): a missing file is a
+    # FAIL, never a skip, or the two copies could drift with nothing red.
+    vec = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "internal", "store", "testdata", "shortid.json")
+    try:
+        with open(vec, encoding="utf-8") as f:
+            vectors = json.load(f)
+    except (OSError, ValueError) as e:
+        vectors = []
+        fails.append("shortid vectors unreadable: %s" % e)
+    if len(vectors) < 10:   # an empty file runs no vector: a FAIL (Codex code pass)
+        fails.append("shortid vectors: %d, fewer than the 10 the file holds" % len(vectors))
+    for sid, exp in vectors:
+        want("short %r" % sid, short(sid), exp)
+    want("short bytes", short("sess x".encode()), "s-sessx")
+    want("short undecodable", short(b"\xffab\xfe"), "s-ab")
 
     want("fold newline", fold("a\nb c", 64), "a?b?c")
     want("fold cap", fold("x" * 70, 64), "x" * 61 + "...")

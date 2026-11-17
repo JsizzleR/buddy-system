@@ -1,0 +1,16 @@
+[
+  ["07f63349-294a-489d-8f9b-79a9cb7b37a9", "s-07f63349"],
+  ["019a7f3e-5b2c-7d41-9e0f-123456789abc", "s-019a7f3e"],
+  ["sess-a", "s-sessa"],
+  ["a.b_c-d.e_f", "s-a.b_cd.e"],
+  ["X", "s-X"],
+  ["\u00e9\u00e9\u00e9\u00e9abcdefghij", "s-abcdefgh"],
+  ["ab\u200bcd\u202eef gh/ij", "s-abcdefgh"],
+  ["a\nb\tc", "s-abc"],
+  ["sess x", "s-sessx"],
+  ["old:id", "s-oldid"],
+  ["\u00e9", "s-?"],
+  ["", "s-?"],
+  ["----", "s-?"],
+  ["\ud800ab\udcff", "s-ab"]
+]

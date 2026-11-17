@@ -1,7 +1,9 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
@@ -54,6 +56,30 @@ func TestShortID(t *testing.T) {
 	} {
 		if got := ShortID(c.id); got != c.want {
 			t.Errorf("ShortID(%q) = %q, want %q", c.id, got, c.want)
+		}
+	}
+}
+
+// scripts/leftover-report.py keeps a Python copy of ShortID (it reads a copy
+// of the ledger with no buddy binary to ask), so both are held to one vector
+// file: this test and that script's --self-test each read it (D-204). A
+// vector whose want is not ShortID's fails here; a Python copy that drifts
+// fails there.
+func TestShortIDSharedVectors(t *testing.T) {
+	raw, err := os.ReadFile("testdata/shortid.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors [][2]string
+	if err := json.Unmarshal(raw, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	if len(vectors) < 10 {
+		t.Fatalf("%d vectors: the file holds at least 10", len(vectors))
+	}
+	for _, v := range vectors {
+		if got := ShortID(v[0]); got != v[1] {
+			t.Errorf("ShortID(%q) = %q, the vector says %q", v[0], got, v[1])
 		}
 	}
 }

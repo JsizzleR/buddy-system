@@ -1476,26 +1476,65 @@ func whoAmI(st *store.Store, env Env, explicit string) (store.SessionInfo, error
 // that is live right now, point at that instead of offering a remedy at all.
 // The scan is best-effort — a read error there costs a better message, never a
 // worse one, since both fallback arms are already conditional.
+//
+// A lower source carrying the SAME id is the same assertion made twice, and
+// the words must count it (D-204). `--session` equal to the harness's own id
+// was worded as an id the caller chose: "otherwise re-run without --session"
+// re-ran into the same id from the harness variable, and an unregistrable one
+// got the charset recipe, "give one that is", which is the alias trap
+// (TestNativeRefusalNamesNoAlias). So the clearing remedy names every source
+// that would assert the id again, and the advice is worded by the native
+// source when one carries it: idSource's rule, read from rest, which already
+// holds the harness variables' values, so wait.go's caller (whose source is
+// native already) is untouched. Where both harness variables disagree and one
+// carries the id, this reads it as native, the wording that names no alias:
+// with the gate judging a payload id nobody here can see, that is the safe
+// one. A live lower source is reached only past every non-empty one above it,
+// so that remedy names them all too.
 func assertedNotLive(st *store.Store, id, from string, known bool, rest []struct{ id, from string }) error {
 	var b strings.Builder
 	// The raw id is kept for the paste rule below (D-201): checking the fenced
 	// copy would approve `sess x` for a raw `sess<TAB>x` (Codex design pass).
 	raw := id
 	id = fence.Line(id, 128) // asserted by the caller, echoed to a tool result
-	if known {
-		fmt.Fprintf(&b, "session %s (from %s) has ended", id, from)
-	} else {
-		fmt.Fprintf(&b, "session %s (from %s) has not said hello in this repo's ledger", id, from)
-	}
+	same, advice := []string{from}, from
 	for _, alt := range rest {
+		if alt.id == raw {
+			same = append(same, alt.from)
+			if !nativeIDFrom(advice) && nativeIDFrom(alt.from) {
+				advice = alt.from
+			}
+		}
+	}
+	also := ""
+	if len(same) > 1 {
+		also = ", the same id as " + sourceNames(same[1:])
+	}
+	if known {
+		fmt.Fprintf(&b, "session %s (from %s%s) has ended", id, from, also)
+	} else {
+		fmt.Fprintf(&b, "session %s (from %s%s) has not said hello in this repo's ledger", id, from, also)
+	}
+	above := []string{from}
+	for i, alt := range rest {
 		if alt.id == "" {
 			continue
 		}
 		if si, ok, err := st.Session(alt.id); err == nil && ok && si.Live() {
+			// A live harness variable is reached only if the other one agrees
+			// with it: whoAmI refuses disagreeing natives (nativeSession), so a
+			// later native carrying another id is cleared too (Codex code pass).
+			clear := above
+			for _, later := range rest[i+1:] {
+				if nativeIDFrom(alt.from) && nativeIDFrom(later.from) && later.id != "" && later.id != alt.id {
+					clear = append(clear, later.from)
+				}
+			}
 			fmt.Fprintf(&b, " — but %s names %s (%s), which is live here: %s to use it",
-				alt.from, fence.Line(si.Label, 64), fence.Line(si.SessionID, 128), clearing(from))
+				alt.from, fence.Line(si.Label, 64), fence.Line(si.SessionID, 128), clearing(clear...))
 			return errors.New(b.String())
 		}
+		above = append(above, alt.from)
 	}
 	verb := "re-registers"
 	if !known {
@@ -1503,30 +1542,55 @@ func assertedNotLive(st *store.Store, id, from string, known bool, rest []struct
 	}
 	if p, ok := pasteID(raw); ok {
 		fmt.Fprintf(&b, " — if that is really you, `buddy hello --session %s` %s it here; otherwise %s",
-			p, verb, clearing(from))
+			p, verb, clearing(same...))
 	} else if known {
 		// An ended row an older binary wrote revives under hello: the id is
 		// checked only where a row is CREATED (D-201), so "cannot be
 		// registered" was false here (Codex code pass). The command is named
 		// with a placeholder, since the id does not paste as printed.
 		fmt.Fprintf(&b, " — if that is really you, `buddy hello --session <that id>` re-registers it here (its ended row revives; the id does not paste as printed); otherwise %s",
-			clearing(from))
+			clearing(same...))
 	} else {
 		// No hello remedy for an id hello refuses (D-201). A native id gets no
 		// charset recipe: an alias registered by hand is refused by the gate
 		// on its own claims, which judges the harness id (orc-2's ruling).
-		fmt.Fprintf(&b, " — that id cannot be registered (D-201); %s", unregistrableAdvice(from))
+		fmt.Fprintf(&b, " — that id cannot be registered (D-201); %s", unregistrableAdvice(advice))
 	}
 	return errors.New(b.String())
 }
 
-// clearing names how to get rid of an identity source: a flag is dropped, an
-// environment variable is unset.
-func clearing(from string) string {
-	if strings.HasPrefix(from, "-") {
-		return "re-run without " + from
+// clearing names how to get rid of identity sources: a flag is dropped, an
+// environment variable is unset. Several are all of them, in order.
+func clearing(froms ...string) string {
+	var flags, vars []string
+	for _, f := range froms {
+		if strings.HasPrefix(f, "-") {
+			flags = append(flags, f)
+		} else {
+			vars = append(vars, "$"+f)
+		}
 	}
-	return "clear $" + from
+	var parts []string
+	if len(flags) > 0 {
+		parts = append(parts, "re-run without "+strings.Join(flags, " and "))
+	}
+	if len(vars) > 0 {
+		parts = append(parts, "clear "+strings.Join(vars, " and "))
+	}
+	return strings.Join(parts, " and ")
+}
+
+// sourceNames names identity sources for a sentence: a flag as typed, an
+// environment variable with its `$`.
+func sourceNames(froms []string) string {
+	names := make([]string, len(froms))
+	for i, f := range froms {
+		names[i] = f
+		if !strings.HasPrefix(f, "-") {
+			names[i] = "$" + f
+		}
+	}
+	return strings.Join(names, " and ")
 }
 
 // sessionFlag registers the standard --session override on an agent verb.

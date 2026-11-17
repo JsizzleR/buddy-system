@@ -15575,6 +15575,71 @@ prose now says the fixed words, and the trailing rule cannot fire since the stop
 the line. Answered: `bin` cannot carry a path or a backtick (`buddyCmd` returns `buddy` or
 `buddy fleet` only).
 
+## D-204 — A typed verb's refusal of a not-live asserted id counts every lower source carrying the SAME id: its remedy clears them all, and an unregistrable one is worded native when a harness variable carries it; `leftover-report.py`'s short id is `store.ShortID`, ported and held to it by one vector file (amends D-201)
+
+2026-11-17 · run r1117b, lite, lane sid-leftovers. The operator, in orc-3's pane at about
+08:40Z: "go ahead and work the remaining issues", over D-201's "Left open" paragraph, whose
+last two items these are. Wording and a display copy only: what any verb refuses or grants
+is unchanged; `internal/fence`, the schema and the invariants are untouched.
+
+**What was measured** (a throwaway test over the fixture, nothing launched). With
+`$CLAUDE_CODE_SESSION_ID` set, `buddy status --session <that same id>` (and `$BUDDY_SESSION`
+set to it) was refused in all four of `assertedNotLive`'s arms worded as an id the caller
+chose: "otherwise re-run without --session" (or "clear $BUDDY_SESSION"), which re-runs into
+the same id from the harness variable; and for an id the predicate refuses, the charset
+recipe "give one that is", D-201's alias trap. `wait check` already passes the native
+source, so its four arms were native-worded (but see the code review, below).
+`leftover-report.py` cut eight CHARACTERS after dropping hyphens and folded the rest to `?`:
+a row an older binary wrote under `sess x` read `s-sess?x` there and `s-sessx` in buddy.
+
+**Decided.** `assertedNotLive` reads `rest`, which already holds the lower sources' values,
+for the same id: the head says `(from --session, the same id as $CLAUDE_CODE_SESSION_ID)`,
+the "otherwise" remedy clears every source carrying it, and the unregistrable arm takes
+`unregistrableAdvice` of the native source when one carries it (`idSource`'s rule, read
+from `rest`, so the signature stays). Where the two harness variables
+disagree and one carries the id, it is read as native: the wording that names no alias.
+The live-lower-source arm ("but X names Y, which is live here") now names every non-empty
+source above that one, since each would be asserted first, and, when that source is a
+harness variable, a later one carrying another id (whoAmI refuses disagreeing natives). The Python copy stays: the
+report is a standalone `python3 -I` script reading a COPY of the ledger, with no buddy
+binary to ask. It is now `ShortID`'s rule over the id's UTF-8 bytes (first eight of
+`A-Za-z0-9._`, `s-?` for none; one token by construction, so no fold), and
+`internal/store/testdata/shortid.json` holds both: `TestShortIDSharedVectors` and the
+script's `--self-test` read it, and a missing or short file fails the self-test, never
+skips it.
+
+**Considered and cut.** *Passing `env` into `assertedNotLive` to call `idSource`*: it
+changes every call's shape and finds only the native half; `rest` has both. *A Go test that runs the Python*: the shared file holds the two to
+one table without a second language in `go test`. *Deleting the Python short id for the
+full id*: a census row is fixed-width, and the short id is how every other view names a
+session.
+
+**Tests.** `TestAssertedNotLiveCountsTheSameIDTwice`: each wording arm (unknown and pastes,
+ended and pastes, ended and does not paste, unregistrable) through `--session` and
+`$BUDDY_SESSION` equal to `$CLAUDE_CODE_SESSION_ID`, and the live-lower-source arm with a
+same-id `$BUDDY_SESSION` between; each with a control, a chosen id no other source carries,
+worded as before. The natives-disagree remedy is FOLLOWED: the old one (drop `--session`
+and `$BUDDY_SESSION`) is refused naming the disagreement, the new one reaches the live
+session. `wait check` with both natives on the id, and Codex's alone as the control. `TestShortIDSharedVectors`; the self-test's vector leg, a bytes id, an
+undecodable one, and the old "ledger id folded" case now `s-xSTALE` (one token, ShortID's).
+Mutants (a private rsync'd copy), each failing its test: the native advice dropped; the
+same-id sources dropped; the above-list dropped; the later native dropped; `wait.go`
+passing nil again; the old Python cut; the encode-based port; the vector file renamed, and
+emptied; `ShortID` keeping `-`. The unmutated copy passes (the control).
+
+**What the code review changed** (Codex, one pass at xhigh, folded once; 4 raised, 4
+fixed). A live `$CLAUDE_CODE_SESSION_ID` with `$CODEX_THREAD_ID` on the dead id: the remedy
+left the natives disagreeing, which whoAmI refuses; a later native carrying another id is
+now named. `wait check` with both natives on the same id cleared only Codex's: its one call
+site in `wait.go` now passes the Claude variable when the source is Codex's (msg-wait's
+file this round, told to orc-3). An empty vector file passed the self-test: under ten
+vectors fails. A lone surrogate made the Python encode raise: it now reads a str by
+character (every kept one is ASCII, every other dropped either way), with a lone-surrogate
+vector Go reads as U+FFFD.
+
+**Index.** CLAUDE.md's Identity line; GIVEN 138 (D-201's, core) gains "or one typed
+again (D-204)" in its Do-not-propose, 28 bytes, the core charter at 110,580 of 110,592.
+
 ## D-205 — The qualify checkers count an adapter refusal only on the adapter's own stderr lines (`buddy-adapter: `-led), never on a native child's `native stderr: ` line; `Close`'s wait on an escaped stderr writer is its bound, by design (amends D-200)
 
 **Context.** D-200 left two notes open. Its "What a checker accepts": "the refusal substring
