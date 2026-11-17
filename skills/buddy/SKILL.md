@@ -301,7 +301,7 @@ the run, or a `buddy wait --ready`) is the report, the run's outcome is the clos
    orchestrator removes it after the close. A lane whose cwd is the worktree
    it removed has lost its working directory, and the harness then fails
    every shell command it runs, its DONE message included. FAIL naming you: fix on your
-   branch, commit, declare `buddy wait --on <run> --ready HEAD` again, and say
+   branch, commit, declare `buddy wait --on <next run> --ready HEAD` (ask which), and say
    so; not named, ask. ABORTED: that run landed nothing; its note says what
    happened and who reruns, so declare again on the run it names, or ask. A
    release that came with NO outcome, or a claim

@@ -251,6 +251,9 @@ func isHelp(a string) bool { return a == "-h" || a == "-help" || a == "--help" }
 // follows looks exactly like the output of the run the caller asked for.
 func parseFlags(fs *flag.FlagSet, args []string, usage string, env Env) (help bool, err error) {
 	fs.SetOutput(io.Discard)
+	if _, _, err := flagRegion(fs, args); err != nil {
+		return false, usageRefusal(err.Error(), usage)
+	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintln(env.Stdout, usage)
@@ -259,6 +262,89 @@ func parseFlags(fs *flag.FlagSet, args []string, usage string, env Env) (help bo
 		return false, usageRefusal(fence.Line(err.Error(), 256), usage)
 	}
 	return false, nil
+}
+
+// flagRegion walks args the way flag.FlagSet.Parse will, BEFORE it does, and
+// refuses a value flag whose value is the spelling of a flag (#115). Go's
+// parser takes the argument after a value flag as its value whatever it
+// looks like, so an empty variable (`--scope $S`, S empty: zsh expands it to
+// nothing) made the NEXT flag the value: `claim v2 --scope --dry-run` wrote a
+// claim on the scope "--dry-run" where a forecast was asked for, `pause bravo
+// --note --help` braked bravo where a usage line was asked for (D-031: a help
+// flag never acts), and `msg bravo --measured --dry-run hi` sent. Reproduced
+// at a96d9f4 in a throwaway repository: every one exited 0 and wrote.
+//
+// A flag spelling is `-h`, `-help`, `--help` (Go answers those with
+// ErrHelp), any `-name`/`--name`, `=value` or not, of the verb's OWN flags,
+// or a bare `--`, the end of the flags. A dash-led value naming no flag of
+// this verb stays a value (`--desc "-1 rows"`, `--supersedes -1`, which the
+// verb judges), and so does an inline `--desc=--dry-run`: written with `=`,
+// the value was meant. It runs in parseFlags so every verb that parses has it
+// with nothing to forget; the sites that call fs.Parse themselves are named
+// in D-210 (commit-gate, out of a lite item's reach; hello, a hook whose
+// swallowed --label or --session the label and id checks already refuse).
+//
+// It also returns where the flags end, as Parse will see it, and whether a
+// `--` ended them: Parse consumes the `--`, so after it a verb cannot tell
+// `msg bravo -- hi --lead` (text, asked for) from `msg bravo hi --lead`
+// (#127). Where Parse stops (an unknown flag, inline or not, `--help=true`,
+// `---x`, a value flag at the end) the walk stops and leaves the verdict to
+// Parse, whose refusal or usage already answers it.
+func flagRegion(fs *flag.FlagSet, args []string) (end int, terminated bool, err error) {
+	for i := 0; i < len(args); {
+		a := args[i]
+		if len(a) < 2 || a[0] != '-' {
+			return i, false, nil
+		}
+		if a == "--" {
+			return i + 1, true, nil
+		}
+		name := strings.TrimPrefix(a[1:], "-")
+		if name == "" || name[0] == '-' || name[0] == '=' {
+			return i, false, nil
+		}
+		if n, _, inline := strings.Cut(name, "="); inline {
+			// Parse stops at an inline spelling it refuses or answers with
+			// help (`--help=true`, `--unknown=x`), so the walk stops there
+			// too and leaves the verdict to it (Codex code pass).
+			if fs.Lookup(n) == nil {
+				return i, false, nil
+			}
+			i++
+			continue
+		}
+		f := fs.Lookup(name)
+		if f == nil {
+			return i, false, nil
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			i++
+			continue
+		}
+		if i+1 >= len(args) {
+			return i, false, nil
+		}
+		if v := args[i+1]; v == "--" || isFlagSpelling(fs, v) {
+			return i, false, fmt.Errorf("%s needs a value, and the next argument was the flag %s; nothing was done", a, fence.Line(v, 64))
+		}
+		i += 2
+	}
+	return len(args), false, nil
+}
+
+// isFlagSpelling is true when a would be read as a flag of fs, or as a help
+// flag, were it in the flag region: one or two dashes, a name, an optional
+// `=value`. A bare `--` is not one here (each caller decides about it).
+func isFlagSpelling(fs *flag.FlagSet, a string) bool {
+	if len(a) < 2 || a[0] != '-' || a == "--" {
+		return false
+	}
+	name := strings.TrimPrefix(a[1:], "-")
+	name, _, _ = strings.Cut(name, "=")
+	if name == "" {
+		return false
+	}
+	return name == "h" || name == "help" || fs.Lookup(name) != nil
 }
 
 // usageRefusal is every refusal that shows the verb's usage: the usage block
@@ -431,7 +517,7 @@ const (
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
 	usagePause     = "usage: buddy pause <session|label|slug|all> [--note <text>]"
 	usageResume    = "usage: buddy resume <session|label|slug|all>"
-	usageMsg       = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--lead | --measured <what, over what; at most 128 rendered bytes> | --relay <source; at most 64>] [--supersedes <id>] [--dry-run] <text...>"
+	usageMsg       = "usage: buddy msg <session|label|slug|all> [--from <tag>] [--lead | --measured <what, over what; at most 128 rendered bytes> | --relay <source; at most 64>] [--supersedes <id>] [--dry-run] [--] <text...>   (flags before the text; after --, flag spellings are text)"
 	usageSent      = "usage: buddy sent [<message-id>]   (what became of messages you sent: recorded delivery, queued, expired)"
 	usageInbox     = "usage: buddy inbox [--session <id>] [<message-id>]   (no id: drain my messages; an id: re-print that one message addressed to me, delivered or not, marking nothing)"
 	usageSessions  = "usage: buddy sessions [--all] [--by seen|started] [--session <id>]  (--all adds rows ended over 24h ago and live rows whose every process is GONE)"
@@ -4317,6 +4403,24 @@ func cmdRelease(args []string, env Env) error {
 	if err := noStray("release", fs, usageRelease); err != nil {
 		return err
 	}
+	// #114: an --outcome or --note GIVEN and empty (`--outcome "$RESULT"`,
+	// the variable unset) is refused, as `--to ""` is below. The checks
+	// further down test for a non-empty value, so an empty outcome fell
+	// through to a plain release, exit 0: every rider read "released" and
+	// nothing else, which the core skill says tells them nothing about their
+	// work. Reproduced at a96d9f4. First, so `--outcome "" --note x` is told
+	// what was wrong, not "none was given".
+	outcomeGiven, noteGiven := false, false
+	fs.Visit(func(f *flag.Flag) {
+		outcomeGiven = outcomeGiven || f.Name == "outcome"
+		noteGiven = noteGiven || f.Name == "note"
+	})
+	if outcomeGiven && strings.TrimSpace(*outcome) == "" {
+		return usageRefusal("--outcome needs pass, fail or aborted, and it was empty; nothing was released", usageRelease)
+	}
+	if noteGiven && strings.TrimSpace(*note) == "" {
+		return usageRefusal("--note needs a line for the waiters, and it was empty; nothing was released", usageRelease)
+	}
 	if len(slugs) > 1 && (len(scopes) > 0 || *outcome != "" || *note != "" || *unpark) {
 		// An outcome reports on ONE job and --scope names scopes of ONE
 		// claim; spread over a set, either would say something about claims
@@ -4894,6 +4998,24 @@ func cmdMsg(args []string, env Env) error {
 	supersedes := fs.Int64("supersedes", 0, "the id of YOUR earlier message this one corrects (D-043); same target")
 	if help, err := parseFlags(fs, args[1:], usageMsg, env); help || err != nil {
 		return err
+	}
+	// #127: Go's parser stops at the first positional, so a flag of msg's
+	// own AFTER the body was body text: `msg bravo hello --dry-run` SENT,
+	// `msg bravo fix --supersedes 1` sent an uncorrecting message, and
+	// `msg bravo <finding> --measured <what>` sent its declaration as words,
+	// unlabelled (17 of 8,125 sends with a target in 21 days of one
+	// machine's transcripts, D-210). Refused, not parsed: a kind is never
+	// guessed from the body (D-045), and a body word turned into a flag would
+	// be text turned into control. Only msg's own spellings and the help
+	// flags count (D-031: a bare `help` is a message word); `--` before the
+	// body sends them as text.
+	if _, terminated, _ := flagRegion(fs, args[1:]); !terminated {
+		for _, w := range fs.Args() {
+			if isFlagSpelling(fs, w) {
+				return usageRefusal(fmt.Sprintf("%s after the body would be sent as text; put flags before the body, or -- before a body that means it; nothing was sent",
+					fence.Line(w, 64)), usageMsg)
+			}
+		}
 	}
 	if *supersedes < 0 {
 		return fmt.Errorf("--supersedes takes a message id (the #N a send prints), got %d", *supersedes)

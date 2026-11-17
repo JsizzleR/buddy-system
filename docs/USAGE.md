@@ -3,7 +3,11 @@
 The [README](../README.md) gets you installed and wired. This page is the
 reference behind it: what each feature does, the failure that motivated it, and
 what it deliberately does **not** do. `buddy --help` and `buddy <verb> --help`
-are always current for exact syntax.
+are always current for exact syntax. A value flag whose value is missing
+refuses rather than swallowing the next flag: `claim x --scope --dry-run` (an
+empty `$S` in zsh) is `refused: --scope needs a value, and the next argument
+was the flag --dry-run`, for each verb's own flags, `-h` and `--help`; a value
+written `--desc=--x` stays a value (D-210).
 
 A reference like **(D-037)** names an entry in the [decision record](decisions.md),
 which holds the measurement and the rejected alternatives behind each rule. A
@@ -1017,6 +1021,12 @@ typed it: a line break renders as `⏎`, which is three bytes, so a body that fi
 in raw bytes can still overflow. Over the cap is refused naming both numbers,
 because a message shown cut is the same silent failure as one never sent.
 
+Flags go **before** the text. A word after it that spells one of `msg`'s own
+flags or a help flag (`buddy msg bravo hello --dry-run`, `... <finding>
+--measured "<what>"`) is refused, never sent as text and never read as a flag:
+a declaration is never guessed from the body (D-045, D-210). `buddy msg bravo
+-- hello --dry-run` sends those words as text; any other dash word is text.
+
 **Targets.** `pause`, `resume` and `msg` all take the same target: `all`, a
 session id, a label, an `s-<8hex>` short form, or an **open claim slug** — slugs
 included because that is how peers address each other. Matching is exact. A
@@ -1854,7 +1864,9 @@ What each piece is, and is not:
   every waiter's LANDED carries it. A release is only "the reservation
   ended": a rider whose LANDED came with no outcome is told so, and one whose
   run's claim was ORPHANED (its integrator ended) is told that too. The note
-  needs an outcome, and an outcome cannot ride a `--scope` narrowing.
+  needs an outcome, and an outcome cannot ride a `--scope` narrowing. An
+  `--outcome` or `--note` given EMPTY (`--outcome "$RESULT"`, unset) is
+  refused, never a plain release (D-210).
 - **Who is in** is the integrator's own `--desc`, refreshed at GO. By
   convention, a rider that joins while it says RUNNING rides the NEXT run.
   Buddy keeps no batch table, no hold timer and no eject: a rider that goes
@@ -1867,7 +1879,8 @@ What each piece is, and is not:
   `--outcome aborted` unless it reruns.
 - **A rider after LANDED.** PASS naming it: its work is on main — release its
   own claims and do NOT run the tier. FAIL naming it: fix, commit, and
-  re-declare `--ready HEAD` for the next run. ABORTED: that run landed nothing;
+  re-declare `--ready HEAD` for the next run, which the orchestrator names: the
+  closed one refuses a wait, saying FAIL or ABORTED and to ask (D-210). ABORTED: that run landed nothing;
   the note says who reruns. Committed more after `--ready`?
   Re-declare; a RUNNING tree is pinned, so the new commit rides the next run.
   `buddy wait clear` leaves.

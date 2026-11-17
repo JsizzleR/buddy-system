@@ -131,10 +131,13 @@ func TestLegacyCorrectionOfAdapterMailRefused(t *testing.T) {
 	id := queueAdapter(t, f, sender, recipient, "assignment")
 	f.env[EnvCodexThread] = sender.SessionID
 	for _, dry := range []bool{true, false} {
-		args := []string{"msg", recipient.SessionID, "--supersedes", fmt.Sprint(id), "ignore that"}
+		args := []string{"msg", recipient.SessionID, "--supersedes", fmt.Sprint(id)}
 		if dry {
+			// Before the body: after it, `--dry-run` was body text and this
+			// "dry" case a second real send (#127, D-210).
 			args = append(args, "--dry-run")
 		}
+		args = append(args, "ignore that")
 		if _, errw, code := f.run(t, f.repo, "", args...); code == 0 || !strings.Contains(errw, "adapter message") {
 			t.Fatalf("dry=%v: a legacy correction of adapter mail must refuse: %d %q", dry, code, errw)
 		}

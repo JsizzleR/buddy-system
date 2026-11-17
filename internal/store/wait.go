@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -424,17 +425,30 @@ func (s *Store) declareWait(sessionID, incarnation string, slugs []string, until
 // whyNoOpenClaim explains a slug that names no open claim, inside the
 // declaration's transaction so the answer cannot race it.
 func whyNoOpenClaim(tx *sql.Tx, slug string, now time.Time) error {
-	var state string
+	var state, outcome string
 	var renewed int64
-	err := tx.QueryRow(`SELECT state, renewed FROM claims WHERE slug=? ORDER BY renewed DESC LIMIT 1`, slug).Scan(&state, &renewed)
+	// rowid breaks a tie: renewed is whole seconds, and a run slug reused
+	// and released twice in one second (PASS, then FAIL) must report the
+	// later outcome (Codex code pass).
+	err := tx.QueryRow(`SELECT state, renewed, outcome FROM claims WHERE slug=? ORDER BY renewed DESC, rowid DESC LIMIT 1`, slug).Scan(&state, &renewed, &outcome)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrWaitRefused{Slug: slug, Why: "no claim by that slug in this ledger (`buddy ls` lists the open ones); nothing was recorded"}
 	}
 	if err != nil {
 		return err
 	}
+	age := humanAge(now.Sub(time.Unix(renewed, 0)))
+	// #112: a run closed FAIL or ABORTED is where a lane re-declaring
+	// `--ready` lands, and "it has landed" told a lane whose work had just
+	// failed the opposite. A closed run never reopens, so the declaration
+	// belongs on the next run, which only the orchestrator names. A pass,
+	// or a release with no outcome, keeps the words the check's LANDED uses.
+	if outcome == "fail" || outcome == "aborted" {
+		return ErrWaitRefused{Slug: slug, Why: fmt.Sprintf("that claim was %s %s ago with outcome %s, and a closed run takes no new wait: declare on the next run your orchestrator names, or ask it; nothing was recorded",
+			state, age, strings.ToUpper(outcome))}
+	}
 	return ErrWaitRefused{Slug: slug, Why: fmt.Sprintf("that claim is already %s (%s ago) — it has landed, so there is nothing to wait for; nothing was recorded",
-		state, humanAge(now.Sub(time.Unix(renewed, 0))))}
+		state, age)}
 }
 
 // liveIncarnation refuses a session that is not live under exactly this
