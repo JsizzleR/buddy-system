@@ -47,7 +47,7 @@ ledger row entered through the CLI (D-006).
    and every hook is a silent no-op, while `buddy` runs: an installed `buddy` that cannot
    run makes README's gate line refuse every gated call, ledger or none (D-107, the
    operator's choice). A ledger that exists but cannot be read means DENY (fail closed).
-   Collapsing these two into one silent-allow arm is how a safety feature quietly stops
+   Collapsing these into one silent-allow arm is how a safety feature quietly stops
    existing.
 3. **SQLite, not flat files (D-001).** Claims need transactional overlap checks; `O_EXCL`
    files lose to ABA, partial writes, and multi-scope atomicity. The driver is
@@ -64,13 +64,14 @@ ledger row entered through the CLI (D-006).
    `strings.EqualFold`, never a second normalization. Accepted residual, already
    documented: this over-merges on a case-SENSITIVE volume mounted under a repo.
 7. **Every untrusted value is rendered on exactly ONE line via `fence.Line(s, max)`.**
-   Claim descriptions, slugs, session labels, scopes, paths, and all chat content are
-   attacker-influenced text that lands in a model's context window. A value containing a
-   newline could otherwise fabricate rows in a fenced listing. Byte caps are conventional:
-   slug 128, label/room 64, desc 512, scopes 512, path 512, message body 4096.
+   Claim descriptions, slugs, labels, scopes, paths and chat content are
+   attacker-influenced text in a model's context. A newline in a value
+   could otherwise fabricate rows in a fenced listing. Conventional caps:
+   slug 128, label/room 64, desc 512, scopes 512, path 512, message body 4096. GitHub
+   issue text is read only through `scripts/issue-read.py` (D-215).
 8. **Room digests are never auto-injected into an agent's context (D-010).** Only operator
    inbox messages are. Visibility means the operator sees the room, not that every agent
-   ingests it. Context cost is a first-class constraint here, not an afterthought.
+   ingests it. Context cost is a first-class constraint.
 9. **Loopback by default, everywhere.** The chat servers run unauthenticated only under
    that condition. Leaving loopback means turning real auth on first. The ledger trusts
    the machine's user account: this is a single-operator coordination tool, not a tenancy
