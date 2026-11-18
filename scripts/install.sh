@@ -2,13 +2,14 @@
 # install.sh — install or UPGRADE everything buddy puts on this machine, from
 # this checkout, and say what it did. Safe to re-run after every pull.
 #
-#   sh scripts/install.sh [--wire-hooks]
-#   buddy update [--wire-hooks]   (once installed, from anywhere: runs this
-#                          script in the checkout the installed buddy was built from)
+#   sh scripts/install.sh [--wire-hooks] [--refresh-hooks]
+#   buddy update [--wire-hooks] [--refresh-hooks]   (once installed, from anywhere:
+#                          runs this script in the checkout the installed buddy was built from)
 # buddy-install-accepts: --wire-hooks
-#   (that line is buddy update's test that this script takes the flag: an
+# buddy-install-accepts: --refresh-hooks
+#   (each line is buddy update's test that this script takes that flag: an
 #   older install.sh ignored its argv, so the flag would have done nothing
-#   and said nothing; D-135)
+#   and said nothing; D-135, D-232)
 #
 # WHY ONE SCRIPT. An upgrade touched four places by hand, and the one that was
 # forgotten was the one nobody could see. Measured 2026-09-26, right after a
@@ -50,9 +51,13 @@
 #      first APPENDS the entries this report names missing, each hook as README
 #      or USAGE spells it, in an entry of its own, and nothing else (scripts/wire-hooks.py says how
 #      and what it refuses); the report then reads the file as written.
-#      It also REPORTS whether the Agent-model hook's copy in the bin dir is
-#      this checkout's script, and whether settings wire it (D-120); it
-#      installs neither.
+#      It also REPORTS whether the Agent-model and issue-author hooks' copies
+#      in the bin dir are this checkout's scripts, and whether settings wire
+#      them (D-120); it installs neither. With --refresh-hooks (D-232) it
+#      REPLACES a copy that exists, differs and is wired, once this
+#      checkout's bytes pass their --self-test beside it; and whatever copy
+#      is still stale or missing-but-wired is named again in the LAST lines,
+#      `install: ACTION NEEDED: ...`, after the done line, which says so.
 #   A daemon that does not come back fails the install, but at the END: steps
 #   5 and 6 do not depend on it, and dying at step 4 skipped them.
 #   Before step 1 it takes the install lock it shares with uninstall.sh
@@ -169,11 +174,12 @@ say() { echo "install: $*"; }
 die() { echo "install: FAILED — $*" >&2; exit 1; }
 # The one argument (D-135). Anything else is refused before anything runs: an
 # install that ignored a mistyped flag would run in full and wire nothing.
-wire=""
+wire="" refresh=""
 for a in "$@"; do
 	case $a in
 	--wire-hooks) wire=1 ;;
-	*) die "unknown argument '$(printf '%s' "$a" | LC_ALL=C tr -c '[:print:]' '?' | head -c 64)' (usage: sh scripts/install.sh [--wire-hooks])" ;;
+	--refresh-hooks) refresh=1 ;;
+	*) die "unknown argument '$(printf '%s' "$a" | LC_ALL=C tr -c '[:print:]' '?' | head -c 64)' (usage: sh scripts/install.sh [--wire-hooks] [--refresh-hooks])" ;;
 	esac
 done
 py=${BUDDY_PYTHON:-python3}
@@ -204,8 +210,8 @@ esac
 lock_dir=$BIN_DIR
 case $lock_dir in /*) ;; *) lock_dir=$ROOT/$lock_dir ;; esac
 mkdir -p "$lock_dir" || die "could not create $lock_dir"
-snap_tmp=""
-trap '[ -z "$snap_tmp" ] || rm -f "$snap_tmp"; ilock_release' EXIT
+snap_tmp="" refresh_tmp="" refresh_bak=""
+trap '[ -z "$snap_tmp" ] || rm -f "$snap_tmp"; [ -z "$refresh_tmp" ] || rm -f "$refresh_tmp"; [ -z "$refresh_bak" ] || rm -f "$refresh_bak"; ilock_release' EXIT
 ilock_signals
 ilock_take install.sh "$lock_dir/.buddy-install.lock"
 
@@ -713,8 +719,19 @@ def same(a, b):
 # is "not verified", never guessed. $HOME may be bare or double-quoted, ~/
 # only bare (the shell expands neither inside single quotes, nor ~ in double).
 CMD = re.compile(
-    r"\s*(?:python3?|/[A-Za-z0-9._/+-]*/python3(?:\.[0-9]+)?)(?:\s+-[IBEsSuOq]+)*\s+"
+    r"\s*(?P<py>python3?|/[A-Za-z0-9._/+-]*/python3(?:\.[0-9]+)?)(?P<fl>(?:\s+-[IBEsSuOq]+)*)\s+"
     r"(?P<q>[\"']?)(?P<pre>\$HOME/|\$\{HOME\}/|~/|/)(?P<rest>[A-Za-z0-9._/+@%,:=-]*)(?P=q)\s*")
+
+
+# The same DIRECTORY ENTRY, which is what a rename replaces: the parents
+# resolved, the names equal. samefile matched a hard link elsewhere, whose
+# entry a rename of the bin dir's leaves on the old bytes (Codex code pass).
+def same_entry(a, b):
+    try:
+        return (os.path.basename(a) == os.path.basename(b) and
+                os.path.realpath(os.path.dirname(a)) == os.path.realpath(os.path.dirname(b)))
+    except (OSError, ValueError):
+        return False
 
 
 def script_path(command):
@@ -776,6 +793,14 @@ def verdict():
     if s.get("disableAllHooks") is True:
         return "off", "NOT in effect in %s: disableAllHooks is true" % settings_path
     live, custom, missed = [], [], []
+    # The wired entries that run the copy ITSELF, as "<interpreter> <flags>":
+    # what --refresh-hooks runs the new bytes' --self-test under (D-232). The
+    # wired command's own interpreter AND flags, since a self-test passed
+    # under install's python proves nothing about the one the hook runs
+    # under (fc4b03e: 3.9 and 3.12 parted on one escape; the Fable read: a
+    # 3.11+ regex passes under 3.14 and exits 2 on every payload under 3.9).
+    # Each word is CMD's charset, so no space, quote or glob in one.
+    runs = []
     for m, h in found:
         names = gh.matcher_names(m)
         if names is None:
@@ -798,6 +823,9 @@ def verdict():
             custom.extend(why)
         else:
             unsel = [t for t in TOOLS if t not in selected]
+            if same_entry(p, dst):
+                cm = CMD.fullmatch(h["command"])
+                runs.append(" ".join([cm.group("py")] + cm.group("fl").split()))
             live.append("matcher %s runs %s (%s)%s" % (json.dumps(m), p, state(p, selected),
                         "; it does not select %s, so no %s call is judged" % (said(unsel, "or"), said(unsel, "or")) if unsel else ""))
     if live:
@@ -805,59 +833,272 @@ def verdict():
         # Agent and run something else (Codex). The entry is what was read,
         # never the file's loading (D-184): gate-hook.py's LOADS is the tail.
         also = "; and custom, not verified: %s" % "; ".join(custom) if custom else ""
-        return "wired", "entry in %s: %s%s; %s" % (settings_path, "; ".join(live), also, gh.LOADS)
+        return "wired", "entry in %s: %s%s; %s" % (settings_path, "; ".join(live), also, gh.LOADS), runs
     if custom:
-        return "custom", "custom PreToolUse entry naming %s in %s (%s); not verified" % (NAME, settings_path, "; ".join(custom))
+        return "custom", "custom PreToolUse entry naming %s in %s (%s); not verified" % (NAME, settings_path, "; ".join(custom)), []
     return "off", "NOT wired in %s: the PreToolUse entry naming %s has matcher %s, which does not select %s" % (
-        settings_path, NAME, ", ".join(missed), said(TOOLS, "or"))
+        settings_path, NAME, ", ".join(missed), said(TOOLS, "or")), []
 
 
-kind, text = verdict()
+v = verdict()
+kind, text, runs = v if len(v) == 3 else v + ([],)
 print(kind + " " + " ".join(text.split()))
+# A line per distinct wired entry that runs the copy: the shell reads any as
+# "the copy is wired", and each as an interpreter and flags to self-test under.
+for r in sorted(set(runs)):
+    print("runs-copy " + r)
 PY
 }
-# hook_report <label> <script name> <tools,...> <why> [<more to copy>]: the
-# two lines above for one hand-installed hook. The last argument is appended
-# to the install remedy only (the issue hook's reader goes beside it).
+# fstate <src> <dst> <what>: what the bin dir holds at <dst>, against <src>
+# (<what> names it in the line), as the report's line (fs_line, empty when
+# nothing is there) and one word (fs_st): missing, dangling, notfile, current,
+# linkdiffers or differs. cmp FOLLOWS a link, so a link to the checkout's own
+# bytes is current before any symlink rule reads it (the Fable read: a refusal
+# first would fail every flagged run over a linked copy).
+fstate() {
+	fs_src=$1 fs_dst=$2 fs_what=$3
+	fs_cp="cp $(shq "$fs_src") $(shq "$fs_dst")"
+	fs_line="" fs_st=missing
+	if [ ! -e "$fs_dst" ] && [ ! -L "$fs_dst" ]; then
+		:
+	elif [ -L "$fs_dst" ] && [ ! -e "$fs_dst" ]; then
+		# cp writes THROUGH a symlink into whatever it names, so every remedy for
+		# a link replaces the link.
+		fs_st=dangling
+		fs_line="$fs_dst is a symlink to nothing ($(readlink "$fs_dst" || true)); replace the link: rm $(shq "$fs_dst") && $fs_cp"
+	elif [ ! -f "$fs_dst" ]; then
+		fs_st=notfile
+		fs_line="$fs_dst is not a regular file; move it aside, then: $fs_cp"
+	elif cmp -s "$fs_src" "$fs_dst"; then
+		fs_st=current
+		fs_line="$fs_dst is current (byte-identical to this checkout's $fs_what)"
+		[ ! -L "$fs_dst" ] || fs_line="$fs_line, through a symlink to $(readlink "$fs_dst" || true)"
+	elif [ -L "$fs_dst" ]; then
+		fs_st=linkdiffers
+		fs_line="$fs_dst DIFFERS from this checkout's $fs_what; it is a symlink to $(readlink "$fs_dst" || true), so replace the link, not what it names: rm $(shq "$fs_dst") && $fs_cp"
+	else
+		fs_st=differs
+		fs_line="$fs_dst DIFFERS from this checkout's $fs_what, and a hook that runs it runs those bytes; update it: $fs_cp"
+	fi
+}
+# fswap <src> <dst> (--refresh-hooks, D-232), for a copy fstate called
+# differs, linkdiffers, dangling or notfile and a wired entry runs: sets fs_r
+# to `refreshed ...`, `REFUSED (<why>)` or `FAILED (<why>)`.
+#
+# BESIDE, TESTED, THEN RENAMED, as step 2 does for the binaries (D-107): a
+# wired PreToolUse copy that cannot run BLOCKS every call its matcher selects
+# (python3 exits 2; the issue hook's matcher is Bash|WebFetch|Monitor), the
+# Bash of the session running this install with it, so a cp over it that
+# went wrong would be the outage. The new bytes go to a file mktemp creates
+# (exclusively, a fresh name: a staging entry that already existed, a link to
+# the copy, would have been written through and renamed in as a link to
+# itself; the Codex advice pass) in the copy's own directory, so the rename is
+# one directory entry; they take the old copy's mode (a direct-exec entry
+# keeps its bit) and run their --self-test under each wired entry's
+# interpreter and flags (amg_runs). Each script here has one and runs its own
+# __file__, so it tests the temp's bytes. Only when every run passes: the old
+# bytes are kept beside it under a fresh `.before-refresh.` name (cmp cannot
+# tell newer from older, and a checkout behind the copy downgrades it; the
+# Fable read), then the tested file is renamed over the copy. Any failure
+# removes the temp and leaves the copy. A symlink is refused, never followed
+# (the operator chose the link); so is anything not a regular file, and a copy
+# another user owns (replacing it would change that user's file). Not
+# covered: a change to the copy between these tests and the rename (one
+# operator's bin dir; no lock to take), and a hung self-test (no portable
+# timeout; each case's child has 30 s).
+fswap() {
+	fw_src=$1 fw_dst=$2
+	case $fs_st in
+	dangling | linkdiffers) fs_r="REFUSED ($fw_dst is a symlink: a refresh replaces only a regular file, never a link or what it names)"; return 0 ;;
+	notfile) fs_r="REFUSED ($fw_dst is not a regular file)"; return 0 ;;
+	esac
+	if [ ! -O "$fw_dst" ]; then
+		fs_r="REFUSED ($fw_dst is not owned by $(id -un 2>/dev/null || id -u))"
+		return 0
+	fi
+	# Not $(dirname): $( ) drops a trailing newline from the directory's name
+	# and sent the temp to another directory (Codex code pass).
+	fw_dir=${fw_dst%/*}
+	fw_base=${fw_dst##*/}
+	if ! refresh_tmp=$(mktemp "$fw_dir/.$fw_base.refresh.XXXXXX" 2>/dev/null); then
+		refresh_tmp=""
+		fs_r="FAILED (could not make a temp file beside $fw_dst); the copy is unchanged"
+		return 0
+	fi
+	if ! cat "$fw_src" > "$refresh_tmp" ||
+		! "$amg_py" -I -B -c 'import os, sys; os.chmod(sys.argv[2], os.stat(sys.argv[1]).st_mode & 0o7777)' "$fw_dst" "$refresh_tmp"; then
+		rm -f "$refresh_tmp"; refresh_tmp=""
+		fs_r="FAILED (could not write the new bytes beside $fw_dst); the copy is unchanged"
+		return 0
+	fi
+	fw_ifs=$IFS fw_ran=""
+	IFS='
+'
+	set -f
+	for fw_l in $amg_runs; do
+		IFS=' '
+		# shellcheck disable=SC2086 # the words are CMD's charset, split on purpose
+		set -- $fw_l
+		IFS='
+'
+		fw_o=$("$@" "$refresh_tmp" --self-test 2>&1 </dev/null) && fw_rc=0 || fw_rc=$?
+		fw_ran="${fw_ran:+$fw_ran, }$fw_l"
+		if [ "$fw_rc" != 0 ]; then
+			IFS=$fw_ifs
+			set +f
+			rm -f "$refresh_tmp"; refresh_tmp=""
+			# One line, bounded: the output is a script's, not ours.
+			fw_o=$(printf '%s\n' "$fw_o" | tail -n 1)
+			fw_o=$(printf '%s' "$fw_o" | LC_ALL=C tr -c '[:print:]' '?' | head -c 200)
+			fs_r="FAILED (this checkout's bytes exited $fw_rc on --self-test under $fw_l${fw_o:+, last line: $fw_o}); the copy is unchanged"
+			return 0
+		fi
+	done
+	IFS=$fw_ifs
+	set +f
+	if ! refresh_bak=$(mktemp "$fw_dst.before-refresh.XXXXXX" 2>/dev/null) || ! cat "$fw_dst" > "$refresh_bak"; then
+		[ -z "$refresh_bak" ] || rm -f "$refresh_bak"
+		rm -f "$refresh_tmp"; refresh_tmp="" refresh_bak=""
+		fs_r="FAILED (could not keep the old bytes beside $fw_dst); the copy is unchanged"
+		return 0
+	fi
+	if ! mv -f "$refresh_tmp" "$fw_dst"; then
+		rm -f "$refresh_tmp" "$refresh_bak"; refresh_tmp="" refresh_bak=""
+		fs_r="FAILED (could not rename the tested bytes over $fw_dst); the copy is unchanged"
+		return 0
+	fi
+	# Cleared at once: from here the trap must keep the backup, the copy's
+	# only old bytes, and has no temp left to remove.
+	fw_bak=$refresh_bak refresh_tmp="" refresh_bak=""
+	fs_r="refreshed $fw_dst (its --self-test passed under $fw_ran; the old bytes are at $fw_bak)"
+}
+# fdone <label> <what's>: after fstate and (under the flag) the refresh of
+# one file, says its refresh line, defers a REFUSED or FAILED one (a refresh
+# the operator ASKED for that did not happen fails the install at the end,
+# as a --wire-hooks refusal does; D-135, the operator's 19:06Z review of
+# orc-9's advice), and adds an ACTION NEEDED record for what still differs.
+# Unflagged, drift fails nothing (D-120).
+fdone() {
+	fd_label=$1 fd_of=$2
+	[ -z "$fs_r" ] || say "$fd_label: refresh: $fs_r"
+	case $fs_r in
+	REFUSED* | FAILED*) deferred="${deferred:+$deferred; }binaries installed; --refresh-hooks did not complete: $fd_label $fd_of unchanged" ;;
+	esac
+	fd_a=""
+	case $fs_st in
+	differs)
+		case $fs_r in
+		FAILED*) fd_a="$fd_of differs from this checkout's, and its refresh FAILED (above); sessions still run those bytes" ;;
+		*) if [ -n "$amg_runs" ] && [ -z "$refresh" ]; then
+			fd_a="$fd_of differs from this checkout's: rerun with --refresh-hooks, or: $fs_cp"
+		else
+			fd_a="$fd_of differs from this checkout's: $fs_cp"
+		fi ;;
+		esac ;;
+	linkdiffers) fd_a="$fd_of differs from this checkout's: rm $(shq "$fs_dst") && $fs_cp" ;;
+	dangling) fd_a="$fd_of is a symlink to nothing: rm $(shq "$fs_dst") && $fs_cp" ;;
+	notfile) fd_a="$fd_of is not a regular file: move it aside, then: $fs_cp" ;;
+	esac
+	[ -z "$fd_a" ] || act "$fd_label $fd_a"
+}
+# act <text>: one ACTION NEEDED record, counted as a record (never by
+# newlines). A path holding a control character would print a second line, a
+# forged row and a wrong count (Codex code pass), so such a record names no
+# pasteable remedy, only that it must be done by hand.
+actions="" an=0
+act() {
+	ac_t=$1
+	ac_c=$(printf '%sx' "$ac_t" | LC_ALL=C tr -d '\000-\037\177')
+	if [ "$ac_c" != "${ac_t}x" ]; then
+		ac_t="${fd_label:-a hook} copy or reader differs from this checkout's, and its path holds a control character, so no command is printed to paste: copy it by hand"
+	fi
+	actions="$actions${actions:+
+}ACTION NEEDED: $ac_t"
+	an=$((an + 1))
+}
+# hook_report <label> <script name> <tools,...> <why> [<more to copy>
+# [<reader>]]: the two lines above for one hand-installed hook, and under
+# --refresh-hooks a `refresh:` line; <more to copy> is appended to the
+# install remedy only; <reader> is a script of scripts/ that goes beside the
+# copy (the issue hook's refusal names it there), reported when present and
+# refreshed by the same rules while the hook's copy is wired (the Fable read:
+# a new hook beside a stale reader routes reads to the stale one). The wiring
+# is read FIRST, so a refresh can use it and the copy's line says what is
+# there after it.
+#
+# What still differs afterwards is said again in the LAST lines (D-232):
+# measured 2026-11-18, after fc4b03e landed, install.sh's DIFFERS line for
+# issue-author-gate.py sat mid-report above `install: done`, and the run was
+# caught only by a grep.
 hook_report() {
-	amg_label=$1 amg_name=$2 amg_tools=$3 amg_why=$4 amg_more=${5:-}
+	amg_label=$1 amg_name=$2 amg_tools=$3 amg_why=$4 amg_more=${5:-} amg_rd=${6:-}
 	amg_src=$ROOT/scripts/hooks/$amg_name
 	amg_dst=$BIN_DIR/$amg_name
 	case $amg_dst in /*) ;; *) amg_dst=$ROOT/$amg_dst ;; esac
 	amg_cp="cp $(shq "$amg_src") $(shq "$amg_dst")"
-	amg_copy=""
-	if [ ! -e "$amg_dst" ] && [ ! -L "$amg_dst" ]; then
-		:
-	elif [ -L "$amg_dst" ] && [ ! -e "$amg_dst" ]; then
-		# cp writes THROUGH a symlink into whatever it names, so every remedy for
-		# a link replaces the link.
-		amg_copy="$amg_dst is a symlink to nothing ($(readlink "$amg_dst" || true)); replace the link: rm $(shq "$amg_dst") && $amg_cp"
-	elif [ ! -f "$amg_dst" ]; then
-		amg_copy="$amg_dst is not a regular file; move it aside, then: $amg_cp"
-	elif cmp -s "$amg_src" "$amg_dst"; then
-		amg_copy="$amg_dst is current (byte-identical to this checkout's scripts/hooks/$amg_name)"
-		[ ! -L "$amg_dst" ] || amg_copy="$amg_copy, through a symlink to $(readlink "$amg_dst" || true)"
-	elif [ -L "$amg_dst" ]; then
-		amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/$amg_name; it is a symlink to $(readlink "$amg_dst" || true), so replace the link, not what it names: rm $(shq "$amg_dst") && $amg_cp"
-	else
-		amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/$amg_name, and a hook that runs it runs those bytes; update it: $amg_cp"
-	fi
 	amg_py=${BUDDY_PYTHON:-python3}
+	amg_runs=""
 	if [ ! -f "$SETTINGS" ]; then
 		amg_kind=none amg_wire="not wired in $SETTINGS"
 	elif ! command -v "$amg_py" >/dev/null 2>&1; then
 		amg_kind=unread amg_wire="wiring not checked (no $amg_py to decode $SETTINGS)"
 	elif amg_v=$(amg_wiring "$amg_py" "$SETTINGS" "$amg_dst" "$amg_src" "$ROOT/scripts/gate-hook.py" "${HOME:-}" "$amg_name" "$amg_tools") && [ -n "$amg_v" ]; then
+		amg_runs=$(printf '%s\n' "$amg_v" | sed -n 's/^runs-copy //p')
+		amg_v=$(printf '%s\n' "$amg_v" | head -n 1)
 		amg_kind=${amg_v%% *} amg_wire=${amg_v#* }
 	else
 		amg_kind=unread amg_wire="wiring not checked ($amg_py could not read $SETTINGS)"
 	fi
-	if [ -z "$amg_copy" ] && [ "$amg_kind" = none ]; then
+	fstate "$amg_src" "$amg_dst" "scripts/hooks/$amg_name"
+	fs_r=""
+	# What a refresh touches: a copy that is there, not current, and wired.
+	# Missing is never installed and not wired is never touched (exit 0);
+	# wiring that could not be read cannot say which, so a copy that differs
+	# under it is REFUSED, as --wire-hooks refuses an unreadable file.
+	if [ -n "$refresh" ]; then
+		case $fs_st in
+		current) fs_r=current ;;
+		missing) fs_r="skipped (missing: a refresh never installs a copy; installing one is the operator's opt-in)" ;;
+		*) if [ "$amg_kind" = unread ]; then
+			fs_r="REFUSED ($amg_wire, so which copy runs is not known)"
+		elif [ -z "$amg_runs" ]; then
+			fs_r="skipped (not wired: no PreToolUse entry this report reads as wired runs $amg_dst; a refresh replaces only a copy settings runs)"
+		else
+			fswap "$amg_src" "$amg_dst"
+			case $fs_r in refreshed*) fstate "$amg_src" "$amg_dst" "scripts/hooks/$amg_name" ;; esac
+		fi ;;
+		esac
+	fi
+	if [ -z "$fs_line" ] && [ "$amg_kind" = none ]; then
 		say "$amg_label: not installed at $amg_dst and $amg_wire ($amg_why)"
 	else
-		say "$amg_label: ${amg_copy:-not installed at $amg_dst ($amg_why; to install: $amg_cp${amg_more:+ && $amg_more})}"
+		say "$amg_label: ${fs_line:-not installed at $amg_dst ($amg_why; to install: $amg_cp${amg_more:+ && $amg_more})}"
 		say "$amg_label: $amg_wire"
 	fi
+	fdone "$amg_label" copy
+	# A missing copy a wired entry runs blocks every call its matcher selects.
+	if [ "$fs_st" = missing ] && [ -n "$amg_runs" ]; then
+		act "$amg_label copy is MISSING and wired, so every call its matcher selects is BLOCKED: $amg_cp${amg_more:+ && $amg_more}"
+	fi
+	[ -n "$amg_rd" ] || return 0
+	rd_dst=$BIN_DIR/$amg_rd
+	case $rd_dst in /*) ;; *) rd_dst=$ROOT/$rd_dst ;; esac
+	fstate "$ROOT/scripts/$amg_rd" "$rd_dst" "scripts/$amg_rd"
+	[ "$fs_st" != missing ] || return 0
+	fs_r=""
+	if [ -n "$refresh" ]; then
+		case $fs_st in
+		current) fs_r=current ;;
+		*) if [ -z "$amg_runs" ]; then
+			fs_r="skipped (the hook's copy is not wired, so its reader is left as it is)"
+		else
+			fswap "$ROOT/scripts/$amg_rd" "$rd_dst"
+			case $fs_r in refreshed*) fstate "$ROOT/scripts/$amg_rd" "$rd_dst" "scripts/$amg_rd" ;; esac
+		fi ;;
+		esac
+	fi
+	say "$amg_label: reader $fs_line"
+	fdone "$amg_label" reader
 }
 hook_report "agent-model hook" agent-model-gate.py Agent "optional, the operator's opt-in: docs/CHEAPER-MODELS-PLAN.md 1.3, D-117"
 
@@ -871,7 +1112,7 @@ hook_report "agent-model hook" agent-model-gate.py Agent "optional, the operator
 ir_dst=$BIN_DIR/issue-read.py
 case $ir_dst in /*) ;; *) ir_dst=$ROOT/$ir_dst ;; esac
 hook_report "issue-author hook" issue-author-gate.py Bash,WebFetch,Monitor \
-	"optional, the operator's opt-in: D-215" "cp $(shq "$ROOT/scripts/issue-read.py") $(shq "$ir_dst")"
+	"optional, the operator's opt-in: D-215" "cp $(shq "$ROOT/scripts/issue-read.py") $(shq "$ir_dst")" issue-read.py
 
 # 7. The handoff size, reported (D-064). BUDDY_HANDOFF_AT in the settings `env`
 # block reaches every session's hooks, the operator-launched first
@@ -892,8 +1133,23 @@ else
 	*) say "handoff: BUDDY_HANDOFF_AT=$handoff in $SETTINGS; every session is told as a turn opens once its last prompt is at or past it" ;;
 	esac
 fi
+# The closing lines (D-232). The ACTION NEEDED records come LAST, after a
+# line that counts them: the reader who looks only at the end of the output,
+# the one 2026-11-18's DIFFERS line missed, sees each, and a check for the
+# bare `install: done` sees that it is not one. A failed run says FAILED
+# first, then the same block (Codex code pass: printed before the FAILED
+# line, the records were not last). Drift alone exits 0 (D-120).
 if [ -n "$deferred" ]; then
 	echo "install: FAILED — $deferred" >&2
+	if [ "$an" != 0 ]; then
+		say "FAILED (above), and ACTION NEEDED ($an below)"
+		printf '%s\n' "$actions" | while IFS= read -r l; do say "$l"; done
+	fi
 	exit 1
 fi
-say "done"
+if [ "$an" = 0 ]; then
+	say "done"
+else
+	say "done, but ACTION NEEDED ($an below)"
+	printf '%s\n' "$actions" | while IFS= read -r l; do say "$l"; done
+fi

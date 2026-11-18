@@ -73,15 +73,23 @@ import (
 	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
-const usageUpdate = "usage: buddy update [--dry-run] [--wire-hooks]   (reinstall from the checkout this buddy was installed from:\n" +
-	"       report where it stands, from local git only, then run its scripts/install.sh; --dry-run reports and installs\n" +
-	"       nothing; --wire-hooks passes install.sh's flag: append the buddy hook lines its report names missing, D-135)"
+const usageUpdate = "usage: buddy update [--dry-run] [--wire-hooks] [--refresh-hooks]   (reinstall from the checkout this buddy was\n" +
+	"       installed from: report where it stands, from local git only, then run its scripts/install.sh; --dry-run reports\n" +
+	"       and installs nothing; --wire-hooks passes install.sh's flag: append the buddy hook lines its report names missing,\n" +
+	"       D-135; --refresh-hooks passes install.sh's: replace a hand-installed hook copy that exists, differs and is wired,\n" +
+	"       once the new bytes pass their --self-test, D-232)"
 
 // wireMarker is the line an install.sh that takes --wire-hooks carries (D-135).
 // An older one ignored its argv, so forwarding the flag to it would install in
 // full, wire nothing and exit 0; a deliberate declaration, not any mention of
 // the flag, is the test (Codex design pass: a comment naming it would pass).
 const wireMarker = "# buddy-install-accepts: --wire-hooks"
+
+// refreshMarker is the same declaration for --refresh-hooks (D-232). An
+// install.sh without it predates the flag: one from before D-135 ignored its
+// argv (a full install, nothing refreshed, exit 0), and one since refuses an
+// unknown argument only after this command said it was running it.
+const refreshMarker = "# buddy-install-accepts: --refresh-hooks"
 
 // installedFrom is the checkout install.sh built this binary in, stamped with
 // -ldflags -X. Empty for any other build. A plain var with no initializer:
@@ -221,6 +229,7 @@ func runUpdate(args []string, env Env, src updateSource) int {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	dry := fs.Bool("dry-run", false, "")
 	wire := fs.Bool("wire-hooks", false, "")
+	refresh := fs.Bool("refresh-hooks", false, "")
 	if help, err := parseFlags(fs, args, usageUpdate, env); help {
 		return 0
 	} else if err != nil {
@@ -244,14 +253,21 @@ func runUpdate(args []string, env Env, src updateSource) int {
 			fmt.Fprintln(w, "  "+l)
 		}
 	}
-	installCmd := "sh " + shellQuote(filepath.Join(c, "scripts", "install.sh"))
+	script := filepath.Join(c, "scripts", "install.sh")
+	installCmd := "sh " + shellQuote(script)
 	var installArgs []string
-	if *wire {
-		installCmd += " --wire-hooks"
-		installArgs = []string{"--wire-hooks"}
-		if r.refusal == "" && !takesWire(filepath.Join(c, "scripts", "install.sh")) {
-			r.refusal = "--wire-hooks: " + shellQuote(filepath.Join(c, "scripts", "install.sh")) +
-				" does not declare the flag (no line " + wireMarker + "), so it would ignore it; update that checkout first"
+	for _, f := range []struct {
+		on           bool
+		flag, marker string
+	}{{*wire, "--wire-hooks", wireMarker}, {*refresh, "--refresh-hooks", refreshMarker}} {
+		if !f.on {
+			continue
+		}
+		installCmd += " " + f.flag
+		installArgs = append(installArgs, f.flag)
+		if r.refusal == "" && !declares(script, f.marker) {
+			r.refusal = f.flag + ": " + shellQuote(script) +
+				" does not declare the flag (no line " + f.marker + "), so it would ignore it; update that checkout first"
 		}
 	}
 	if r.refusal != "" {
@@ -265,7 +281,7 @@ func runUpdate(args []string, env Env, src updateSource) int {
 		return 0
 	}
 	fmt.Fprintf(w, "running: %s (from %s)\n", installCmd, shellQuote(c))
-	cmd := exec.Command(src.sh, append([]string{filepath.Join(c, "scripts", "install.sh")}, installArgs...)...)
+	cmd := exec.Command(src.sh, append([]string{script}, installArgs...)...)
 	cmd.Dir = c
 	// No stdin: install.sh reads none, and a hook payload a misconfigured
 	// hook line would pipe in has no business reaching it (Codex).
@@ -290,14 +306,14 @@ func runUpdate(args []string, env Env, src updateSource) int {
 	return 0
 }
 
-// takesWire reports whether install.sh carries wireMarker as a whole line.
-func takesWire(path string) bool {
+// declares reports whether install.sh carries marker as a whole line.
+func declares(path, marker string) bool {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 	for _, l := range strings.Split(string(b), "\n") {
-		if strings.TrimRight(l, "\r") == wireMarker {
+		if strings.TrimRight(l, "\r") == marker {
 			return true
 		}
 	}

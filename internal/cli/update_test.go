@@ -713,9 +713,68 @@ func TestUpdateForwardsWireHooksOnlyToAnInstallThatTakesIt(t *testing.T) {
 	}
 }
 
-// The real install.sh carries the marker, as a line of its own.
+// D-232: --refresh-hooks is forwarded the same way, under its OWN marker: an
+// install.sh declaring only --wire-hooks predates it and is refused before
+// anything runs, so is one declaring neither; one declaring it is run with
+// it, and with both flags gets both, in the order the usage line names them.
+func TestUpdateForwardsRefreshHooksOnlyToAnInstallThatTakesIt(t *testing.T) {
+	boundedParallel(t)
+	f := newUpdFix(t)
+	inst := filepath.Join(f.c, "scripts", "install.sh")
+	stub := func(markers ...string) {
+		t.Helper()
+		s := "#!/bin/sh\n" + strings.Join(markers, "\n") + "\n{ printf '%s:' \"$#\"; printf '[%s]' \"$@\"; } > '" + f.rec + ".args'\npwd -P > '" + f.rec + "'\n"
+		if err := os.WriteFile(inst, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		os.Remove(f.rec)
+		os.Remove(f.rec + ".args")
+	}
+	args := func() string {
+		t.Helper()
+		b, err := os.ReadFile(f.rec + ".args")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, ms := range [][]string{{}, {wireMarker}, {"# TODO: --refresh-hooks"}, {refreshMarker + " (soon)"}} {
+		stub(ms...)
+		rc, _, errs := runUpd(t, updateSource{checkout: f.c}, "--refresh-hooks")
+		if rc != 1 || f.ran(t) || !strings.Contains(errs, "--refresh-hooks: ") || !strings.Contains(errs, refreshMarker) {
+			t.Fatalf("markers %q: rc=%d ran=%v stderr=%q, want refused before running", ms, rc, f.ran(t), errs)
+		}
+		rc, out, _ := runUpd(t, updateSource{checkout: f.c}, "--refresh-hooks", "--dry-run")
+		if rc != 1 || f.ran(t) || !strings.Contains(out, "would REFUSE") {
+			t.Fatalf("markers %q dry run: rc=%d out=%q", ms, rc, out)
+		}
+	}
+	// Both flags to an install.sh declaring only --refresh-hooks: the wire
+	// flag's own marker still refuses it.
+	stub(refreshMarker)
+	if rc, _, errs := runUpd(t, updateSource{checkout: f.c}, "--wire-hooks", "--refresh-hooks"); rc != 1 || f.ran(t) || !strings.Contains(errs, "--wire-hooks: ") {
+		t.Fatalf("refresh marker only, both flags: rc=%d stderr=%q", rc, errs)
+	}
+	rc, out, _ := runUpd(t, updateSource{checkout: f.c}, "--refresh-hooks", "--dry-run")
+	if rc != 0 || f.ran(t) || !strings.Contains(out, "would run: sh "+inst+" --refresh-hooks") {
+		t.Fatalf("dry run: rc=%d ran=%v out=%q", rc, f.ran(t), out)
+	}
+	rc, out, _ = runUpd(t, updateSource{checkout: f.c}, "--refresh-hooks")
+	if rc != 0 || !f.ran(t) || args() != "1:[--refresh-hooks]" || !strings.Contains(out, "running: sh "+inst+" --refresh-hooks") {
+		t.Fatalf("refresh: rc=%d out=%q args=%q", rc, out, args())
+	}
+	stub(wireMarker, refreshMarker)
+	rc, out, _ = runUpd(t, updateSource{checkout: f.c}, "--refresh-hooks", "--wire-hooks")
+	if rc != 0 || args() != "2:[--wire-hooks][--refresh-hooks]" || !strings.Contains(out, "running: sh "+inst+" --wire-hooks --refresh-hooks") {
+		t.Fatalf("both: rc=%d out=%q args=%q", rc, out, args())
+	}
+}
+
+// The real install.sh carries each marker, as a line of its own.
 func TestInstallScriptDeclaresWireHooks(t *testing.T) {
-	if !takesWire(filepath.Join("..", "..", "scripts", "install.sh")) {
-		t.Fatalf("scripts/install.sh lacks the line %q that buddy update --wire-hooks looks for", wireMarker)
+	for _, m := range []string{wireMarker, refreshMarker} {
+		if !declares(filepath.Join("..", "..", "scripts", "install.sh"), m) {
+			t.Fatalf("scripts/install.sh lacks the line %q that buddy update looks for", m)
+		}
 	}
 }

@@ -8737,7 +8737,8 @@ the repo's script changed nothing any session ran, and nothing said so: the clas
 `buddy update` (D-110) closed for the binaries.
 
 **The rule** — `install.sh`'s step 6c prints the hook's state, in the register of its `hooks:`
-and `gate:` lines, and fails nothing:
+and `gate:` lines, and, unflagged, fails nothing (*amended by D-232*: under the operator's
+`--refresh-hooks` a refresh it was asked for and could not make fails the install at the end):
 - The copy, `$BUDDY_BIN_DIR/agent-model-gate.py` against `scripts/hooks/agent-model-gate.py`, by
   `cmp`: `current` (and through a symlink, naming its target), `DIFFERS` with the `cp` that makes
   it current, a symlink to nothing or a non-regular file with a remedy that replaces the link
@@ -8771,9 +8772,11 @@ and `gate:` lines, and fails nothing:
 **Why it still installs nothing** — The hook is the operator's opt-in (D-117: "the operator
 copies it and wires it by hand"), and `install.sh` edits no settings (D-050; *amended by D-135*, which adds buddy's lines only) for the same reason
 it never edits the buddy hook lines: a script that rewrote them could remove one. Copying the
-script without the wiring would put a file in `~/bin` no session runs; copying it under wiring
-the operator chose would be an install deciding what an opted-in hook runs. Report, and the
-remedy named, is the D-050 contract. The decoder runs `python3 -I -B`, because loading
+script without the wiring would put a file in `~/bin` no session runs; installing a copy under
+wiring the operator chose would be an install deciding what an opted-in hook runs. Report, and
+the remedy named, is the D-050 contract. *Amended by D-232*: a copy that already exists, differs
+and a wired entry runs is replaced under the operator's `--refresh-hooks`, self-tested first;
+a missing copy is still never installed, and nothing is wired. The decoder runs `python3 -I -B`, because loading
 `gate-hook.py` as a module would otherwise write `scripts/__pycache__` into the checkout, a file
 `install.sh` never wrote before.
 
@@ -17331,3 +17334,31 @@ guard (MG), the one guard dead after EvalSymlinks, answered above.
 - charter: GIVEN 47 names D-231
 - amends: D-212 (a `.git` git cannot open for EACCES now denies), D-044 (the refusal probe covers bare
   levels and a git that did not finish), D-137 (its `safe.bareRepository=explicit` residual closes)
+
+## D-232 — `install.sh --refresh-hooks` replaces a hand-installed hook copy that exists, differs and a wired entry runs, once the checkout's bytes pass their `--self-test` under that entry's interpreter and flags; what still differs is named in the LAST lines (amends D-120, D-135, D-110)
+
+2026-11-18 · the operator, in orc-9's pane at 18:50Z ("yesh push and open the refresh lane", taking orc-9's two proposals), and at 19:06Z (a Fable read and a Codex pass on orc-9's advice, whose verdict is the exit rule and the swap folds below); lane hook-refresh
+
+**What was wrong** — After fc4b03e landed, `install.sh` exited 0 and ended `install: done`, while one line mid-report said `~/bin/issue-author-gate.py DIFFERS from this checkout's scripts/hooks/issue-author-gate.py ... update it: cp ...`; it was caught only by a grep. D-120 made the hand-installed copies (`agent-model-gate.py`, `issue-author-gate.py`, D-215) REPORT ONLY, and `--wire-hooks` (D-135) edits settings only, so nothing refreshed a copy and nothing at the end said one differed.
+
+**The rule** — `sh scripts/install.sh --refresh-hooks`; `buddy update --refresh-hooks` forwards it only to an install.sh carrying the whole line `# buddy-install-accepts: --refresh-hooks`, its OWN marker (one with only `--wire-hooks`'s predates the flag; that line stays byte-identical, since an installed buddy matches it whole); both flags forward both. Unflagged, nothing is replaced.
+- Which: a copy at `$BUDDY_BIN_DIR/<hook>` that EXISTS, DIFFERS (`cmp`, which follows a link: a link to the checkout's own bytes is current) and a wired PreToolUse entry runs, by the report's decoder (D-120's one command shape) and the same DIRECTORY ENTRY: the parents resolved, the names equal. `samefile` also matched a hard link elsewhere, whose entry a rename leaves on the old bytes (Codex code pass). Missing: skipped, never installed (D-117). Not wired, a custom entry, another path: skipped. Both exit 0.
+- How: the checkout's bytes to a file `mktemp` creates beside the copy (exclusive and fresh: a staging entry that existed as a link to the copy would have been renamed in as a link to itself; Codex advice pass), the copy's mode, then `--self-test` under each wired entry's interpreter AND flags (the Fable read: install's python is not the hook's; a 3.11+ regex passes under 3.14 and exits 2 on every payload under 3.9; fc4b03e's escape is the measured case). Each script runs its own `__file__`, so it tests the temp's bytes. Every run passes: the old bytes kept under a fresh `<copy>.before-refresh.XXXXXX` (cmp cannot tell older from newer, and a checkout behind the copy downgrades it; Fable), then the rename. Any failure: the temp removed, the copy unchanged. Why not `cp`: a wired PreToolUse copy that cannot run BLOCKS every call its matcher selects (python3 exits 2; the issue hook's is `Bash|WebFetch|Monitor`), the installing session's Bash included.
+- REFUSED, never followed: a symlink (the operator chose the link), anything not a regular file, another user's copy, and a differing copy under wiring the report could not read (which copy runs is unknown).
+- The reader: `issue-read.py` beside the issue hook (its refusal names it there) is reported when present and refreshed by the same rules while the hook's copy is wired (Fable: a new hook beside a stale reader).
+- Said per file, `<hook>: refresh: refreshed ... | current | skipped (<why>) | REFUSED (<why>) | FAILED (<why>)`; the copy's line is read after the refresh.
+- **Exit**: drift alone exits 0 (D-120). A REFUSED or FAILED refresh the operator asked for fails the install at the end through the deferred failure, never a `die` (which would skip 6d and step 7): `install: FAILED — binaries installed; --refresh-hooks did not complete: <hook> copy unchanged`. One refreshed beside one failed keeps the good one. Adopted on review of orc-9's advice (this lane had proposed 0; rejected: a requested act that did not happen read as success, and `buddy update`'s caller reads the exit).
+- **The closing lines.** What still differs (a copy, a link to other bytes or nothing, no regular file, the reader) and a missing copy a wired entry runs are counted as records; with any, the last lines are `install: done, but ACTION NEEDED (N below)` (failed: the FAILED line, then `install: FAILED (above), and ACTION NEEDED (N below)`), then `install: ACTION NEEDED: <hook> copy differs from this checkout's: <remedy>` each, the remedy `rerun with --refresh-hooks, or: cp ...` where a refresh would take it. After the done line, not before it: the reader of the end sees each, and a check for a bare last `install: done` sees it is not. A record whose path holds a control character prints no command to paste (Codex code pass: a line break forged a row and doubled the count). None: the bare done line.
+
+**Not covered** — a change to the copy between the checks and the rename (one operator's bin dir; no lock); a bare `python3` resolved by install's PATH where the harness's may differ; a hung self-test hangs the install (no portable timeout; each case's child has 30 s); a signal after the rename removes nothing but the window before it removes the backup; the not-owned refusal is untested (no fixture owns a file as another user without root).
+
+**Review** — lite: a scoped self-review; one Codex code pass at xhigh on the first candidate (four raised: the hard link, the forged row, `$(dirname)` dropping a trailing newline, the failed run's block order; all four reproduced in QA-19 and fixed). The pass ran before the 19:06Z verdict on orc-9's advice reached this lane, whose Fable read (five: interpreter, wrong file, downgrade, the reader, the exit rule's cases) and Codex pass (the staging link) were folded beside it; one fold, at the ceiling.
+
+**Test shape** — `check-install.sh` QA-19: unflagged differing copy named last (the control), refreshed (mode kept, one backup holding the old bytes, no temp, the copy's line current, no record), current (a link to the checkout's script too), missing, not wired, a custom entry, a hard link elsewhere, unreadable wiring REFUSED, a failing self-test under the wired interpreter (copy kept, exit 1, FAILED then the block) beside a passing one that recorded the entry's flags and the temp's path, a symlink and a directory REFUSED, wired and missing named as blocking, the reader (named, skipped beside an unwired hook, refreshed), two records counted, a bin dir with a line break; QA-14's runs held to the closing form. `update_test.go`: the marker refusal (none, wire-only, a mention, a suffixed line), both flags, the real install.sh declaring each. Mutants in a private copy: see the commit.
+
+### Where it lives
+- code: `scripts/install.sh` (6c/6d `hook_report`, `fstate`, `fswap`, `fdone`, `act`, the closing lines), `internal/cli/update.go`
+- index: CLAUDE.md "Install" line, Commands, the install.sh rule
+- GIVEN: 53 (stub and part `install`)
+- skill: core, "Upgrading buddy"; fleet, "Upgrading buddy itself"; USAGE "buddy update"
+- amends: D-120 ("fails nothing", "installs nothing": in place), D-135 (a second opt-in flag, its own marker), D-110 (update forwards it)

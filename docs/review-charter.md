@@ -461,7 +461,7 @@ ledger row entered through the CLI (D-006).
     "first GO wins"; all were cut. The skill must teach
     every verb and flag in the usage table, or exempt it with a reason (a hermetic test).
 
-53. **`scripts/install.sh` is the one install/upgrade path (D-050); it edits settings only under the operator's `--wire-hooks` (D-135, D-182, D-183), appending only the lines it named missing; it reports the Agent-model hook, never installs it (D-120, D-117), and stamps chat posture (D-124); its reports name the entry read, never the file loaded (D-184), and a PATH `buddy` not built here (D-217).** Do not propose: settings edits beyond those lines, wiring the Agent-model hook, `cp` of binaries. (full text: part `install`)
+53. **`scripts/install.sh` is the one install/upgrade path (D-050); edits settings only under the operator's `--wire-hooks` (D-135, D-182, D-183), appending only lines it named missing; reports hook copies, installs none, refreshes a stale wired one under `--refresh-hooks`, self-tested (D-120, D-117, D-232); stamps chat posture (D-124); names the entry read, not the file loaded (D-184), and a PATH `buddy` not built here (D-217).** Do not propose: other settings edits, hook wiring, binary `cp`. (full text: part `install`)
 
 54. **`buddy init` says whether this repo's main languages have a language server (D-051).** Per
     language that is at least 10% of tracked source: the server on PATH (absolute entries,

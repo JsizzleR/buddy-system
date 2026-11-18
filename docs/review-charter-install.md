@@ -23,13 +23,18 @@ stub of each binds as written; this is the full text (D-158).
     and (before step 1) a `$BUDDY_BIN_DIR` that is not `~/bin`, which the lines run. No harness environment is refused (the operator's choice:
     the write set is fixed, and `env -u` defeats a check); settings are never relayed. Do not
     propose it rewrite, reorder, "fix" or remove an entry, touch another key or file, or wire the
-    Agent-model hook; nor `cp` for the binaries. It also REPORTS, and never installs or fails on, the Agent-model hook
-    (D-120): whether `$BUDDY_BIN_DIR/agent-model-gate.py` is byte-identical to
+    Agent-model hook; nor `cp` for the binaries. Unflagged it REPORTS, and never installs,
+    replaces or fails on, the Agent-model hook (D-120): whether `$BUDDY_BIN_DIR/agent-model-gate.py` is byte-identical to
     `scripts/hooks/agent-model-gate.py` (naming the `cp` when not), and whether settings wire
     a PreToolUse command naming it under a matcher selecting `Agent`, decoded with
     `gate-hook.py`'s matcher reading; a wired path with no file is said loudly (python3 exits 2,
-    which blocks every Agent call). Do not propose that it copy the script: the hook is the
-    operator's opt-in (D-117). It stamps each buddy with its chat posture and keeps it while
+    which blocks every Agent call); the issue-author hook and its reader the same. Under the
+    operator's `--refresh-hooks` (D-232; `buddy update` forwards it only under its own marker)
+    it replaces only a copy that exists and differs and a wired entry runs, never creating or
+    wiring one: `--self-test` under that entry's interpreter and flags before the rename, the
+    copy left on a failure; a refused or failed requested refresh fails the install at the end;
+    unflagged drift exits 0. What still differs is named LAST. Do not propose default-on,
+    riding `--wire-hooks`, or installing a missing copy (D-117). It stamps each buddy with its chat posture and keeps it while
     `BUDDY_CHAT` is unset (D-124: `off`/`on` switch, anything else refused, no stamp is on); do
     not propose reading the posture from settings, which is `hello`'s knob.
 

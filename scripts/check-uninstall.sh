@@ -1764,7 +1764,13 @@ out=$(inst 2>&1) || fail "U-13d: an install over a reused pid's lock failed:
 $out"
 echo "$out" | grep -qF "install: lock: TOOK OVER $LK from uninstall.sh (pid $$, started Thu Jan 1 00:00:00 1970" || fail "U-13d: the takeover is not said:
 $out"
-echo "$out" | tail -1 | grep -qx 'install: done' || fail "U-13d: no done line:
+# setup() plants a differing agent-model and issue-author copy, not wired
+# (uninstall must leave them), so the install ends in D-232's closing form,
+# those two named after a done line that counts them, never a bare done line
+# (a bare `tail -1` held here went red on the run that landed D-232).
+[ "$(echo "$out" | tail -3 | sed 's/: cp .*//')" = "install: done, but ACTION NEEDED (2 below)
+install: ACTION NEEDED: agent-model hook copy differs from this checkout's
+install: ACTION NEEDED: issue-author hook copy differs from this checkout's" ] || fail "U-13d: no done line, then the two planted copies named last:
 $out"
 gone "$LK"
 # U-13e: the real overlap: uninstall's first launchctl print runs install.sh

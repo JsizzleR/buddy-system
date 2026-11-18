@@ -590,6 +590,27 @@ running: sh /Users/me/src/buddy-system/scripts/install.sh (from /Users/me/src/bu
   names missing to `BUDDY_SETTINGS`, default `~/.claude/settings.json`, and nothing else). It
   refuses, running nothing, a checkout whose `scripts/install.sh` lacks the line
   `# buddy-install-accepts: --wire-hooks`: an older one ignores its argument.
+- **`--refresh-hooks`** passes install.sh's flag (D-232), under its own marker line
+  (`# buddy-install-accepts: --refresh-hooks`), refused the same way without it. For each
+  hand-installed hook copy in the bin dir (`agent-model-gate.py`, `issue-author-gate.py`, and
+  `issue-read.py` beside the latter while it is wired) that EXISTS, DIFFERS from the
+  checkout's and a wired entry runs (the report's decoded verdict, that very directory entry),
+  install.sh writes the checkout's bytes to a fresh temp file beside it with the old mode, runs
+  its `--self-test` under each wired entry's interpreter and flags, keeps the old bytes as
+  `<copy>.before-refresh.XXXXXX` and renames the temp over the copy only when every run
+  passes. Each gets a `refresh:` line: `refreshed`, `current`, `skipped (<why>)` (missing:
+  never installed; not wired), `REFUSED (<why>)` (a symlink, never followed; not a regular
+  file; another user's; wiring it could not read) or `FAILED (<why>)`, the copy unchanged.
+  REFUSED and FAILED fail the install at the end (`install: FAILED — binaries installed;
+  --refresh-hooks did not complete: ...`), as a `--wire-hooks` refusal does. It never installs
+  a copy and never edits settings.
+- **The closing lines.** What still differs (a copy, a link to other bytes or to nothing, no
+  regular file, the reader), and a missing copy a wired entry runs (it blocks every call its
+  matcher selects), is named again LAST: `install: done, but ACTION NEEDED (N below)` (after a
+  failure, `install: FAILED (above), and ACTION NEEDED (N below)`), then one `install: ACTION
+  NEEDED: <hook> copy differs from this checkout's: <remedy>` each, the remedy `rerun with
+  --refresh-hooks, or: cp ...` where a refresh would take it. Nothing differs: the bare
+  `install: done`, last. Drift alone exits 0 (D-120).
 - **It refuses one case** besides: the installed build's commit is in the checkout but
   not in HEAD's history. Installing would put an older or diverged `buddy` in
   place, and an older `buddy` refuses a newer ledger (D-037), so the gate would

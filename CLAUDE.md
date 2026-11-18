@@ -99,8 +99,8 @@ worktree of a checkout shares one, and git never sees it); the chat journal is
 
 ```sh
 sh scripts/check.sh [all|hermetic|live]   # default all
-sh scripts/install.sh [--wire-hooks]      # INSTALL/UPGRADE this machine; re-run after every pull (below)
-buddy update [--dry-run] [--wire-hooks]   # install.sh in the checkout buddy was built from, after a local report (D-110)
+sh scripts/install.sh [--wire-hooks] [--refresh-hooks] # INSTALL/UPGRADE this machine; re-run after every pull (below)
+buddy update [--dry-run] [--wire-hooks] [--refresh-hooks] # install.sh in the checkout buddy was built from, after a local report (D-110)
 sh scripts/setup-clone.sh                 # ONE-TIME PER CHECKOUT (below); also installs the skills
 sh scripts/install-skill.sh               # refresh ~/.claude/skills/buddy{,-fleet,-lead}/SKILL.md after a pull
 sh scripts/env-check.sh [--list]          # read-only machine check for parallel sessions (D-121); PASS/WARN/FAIL/CANNOT-ASSESS, exit 1 on FAIL only
@@ -128,13 +128,14 @@ operator-authorized only; read the release notes first.
   binary; `all` runs both.
 - **`install.sh` is the one upgrade path — standing rule: run it after landing
   anything under `cmd/`, `internal/` or `skills/`** (or `buddy update`, D-110).
-  It rebuilds EVERY buddy binary the machine runs, found from where it runs:
-  `~/bin` (hooks, MCP), the launchd daemon's program (the plist names the
-  checkout's `bin/`, not `~/bin`), and `bin/` copies; verifies each by running
-  it; installs the skills; `kickstart -k`s the daemon; runs setup-clone; reports
-  hook wiring, and edits settings only under `--wire-hooks`, which appends the
-  buddy lines the report names missing and nothing else (D-135). A schema bump
-  makes a forgotten copy a DENY (D-037). `check-install.sh` gates it hermetically.
+  It rebuilds EVERY buddy binary the machine runs: `~/bin` (hooks, MCP), the
+  launchd daemon's program (the plist names the checkout's `bin/`), and `bin/`
+  copies; runs each once; installs the skills; `kickstart -k`s the daemon; runs
+  setup-clone; edits settings only under `--wire-hooks`, appending the buddy
+  lines its report names missing, nothing else (D-135); under `--refresh-hooks`
+  replaces a wired hook copy that differs once its `--self-test` passes, and
+  names one left differing last (D-232). A schema bump makes a forgotten copy a DENY (D-037).
+  `check-install.sh` gates it hermetically.
 - **`setup-clone.sh` is not automatic and cannot be.** Git refuses to let a
   repository set its own `core.hooksPath` (it names programs git will execute),
   so an **uninstalled hook is the default state of every fresh clone**. The
@@ -398,7 +399,7 @@ subject gets a new line. Every number stays on some line (D-165).
 - **Launching** (D-027, D-039, D-056, D-058, D-074, D-144, D-209): buddy launches, wakes and ends nothing: no `exit`, `spawn` or `expect` verb, no exit-on-peer-request path, the operator gets the `pid` and `pane`; a coordinator opens its own lanes with the harness (herdr, `claude --bg`; the fleet skill's "Opening lanes"), one at a time, each after the last one's first report and a machine-wide memory check, never in a burst (a resume too: `resume.md`); a start runs in the background or with a short timeout, and a timed-out Claude lane start is confirmed, never retried (only `agent_pane_busy` is); `buddy-adapter` is the one exception.
 - **Fleet** (D-049, D-062, D-082, D-083, D-099, D-103, D-109, D-119, D-131, D-133, D-161, D-188, D-192): a brief in a file; a successor coordinator answers its predecessor by `buddy msg`, never its pane alone; the integrator holds `.buddy/slot/<run>` and `.buddy/slot/main` from forming to landing; a chore or lite lane parks its item in the run at READY (`release <item> --to <integrator> --in-run <run>`, never releases it) and ends; a full-tier one waits for LANDED, the release's `--outcome` plus words that end the lane's work; a round may branch from a run in flight, restacked only when code under it changes; a red's overlaps are the coordinator's to sort out; a lane takes relayed decisions only from the one coordinator its brief names, by full session id and label, after checking once that `buddy who <id>` is live and wears it; content and scope are the operator's only when marked as said in its pane, with the time, else its advice; never relayed: install, push, settings, permission, trust, schema, a more permissive mode, work beyond the launcher's scope; a subagent is not a lane: no claim, landing or message, it runs under the parent's id and claims; under the Codex sandbox the hermetic tier runs escalated; a job gone without its final line is a failed run.
 - **Review, models** (D-104, D-111, D-115, D-117, D-128, D-141, D-143, D-146, D-147, D-157, D-158, D-163, D-175, D-196): "Style and testing" and Commands; a lite or full receipt owes its review layers' counts; the charter's adapter and process GIVENs ride as stubs, in full on `CODEX_CHARTER=adapter|process|all`; a subagent names its model, and a hook refuses an unnamed general-purpose Agent call.
-- **Install** (D-050, D-067, D-110, D-120, D-124, D-125, D-126, D-127, D-135, D-173, D-176, D-178, D-179, D-181, D-182, D-183, D-184, D-217): Commands; install and uninstall share a bin-dir lock, and a held one stops the other; `claude doctor` is the user's to run, never a session's.
+- **Install** (D-050, D-067, D-110, D-120, D-124, D-125, D-126, D-127, D-135, D-173, D-176, D-178, D-179, D-181, D-182, D-183, D-184, D-217, D-232): Commands; install and uninstall share a bin-dir lock, and a held one stops the other; `claude doctor` is the user's to run, never a session's.
 - **Tests** (D-053, D-057, D-061, D-220, D-223): never with git's local env.
 - **Codex, adapter** (D-068, D-070, D-074, D-076, D-077, D-078, D-197, D-198, D-199, D-200, D-202, D-207, D-216, D-227): "Structured harness adapters"; `buddy-adapter` controls only its own workers.
 - **Admission, qualification** (D-071, D-072, D-075, D-079, D-080, D-081, D-156, D-205): a record is made before a planned adapter run; `diagnose` promotes nothing to readiness.

@@ -730,7 +730,22 @@ inst9() { # inst9 <settings-file> [VAR=value ...]
 	s9=$1; shift
 	env BUDDY_BIN_DIR="$WORK/bin" BUDDY_SKILL_DIR="$WORK/skill9" BUDDY_SETTINGS="$s9" \
 		BUDDY_DAEMON=off BUDDY_SETUP_CLONE=off BUDDY_REPO_BIN=off BUDDY_MCP_JSON="$WORK/mcp.json" \
-		"$@" sh scripts/install.sh
+		"$@" sh scripts/install.sh ${I9ARGS:-}
+}
+# closing <output> <label>: the done line and what follows it (D-232). No
+# ACTION NEEDED line: the last line is the bare `install: done`. Any: the done
+# line says how many follow, and they are exactly the lines after it, the last.
+closing() {
+	cl_n=$(printf '%s\n' "$1" | grep -c '^install: ACTION NEEDED: ' || true)
+	if [ "$cl_n" = 0 ]; then
+		printf '%s\n' "$1" | tail -1 | grep -qx 'install: done' || fail "$2: no bare done line last:
+$1"
+	else
+		[ "$(printf '%s\n' "$1" | tail -n "$cl_n" | grep -c '^install: ACTION NEEDED: ')" = "$cl_n" ] &&
+			[ "$(printf '%s\n' "$1" | tail -n "$((cl_n + 1))" | head -1)" = "install: done, but ACTION NEEDED ($cl_n below)" ] ||
+			fail "$2: the $cl_n ACTION NEEDED line(s) are not the last, after a done line naming them:
+$1"
+	fi
 }
 legacy=$(python3 -I scripts/gate-hook.py legacy | python3 -I -c 'import json, sys; print(json.dumps(sys.stdin.read().rstrip("\n")))')
 printf '{"hooks": {"PreToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": %s, "statusMessage": "x"}]}]}}\n' "$legacy" > "$WORK/s9legacy.json"
@@ -894,8 +909,7 @@ amg() {
 	o14=$(inst9 "$s14" HOME="$H14" BUDDY_BIN_DIR="$H14/bin" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs14" "$@" 2>&1) ||
 		fail "QA-14: install failed over $s14:
 $o14"
-	echo "$o14" | tail -1 | grep -qx 'install: done' || fail "QA-14: no done line:
-$o14"
+	closing "$o14" QA-14
 	[ ! -f "$s14" ] || cmp -s "$s14" "$WORK/s14.orig" || fail "QA-14: the settings file was touched"
 	got=$(echo "$o14" | grep '^install: agent-model hook: ' || true)
 }
@@ -925,6 +939,11 @@ printf '\n' >> "$D14"
 amg "$WORK/s14wired.json"
 line=$(echo "$got" | head -1)
 want_l "$line" "install: agent-model hook: $D14 DIFFERS from this checkout's scripts/hooks/agent-model-gate.py, and a hook that runs it runs those bytes; update it: cp $(shq "$ROOT/$A14") $(shq "$D14")" "a trailing newline differs"
+# ... and said again LAST (D-232), the rerun named since an entry runs it;
+# (b) above, current, drew no ACTION NEEDED line (closing's control).
+echo "$o14" | tail -1 | grep -qxF "install: ACTION NEEDED: agent-model hook copy differs from this checkout's: rerun with --refresh-hooks, or: cp $(shq "$ROOT/$A14") $(shq "$D14")" ||
+	fail "QA-14c: the stale copy is not named in the last line:
+$o14"
 eval "${line##*update it: }"
 cmp -s "$A14" "$D14" || fail "QA-14c: the printed remedy did not make the copy current"
 # (d) Not wired: a matcher that does not select Agent, under the same command.
@@ -1105,6 +1124,204 @@ want_l "$got" "install: issue-author hook: not installed at $DI ($WHYI; to insta
 install: issue-author hook: entry in $WORK/s14i.json: matcher \"Bash|WebFetch|Monitor\" runs $DI (the copy above; MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Bash, WebFetch and Monitor call); $LOADS" "issue hook: wired, copy missing"
 [ ! -e "$DI" ] || fail "QA-14j: install.sh installed the hook copy under a wired entry"
 [ "$(ls -A "$H14/bin" | sort | tr '\n' ' ')" = "agent-model-gate.py buddy buddylist " ] || fail "QA-14j: install.sh put a file in the bin dir: $(ls -A "$H14/bin")"
+# QA-19 (D-232): --refresh-hooks, and the closing ACTION NEEDED lines. Under
+# a throwaway HOME like QA-14's, the issue-author hook (the widest matcher)
+# and its reader through each arm; every run leaves settings untouched, and
+# closing holds the done line and the records after it. (a) is the control
+# for (b): the same differing, wired copy, unflagged, is named with the
+# rerun and left as it was. Each refusal row's positive control is (b) or
+# the row beside it; the not-owned refusal has none (no fixture can own a
+# file as another user without root).
+H19="$WORK/home19" D19="$WORK/home19/bin/issue-author-gate.py" R19="$WORK/home19/bin/issue-read.py"
+mkdir -p "$H19/bin" "$WORK/py19ok" "$WORK/py19bad"
+CP19="cp $(shq "$ROOT/$AI") $(shq "$D19")" CPR19="cp $(shq "$ROOT/scripts/issue-read.py") $(shq "$R19")"
+FAIL19="install: FAILED — binaries installed; --refresh-hooks did not complete: issue-author hook copy unchanged"
+# r19 <settings> [--refresh-hooks [fails]] [VAR=value ...]: o19, got (the
+# issue hook's lines), extra19 (what the bin dir holds besides the binaries
+# and the two hook files and reader, temps and backups included). With
+# `fails`: exit 1, the FAILED line, then the counted block LAST.
+r19() {
+	s19=$1 f19=${2:-} x19=${3:-}
+	shift; [ $# = 0 ] || shift; [ "$x19" != fails ] || shift
+	[ ! -f "$s19" ] || cp "$s19" "$WORK/s19.orig"
+	o19=$(I9ARGS=$f19 inst9 "$s19" HOME="$H19" BUDDY_BIN_DIR="$H19/bin" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs14" "$@" 2>&1) && rc19=0 || rc19=$?
+	if [ "$x19" = fails ]; then
+		[ "$rc19" = 1 ] || fail "QA-19: a refused or failed refresh exited $rc19, want 1:
+$o19"
+		n19=$(printf '%s\n' "$o19" | grep -c '^install: ACTION NEEDED: ' || true)
+		echo "$o19" | grep -qxF "$FAIL19" &&
+			[ "$(printf '%s\n' "$o19" | tail -n "$((n19 + 1))" | head -1)" = "install: FAILED (above), and ACTION NEEDED ($n19 below)" ] &&
+			[ "$(printf '%s\n' "$o19" | tail -n "$n19" | grep -c '^install: ACTION NEEDED: ')" = "$n19" ] ||
+			fail "QA-19: not the FAILED line, then a block counting the ACTION NEEDED lines, last:
+$o19"
+	else
+		[ "$rc19" = 0 ] || fail "QA-19: install failed over $s19 $f19:
+$o19"
+		closing "$o19" QA-19
+	fi
+	[ ! -f "$s19" ] || cmp -s "$s19" "$WORK/s19.orig" || fail "QA-19: the settings file was touched"
+	got=$(echo "$o19" | grep '^install: issue-author hook: ' || true)
+	extra19=$(ls -A "$H19/bin" | grep -v -x -e buddy -e buddylist -e issue-author-gate.py -e issue-read.py -e agent-model-gate.py | sort | tr '\n' ' ')
+}
+has19() { echo "$o19" | grep -qxF "$1" || fail "QA-19: $2:
+want: $1
+got:
+$o19"; }
+no19() { echo "$o19" | grep -qF "$1" && fail "QA-19: $2:
+$o19"; return 0; }
+wire14 "$WORK/s19.json" '"Bash|WebFetch|Monitor"' "$CMDI"
+cp "$AI" "$D19"; printf '\n' >> "$D19"; chmod 640 "$D19"; cp "$D19" "$WORK/d19.old"
+# (a) unflagged: DIFFERS, no refresh line, and the ACTION NEEDED line last,
+# naming the rerun; the copy unchanged.
+r19 "$WORK/s19.json"
+has19 "install: ACTION NEEDED: issue-author hook copy differs from this checkout's: rerun with --refresh-hooks, or: $CP19" "(a) unflagged: the differing copy named last"
+no19 "refresh:" "(a) unflagged: a refresh line"
+cmp -s "$D19" "$WORK/d19.old" || fail "QA-19a: an unflagged install changed the copy"
+# (b) flagged: refreshed under the wired entry's interpreter and flags, the
+# copy now this checkout's bytes with its old mode, the old bytes kept in ONE
+# backup beside it, no temp left, the copy's line current, and no ACTION
+# NEEDED line. The agent-model hook, never installed, is skipped as missing.
+r19 "$WORK/s19.json" --refresh-hooks
+bak19=$(ls -A "$H19/bin" | grep '^issue-author-gate[.]py[.]before-refresh[.]' || true)
+[ "$extra19" = "$bak19 " ] && [ -n "$bak19" ] || fail "QA-19b: want one backup beside the copy and nothing else, got: $extra19"
+cmp -s "$H19/bin/$bak19" "$WORK/d19.old" || fail "QA-19b: the backup is not the old bytes"
+has19 "install: issue-author hook: refresh: refreshed $D19 (its --self-test passed under python3 -I; the old bytes are at $H19/bin/$bak19)" "(b) refreshed"
+has19 "install: issue-author hook: $D19 is current (byte-identical to this checkout's scripts/hooks/issue-author-gate.py)" "(b) the copy's line after the refresh"
+has19 "install: agent-model hook: refresh: skipped (missing: a refresh never installs a copy; installing one is the operator's opt-in)" "(b) a missing copy is skipped"
+no19 "ACTION NEEDED" "(b) an ACTION NEEDED line after a refresh"
+cmp -s "$AI" "$D19" || fail "QA-19b: the copy is not this checkout's bytes"
+[ "$(python3 -I -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$D19")" = 0o640 ] || fail "QA-19b: the copy's mode was not kept"
+rm -f "$H19/bin/$bak19"
+# (c) again: current, and no backup made.
+r19 "$WORK/s19.json" --refresh-hooks
+has19 "install: issue-author hook: refresh: current" "(c) a current copy"
+[ -z "$extra19" ] || fail "QA-19c: a current copy drew a file beside it: $extra19"
+# (d) not wired (settings wire only the agent-model hook): skipped, exit 0,
+# unchanged, named last with no rerun (a refresh would skip it again).
+cp "$WORK/d19.old" "$D19"
+r19 "$WORK/s14wired.json" --refresh-hooks
+has19 "install: issue-author hook: refresh: skipped (not wired: no PreToolUse entry this report reads as wired runs $D19; a refresh replaces only a copy settings runs)" "(d) not wired"
+has19 "install: ACTION NEEDED: issue-author hook copy differs from this checkout's: $CP19" "(d) not wired, named last"
+cmp -s "$D19" "$WORK/d19.old" || fail "QA-19d: an unwired copy was refreshed"
+# ... nor under a custom entry the report does not verify (a trailing `; exit 0`),
+wire14 "$WORK/s19c.json" '"Bash"' '"python3 -I \"$HOME/bin/issue-author-gate.py\"; exit 0"'
+r19 "$WORK/s19c.json" --refresh-hooks
+has19 "install: issue-author hook: refresh: skipped (not wired: no PreToolUse entry this report reads as wired runs $D19; a refresh replaces only a copy settings runs)" "(d) a custom entry"
+cmp -s "$D19" "$WORK/d19.old" || fail "QA-19d: a copy under a custom entry was refreshed"
+# ... nor when the wired entry runs a HARD LINK to the copy elsewhere: the
+# rename would replace only the bin dir's entry (Codex code pass).
+mkdir -p "$WORK/hl19"; ln "$D19" "$WORK/hl19/issue-author-gate.py"
+wire14 "$WORK/s19h.json" '"Bash|WebFetch|Monitor"' "\"python3 -I $WORK/hl19/issue-author-gate.py\""
+r19 "$WORK/s19h.json" --refresh-hooks
+has19 "install: issue-author hook: refresh: skipped (not wired: no PreToolUse entry this report reads as wired runs $D19; a refresh replaces only a copy settings runs)" "(d) a hard link elsewhere is not the copy"
+cmp -s "$D19" "$WORK/d19.old" || fail "QA-19d: a hard-linked copy was refreshed"
+rm -f "$WORK/hl19/issue-author-gate.py"
+# ... and settings it cannot read: REFUSED, exit 1 (which copy runs is unknown).
+printf '{"hooks": \n' > "$WORK/s19u.json"
+r19 "$WORK/s19u.json" --refresh-hooks fails
+echo "$got" | grep -qF "refresh: REFUSED (wiring not checked:" || fail "QA-19d: unreadable wiring was not refused:
+$o19"
+cmp -s "$D19" "$WORK/d19.old" || fail "QA-19d: a copy under unreadable wiring was refreshed"
+# (e) the self-test runs under the wired entry's interpreter AND flags, on
+# the NEW bytes beside the copy. One that fails it: FAILED, last line named,
+# the copy unchanged, nothing beside it, exit 1. Its control, an interpreter
+# that runs python3 with the entry's -I -E, refreshes, and recorded the
+# flags and the temp's path, not the copy's.
+printf '#!/bin/sh\necho "py19: $*" >&2\necho "self-test: FAIL boom" >&2\nexit 1\n' > "$WORK/py19bad/python3"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/py19.argv"\nexec python3 "$@"\n' "$WORK" > "$WORK/py19ok/python3"
+chmod 755 "$WORK/py19bad/python3" "$WORK/py19ok/python3"
+wire14 "$WORK/s19e.json" '"Bash|WebFetch|Monitor"' "\"$WORK/py19bad/python3 -I \\\"\$HOME/bin/issue-author-gate.py\\\"\""
+r19 "$WORK/s19e.json" --refresh-hooks fails
+has19 "install: issue-author hook: refresh: FAILED (this checkout's bytes exited 1 on --self-test under $WORK/py19bad/python3 -I, last line: self-test: FAIL boom); the copy is unchanged" "(e) a failing self-test"
+has19 "install: ACTION NEEDED: issue-author hook copy differs from this checkout's, and its refresh FAILED (above); sessions still run those bytes" "(e) named last"
+cmp -s "$D19" "$WORK/d19.old" || fail "QA-19e: a failed self-test replaced the copy"
+[ -z "$extra19" ] || fail "QA-19e: a temp or backup was left: $extra19"
+wire14 "$WORK/s19e.json" '"Bash|WebFetch|Monitor"' "\"$WORK/py19ok/python3 -I -E \\\"\$HOME/bin/issue-author-gate.py\\\"\""
+r19 "$WORK/s19e.json" --refresh-hooks
+echo "$got" | grep -qF "refresh: refreshed $D19 (its --self-test passed under $WORK/py19ok/python3 -I -E;" || fail "QA-19e: control, a passing interpreter:
+$o19"
+grep -F -- "-I -E $H19/bin/.issue-author-gate.py.refresh." "$WORK/py19.argv" | grep -q -- ' --self-test$' ||
+	fail "QA-19e: the self-test did not run with the entry's flags on the temp beside the copy: $(cat "$WORK/py19.argv")"
+cmp -s "$AI" "$D19" || fail "QA-19e: the control did not refresh"
+rm -f "$H19/bin"/issue-author-gate.py.before-refresh.*
+# (f) a symlink to differing bytes: REFUSED, exit 1, the link and what it
+# names untouched, the link's remedy named. (g) a directory: REFUSED, exit 1.
+# (h) wired and MISSING: skipped (never installed), exit 0, named as blocking.
+rm -f "$D19"; cp "$WORK/d19.old" "$WORK/d19.target"; ln -s "$WORK/d19.target" "$D19"
+r19 "$WORK/s19.json" --refresh-hooks fails
+has19 "install: issue-author hook: refresh: REFUSED ($D19 is a symlink: a refresh replaces only a regular file, never a link or what it names)" "(f) a symlink"
+has19 "install: ACTION NEEDED: issue-author hook copy differs from this checkout's: rm $(shq "$D19") && $CP19" "(f) named last"
+[ -L "$D19" ] && cmp -s "$WORK/d19.target" "$WORK/d19.old" || fail "QA-19f: the link or its target was changed"
+# ... while a link to this checkout's own bytes is current, exit 0 (the
+# compare comes before the symlink rule).
+rm -f "$D19"; ln -s "$ROOT/$AI" "$D19"
+r19 "$WORK/s19.json" --refresh-hooks
+has19 "install: issue-author hook: refresh: current" "(f) a link to the checkout's script is current"
+rm -f "$D19"; mkdir "$D19"
+r19 "$WORK/s19.json" --refresh-hooks fails
+has19 "install: issue-author hook: refresh: REFUSED ($D19 is not a regular file)" "(g) a directory"
+has19 "install: ACTION NEEDED: issue-author hook copy is not a regular file: move it aside, then: $CP19" "(g) named last"
+rmdir "$D19"
+r19 "$WORK/s19.json" --refresh-hooks
+has19 "install: issue-author hook: refresh: skipped (missing: a refresh never installs a copy; installing one is the operator's opt-in)" "(h) missing"
+has19 "install: ACTION NEEDED: issue-author hook copy is MISSING and wired, so every call its matcher selects is BLOCKED: $CP19 && $CPR19" "(h) wired and missing, named last"
+[ ! -e "$D19" ] || fail "QA-19h: a refresh installed a missing copy"
+# ... and missing, not wired, is no action (the never-opted-in state).
+r19 "$WORK/s14absent.json" --refresh-hooks
+no19 "ACTION NEEDED" "(h) missing and not wired"
+# (r) the reader beside the hook (the Fable read): reported when present;
+# unflagged, a differing one is named last with the rerun; flagged, with the
+# hook's copy wired, refreshed by the same rules (self-test, backup); with
+# the hook not wired, skipped, exit 0.
+cp "$AI" "$D19"; cp scripts/issue-read.py "$R19"; printf '\n' >> "$R19"; cp "$R19" "$WORK/r19.old"
+r19 "$WORK/s19.json"
+has19 "install: issue-author hook: reader $R19 DIFFERS from this checkout's scripts/issue-read.py, and a hook that runs it runs those bytes; update it: $CPR19" "(r) the reader's line"
+has19 "install: ACTION NEEDED: issue-author hook reader differs from this checkout's: rerun with --refresh-hooks, or: $CPR19" "(r) the reader named last"
+r19 "$WORK/s14wired.json" --refresh-hooks
+has19 "install: issue-author hook: refresh: skipped (the hook's copy is not wired, so its reader is left as it is)" "(r) the hook not wired"
+cmp -s "$R19" "$WORK/r19.old" || fail "QA-19r: the reader of an unwired hook was refreshed"
+r19 "$WORK/s19.json" --refresh-hooks
+echo "$got" | grep -qF "refresh: refreshed $R19 (its --self-test passed under python3 -I;" || fail "QA-19r: the reader was not refreshed:
+$o19"
+cmp -s scripts/issue-read.py "$R19" || fail "QA-19r: the reader is not this checkout's bytes"
+has19 "install: issue-author hook: reader $R19 is current (byte-identical to this checkout's scripts/issue-read.py)" "(r) the reader's line after"
+rm -f "$H19/bin"/issue-read.py.before-refresh.* "$R19"
+# (i) two differing copies: two records, the count in the done line.
+cp "$WORK/d19.old" "$D19"; printf 'old\n' > "$H19/bin/agent-model-gate.py"
+r19 "$WORK/s19.json"
+has19 "install: done, but ACTION NEEDED (2 below)" "(i) two differing copies"
+rm -f "$H19/bin/agent-model-gate.py"
+# (j) a bin dir whose name holds a line break: ONE record, counted once, with
+# no command to paste (it would print a second, forged line; Codex code pass).
+NL19="$WORK/nl19
+x/bin"
+mkdir -p "$NL19"; cp "$WORK/d19.old" "$NL19/issue-author-gate.py"
+o19=$(inst9 "$WORK/s14absent.json" HOME="$H19" BUDDY_BIN_DIR="$NL19" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs14" 2>&1) ||
+	fail "QA-19j: install failed:
+$o19"
+[ "$(printf '%s\n' "$o19" | tail -n 2)" = "install: done, but ACTION NEEDED (1 below)
+install: ACTION NEEDED: issue-author hook copy or reader differs from this checkout's, and its path holds a control character, so no command is printed to paste: copy it by hand" ] ||
+	fail "QA-19j: a line break in the path forged or miscounted the closing lines:
+$o19"
+# (k) a bin dir whose name ENDS in a line break, run through a link to it,
+# beside a read-only directory spelled without the break: the temp goes in
+# the copy's own directory ($(dirname) dropped the break and sent it to the
+# other one; Codex code pass), and the copy is refreshed.
+mkdir -p "$WORK/k19/t" "$WORK/k19/t
+"
+K19="$WORK/k19/t
+"
+chmod 555 "$WORK/k19/t"
+ln -s "$K19" "$WORK/k19/link"
+cp "$WORK/d19.old" "$K19/issue-author-gate.py"
+wire14 "$WORK/s19k.json" '"Bash|WebFetch|Monitor"' "\"python3 -I $WORK/k19/link/issue-author-gate.py\""
+o19=$(I9ARGS=--refresh-hooks inst9 "$WORK/s19k.json" HOME="$H19" BUDDY_BIN_DIR="$K19" PATH="$WORK/fakego:$PATH" FAKE_STUBS="$WORK/stubs14" 2>&1) ||
+	fail "QA-19k: install failed:
+$o19"
+cmp -s "$AI" "$K19/issue-author-gate.py" && [ -z "$(ls -A "$WORK/k19/t")" ] ||
+	fail "QA-19k: the copy in a directory ending in a line break was not refreshed beside itself:
+$o19"
+chmod 755 "$WORK/k19/t"
 # QA-15f (after QA-14, whose fake go and stubs it uses): an unstamped buddy
 # with no buddylist beside it (a claims-only install
 # from before D-124) is NOTED, never acted on; one with a buddylist beside it
@@ -1583,4 +1800,8 @@ echo "  wiring decoded: wired, matchers that miss Agent, regex, disableAllHooks,
 echo "  that blocks, settings absent/unparseable, no python; nothing installed, settings untouched, no __pycache__;"
 echo "  QA-16 --wire-hooks: the writer's refusals each with its control, the splice keeps every old byte, a 0600 backup,"
 echo "  idempotent; unflagged writes nothing, flagged adds exactly what the report named, a legacy gate untouched, claims-only"
-echo "  adds six and the browser pair, a stray argument, a preflight refusal and a bin dir not \$HOME/bin install nothing)"
+echo "  adds six and the browser pair, a stray argument, a preflight refusal and a bin dir not \$HOME/bin install nothing;"
+echo "  QA-19 --refresh-hooks: a differing wired copy refreshed (mode kept, one backup, no temp), current (a link to the checkout's too),"
+echo "  missing/unwired/custom/hard-linked skipped, unreadable wiring, symlink and directory refused, a failing self-test under the"
+echo "  wired interpreter and flags keeps the copy (each exit 1, FAILED then the block); the reader beside it; the ACTION NEEDED"
+echo "  records last, after a line counting them, none when nothing differs, one unforgeable record for a path with a line break)"

@@ -597,7 +597,9 @@ that checkout's `scripts/install.sh`; `buddy update --dry-run` reports and
 installs nothing. Its `chat` line is the posture the install keeps (D-124):
 a claims-only machine stays one unless a run says `BUDDY_CHAT=on`. An
 orchestrator runs it only where it already runs `install.sh` after a landing
-(D-110).
+(D-110). Relay its last lines, `install: ACTION NEEDED`, one per hook copy
+that differs. `buddy update --refresh-hooks` replaces a wired copy once its
+`--self-test` passes (D-232).
 
 `buddy uninstall` runs that checkout's `scripts/uninstall.sh`: the chat
 daemon booted out through launchd, the binaries, the skills, buddy last,
