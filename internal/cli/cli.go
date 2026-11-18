@@ -1928,13 +1928,16 @@ const EnvChat = "BUDDY_CHAT"
 
 // chatOff reports the chat posture hello obeys: EnvChat when it says off or
 // on, else this binary's stamp (D-127). Trimmed because a settings `env`
-// value pastes with a trailing space more easily than it is seen; folded by
-// store.Fold, never a second rule (invariant 13). "0" is not off: one
+// value pastes with a trailing space more easily than it is seen, of ASCII
+// whitespace only, as chatAsked and install.sh trim (TrimSpace also took
+// U+00A0, so `off`+NBSP was off here and refused by install.sh); folded by
+// chatWord (store.Fold for an ASCII value, never a second rule: invariant 13;
+// a non-ASCII value is neither, D-222). "0" is not off: one
 // spelling, so a value that is not it is loud in `env` rather than silently
 // honoured. Unstamped (a hand build, a test binary), the answer is the one
 // it was before the stamp: off only for off.
 func chatOff(env Env) bool {
-	switch store.Fold(strings.TrimSpace(env.getenv(EnvChat))) {
+	switch chatWord(strings.Trim(env.getenv(EnvChat), " \t\n\v\f\r")) {
 	case "off":
 		return true
 	case "on":

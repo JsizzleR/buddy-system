@@ -134,6 +134,10 @@ func (s *Store) scopeConflicts(q querier, sessionID string, norm []string, req c
 			rows.Close()
 			return nil, err
 		}
+		// The key is the spelling's, never the stored column's (D-222): that
+		// holds the pre-D-222 key, so a row the old binary wrote as `ſrc` would
+		// otherwise refuse no spelling at all, its own included.
+		h.folded = fold(h.scope)
 		theirs = append(theirs, h)
 	}
 	if err := rows.Err(); err != nil {
@@ -227,6 +231,7 @@ func (s *Store) endedOverlaps(q querier, sessionID, slug string, norm []string) 
 			rows.Close()
 			return nil, err
 		}
+		h.folded = fold(h.scope) // the spelling's key, as the scan above (D-222)
 		theirs = append(theirs, h)
 	}
 	if err := rows.Err(); err != nil {
@@ -466,15 +471,14 @@ func (s *Store) ReleaseScopesID(sessionID, incarnation, slug string, scopes []st
 		if err != nil {
 			return err
 		}
-		rows, err := tx.Query(`SELECT scope, folded FROM claim_scopes WHERE claim_id=? ORDER BY scope`, claimID)
+		rows, err := tx.Query(`SELECT scope FROM claim_scopes WHERE claim_id=? ORDER BY scope`, claimID)
 		if err != nil {
 			return err
 		}
-		type held struct{ scope, folded string }
-		var have []held
+		var have []string
 		for rows.Next() {
-			var h held
-			if err := rows.Scan(&h.scope, &h.folded); err != nil {
+			var h string
+			if err := rows.Scan(&h); err != nil {
 				rows.Close()
 				return err
 			}
@@ -483,35 +487,44 @@ func (s *Store) ReleaseScopesID(sessionID, incarnation, slug string, scopes []st
 		if err := rows.Err(); err != nil {
 			return err
 		}
+		// Which held rows a named scope releases. The row spelled exactly as
+		// named, when the claim holds one; else every row the fold calls the
+		// same. By the spelling, never the stored folded column (D-222). Exact
+		// first because one claim can hold two spellings the fold merges (`Foo`
+		// and `foo`, and since D-222 `strasse` and `straße`), which are two files
+		// on a case-sensitive volume: releasing one by name dropped both, and a
+		// peer could then take the file nobody released (panel lens c). Where
+		// they are one file, the row kept still covers it: the safe side.
 		drop := map[string]bool{}
 		for _, n := range norm {
-			nf := fold(n)
 			found := false
 			for _, h := range have {
-				if h.folded == nf {
-					found = true
-					break
+				if h == n {
+					drop[h], found = true, true
 				}
 			}
 			if !found {
-				e := ErrScopeNotHeld{Slug: slug, Scope: n}
+				nf := fold(n)
 				for _, h := range have {
-					e.Held = append(e.Held, h.scope)
+					if fold(h) == nf {
+						drop[h], found = true, true
+					}
 				}
-				return e
 			}
-			drop[nf] = true
+			if !found {
+				return ErrScopeNotHeld{Slug: slug, Scope: n, Held: have}
+			}
 		}
 		now := s.now().Unix()
 		remaining = remaining[:0]
 		for _, h := range have {
-			if drop[h.folded] {
-				if _, err := tx.Exec(`DELETE FROM claim_scopes WHERE claim_id=? AND folded=?`, claimID, h.folded); err != nil {
+			if drop[h] {
+				if _, err := tx.Exec(`DELETE FROM claim_scopes WHERE claim_id=? AND scope=?`, claimID, h); err != nil {
 					return err
 				}
 				continue
 			}
-			remaining = append(remaining, h.scope)
+			remaining = append(remaining, h)
 		}
 		if len(remaining) == 0 {
 			_, err = tx.Exec(`UPDATE claims SET state='released', renewed=? WHERE claim_id=?`, now, claimID)

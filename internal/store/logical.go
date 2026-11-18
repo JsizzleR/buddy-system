@@ -167,7 +167,8 @@ func renewCovering(tx *sql.Tx, sessionID, incarnation string, relPaths []string,
 	if len(rels) == 0 {
 		return 0, nil
 	}
-	rows, err := tx.Query(`SELECT c.claim_id, cs.folded FROM claims c JOIN claim_scopes cs ON cs.claim_id=c.claim_id
+	// The spelling, folded below, never the stored folded column (D-222).
+	rows, err := tx.Query(`SELECT c.claim_id, cs.scope FROM claims c JOIN claim_scopes cs ON cs.claim_id=c.claim_id
 		WHERE c.session_id=? AND c.incarnation=? AND c.state='open'`, sessionID, incarnation)
 	if err != nil {
 		return 0, err
@@ -179,6 +180,7 @@ func renewCovering(tx *sql.Tx, sessionID, incarnation string, relPaths []string,
 			rows.Close()
 			return 0, err
 		}
+		scope = fold(scope)
 		for _, rel := range rels {
 			if scopeCovers(scope, rel) {
 				renew[id] = true

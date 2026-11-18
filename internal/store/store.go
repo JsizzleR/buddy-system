@@ -21,7 +21,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 	_ "modernc.org/sqlite"
 )
@@ -872,9 +874,72 @@ func normalizeScope(scope string) (string, error) {
 	return strings.TrimSuffix(clean, "/"), nil
 }
 
-// fold canonicalizes for comparison: NFC (macOS stores NFD) then lower-case
-// (APFS default is case-insensitive).
-func fold(s string) string { return strings.ToLower(norm.NFC.String(s)) }
+// fold is THE folding rule (invariant 13, D-222): the key under which two
+// spellings name one file on the default case-insensitive APFS volume. Full
+// Unicode case folding over canonical decomposition, lower-cased, and left
+// decomposed: NFD(ToLower(Fold(NFD(s)))).
+//
+// The rule before it, ToLower(NFC(s)), keyed apart 111 spellings the volume
+// calls one file (measured: every assigned rune in all planes as a name, the
+// volume's own EEXIST and inode as the truth). `ſrc` (long s) passed the gate
+// beside a claim on `src`, `claim --scope ſrc` was granted beside it, and so
+// did `straße` beside `strasse`, final sigma, the fi/ff/st ligatures, the micro
+// sign, the Greek symbol forms (issue #122). It was also not idempotent: ToLower
+// then NFC composes h + U+0331 into U+1E96, and the gate folds a path twice
+// (placeCanonical, then OwnerOf), so a claim on `H̱` did not guard an edit of
+// the identical spelling.
+//
+// Each part is measured, not chosen:
+//   - cases.Fold, not ToLower: ß -> ss, ſ -> s, ﬁ -> fi are full case folding.
+//   - ToLower AFTER it: x/text's Fold toggles Cherokee (U+13A0 -> U+AB70 and
+//     U+AB70 -> U+13A0), so Fold alone is not idempotent.
+//   - NFD at the end, not NFC: x/text's composition truncates code points to 16
+//     bits (unicode/norm forminfo.go, combine), and under go1.27's tables
+//     ToLower(NFC(Fold(NFD(s)))) composed U+13C2 with U+113C8: not idempotent, so an
+//     identical spelling slipped the double fold (panel lens a). Decomposing
+//     never composes.
+//   - NFD first: Fold is defined on decomposed text (canonical caseless match).
+//     Fold turns U+0345 (a mark) into the letter iota, so folding first keys
+//     α+U+0345+U+0301 and its canonical reordering α+U+0301+U+0345 apart.
+//
+// It merged nothing the volume keeps apart in the probes (0 over-merges; I
+// vs U+0130, which the old rule merged through Go's ToLower, is now apart, as
+// on the volume). On a case-SENSITIVE volume or Linux it over-merges more than
+// the old rule did, the safe direction D-002 accepted for case. HFS+ still
+// differs on 53 code points it alone folds or ignores (D-222's residuals).
+//
+// The ASCII path is the same function (TestFoldASCIIPathIsTheUnicodePath):
+// for ASCII, NFD and Fold change nothing and Fold's ASCII is ToLower's. It is
+// there because the gate folds on every tool call: 26 ns against 240.
+func fold(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return foldUnicode(s)
+		}
+	}
+	return strings.ToLower(s)
+}
+
+// caseFold is safe to share: x/text documents Fold's Caser as stateless and
+// safe for concurrent use (unlike the other Casers).
+var caseFold = cases.Fold()
+
+func foldUnicode(s string) string {
+	return norm.NFD.String(strings.ToLower(caseFold.String(norm.NFD.String(s))))
+}
+
+// legacyFold is the rule before D-222. It is WRITTEN into the folded columns
+// of claim_scopes and authority, and no coverage test in this binary reads it:
+// every comparison folds the stored spelling (the scope or path column) with
+// fold (D-222, the operator's choice). Authority alone reads it, to delete a
+// row by its own key and to refuse a path the column's uniqueness cannot hold
+// (AuthorityAdd). A binary built before D-222 reads that column and folds its
+// input with this rule, so a row this binary writes behaves for it exactly as
+// one it wrote itself, gaps included: it misses the aliases above and the
+// double-fold spellings (H+U+0331), as it always did. Writing fold's key there
+// instead would have made such a binary miss even the same spelling of every
+// accented name, since fold's key is decomposed.
+func legacyFold(s string) string { return strings.ToLower(norm.NFC.String(s)) }
 
 // Fold canonicalizes a value for comparison under the ledger's own rule.
 //
@@ -1314,7 +1379,8 @@ func (s *Store) BeatFrom(sessionID, relPath string, proc ProcRef) error {
 			return nil
 		}
 		rel := fold(relPath)
-		rows, err := tx.Query(`SELECT c.claim_id, cs.folded FROM claims c JOIN claim_scopes cs ON cs.claim_id=c.claim_id
+		// The spelling, folded here, never the stored folded column (D-222).
+		rows, err := tx.Query(`SELECT c.claim_id, cs.scope FROM claims c JOIN claim_scopes cs ON cs.claim_id=c.claim_id
 			WHERE c.session_id=? AND c.state='open'`, sessionID)
 		if err != nil {
 			return err
@@ -1326,7 +1392,7 @@ func (s *Store) BeatFrom(sessionID, relPath string, proc ProcRef) error {
 				rows.Close()
 				return err
 			}
-			if scopeCovers(scope, rel) {
+			if scopeCovers(fold(scope), rel) {
 				renew[id] = true
 			}
 		}
@@ -1553,7 +1619,7 @@ func (s *Store) ClaimDeclared(sessionID, incarnation string, r ClaimRequest) (gr
 		// scopes, as ONE set (conflicts.go): the refusal names every collision
 		// and not just the first, and it is the same computation the dry run
 		// makes, so a forecast cannot disagree with the refusal it predicts.
-		// The comparison runs on the folded column; the refusal reports the
+		// The comparison runs on the folded spelling; the refusal reports the
 		// scope AS CLAIMED, because that is what `buddy ls` prints and what the
 		// peer typed — an operator told they overlap "src/api" went looking for
 		// a claim on "Src/API" and found no such line.
@@ -1643,7 +1709,7 @@ func openSlugOwner(q rowQuerier, slug string) (claimID, sessionID string, taken 
 func insertScopes(tx *sql.Tx, claimID string, scopes []string) error {
 	for _, sc := range scopes {
 		if _, err := tx.Exec(`INSERT INTO claim_scopes (claim_id, scope, folded) VALUES (?,?,?)`,
-			claimID, sc, fold(sc)); err != nil {
+			claimID, sc, legacyFold(sc)); err != nil {
 			return err
 		}
 	}
@@ -1976,7 +2042,11 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 // hangs conn.Close (measured, concurrency panel), and on the gate that is a hung
 // hook rather than a deny.
 func blockingClaim(q querier, rel, excludeSession string) (string, error) {
-	rows, err := q.Query(`SELECT cs.folded, cs.claim_id, c.session_id, c.shared, c.in_run, ` + runOpenSQL + `, c.based_on FROM claim_scopes cs
+	// cs.scope, folded below, never cs.folded: that column holds the key a
+	// binary before D-222 reads, and a row it wrote must still be judged by
+	// today's rule. Reading it here let `ſrc`, written by the old binary, guard
+	// no spelling at all (Codex design pass P1).
+	rows, err := q.Query(`SELECT cs.scope, cs.claim_id, c.session_id, c.shared, c.in_run, ` + runOpenSQL + `, c.based_on FROM claim_scopes cs
 		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open'`)
 	if err != nil {
 		return "", err
@@ -1997,6 +2067,7 @@ func blockingClaim(q querier, rel, excludeSession string) (string, error) {
 		if err := rows.Scan(&c.folded, &c.id, &owner, &c.marks.shared, &c.marks.inRun, &c.marks.runOpen, &c.marks.basedOn); err != nil {
 			return "", err
 		}
+		c.folded = fold(c.folded) // scanned as the spelling
 		if !scopeCovers(c.folded, rel) {
 			continue
 		}

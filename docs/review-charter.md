@@ -59,10 +59,10 @@ ledger row entered through the CLI (D-006).
 5. **Scopes are exact paths, repo-relative, slash-separated (D-002).** Containment is
    `scope == path || strings.HasPrefix(path, scope+"/")`. Glob scopes and arbitrary-glob
    overlap math were explicitly cut. Do not propose them.
-6. **One folding rule: `strings.ToLower(norm.NFC.String(s))` (D-002).** macOS aliases a
-   repo root several ways and its default volume is case-insensitive. Never
-   `strings.EqualFold`, never a second normalization. Accepted residual, already
-   documented: this over-merges on a case-SENSITIVE volume mounted under a repo.
+6. **One folding rule: `store.Fold`, NFD(ToLower(cases.Fold(NFD(s)))) (D-002, D-222):**
+   APFS's aliases as one key. Never `strings.EqualFold`, a second normalization,
+   NFC last, or a claim's `folded` column (the old key, for older binaries).
+   Residuals (D-222): over-merge on a case-SENSITIVE volume; Unicode 15 tables.
 7. **Every untrusted value is rendered on exactly ONE line via `fence.Line(s, max)`.**
    Descriptions, slugs, labels, scopes, paths and chat text are
    attacker-influenced; a newline could fabricate rows in a listing. Caps:

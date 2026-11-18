@@ -60,7 +60,7 @@ import (
 
 // alwaysWatched names the instruction files independent of the configured
 // list. Adding a built-in spends none of its eight slots; older ledgers may
-// already contain one, so every comparison still uses the shared case/NFC fold.
+// already contain one, so every comparison still uses the one fold (store.Fold).
 var alwaysWatched = [...]string{"CLAUDE.md", "AGENTS.md"}
 
 // alwaysWatchedPath returns the canonical spelling, or empty for an extension.

@@ -41,29 +41,90 @@ func (s *Store) AuthorityPaths() ([]string, error) {
 
 // AuthorityAdd puts a normalized repo-relative path on the list. Idempotent
 // on the folded path; refused past MaxAuthority, naming the bound.
+//
+// Both tests fold the stored SPELLING, never the folded column (D-222): that
+// column holds the key a binary before D-222 reads, so a row it wrote (or one
+// this binary writes) under one spelling is the same entry as every spelling
+// the fold calls the same. Keyed by the column, `rm` of a row written as
+// `ſtyle.md` answered "not on the list" under every spelling and the row held
+// one of the eight slots for good (D-100's class), and `add` listed a second
+// row for the same file (panel lens c, Codex design pass P2).
 func (s *Store) AuthorityAdd(path string) error {
 	return s.tx(func(tx *sql.Tx) error {
-		var n int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM authority WHERE folded<>?`, fold(path)).Scan(&n); err != nil {
+		listed, err := authorityRows(tx)
+		if err != nil {
 			return err
 		}
-		if n >= MaxAuthority {
+		pf, legacy, others := fold(path), legacyFold(path), 0
+		var collides string
+		for _, r := range listed {
+			if fold(r.path) == pf {
+				return nil
+			}
+			if r.folded == legacy {
+				collides = r.path
+			}
+			others++
+		}
+		if others >= MaxAuthority {
 			return fmt.Errorf("the watch list holds %d paths and every one is a stat on every tool call; remove one first", MaxAuthority)
 		}
-		_, err := tx.Exec(`INSERT INTO authority (path, folded, added) VALUES (?,?,?)
-			ON CONFLICT(folded) DO NOTHING`, path, fold(path), s.now().Unix())
+		// The column's own uniqueness is on the old key: a path whose old key
+		// equals a listed one's while the fold tells them apart (U+0130 against
+		// i) cannot be stored. Refused, naming the entry, where the insert's
+		// DO NOTHING printed "watching" and stored nothing (Fable cross-check).
+		if collides != "" {
+			return fmt.Errorf("%s cannot be listed beside %s: they share the key an older buddy reads (D-222); remove %s first", path, collides, collides)
+		}
+		_, err = tx.Exec(`INSERT INTO authority (path, folded, added) VALUES (?,?,?)
+			ON CONFLICT(folded) DO NOTHING`, path, legacy, s.now().Unix())
 		return err
 	})
 }
 
 // AuthorityRemove takes a path off the list; false when it was not there.
+// Every row whose spelling folds to the path's is removed, by its own stored
+// key (D-222; see AuthorityAdd).
 func (s *Store) AuthorityRemove(path string) (bool, error) {
-	res, err := s.db.Exec(`DELETE FROM authority WHERE folded=?`, fold(path))
+	removed := false
+	err := s.tx(func(tx *sql.Tx) error {
+		listed, err := authorityRows(tx)
+		if err != nil {
+			return err
+		}
+		pf := fold(path)
+		for _, r := range listed {
+			if fold(r.path) != pf {
+				continue
+			}
+			if _, err := tx.Exec(`DELETE FROM authority WHERE folded=?`, r.folded); err != nil {
+				return err
+			}
+			removed = true
+		}
+		return nil
+	})
+	return removed && err == nil, err
+}
+
+type authorityRow struct{ path, folded string }
+
+// authorityRows reads the whole list: at most MaxAuthority rows.
+func authorityRows(tx *sql.Tx) ([]authorityRow, error) {
+	rows, err := tx.Query(`SELECT path, folded FROM authority`)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	defer rows.Close()
+	var out []authorityRow
+	for rows.Next() {
+		var r authorityRow
+		if err := rows.Scan(&r.path, &r.folded); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // AuthorityLast is the key of the newest authority_warned row for this

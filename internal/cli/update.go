@@ -67,6 +67,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/store"
@@ -173,13 +174,27 @@ func chatOf(ldflags string) string {
 }
 
 // chatAsked is this run's BUDDY_CHAT as install.sh reads it: ASCII
-// whitespace trimmed (sed's [[:space:]] under LC_ALL=C), then the repo's one
-// fold (invariant 13). The fold maps nothing outside ASCII onto o, n or f, so
-// a value on one line is off or on here exactly when it is for install.sh
-// (sed trims each line, so "\noff" is off here and refused there: the
-// divergence falls to a refusal, which installs nothing). "" is unset.
+// whitespace trimmed (sed's [[:space:]] under LC_ALL=C), then chatWord. A
+// value on one line is off or on here exactly when it is for install.sh (sed
+// trims each line, so "\noff" is off here and refused there: the divergence
+// falls to a refusal, which installs nothing). "" is unset.
 func chatAsked(env Env) string {
-	return store.Fold(strings.Trim(env.getenv(EnvChat), " \t\n\v\f\r"))
+	return chatWord(strings.Trim(env.getenv(EnvChat), " \t\n\v\f\r"))
+}
+
+// chatWord folds a BUDDY_CHAT value by the repo's one rule (invariant 13), but
+// only when it is ASCII: anything else comes back as given, which is never
+// off, on or "", so every reader calls it bad. A posture is a word install.sh
+// reads with tr's ASCII fold, not a path; under the full case fold (D-222)
+// `oﬀ` (o + U+FB00) folds to off, so hello would have turned chat off and
+// update forecast off for a value install.sh refuses (panel lens b).
+func chatWord(v string) string {
+	for i := 0; i < len(v); i++ {
+		if v[i] >= utf8.RuneSelf {
+			return v
+		}
+	}
+	return store.Fold(v)
 }
 
 // chatPosture is install.sh's choice, forecast: this run's off or on, else the

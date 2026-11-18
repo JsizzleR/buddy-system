@@ -224,8 +224,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
     the incarnation token captured at `lifecycle begin`, checked in the same
     transaction as its effect, and nothing looks up the current token to repair
     a late event (D-069).
-13. **One folding rule: `strings.ToLower(norm.NFC.String(s))`.** Never
-    `strings.EqualFold`, never a second normalization.
+13. **One folding rule: `store.Fold`.** Never `strings.EqualFold`, a second
+    normalization or a `folded` column.
 14. **Scope containment is exactly** `scope == path || strings.HasPrefix(path,
     scope+"/")`.
 
@@ -375,7 +375,7 @@ if a session must obey it unread, dropping any clause it supersedes; only a new
 subject gets a new line. Every number stays on some line (D-165).
 
 - **Ledger** (D-001, D-004, D-037, D-136): never migrate down; an existing ledger is migrated only by `$HOME/bin/buddy` or under `BUDDY_MIGRATE=1`, after a verified backup.
-- **Scopes** (D-002, D-066, D-100): a scope list is repeated `--scope`; `claim` refuses a comma; an absolute scope is refused, backslashes folded to `/` first (`\etc`).
+- **Scopes** (D-002, D-066, D-100, D-222): a scope list is repeated `--scope`; `claim` refuses a comma; an absolute scope is refused, backslashes folded to `/` first (`\etc`).
 - **Claims** (D-019, D-022, D-042, D-088, D-090, D-133, D-211): never claim over a conflicting holder; a stale claim refuses like a fresh one; `--shared` overlaps only shared claims, and a claim parked in an open run only an exclusive declarer of that run (`--based-on`); you still need your own covering claim; a holder's refusal exits 4.
 - **Handing on, slots** (D-035, D-063, D-093, D-133, D-134): `release <slug> --to <target>` hands a claim on with its waits; a slot is a claim on `.buddy/slot/<name>`, capacity 1, never parked or yielding; `release --to` refuses `.buddy/slot/browser`, whose holder stays open until it releases.
 - **Coordination state** (D-030, D-101): a claim, not a message; the coordination claim is `orc-<project>`, `<project>` the main checkout's directory name.

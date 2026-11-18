@@ -164,11 +164,13 @@ import (
 // another run's rider; the panel). `--based-on R` still exits 1. A re-claim restoring the slot keeps the claim id, so it reads open
 // again, as a re-park into the same open run does (#63). Refusing the narrowing was
 // rejected: it reaches no row already standing. buddy_fold is fold, registered below,
-// because SQLite's lower() folds ASCII only and the test must be holdsRunSlot's.
+// because SQLite's lower() folds ASCII only and the test must be holdsRunSlot's. It
+// folds rslot.scope, the spelling, never rslot.folded, which holds the key a binary
+// before D-222 reads (D-222).
 const runOpenSQL = `EXISTS (SELECT 1 FROM claims r JOIN sessions rs ON rs.session_id=r.session_id
 	WHERE r.claim_id=c.in_run AND r.state='open' AND rs.ended IS NULL
 	AND EXISTS (SELECT 1 FROM claim_scopes rslot WHERE rslot.claim_id=r.claim_id
-		AND rslot.folded=buddy_fold('` + SlotPrefix + `/' || r.slug)))`
+		AND buddy_fold(rslot.scope)=buddy_fold('` + SlotPrefix + `/' || r.slug)))`
 
 // The driver installs a registered function on every connection opened after it,
 // so this runs at package init, before any Open. Pure and deterministic; nothing
@@ -389,7 +391,8 @@ func (e ErrNotARun) Error() string {
 // rider's yield would end whenever a stranger's unrelated claim did.
 func holdsRunSlot(q rowQuerier, claimID, slug string) (bool, error) {
 	var n int
-	err := q.QueryRow(`SELECT COUNT(*) FROM claim_scopes WHERE claim_id=? AND folded=?`,
+	// The spelling, folded, never the stored folded column (D-222).
+	err := q.QueryRow(`SELECT COUNT(*) FROM claim_scopes WHERE claim_id=? AND buddy_fold(scope)=?`,
 		claimID, fold(SlotPrefix+"/"+slug)).Scan(&n)
 	return n > 0, err
 }
