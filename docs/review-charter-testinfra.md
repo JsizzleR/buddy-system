@@ -4,18 +4,18 @@ The GIVENs only the test watchdog rests on, appended by `scripts/codex-review.sh
 diff with no path in the test-infrastructure area. The main charter's one-line
 stub of each binds as written; this is the full text (D-158).
 
-55. **A test binary that outlives its `go test` is ended from outside (D-053, #43).**
-    `internal/testguard.Arm()` opens `internal/cli`'s TestMain: an in-process `Getppid` poll
-    exits a healthy orphan with 3 in about a second; a watchdog process (the same binary
+55. **A test binary that outlives its `go test` is ended from outside (D-053, D-220, #43).**
+    `testguard.Arm()` opens every TestMain bar 2 exempt (`check-testguard.sh`): an in-process `Getppid` poll
+    exits a healthy orphan with 3 in ~1 s; a watchdog process (the same binary
     re-exec'd, pipe EOF for the target's exit, pid + kernel start time for identity) ends one
     still orphaned three polls later, or at twice `-test.timeout`, with a symbolized `sample`
-    to `$TMPDIR`, SIGQUIT, then SIGKILL, and reports on stderr LAST (it may be the dead pipe).
+    to `$TMPDIR`, SIGQUIT, SIGKILL, and reports on stderr LAST (it may be the dead pipe).
     MEASURED: the timeout panic exits fine on a dead stderr; a stop-the-world waiting on an
     unpreemptible goroutine reproduces #43 and runs no Go code at all (so no in-process wall
     can fire); Go drops SIGXCPU and darwin sent no SIGKILL at the hard RLIMIT_CPU; `go test`
     binaries have no symbol table. Do not propose RLIMIT_CPU, an in-process AfterFunc wall,
-    or `SetTraceback("crash")` (it would SIGABRT every panicking test). #43's cause is
-    unknown; the watchdog's sample will name it.
+    or `SetTraceback("crash")` (SIGABRT on every panicking test). #43's cause is
+    unknown; its sample will name it.
 
 63. **A `-race` forkExec can leave its child stuck before exec, and the watchdog ends it (D-061,
     #53).** MEASURED: the child spins in ThreadSanitizer's slot lock, held by a parent thread

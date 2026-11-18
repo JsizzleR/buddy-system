@@ -22,6 +22,10 @@ import (
 const buildBound = 3 * time.Minute
 
 func TestMain(m *testing.M) {
+	// First, before anything can wedge or be orphaned: this package's tests
+	// start child processes, and an orphaned or wedged test binary of theirs
+	// had no bound until #130 (D-053). In the watchdog process it never returns.
+	testguard.Arm()
 	testguard.ScrubGitEnv()
 	os.Exit(m.Run())
 }

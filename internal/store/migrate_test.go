@@ -20,6 +20,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/testguard"
 )
 
 // migrate is the TESTS' unguarded migration: the schema transaction with no
@@ -28,10 +30,14 @@ import (
 // caller can reach the unguarded shape (the design pass).
 func migrate(db *sql.DB) error { return migrateTx(db, nil) }
 
-// TestMain grants the permit for the package: most store tests Open
-// downgraded fixtures and expect them migrated. The guard's own tests below
-// set it per test (setPermit) and clear BUDDY_MIGRATE.
+// TestMain arms the watchdog, then grants the permit for the package: most
+// store tests Open downgraded fixtures and expect them migrated. The guard's
+// own tests below set it per test (setPermit) and clear BUDDY_MIGRATE.
 func TestMain(m *testing.M) {
+	// First: a store test starts no child, but its binary is orphaned by a
+	// dead `go test` like any other, and can wedge (#130, D-053). In the
+	// watchdog process Arm never returns.
+	testguard.Arm()
 	migrationPermit = func() (bool, string) { return true, "" }
 	os.Exit(m.Run())
 }

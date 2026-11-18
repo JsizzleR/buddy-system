@@ -472,7 +472,7 @@ ledger row entered through the CLI (D-006).
     `scripts/startup-report.sh` measures it, counts only. Do not propose a SessionStart line, auto-install, `claude plugin list`, a committed code map, or
     counting untracked files.
 
-55. **A test binary that outlives its `go test` is ended from outside (D-053, #43): `testguard.Arm()` opens `internal/cli`'s TestMain; a ppid poll exits an orphan with 3, and a re-exec'd watchdog samples, SIGQUITs and SIGKILLs one still orphaned.** Do not propose: RLIMIT_CPU, an in-process AfterFunc wall, or `SetTraceback("crash")`. (full text: part `testinfra`)
+55. **A test binary that outlives its `go test` is ended from outside (D-053, D-220, #43): `testguard.Arm()` opens every TestMain bar 2 exempt; a ppid poll exits an orphan (3); a re-exec'd watchdog samples, SIGQUITs, SIGKILLs one still orphaned.** Do not propose: RLIMIT_CPU, an in-process AfterFunc wall, or `SetTraceback("crash")`. (full text: part `testinfra`)
 
 56. **A park with no claim to name keeps warm on a TIMER wait, and is told so before it parks
     (D-054, #44, #45).** MEASURED: wakes past an hour mostly come back cold, and the costly parks
