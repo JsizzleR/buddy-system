@@ -187,7 +187,11 @@ ledger above it, from every cwd: its claims and its brake apply to a file tool,
 a patch and a `cd` into it, and a session whose cwd is inside it takes that
 ledger as its home, so its refusal names that repository's root, where its
 claims are made (D-212). A nested repository WITH its own ledger is governed by
-that ledger alone, except from the enclosing repository's own cwd (#145).
+it and by every distinct ledger above it, claims and brake, from every cwd
+(D-226). A registered linked worktree of a repository, inside that repository
+(Claude Code's `.claude/worktrees/<lane>`), is placed against its own root only;
+a copy of one, a hand-written `gitdir:` or a `.git` link to the repository's
+own is placed against both roots (D-226 names one cwd where it is not).
 
 **Shell-routed patches are refused, not checked.** Codex also applies
 `apply_patch <<'EOF' … EOF`, `applypatch`, and `cd <dir> && apply_patch …` from
@@ -938,9 +942,9 @@ repository, a file tool's write into it from anywhere, and a shell command
 that changes into it LITERALLY (`cd <repo>`, `pushd`, `git -C <repo>`, `env
 -C`, `sudo -D`) from anywhere, also inside a quoted operand (`su -c '...'`,
 `watch '...'`), which is why `logger 'cd <repo>'` from a paused session is
-denied too (D-138). "Inside the repository" includes a nested repository with
-no ledger of its own (a vendored clone, a submodule): the first ledger above it
-governs it (D-212). Not stopped, because the gate cannot
+denied too (D-138). "Inside the repository" includes a nested repository, with
+a ledger of its own or none (a vendored clone, a submodule): every ledger above
+it applies (D-212, D-226). Not stopped, because the gate cannot
 place them: a command from outside the repository that reaches it through a
 variable (`cd "$d"`), a command substitution, a script or Makefile that
 changes directory, or a write by absolute path with no `cd` (`echo x >

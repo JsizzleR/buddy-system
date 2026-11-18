@@ -3607,18 +3607,16 @@ func cmdGate(args []string, env Env) int {
 	// Reuse target-repo discovery for a multi-file patch. Distinct files in
 	// one foreign worktree must not each fork git and reopen its ledger.
 	targetRepos := &gateCache{m: make(map[string]gateRepo)}
-	defer func() {
-		for _, repo := range targetRepos.m {
-			if repo.st != nil {
-				repo.st.Close()
-			}
-		}
-	}()
+	defer targetRepos.closeAll()
 	if st != nil && rc.top != "" {
 		// The walk from a nested target stops at the home's own .git entry,
 		// whose claims and brake the home arms adjudicate: compared by
 		// os.SameFile, never by folded key, which on a case-SENSITIVE volume
 		// matches /x/repo/.git to a home at /x/Repo (Fable panel lens).
+		// That entry need not be the home ledger's own repository (a home
+		// whose core.worktree names another governed root, S's ledger with
+		// top R): cmdGate then walks the home's ancestors from the root as
+		// well, so R is read there, never assumed (#145 Codex code pass P1).
 		if fi, err := os.Stat(filepath.Join(rc.top, ".git")); err == nil {
 			targetRepos.home = fi
 		}
@@ -3701,6 +3699,41 @@ func cmdGate(args []string, env Env) int {
 		if shellPatch {
 			deny(env, shellPatchReason(h, route))
 			return 0
+		}
+		// Every distinct governed ledger above the home applies too (#145,
+		// D-226; gateancestors.go): a session in R/vendor/gov, `buddy init`ed
+		// on its own, was not braked by R's `pause all`, and its targets were
+		// not held to R's claims. Walked from the physical cwd, so a bare
+		// home (R/cache.git, no root) still reaches R's brake. The home's
+		// handle is shared, never opened twice.
+		if fi, err := os.Stat(filepath.Dir(rc.ledger)); err == nil {
+			targetRepos.homeCD = fi
+		}
+		targetRepos.addHandle(rc.ledger, st, "", false)
+		start, ok := homeWalkStart(h.Cwd)
+		if ok {
+			targetRepos.homeAnc, _ = gateAncestors(h, env, start, gateRepo{st: st, rc: rc}, true, targetRepos)
+		}
+		if rc.top != "" && (!ok || start != rc.top) {
+			// The ledgers at and above the home's ROOT govern what the home
+			// places there too, whatever the cwd walk saw. From cwd S whose
+			// core.worktree is R, R's: the target walks stopped at R's .git as
+			// if the home had read it (Codex code pass P1); from a separate git
+			// directory /a/H whose worktree is /b/D under governed /b, /b's
+			// (Fable cross-check); from such an S nested in R's registered
+			// lane W, whose walk placed R at W only, R's at R (Codex re-verify,
+			// round 1). Discoveries and handles are the call's, already read:
+			// in an ordinary layout this second walk costs stats and small
+			// reads, no git; an entry the cwd walk skipped (R above that
+			// registered lane) costs one discovery (Codex re-verify, round 2).
+			fromTop, _ := gateAncestors(h, env, rc.top, gateRepo{st: st, rc: rc}, true, targetRepos)
+			targetRepos.homeAnc = mergeAncestors(targetRepos.homeAnc, fromTop)
+		}
+		for _, a := range targetRepos.homeAnc {
+			if reason := ancestorBrake(h, a); reason != "" {
+				deny(env, reason)
+				return 0
+			}
 		}
 	}
 	if shellCmd {
@@ -3799,22 +3832,53 @@ func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeT
 	// literally on a case-sensitive volume. Only a discovered nested
 	// entry can override that placement; a fallback ancestor cannot.
 	nested := targetKey != homeKey && strings.HasPrefix(targetKey, homeTop+"/")
+	homeOutside := false
 	if st != nil {
-		if rel, _, outside := placeCanonical(rc.top, cp); !outside {
+		rel, _, outside := placeCanonical(rc.top, cp)
+		homeOutside = outside
+		// A target in a REGISTERED linked worktree of the home's own
+		// repository, nested in the home, is placed against that worktree's
+		// root only (#145 Q2 (i), the operator's ruling; amends D-073 F-03):
+		// from cwd R, `R/.claude/worktrees/<lane>/README` was refused by a
+		// claim on `.claude` that the lane's own cwd never saw.
+		if !outside && !(nested && inRegisteredWorktree(h, env, cp, repos.homeCD, rc.top, repos)) {
 			where := ""
 			if rc.walked {
 				// The cwd's own repository has no ledger: name the one that
 				// governs it, the root its claims are made from.
 				where = rc.top
 			}
-			if reason := denyIfHeld(st, h, env, rel, where); reason != "" || !nested {
+			if reason := denyIfHeld(st, h, env, rel, where); reason != "" {
 				return reason
 			}
+		}
+		// The home's governed ancestors hold every target under their roots
+		// (#145, D-226): from cwd R/vendor/gov, A's claim in R on `src`
+		// refuses an Edit of R/src/a.go.
+		if reason := ancestorClaims(h, env, cp, repos.homeAnc, false, repos); reason != "" {
+			return reason
+		}
+		if !outside && !nested {
+			return ""
 		}
 	}
 	// No home ledger is not proof that the TARGET is ungoverned: a patch
 	// launched from a plain directory still consults each target.
-	return gateForeignRepo(h, env, cp, dir, targetKey, repos)
+	if reason := gateForeignRepo(h, env, cp, dir, targetKey, repos); reason != "" {
+		return reason
+	}
+	if homeOutside {
+		// The target's walk settled at the home while the home's placement
+		// said the target is outside it: a spelling (a firmlink,
+		// /System/Volumes/Data<R>/...) the home could not place and the walk
+		// resolved physically. Read as "the home checked it", it passed
+		// unread (D-212's recorded firmlink row; #145 panel lens a).
+		if repo, ok := repos.lookup(targetKey); ok && repo.settled {
+			return fmt.Sprintf("buddy: %s is under the home repo (%s) but could not be placed inside it; refusing %s rather than guessing",
+				fence.Line(cp, 512), fence.Line(rc.top, 512), fencedTool(h))
+		}
+	}
+	return ""
 }
 
 type gateRepo struct {
@@ -3857,6 +3921,16 @@ type gateCache struct {
 	// opens counts openRepo calls (git discoveries) the cache made, so a
 	// caller can bound them (gateReachedBrakes).
 	opens int
+	// The ancestor walk's (#145, D-226; gateancestors.go): open ledgers by
+	// common directory, discoveries by entry, ancestor sets by discovery
+	// context, the home's common directory and its ancestors, and stores
+	// opened with no shareable identity.
+	handles []*handle
+	disc    map[string]discovery
+	anc     map[[2]string][]ancestor
+	homeCD  os.FileInfo
+	homeAnc []ancestor
+	orphans []*store.Store
 }
 
 // atHome reports whether a .git entry is the home's own: the same .git AND
@@ -3947,8 +4021,31 @@ func openGateRepo(h hookInput, env Env, dir, key string, repos *gateCache) gateR
 		return repo
 	}
 	var repo gateRepo
-	repo.st, repo.rc, repo.err = openRepo(dir, env)
+	// openRepo's two halves, with the ledger looked up by common directory
+	// between them: one ledger is opened once per call however it is reached,
+	// the home's included (#145's cost lens: a target in R after a walk
+	// through a nested repository opened R a second time).
+	var shared *handle
+	repo.rc, repo.err = resolveRepo(dir)
+	if repo.err == nil {
+		if cd, err := os.Stat(filepath.Dir(repo.rc.ledger)); err == nil {
+			shared = repos.handleFor(cd)
+		}
+		if shared != nil {
+			repo.st = shared.st
+		} else {
+			repo.st, repo.err = openLedgerAt(repo.rc, env)
+			if repo.err != nil && repo.rc.gone != "" && !errors.Is(repo.err, errNoLedger) {
+				repo.err = vanishedErr(repo.rc.gone, repo.rc.from, repo.err)
+			}
+		}
+	}
 	repos.opens++
+	if shared != nil {
+		repo.paused = shared.paused
+		repos.m[key] = repo
+		return repo
+	}
 	if errors.Is(repo.err, errNoLedger) {
 		gov, found := enclosingLedger(env, dir, repos)
 		switch {
@@ -3975,11 +4072,14 @@ func openGateRepo(h hookInput, env Env, dir, key string, repos *gateCache) gateR
 				// brake instead of the bare one's (Fable cross-check).
 				owner = "walk:" + owner
 				if _, ok := repos.m[owner]; ok {
-					if gov.st != nil {
+					if gov.st != nil && !gov.shared {
 						gov.st.Close()
 					}
 				} else {
 					repos.m[owner] = gateBrake(h, gov.gateRepo)
+					if r := repos.m[owner]; r.st != nil && !gov.shared {
+						repos.addHandle(r.rc.ledger, r.st, r.paused, true)
+					}
 				}
 			}
 			if owner != key {
@@ -3990,6 +4090,9 @@ func openGateRepo(h hookInput, env Env, dir, key string, repos *gateCache) gateR
 		}
 	}
 	repos.m[key] = gateBrake(h, repo)
+	if r := repos.m[key]; r.st != nil {
+		repos.addHandle(r.rc.ledger, r.st, r.paused, true)
+	}
 	return repos.m[key]
 }
 
@@ -4026,6 +4129,9 @@ type walkResult struct {
 	cached bool
 	// exhausted: the walk stopped on the caller's budget, not on proof.
 	exhausted bool
+	// shared: the store is an open handle another record owns (#145,
+	// openShared); never closed through this result.
+	shared bool
 }
 
 // enclosingLedger finds the ledger that governs start when git's own
@@ -4053,10 +4159,9 @@ type walkResult struct {
 // each entry's key is looked up before any open, so a ledger already open
 // in this call is not opened again (Codex design pass, Q5).
 //
-// The first ledger found ends the walk: a nested repository WITH a ledger
-// was `buddy init`ed to be coordinated on its own, and the home claim stays
-// additive beside it (D-073 F-03). Recorded open (D-212): from its own cwd or
-// a plain one, an enclosing repository's claim and brake do not reach it.
+// The first ledger found ends THIS walk, which names the governor; every
+// distinct ledger above a directory, a nested one's own included, applies
+// beside it through gateAncestors (#145, D-226, amending D-212's open row).
 func enclosingLedger(env Env, start string, c *gateCache) (walkResult, bool) {
 	entry, ok := nearestGitEntry(start)
 	for ok {
@@ -4087,15 +4192,17 @@ func enclosingLedger(env Env, start string, c *gateCache) (walkResult, bool) {
 			}
 		}
 		if !ledgerAbsentAt(entry) {
-			st, rc, err := openRepo(filepath.Dir(entry), env)
+			st, rc, err, shared := c.openShared(filepath.Dir(entry), env)
 			if c != nil {
 				c.opens++
 			}
 			switch {
 			case err == nil && rc.top != "":
-				return walkResult{gateRepo: gateRepo{st: st, rc: rc}, key: key}, true
+				return walkResult{gateRepo: gateRepo{st: st, rc: rc}, key: key, shared: shared}, true
 			case err == nil:
-				st.Close() // a ledger with no worktree root contains nothing
+				if !shared {
+					st.Close() // a ledger with no worktree root contains nothing
+				}
 			case errors.Is(err, errNoLedger) && rc.ledger != "":
 				// git FOUND the repository and openLedgerAt's Lstat says its
 				// ledger is absent: proved, by the discovery itself (a
@@ -4256,7 +4363,14 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos *gateC
 		return fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
 			fence.Line(target, 512), fence.Line(top, 512), fencedTool(h))
 	}
-	return denyIfHeld(st, h, env, rel, top)
+	if reason := denyIfHeld(st, h, env, rel, top); reason != "" {
+		return reason
+	}
+	// Every distinct governed ledger above this one applies too (#145,
+	// D-226): from a plain cwd, an Edit of R/vendor/gov/x.c, gov `buddy
+	// init`ed on its own, was held to gov's claims and never to R's.
+	anc, _ := gateAncestors(h, env, dir, repo, false, repos)
+	return ancestorClaims(h, env, target, anc, true, repos)
 }
 
 // gateReachedBrakes reads the operator's brake in each ledger a shell command's
@@ -4299,6 +4413,11 @@ func gateReachedBrakes(h hookInput, env Env, homeKey string, repos *gateCache) s
 	start := repos.opens
 	repos.limit = start + maxReachedOpens
 	defer func() { repos.limit = 0 }()
+	type governed struct {
+		dir  string
+		repo gateRepo
+	}
+	var found []governed
 	for _, r := range reachedDirs(h, env, homeKey) {
 		if repos.opens-start >= maxReachedOpens {
 			break // invents no jurisdiction; recorded open (D-138, D-212)
@@ -4313,6 +4432,25 @@ func gateReachedBrakes(h hookInput, env Env, homeKey string, repos *gateCache) s
 				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), fencedTool(h))
 		case repo.paused != "":
 			return repo.paused
+		}
+		found = append(found, governed{dir, repo})
+	}
+	// Then each reached directory's governed ancestors (#145, D-226), with
+	// what is left of the budget. In this order, never interleaved: every
+	// discovery the base read (each key and its D-212 first governor) is
+	// read first, so an ancestor can never spend the opens that read a
+	// paused R4 (Codex design pass C2: `cd /P/R1/N1; cd /R2/N2; cd /R3/N3;
+	// cd /R4/N4; touch x` with R1 inside governed P). A walk the budget cuts
+	// short is not cached (gateAncestors).
+	for _, g := range found {
+		anc, exhausted := gateAncestors(h, env, g.dir, g.repo, false, repos)
+		for _, a := range anc {
+			if reason := ancestorBrake(h, a); reason != "" {
+				return reason
+			}
+		}
+		if exhausted {
+			break
 		}
 	}
 	return ""

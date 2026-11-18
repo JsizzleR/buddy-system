@@ -291,12 +291,11 @@ func TestGateGHStackFromANestedCwdNeedsNoEnclosingSlot(t *testing.T) {
 	wantGate(t, f, lib, bashHookJSON("sess-b", lib, "gh stack rebase"), true, "hold the line")
 }
 
-// A nested repository WITH its own ledger was `buddy init`ed to be coordinated
-// on its own: the first ledger governs, and the home claim stays additive
-// (D-073 F-03). The cwd=R row had no test of its own with a ledger-bearing
-// nested repository (gatetargets_test's is ledgerless, patch_test's pins only
-// the nested claim). The other rows are RECORDED OPEN in D-212 and pinned here
-// so a change to them is a decision, not an accident.
+// A nested repository WITH its own ledger stays under the enclosing one's
+// claims and brake from every cwd (#145, D-226): D-212 recorded the cwd=gov
+// and plain-cwd rows open, and they ALLOWED (A's `vendor` claim in R did not
+// reach x.c; R's `pause all` did not stop `touch f` in gov). Positive
+// controls: the holder A from every cwd, and gov's own sessions unpaused.
 func TestGateLedgerBearingNestedRepoRows(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
@@ -311,13 +310,16 @@ func TestGateLedgerBearingNestedRepoRows(t *testing.T) {
 	x := filepath.Join(gov, "x.c")
 	wantGate(t, f, f.repo, hookJSON("sess-b", f.repo, "Edit", x), true, "vend")
 	wantGate(t, f, f.repo, hookJSON("sess-a", f.repo, "Edit", x), false, "")
-	// Open (D-212): the enclosing claim does not reach these.
-	wantGate(t, f, gov, hookJSON("sess-b", gov, "Edit", x), false, "")
-	wantGate(t, f, plain, hookJSON("sess-b", plain, "Edit", x), false, "")
+	wantGate(t, f, gov, hookJSON("sess-b", gov, "Edit", x), true, "vend")
+	wantGate(t, f, plain, hookJSON("sess-b", plain, "Edit", x), true, "vend")
+	wantGate(t, f, gov, hookJSON("sess-a", gov, "Edit", x), false, "")
+	wantGate(t, f, plain, hookJSON("sess-a", plain, "Edit", x), false, "")
+	wantGate(t, f, gov, bashHookJSON("sess-b", gov, "touch f"), false, "")
 	if _, errw, code := f.run(t, f.repo, "", "pause", "all"); code != 0 {
 		t.Fatal(errw)
 	}
-	wantGate(t, f, gov, bashHookJSON("sess-b", gov, "touch f"), false, "")
+	wantGate(t, f, gov, bashHookJSON("sess-b", gov, "touch f"), true, "paused")
+	wantGate(t, f, plain, bashHookJSON("sess-b", plain, "cd "+gov+" && touch f"), true, "paused")
 	wantGate(t, f, f.repo, bashHookJSON("sess-b", f.repo, "touch f"), true, "paused")
 }
 
