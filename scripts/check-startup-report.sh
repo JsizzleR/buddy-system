@@ -28,9 +28,11 @@
 #     session started IN one is found under its own transcript directory,
 #     named by hand from the path the harness saw (H, and git lists the
 #     resolved path, so this is the /var-versus-/private/var mapping on macOS);
-#     an edit under a REMOVED sibling named `<repo>-…` counts (I); a write into
+#     an edit under a REMOVED sibling named `<repo>-…` counts (I), and one
+#     named `<repo>.…` (21:00, #136); a write into
 #     an EXISTING sibling that is another repo, or to a file beside the repo,
-#     does not (G's controls); a session started in a REMOVED harness
+#     does not (G's controls; a dot sibling that is another repo or none,
+#     22:00 and 23:00); a session started in a REMOVED harness
 #     worktree (`<repo>/.claude/worktrees/<n>`) is found by its transcript
 #     directory's name, and its edit there counts (J), while the directory of
 #     another repository's checkout parked under `.claude/worktrees/`, its own
@@ -293,6 +295,40 @@ $fromal"
 printf '%s\n' "$fromal" | grep -q '^Startup report: .*/real2/r3 and its 1 linked worktree(s)' ||
 	fail "run from a lane under a symlinked parent, the report is not its own main checkout's:
 $fromal"
+
+# I's dot spelling (#136): this repository's lanes run in `<repo>.<label>`, and
+# an edit under a removed one ended no window, so the session read as one that
+# never edited. Listed: an edit under a removed `<repo>.gone`, three minutes in
+# (21:00). Not listed, the dash rule's guards: an edit under an existing
+# `<repo>.other` that is another repository (22:00) and one under an existing
+# `<repo>.plain` that is none (23:00), each the same shape as 21:00; and one
+# under `<repo>.OTHER` (20:00), which on macOS's case-insensitive volume IS the
+# foreign `<repo>.other`: the exclusion compares ASCII-folded, as cost-report's
+# does (Codex code pass), over-excluding a removed case variant on a
+# case-sensitive volume, the residual D-002 accepts for scopes.
+mkrepo "$repo.other"
+mkdir -p "$repo.plain"
+for d in "gone:21" "other:22" "plain:23" "OTHER:20"; do
+	cat >"$proj/dot-${d##*:}.jsonl" <<EOF
+{"type":"user","timestamp":"2026-09-26T${d##*:}:00:00.000Z","message":{"content":"in a dot sibling"}}
+{"type":"assistant","timestamp":"2026-09-26T${d##*:}:03:00.000Z","message":{"content":[{"type":"tool_use","id":"1","name":"Edit","input":{"file_path":"$repo.${d%:*}/d.go"}}]}}
+EOF
+done
+dot=$(CLAUDE_PROJECTS_DIR="$WORK/projects" sh scripts/startup-report.sh "$repo" 2>&1) ||
+	fail "the run with dot siblings planted exited non-zero:
+$dot"
+printf '%s\n' "$dot" | grep -q '^2026-09-26 21:00  *3\.0 ' ||
+	fail "an edit in a removed sibling spelled <repo>.<label> did not end a window:
+$dot"
+for h in 20 22 23; do
+	if printf '%s\n' "$dot" | grep -q "^2026-09-26 $h:00 "; then
+		fail "an edit in an EXISTING dot sibling that is not this repo ended a window ($h:00):
+$dot"
+	fi
+done
+printf '%s\n' "$dot" | grep -q '^7 session(s) reached an edit, 4 did not\.$' ||
+	fail "want seven edited sessions and four without (20:00, 22:00 and 23:00 join the one before):
+$dot"
 
 # Privacy, with its control: the markers ARE in the fixture.
 grep -q MARKER_OUTPUT "$proj/a.jsonl" || fail "the privacy control failed: the fixture lost its markers"

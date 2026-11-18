@@ -16602,3 +16602,75 @@ link (git skips a dangling link and finds R itself, so the first fixture never r
 - code: `internal/harness/ownership.go` (`Spawn`, `childUncertainError`, `recordShape`, `classifyOwnership`, `observeOwnership`), `internal/harness/process.go` (`startJSONProcess`), `scripts/admission_lib.py` (`scan`, `_files`, `_unique`, `_lines`, `admits`, `need`, `synthetic`, `synthetic_binding`), `scripts/qualify-release.py` (`judge_receipt`), `scripts/check-codex-gate.py` (`direct_candidate_self_test`), the synthetic fixtures of `check-mixed-fleet`, `check-claude-delivery`, `check-claude-gate`, `-mods`, `-jobs`
 - tests: `internal/harness/notstarted_test.go`, `ownership_test.go`; the `admission_lib`, `qualify-release` and checker self-tests (check.sh)
 - docs: USAGE "The ownership record and what resume refuses"; charter GIVENs 78 and 82
+
+## D-217 — cost-report and startup-report count a removed sibling spelled `<repo>.<label>` as well as `<repo>-<label>`; cost-report reads only transcripts modified in the window (plus a day); install.sh and env-check.sh WARN when `command -v buddy` is not the copy install builds, and fix nothing (#136, #137, #135; amends D-143, D-169)
+
+2026-11-18 · issues #135, #136, #137, the 2026-11 audit's report findings. Lane report-scripts
+(Opus 5.5 at high), run r1118a, class code, tier lite. Each reproduced on 1bfdf45 first.
+
+**#136, the dot sibling.** This repository's lanes run in `<repo>.<label>` worktrees; once one is
+removed, its sessions' cwd matched no root and no `<root>-` prefix (#77's rule, D-143), so
+cost-report dropped them: one week's report counted 66 of 97 sessions, the 31 missing removed dot
+lanes holding 782,621,180 of 2,398,899,752 cache reads (67.4% shown). Reproduced in
+check-cost-report: m27 under a removed `repo.gone`, m28 under a removed dot sibling of the linked
+worktree, both uncounted on 1bfdf45. Now a sibling prefix is `<root>-` or `<root>.`, under the same
+guards: the existing-sibling exclusion globs both spellings, so an existing `repo.old` that is
+another repository (m29), an existing `repo.plain` that is none (m30) and a `..` segment (m31) stay
+out. startup-report had the same `$base-` rule: an edit under a removed `<repo>.gone` ended no
+window (check-startup-report's 21:00 session, red on 1bfdf45); now both spellings, its
+existing-sibling glob too (22:00 another repository, 23:00 none: not listed). D-169's "Not done"
+stands: wake-report and startup-report still read no removed sibling's own transcript directory.
+
+**#137, the age test.** cost-report's `find` had no age test, so a 7-day report parsed every
+transcript ever written: 3,272 files, 6.2 GB, 368.9 s, where 999 files and 1.74 GB were modified in
+the window (n=1, measured by the audit). Every windowed row needs a record stamped in the window,
+which a file last written before it cannot hold, so the find takes `-mtime -(days+1)`: the extra
+day is slack for find's whole-day grain (truncated on BSD and GNU; a 162-hour-old file passed
+`-mtime -7`) and for the cutoff taken before the find. Reproduced: a file aged 30 days holding a
+record stamped now (which no real file can) was read on 1bfdf45; now it is not, a file aged 5 days
+still is (the control), and the first, touched, is read again. On a fixture of 180 transcripts aged
+30 days and 20 written now, 211 MB in all, two runs each: cost-report on 1bfdf45 took 3.35 s and
+2.90 s, the fixed one 0.56 s and 0.72 s, both printing `sessions=20 requests=9000`. What it costs, named: `transcripts seen=` counts the
+files written in the window, no longer every one on disk; and a skill load or tool call found ONLY
+in an older file of a session with requests in the window no longer counts for that session (a
+resumed file carries the copied history, so it is found there too).
+
+**#135, a different buddy first on PATH.** install.sh rebuilds every copy the hooks and the daemon
+run, but `.githooks/pre-commit`, setup-clone and every typed verb take `command -v buddy` first: a
+stale copy earlier on PATH (one `go install` left) is refused on a newer ledger (D-037) while
+install said every binary was rebuilt and env-check's path-bin said PASS. Now install.sh, after the
+build, prints a `WARN —` line naming both paths when the PATH copy is neither `$BIN_DIR/buddy` nor
+the checkout's `bin/buddy` it rebuilt, by `-ef` (device and inode, so a link to a built copy is
+that copy); env-check's path-bin WARNs, naming both, when it is not `$HOME/bin/buddy` (the copy the
+hooks name). Neither changes a file, PATH or the exit status: which copy goes is the user's.
+Reproduced: check-install QA-1c (a stub buddy first on PATH, no WARN on 1bfdf45; the built copy
+first, no WARN, the control; the stub unchanged) and check-env-check QA-1b (PASS on 1bfdf45; a link
+to the installed copy PASS, the control). An absent `command -v buddy` stays silent: pre-commit
+then falls back to `$HOME/bin/buddy`.
+
+**Codex code pass (xhigh), folded once.** Three raised, three fixed, each reproduced on the
+unfolded commit: `BUDDY_COST_DAYS=010` passed validation, SQLite read ten days and `$((days +
+1))` octal eight, so a file aged 9.5 days dropped out (leading zeros are stripped before the
+check; check-cost-report's m34); startup-report's foreign-sibling test was case-sensitive, so on
+macOS an edit under `<repo>.OTHER` (the existing foreign `<repo>.other`) ended a window (now
+ASCII-folded as cost-report's is, D-143's residual on a case-sensitive volume; the 20:00 session);
+a RELATIVE PATH entry gave dash's `command -v` (sh on Ubuntu) the answer `./shadow/buddy`, which
+the `/*` arm skipped (any answer with a slash is now compared, against the checkout install.sh runs
+in). macOS's sh prefixes the cwd, so QA-1c's climbing entry warns either way there; the witness is
+the arm itself run under dash, silent at the unfolded commit and warning after. Answered:
+no fixture sits near the cutoff, and a mutant without the extra day survives: `-mtime -7` already
+keeps every file aged under seven days, so the day only covers the seconds between the cutoff and
+the find, which no hermetic fixture can place.
+
+**Rejected.** Removing or reordering anything (the issue's "a loud WARN, never a fix"). Comparing
+paths as strings: a link to `~/bin/buddy` would have WARNed. `-newer` a file stamped at the cutoff
+instead of `-mtime`: exact, but a `touch -t` stamp is local time and minute grain, a second way to
+be off; a day of slack costs reading at most one more day of files.
+
+### Where it lives
+- index: CLAUDE.md "Install" line
+- code: `scripts/cost-report.sh` (`sibs_json`, the transcript `find`), `scripts/startup-report.sh`
+  (`excl`, `sibsjson`), `scripts/install.sh` (step 2'), `scripts/env-check.sh` (path-bin)
+- tests: `scripts/check-cost-report.sh` (m27-m33), `scripts/check-startup-report.sh` (21:00-23:00),
+  `scripts/check-install.sh` QA-1c, `scripts/check-env-check.sh` QA-1b
+- docs: USAGE "Measuring context cost"

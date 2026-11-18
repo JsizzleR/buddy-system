@@ -13,7 +13,9 @@
 # unbuildable destination fails LOUD (non-zero, and says so), never green; a
 # claims-only install (BUDDY_CHAT=off) builds buddy alone and reports the chat
 # remnants it left alone, with QA-1's default run as the control that both
-# buddylist hook lines are still counted when the knob is unset.
+# buddylist hook lines are still counted when the knob is unset; a different
+# buddy earlier on PATH than the one built draws a WARN naming both and is
+# left as it was (QA-1c, #135), with the built copy first as the control.
 set -eu
 . "$(dirname -- "$0")/lib.sh"
 ROOT=$(repo_root "$0")
@@ -102,6 +104,40 @@ echo "$out" | grep -qxF "install: gate: README's fail-closed gate entry in $WORK
 $out"
 echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-1: no done line"
 echo "$out" | grep -q '^install: codex:' && fail "QA-1: a Codex row with no Codex directory (QA-18's no-row case):
+$out"
+
+# QA-1c (#135): a DIFFERENT buddy earlier on PATH than the one install built
+# is a WARN naming both (the commit gate and every typed verb run it, and a
+# stale one is refused on a newer ledger, D-037), the install still succeeds,
+# and the shadowing copy is left as it was: never a fix. The control: the
+# built copy first on PATH, through a LINK, draws no WARN (a test by path
+# string would). PATH is set in a subshell, not as an assignment before the
+# function (unspecified in POSIX sh).
+mkdir -p "$WORK/shadow"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/shadow/buddy"; chmod +x "$WORK/shadow/buddy"
+cp "$WORK/shadow/buddy" "$WORK/shadow.before"
+out=$(PATH="$WORK/shadow:$PATH"; export PATH; inst 2>&1) || fail "QA-1c: a shadowing buddy failed the install:
+$out"
+echo "$out" | grep -qxF "install: WARN — buddy on PATH is $WORK/shadow/buddy, not $WORK/bin/buddy, which was just built: the commit gate and every typed verb run $WORK/shadow/buddy, and a stale one is refused on a newer ledger (D-037); remove it or put $WORK/bin ahead of its directory on PATH (not changed here)" ||
+	fail "QA-1c: a buddy earlier on PATH than the built one drew no WARN naming both:
+$out"
+echo "$out" | tail -1 | grep -qx 'install: done' || fail "QA-1c: no done line"
+cmp -s "$WORK/shadow/buddy" "$WORK/shadow.before" || fail "QA-1c: the shadowing buddy was changed"
+# A RELATIVE PATH entry (Codex code pass): dash's `command -v` (sh on Ubuntu)
+# names the copy relatively, `./shadow/buddy`, which a `/*` arm skipped;
+# macOS's sh prefixes the cwd. Either spelling warns, so the line is matched
+# from `shadow/buddy, not` on. The entry climbs from the checkout to / and
+# back down to the shadow.
+up=$(cd "$ROOT" && pwd -P | sed 's|[^/][^/]*|..|g'); up=${up#/}
+out=$(PATH="$up$WORK/shadow:$PATH"; export PATH; inst 2>&1) || fail "QA-1c: a relative shadowing entry failed the install:
+$out"
+echo "$out" | grep -F "install: WARN — buddy on PATH is " | grep -qF "$WORK/shadow/buddy, not $WORK/bin/buddy" ||
+	fail "QA-1c: a buddy earlier on PATH by a RELATIVE entry drew no WARN:
+$out"
+mkdir -p "$WORK/lnk"; ln -s "$WORK/bin/buddy" "$WORK/lnk/buddy"
+out=$(PATH="$WORK/lnk:$WORK/shadow:$PATH"; export PATH; inst 2>&1) || fail "QA-1c: the control install failed:
+$out"
+echo "$out" | grep -q 'WARN — buddy on PATH' && fail "QA-1c: the built copy first on PATH, through a link, drew the WARN (the control):
 $out"
 
 # QA-18 (Codex report B1): the Codex row, read by scripts/codex-gate-row.sh
@@ -1529,7 +1565,7 @@ $out"
 pyc_after=$([ -e scripts/__pycache__ ] && echo yes || echo no)
 [ "$pyc_before" = yes ] || [ "$pyc_after" = no ] || fail "QA-14: the report wrote scripts/__pycache__ into the checkout"
 
-echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-2 idempotent, QA-3 all tokens found, the file's loading never claimed (D-184), QA-3b handoff size report,"
+echo "check-install: GREEN (QA-1 fresh install + exact hook report, QA-1c a shadowing buddy on PATH WARNed and left alone, QA-2 idempotent, QA-3 all tokens found, the file's loading never claimed (D-184), QA-3b handoff size report,"
 echo "  QA-17 an older ledger elsewhere migrates only under the hooks' binary (\$HOME/bin/buddy) or BUDDY_MIGRATE=1, backed up first;"
 echo "  QA-13 the installed buddy's update names this checkout's install.sh, a dry run runs nothing, and the real run installs,"
 echo "  QA-4 unbuildable target fails loud, QA-5 a sub-step's failure is the install's,"

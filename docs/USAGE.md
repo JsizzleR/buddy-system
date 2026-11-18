@@ -2386,14 +2386,14 @@ common=$(cd /path/to/repo && git rev-parse --path-format=absolute --git-common-d
 BUDDY_LEDGER="$common/buddy.db" scripts/cost-report.sh
 ```
 
-Set `BUDDY_COST_DAYS` to change the window. The report never prints messages,
-prompts, or tool results. Its last three sections are the prose classes of
+Set `BUDDY_COST_DAYS` to change the window; only transcripts modified in it,
+plus a day, are read, and `transcripts seen=` counts those (D-217). Its last
+three sections are the prose classes of
 `docs/prose-budget.tsv` against their ceilings and the context the week's
 requests were billed for (its header says how each is counted), then the
 Codex review passes `codex-review.sh` recorded (D-146), aggregates only. A
 transcript line that is not JSON (the end of one still being written) is
-skipped and counted on a `transcript_lines_not_json` line, and costs nothing
-else (D-169). A table line whose ceiling is `report` prints as
+skipped and counted on a `transcript_lines_not_json` line (D-169). A table line whose ceiling is `report` prints as
 `ceiling=report-only`.
 
 For how long sessions spend before their first edit, which is the number a
@@ -2407,10 +2407,9 @@ sh scripts/startup-report.sh /path/to/repo
 One row per session, from its first typed prompt to its first Edit or Write of
 a file in the repo, with its tool calls by kind and the bytes they returned.
 "In the repo" means under any of its worktrees, or under a sibling directory
-named `<repo>-…` that has since been removed, because a worktree-per-task
-workflow deletes the worktree once its work lands. Sessions started inside a
-linked worktree are included too.
-The minutes are an upper bound, since they include your own turns. The `lsp`
+named `<repo>-…` or `<repo>.…` that has since been removed (a landed lane's
+worktree, D-217). Sessions started inside a linked worktree are included too.
+The minutes are an upper bound: they include your own turns. The `lsp`
 line says whether sessions use the tool at all. It takes the same
 `BUDDY_COST_DAYS` knob, and prints counts and bytes only.
 

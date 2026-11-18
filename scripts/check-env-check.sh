@@ -250,6 +250,29 @@ for t in uname go df mdutil ps tmutil pmset du sysctl; do
 	grep -q "^$t " "$LOG" || fail "QA-1: $t was never called; the PASS lines came from somewhere else"
 done
 
+# QA-1b (#135): a buddy on PATH that is NOT the file install builds at
+# $HOME/bin/buddy (the one the hooks name) is a WARN naming both: the commit
+# gate and every typed verb run the PATH one, and a stale copy is refused on a
+# newer ledger (D-037) while this row said PASS. Never a fix applied. The
+# control: the same file reached through a link is the PASS of QA-1.
+printf '#!/bin/sh\n' > "$HOMEFX/bin/buddy"; chmod +x "$HOMEFX/bin/buddy"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+[ "$rc" -eq 0 ] || fail "QA-1b: a shadowing buddy is a WARN and must not fail the run (rc=$rc)"
+verdicts "$out" | grep -qx 'WARN path-bin' || fail "QA-1b: a buddy on PATH other than \$HOME/bin/buddy must WARN:
+$out"
+printf '%s\n' "$out" | grep -qF "$BIN_A/buddy" || fail "QA-1b: the WARN names the PATH copy:
+$out"
+printf '%s\n' "$out" | grep -qF "$HOMEFX/bin/buddy" || fail "QA-1b: the WARN names the installed copy:
+$out"
+[ -z "$(shape "$out")" ] || fail "QA-1b: shape:$(shape "$out")
+$out"
+[ -z "$(mutations "$LOG")" ] || fail "QA-1b: a mutating call was made: $(mutations "$LOG")"
+rm -f "$HOMEFX/bin/buddy"; ln -s "$BIN_A/buddy" "$HOMEFX/bin/buddy"
+run "$BIN_A" "$SC_A" --checkout "$CO"
+verdicts "$out" | grep -qx 'PASS path-bin' || fail "QA-1b: the same file through a link is a PASS (the control):
+$out"
+rm -f "$HOMEFX/bin/buddy"
+
 # QA-2: a subfolder of an INDEXED volume is CANNOT-ASSESS, never PASS, and a
 # .noindex cache is PASS on the same volume by its name; fseventsd busy on CPU
 # alone is a WARN pointing at the spotlight lines.
@@ -846,4 +869,4 @@ printf 'x=$(python3 - <<%sPY%s\n' "'" "'" > "$WORK/heredoc-ctl"
 [ -n "$(heredoc "$WORK/heredoc-ctl")" ] || fail "QA-9: the heredoc detector missed its planted control"
 [ -z "$(heredoc "$ROOT/scripts/env-check.sh")" ] || fail "QA-9: env-check.sh holds a heredoc (a temporary file under macOS sh): $(heredoc "$ROOT/scripts/env-check.sh")"
 
-echo "check-env-check: GREEN (QA-1 good machine 18 PASS + stubs reached, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 15 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN + settings rows CANNOT-ASSESS without it, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks, QA-9 sandbox WARN with and without the wait-check clause + summaries and code-mode PASS/WARN/CANNOT-ASSESS by env and settings + codex-skill-copy PASS/WARN/CANNOT-ASSESS, through gate-hook.py's decode (NaN, depth) + glob in CODEX_HOME + unset HOME + unresolvable symlink + newline in a path + no heredoc, QA-10 ram-sessions at its 2048 MB boundary over max(12, running) + CANNOT-ASSESS without a RAM size, user-mcp WARN only on a user-scope command, PASS on remote and local scope, CANNOT-ASSESS unread; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"
+echo "check-env-check: GREEN (QA-1 good machine 18 PASS + stubs reached, QA-1b a different buddy on PATH WARN naming both + a link to the installed one PASS, QA-2 indexed subfolder CANNOT-ASSESS + .noindex PASS + CPU WARN, QA-3 bad machine 2 FAIL 15 WARN exit 1 + fix shapes, QA-4 PATH advice + python3 WARN + settings rows CANNOT-ASSESS without it, QA-5 non-macOS CANNOT-ASSESS never PASS, QA-7 failed reads CANNOT-ASSESS + comment/env-only trim not scheduled + go held to the installed toolchain, QA-6 --list runs nothing + --help + refusals, QA-8 the Codex row: none without ~/.codex, NOT WIRED, wired via diagnose, findings, refusal, unreadable, config.toml hooks, QA-9 sandbox WARN with and without the wait-check clause + summaries and code-mode PASS/WARN/CANNOT-ASSESS by env and settings + codex-skill-copy PASS/WARN/CANNOT-ASSESS, through gate-hook.py's decode (NaN, depth) + glob in CODEX_HOME + unset HOME + unresolvable symlink + newline in a path + no heredoc, QA-10 ram-sessions at its 2048 MB boundary over max(12, running) + CANNOT-ASSESS without a RAM size, user-mcp WARN only on a user-scope command, PASS on remote and local scope, CANNOT-ASSESS unread; every run: no write (names + contents), no mutating call; planted mutation and overwrite controls)"

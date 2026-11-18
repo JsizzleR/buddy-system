@@ -40,6 +40,11 @@
 set -eu
 
 days=${BUDDY_COST_DAYS:-7}
+# Decimal: `$((days + 1))` below read `010` as octal eight while SQLite's cutoff
+# read ten, so the age test dropped files the window admits (Codex code pass,
+# D-217); `09` was an arithmetic error. Leading zeros go first, so `00` is the
+# zero the case refuses.
+while :; do case $days in 0?*) days=${days#0} ;; *) break ;; esac; done
 case "$days" in
 	''|*[!0-9]*) echo "BUDDY_COST_DAYS must be a positive integer" >&2; exit 2 ;;
 	0) echo "BUDDY_COST_DAYS must be greater than zero" >&2; exit 2 ;;
@@ -169,11 +174,14 @@ fi
 # the quoted spelling matches no recorded cwd (Codex code pass).
 git -C "$root" worktree list --porcelain -z 2>/dev/null >"$work/roots" || : >"$work/roots"
 roots_json=$(jq -Rsc 'split("\u0000") | map(select(startswith("worktree ")) | ltrimstr("worktree "))' <"$work/roots")
-# Plus a cwd under a SIBLING named `<root>-<anything>` that no longer exists:
-# a lane worktree beside the checkout (`buddy-system-wt-<label>`) is removed
-# once its work lands, and git then forgets it. Reading registered worktrees
-# alone, this report saw 6 of 25 sessions and 104M of 433M cache reads in the
-# week to 2026-11-09, nearly every lane missing (#77). startup-report.sh's
+# Plus a cwd under a SIBLING named `<root>-<anything>` or `<root>.<anything>`
+# that no longer exists: a lane worktree beside the checkout
+# (`buddy-system-wt-<label>`, `buddy-system.<label>`) is removed once its work
+# lands, and git then forgets it. Reading registered worktrees alone, this
+# report saw 6 of 25 sessions and 104M of 433M cache reads in the week to
+# 2026-11-09, nearly every lane missing (#77); with the dash alone, it dropped
+# the 31 removed `buddy-system.<label>` lanes of the week to 2026-11-17, 782M
+# of 2.4G cache reads (#136, D-217). startup-report.sh's
 # rule, for the same reason: an EXISTING sibling counts only through git
 # (a registered worktree is a root already), so one that is another
 # repository, or no repository, is named here to be left out. Prefixes from
@@ -199,7 +207,7 @@ rcommon=$( (CDPATH= cd -- "$common" 2>/dev/null && pwd -P) || :)
 $roots_json
 EOF
 } >"$work/sibroots"
-sibs_json=$(jq -Rsc 'split("\u0000") | map(select(length > 0) | . + "-") | unique' <"$work/sibroots")
+sibs_json=$(jq -Rsc 'split("\u0000") | map(select(length > 0) | (. + "-"), (. + ".")) | unique' <"$work/sibroots")
 # Not a checkout: no root, so no sibling of one either.
 [ "$roots_json" != "[]" ] || sibs_json="[]"
 # sh's `read` has no NUL delimiter, so the prefixes reach the glob as a
@@ -224,7 +232,18 @@ rf_json=$(awk -F '\t' '$1 == "read-first" { print $2 }' "$work/members" | jq -R 
 stat_of() { sed -n "s/^$1=//p" "$stats"; }
 
 if [ -d "$claude_projects" ]; then
-	find "$claude_projects" -type f -name '*.jsonl' -size +0c -print0 2>/dev/null >"$transcripts"
+	# `-mtime -(days+1)`: only a file written in the window can hold a record
+	# stamped in it, and every windowed row needs one. Without it a 7-day report
+	# parsed every transcript ever written, 3,272 files and 6.2 GB in 369 s, where
+	# 999 files and 1.74 GB were modified in the window (#137, D-217). The extra
+	# day is slack: find's -mtime is whole days, truncated on BSD and GNU alike
+	# (a 162-hour-old file passed `-mtime -7`), and the cutoff above was taken
+	# before this find started. What it costs, named: a skill load (K) or a tool
+	# call (T) found ONLY in an older file of a session with requests in the
+	# window no longer counts for that session (a resumed file carries the
+	# copied history, so it is found there too); and `seen` counts the
+	# transcripts written in the window, no longer every one on disk.
+	find "$claude_projects" -type f -name '*.jsonl' -size +0c -mtime "-$((days + 1))" -print0 2>/dev/null >"$transcripts"
 	seen=$(tr -cd '\000' < "$transcripts" | wc -c | tr -d ' ')
 	# NO `-n 1`, NO PIPELINE, `-size +0c`, `<= 1` RATHER THAN `== 1`, AND THE FLOOR
 	# VERDICT KEYED ON JQ'S OWN STDERR. Five lessons: four measured on one fixture

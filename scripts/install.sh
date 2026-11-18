@@ -422,6 +422,23 @@ if [ "${BUDDY_REPO_BIN:-}" != off ]; then
 		fi
 	done
 fi
+# 2'. A DIFFERENT buddy earlier on PATH (#135, D-217). Every copy above is
+# found by where the hooks and the daemon run it, but the commit gate
+# (.githooks/pre-commit) and setup-clone take `command -v buddy` first, and so
+# does every typed verb: a stale copy there (one `go install` left) is refused
+# on a newer ledger (D-037) while this script said every binary was rebuilt.
+# Said loudly, never fixed: which copy goes, or how PATH is ordered, is the
+# user's. -ef compares device and inode, so a link to a built copy is that copy.
+# Any answer with a slash is a file: a RELATIVE PATH entry names it relatively,
+# against this checkout, where install.sh runs (Codex code pass).
+pb=$(command -v buddy 2>/dev/null || true)
+case $pb in
+*/*)
+	if [ ! "$pb" -ef "$BIN_DIR/buddy" ] && { [ "${BUDDY_REPO_BIN:-}" = off ] || [ ! "$pb" -ef "$ROOT/bin/buddy" ]; }; then
+		echo "install: WARN — buddy on PATH is $pb, not $BIN_DIR/buddy, which was just built: the commit gate and every typed verb run $pb, and a stale one is refused on a newer ledger (D-037); remove it or put $BIN_DIR ahead of its directory on PATH (not changed here)" >&2
+	fi
+	;;
+esac
 
 # 3. The skills.
 run_step install-skill sh "$ROOT/scripts/install-skill.sh"

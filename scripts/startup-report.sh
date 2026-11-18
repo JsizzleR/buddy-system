@@ -152,8 +152,10 @@ roots=$(
 	done | awk 'NF && !seen[$0]++'
 )
 nwt=$(git -C "$top" worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)
-# Siblings named `<repo>-…` that exist and are NOT this repo's worktrees: the
-# one case the sibling rule must not claim. And the same test under every
+# Siblings named `<repo>-…` or `<repo>.…` (this repository's lanes run in
+# `<repo>.<label>`; the dash alone ended no window for an edit in a removed
+# one, #136, D-217) that exist and are NOT this repo's worktrees: the one case
+# the sibling rule must not claim. And the same test under every
 # root's `.claude/worktrees/`: a checkout there that is ANOTHER repository's
 # (a worktree of it parked under ours) is lexically inside this repo, and its
 # transcript directory carries this repo's prefix, so it is named here to be
@@ -161,7 +163,7 @@ nwt=$(git -C "$top" worktree list --porcelain 2>/dev/null | grep -c '^worktree '
 # to the enclosing one, ours, and stays in.
 excl=$(
 	{
-		for d in "$parent/$base"-*; do printf '%s\n' "$d"; done
+		for d in "$parent/$base"-* "$parent/$base".*; do printf '%s\n' "$d"; done
 		printf '%s\n' "$roots" | while IFS= read -r r; do
 			[ -n "$r" ] || continue
 			for d in "$r/.claude/worktrees/"*; do printf '%s\n' "$d"; done
@@ -214,7 +216,7 @@ projs=$({
 
 echo "Startup report: $top and its $((nwt > 1 ? nwt - 1 : 0)) linked worktree(s), last $days day(s)"
 [ -z "$hwt" ] || echo "Transcripts read from $(printf '%s\n' "$hwt" | grep -c .) harness worktree dir(s) as well, present or removed."
-echo "An edit counts under any worktree, or under a removed sibling named $base-*."
+echo "An edit counts under any worktree, or under a removed sibling named $base-* or $base.*."
 echo "From each session's first typed prompt to its first edit. Counts and bytes only."
 if [ -z "$projs" ]; then
 	echo "no transcripts: $proj does not exist"
@@ -243,7 +245,11 @@ def kind: if . == "Read" then "read"
   else "other" end;
 def size: if type == "string" then utf8bytelength else (tojson | utf8bytelength) end;
 def under($r): startswith($r + "/");
-def foreign: . as $p | any($excl[]; . as $x | $p | under($x));
+# ASCII-folded, as in cost-report: on the case-insensitive macOS volume
+# `<repo>.OTHER/x` IS the existing foreign `<repo>.other` (Codex code pass,
+# D-217); a case-sensitive volume over-excludes a removed case variant. (No
+# apostrophe in these comments: the program is one single-quoted word.)
+def foreign: (. | ascii_downcase) as $p | any($excl[]; (. | ascii_downcase) as $x | $p | under($x));
 def sibling: . as $p | any($sibs[]; . as $s | $p | startswith($s) and ($p | ltrimstr($s) | contains("/")))
   and ($p | foreign | not);
 # Under a root, a checkout of another repository vetoes only when it is
@@ -280,7 +286,7 @@ trap 'rm -f "$rows"' EXIT INT TERM
 # -mtime is whole days, which is the grain BUDDY_COST_DAYS is in.
 tojson() { jq -R 'select(length > 0)' | jq -s .; }
 rootsjson=$(printf '%s\n' "$roots" | tojson)
-sibsjson=$(printf '%s\n' "$parent/$base-" "$rparent/$base-" | awk '!seen[$0]++' | tojson)
+sibsjson=$(printf '%s\n' "$parent/$base-" "$rparent/$base-" "$parent/$base." "$rparent/$base." | awk '!seen[$0]++' | tojson)
 excljson=$(printf '%s\n' "$excl" | tojson)
 printf '%s\n' "$projs" | while IFS= read -r d; do
 	find "$d" -maxdepth 1 -name '*.jsonl' -mtime "-$days"

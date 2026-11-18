@@ -225,9 +225,21 @@ else
 	verdict PASS toolchain "go $gov, git $gitv, python3 present"
 fi
 
-# path-bin
+# path-bin. A buddy on PATH that is not the file install.sh builds at
+# $HOME/bin/buddy (the one the hooks name) is a WARN naming both (#135, D-217):
+# the commit gate and setup-clone take `command -v buddy` first, and so does
+# every typed verb, so a stale copy earlier on PATH (one `go install` left) is
+# refused on a newer ledger (D-037) while this row said PASS. -ef compares
+# device and inode, so a link to the installed copy is the same file. Advice
+# only: which copy goes is the user's.
 if have buddy; then
-	verdict PASS path-bin "buddy at $(command -v buddy)"
+	pb=$(command -v buddy)
+	if [ -n "$HOME" ] && [ -x "$HOME/bin/buddy" ] && [ ! "$pb" -ef "$HOME/bin/buddy" ]; then
+		verdict WARN path-bin "buddy on PATH is $pb, not $HOME/bin/buddy, the copy install.sh builds and the hooks run: the commit gate and every typed verb run $pb, and a stale one is refused on a newer ledger (D-037)"
+		fix "remove $pb, or put \$HOME/bin ahead of its directory on PATH (the user's decision; no sudo unless that directory needs it)"
+	else
+		verdict PASS path-bin "buddy at $pb"
+	fi
 elif [ -n "$HOME" ] && [ -x "$HOME/bin/buddy" ]; then
 	verdict WARN path-bin "$HOME/bin/buddy is built but \$HOME/bin is not on this shell's PATH"
 	fix "echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> ~/.zprofile, then a new shell (no sudo; reversible: delete the line)"

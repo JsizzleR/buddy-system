@@ -32,9 +32,13 @@
 #     repo, an EXISTING sibling `<root>-*` that is another repository or none,
 #     or a directory sharing the name without the dash; a linked worktree's,
 #     a removed worktree's under the checkout, and a REMOVED sibling
-#     `<root>-*`'s (a landed lane's worktree, #77) counted, beside the
-#     checkout and beside a linked worktree; subagent requests counted and
-#     their session not counted twice;
+#     `<root>-*`'s (a landed lane's worktree, #77) or `<root>.*`'s (#136)
+#     counted, beside the checkout and beside a linked worktree; subagent
+#     requests counted and their session not counted twice;
+#   - a transcript last modified before the window is not read, and `seen`
+#     counts the ones in it (#137): a file aged 30 days holding a record
+#     stamped now is left out, one aged 5 days is read, and the first, its
+#     age restored, is read too;
 #   - skill exposure over that set: a request after a Skill call, a /command
 #     and a resumed copy of the load is carried, the request that made the
 #     call is not, a subagent's file does not inherit its parent's load, and a
@@ -447,9 +451,63 @@ chmod 600 "$P/-repo/zz-mid.jsonl"; rm -f "$P/-repo/zz-mid.jsonl"
 case $out in *"every number below is a FLOOR"*) ;; *) fail "a transcript jq could not open did not draw the FLOOR note" ;; esac
 has sessions=7 requests=16 "cache_read=$((cr + 11000 + 14000 + 19000))"
 
+# --- a removed sibling spelled `<root>.<label>` counts too (#136) -----------------
+# This repository's own lanes run in `<repo>.<label>` worktrees, and once one is
+# removed its sessions matched no root and no `<root>-` prefix: one week's report
+# dropped 31 of 97 sessions that way. Counted: m27 under a removed `repo.gone`,
+# m28 under a removed dot sibling of the LINKED worktree. Not counted, the same
+# guards as the dash spelling's: m29 under an existing `repo.old` that is
+# another repository, m30 under an existing `repo.plain` that is none, m31
+# through a `..` segment. The control is the dash rows above, still counted.
+mkrepo "$WORK/repo.old"
+mkdir -p "$WORK/repo.plain"
+a m27 24000 0 1 eeeeeeee-0000-4000-8000-00000000000e "$REPO.gone/sub" "$NOW" false "$M" '[]' > "$P/-other/dotgone.jsonl"
+a m28 25000 0 1 ffffffff-0000-4000-8000-00000000000f "$WT.gone" "$NOW" false "$M" '[]' > "$P/-other/wtdot.jsonl"
+a m29 26000 0 1 01010101-0000-4000-8000-000000000010 "$WORK/repo.old/sub" "$NOW" false "$M" '[]' > "$P/-other/dotold.jsonl"
+a m30 27000 0 1 02020202-0000-4000-8000-000000000011 "$WORK/repo.plain" "$NOW" false "$M" '[]' > "$P/-other/dotplain.jsonl"
+a m31 28000 0 1 03030303-0000-4000-8000-000000000012 "$REPO.gone/../../elsewhere" "$NOW" false "$M" '[]' > "$P/-other/dotdotdot.jsonl"
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with the dot siblings planted:
+$out"
+has sessions=9 requests=18 "cache_read=$((cr + 11000 + 14000 + 19000 + 24000 + 25000))"
+
+# --- a transcript last modified before the window is not read (#137) --------------
+# Every windowed row needs a record stamped in the window, which a file last
+# written before it cannot hold; reading every transcript ever written cost a
+# 7-day report 369 s over 6.2 GB where 1.74 GB was modified in the window. The
+# witness is a file aged 30 days holding a record stamped NOW, which no real
+# file can (m32): read, it counts, so only the age test keeps it out. The
+# control is m33, the same shape in a file aged 5 days, inside the window: an
+# age test too tight drops it. `seen` counts the files in the window.
+a m32 29000 0 1 04040404-0000-4000-8000-000000000013 "$REPO" "$NOW" false "$M" '[]' > "$P/-repo/aged30.jsonl"
+a m33 30000 0 1 05050505-0000-4000-8000-000000000014 "$REPO" "$NOW" false "$M" '[]' > "$P/-repo/aged5.jsonl"
+touch -t "$(jq -rn 'now - 30 * 86400 | strftime("%Y%m%d%H%M")')" "$P/-repo/aged30.jsonl"
+touch -t "$(jq -rn 'now - 5 * 86400 | strftime("%Y%m%d%H%M")')" "$P/-repo/aged5.jsonl"
+inwin=$(find "$P" -type f -name '*.jsonl' -size +0c ! -name aged30.jsonl | wc -l | tr -d ' ')
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with the aged transcripts planted:
+$out"
+has sessions=10 requests=19 "cache_read=$((cr + 11000 + 14000 + 19000 + 24000 + 25000 + 30000))"
+has transcripts "seen=$inwin" "parsed=$inwin"
+# The same file, its age restored to now, is read: the age test is what left it out.
+touch "$P/-repo/aged30.jsonl"
+out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with the aged transcript touched"
+has sessions=11 requests=20 "cache_read=$((cr + 11000 + 14000 + 19000 + 24000 + 25000 + 30000 + 29000))"
+has transcripts "seen=$((inwin + 1))" "parsed=$((inwin + 1))"
+# A window spelled with a leading zero is decimal (Codex code pass): `010` is ten
+# days, and shell arithmetic read it as octal eight, so the age test (`-mtime -9`)
+# dropped a file aged 9.5 days that SQLite's ten-day cutoff admits. Stamped in
+# local time (strflocaltime), as touch reads it, so the half day is exact.
+a m34 31000 0 1 06060606-0000-4000-8000-000000000015 "$REPO" "$NOW" false "$M" '[]' > "$P/-repo/aged9.jsonl"
+touch -t "$(jq -rn 'now - 9.5 * 86400 | strflocaltime("%Y%m%d%H%M")')" "$P/-repo/aged9.jsonl"
+out=$( cd "$REPO" && HOME="$WORK/home" CLAUDE_PROJECTS_DIR="$P" BUDDYLIST_JOURNAL="$WORK/none.db" \
+	BUDDY_LEDGER="$WORK/none-ledger.db" BUDDYLIST_BIN="$WORK/no-buddylist" BUDDY_COST_DAYS=010 sh scripts/cost-report.sh 2>&1 ) ||
+	fail "the report exited non-zero on BUDDY_COST_DAYS=010:
+$out"
+has sessions=12 requests=21 "cache_read=$((cr + 11000 + 14000 + 19000 + 24000 + 25000 + 30000 + 29000 + 31000))"
+rm -f "$P/-repo/aged9.jsonl"
+
 # No record yet: one line that says so.
 mv "$REPO/.git/codex-passes.tsv" "$WORK/passes.saved"
 out=$(report scripts/cost-report.sh 2>&1) || fail "the report exited non-zero with no pass record"
 printf '%s\n' "$out" | grep -qxF "Codex passes recorded: none (no codex-passes.tsv in the git common dir yet)" || fail "no pass record did not say none"
 
-echo "check-cost-report: GREEN (codex pass record aggregated exactly, malformed rows counted and skipped, its canary never printed and a leaky copy caught; prose classes summed from the check's enumeration, a section and an entry key labelled not added, a report-only ceiling printed as one, OVER only over; lines that are not JSON skipped and counted, never costing the files after them; 13 requests deduplicated across messages, a resume and files; skill exposure, obedience and decisions reads on the planted counts; a planted canary never printed and a leaky copy caught)"
+echo "check-cost-report: GREEN (codex pass record aggregated exactly, malformed rows counted and skipped, its canary never printed and a leaky copy caught; prose classes summed from the check's enumeration, a section and an entry key labelled not added, a report-only ceiling printed as one, OVER only over; lines that are not JSON skipped and counted, never costing the files after them; 13 requests deduplicated across messages, a resume and files; removed siblings counted in both spellings, existing foreign ones not; a transcript older than the window not read; skill exposure, obedience and decisions reads on the planted counts; a planted canary never printed and a leaky copy caught)"
