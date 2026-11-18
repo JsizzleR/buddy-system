@@ -258,9 +258,19 @@ in_install() {
   esac
   return 1
 }
+# The testinfra area names every file whose TestMain arms the watchdog (GIVEN 55: Arm()
+# opens every TestMain, D-220) and the done-check that holds that, check-testguard.sh.
+# It named cli_test.go alone, D-053's one caller, after D-220 armed four more, so a diff
+# reordering store's or the adapter's TestMain reviewed against the stub only. By path,
+# each, not `*_test.go` (that would send the part on nearly every code pass, D-158's
+# reason for leaving 59 in the core) nor a basename (they differ: main, hook, ledger,
+# migrate). check-codex-review.sh holds the list against the tree: a TestMain file
+# added in a new package and missing here is red there.
 in_testinfra() {
   case $1 in
-    internal/testguard | internal/testguard/* | internal/cli/cli_test.go | docs/review-charter-testinfra.md) return 0 ;;
+    internal/testguard | internal/testguard/* | internal/cli/cli_test.go | internal/buddylist/main_test.go | \
+    internal/harness/ledger_test.go | internal/store/migrate_test.go | cmd/buddy-adapter/hook_test.go | \
+    scripts/check-testguard.sh | docs/review-charter-testinfra.md) return 0 ;;
   esac
   return 1
 }

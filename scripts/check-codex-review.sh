@@ -371,16 +371,57 @@ git -C "$E" update-index --cacheinfo "160000,$(git -C "$E" rev-parse HEAD),inter
 DRUN=$E; diffcase gitlink core+testinfra HEAD~1..HEAD; DRUN=
 # Every area path, one commit each: the list is the spec, so dropping a path from the
 # script's area is a red here (Codex code pass: deleting update.go went unseen).
-for ap in install:scripts/install.sh install:scripts/uninstall.sh install:scripts/install-lock.sh install:scripts/wire-hooks.py \
+AREA_PATHS="install:scripts/install.sh install:scripts/uninstall.sh install:scripts/install-lock.sh install:scripts/wire-hooks.py \
   install:scripts/gate-hook.py install:scripts/install-skill.sh install:scripts/skill-dest.sh install:scripts/setup-clone.sh install:scripts/codex-gate-row.sh \
   install:scripts/check-install.sh install:scripts/check-uninstall.sh install:scripts/check-gate-line.sh \
   install:scripts/check-setup-clone.sh install:scripts/hooks/agent-model-gate.py install:internal/cli/update.go \
   install:internal/cli/update_test.go install:internal/cli/uninstall.go install:internal/cli/uninstall_test.go \
   install:internal/cli/browser_test.go install:docs/review-charter-install.md \
   testinfra:internal/testguard/testguard.go testinfra:internal/testguard/sub/x.go testinfra:internal/cli/cli_test.go \
-  testinfra:docs/review-charter-testinfra.md; do
+  testinfra:internal/buddylist/main_test.go testinfra:internal/harness/ledger_test.go testinfra:internal/store/migrate_test.go \
+  testinfra:cmd/buddy-adapter/hook_test.go testinfra:scripts/check-testguard.sh \
+  testinfra:docs/review-charter-testinfra.md"
+for ap in $AREA_PATHS; do
   mkdir -p "$D/$(dirname "${ap#*:}")"; dcommit "${ap#*:}"
   diffcase "area-$(printf '%s' "${ap#*:}" | tr -c 'A-Za-z0-9.' '_')" "core+${ap%%:*}" HEAD~1..HEAD
+done
+# The list above against the TREE: every file with a TestMain (GIVEN 55, D-220: each arms
+# the watchdog) is a testinfra area path in it, so a TestMain added in a new package, and
+# so in no area, is red here rather than reviewed against the stub alone. The per-path
+# loop holds the script to the list; this holds the list to the tree. The declaration is
+# check-testguard.sh's (`func /* entrypoint */ TestMain(` is legal Go: a literal
+# `^func TestMain(` missed it, Codex code pass), read by git grep over tracked and
+# untracked files, and any exit but match (0) or none (1) is red, never a shorter list.
+# Controls: a planted repository whose scan must be exactly its two declarations (a
+# commented and an untracked one, beside a method and a call), a scan git cannot run
+# counting red, and the real scan must find cli_test.go's, so an empty scan is not a pass.
+TM='^func([[:space:]]|/\*[^*]*\*/)+TestMain\('
+testmains() { # <dir>: sets TMS to the *_test.go files under it declaring TestMain, space-separated
+  # Not $(testmains): a fail inside a command substitution counts in a subshell, and is lost.
+  TMS=$(cd "$1" && git grep --untracked -l -E "$TM" -- '*_test.go') || {
+    _rc=$?; [ "$_rc" = 1 ] || fail "testmain scan in $1: git grep exited $_rc"; TMS=; }
+  TMS=$(printf '%s' "$TMS" | tr '\n' ' ')
+}
+G=$T/tmscan; git init -q "$G"; mkdir -p "$G/a" "$G/b" "$G/c"
+printf 'package a\nfunc /* entrypoint */ TestMain(m *testing.M) {}\n' > "$G/a/x_test.go"
+printf 'package c\nfunc (s) TestMain(m *testing.M) {}\nfunc f() { TestMain(nil) }\n' > "$G/c/z_test.go"
+git -C "$G" add a c
+printf 'package b\nfunc TestMain(m *testing.M) {}\n' > "$G/b/y_test.go"
+testmains "$G"
+[ "$TMS" = "a/x_test.go b/y_test.go" ] || fail "testmain scan control: planted repo scanned as '$TMS', want a/x_test.go b/y_test.go"
+# The error arm, armed: a directory git cannot grep (no repository; the ceiling keeps git
+# from finding one above the temp dir) must cost exactly one failure, then is forgiven.
+mkdir -p "$T/norepo"; _f0=$fails
+# Exported and unset, not prefixed: before a function call sh may keep the assignment.
+GIT_CEILING_DIRECTORIES=$T; export GIT_CEILING_DIRECTORIES
+testmains "$T/norepo"
+unset GIT_CEILING_DIRECTORIES
+if [ "$fails" -eq $((_f0 + 1)) ]; then fails=$_f0; else fail "testmain scan control: a git grep that cannot run was not red"; fi
+testmains "$ROOT"; tm=$TMS
+case " $tm " in *" internal/cli/cli_test.go "*) ;; *) fail "testmain scan control: cli_test.go's TestMain not found (got: $tm)" ;; esac
+for f in $tm; do
+  case $f in internal/testguard/*) continue ;; esac # the package itself is in the area whole
+  case " $AREA_PATHS " in *" testinfra:$f "*) ;; *) fail "testmain: $f has a TestMain and is no testinfra area path in codex-review.sh's list" ;; esac
 done
 # A rename's OLD end is a path in the area: --no-renames names both ends.
 git -C "$D" mv scripts/install.sh sub/renamed.sh && git -C "$D" commit -qm rename
@@ -536,4 +577,4 @@ if [ "$fails" -ne 0 ]; then
   echo "check-codex-review: RED ($fails failure(s))" >&2
   exit 1
 fi
-echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts on stdin, a prompt over 128 KiB, 21 CODEX_DIFF picks + 23 area paths + 6 refusals, killed mid-run, INT + HUP + TERM to the group and TERM to perl end codex, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"
+echo "check-codex-review: GREEN (ok + reviewer line + pass record, no-out, 3 header mismatches + quoted header + no model line, fold, busy 75, 15 knob refusals + control, 4 charter parts on stdin, a prompt over 128 KiB, 21 CODEX_DIFF picks + 28 area paths + every TestMain listed + 6 refusals, killed mid-run, INT + HUP + TERM to the group and TERM to perl end codex, read-only dir, missing prompt, missing dir, watchdog 124, no reply 3, codex failure, hostile record values, -n, no git, record write failure, prompt footer)"
