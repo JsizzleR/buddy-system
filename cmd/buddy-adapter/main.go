@@ -34,8 +34,18 @@ func main() {
 		if len(os.Args) > 1 && os.Args[1] == "hook" {
 			// Claude treats exit 1 as a non-blocking hook diagnostic. Every
 			// wrapper failure must deny even when no gate process was reached.
-			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "Buddy adapter could not verify captured identity or gate execution"}})
-			fmt.Fprintln(os.Stderr, "buddy-adapter hook: captured identity or gate execution refused")
+			reason, line := "Buddy adapter could not verify captured identity or gate execution", "captured identity or gate execution refused"
+			if errors.Is(err, harness.ErrOwnClaim) {
+				// D-235: a posture the receipt names but this hook cannot
+				// honour (a bad word, a Codex warn, a --buddy with no
+				// own-claim gate) blocks every call; the generic line would
+				// leave the operator unable to tell it from an identity
+				// mismatch. The reason stays fixed; the cause goes to stderr,
+				// one fenced line (it quotes a receipt value).
+				reason, line = "Buddy adapter cannot honour the captured launch's own_claim posture; its stderr names why", fence.Line(err.Error(), 512)
+			}
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}})
+			fmt.Fprintln(os.Stderr, "buddy-adapter hook: "+line)
 			os.Exit(2)
 		}
 		fmt.Fprintln(os.Stderr, "buddy-adapter:", err)
@@ -169,10 +179,12 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		var saved harness.Saved
-		if err = json.Unmarshal(b, &saved); err != nil {
+		saved, err := harness.DecodeSaved(b)
+		if err != nil {
 			return err
 		}
+		// The posture is the receipt's, fixed at start: --launch is not read
+		// on resume, so an edited launch file changes nothing (D-235).
 		launch = saved.Launch
 		if *kind != saved.Identity.Harness {
 			return errors.New("resume harness differs from captured identity")
@@ -182,9 +194,14 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err = json.Unmarshal(b, &launch); err != nil {
+		if launch, err = harness.DecodeLaunch(b); err != nil {
 			return err
 		}
+	}
+	// Before the executable is resolved or any child exists (D-235); the
+	// controller refuses it again, and the warn tier is its precheck's.
+	if err := harness.CheckOwnClaim(*kind, launch.OwnClaim); err != nil {
+		return err
 	}
 	if !filepath.IsAbs(launch.Worktree) {
 		return errors.New("launch worktree must be absolute")

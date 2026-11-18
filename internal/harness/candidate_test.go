@@ -379,3 +379,39 @@ func TestCandidateReplacesRecords(t *testing.T) {
 		t.Fatalf("record set under a candidate: %d records", len(records))
 	}
 }
+
+// D-235: the candidate's synthesized record grants own_claim_warn for a
+// Claude candidate, so the suite that earns the tier can launch the posture
+// it measures, and never for Codex, which has no such tier (a Codex warn is
+// refused at launch). Positive control: start is granted to both.
+func TestCandidateOwnClaimWarnTier(t *testing.T) {
+	b, _, _ := claudeFixture(t)
+	exe := b.(*claudeBackend).executable
+	withAdmissions(t)
+	if err := withCandidate(t, QualificationCandidate{Harness: "claude", Version: claudeContractVersion, Artifact: exe, SHA256: sha(t, exe)}); err != nil {
+		t.Fatal(err)
+	}
+	if !admissionVersionGrants("claude", claudeContractVersion, TierStart) || !admissionVersionGrants("claude", claudeContractVersion, TierOwnClaimWarn) {
+		t.Fatal("a Claude candidate must grant start and own_claim_warn")
+	}
+	if rec, err := admissionRecords("claude", ""); err != nil || len(rec) != 1 {
+		t.Fatalf("candidate records: %v %v", rec, err)
+	}
+}
+
+// A REAL Codex candidate through the same factory, not a record edited by
+// hand: an append moved outside its Claude guard must fail here (Codex code
+// pass, finding 1). Its own test: a process binds one candidate.
+func TestCandidateCodexNoOwnClaimWarnTier(t *testing.T) {
+	withAdmissions(t)
+	cand, _ := codexCandidateTree(t)
+	if err := withCandidate(t, QualificationCandidate{Harness: "codex", Version: "0.160.0", Artifact: cand, SHA256: sha(t, cand)}); err != nil {
+		t.Fatal(err)
+	}
+	if !admissionVersionGrants("codex", "0.160.0", TierStart) {
+		t.Fatal("positive control: a Codex candidate grants start")
+	}
+	if admissionVersionGrants("codex", "0.160.0", TierOwnClaimWarn) {
+		t.Fatal("a Codex candidate must never grant own_claim_warn")
+	}
+}

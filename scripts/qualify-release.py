@@ -90,7 +90,10 @@ class Refusal(Exception):
 
 # ------------------------------------------------------------- the code's list
 
-TIER_ORDER = ("start", "resume", "compaction_observation")
+TIER_ORDER = ("start", "resume", "compaction_observation", "own_claim_warn")
+# own_claim_warn is Claude's alone (D-235): a Codex worker's warn is refused at
+# launch, so Codex has no such tier and its record may never name one.
+HARNESS_TIERS = {"claude": TIER_ORDER, "codex": TIER_ORDER[:3]}
 
 
 def code_suites(source=None):
@@ -112,7 +115,7 @@ def code_suites(source=None):
             out[harness][tier] = []
         else:
             out[harness][tier].append(token.group(3, 4, 5))
-    if set(out) != {"claude", "codex"} or any(set(v) != set(TIER_ORDER) or not all(v.values()) for v in out.values()):
+    if set(out) != {"claude", "codex"} or any(set(v) != set(HARNESS_TIERS[h]) or not all(v.values()) for h, v in out.items()):
         raise Refusal("could not read admissionSuites from internal/harness/admission.go")
     return out
 
@@ -412,7 +415,7 @@ def qualify(harness, executable, home, out_root, peer=None, today=None, git=None
     evidence_rel = "docs/admissions/%s-%s-%s" % (today, harness, tag)
     evidence_dir = pathlib.Path(out_root) / evidence_rel
     results, outputs = [], {}
-    for tier in TIER_ORDER:
+    for tier in HARNESS_TIERS[harness]:
         for suite, runner, checker in suites[tier]:
             row = {"tier": tier, "suite": suite, "runner": runner, "checker": checker}
             results.append(row)
@@ -450,7 +453,7 @@ def qualify(harness, executable, home, out_root, peer=None, today=None, git=None
                             (row["adapter_sha256"] is None if suite in DIRECT else
                              isinstance(row["adapter_sha256"], str) and len(row["adapter_sha256"]) == 64))
     settle_direct(results)
-    granted = [t for t in TIER_ORDER if all(x.get("green") for x in results if x["tier"] == t)]
+    granted = [t for t in HARNESS_TIERS[harness] if all(x.get("green") for x in results if x["tier"] == t)]
     if "start" not in granted:
         granted = []
     stable = clean and git["clean"]() and git["head"]() == head
@@ -509,7 +512,9 @@ def self_test():
     go = (REPO / "internal/harness/admission.go").read_text()
     suites = code_suites(go)
     case("code_suites_parsed", suites["claude"]["start"][0] == ("claude", "qualify-claude.py", "check-claude-gate.py") and
-         len(suites["codex"]["resume"]) == 3)
+         len(suites["codex"]["resume"]) == 3 and
+         suites["claude"]["own_claim_warn"] == [("claude-own-claim", "qualify-claude-own-claim.py", "check-claude-own-claim.py")] and
+         "own_claim_warn" not in suites["codex"])
     contracts, builtins, gate = code_constants(go)
     case("code_constants_parsed", contracts["claude"] and builtins and gate["codex"]["command"].startswith("'<adapter>'"))
     # run_suite finds a receipt only by a RECEIPT= or ROOT= line. The first
@@ -581,7 +586,7 @@ def self_test():
                     copier=lambda a, b: shutil.copy2(a, b), probe=probe, logs=tmp, admission_go=go)
         rec_path = out / ("internal/harness/admissions/claude/9.9.9-" + sha[:8] + "/admission.json")
         rec = json.loads(rec_path.read_text()) if rec_path.is_file() else {}
-        case("all_green_grants_every_tier", rec.get("tiers") == list(TIER_ORDER) and len(rec.get("suites", [])) == 6)
+        case("all_green_grants_every_tier", rec.get("tiers") == list(TIER_ORDER) and len(rec.get("suites", [])) == 7)
         case("record_binds_retained_bytes", rec.get("executable", {}).get("sha256") == sha and
              (home / (".buddy/harness/claude/9.9.9-" + sha[:8] + "/claude")).read_bytes() == src.read_bytes())
         case("checkers_given_the_candidate", seen and set(seen) == {"claude:9.9.9:" + sha})
@@ -601,8 +606,12 @@ def self_test():
             return got, (json.loads(p.read_text()) if p.is_file() else None)
 
         _, r2 = attempt("resume-checker-fails", bad_checker=("claude-interrupted",))
-        case("failing_checker_withholds_its_tier_only", r2 and r2["tiers"] == ["start", "compaction_observation"] and
+        case("failing_checker_withholds_its_tier_only", r2 and r2["tiers"] == ["start", "compaction_observation", "own_claim_warn"] and
              not any(x["tier"] == "resume" for x in r2["suites"]))
+        # D-235: the own-claim suite withholds its own tier and nothing else.
+        _, r8 = attempt("own-claim-fails", bad_checker=("claude-own-claim",))
+        case("failing_own_claim_withholds_only_own_claim_warn", r8 and r8["tiers"] == list(TIER_ORDER[:3]) and
+             not any(x["tier"] == "own_claim_warn" for x in r8["suites"]))
         _, r3 = attempt("start-fails", bad_runner=("claude-mods",))
         case("no_start_no_record", r3 is None)
         _, r4 = attempt("other-bytes", wrong_sha=("claude-compaction",))

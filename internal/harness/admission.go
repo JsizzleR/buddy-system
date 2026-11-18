@@ -88,6 +88,12 @@ const (
 	TierStart      = "start"
 	TierResume     = "resume"
 	TierCompaction = "compaction_observation"
+	// TierOwnClaimWarn admits a Claude worker's `own_claim: warn` (D-235): its
+	// suite showed the gate's warn reach the model with the operator approval
+	// it routes still in force (scripts/qualify-claude-own-claim.py). Here,
+	// not in ownclaim.go: qualify-release.py reads the tier names from this
+	// file's text.
+	TierOwnClaimWarn = "own_claim_warn"
 )
 
 // claudeKnownBuiltins are the built-in plugin identities whose meaning this
@@ -111,6 +117,9 @@ var admissionSuites = map[string]map[string][]suiteRequirement{
 			{"claude-interrupted", "qualify-claude-interrupted.py", "check-claude-interrupted.py"}},
 		TierCompaction: {{"claude-compaction", "qualify-claude-compaction.py", "check-claude-compaction.py"},
 			{"claude-interrupted-compaction", "qualify-claude-interrupted-compaction.py", "check-claude-interrupted-compaction.py"}},
+		// Claude only (D-235): a Codex worker's warn is refused at launch, so
+		// Codex has no such tier and no record of it may name one.
+		TierOwnClaimWarn: {{"claude-own-claim", "qualify-claude-own-claim.py", "check-claude-own-claim.py"}},
 	},
 	"codex": {
 		TierStart: {{"codex-shell-lifecycle-edge", "qualify-codex.py", "check-codex-gate.py"},

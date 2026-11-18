@@ -117,11 +117,17 @@ func cmdAdapter(args []string, env Env) error {
 		for i := range inspection.RunOutcomes {
 			inspection.RunOutcomes[i].Slug = fence.Line(inspection.RunOutcomes[i].Slug, 128)
 		}
+		// Gate names what this binary's gate honours for a worker, so the
+		// adapter's hook can refuse a posture its --buddy would ignore: a
+		// buddy built before D-228 has the same ledger schema (D-037 refuses
+		// nothing) and its gate never reads BUDDY_OWN_CLAIM, so a launch saying
+		// deny would allow every uncovered edit, silently (D-235, panel lens a).
 		return enc.Encode(struct {
 			Schema    string `json:"schema"`
 			Operation string `json:"operation"`
 			store.AdapterInspection
-		}{store.AdapterSchema, op, inspection})
+			Gate adapterGate `json:"gate"`
+		}{store.AdapterSchema, op, inspection, adapterGate{OwnClaim: []string{"off", "warn", "deny"}}})
 	case "queue":
 		delivery, err := st.QueueAdapter(identity, recipient, body)
 		if err != nil {
@@ -157,4 +163,11 @@ func cmdAdapter(args []string, env Env) error {
 		return enc.Encode(map[string]any{"schema": store.AdapterSchema, "operation": op, "identity": identity, "endpoint": endpoint})
 	}
 	return fmt.Errorf("unsupported adapter operation")
+}
+
+// adapterGate is `inspect`'s statement of the gate's own-claim postures
+// (EnvOwnClaim), read by buddy-adapter's hook before it hands a worker's gate
+// any posture but off.
+type adapterGate struct {
+	OwnClaim []string `json:"own_claim"`
 }

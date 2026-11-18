@@ -394,3 +394,55 @@ func TestDiagnoseCodexHookLocation(t *testing.T) {
 		})
 	}
 }
+
+// D-235: diagnose reads the launch with its own decoder (key case folded, a
+// duplicate's last value kept, null and "" read as absent), so it must ask the
+// adapter's strict own_claim read of the same bytes, or it reports as running
+// off a launch the adapter refuses. Absent and a plain word are the controls.
+func TestDiagnoseOwnClaimStrict(t *testing.T) {
+	boundedParallel(t)
+	f := newFixture(t)
+	f.initAndHello(t)
+	dir := t.TempDir()
+	base := `"worktree":` + strconvQuote(f.repo) + `,"harness_version":"0.160.0","hook_config":"/missing-config"`
+	for _, test := range []struct{ name, extra, state string }{
+		{"absent", ``, "off"},
+		{"deny", `,"own_claim":"deny"`, "deny"},
+		{"null", `,"own_claim":null`, "refused"},
+		{"empty", `,"own_claim":""`, "refused"},
+		{"case-variant key", `,"OWN_CLAIM":"deny"`, "refused"},
+		{"duplicate", `,"own_claim":"warn","own_claim":"off"`, "refused"},
+	} {
+		path := filepath.Join(dir, strings.ReplaceAll(test.name, " ", "-")+".json")
+		if err := os.WriteFile(path, []byte("{"+base+test.extra+"}"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		r := diagnosticOK(t, f, f.repo, "--harness", "codex", "--launch", path)
+		if r.Harness == nil || r.Harness.OwnClaim == nil || r.Harness.OwnClaim.State != test.state {
+			t.Errorf("%s: %+v, want %s", test.name, r.Harness, test.state)
+		}
+	}
+	// The receipt path reads the same way.
+	id := lifecycleOK(t, f, "begin", "--session", "diagnostic-own-claim")
+	saved := harness.Saved{Schema: harness.Schema, Identity: harness.Identity{Schema: id.Schema, Harness: id.Harness, SessionID: id.SessionID, Incarnation: id.Incarnation},
+		Launch: harness.Launch{Worktree: f.repo, HarnessVersion: "0.160.0", HookConfig: "/missing-config"}}
+	b, _ := json.Marshal(saved)
+	for _, test := range []struct{ name, from, to, state string }{
+		{"receipt absent", `"hooks"`, `"hooks"`, "off"},
+		{"receipt null", `"hooks"`, `"own_claim":null,"hooks"`, "refused"},
+	} {
+		path := filepath.Join(dir, strings.ReplaceAll(test.name, " ", "-")+".json")
+		if err := os.WriteFile(path, bytes.Replace(b, []byte(test.from), []byte(test.to), 1), 0600); err != nil {
+			t.Fatal(err)
+		}
+		r := diagnosticOK(t, f, f.repo, "--receipt", path)
+		if r.Harness == nil || r.Harness.OwnClaim == nil || r.Harness.OwnClaim.State != test.state {
+			t.Errorf("%s: %+v, want %s", test.name, r.Harness, test.state)
+		}
+	}
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}

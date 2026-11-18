@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -143,11 +144,12 @@ func TestReceiptBoundHookExecutable(t *testing.T) {
 			t.Fatalf("peer path was not a native denial: %v %s %s", err, out, stderr)
 		}
 	})
-	// D-228's D9: the child gate runs with the own-claim arm OFF, whatever the
-	// adapter inherited. allowed.txt is armed (the peer holds held.txt) and no
-	// claim of the worker covers it. Positive control first: the same payload
-	// straight to `buddy gate` under BUDDY_OWN_CLAIM=deny is refused, so the
-	// arm was live for this worker; through the adapter it is 0 bytes.
+	// D-228's D9, kept by D-235 for a launch that names no posture: the child
+	// gate runs with the own-claim arm OFF, whatever the adapter inherited.
+	// allowed.txt is armed (the peer holds held.txt) and no claim of the
+	// worker covers it. Positive control first: the same payload straight to
+	// `buddy gate` under BUDDY_OWN_CLAIM=deny is refused, so the arm was live
+	// for this worker; through the adapter it is 0 bytes.
 	t.Run("own-claim arm pinned off", func(t *testing.T) {
 		t.Setenv("BUDDY_OWN_CLAIM", "deny")
 		data, err := json.Marshal(input("allowed.txt"))
@@ -167,6 +169,148 @@ func TestReceiptBoundHookExecutable(t *testing.T) {
 			t.Fatalf("the adapter's child gate must run with the own-claim arm off (0 bytes): %v %q %s", err, out, stderr)
 		}
 	})
+	// D-235: the posture is the RECEIPT's, appended last, so the inherited
+	// value is set to the opposite in every row and never wins. Each row's
+	// allowed.txt is armed and uncovered; owned.txt is covered (silent under
+	// every posture, the positive control that deny refuses only the
+	// uncovered); held.txt is a peer's (denied under every posture, D7).
+	withPosture := func(t *testing.T, harnessName, raw string) {
+		t.Helper()
+		value := saved
+		value.Identity.Harness = harnessName
+		b, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if raw != "" {
+			b = []byte(strings.Replace(string(b), `"launch":{`, `"launch":{"own_claim":`+raw+`,`, 1))
+		}
+		if err = os.WriteFile(receipt, b, 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { writeReceipt(saved) })
+	}
+	warned := func(out []byte) bool {
+		var v struct {
+			Hook map[string]any `json:"hookSpecificOutput"`
+		}
+		if json.Unmarshal(out, &v) != nil {
+			return false
+		}
+		ctx, _ := v.Hook["additionalContext"].(string)
+		_, decided := v.Hook["permissionDecision"]
+		return v.Hook["hookEventName"] == "PreToolUse" && strings.HasPrefix(ctx, "BUDDY UNCLAIMED:") && !decided
+	}
+	for _, test := range []struct {
+		name, harness, raw, inherited, path string
+		want                                string // silent, warn, deny, block
+	}{
+		{"absent stays off", "claude", "", "deny", "allowed.txt", "silent"},
+		{"off stays off", "claude", `"off"`, "deny", "allowed.txt", "silent"},
+		{"claude warn", "claude", `"warn"`, "off", "allowed.txt", "warn"},
+		{"claude deny", "claude", `"deny"`, "off", "allowed.txt", "deny"},
+		{"deny leaves a covered path silent", "claude", `"deny"`, "off", "owned.txt", "silent"},
+		{"warn leaves a covered path silent", "claude", `"warn"`, "deny", "owned.txt", "silent"},
+		{"peer hold refuses under off", "claude", `"off"`, "", "held.txt", "deny"},
+		{"peer hold refuses under warn", "claude", `"warn"`, "", "held.txt", "deny"},
+		{"codex deny", "codex", `"deny"`, "off", "allowed.txt", "deny"},
+		{"codex warn receipt blocks", "codex", `"warn"`, "", "owned.txt", "block"},
+		{"null posture blocks", "claude", `null`, "", "owned.txt", "block"},
+		{"empty posture blocks", "claude", `""`, "", "owned.txt", "block"},
+		{"another word blocks", "claude", `"Deny"`, "", "owned.txt", "block"},
+	} {
+		t.Run("posture "+test.name, func(t *testing.T) {
+			t.Setenv("BUDDY_OWN_CLAIM", test.inherited)
+			withPosture(t, test.harness, test.raw)
+			out, stderr, err := run(input(test.path), buddy)
+			var ok bool
+			switch test.want {
+			case "silent":
+				ok = err == nil && len(bytes.TrimSpace(out)) == 0
+			case "warn":
+				ok = err == nil && warned(out) && bytes.Contains(out, []byte(test.path))
+			case "deny":
+				ok = err == nil && denied(out)
+				if test.path == "allowed.txt" {
+					ok = ok && bytes.Contains(out, []byte("inside no claim of this session"))
+				}
+			case "block":
+				ok = blocked(out, err) && strings.Contains(stderr+string(out), "own_claim")
+			}
+			if !ok {
+				t.Fatalf("want %s: %v %s %s", test.want, err, out, stderr)
+			}
+		})
+	}
+	// The launch file's posture is refused by the adapter's command line
+	// before the executable is resolved or any backend exists (D-235): with a
+	// nonexistent executable and a gate_command that matches nothing, the
+	// refusal names the posture, not either of those. Positive control: the
+	// same launch at deny gets past it and is refused for the gate command.
+	for _, test := range []struct{ name, harness, raw, want string }{
+		{"codex warn", "codex", `"warn"`, "D-228 D9"},
+		{"null", "claude", `null`, "own_claim"},
+		{"case variant", "claude", `"deny","OWN_CLAIM":"off"`, "own_claim"},
+		{"deny control", "codex", `"deny"`, "gate_command must exactly match"},
+	} {
+		t.Run("launch "+test.name, func(t *testing.T) {
+			launchFile := filepath.Join(t.TempDir(), "launch.json")
+			body := `{"worktree":` + strconv.Quote(repo) + `,"gate_command":"x","own_claim":` + test.raw + `}`
+			if err := os.WriteFile(launchFile, []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.CommandContext(ctx, adapter, "--harness", test.harness, "--executable", filepath.Join(dir, "no-such-native"),
+				"--buddy", buddy, "--launch", launchFile, "--receipt", filepath.Join(t.TempDir(), "worker.json"))
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			if err == nil || !strings.Contains(stderr.String(), test.want) {
+				t.Fatalf("want a refusal naming %q: %v %s", test.want, err, stderr.String())
+			}
+		})
+	}
+	// A --buddy whose `adapter inspect` reports no own-claim gate (a build
+	// before D-228: the same ledger schema, so nothing else refuses it) BLOCKS
+	// every call under a non-off posture, and is fine under off (positive
+	// control: the wrapper is otherwise transparent).
+	old := filepath.Join(dir, "buddy-before-d228")
+	script := "#!/bin/sh\nif [ \"$1\" = adapter ] && [ \"$2\" = inspect ]; then\n  \"" + buddy + "\" \"$@\" | sed 's/,\"gate\":{[^}]*}//'\n  exit $?\nfi\nexec \"" + buddy + "\" \"$@\"\n"
+	if err := os.WriteFile(old, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ raw, want string }{{`"off"`, "silent"}, {`"deny"`, "block"}, {`"warn"`, "block"}} {
+		t.Run("old buddy under "+test.raw, func(t *testing.T) {
+			withPosture(t, "claude", test.raw)
+			out, stderr, err := run(input("owned.txt"), old)
+			if test.want == "silent" && (err != nil || len(bytes.TrimSpace(out)) != 0) {
+				t.Fatalf("positive control through the wrapper: %v %s %s", err, out, stderr)
+			}
+			if test.want == "block" && (!blocked(out, err) || !strings.Contains(stderr+string(out), "does not report an own-claim gate")) {
+				t.Fatalf("an old buddy must block a non-off posture: %v %s %s", err, out, stderr)
+			}
+		})
+	}
+	// A --buddy that states an own-claim gate WITHOUT this posture blocks it
+	// too: gateHonours checks the posture is listed, not that a list exists
+	// (Fable cross-check: "the list is non-empty" stayed green). Deny is
+	// listed, so it passes: the positive control.
+	partial := filepath.Join(dir, "buddy-without-warn")
+	script = "#!/bin/sh\nif [ \"$1\" = adapter ] && [ \"$2\" = inspect ]; then\n  \"" + buddy + "\" \"$@\" | sed 's/\"own_claim\":\\[\"off\",\"warn\",\"deny\"\\]/\"own_claim\":[\"off\",\"deny\"]/'\n  exit $?\nfi\nexec \"" + buddy + "\" \"$@\"\n"
+	if err := os.WriteFile(partial, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ raw, want string }{{`"deny"`, "silent"}, {`"warn"`, "block"}} {
+		t.Run("buddy without warn under "+test.raw, func(t *testing.T) {
+			withPosture(t, "claude", test.raw)
+			out, stderr, err := run(input("owned.txt"), partial)
+			if test.want == "silent" && (err != nil || len(bytes.TrimSpace(out)) != 0) {
+				t.Fatalf("positive control through the wrapper: %v %s %s", err, out, stderr)
+			}
+			if test.want == "block" && (!blocked(out, err) || !strings.Contains(stderr+string(out), "does not report an own-claim gate")) {
+				t.Fatalf("a buddy without warn must block warn: %v %s %s", err, out, stderr)
+			}
+		})
+	}
 	for _, test := range []struct{ name, key, value string }{
 		{"wrong session", "session_id", "successor"}, {"wrong worktree", "cwd", dir},
 		{"subagent", "agent_id", "native-child"}, {"parent session", "parent_session_id", "parent"},

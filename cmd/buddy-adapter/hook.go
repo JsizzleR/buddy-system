@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -57,13 +58,19 @@ func runHook(args []string, in io.Reader, out, errout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var saved harness.Saved
-	if err = json.Unmarshal(data, &saved); err != nil {
+	// DecodeSaved: the receipt is reread on every call, and a plain decode
+	// reads `"own_claim": null`, "" or a case-variant key as off (D-235).
+	saved, err := harness.DecodeSaved(data)
+	if err != nil {
 		return err
 	}
 	if saved.Schema != harness.Schema || !saved.Identity.Valid() || saved.Identity.SessionID != input.SessionID {
 		return errors.New("hook does not match captured worker")
 	}
+	if err = harness.CheckOwnClaim(saved.Identity.Harness, saved.Launch.OwnClaim); err != nil {
+		return err
+	}
+	posture := saved.Launch.OwnClaimPosture()
 	// The safety steps (cwd check, identity check, then gate) share one budget
 	// and fail closed when it runs out. The advisory endpoint step between them runs on
 	// its own clock, which is not charged to the gate (F-29): it used to share
@@ -91,10 +98,17 @@ func runHook(args []string, in io.Reader, out, errout io.Writer) error {
 	}
 	inspectCtx, cancel := context.WithTimeout(context.Background(), harness.HookGateBudget-time.Since(started))
 	l := harness.CLILedger{Binary: *buddy, Worktree: saved.Launch.Worktree}
-	_, err = l.Inspect(inspectCtx, saved.Identity)
+	inspection, err := l.Inspect(inspectCtx, saved.Identity)
 	cancel()
 	if err != nil {
 		return err
+	}
+	// Any posture but off needs a --buddy whose gate reads it. Checked on the
+	// inspection this call already made, so it costs no process, and on EVERY
+	// call: a --buddy rebuilt or replaced after launch is caught at its next
+	// gated call, not only at launch (D-235, panel lens a).
+	if posture != harness.OwnClaimOff && !gateHonours(inspection, posture) {
+		return fmt.Errorf("%w: the launch's posture is %s, and this --buddy does not report an own-claim gate (built before D-228?): rebuild it from this checkout, or launch with own_claim off", harness.ErrOwnClaim, posture)
 	}
 	spent := time.Since(started)
 	if saved.Identity.Harness == "claude" {
@@ -116,18 +130,41 @@ func runHook(args []string, in io.Reader, out, errout io.Writer) error {
 	defer gateCancel()
 	cmd := exec.CommandContext(gateCtx, *buddy, "gate")
 	cmd.Dir = saved.Launch.Worktree
-	// BUDDY_OWN_CLAIM=off LAST, so it wins over an inherited value (exec keeps
-	// the last of a duplicated key): the adapter's qualified gate contract is
-	// deny-or-nothing (check-codex-gate.py's deny()), and its fixtures write an
-	// unclaimed allowed.txt beside a peer's held.txt, armed and uncovered. A
-	// warn there is output the contract has never seen, and a deny would refuse
-	// a call qualification passed; whether the own-claim arm ever reaches
-	// adapter workers is O4, for a qualification suite to earn (D-228's D9).
-	cmd.Env = append(os.Environ(), "BUDDY_HARNESS="+saved.Identity.Harness, "BUDDY_OWN_CLAIM=off")
+	// The receipt's posture LAST, so it wins over an inherited value (exec
+	// keeps the last of a duplicated key). It was `off` always (D-228's D9):
+	// the qualified contract was deny-or-nothing (check-codex-gate.py's
+	// deny()), and qualify-adapters.py writes an unclaimed allowed.txt beside
+	// a peer's guarded.txt, armed and uncovered, so a deny refuses a call that
+	// suite passes. D-235 answers O4 with a TYPED launch field instead: absent
+	// is off, the same bytes as before; deny is the envelope every start tier
+	// measures; warn is a Claude worker's only on a build whose records grant
+	// TierOwnClaimWarn (the controller refuses it otherwise, and a Codex warn
+	// at all). Never the inherited value: it is the coordinator's shell, which
+	// nothing records and every qualify script's clean_env strips.
+	cmd.Env = append(os.Environ(), "BUDDY_HARNESS="+saved.Identity.Harness, "BUDDY_OWN_CLAIM="+posture)
 	cmd.Stdin = bytes.NewReader(b)
 	cmd.Stdout = out
 	cmd.Stderr = errout
 	return cmd.Run()
+}
+
+// gateHonours reports whether an `adapter inspect` document says its gate
+// honours this own-claim posture (internal/cli/adapter.go's "gate").
+func gateHonours(inspection []byte, posture string) bool {
+	var v struct {
+		Gate struct {
+			OwnClaim []string `json:"own_claim"`
+		} `json:"gate"`
+	}
+	if json.Unmarshal(inspection, &v) != nil {
+		return false
+	}
+	for _, p := range v.Gate.OwnClaim {
+		if p == posture {
+			return true
+		}
+	}
+	return false
 }
 
 // judgedFromWorktree reports whether the gate, handed this payload cwd, judges

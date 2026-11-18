@@ -21,6 +21,8 @@ type fakeBackend struct {
 	// unrecorded models a backend path that returns a worker without
 	// spawning through its launch authorization; the controller must refuse it.
 	unrecorded bool
+	// resumed is the launch the last Resume was handed (D-235: the posture).
+	resumed *Launch
 }
 
 func (b *fakeBackend) Start(_ context.Context, _ Launch, auth *LaunchAuthorization) (string, error) {
@@ -32,7 +34,8 @@ func (b *fakeBackend) Start(_ context.Context, _ Launch, auth *LaunchAuthorizati
 	}
 	return "native-1", nil
 }
-func (b *fakeBackend) Resume(_ context.Context, _ Launch, id string, auth *LaunchAuthorization) (string, error) {
+func (b *fakeBackend) Resume(_ context.Context, launch Launch, id string, auth *LaunchAuthorization) (string, error) {
+	b.resumed = &launch
 	if b.unrecorded {
 		return id, nil
 	}

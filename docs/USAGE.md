@@ -2777,6 +2777,25 @@ are `read-only` and `workspace-write`, mapped to Codex sandbox modes and Claude
 plan/manual modes. Choose only permissions already authorized for the launcher.
 There is no bypass/auto-approval mode or arbitrary extra-arguments field.
 
+`own_claim` (optional; D-235) is the worker gate's own-claim posture, D-228's
+arm: `"off"` (the default when absent: no line, no refusal, as before D-235),
+`"deny"` (an edit no claim of the worker covers, while another session holds a
+claim in that ledger, is refused), or `"warn"` (Claude only: the `BUDDY
+UNCLAIMED:` line, and the call proceeds to the operator approval as before). The
+inherited `BUDDY_OWN_CLAIM` never reaches a worker's gate: the hook appends the
+receipt's value last, so only this field decides. A present key must be exactly
+`own_claim` holding one of the three strings (`null`, `""`, another word, a
+case variant or a second key refuse the launch, and in a receipt block every
+call). A Codex `"warn"` is refused at launch (its gate writes no warn, D-228
+D9). A Claude `"warn"` needs a record granting `own_claim_warn` for every
+artifact of that version; none of the committed records does yet. The posture
+is fixed at start: `--resume` reads it from the receipt. Under `"warn"` or
+`"deny"` the hook blocks every call when `--buddy` does not state an own-claim
+gate in `buddy adapter inspect` (a build before D-228), naming why on stderr.
+`buddy diagnose` reports it as `own_claim`; confirm a launch's posture with
+`buddy diagnose --receipt` after start: a `buddy-adapter` built before D-235
+ignores the key, runs off, and its receipt then reads `off`.
+
 ```sh
 /absolute/private/bin/buddy-adapter --harness codex \
   --executable /absolute/path/to/codex --buddy /absolute/private/bin/buddy \
@@ -2794,7 +2813,9 @@ release tree: `bin/codex`, `bin/codex-code-mode-host`, `codex-path/`,
 `codex-resources/`, `codex-package.json`, the `codex` link; an undeclared entry
 refuses), the code-owned adapter contract id, Claude's Mod profile and built-in
 list, and the tiers its evidence earned: `start`, `resume`,
-`compaction_observation`. A tier is granted only with every suite the code
+`compaction_observation`, and for Claude `own_claim_warn` (D-235: the suite
+`qualify-claude-own-claim.py`, a separate warn launch whose line must reach the
+model with each approval still asked). A tier is granted only with every suite the code
 requires for it and an independent checker's passing verdict; omitted means
 denied, and no record can grant Codex `reconcile`. Before anything runs (not even
 `--version`) the adapter hashes the executable, finds the record by those bytes,

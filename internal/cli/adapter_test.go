@@ -126,6 +126,11 @@ func TestAdapterCLIEndpointUsesReceivingExportAndProcess(t *testing.T) {
 	if code != 0 || errw != "" || strings.Contains(out, "must-never-be-recorded") {
 		t.Fatalf("endpoint inspection leaked auth or failed: %d %s %s", code, out, errw)
 	}
+	// D-235: inspect states the own-claim postures this gate honours; the
+	// adapter's hook refuses a non-off posture when they are missing.
+	if !strings.Contains(out, `"gate":{"own_claim":["off","warn","deny"]}`) {
+		t.Fatalf("inspect does not state the own-claim gate: %s", out)
+	}
 	st := lifecycleStore(t, f)
 	procs, err := st.SessionProcs()
 	if err != nil || len(procs[recipient.SessionID]) != 1 || procs[recipient.SessionID][0] != (store.ProcRef{PID: 101, Born: 202}) {

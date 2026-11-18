@@ -179,3 +179,32 @@ func TestDiagnosticInputRejectsSpecialAndOversizedFiles(t *testing.T) {
 		t.Fatal("accepted oversized input")
 	}
 }
+
+// D-235: diagnose says what Start would decide about own_claim, and a launch
+// without one reports off (positive control: the field is read).
+func TestDiagnoseOwnClaim(t *testing.T) {
+	l, _ := diagnosticFixture(t)
+	for _, test := range []struct{ kind, posture, state string }{
+		{"codex", "", "off"}, {"codex", "deny", "deny"}, {"codex", "warn", "refused"},
+		{"claude", "deny", "deny"}, {"claude", "x", "refused"},
+	} {
+		l.OwnClaim = test.posture
+		if got := Diagnose(test.kind, &l, nil).OwnClaim; got == nil || got.State != test.state {
+			t.Errorf("%s %q: %+v, want %s", test.kind, test.posture, got, test.state)
+		}
+	}
+	// Claude warn needs the tier from every record of the declared version.
+	l.OwnClaim, l.HarnessVersion = "warn", claudeContractVersion
+	exe := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(exe, []byte("fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	withAdmissions(t, testRecord(t, "claude", claudeContractVersion, exe, TierStart))
+	if got := Diagnose("claude", &l, nil).OwnClaim; got == nil || got.State != "refused" {
+		t.Fatalf("warn without the tier: %+v", got)
+	}
+	withAdmissions(t, testRecord(t, "claude", claudeContractVersion, exe, TierStart, TierOwnClaimWarn))
+	if got := Diagnose("claude", &l, nil).OwnClaim; got == nil || got.State != "warn" {
+		t.Fatalf("warn with the tier: %+v", got)
+	}
+}

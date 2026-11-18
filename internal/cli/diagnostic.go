@@ -76,14 +76,20 @@ func cmdDiagnose(args []string, env Env) error {
 	}
 	r.ObservedAt = now.UTC().Format(time.RFC3339Nano)
 	var launch *harness.Launch
+	// ownClaimErr is the adapter's strict own_claim read of the same bytes
+	// (D-235): this decoder folds key case and keeps a duplicate's last value,
+	// and reads null or "" as absent, so without it a launch the adapter
+	// refuses would be reported as running off.
+	var ownClaimErr error
 	var identity store.AdapterIdentity
 	var evidence *harness.DiagnosticEvidence
 	if *receiptPath != "" {
 		var saved harness.Saved
-		hash, err := diagnosticJSON(*receiptPath, &saved)
+		hash, raw, err := diagnosticJSON(*receiptPath, &saved)
 		if err != nil {
 			return err
 		}
+		_, ownClaimErr = harness.DecodeSaved(raw)
 		if saved.Schema != harness.Schema || !saved.Identity.Valid() {
 			return errors.New("diagnose requires a valid saved adapter receipt")
 		}
@@ -96,10 +102,11 @@ func cmdDiagnose(args []string, env Env) error {
 		r.InputSHA256 = hash
 	} else if *launchPath != "" {
 		launch = &harness.Launch{}
-		hash, err := diagnosticJSON(*launchPath, launch)
+		hash, raw, err := diagnosticJSON(*launchPath, launch)
 		if err != nil {
 			return err
 		}
+		_, ownClaimErr = harness.DecodeLaunch(raw)
 		r.InputSHA256 = hash
 	}
 	if launch != nil && !filepath.IsAbs(launch.Worktree) {
@@ -108,7 +115,7 @@ func cmdDiagnose(args []string, env Env) error {
 	var evidenceHash string
 	if *evidencePath != "" {
 		evidence = &harness.DiagnosticEvidence{}
-		hash, err := diagnosticJSON(*evidencePath, evidence)
+		hash, _, err := diagnosticJSON(*evidencePath, evidence)
 		if err != nil {
 			return err
 		}
@@ -116,6 +123,9 @@ func cmdDiagnose(args []string, env Env) error {
 	}
 	if *kind != "" {
 		d := harness.Diagnose(*kind, launch, evidence)
+		if ownClaimErr != nil && d.OwnClaim != nil {
+			d.OwnClaim = &harness.Observation{State: "refused", Detail: fence.Line(ownClaimErr.Error(), 512)}
+		}
 		d.EvidenceSHA256 = evidenceHash
 		r.Harness = &d
 	}
@@ -157,22 +167,22 @@ func cmdDiagnose(args []string, env Env) error {
 	return json.NewEncoder(env.Stdout).Encode(r)
 }
 
-func diagnosticJSON(path string, dst any) (string, error) {
+func diagnosticJSON(path string, dst any) (string, []byte, error) {
 	b, err := harness.ReadDiagnosticFile(path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	if err := d.Decode(dst); err != nil {
-		return "", errors.New("diagnostic input must match the documented JSON schema")
+		return "", nil, errors.New("diagnostic input must match the documented JSON schema")
 	}
 	var extra any
 	if d.Decode(&extra) != io.EOF {
-		return "", errors.New("diagnostic input must contain exactly one JSON object")
+		return "", nil, errors.New("diagnostic input must contain exactly one JSON object")
 	}
 	hash := sha256.Sum256(b)
-	return hex.EncodeToString(hash[:]), nil
+	return hex.EncodeToString(hash[:]), b, nil
 }
 
 // CODEX HOOK MARKERS (F-31). A Codex hook that runs buddy without

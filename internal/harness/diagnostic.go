@@ -53,6 +53,9 @@ type HarnessDiagnostic struct {
 	Hooks                        HookDiagnostic `json:"hooks"`
 	AdapterCapabilities          Capabilities   `json:"adapter_capabilities"`
 	RuntimeCapabilities          Observation    `json:"runtime_capabilities"`
+	// OwnClaim is what the adapter would do with the launch's own_claim
+	// (D-235): the posture, or "refused" and why. Present only with a launch.
+	OwnClaim *Observation `json:"own_claim,omitempty"`
 }
 
 // ReadDiagnosticFile never follows a final symlink or blocks on a FIFO. These
@@ -96,6 +99,7 @@ func Diagnose(kind string, launch *Launch, evidence *DiagnosticEvidence) Harness
 	if launch == nil {
 		return r
 	}
+	r.OwnClaim = diagnoseOwnClaim(kind, launch)
 	r.DeclaredVersion = fence.Line(launch.HarnessVersion, 128)
 	r.DeclaredVersionCompatibility = "unsupported"
 	if admissionVersionKnown(kind, launch.HarnessVersion) {
@@ -200,4 +204,18 @@ func diagnoseCodexHooks(raw []byte, launch Launch) (Observation, Observation) {
 		return configuration, Observation{State: "not_trusted_snapshot"}
 	}
 	return configuration, Observation{State: "trusted_snapshot", Detail: "supplied native metadata only; current trust and enforcement remain unknown"}
+}
+
+// diagnoseOwnClaim says what Start would decide about the posture: the
+// harness rule, then, for warn, the tier every record of the declared version
+// must grant. A report: it decides nothing (D-235).
+func diagnoseOwnClaim(kind string, launch *Launch) *Observation {
+	if err := CheckOwnClaim(kind, launch.OwnClaim); err != nil {
+		return &Observation{State: "refused", Detail: fence.Line(err.Error(), 512)}
+	}
+	posture := launch.OwnClaimPosture()
+	if posture == OwnClaimWarn && !admissionVersionGrants(kind, launch.HarnessVersion, TierOwnClaimWarn) {
+		return &Observation{State: "refused", Detail: "no admission record of this version grants " + TierOwnClaimWarn}
+	}
+	return &Observation{State: posture}
 }

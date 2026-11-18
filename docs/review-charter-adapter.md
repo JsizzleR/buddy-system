@@ -72,9 +72,9 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     refuses every launch). Before anything runs, the executable is hashed and matched by
     bytes, and Codex's whole release tree is matched to its manifest (an undeclared entry
     refuses). Then contract id, platform, tier and profile, the exact version text, and
-    the live checks, unchanged. Tiers are `start`, `resume`, `compaction_observation`;
-    each needs the code's suites with an independent checker's pass. Capabilities are
-    tiers intersected with code support, and reconcile is never granted. Do not propose a runtime registry, ranges or
+    the live checks, unchanged. Tiers are `start`, `resume`, `compaction_observation`,
+    Claude's `own_claim_warn` (D-235); each needs the code's suites with an independent
+    checker's pass. Capabilities: tiers intersected with code support. Do not propose a runtime registry, ranges or
     probing alone, a metadata hash cache, or invalidation by adapter hash (an embedded
     record cannot bind its own binary; the contract id is bumped instead). A version-keyed
     parse rule whose outcomes are identical on every measured frame of every recorded

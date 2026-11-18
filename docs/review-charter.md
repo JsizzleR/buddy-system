@@ -728,7 +728,7 @@ ledger row entered through the CLI (D-006).
     on executed results) or treating `accept` as completion. The field is `@internal`;
     exact-build admission is why relying on it is acceptable.
 
-80. **Native admission is a committed exact-artifact record, embedded in the adapter (D-079).** Reconcile is never granted; a parse-rule change that alters a measured outcome bumps the contract id; a record is made before a planned adapter run, not per release (D-156). Do not propose: a runtime registry, ranges or probing alone, a metadata hash cache, invalidation by adapter hash. (full text: `CODEX_CHARTER=adapter`)
+80. **Native admission is a committed exact-artifact record, embedded in the adapter (D-079, D-235).** Reconcile is never granted; a parse-rule change altering a measured outcome bumps the contract id; a record precedes a planned adapter run, not each release (D-156). Do not propose: a runtime registry, ranges or probing alone, a metadata hash cache, invalidation by adapter hash. (full text: `CODEX_CHARTER=adapter`)
 81. **A qualification candidate is bound by typed sha256 and a loopback provider (D-080).** Every receipt carries `qualification_candidate`; cross-mode resume refuses. Do not propose: a candidate without the typed digest, a non-loopback provider. (full text: `CODEX_CHARTER=adapter`)
 82. **A qualification run binds its own binary; checkers read the records (D-081, D-216).** Earned tiers only, one clean HEAD. Do not propose: per-checker version lists, hand-written records, `BUDDY_QUALIFY_*` env transport. (full text: `CODEX_CHARTER=adapter`)
 83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a

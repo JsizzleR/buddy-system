@@ -439,6 +439,7 @@ print(" ".join(sorted(hits)))
   # idle, and a dropped move destination are each refused.
   python3 -I -B scripts/check-claude-gate.py --self-test
   python3 -I -B scripts/check-claude-mods.py --self-test
+  python3 -I -B scripts/check-claude-own-claim.py --self-test
   python3 -I -B scripts/check-codex-gate.py --self-test
   python3 -I -B scripts/check-adapters.py --self-test
   python3 -I -B scripts/check-claude-jobs.py --self-test

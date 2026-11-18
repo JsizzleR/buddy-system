@@ -329,9 +329,21 @@ func (c *Controller) Start(ctx context.Context, harness string, launch Launch, l
 	// An unadmitted version is refused before the `.start` intent exists:
 	// nothing was attempted, so nothing should be left for reconciliation.
 	// The backend still binds the exact artifact by hash at launch (D-079).
+	// The own-claim posture (D-235) is refused here too, not only by the
+	// command line: a Codex warn would be silence, and a Claude warn is a
+	// native output only its own tier's suite has seen. Before the intent, so
+	// a refused posture leaves nothing to reconcile.
+	if err := CheckOwnClaim(harness, launch.OwnClaim); err != nil {
+		return c.receipt("start"), err
+	}
 	if p, ok := c.backend.(admissionPrecheck); ok {
 		if err := p.precheck(launch, TierStart); err != nil {
 			return c.receipt("start"), err
+		}
+		if launch.OwnClaimPosture() == OwnClaimWarn {
+			if err := p.precheck(launch, TierOwnClaimWarn); err != nil {
+				return c.receipt("start"), err
+			}
 		}
 	}
 	// A crash after native start or a committed Begin must leave a durable
@@ -496,8 +508,11 @@ func (c *Controller) resumeAdmission() (Saved, error) {
 	if err != nil {
 		return Saved{}, err
 	}
-	var saved Saved
-	if err = json.Unmarshal(b, &saved); err != nil || saved.Schema != Schema || !saved.Identity.Valid() {
+	// DecodeSaved, not a plain Unmarshal: a receipt whose own_claim a plain
+	// decode would read as off (null, "", a case-variant or second key) is
+	// refused here as the hook refuses it on every call (D-235).
+	saved, err := DecodeSaved(b)
+	if err != nil || saved.Schema != Schema || !saved.Identity.Valid() {
 		return Saved{}, errors.New("invalid captured receipt")
 	}
 	// The backend refuses a native session id outside the ledger's rule on
@@ -520,9 +535,18 @@ func (c *Controller) resumeAdmission() (Saved, error) {
 	// recognized. The launch then binds the exact record by hash, and a
 	// version other than the captured one is refused there (cross-version
 	// resume stays refused).
+	if err := CheckOwnClaim(saved.Identity.Harness, saved.Launch.OwnClaim); err != nil {
+		return Saved{}, err
+	}
 	if p, ok := c.backend.(admissionPrecheck); ok {
 		if err := p.precheck(saved.Launch, TierResume); err != nil {
 			return Saved{}, err
+		}
+		// A warn worker resumes only where warn is earned, as it starts (D-235).
+		if saved.Launch.OwnClaimPosture() == OwnClaimWarn {
+			if err := p.precheck(saved.Launch, TierOwnClaimWarn); err != nil {
+				return Saved{}, err
+			}
 		}
 	}
 	// An empty journal, or a start that never finished publishing, cannot

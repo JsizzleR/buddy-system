@@ -64,6 +64,10 @@ type Launch struct {
 	HookConfig      string        `json:"hook_config"`
 	HarnessVersion  string        `json:"harness_version"`
 	Hooks           Compatibility `json:"hooks"`
+	// OwnClaim is the worker gate's own-claim posture (ownclaim.go, D-235):
+	// off, warn or deny; absent is off. Read only through DecodeLaunch or
+	// DecodeSaved, which refuse what a plain decode would read as off.
+	OwnClaim string `json:"own_claim,omitempty"`
 }
 type Observation struct {
 	State  string `json:"state"`

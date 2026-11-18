@@ -138,6 +138,9 @@ func EnableQualificationCandidate(c QualificationCandidate) (*QualificationCandi
 		Executable: AdmissionFile{Path: execPath, SHA256: sum, Size: size}, Package: pkg, Gate: gateContract(c.Harness),
 		Evidence: AdmissionEvidence{Source: "qualification candidate typed on the adapter command line (D-080)", Note: "grants nothing outside a loopback qualification fixture"}}
 	if c.Harness == "claude" {
+		// The candidate grants every tier its harness has, so the suite
+		// that earns own_claim_warn can launch the posture it measures.
+		rec.Tiers = append(rec.Tiers, TierOwnClaimWarn)
 		rec.Claude = &ClaudeAdmission{ModProfile: "builtin-only-" + c.Version, Builtins: append([]string(nil), claudeKnownBuiltins...)}
 	}
 	admissionRecords = func(string, string) ([]AdmissionRecord, error) { return []AdmissionRecord{rec}, nil }
