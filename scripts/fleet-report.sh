@@ -402,7 +402,12 @@ report() {
 	# (a session at or past the handoff size: id, prompt). A sample counts
 	# only for the incarnation that observed it, as the roster's does, and
 	# only when its prompt is an integer: SQLite orders TEXT above every
-	# number, so a malformed row would count (Codex code pass).
+	# number, so a malformed row would count (Codex code pass). A slot is
+	# found by claim_scopes.folded, the PRE-D-222 key (still written, for older
+	# binaries), and SQLite cannot compute store.Fold's. For every ASCII scope
+	# the two keys are one, and the verbs name slots in ASCII, so it is left: a
+	# non-ASCII alias of .buddy/slot (`.buddy/ſlot/x`, a slot to the store) is
+	# missed here and counted unrenewed, the report saying more, never less.
 	out=$(q "
 		CREATE TEMP VIEW oc AS
 			SELECT c.claim_id, c.session_id, c.renewed, s.session_id AS sid, s.ended, s.last_seen

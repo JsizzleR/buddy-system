@@ -458,8 +458,9 @@ func (j *Journal) KnowsRoom(room string) (bool, error) {
 // changed over retained history), so a served room is read by the spelling
 // the JOURNAL holds, not by the config's.
 //
-// Fold is NFC plus Go's ToLower, which SQLite cannot express (its NOCASE is
-// ASCII-only: a second normalization), so the distinct names are walked one
+// The fold is store.Fold's key (full case folding, decomposed; D-222), which
+// SQLite cannot express (its NOCASE is ASCII-only: a second rule), so the
+// distinct names are walked one
 // covering seek each on messages_room_seq (the walk alert.go measured at
 // 0.04 ms over 60k rows) and folded here. It runs only for a served room read
 // in a spelling that holds no rows of its own.

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
 )
@@ -349,10 +350,33 @@ func (o ownEcho) authored(self string, m Msg) bool {
 	if o == "" || fence.Slot(string(o), fence.LabelCap) != string(o) {
 		return false
 	}
-	if self != "" && fold(m.Sender) != fold(self) {
+	if self != "" && !sameSender(m.Sender, self) {
 		return false // not relayed by the concierge, so not this session's echo
 	}
 	return strings.HasPrefix(m.Body, fromSlot(string(o)))
+}
+
+// sameSender is whether a message's sender is the concierge: the fold for an
+// ASCII pair, since the server echoes its own case of a nick, else the same
+// bytes. Not the full fold: it calls `straße` and `strasse` one, and a server
+// that keeps them apart has two accounts there, so a peer's slot-signed line
+// read as this session's own echo and its alert was dropped (Codex code pass),
+// the lost alert ownEcho exists to avoid. A non-ASCII echo in another form
+// than the configured name over-alerts, the safe side. The same ASCII-only
+// reading as BUDDY_CHAT's (chatWord): a narrower use of the one rule, never a
+// second one.
+func sameSender(a, b string) bool {
+	if a == b {
+		return true
+	}
+	for _, s := range [2]string{a, b} {
+		for i := 0; i < len(s); i++ {
+			if s[i] >= utf8.RuneSelf {
+				return false
+			}
+		}
+	}
+	return fold(a) == fold(b)
 }
 
 // AlertDeps is what the proactive alert needs: a daemon socket and the names

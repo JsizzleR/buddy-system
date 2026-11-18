@@ -12,9 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JsizzleR/buddy-system/internal/fence"
 	"github.com/JsizzleR/buddy-system/internal/tocwire"
+	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -147,6 +149,24 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	if cfg.MaxBackoff <= 0 {
 		cfg.MaxBackoff = 60 * time.Second
+	}
+	// Two configured rooms that are one name under the fold are two joins on
+	// the server and ONE key in roomIDs: every Say to either went to whichever
+	// joined last, and a leave of either dropped the other's id (Codex code
+	// pass). `Lobby,lobby` did it under the old rule; the full fold (D-222)
+	// makes `strasse,straße` one too. Refused, naming both, so the config is
+	// fixed rather than half-routed. Empty entries (a trailing comma) are no
+	// room and are skipped, as they were.
+	seen := map[string]string{}
+	for _, room := range cfg.Rooms {
+		k := fold(room)
+		if k == "" {
+			continue
+		}
+		if prev, dup := seen[k]; dup {
+			return nil, fmt.Errorf("buddylist: --rooms names %q and %q, which are one room under the fold (invariant 13); name one", strings.TrimSpace(prev), strings.TrimSpace(room))
+		}
+		seen[k] = room
 	}
 	d := &Daemon{
 		cfg:       cfg,
@@ -620,14 +640,27 @@ func (d *Daemon) Health() (connected bool, note string) {
 }
 
 // fold is the ONE folding rule (invariant 13), spelled exactly as store.Fold
-// spells it: strings.ToLower(norm.NFC.String(s)). It is restated here rather
-// than imported because the chat half must not take a compile-time dependency
-// on the ledger package for a string function — the ledger is the safety half,
-// and this package must remain droppable without it. If store.Fold ever
-// changes, this line changes with it; there is no third spelling.
+// spells it: an ASCII fast path ToLower(s), else NFD(ToLower(cases.Fold(NFD(s)))).
+// It is restated here rather than imported because the chat half must not
+// take a compile-time dependency on the ledger package for a string function —
+// the ledger is the safety half, and this package must remain droppable
+// without it. There is no third spelling: TestRoomFoldIsStoreFoldAfterTrim
+// (roomfold_test.go, which may import store) compares the two over every code
+// point and D-222's alias rows, so a change to either side goes red.
 //
-// The failure that motivated it: the previous spelling was
-// ToLower(TrimSpace(s)), a second rule with no normalization. A room
+// The failure that motivated holding it by a test, not this comment: D-222
+// moved store.Fold to full case folding, and this line, which promised to
+// change with it, stayed ToLower(NFC(s)). `ſtrasse`, `STRAẞE` and `straße`
+// were then unserved names beside a served `strasse`, refused naming the
+// rooms, where the volume and the ledger call them one. Why each part of the
+// key: store.go's fold and D-222 (full folding, ToLower for Cherokee's toggle,
+// NFD at the end because x/text's NFC truncates to 16 bits). Rooms are
+// journalled by their spelling and keyed only at read time, so the move
+// re-keyed nothing on disk; the one narrowing is U+0130 against i, two rooms
+// now as they are two files.
+//
+// The failure that motivated a shared rule at all: the spelling before that
+// was ToLower(TrimSpace(s)), a second rule with no normalization. A room
 // configured as precomposed "café" then never matched a session label whose
 // project half arrived decomposed (labels are derived from directory names,
 // and a path can come back from the filesystem in either form), so the
@@ -636,7 +669,19 @@ func (d *Daemon) Health() (connected bool, note string) {
 //
 // TrimSpace stays as its own explicit step, not part of the rule: --rooms is
 // comma-split without trimming, so "lobby, ops" reaches here padded.
-func fold(s string) string { return strings.ToLower(norm.NFC.String(strings.TrimSpace(s))) }
+func fold(s string) string {
+	s = strings.TrimSpace(s)
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return norm.NFD.String(strings.ToLower(caseFold.String(norm.NFD.String(s))))
+		}
+	}
+	return strings.ToLower(s)
+}
+
+// caseFold is safe to share: x/text documents Fold's Caser as stateless and
+// safe for concurrent use (unlike the other Casers).
+var caseFold = cases.Fold()
 
 func jitter(d time.Duration) time.Duration {
 	return d/2 + time.Duration(rand.Int63n(int64(d)/2+1))

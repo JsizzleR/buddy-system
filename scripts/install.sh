@@ -151,14 +151,15 @@ CLAUDE_JSON=${BUDDY_CLAUDE_JSON:-$HOME/.claude.json}
 # its "nothing left alone" assertion, so the check's hermetic contract is
 # this variable's (the orchestrator's code pass).
 MCP_JSON=${BUDDY_MCP_JSON:-$ROOT/.mcp.json}
-# The repo's one folding rule is ToLower(NFC(s)) after trimming; `off` is ASCII,
-# so NFC changes nothing on a value that IS off, and tr's ASCII fold under
-# LC_ALL=C is the test the hooks apply to the same variable. NOT byte parity
-# with hello's reading, which sh cannot offer: Go's TrimSpace also strips
-# Unicode spaces, so an NBSP around `off` is off for hello and the default
-# here (sed's [[:space:]] is ASCII), and sh cannot NFC-fold at all. Both
-# divergences fall the safe way: this script installs MORE than hello
-# believes is there, and it refuses nothing. chat_off is set or empty.
+# BUDDY_CHAT is a word, not a path: read as hello and `buddy update` read it
+# (chatWord, D-222), ASCII whitespace trimmed and ASCII case folded, which
+# tr and sed under LC_ALL=C are. They leave a non-ASCII byte as it is (tr
+# still lowers the ASCII around it), so such a value is never off or on and
+# is refused below; hello calls it neither. The repo's full fold (store.Fold)
+# is NOT this read: it takes `oﬀ` (o+U+FB00) for off. Where the two part,
+# this script refuses, which installs nothing: such a value, and "\noff",
+# since sed trims each LINE and Go the whole value, so hello reads it as off
+# (update.go's chatAsked). chat_off is set or empty.
 chat=$(printf '%s' "${BUDDY_CHAT:-}" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 
 # deferred holds a failure that must not stop the steps after it (the daemon,

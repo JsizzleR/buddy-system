@@ -196,10 +196,12 @@ func cleanGitEnv() []string {
 // share this ledger.
 func worktreeKey(top string) string {
 	// store.Fold, not strings.ToLower: the path half of this row's key is
-	// NFC-normalized, and a key whose halves fold by different rules is the
-	// mismatch SamePath's own doc comment argues against. On macOS the
-	// filesystem hands out NFD, so the two spellings of one accented directory
-	// name would key apart and the notice would never fire for anyone in it.
+	// folded by it (full case folding, decomposed; D-222), and a key whose
+	// halves fold by different rules is the mismatch SamePath's own doc
+	// comment argues against. A path can come back from the filesystem in
+	// either normalization form (and `straße` names `strasse` on the default
+	// volume), so under ToLower two spellings of one directory would key apart
+	// and the notice would never fire for anyone in it.
 	return store.Fold(canon(strings.TrimSuffix(top, "/")))
 }
 
@@ -420,7 +422,7 @@ func shellArg(v string) string {
 // and the rows are the only record of who left a hunk, so a false "gone"
 // there is permanent; here it is one render.)
 //
-// TWO PROBES, because the key is FOLDED (worktreeKey: lower case, NFC). A stat
+// TWO PROBES, because the key is FOLDED (worktreeKey: store.Fold). A stat
 // of the key that finds a directory settles it (the macOS default volume is
 // case-insensitive). A stat that says it does not exist is not enough on a
 // case-sensitive volume, where the folded spelling of /home/u/Projects/x never
