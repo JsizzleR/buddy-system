@@ -17364,3 +17364,141 @@ guard (MG), the one guard dead after EvalSymlinks, answered above.
 - GIVEN: 53 (stub and part `install`)
 - skill: core, "Upgrading buddy"; fleet, "Upgrading buddy itself"; USAGE "buddy update"
 - amends: D-120 ("fails nothing", "installs nothing": in place), D-135 (a second opt-in flag, its own marker), D-110 (update forwards it)
+
+## D-233 — The xcrun shim measured: a git child via `/usr/bin/git` costs 3.4 to 4.6 ms more than the real git it runs (median 6.7 to 8.6 ms against 3.3 to 4.1, about twice), and `xcrun --find git` costs 4.0 to 5.0 ms, in every pass more than it would save on a hook's one child; no code change at these figures (amends D-230)
+
+2026-11-18 · lane xcrun-cost (Opus 5.5 at high, run r1118g, class research, tier lite), on D-230's "Also open": "the xcrun shim's cost per child (resolving the real git once is a trust choice)". No code or test changed.
+
+**What was asked.** Every git child buddy spawns is `"git"` from PATH (`internal/cli/cli.go` `revParse`, `base.go`, `commitgate.go`, `dirty.go` twice, `update.go`, `codemap.go`). On this machine `which -a git` names `/usr/bin/git` first, Apple's xcrun shim, and `xcrun --find git` names `/Library/Developer/CommandLineTools/usr/bin/git`; `/var/db/xcode_select_link` does not exist, `xcode-select -p` prints the CLT path, `DEVELOPER_DIR` is unset. What does the shim add per child, and against the 100 ms hook budget?
+
+**Measured over.** macOS 27.2.1 (26B131), Mac16,8, 12 CPUs; `git version 2.54.0 (Apple Git-157)` from both paths; the harness built by go1.27.1 (`go version -m xh`). Other sessions ran tests on the machine throughout; load is stated per pass. Each child is spawned the way `revParse` spawns discovery: Go `exec.CommandContext`, `<git> -C <dir> rev-parse --path-format=absolute --git-common-dir --show-toplevel`, the inherited environment plus `LC_ALL=C`, `cmd.Output()`, a 2 s timeout (`discoveryBudget`; passes 1 to 4 ran a build with 5 s, and no sample timed out: every exit 128 or 0); wall time from before `Output` to its return, so the Go fork and exec are in every arm alike. Arms INTERLEAVED in one process, per round: the shim, the real git, then (passes 2 to 5) `/usr/bin/xcrun --find git`, in that fixed order in passes 1 to 4 and reversed every other round in pass 5 (`-alt`), the check on an order or cache effect; 10 discarded warm-up rounds, then n = 300 rounds. Two fixtures, made once and used by every pass, canonical paths (`pwd -P`): (i) a plain `mktemp -d` directory (every run exit 128, git's "not a git repository"), (ii) a `mktemp -d` with `git init -q` (exit 0). The bare-repository row below is computed from (ii)'s figure, not measured.
+
+**Result** (median, p10, p90, ms; n = 300 each cell).
+
+| pass, UTC, load before → after | fixture | `/usr/bin/git` (shim) | CLT git (real) | shim − real | `xcrun --find git` |
+|---|---|---|---|---|---|
+| 1, 20:49:26Z, 4.63 → 5.31 | plain (128) | 8.61, 7.65, 9.36 | 4.05, 3.67, 4.48 | 4.56 | not run |
+| | repo (0) | 7.88, 7.28, 8.60 | 3.89, 3.59, 4.22 | 3.99 | not run |
+| 2, 20:50:19Z, 4.90 → 5.45 | plain (128) | 7.58, 7.16, 8.13 | 3.74, 3.44, 4.09 | 3.84 | 4.73, 4.38, 5.17 |
+| | repo (0) | 8.00, 7.59, 9.05 | 4.04, 3.71, 4.47 | 3.96 | 4.91, 4.60, 5.44 |
+| 3, 20:52:00Z, 6.64 → 6.47 | plain (128) | 7.88, 7.33, 9.35 | 3.87, 3.56, 4.52 | 4.01 | 4.96, 4.58, 6.26 |
+| | repo (0) | 7.67, 6.89, 8.58 | 3.83, 3.50, 4.38 | 3.84 | 4.63, 3.99, 5.37 |
+| 4, 20:52:11Z, 6.47 → 6.32, `DEVELOPER_DIR=/Library/Developer/CommandLineTools` exported | plain (128) | 7.19, 6.68, 8.21 | 3.53, 3.28, 3.90 | 3.66 | 4.46, 4.02, 5.00 |
+| | repo (0) | 7.22, 6.86, 8.02 | 3.68, 3.44, 4.05 | 3.54 | 4.32, 3.99, 4.82 |
+| 5, 21:07:18Z, 3.19 → 3.63, order reversed every other round (`-alt`) | plain (128) | 6.69, 6.39, 7.27 | 3.34, 3.15, 3.58 | 3.35 | 3.95, 3.75, 4.33 |
+| | repo (0) | 7.09, 6.71, 7.89 | 3.64, 3.40, 4.01 | 3.45 | 4.08, 3.83, 4.76 |
+
+Passes 1 to 3 and 5 are the plain environment, and every range quoted below is theirs; pass 4 exports `DEVELOPER_DIR` to all three arms. So the shim roughly doubles a discovery child: shim over real 1.95 to 2.13 in every plain-environment cell, in a plain directory and a repository alike. Pass 5, 15 minutes later at a lower load and counterbalanced, is faster in both arms and its delta smaller (3.35, 3.45 against 3.84 to 4.56); its ratio (2.00, 1.95) is the fixed-order passes' (1.98 to 2.13). Load and order changed together, so this does not separate an order effect from load; it shows none large enough to move the conclusion. Warm figures: the warm-up rounds are discarded, and a cold spawn (a hook's first after idle) is not measured here. `xcrun --find git`, the obvious way to resolve the real git, is itself a child that costs more than the shim adds, in each pass by 0.6 to 1.0 ms.
+
+**Against the hook budget** (100 ms, CLAUDE.md "Environment gotchas"). The per-hook counts are D-230's, asserted in `internal/cli/gitspawn_test.go` (`TestHookGitChildrenOutsideARepository`, `rev-parse` processes only) at 5b3dedf; the governed row is `TestEachHookRunsOneDiscoveryProcess`'s 1. A hook's children run one after another, so their costs add. With the shim's per-child range 6.7 to 8.6 ms against the real git's 3.3 to 4.1:
+- 1 child (governed Edit or Bash, plain Edit and relative Write, a no-ledger repository's Edit, plain Bash, plain `beat` and `idle`): 6.7 to 8.6 ms against 3.3 to 4.1; the shim's share 3.4 to 4.6 ms, under 5% of the budget.
+- 2 (plain cwd with a governed target; a cwd spelled through a link): 13 to 17 against 6.7 to 8.1.
+- 3 (bare cwd), from the repository rows: 21 to 24 against 11 to 12.
+- 5 (a Bash with four distinct plain `cd`s, the largest counted row): 33 to 43 against 17 to 20; the shim's share 17 to 23 ms.
+Outside the counts, which are `rev-parse` processes: the dirty scan's `git status` (`dirty.go`, once per `DirtyScanEvery` per session and worktree, not per hook) and the commit gate's children (a commit, not a hook). Each pays the same shim cost once more; not measured here.
+
+**Why no code change at these figures.** The common hook forks one git; the shim costs it 3.4 to 4.6 ms of 100. The only cheap fix is a resolution that forks nothing, and each way to get one is the trust choice D-230 named:
+- `xcrun --find git` once per hook process: 4.0 to 5.0 ms, a net LOSS on a one-child hook (in each pass 0.6 to 1.0 ms more than the one child's delta), a gain of 2.8 to 3.1 ms at two children (twice the delta less the lookup, per pass), more past that.
+- The resolved path persisted (a file or a ledger row) and reused by later hooks: whoever can write it chooses the program every hook executes (the class `dirty.go`'s `core.fsmonitor` pin exists to close).
+- xcrun's lookup reimplemented in-process (`DEVELOPER_DIR`, then `/var/db/xcode_select_link`, then the default developer directory): no child, but a second copy of Apple's rules that drifts from them silently when they change.
+
+**Open, recorded, not done here.** If a hook is ever measured near its budget, the zero-child options above are a full-tier item of their own (it changes which program the gate runs). The zero-code one is the operator's: CLT's `usr/bin` before `/usr/bin` on the PATH the hooks inherit gives the same binary the shim picks today, without the shim, and keeps it after an Xcode install or `xcode-select -s` would move the shim elsewhere; no session changes that PATH or settings for it. Exporting `DEVELOPER_DIR` (pass 4) is not that option: the shim still adds 3.5 to 3.7 ms, inside the 3.4 to 4.6 without it.
+
+**How to re-run it.** The harness, outside the repository: this `main.go` in a directory of its own with a `go.mod` of `module xh` / `go 1.26`, built with `go build -o xh .`. Flags: `-n` rounds (300), `-warm` (10), `-bins` (comma-separated, interleaved in that order; the name `xcrun-find` times `/usr/bin/xcrun --find git`), `-alt` (reverse the order every other round), then one or more directories; it prints n, median, p10, p90 and the exit codes per arm per directory.
+```go
+// xh: interleaved wall time of one git child, spawned the way buddy's
+// revParse does (internal/cli/cli.go: exec.CommandContext, -C dir rev-parse
+// --path-format=absolute --git-common-dir --show-toplevel, env + LC_ALL=C,
+// cmd.Output()), for each git binary named, A B A B ... (A B, B A ... under
+// -alt) n rounds after a discarded warmup. Prints n, median, p10, p90 in ms per binary per dir.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"sort"
+	"strings"
+	"time"
+)
+
+func one(bin, dir string) (time.Duration, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // revParse's discoveryBudget
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
+	if bin == "xcrun-find" {
+		// The cost of resolving the real git: one `xcrun --find git` child.
+		cmd = exec.CommandContext(ctx, "/usr/bin/xcrun", "--find", "git")
+	}
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	t0 := time.Now()
+	_, err := cmd.Output()
+	d := time.Since(t0)
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		code = -1
+	}
+	return d, code
+}
+
+func q(xs []time.Duration, p float64) float64 {
+	i := int(p*float64(len(xs)-1) + 0.5)
+	return float64(xs[i].Microseconds()) / 1000
+}
+
+func main() {
+	n := flag.Int("n", 200, "rounds")
+	warm := flag.Int("warm", 10, "discarded warmup rounds")
+	alt := flag.Bool("alt", false, "reverse the arm order every other round (counterbalanced)")
+	bins := flag.String("bins", "/usr/bin/git,/Library/Developer/CommandLineTools/usr/bin/git", "comma-separated git binaries, interleaved in this order; xcrun-find times `/usr/bin/xcrun --find git`")
+	flag.Parse()
+	bs := strings.Split(*bins, ",")
+	for _, dir := range flag.Args() {
+		ts := make([][]time.Duration, len(bs))
+		codes := make([]map[int]int, len(bs))
+		for i := range codes {
+			codes[i] = map[int]int{}
+		}
+		for r := 0; r < *warm+*n; r++ {
+			for k := range bs {
+				i := k
+				if *alt && r%2 == 1 {
+					i = len(bs) - 1 - k
+				}
+				b := bs[i]
+				d, c := one(b, dir)
+				if r >= *warm {
+					ts[i] = append(ts[i], d)
+					codes[i][c]++
+				}
+			}
+		}
+		for i, b := range bs {
+			sort.Slice(ts[i], func(a, c int) bool { return ts[i][a] < ts[i][c] })
+			fmt.Printf("%s\t%s\tn=%d\tmedian=%.2fms\tp10=%.2fms\tp90=%.2fms\texit=%v\n", dir, b, len(ts[i]), q(ts[i], .5), q(ts[i], .1), q(ts[i], .9), codes[i])
+		}
+	}
+}
+```
+The fixtures once, then each pass, as run:
+```sh
+P=$(cd "$(mktemp -d)" && pwd -P); R=$(cd "$(mktemp -d)" && pwd -P); git -C "$R" init -q
+G=/usr/bin/git,/Library/Developer/CommandLineTools/usr/bin/git
+sysctl -n vm.loadavg; env -u DEVELOPER_DIR ./xh -n 300 -bins "$G" "$P" "$R"; sysctl -n vm.loadavg             # pass 1
+sysctl -n vm.loadavg; env -u DEVELOPER_DIR ./xh -n 300 -bins "$G,xcrun-find" "$P" "$R"; sysctl -n vm.loadavg  # passes 2, 3
+sysctl -n vm.loadavg; DEVELOPER_DIR=/Library/Developer/CommandLineTools ./xh -n 300 -bins "$G,xcrun-find" "$P" "$R"; sysctl -n vm.loadavg  # pass 4
+sysctl -n vm.loadavg; env -u DEVELOPER_DIR ./xh -n 300 -alt -bins "$G,xcrun-find" "$P" "$R"; sysctl -n vm.loadavg  # pass 5
+```
+Never this repository's `buddy.db`, an install or a hook: the harness runs git only.
+
+**Review** (lite). Self-review: 3 raised, 3 fixed (the title mixed pass 4 into the plain range; a 2-child figure off by 0.1; the costs adding, unstated). Codex@xhigh code, one pass on da934f4 (`CODEX_CHARTER=core CODEX_DIFF=ff11fea..da934f4`), asked to read the method and every figure: 5 raised, 5 fixed. The bare row multiplied the plain directory's maximum (now the repository rows, 23 to 24 before pass 5); the re-run recipe rebuilt the fixtures and ran pass 1's absent arm (now the fixtures once and each pass as run, `DEVELOPER_DIR` unset explicitly); the Go version was missing (go1.27.1); the harness's 5 s timeout was not `discoveryBudget`'s 2 s (now 2 s, the earlier build stated); a fixed arm order could not rule out an order effect (pass 5, counterbalanced and later, added, and the claim limited to what it shows). `review: lite (self-review: 3 raised, 3 fixed + codex@xhigh code: 5 raised, 5 fixed)`
+
+### Where it lives
+- measurement only; no code or test changed. The harness: its source above.
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line
+- charter: GIVEN 47 names D-233 beside D-230
+- amends: D-230 (its "Also open" xcrun cost: measured; the trust choice stays open)

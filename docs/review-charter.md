@@ -420,7 +420,7 @@ ledger row entered through the CLI (D-006).
     objects or refs). Only "does not exist" allows; a present ledger, an unreadable path, a bad
     pointer, `GIT_DIR`/`GIT_COMMON_DIR` deny. The gate's walks deny a `.git` whose `buddy.db`
     EACCES hides (any owner), or that git passes with its ledger seen. A missing cwd is discovered
-    from its deepest existing ancestor (D-102). Do not loosen D-230 (second `rev-parse`, cwd reuse).
+    from its deepest live ancestor (D-102). Do not loosen D-230 (2nd `rev-parse`, cwd reuse; D-233).
 
 48. **A message says what kind of claim it carries, as the SENDER's declaration (D-045).**
     `msg --lead | --measured "<scope>" | --relay <source>`, at most one, rendered between `#id`
