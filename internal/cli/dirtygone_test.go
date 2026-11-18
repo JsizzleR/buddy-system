@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/JsizzleR/buddy-system/internal/store"
 )
 
 // #125: `buddy whose` listed "uncommitted" rows for worktrees that no longer
@@ -18,7 +20,9 @@ import (
 // The fix HIDES such a row where it renders and deletes nothing (invariant 10:
 // a scan may retract, never add or refuse; a view verb writes nothing), so a
 // directory that comes back (a remounted volume, a worktree re-added at the
-// same path) brings its rows back with it.
+// same path) brings its rows back with it. A worktree `git worktree remove`d
+// comes back only re-added: a plain directory there is no worktree, and on a
+// case-sensitive volume no probe finds it (TestGoneOnACaseSensitiveVolume).
 
 func TestWhoseHidesRowsOfARemovedWorktree(t *testing.T) {
 	boundedParallel(t)
@@ -81,9 +85,18 @@ func TestWhoseHidesRowsOfARemovedWorktree(t *testing.T) {
 				t.Fatalf("who must hide and count the rows of a removed worktree:\n%s", out)
 			}
 
-			// Hidden, never deleted: the directory back, the rows back.
-			if err := os.MkdirAll(f.wtB, 0o755); err != nil {
-				t.Fatal(err)
+			// Hidden, never deleted: the worktree back, the rows back. After
+			// `git worktree remove` it comes back only as a worktree git lists:
+			// a plain directory there is matched by no probe on a
+			// case-sensitive volume (CI run 44251996503, ext4; this arm
+			// recreated it with MkdirAll and went red there alone;
+			// TestGoneOnACaseSensitiveVolume).
+			if how == "rm -rf" {
+				if err := os.MkdirAll(f.wtB, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				gitIn(t, f.repo, "worktree", "add", "-q", f.wtB, "wtB")
 			}
 			out, _, _ = f.run(t, f.repo, "", "whose", "shared.txt")
 			if !strings.Contains(out[strings.Index(out, "DIRTY IN"):], "bravo") {
@@ -146,5 +159,107 @@ func TestGoneNeedsGitToAgreeWithTheStat(t *testing.T) {
 	// A stat that finds the directory settles it without git.
 	if goneWorktreesWith("", os.Stat)(wtB) {
 		t.Fatal("a key the stat finds is not gone, whatever git says")
+	}
+}
+
+// caseSensitiveStatUnder returns a stat that behaves, below root, as a
+// case-sensitive volume would: each component under root must be spelled
+// exactly as its directory lists it, so the FOLDED key of a mixed-case path
+// never stats, as on the ubuntu runner's ext4 (CI run 44251996503 on 20bd147).
+// The macOS volume the suite is developed on is case-insensitive and finds
+// every spelling, which is how the run went red on Linux alone. Above root
+// (the fixture's own directory, real spelling) it is a plain stat of the
+// path's root half: listing every ancestor would need read permission a real
+// stat does not, and a searchable but unreadable TMPDIR ancestor would fail the
+// control for nothing (Codex code pass). The case under test lives in wtB.
+func caseSensitiveStatUnder(root string) func(string) (os.FileInfo, error) {
+	rootParts := strings.Split(filepath.Clean(root), "/")
+	return func(p string) (os.FileInfo, error) {
+		parts := strings.Split(filepath.Clean(p), "/")
+		if len(parts) < len(rootParts) || store.Fold(strings.Join(parts[:len(rootParts)], "/")) != store.Fold(root) {
+			return os.Stat(p) // outside the fixture: the volume decides
+		}
+		cur := root
+		for _, c := range parts[len(rootParts):] {
+			ents, err := os.ReadDir(cur)
+			if err != nil {
+				return nil, err
+			}
+			found := false
+			for _, e := range ents {
+				if e.Name() == c {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, &os.PathError{Op: "stat", Path: p, Err: os.ErrNotExist}
+			}
+			cur = filepath.Join(cur, c)
+		}
+		return os.Stat(cur)
+	}
+}
+
+// A removed worktree COMES BACK, on a case-sensitive volume, only as a
+// worktree git lists again. The rm -rf arm passed on the runner because git
+// still lists the removed worktree (prunable) at its real spelling, so the
+// recreated directory stats there; after `git worktree remove` git lists
+// nothing, and a plain directory recreated at the path is matched by no probe:
+// the stat of the folded key misses and no listed entry has that key. That is
+// the design (a directory that is no worktree holds no hunk of this
+// repository), and the CLI test above re-adds the worktree with git instead.
+func TestGoneOnACaseSensitiveVolume(t *testing.T) {
+	boundedParallel(t)
+	for _, how := range []string{"rm -rf", "git worktree remove"} {
+		t.Run(how, func(t *testing.T) {
+			f := newFixture(t)
+			key := worktreeKey(f.wtB)
+			caseSensitiveStat := caseSensitiveStatUnder(canon(filepath.Dir(f.wtB)))
+			// The positive control: the emulation is armed. The folded key
+			// misses (the fixture's wtB is mixed case), the real spelling stats.
+			if _, err := caseSensitiveStat(key); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("the folded key %q must not stat on an emulated case-sensitive volume: %v", key, err)
+			}
+			if _, err := caseSensitiveStat(canon(f.wtB)); err != nil {
+				t.Fatalf("the real spelling must stat: %v", err)
+			}
+			if goneWorktreesWith(f.repo, caseSensitiveStat)(key) {
+				t.Fatal("git lists wtB and it exists: its rows must show")
+			}
+			switch how {
+			case "rm -rf":
+				if err := os.RemoveAll(f.wtB); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				gitIn(t, f.repo, "worktree", "remove", "--force", f.wtB)
+			}
+			if !goneWorktreesWith(f.repo, caseSensitiveStat)(key) {
+				t.Fatal("the removed worktree must read as gone")
+			}
+			if err := os.MkdirAll(f.wtB, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			gone := goneWorktreesWith(f.repo, caseSensitiveStat)(key)
+			if how == "rm -rf" {
+				if gone {
+					t.Fatal("git still lists the worktree and its directory is back: its rows must show again")
+				}
+				return
+			}
+			// CI's red, pinned as the design: a plain directory at the path of
+			// a worktree git no longer lists is no worktree.
+			if !gone {
+				t.Fatal("a plain directory where git lists no worktree: on a case-sensitive volume no probe finds the folded key")
+			}
+			if err := os.Remove(f.wtB); err != nil {
+				t.Fatal(err)
+			}
+			gitIn(t, f.repo, "worktree", "add", "-q", f.wtB, "wtB")
+			if goneWorktreesWith(f.repo, caseSensitiveStat)(key) {
+				t.Fatal("the worktree re-added at its path: its rows must show again")
+			}
+		})
 	}
 }
