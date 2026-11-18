@@ -5,7 +5,7 @@ diff with no path in the test-infrastructure area. The main charter's one-line
 stub of each binds as written; this is the full text (D-158).
 
 55. **A test binary that outlives its `go test` is ended from outside (D-053, D-220, #43).**
-    `testguard.Arm()` opens every TestMain bar 2 exempt (`check-testguard.sh`): an in-process `Getppid` poll
+    `testguard.Arm()` opens every TestMain bar 1 exempt (`check-testguard.sh`): an in-process `Getppid` poll
     exits a healthy orphan with 3 in ~1 s; a watchdog process (the same binary
     re-exec'd, pipe EOF for the target's exit, pid + kernel start time for identity) ends one
     still orphaned three polls later, or at twice `-test.timeout`, with a symbolized `sample`
