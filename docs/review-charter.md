@@ -3,7 +3,7 @@
 Prepended to every `scripts/codex-review.sh` prompt. Everything here is a **GIVEN**:
 already decided, already measured, not open for re-litigation in a review. Its purpose is
 to buy back the review budget that would otherwise be spent exploring the repo to
-re-derive facts that are already known — exploration is the dominant cause of a review
+re-derive known facts — exploration is the dominant cause of a review
 timing out with nothing to show.
 
 If a review's conclusion depends on overturning something in this file, say so explicitly
@@ -220,7 +220,7 @@ ledger row entered through the CLI (D-006).
     construction and is asserted as one (`FuzzFieldIsOneToken`).
 
 28. **A `chat_read` of a room the daemon NEITHER SERVES NOR REMEMBERS is refused, naming
-    the rooms it serves (D-024).** An empty read now means a quiet room and nothing else.
+    the rooms it serves (D-024, D-213).** An empty read now means a quiet room and nothing else.
     Both clauses are load-bearing: "not served" alone would refuse an archived room and the
     `@sent`/`@dm` pseudo-rooms; "no history" alone would refuse a configured room nobody has
     spoken in. The check runs only on an empty result (an equivalent mutation: it buys cost, not behaviour). The SessionStart room name, and
@@ -274,7 +274,7 @@ ledger row entered through the CLI (D-006).
     only control rows. Do not propose a store, a reserved slug, or auto-injection.
 
 34. **Every verb answers `--help` in first position before it runs, and refuses an argument it
-    does not understand (D-031, D-210).** Dispatch is a table carrying each verb's usage line;
+    does not understand (D-031, D-210, D-214).** Dispatch is a table carrying each verb's usage line;
     the flag spellings alone count as help (a bare `help` is a legal target or message word);
     an unknown flag, a stray positional, or a flag read as a value or text is a fenced
     refusal, never ignored.
