@@ -497,7 +497,10 @@ func TestHelloFleetClaimsRemainderNamesTheFleet(t *testing.T) {
 	fe, orc := bothEnv(t)
 	desc := strings.Repeat("d", 300)
 	for i := 0; i < 40; i++ {
-		if _, errw, code := fe.as(t, "sess-a", fe.repo, "claim", fmt.Sprintf("h%02d", i), "--desc", desc, "--scope", fmt.Sprintf("pkg%02d", i)); code != 0 {
+		// Slot scopes, so each is its own full row and the home's list is
+		// cut too: forty non-slot claims of one holder fold into one row
+		// that fits (D-224).
+		if _, errw, code := fe.as(t, "sess-a", fe.repo, "claim", fmt.Sprintf("h%02d", i), "--desc", desc, "--scope", fmt.Sprintf(".buddy/slot/h%02d", i)); code != 0 {
 			t.Fatal(errw)
 		}
 		if _, errw, code := fe.as(t, "orc-1", orc, "claim", fmt.Sprintf("f%02d", i), "--desc", desc, "--scope", fmt.Sprintf(".buddy/slot/f%02d", i)); code != 0 {

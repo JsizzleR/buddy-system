@@ -311,16 +311,16 @@ the run, or a `buddy wait --ready`) is the report, the run's outcome is the clos
    then the chore-or-lite call (clearing takes your READY row out of
    `buddy who <run>`; the message names your commit exactly).
 5. No item yet? `buddy msg orc-<project> "NEW SESSION <your label>: ready for work"`.
-6. **Told, as a turn opens, that you are past your handoff size?** Finish the
-   round in hand, commit, and write a state note for whoever takes the rest
+6. **Told, as a turn opens or at a new claim, that you are past your handoff
+   size?** Finish the round in hand, commit, write a state note for your successor
    (`SUCCESSOR.md` in your scratchpad: the item, its commits and message file,
    what is done, what is owed, what to read first). Report:
    `buddy msg orc-<project> "<item> at handoff size: <state> @ <sha>, note <path>"`.
-   Take nothing new, and do not open your own successor. When your
+   Take nothing new, and open no successor yourself. When your
    orchestrator names `<item>-2`, hand it every claim
    (`buddy release <slug> --to <item>-2`); with a wait standing,
    `buddy wait clear` and stop its loop; then say DONE. Past the size with
-   only the release and DONE left after LANDED PASS: do that one step.
+   only the release and DONE left after LANDED PASS: do just that.
 
 **A repo that budgets its prose** (byte ceilings, in a table its own check
 reads, on what sessions and reviewers load unasked): a lane never raises a

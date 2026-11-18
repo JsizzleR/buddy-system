@@ -290,7 +290,7 @@ func TestLabelSlotsAreQuotedWhenTheyCouldClose(t *testing.T) {
 		}
 	})
 	dig, _, _ := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "", ""), "hello")
-	if !strings.Contains(dig, `- work ("`+hostile+`"):`) {
+	if !strings.Contains(dig, `- work ("`+hostile+`") — `) { // a peer's compact row (D-224)
 		t.Fatalf("digest owner not slotted:\n%s", dig)
 	}
 	// Controls: an admitted label renders BARE in each slot (the quoting
@@ -305,7 +305,7 @@ func TestLabelSlotsAreQuotedWhenTheyCouldClose(t *testing.T) {
 		}
 	})
 	dig, _, _ = f.run(t, f.repo, hookJSON("sess-a", f.repo, "", ""), "hello")
-	if !strings.Contains(dig, "- bwork (bravo):") {
+	if !strings.Contains(dig, "- bwork (bravo) — ") {
 		t.Fatalf("control: an admitted owner renders bare:\n%s", dig)
 	}
 	if !strings.Contains(dig, "] four") || strings.Contains(dig, `["bravo`) {

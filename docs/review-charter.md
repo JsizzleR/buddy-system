@@ -341,14 +341,15 @@ ledger row entered through the CLI (D-006).
     propose a `slot` verb, a capacity column, or a job-lifetime binding without that
     measurement.
 
-39. **The SessionStart claims list fits the digest budget, ahead of messages (D-036).** The
-    lines after the list are rendered first and the list gets the rest of `helloBudget`. A list
-    that fits prints whole, in ledger order. One that does not shows the session's own claims,
-    then others oldest first, stopping at the first that does not fit (never skipping ahead),
-    and counts the rest (`N more live claim(s) not shown here, K of them YOURS`). Messages take
-    what the list leaves. No slug is ranked (D-030 reserves none, so no `orchestrator`
-    priority), and the gate reads the ledger, so a hidden claim refuses like a shown one. Do
-    not propose ranking by slug or a hidden-claims tier without its own bound.
+39. **The SessionStart claims list fits the digest budget, ahead of messages (D-036, D-224).**
+    It gets what the lines after it leave of `helloBudget`, at most 3,000 B with its count
+    line. A peer's row drops its desc unless all its scopes are slots (own rows
+    keep theirs); a peer with over two non-slot claims is one row (slugs, `[SHARED]`, scope
+    union). A list that fits prints whole, in ledger order. One that does not shows own rows,
+    then others oldest first, stopping at the first that does not fit, and counts the rest's
+    CLAIMS (`N more live claim(s) not shown here, K of them YOURS`). Messages get the rest.
+    No slug is ranked (D-030 reserves none), and the gate reads the ledger, so a hidden
+    claim refuses like a shown one. Do not propose ranking by slug or an unbounded tier.
 
 40. **`Open` refuses a ledger stamped newer than the binary (D-037).** `user_version >
     schemaVersion` is `ErrLedgerNewer` in `Open` and in `migrateTx`'s locked re-check, naming
@@ -1048,9 +1049,8 @@ ledger row entered through the CLI (D-006).
     prints beside it. A word only (invariant 10): no sort, colour, filter, refusal or `who`
     line. fleet-report prints `s-<8hex>` and the prompt, never a label or model string. A
     lane's own declared size is not stored (schema), so it is judged against the reader's:
-    recorded open. Do not propose a sort or refusal on size. Measured (D-142): every lane past
-    300k in a week was finishing its item, which the operator accepts; do not propose an
-    every-turn or mid-turn notice without an overrun measured to be new work.
+    recorded open. Do not propose a sort or refusal on size. D-142 accepts a lane finishing its
+    item past it; D-224's `claim` of a new item past it says busy's line, and refuses nothing.
 
 115. **The skill splits by reader; the operator's conventions are not shipped (D-114).** The
     core `skills/buddy/SKILL.md` (every session: claims, refusals, waits, messages, landing as
@@ -1105,10 +1105,10 @@ ledger row entered through the CLI (D-006).
 118. **buddy's views say their facts; the why is in the skill (D-123, D-167).** hello's chat and help
     lines, an ended roster row (no context note; D-091's 24-hour window unchanged), the
     `who`/`status` suffixes, the `msg` wake clause and the plain inbox header were cut to words
-    only. Kept: every help-line name (D-046), the claims list and its descriptions uncut (a
-    hand-off path rides them), the wake address and "stays queued" (D-041, D-052), "cannot say"
+    only. Kept: every help-line name (D-046), a slot claim's and one's own description in hello (a
+    hand-off path rides them; D-224), the wake address and "stays queued" (D-041, D-052), "cannot say"
     apart from "none" (D-065), "untrusted", every fence, verdict and EXIT/JOBS clause. Do not
-    propose restoring an explanation the skill holds, or cutting a claim's description in hello.
+    propose restoring an explanation the skill holds, or cutting those.
     D-167: a wait declaration's keep-alive and timer lines say facts too, and `ids ls` folds blocks
     taken over 3d ago into a count that `--all` lists; a folded block is still held. D-203 puts its
     skip and stop back, `/loop` bare.

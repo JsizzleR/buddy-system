@@ -3302,68 +3302,179 @@ func writeHelloClaims(b *strings.Builder, claims []store.ClaimInfo, si store.Ses
 // names: `buddy fleet ls` for the fleet's list beside a home (D-193), whose
 // bare `buddy ls` lists the HOME's claims and never the fleet's it left out
 // (the Codex code pass, finding 3).
+//
+// COMPACT PEER ROWS IN A 3,000-BYTE ROOM (D-224, issue #140; amends D-036 and
+// D-123 item 3). Measured over 21 days of one machine's transcripts: claim
+// rows were 84% of the digest's bytes, a peer row's desc alone 45% of them
+// and its scopes 37%, and 70% of the sessions whose first digest listed a
+// peer claim never named a file under one in a path argument. One lane that
+// split its item into fourteen claims cost every later session fourteen rows.
+// So, the operator's ruling of 2026-11-18 (O3 of the lane's proposal):
+//   - a PEER's claim on anything but slots drops its desc (the holder's own
+//     words, still in `buddy who <slug>` and `buddy ls`);
+//   - a claim wholly on `.buddy/slot/` keeps it: the coordination claim's desc
+//     is how a hand-off note reaches a successor's SessionStart (D-123 item 3,
+//     D-030), and a run's slot claim says what it is running;
+//   - the session's OWN rows keep theirs (after a resume it may not remember
+//     what it holds, D-036);
+//   - a holder with more than claimsGroupAt non-slot claims gets ONE row:
+//     its label and mark, its slugs (each SHARED one tagged, D-042), and the
+//     union of their scopes. Keyed on the holder's SESSION ID, not its label,
+//     so two sessions wearing one label (D-089 allows it) never merge;
+//   - the whole list, its count line included, fits claimsRoom.
+//
+// The cut stays D-036's: own first, then everyone else's oldest first,
+// stopping at the first unit that does not fit, never skipping ahead; shown
+// units keep the ledger's order (a group sits at its holder's oldest claim);
+// the count line counts CLAIMS, a group's every one. A grouped row's slugs and
+// scopes are each capped at 512 bytes by joinWhole, which says "...and N more
+// not shown" itself, so no group is larger than an old full row.
+// Cut: a room cut alone (O1: hides displayed claims in 545 sessions against
+// 348); scopes only under the session's worktree (a scope binds every
+// worktree, and at SessionStart no path has been touched).
 func writeClaimsList(b *strings.Builder, claims []store.ClaimInfo, si store.SessionInfo, now time.Time, room int, h holders, bin string) {
+	room = min(room, claimsRoom)
 	// The room held back for the "not shown here" line is that line's own
 	// worst case, rendered: hidden and mine can be no larger than the list.
 	// It was a constant 160, which the line outgrows once 100 claims of the
 	// caller's own are hidden (155 bytes plus the digits of both counts).
 	remainderLine := len(claimsRemainder(len(claims), len(claims), bin))
-	lines := make([]string, len(claims))
-	var order []int
+	mine := func(c store.ClaimInfo) bool { return c.Owner.SessionID == si.SessionID }
+	nonSlot := map[string]int{} // a peer holder's claims on anything but slots
+	for _, c := range claims {
+		if !mine(c) && !slotClaim(c.Scopes) {
+			nonSlot[c.Owner.SessionID]++
+		}
+	}
+	// One unit is one printed row and the claims it covers, in ledger order.
+	type unit struct {
+		line string
+		idx  []int
+		own  bool
+	}
+	var units []*unit
+	groups := map[string]*unit{}
 	for i, c := range claims {
 		mark := h.judge(now, c).helloMark(now) // the holder's, not the renewal's (D-090)
 		owner := holderName(c.Owner)
-		if c.Owner.SessionID == si.SessionID {
-			owner = "YOU"
-			order = append(order, i)
-		}
 		// Every value here is pusher-controlled — a slug, a --desc and a
 		// scope are all free text with no validation, and NormalizeScope
 		// permits a newline (path.Clean("a\nb") is "a\nb"). This block is
 		// injected into EVERY session's context at SessionStart, so an
 		// unfenced newline fabricates a line that reads as buddy's own.
-		lines[i] = fmt.Sprintf("  - %s (%s)%s: %s — %sscopes: %s\n",
-			fence.Line(c.Slug, 128), fence.Slot(owner, 64), mark,
-			fence.Line(c.Desc, 512), sharedWord(c.Shared), scopeList(c.Scopes))
+		switch {
+		case mine(c):
+			units = append(units, &unit{idx: []int{i}, own: true, line: fmt.Sprintf("  - %s (%s)%s: %s — %sscopes: %s\n",
+				fence.Line(c.Slug, 128), fence.Slot("YOU", 64), mark,
+				fence.Line(c.Desc, 512), sharedWord(c.Shared), scopeList(c.Scopes))})
+		case slotClaim(c.Scopes):
+			units = append(units, &unit{idx: []int{i}, line: fmt.Sprintf("  - %s (%s)%s: %s — %sscopes: %s\n",
+				fence.Line(c.Slug, 128), fence.Slot(owner, 64), mark,
+				fence.Line(c.Desc, 512), sharedWord(c.Shared), scopeList(c.Scopes))})
+		case nonSlot[c.Owner.SessionID] > claimsGroupAt:
+			g := groups[c.Owner.SessionID]
+			if g == nil {
+				g = &unit{}
+				groups[c.Owner.SessionID] = g
+				units = append(units, g)
+			}
+			g.idx = append(g.idx, i)
+		default:
+			units = append(units, &unit{idx: []int{i}, line: fmt.Sprintf("  - %s (%s)%s — %sscopes: %s\n",
+				fence.Line(c.Slug, 128), fence.Slot(owner, 64), mark,
+				sharedWord(c.Shared), scopeList(c.Scopes))})
+		}
 	}
-	for i, c := range claims {
-		if c.Owner.SessionID != si.SessionID {
-			order = append(order, i)
+	for _, g := range groups {
+		g.line = claimsGroupRow(claims, g.idx, now, h)
+	}
+	// Own first (D-036), then everyone else's oldest first.
+	var order []*unit
+	for _, u := range units {
+		if u.own {
+			order = append(order, u)
+		}
+	}
+	for _, u := range units {
+		if !u.own {
+			order = append(order, u)
 		}
 	}
 	// A list that fits whole may use every byte of its room; only one that
 	// does not holds back room for the line that counts the rest.
 	total := 0
-	for _, ln := range lines {
-		total += len(ln)
+	for _, u := range units {
+		total += len(u.line)
 	}
 	if total > room {
 		room -= remainderLine
 	}
-	shown := make([]bool, len(claims))
+	shown := map[*unit]bool{}
 	used := 0
-	for _, i := range order {
-		if used+len(lines[i]) > room {
+	for _, u := range order {
+		if used+len(u.line) > room {
 			break
 		}
-		used += len(lines[i])
-		shown[i] = true
+		used += len(u.line)
+		shown[u] = true
 	}
-	hidden, mine := 0, 0
-	for i, c := range claims {
-		if shown[i] {
-			b.WriteString(lines[i])
+	hidden, hiddenMine := 0, 0
+	for _, u := range units {
+		if shown[u] {
+			b.WriteString(u.line)
 			continue
 		}
-		hidden++
-		if c.Owner.SessionID == si.SessionID {
-			mine++
+		hidden += len(u.idx)
+		if u.own {
+			hiddenMine += len(u.idx)
 		}
 	}
 	if hidden == 0 {
 		return
 	}
-	b.WriteString(claimsRemainder(hidden, mine, bin))
+	b.WriteString(claimsRemainder(hidden, hiddenMine, bin))
+}
+
+// claimsRoom bounds the digest's claims list, its count line included
+// (D-224): measured, it cut the listed bytes by 67% with compact rows while
+// hiding a displayed claim in fewer sessions than a room cut alone. Inside
+// helloBudget, which still bounds the digest whole (D-034).
+const claimsRoom = 3000
+
+// claimsGroupAt is how many non-slot claims a peer holder may have before the
+// digest folds them into one row (D-224): two rows read as easily as one, and
+// the fourteen-row lane is the case the fold is for.
+const claimsGroupAt = 2
+
+// claimsGroupRow is one holder's folded row: `  - <label>[mark]: <slugs> —
+// scopes: <union>`. The mark is the first its claims earn (helloMark is the
+// holder's state; a fresh claim of a quiet holder earns none). Slugs and
+// scopes are fence.Field'd, so ", " separates and no value can spell it; a
+// SHARED slug carries buddy's own tag after it, which no Field can spell.
+func claimsGroupRow(claims []store.ClaimInfo, idx []int, now time.Time, h holders) string {
+	mark := ""
+	var slugs, scopes []string
+	seen := map[string]bool{}
+	for _, i := range idx {
+		c := claims[i]
+		if mark == "" {
+			mark = h.judge(now, c).helloMark(now)
+		}
+		s := fence.Field(c.Slug, 128)
+		if c.Shared {
+			s += " [SHARED]"
+		}
+		slugs = append(slugs, s)
+		for _, sc := range c.Scopes {
+			if !seen[sc] {
+				seen[sc] = true
+				scopes = append(scopes, sc)
+			}
+		}
+	}
+	return fmt.Sprintf("  - %s%s: %s — scopes: %s\n",
+		fence.Slot(holderName(claims[idx[0]].Owner), 64), mark,
+		joinWhole(slugs, 512, func(s string) string { return s }), scopeList(scopes))
 }
 
 // helloClaimsRemainder is the line that counts the claims a capped digest
@@ -4484,6 +4595,8 @@ func cmdClaim(args []string, env Env) error {
 		fmt.Fprintln(env.Stdout, "dry run: no conflicts; nothing was taken")
 		return nil
 	}
+	// Before the write: whether the slug is new to the caller (D-224).
+	held, armed := claimHandoffHeld(st, si, env)
 	grant, err := st.ClaimDeclared(si.SessionID, si.Incarnation, req)
 	if err != nil {
 		// A refusal is whole (D-001), and it carries the whole set: print every
@@ -4532,6 +4645,7 @@ func cmdClaim(args []string, env Env) error {
 	stuckFormed(env, st, si.SessionID, si.SessionID, []string{slug})
 	offSlotNote(env, st, si.SessionID, slug)
 	fmt.Fprint(env.Stdout, slugWornNote(st, si.SessionID, slug))
+	fmt.Fprint(env.Stdout, claimHandoff(env, st, si, slug, scopes, held, armed))
 	return nil
 }
 

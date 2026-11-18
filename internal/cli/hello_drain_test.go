@@ -185,9 +185,11 @@ func TestHelloDrainFitsTheDigestUnderTheCap(t *testing.T) {
 	f := newFixture(t)
 	f.initAndHello(t)
 	desc := strings.Repeat("d", 500)
-	for i := range 6 {
+	// Five ~550-byte rows fit claimsRoom whole (D-224); slot scopes, so a
+	// peer's row keeps its desc.
+	for i := range 5 {
 		if _, errw, code := f.run(t, f.repo, "", "claim", fmt.Sprintf("bundle-%d", i), "--session", "sess-a",
-			"--desc", desc, "--scope", fmt.Sprintf("internal/pkg%d", i)); code != 0 {
+			"--desc", desc, "--scope", fmt.Sprintf(".buddy/slot/pkg%d", i)); code != 0 {
 			t.Fatal(errw)
 		}
 	}
@@ -206,8 +208,8 @@ func TestHelloDrainFitsTheDigestUnderTheCap(t *testing.T) {
 	}
 	// Positive controls: the claims are all there, and the room the digest
 	// left DID carry a message — the bound cut, it did not switch the drain off.
-	if strings.Count(out, desc) != 6 || strings.Count(out, body) != 1 {
-		t.Fatalf("want all 6 claims and exactly 1 message:\n%s", out)
+	if strings.Count(out, desc) != 5 || strings.Count(out, body) != 1 {
+		t.Fatalf("want all 5 claims and exactly 1 message:\n%s", out)
 	}
 	if !strings.Contains(out, "BUDDY: 1 queued message(s) not shown here; they will arrive after your next tool call.") {
 		t.Fatalf("the message that did not fit must be counted:\n%s", out)
@@ -224,13 +226,15 @@ func TestHelloDrainFitsTheDigestUnderTheCap(t *testing.T) {
 
 // bigClaims opens n claims for a session with every rendered field near its
 // fence cap (~1.2 KB per digest line), a second apart so the ledger's
-// creation order is the order they were made.
+// creation order is the order they were made. On slot scopes, so a peer's
+// claim keeps its desc and its own row (D-224): a peer's non-slot claims
+// drop it, and past two fold into one row.
 func (f *fixture) bigClaims(t *testing.T, sid, cwd, prefix string, n int) {
 	t.Helper()
 	desc := strings.Repeat("d", 500)
 	for i := range n {
 		slug := fmt.Sprintf("%s-%02d-%s", prefix, i, strings.Repeat("s", 100))
-		scope := fmt.Sprintf("%s/p%02d/%s", prefix, i, strings.Repeat("x", 480))
+		scope := fmt.Sprintf(".buddy/slot/%s/p%02d/%s", prefix, i, strings.Repeat("x", 468))
 		f.clock = f.clock.Add(time.Second)
 		if _, errw, code := f.run(t, cwd, "", "claim", slug, "--session", sid, "--desc", desc, "--scope", scope); code != 0 {
 			t.Fatal(errw)
@@ -259,10 +263,12 @@ func TestHelloClaimsListFitsTheBudget(t *testing.T) {
 	if _, errw, code := f.run(t, f.repo, "", "claim", "tiny", "--session", "sess-a", "--desc", "t", "--scope", "tiny"); code != 0 {
 		t.Fatal(errw)
 	}
-	// Bigger than any room a cut list can leave (under one claim line plus the
-	// remainder reserve), so it can only ride the digest by displacing a claim.
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", strings.Repeat("m", 3000)); code != 0 {
-		t.Fatal(errw)
+	// Two messages that cannot both ride what the capped list leaves
+	// (claimsRoom, D-224): laid before the list, they would take its room.
+	for range 2 {
+		if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", strings.Repeat("m", 4000)); code != 0 {
+			t.Fatal(errw)
+		}
 	}
 	out := helloB(t, f)
 	if len(out) > helloBudget {
@@ -295,9 +301,13 @@ func TestHelloClaimsListFitsTheBudget(t *testing.T) {
 	if !strings.Contains(out, "BUDDY: chat, if chat_read/chat_send are in your tool list: `chat_read ") {
 		t.Fatalf("the room line must survive a long list:\n%s", out)
 	}
-	// The claims come ahead of messages: the message is counted and stays queued.
+	// The claims come ahead of messages: one message rides what the list
+	// left, the other is counted and stays queued.
 	if !strings.Contains(out, "BUDDY: 1 queued message(s) not shown here") || f.undeliveredTo(t, "sess-b", "bravo") != 1 {
 		t.Fatalf("a message must not displace claims; it stays queued:\n%s", out)
+	}
+	if strings.Count(out, strings.Repeat("m", 4000)) != 1 {
+		t.Fatalf("control: the room the list left carried one message:\n%s", out)
 	}
 }
 
@@ -326,9 +336,17 @@ func TestHelloShortClaimsListIsUnchanged(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	f.bigClaims(t, "sess-a", f.repo, "peer", 2)
-	f.bigClaims(t, "sess-b", f.wtB, "mine", 1)
-	f.bigClaims(t, "sess-a", f.repo, "late", 1)
+	claim := func(sid, cwd, slug, scope string) {
+		t.Helper()
+		f.clock = f.clock.Add(time.Second)
+		if _, errw, code := f.run(t, cwd, "", "claim", slug, "--session", sid, "--desc", "d", "--scope", scope); code != 0 {
+			t.Fatal(errw)
+		}
+	}
+	claim("sess-a", f.repo, "peer-00-x", "peer/p00")
+	claim("sess-a", f.repo, "peer-01-x", "peer/p01")
+	claim("sess-b", f.wtB, "mine-00-x", "mine/p00")
+	claim("sess-a", f.repo, "late-00-x", ".buddy/slot/late") // a slot: no third non-slot claim to fold
 	out := helloB(t, f)
 	p0, p1 := strings.Index(out, "  - peer-00-"), strings.Index(out, "  - peer-01-")
 	m, l := strings.Index(out, "  - mine-00-"), strings.Index(out, "  - late-00-")
@@ -348,18 +366,22 @@ func TestHelloDigestStaysUnderBudgetAtEveryClaimLength(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
-	// A message too big to ride the digest, so every run also prints the line
-	// that counts it. The claims list once left no room for that line, and
-	// the digest came out over budget only when a message was queued.
-	if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", strings.Repeat("m", 3000)); code != 0 {
-		t.Fatal(errw)
+	// Two messages that cannot both ride the digest, so every run also prints
+	// the line that counts one. The claims list once left no room for that
+	// line, and the digest came out over budget only when a message was
+	// queued. Two since claimsRoom (D-224): one 3,000-byte message always
+	// fits beside a list of at most 3,000.
+	for range 2 {
+		if _, errw, code := f.run(t, f.repo, "", "msg", "bravo", "--from", "ana", strings.Repeat("m", 3000)); code != 0 {
+			t.Fatal(errw)
+		}
 	}
 	cut, counted := 0, 0
 	for n := 0; n <= 512; n += 16 {
 		desc := strings.Repeat("d", n)
 		for i := range 12 {
 			slug := fmt.Sprintf("peer-%02d-%s", i, strings.Repeat("s", 100))
-			scope := fmt.Sprintf("peer/p%02d/%s", i, strings.Repeat("x", 480))
+			scope := fmt.Sprintf(".buddy/slot/p%02d/%s", i, strings.Repeat("x", 468)) // full rows, desc kept (D-224)
 			if _, errw, code := f.run(t, f.repo, "", "claim", slug, "--session", "sess-a", "--desc", desc, "--scope", scope); code != 0 {
 				t.Fatal(errw)
 			}

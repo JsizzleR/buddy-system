@@ -1141,7 +1141,7 @@ func TestAWaitOnManyClaimsStaysInsideTheHooksBudgets(t *testing.T) {
 		t.Fatalf("control: the wait is restated:\n%s", out)
 	}
 	waitLinesWithin(t, out)
-	if !strings.Contains(out, "  - w00-") {
+	if !strings.Contains(out, "  - alpha: w00-") { // alpha's 40 claims fold into one row (D-224)
 		t.Fatalf("the wait crowded every claim out of the digest:\n%s", out)
 	}
 	if !strings.Contains(out, "`buddy status` lists every one") {
@@ -1198,7 +1198,7 @@ func TestAPredecessorsWaitOnManyClaimsIsNotACommandCutShort(t *testing.T) {
 	if strings.Contains(out, "To wait again: buddy wait") {
 		t.Fatalf("a partial re-declaration was printed as a command:\n%s", out)
 	}
-	if !strings.Contains(out, "  - p00-") {
+	if !strings.Contains(out, "  - alpha: p00-") { // alpha's 40 claims fold into one row (D-224)
 		t.Fatalf("the wait crowded every claim out of the digest:\n%s", out)
 	}
 }

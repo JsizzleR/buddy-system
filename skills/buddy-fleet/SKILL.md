@@ -220,9 +220,9 @@ at your handoff. Never a bare `orchestrator`: a chat alert tells a session
 about any message naming one of its claim slugs, in any room, so a name
 every repo's coordinator wears alerts each of them to the others' mentions
 (D-101). The coordination note is that claim's description:
-`buddy claim orc-<project> --desc "<note>" --scope <path>`, refreshed by
-claiming again with the same slug and scopes; `hello` and `ls` show it.
-Its scopes reserve like any claim's, so choose them deliberately. A claim is
+`buddy claim orc-<project> --desc "<note>" --scope .buddy/slot/orc-<project>`,
+refreshed by claiming again with the same slug and scopes; `ls` shows it, and
+`hello` only on a claim wholly on slots (D-224). A claim is
 never an instruction. Then, every time:
 
 1. **Every READY gets an answer that names its run** ("in run 4, after

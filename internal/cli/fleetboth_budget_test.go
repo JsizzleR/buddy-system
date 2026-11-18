@@ -253,16 +253,42 @@ func TestBothLedgersHelloDrainHoldsBackTheFleetCountLine(t *testing.T) {
 //	plus the 158-byte count line: at most 8,955;
 //	without it the list takes those 203 bytes: 9000 - s + 158, at least
 //	9,024.
+//
+// Since claimsRoom (D-224) a list's room is at most 3,000 bytes, so the home's
+// is cut by the room the rest leaves only when that is less: here waits on
+// forty of its claims and forty of the fleet's (restated lines near
+// maxHookWaitLine) and a fleet list filling its half take it under 3,000.
+// Slot scopes keep every row its own
+// (a peer's non-slot claims past two fold into one row that fits).
 func TestBothLedgersHelloClaimsHoldBackTheFleetCountLine(t *testing.T) {
 	boundedParallel(t)
 	fe, orc := budgetEnv(t)
 	desc := strings.Repeat("d", 80)
 	for i := 0; i < 75; i++ {
-		if _, errw, code := fe.as(t, "sess-a", fe.repo, "claim", fmt.Sprintf("h%02d", i), "--desc", desc, "--scope", fmt.Sprintf("pkg%02d", i)); code != 0 {
+		if _, errw, code := fe.as(t, "sess-a", fe.repo, "claim", fmt.Sprintf("h%02d", i), "--desc", desc, "--scope", fmt.Sprintf(".buddy/slot/pkg%02d", i)); code != 0 {
+			t.Fatal(errw)
+		}
+		if _, errw, code := fe.as(t, "orc-1", orc, "claim", fmt.Sprintf("f%02d", i), "--desc", desc, "--scope", fmt.Sprintf(".buddy/slot/f%02d", i)); code != 0 {
 			t.Fatal(errw)
 		}
 	}
 	if _, errw, code := fe.hook(t, "hello", "sess-x", fe.repo); code != 0 {
+		t.Fatal(errw)
+	}
+	wait := []string{"wait", "--until", "3h", "--note", strings.Repeat("n", maxWaitNote)}
+	for i := 0; i < 40; i++ {
+		wait = append(wait, "--on", fmt.Sprintf("h%02d", i))
+	}
+	if _, errw, code := fe.as(t, "sess-x", fe.repo, wait...); code != 0 {
+		t.Fatal(errw)
+	}
+	// And one in the fleet: the home's wait alone left 2,990 bytes around
+	// the lists, 10 short of taking the home's under the cap (measured).
+	fwait := []string{"fleet", "wait", "--until", "3h", "--note", strings.Repeat("n", maxWaitNote)}
+	for i := 0; i < 40; i++ {
+		fwait = append(fwait, "--on", fmt.Sprintf("f%02d", i))
+	}
+	if _, errw, code := fe.as(t, "sess-x", fe.repo, fwait...); code != 0 {
 		t.Fatal(errw)
 	}
 	budgetSend(t, fe, orc, true, "fleet ruling")
@@ -272,6 +298,10 @@ func TestBothLedgersHelloClaimsHoldBackTheFleetCountLine(t *testing.T) {
 	}
 	if !strings.Contains(doc, "more live claim(s) not shown here") || !strings.Contains(doc, "queued fleet "+budgetFleet+" message(s) not shown here") || strings.Contains(doc, "fleet ruling") {
 		t.Fatalf("premise: a list its room cut short, then the fleet's count line and no message (%d bytes):\n%s", len(doc), doc)
+	}
+	home := doc[strings.Index(doc, "BUDDY live claims"):strings.Index(doc, "BUDDY fleet ")]
+	if len(home) >= claimsRoom-200 {
+		t.Fatalf("premise: the home list's room was under claimsRoom, not the cap (%d bytes):\n%s", len(home), doc)
 	}
 	if len(doc) > helloBudget {
 		t.Fatalf("hello's digest is %d bytes, over helloBudget %d", len(doc), helloBudget)

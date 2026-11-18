@@ -33,7 +33,8 @@ it.
      and what is next, and the ledger as it stands: paste `buddy status`,
      `buddy sent`, and `buddy who <run>` for each run you hold. Point your
      coordination claim at it, re-claiming with the SAME scopes you hold (a re-claim replaces
-     them, and `buddy who <slug>` prints every one, uncut), never the handoff file in their place:
+     them, and `buddy who <slug>` prints every one, uncut), never the handoff file in their place
+     (a successor's `hello` shows a peer's description only when every scope is a slot, D-224):
      `buddy claim orc-<project> --desc "HANDOFF: read <file>" --scope <each path you hold>`.
   3. Open the successor the same way, in a herdr tab carrying the same size,
      with the brief "You are the next orchestrator, taking over from <your

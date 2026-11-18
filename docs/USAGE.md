@@ -910,9 +910,12 @@ needs — the landing queue, a hold, who is sequencing — puts them where a
 session reads at wake-up rather than in a message it may never drain: a claim
 named `orc-<project>` (D-101) whose `--desc` carries a bounded summary or a pointer,
 refreshed by re-claiming with the same slug. Every session sees the live
-claims in its `hello` digest and every one in `buddy ls`. The digest is capped
-(D-036): past the room it has, it shows the session's own claims first and
-then everyone else's oldest first, and counts the rest. No slug is ranked
+claims in its `hello` digest and every one in `buddy ls`. The digest's list
+is capped at 3,000 bytes (D-036, D-224), and a peer's row there carries its
+`--desc` only when every scope is a slot, so the coordination claim holds
+`.buddy/slot/orc-<project>`; a peer's other rows are slug, holder and scopes,
+folded into one row past two. Past the room it shows the session's own claims
+first and then everyone else's oldest first, and counts the rest. No slug is ranked
 above that, so a coordinator that claims first is the one the cap keeps. A
 claim has no `from` and is
 never an instruction; `pause` and `msg` remain the only control rows, and
@@ -1450,6 +1453,12 @@ The annotations after the id are what an orchestrator picks on:
   or under, and `busy` prints exactly what it did before. It never rides
   `beat`, and it refuses nothing. When compaction is enough, the harness's own
   `--autocompact <size>` is the tool instead.
+
+  `buddy claim` prints the same line after its result when the claimer, at or
+  past its declared size, takes a NEW item (D-224): a slug it did not hold,
+  with a scope outside `.buddy/slot/`, that neither extends a held slug
+  (`<held>-…`) nor is extended by one. The claim is made either way and its
+  exit code is its own; a refresh, a slot or a sibling says nothing.
 
   The roster says it too, to whoever reads it (D-113): a live row whose last
   observed prompt is at or past the size declared in the READER's environment

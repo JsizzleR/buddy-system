@@ -378,7 +378,11 @@ func TestEveryScopeListingTellsOneScopeFromTwo(t *testing.T) {
 			func(l string) string { return "scopes: " + l + "\n" }},
 		{"who", who, who, pair, litShown, scopesLine},
 		{"status", status, status, pair, litShown, scopesLine},
-		{"hello", hello, hello, pair, litShown, scopesLine},
+		// hello folds alpha's four claims into one row whose scopes are their
+		// union (D-224), so each list is matched inside it, not after
+		// "scopes: ": the digest prints no path, so the bare list is the
+		// listing's own, and the literal still renders as ONE token.
+		{"hello", hello, hello, pair, litShown, func(l string) string { return l }},
 		{"gate", gate("pkg/c.go"), gate(lit), pair, litShown, inScope},
 		{"gate SHARED", gate("pkg/e.go"), gate(litS), pairS, litSShown, inScope},
 		{"commit-gate", commitGate, commitGate, pair, litShown, func(l string) string { return "scope " + l + " — " }},

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/store"
@@ -42,7 +43,8 @@ const EnvHandoffAt = "BUDDY_HANDOFF_AT"
 // request it is about to open; claiming to would be the confident wrong
 // number D-015 exists to stop.
 //
-// ONCE PER STEP, on a turn-opening prompt, and ONLY there — never on beat.
+// ONCE PER STEP, on a turn-opening prompt, and otherwise only after a claim
+// of a new item (claimHandoff, D-224: a typed verb's own output) — never on beat.
 // Beat fires on every tool call, and a line repeated fifty times a turn is a
 // line that gets tuned out, at a context cost on exactly the session that can
 // least afford it. A turn that runs no tool at all (an orchestrator answering
@@ -129,4 +131,77 @@ func busyHandoff(st *store.Store, si store.SessionInfo, known bool, env Env) str
 		return ""
 	}
 	return handoffNote(nowOf(env), at, c, observed)
+}
+
+// claimHandoffHeld is what claimHandoff needs from BEFORE the write: the
+// slugs the caller holds, read only when a handoff size is declared (the
+// common case costs no ledger read). armed is false when undeclared or when
+// the read failed; either says nothing (invariant 10).
+func claimHandoffHeld(st *store.Store, si store.SessionInfo, env Env) (held []string, armed bool) {
+	if declaredWindow(env.getenv(EnvHandoffAt)) <= 0 {
+		return nil, false
+	}
+	all, err := st.Claims(false)
+	if err != nil {
+		return nil, false
+	}
+	for _, c := range all {
+		if c.Owner.SessionID == si.SessionID {
+			held = append(held, c.Slug)
+		}
+	}
+	return held, true
+}
+
+// claimHandoff is handoffNote's line on a successful claim of a NEW ITEM by
+// a session whose last observed prompt is at or past its declared handoff
+// size (D-224, issue #141; reopens what D-142 recorded as not built).
+//
+// WHY AT THE CLAIM. busy speaks when a prompt opens a turn, and a lane told
+// there may already be mid-turn on the next item. Measured over 21 days of one
+// machine's transcripts: of 386 lanes told, 22 took new work after the notice
+// (a new item, or an Agent call after finishing one), all in one project, and
+// 7 of the lanes that claimed a new item past the size had not been told at
+// all (they crossed mid-turn). The claim is the one moment new work starts,
+// and it is a typed verb's own output, printed once per claim, so the
+// repetition that kept the line off beat (D-055, D-096) does not arise.
+//
+// A NEW ITEM is all of: a slug the caller did not hold before this claim (a
+// re-claim refreshes, D-030), compared EXACTLY, as the ledger looks a slug up
+// (`Item` held, `item` is a second claim); some scope outside .buddy/slot/,
+// judged on the scope as the ledger stores it (NormalizeScope: a slot spelled
+// `./.buddy/slot/x` is a slot, and `.buddy/slot/../../pkg` is `pkg`), since
+// a slot serves the item in hand; and a slug that neither extends a held one
+// nor is extended by one (`<held>-…`, the `<item>-shared` convention), folded
+// by the one rule (invariant 13). Both spellings found by the Codex code pass. That is a shape test, not intent: a sibling can be
+// new work and an item can serve the one in hand; the line is advice either
+// way, and a coordinator that assigned the item knowingly hears the lane's
+// report and decides.
+//
+// AN OBSERVATION (invariant 10): it refuses nothing and changes no exit code;
+// the claim is made before it is said. The step register (D-096) is busy's
+// and is not touched: a claim past the size says it whatever busy has told.
+func claimHandoff(env Env, st *store.Store, si store.SessionInfo, slug string, scopes []string, held []string, armed bool) string {
+	if !armed {
+		return ""
+	}
+	stored := make([]string, 0, len(scopes))
+	for _, sc := range scopes {
+		if n, err := store.NormalizeScope(sc); err == nil {
+			sc = n // the claim succeeded, so every scope normalized; raw is a fallback
+		}
+		stored = append(stored, sc)
+	}
+	if slotClaim(stored) {
+		return ""
+	}
+	f := store.Fold(slug)
+	for _, h := range held {
+		g := store.Fold(h)
+		if h == slug || strings.HasPrefix(f, g+"-") || strings.HasPrefix(g, f+"-") {
+			return ""
+		}
+	}
+	c, observed := sampleOf(st, si)
+	return handoffNote(nowOf(env), declaredWindow(env.getenv(EnvHandoffAt)), c, observed)
 }
