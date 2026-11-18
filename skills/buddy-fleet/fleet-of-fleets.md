@@ -59,14 +59,15 @@ end over a real ledger and a scratch fleet ledger (buddy-system's
   `release --to`.
 - **Hand off** as `handoff.md` says, and in each coordinated ledger, while
   you are live and in this order: `(cd <repo> && buddy msg orc-<project> "<successor label> (session <id>) is your coordinator from now; it relays the same decisions I did.")`,
-  then `(cd <repo> && buddy bye $CLAUDE_CODE_SESSION_ID </dev/null)`, which
-  ends your unregistered-process row there (no output, exit 0). After the
+  then `(cd <repo> && buddy bye $CLAUDE_CODE_SESSION_ID </dev/null)` (your own
+  id, so `bye` reads stdin first and needs the redirect, D-234), which ends your unregistered-process row there (no output, exit 0). After the
   bye a send from you there signs `unregistered s-<8hex>` (D-105). Your
   successor's first act in each is its own hand `hello`. In the fleet repo,
   one `buddy release orc-<fleet> <run> --to <successor>` hands every claim
   on.
 - **A coordinator's handoff retires its fleet row too**, and its brief says
-  so: `(cd <fleet> && buddy bye <its id> </dev/null)` at its own handoff,
+  so: `(cd <fleet> && buddy bye <its id> </dev/null)` at its own handoff (its
+  own id: the redirect stays),
   after it has told you who succeeds it. A coordinator whose hooks ever ran
   in the fleet ledger is bound there, and that `bye` is refused while it
   lives (`stays live`): then it is a plain `bye` once its process has

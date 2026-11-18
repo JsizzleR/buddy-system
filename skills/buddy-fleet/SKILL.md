@@ -159,28 +159,29 @@ nobody authorised.
   to the operator without its answer from the last 15 minutes.
 - **Ending a lane is the operator's act.** When its work has landed,
   `buddy who <lane> --exit` reads "no claims held; no wait declared; no
-  shell found running under it", and it names no job of its own still running,
+  shell found running under it", and it names no job of its own running,
   say so. A pane holding `.buddy/slot/browser` is not closed. EXIT's `browser
-  tools used` clause is a call observed, never that a tab is open: unless the
-  session's DONE says its browser work is over, ask what is still open before
-  you close it (D-134). A Codex lane's JOBS line always says `cannot say: no live harness
+  tools used` is a call observed, never an open tab: unless the
+  session's DONE says its browser work is over, ask what is open before
+  closing it (D-134). A Codex lane's JOBS line always says `cannot say: no live harness
   process is registered for it` (its hooks bind no process): do not wait for
   "no shell"; its DONE words ("no job running") are its account of its jobs,
   and it owes them (D-082). Close a lane yourself (`herdr pane close <pane
-  id>`; `claude stop <8hex>` for a background one) only if the operator told
-  you that you may (in your pane, as a standing decision, or relayed by the
+  id>`; `claude stop <8hex>` for a background one) only if the operator said
+  you may (in your pane, as a standing decision, or relayed by the
   coordinator your brief names, within what it relays), not a peer, and then
   only a lane you opened. A lane your predecessor opened and handed you with
-  the coordinator claim counts as one you opened: do not stop to ask about
+  the coordinator claim counts as one you opened: do not ask about
   it (D-122). So does your predecessor's own pane, once it has handed you the
   claim and `buddy who <its id>` shows no claims, no wait, no job and no open browser work. Never a
   CONCURRENT orchestrator's lanes. If you may, do it as soon as the lane says
   DONE and `buddy who` agrees; if you may not, give the operator its pane id
-  in the same turn. **Then run `buddy bye <its session id> </dev/null`:** a pane close
-  does not reliably run the lane's SessionEnd hook, and its row stays `live
-  STALE … pid N GONE` (D-091). A hand-run `bye` ends a row whose registered
-  process is dead without `--force`; one saying the session "stays live"
-  means its process is still exiting: run it again seconds later. A
+  in the same turn. **Then run `buddy bye <its session id>`** (under Codex add `</dev/null`):
+  a pane close does not reliably run its SessionEnd hook, and its row stays `live
+  STALE … pid N GONE` (D-091). A typed `bye` ends a row whose registered
+  process is dead without `--force`; "stays live"
+  means its process is still exiting: run it again seconds later; `no session`
+  means a label or another ledger's id. A
   finished lane left open over 200k tokens is compacted about 55 minutes in (D-122).
 
 ## Handing off a coordinator

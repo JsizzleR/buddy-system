@@ -630,20 +630,19 @@ ledger row entered through the CLI (D-006).
 
 70. **Codex lifecycle observations require the adapter's captured incarnation
     (D-069).** `lifecycle begin` returns `buddy.lifecycle.v1` JSON. Live registrations
-    refuse begin; an ended registration requires the exact previous token before
-    a new one is minted. Every event checks the captured token transactionally;
+    refuse begin; an ended registration requires the exact previous token. Every event checks the captured token transactionally;
     no handler may look up the current token to repair a late event. Native
     `lifecycle hook --incarnation` maps Stop to idle and SessionEnd to end, emits
-    `{}`, drains no inbox, and rejects subagents. An explicit `hello --session`
-    must still classify supplied hook input before writing; it cannot turn a
-    delayed hook into a manual registration. Unfenced Codex hello/beat/busy
+    `{}`, drains no inbox, and rejects subagents. An explicit `hello --session`,
+    and `bye` wherever a hook line could be calling (D-234), must still classify
+    supplied hook input before writing; neither turns a delayed hook into a manual act. Unfenced Codex hello/beat/busy
     refuse alongside idle/bye. Manual local/operator paths retain their authority.
     The adapter must durably capture receipts and serialize events within an
     incarnation; failed receipt publication is an uncertain outcome, not a reason
     to retry begin blindly. D-069 added no schema change, process binding, worker launcher,
     automatic wake or inferred completion (the opt-in adapter is D-070/D-074; D-076's
     renewal, GIVEN 77). Native-hook qualification with a local deterministic provider is not
-    production, provider or mixed-fleet evidence; the plan receipt says what ran.
+    production, provider or mixed-fleet evidence.
 
 71. **Minimal structured adapters preserve captured identity and separate
     delivery stages (D-070).** `buddy.adapter.v1` exposes bounded ledger

@@ -2726,57 +2726,93 @@ func cmdHello(args []string, env Env) (err error) {
 // word `sweep` uses for the same reason; without it the refusal names the
 // process so they can kill it instead.
 func cmdBye(args []string, env Env) error {
-	session := ""
-	dir := env.Cwd
+	// ARGV FIRST, and it is pure: nothing here reads stdin or the ledger. Before
+	// D-234 argv was parsed only after the read, so with a payload it was
+	// ignored whole (`bye --bogus` behind one acted as the hook) and a flag
+	// error on an open stdin waited the read's two seconds first.
+	target := ""
 	force := false
+	for _, a := range args {
+		switch {
+		case a == "--force":
+			force = true
+		case strings.HasPrefix(a, "-"):
+			return usageRefusal(fmt.Sprintf("unknown flag %s; nothing was ended", fence.Line(a, 64)), usageBye)
+		case a == "":
+			// `bye "$X"` with X unset. Refused, never "no positional": the skip
+			// below is decided on the target, and an empty first word let
+			// `bye "" X` target X past a test that compared the empty one
+			// (D-234 panel, lens a).
+			return usageRefusal("bye was given an empty session id; nothing was ended", usageBye)
+		case target == "":
+			target = a
+		default:
+			// A second positional is not silently dropped: `bye a b`
+			// ending only a, with nothing said about b, is exactly the
+			// shape of quiet wrong-target this verb must not have.
+			return usageRefusal(fmt.Sprintf("bye takes one session, got %s and %s; nothing was ended", fence.Line(target, 128), fence.Line(a, 128)), usageBye)
+		}
+	}
+	session := target
+	dir := env.Cwd
 	var from store.ProcRef
 	hookDriven := false
-	// THE READ STAYS FIRST, even for a typed `bye <id>` (D-069: hook input is
-	// classified before the manual path; F-27: an open pipe or stray bytes are
-	// never "no hook"). What #116 fixed is the refusal: a typed bye whose stdin
-	// the harness left open (a Bash call with a heredoc or `<` in it gets a
-	// socket, measured) refused after two seconds, and `echo | bye <id>` as
-	// unparseable JSON, each naming no way out: 6 such refusals in 21 days on
-	// one machine. It now names the redirect, with the id it was given.
-	// Skipping the read when a positional is present (no shipped wiring passes
-	// one) is OPEN in D-218: it would amend D-069, full-tier ground.
-	h, err := decodeHook(env)
-	switch {
-	case err == nil:
-		if err := classifyHook(&h, env); err != nil {
-			return err
-		}
-		if h.Harness == "codex" {
-			return unsupportedCodexLifecycle("bye")
-		}
-		session, dir = h.SessionID, h.Cwd
-		hookDriven = true
-		a, _ := hookAnchor(h, env)
-		from = a.Ref
-	case !errors.Is(err, errNoHookInput):
-		// Only a decode failure carries the remedy: an identity refusal from
-		// classifyHook is a real hook's, and names its own.
-		id := "<session id>"
-		if i := slices.IndexFunc(args, func(a string) bool { return !strings.HasPrefix(a, "-") }); i >= 0 {
-			id = pasteIDOr(args[i], id)
-		}
-		return fmt.Errorf("%w; typed by hand, it takes no hook input: `buddy bye %s </dev/null`", err, id)
-	}
-	if !hookDriven {
-		for _, a := range args {
-			switch {
-			case a == "--force":
-				force = true
-			case strings.HasPrefix(a, "-"):
-				return errors.New(usageBye)
-			case session == "":
-				session = a
-			default:
-				// A second positional is not silently dropped: `bye a b`
-				// ending only a, with nothing said about b, is exactly the
-				// shape of quiet wrong-target this verb must not have.
-				return fmt.Errorf("bye takes one session, got %s and %s", fence.Line(session, 128), fence.Line(a, 128))
+	// A TYPED `bye <id>` READS NO STDIN (D-234; amends D-069's order for this
+	// verb, closes D-218's open line). The read is what cost #116: a typed bye
+	// whose stdin the harness left open (a Bash call with a heredoc or `<` in
+	// it gets a socket, measured) waited two seconds and refused, 6 times in
+	// 21 days on one machine. Skipped, the act is exactly what `</dev/null`
+	// gave: no process ref, so ANY live registered process refuses it, which
+	// is never more than the hook path may do. No shipped wiring passes `bye`
+	// an argument, so every shipped hook still reads and classifies.
+	//
+	// The read stays first (D-069, F-27: an open pipe is never "no hook")
+	// wherever the caller could be a hand-written hook line, each condition
+	// from a refuted draft that skipped on any positional:
+	//   - --force: a hook is never forced, and `bye <id> --force` from a hook
+	//     line with a payload would have been a forced end under a live
+	//     registration (Codex design pass, 1);
+	//   - $BUDDY_HARNESS or $CODEX_THREAD_ID set: the signals classifyHook
+	//     reads as Codex. A native Codex hook subprocess carries no thread id
+	//     (measured, 0.160.0), so a marked line passing an id it took from the
+	//     payload would have ended a live LOGICAL successor, which has no
+	//     process to refuse it, with no token (D-069's defect; Codex 2, lens a);
+	//   - the target is an id the caller's own environment names: an own-id
+	//     hook line (`bye "$CLAUDE_CODE_SESSION_ID"`) keeps ending its session
+	//     through its payload, as a bare one does.
+	// Residuals (D-234): a hand-written Codex hook line with no marker in its
+	// environment (an unmarked Codex hook is classified as Claude's and ends a
+	// logical session tokenless today; diagnose --codex-hooks flags it), a
+	// marker only in the payload, and a hook line naming ANOTHER session's id.
+	if target == "" || force || ownByeTarget(target, env) {
+		h, err := decodeHook(env)
+		switch {
+		case err == nil:
+			if err := classifyHook(&h, env); err != nil {
+				return err
 			}
+			if h.Harness == "codex" {
+				return unsupportedCodexLifecycle("bye")
+			}
+			// The payload names its own session: a target that disagrees is
+			// refused, as hello refuses one (before D-234 the payload won
+			// silently and the argument was dropped).
+			if target != "" && target != h.SessionID {
+				return errors.New("bye <session> and hook session_id disagree; refusing to redirect a lifecycle event")
+			}
+			session, dir = h.SessionID, h.Cwd
+			hookDriven = true
+			force = false // a hook is never forced, whatever its line says
+			a, _ := hookAnchor(h, env)
+			from = a.Ref
+		case !errors.Is(err, errNoHookInput):
+			// Only a decode failure carries the remedy (D-218): an identity
+			// refusal from classifyHook is a real hook's, and names its own.
+			flag := ""
+			if force {
+				flag = " --force"
+			}
+			return fmt.Errorf("%w; typed by hand, it takes no hook input: `buddy bye %s%s </dev/null`", err, pasteIDOr(target, "<session id>"), flag)
 		}
 	}
 	if session == "" {
@@ -2806,8 +2842,14 @@ func cmdBye(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	if res.Ended || !res.Known {
+	if res.Ended {
 		return nil
+	}
+	if !res.Known {
+		if hookDriven {
+			return nil // a SessionEnd for a session this ledger never registered
+		}
+		return byeUnknown(st, session, env)
 	}
 	// Refused: something registered is still alive. The pids are numbers the
 	// kernel handed out, not peer text — but the session id is echoed and is
@@ -2827,6 +2869,53 @@ func cmdBye(args []string, env Env) error {
 		return nil
 	}
 	return fmt.Errorf("%s; kill it, or `buddy bye %s --force` to end the registration anyway", msg, pasteIDOr(session, "<its session id>"))
+}
+
+// ownByeTarget says the typed target is an id the caller's environment names,
+// or the environment carries a Codex signal: either way the caller could be a
+// hook line, so cmdBye keeps D-069's read (D-234 says each condition's
+// failing input). An unset variable never matches: target is non-empty.
+// CODEX_SESSION_ID is compared though classifyHook never reads it, because
+// the adapter strips it from a worker beside the other three
+// (internal/harness/process.go): it names a session to someone.
+func ownByeTarget(target string, env Env) bool {
+	if env.getenv(EnvHarness) != "" || env.getenv(EnvCodexThread) != "" {
+		return true
+	}
+	for _, v := range []string{EnvSession, EnvClaudeSession, "CODEX_SESSION_ID"} {
+		if env.getenv(v) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// byeUnknown answers a TYPED bye that ended nothing because no live row has
+// the id (D-234). Before, it exited 0 silently, a label included: `bye lane-a`
+// ended nothing and the lane's row stayed live STALE under a coordinator that
+// read the exit as done. Three states, because this point query runs outside
+// ByeFrom's transaction:
+//   - no row: refused; the id is not this ledger's (a label, a typo, a fleet
+//     lane's row typed from a repository, a holder whose row is missing);
+//   - an ended row: exit 0, so "run it again" stays idempotent;
+//   - a LIVE row: a hello landed between the two reads; refused, nothing
+//     was ended, and nothing retries against the new registration.
+func byeUnknown(st *store.Store, session string, env Env) error {
+	si, ok, err := st.SessionByID(session)
+	if err != nil {
+		return err
+	}
+	switch {
+	case !ok:
+		return fmt.Errorf("no session %s in this directory's ledger, so nothing was ended: bye takes a session id as `%s who <name>` prints it, and acts in this directory's ledger alone",
+			fence.Line(session, 128), buddyCmd(env))
+	case si.Ended.IsZero():
+		// Not "run it again": for an unbound or logical session a second bye
+		// would end the registration that just arrived (Fable cross-check).
+		return fmt.Errorf("session %s registered while this bye ran and is live, so nothing was ended: `%s who %s` says who it is now",
+			fence.Line(session, 128), buddyCmd(env), pasteIDOr(session, "<its session id>"))
+	}
+	return nil
 }
 
 // cmdIdle is the Stop hook: the turn is over and the session is waiting at

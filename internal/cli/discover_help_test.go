@@ -572,7 +572,7 @@ func TestCheckNamedVerbsRefusesDrift(t *testing.T) {
 var skillExempt = map[string]string{
 	"init":        "setup, run once per checkout by the operator (README, setup-clone.sh)",
 	"hello":       "a hook; the session never types it (README's hook wiring)",
-	"bye":         "a hook; the session never types it (README's hook wiring)",
+	"bye":         "a hook (README's hook wiring); its typed form is a coordinator's, taught in the fleet skill's prose (D-234)",
 	"beat":        "a hook; the session never types it (README's hook wiring)",
 	"idle":        "a hook; the session never types it (README's hook wiring)",
 	"busy":        "a hook; the session never types it (README's hook wiring)",

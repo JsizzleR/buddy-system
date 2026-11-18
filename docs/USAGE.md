@@ -138,10 +138,13 @@ so a late `bye` from a dead incarnation would end the live one and orphan its
 claims mid-edit. `hello` and a completed call's `beat` register the `claude`
 process the hook was spawned by, and `bye` ends the session only when no
 registered process is still alive. A hand-run `buddy bye <id>` is refused by a live registration and
-names the process; `--force` is the operator's act. Typed, give it `</dev/null`: `bye` reads a
-hook payload first whatever its arguments (D-069), so a stdin left open (a harness's socket for
-a Bash call with a heredoc or `<`, a `sleep 4 |`) refuses after 2 s, and `echo |` as unparseable
-JSON; each refusal names `buddy bye <id> </dev/null` (D-218).
+names the process; `--force` is the operator's act. A typed `bye <id>` reads no stdin (D-234),
+so a stdin left open (a harness's socket for a Bash call with a heredoc or `<`) costs it nothing,
+and an id with no row in this directory's ledger (a label, a typo) refuses, exit 1; an ended one
+is exit 0. Where a hook line could be the caller, `bye` reads a payload first (D-069): no id,
+`--force`, `$BUDDY_HARNESS` or `$CODEX_THREAD_ID` set, or the caller's own id. There an open
+stdin refuses after 2 s, and `echo |` as unparseable JSON, each naming `buddy bye <id> </dev/null`
+(D-218); a payload naming another session than the id refuses.
 
 `Stop` marks the session idle at its prompt so the roster can tell "waiting for
 a human" from "hard at work"; without it nothing ever prints `idle`, and
