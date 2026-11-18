@@ -17,23 +17,19 @@ const (
 func testTokens() []string { return []string{testSlug, "s-e284b102", testLabel, testSession} }
 
 // say reproduces what chatd.Say puts in the journal for one submission: the
-// outbox row FIRST, then the server's echo split into chunks with only the
-// first carrying the "[label] " attribution. That shape is the whole reason
-// the self-authored filter cannot key on the sender or on a prefix — measured
-// against the live journal, 215 of 2291 room rows carried a prefix at all.
+// outbox row FIRST, then the server's echo split into chunks, EVERY one
+// opening with the "[label] " slot, because the wire repeats the sig on each
+// message it cuts (D-221). Before that only the first chunk carried it, which
+// is why the filter once had to match the outbox instead of the slot.
 func say(t *testing.T, j *Journal, room, label string, chunks ...string) []int64 {
 	t.Helper()
-	text := "[" + label + "] " + strings.Join(chunks, "")
-	if _, err := j.Append(sentRoom, label, "system", room+": "+text); err != nil {
+	sig := fromSlot(label)
+	if _, err := j.Append(sentRoom, label, "system", room+": "+sig+strings.Join(chunks, "")); err != nil {
 		t.Fatal(err)
 	}
 	var seqs []int64
-	for i, c := range chunks {
-		body := c
-		if i == 0 {
-			body = "[" + label + "] " + c
-		}
-		s, err := j.Append(room, "SmarterChild", "chat", body)
+	for _, c := range chunks {
+		s, err := j.Append(room, "SmarterChild", "chat", sig+c)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,10 +56,11 @@ func addressed(t *testing.T, j *Journal) []RoomAlert {
 	return a
 }
 
-// The defining case. A session announces its own claim slug, the announcement
-// is chunked, and only the first chunk is attributed — so a slug-matching
-// continuation chunk looks exactly like a peer naming us. Without the outbox
-// filter the FIRST alert every session ever receives is about its own post.
+// The defining case. A session announces its own claim slug and the
+// announcement is chunked, so slug-matching continuation chunks come back from
+// the concierge. Without the echo filter the FIRST alert every session ever
+// receives is about its own post. Every chunk now carries the session's slot
+// (D-221), and that slot is what the filter recognizes.
 func TestAddressedIgnoresThisSessionsOwnChunkedAnnouncement(t *testing.T) {
 	j := testJournal(t)
 	own := say(t, j, "harbor", testLabel,
@@ -82,8 +79,8 @@ func TestAddressedIgnoresThisSessionsOwnChunkedAnnouncement(t *testing.T) {
 	if len(hits) != 2 {
 		t.Fatalf("control: the raw filter must see the 2 slug-bearing own chunks, saw %d", len(hits))
 	}
-	if strings.HasPrefix(hits[0].Body, "[") {
-		t.Fatal("control: the matching chunks must be UNATTRIBUTED continuations — that is the whole difficulty")
+	if hits[0].Seq == own[0] || !strings.HasPrefix(hits[0].Body, fromSlot(testLabel)) {
+		t.Fatalf("control: the matching chunks must be signed CONTINUATIONS (D-221): %+v", hits)
 	}
 
 	if got := addressed(t, j); len(got) != 0 {

@@ -64,11 +64,11 @@ ledger row entered through the CLI (D-006).
    `strings.EqualFold`, never a second normalization. Accepted residual, already
    documented: this over-merges on a case-SENSITIVE volume mounted under a repo.
 7. **Every untrusted value is rendered on exactly ONE line via `fence.Line(s, max)`.**
-   Claim descriptions, slugs, labels, scopes, paths and chat content are
-   attacker-influenced text in a model's context. A newline in a value
-   could otherwise fabricate rows in a fenced listing. Conventional caps:
-   slug 128, label/room 64, desc 512, scopes 512, path 512, message body 4096. GitHub
-   issue text is read only through `scripts/issue-read.py` (D-215).
+   Descriptions, slugs, labels, scopes, paths and chat text are
+   attacker-influenced; a newline could fabricate rows in a listing. Caps:
+   slug 128, label/room 64, desc/scopes/path 512, body 4096. GitHub issue
+   text is read only through `scripts/issue-read.py` (D-215). Chat signs each
+   wire message with its sender's slot, refusing an empty one (D-221).
 8. **Room digests are never auto-injected into an agent's context (D-010).** Only operator
    inbox messages are. Visibility means the operator sees the room, not that every agent
    ingests it. Context cost is a first-class constraint.

@@ -217,7 +217,7 @@ func TestJoinNamesAndMessages(t *testing.T) {
 	}
 
 	// Outbound: newline split + injection guard in one.
-	if err := c.ChatSend("#lobby", "line one\nline two\r\nQUIT :evil"); err != nil {
+	if err := c.ChatSend("#lobby", "", "line one\nline two\r\nQUIT :evil"); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.readLine(); got != "PRIVMSG #lobby :line one" {
@@ -267,7 +267,7 @@ func TestLongMessageChunksOnRuneBoundary(t *testing.T) {
 	f := newFakeServer(t)
 	c := dialOK(t, f)
 	long := strings.Repeat("é", 300) // 600 bytes of 2-byte runes
-	if err := c.IM("operator", long); err != nil {
+	if err := c.IM("operator", "", long); err != nil {
 		t.Fatal(err)
 	}
 	first := f.readLine()
@@ -292,7 +292,7 @@ func TestCloseUnblocksAndSendsAfterCloseFail(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close must unblock the read loop")
 	}
-	if err := c.ChatSend("#lobby", "x"); err == nil {
+	if err := c.ChatSend("#lobby", "", "x"); err == nil {
 		t.Fatal("sends after Close must fail")
 	}
 }
@@ -322,13 +322,13 @@ func TestCodexFixes(t *testing.T) {
 	}
 
 	// Comma-smuggled multi-target is refused before the wire.
-	if err := c.IM("a,b", "x"); err == nil {
+	if err := c.IM("a,b", "", "x"); err == nil {
 		t.Fatal("comma multi-target must be refused")
 	}
 
 	// Long-target chunk budget: payloads shrink so the line stays <= 512.
 	longTarget := "#" + strings.Repeat("c", 200)
-	if err := c.ChatSend(longTarget, strings.Repeat("x", 500)); err != nil {
+	if err := c.ChatSend(longTarget, "", strings.Repeat("x", 500)); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {

@@ -328,20 +328,38 @@ func (c *Client) ChatJoin(room string) error {
 	return c.send("toc_chat_join", "toc_chat_join "+c.chatExchange+" "+quoteText(room))
 }
 
-// ChatSend sends text to a joined room by the id from the ChatJoin event.
-func (c *Client) ChatSend(roomID, text string) error {
+// ChatSend sends text to a joined room by the id from the ChatJoin event,
+// opening with sig. TOC carries a message whole, newlines and all, in ONE
+// frame that the server shows as one message, so sig at its head is every
+// message this call makes (buddylist.Conn's contract, D-221).
+func (c *Client) ChatSend(roomID, sig, text string) error {
 	if err := checkBareArg("room id", roomID); err != nil {
 		return err
 	}
-	return c.send("toc_chat_send", "toc_chat_send "+roomID+" "+quoteText(text))
+	if err := checkSig(sig); err != nil {
+		return err
+	}
+	return c.send("toc_chat_send", "toc_chat_send "+roomID+" "+quoteText(sig+text))
 }
 
-// IM sends an instant message.
-func (c *Client) IM(to, text string) error {
+// IM sends an instant message, signed like ChatSend.
+func (c *Client) IM(to, sig, text string) error {
 	if err := checkBareArg("screen name", to); err != nil {
 		return err
 	}
-	return c.send("toc_send_im", "toc_send_im "+to+" "+quoteText(text))
+	if err := checkSig(sig); err != nil {
+		return err
+	}
+	return c.send("toc_send_im", "toc_send_im "+to+" "+quoteText(sig+text))
+}
+
+// checkSig refuses a sig that is not one line, as ircwire does: the contract
+// is that it opens a message, and a sig spanning lines would open two.
+func checkSig(sig string) error {
+	if strings.ContainsAny(sig, "\r\n\x00") {
+		return fmt.Errorf("toc: refusing sig with CR/LF/NUL: %q", sig)
+	}
+	return nil
 }
 
 // SetAway sets the away message; an empty string clears it.

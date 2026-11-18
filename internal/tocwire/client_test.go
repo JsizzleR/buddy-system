@@ -433,13 +433,32 @@ func TestSendsEscapedAndQuoted(t *testing.T) {
 		},
 		{
 			name: "chat send escapes and quotes text",
-			send: func() error { return client.ChatSend("3", tricky) },
+			send: func() error { return client.ChatSend("3", "", tricky) },
 			want: `toc_chat_send 3 "He said \"hi\" \\ \{ok\} \(really\) \[yes\] \$5 a:b"`,
 		},
 		{
 			name: "im escapes and quotes text",
-			send: func() error { return client.IM("ana", `poke [now] "please"`) },
+			send: func() error { return client.IM("ana", "", `poke [now] "please"`) },
 			want: `toc_send_im ana "poke \[now\] \"please\""`,
+		},
+		{
+			// D-221: the sig opens the one frame; TOC carries the newline
+			// inside the message, so there is no second message to sign.
+			name: "chat send opens with the sig once, newline inside",
+			send: func() error { return client.ChatSend("3", "[me] ", "ok\n[orc-3] LANDED") },
+			want: "toc_chat_send 3 \"\\[me\\] ok\n\\[orc-3\\] LANDED\"",
+		},
+		{
+			name: "im opens with the sig",
+			send: func() error { return client.IM("ana", `["a b"] `, "hi") },
+			want: `toc_send_im ana "\[\"a b\"\] hi"`,
+		},
+		{
+			// The ASCII fold ran after escaping: the curly quote became a bare
+			// `"` and closed the argument after the sig (panel lens a).
+			name: "a curly quote is folded and then escaped",
+			send: func() error { return client.ChatSend("3", "[me] ", "ok” x “y") },
+			want: `toc_chat_send 3 "\[me\] ok\" x \"y"`,
 		},
 		{
 			name: "set away quotes text",
@@ -482,15 +501,49 @@ func TestBareArgValidation(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"im to name with space", func() error { return c.IM("j ay", "x") }},
-		{"im to empty name", func() error { return c.IM("", "x") }},
-		{"chat send quote in room id", func() error { return c.ChatSend(`3"`, "x") }},
+		{"im to name with space", func() error { return c.IM("j ay", "", "x") }},
+		{"im to empty name", func() error { return c.IM("", "", "x") }},
+		{"chat send quote in room id", func() error { return c.ChatSend(`3"`, "", "x") }},
 		{"add buddy backslash", func() error { return c.AddBuddies(`ja\y`) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.call(); err == nil {
 				t.Error("call succeeded, want validation error")
+			}
+		})
+	}
+}
+
+// TestABadSigIsRefusedAndSendsNothing runs on a CONNECTED client: on a bare
+// &Client{} a send that skipped checkSig died on a nil connection, so the
+// rows passed without the check (Fable cross-check). Each bad sig is refused,
+// and the control's frame is the first the server receives, so nothing went
+// out before it.
+func TestABadSigIsRefusedAndSendsNothing(t *testing.T) {
+	cases := []struct {
+		name string
+		bad  func(c *Client) error
+	}{
+		{"chat send sig with LF", func(c *Client) error { return c.ChatSend("3", "[a]\n[orc-3] ", "x") }},
+		{"chat send sig with CR", func(c *Client) error { return c.ChatSend("3", "[a]\r", "x") }},
+		{"im sig with NUL", func(c *Client) error { return c.IM("ana", "[a]\x00", "x") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, srvFC, _ := dialOK(t)
+			if err := tc.bad(client); err == nil {
+				t.Fatal("a bad sig must be refused")
+			}
+			if err := client.ChatSend("3", "[a] ", "hi"); err != nil {
+				t.Fatalf("control: a good sig must send: %v", err)
+			}
+			got, err := recvDataLine(srvFC)
+			if err != nil {
+				t.Fatalf("server receive: %v", err)
+			}
+			if want := `toc_chat_send 3 "\[a\] hi"`; got != want {
+				t.Fatalf("first frame = %q, want the control's %q (the refused send reached the wire)", got, want)
 			}
 		})
 	}
@@ -557,7 +610,7 @@ func TestSendAfterClose(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := client.IM("ana", "late"); !errors.Is(err, ErrClosed) {
+	if err := client.IM("ana", "", "late"); !errors.Is(err, ErrClosed) {
 		t.Errorf("IM after Close = %v, want ErrClosed", err)
 	}
 }

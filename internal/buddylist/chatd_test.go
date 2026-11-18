@@ -130,11 +130,18 @@ func (f *fakeConn) ChatJoin(room string) error {
 	f.record("join " + room)
 	return err
 }
-func (f *fakeConn) ChatSend(roomID, text string) error {
-	f.record("send " + roomID + " " + text)
+
+// ChatSend and IM record the sig and the text apart: what the daemon hands
+// the wire is two arguments now (D-221), and a recording that glued them
+// together could not tell a sig the daemon sent from one it folded into text.
+func (f *fakeConn) ChatSend(roomID, sig, text string) error {
+	f.record("send " + roomID + " sig=" + sig + "|" + text)
 	return nil
 }
-func (f *fakeConn) IM(to, text string) error { f.record("im " + to + " " + text); return nil }
+func (f *fakeConn) IM(to, sig, text string) error {
+	f.record("im " + to + " sig=" + sig + "|" + text)
+	return nil
+}
 func (f *fakeConn) Presence(names ...string) ([]string, bool, error) {
 	f.record("presence " + strings.Join(names, " "))
 	f.mu.Lock()
@@ -322,7 +329,7 @@ func TestRelayBothWaysAndJournal(t *testing.T) {
 	}
 	found := false
 	for _, s := range c.recorded() {
-		if s == "send 7 [alpha] claiming router" {
+		if s == "send 7 sig=[alpha] |claiming router" {
 			found = true
 		}
 	}
@@ -410,7 +417,7 @@ func TestDMRefusesAnAbsentRecipient(t *testing.T) {
 				if strings.HasPrefix(s, "im ") {
 					anySend = true
 				}
-				if s == "im "+tc.to+" [alpha] psst" {
+				if s == "im "+tc.to+" sig=[alpha] |psst" {
 					sent = true
 				}
 			}
@@ -432,8 +439,9 @@ func TestDMRefusesAnAbsentRecipient(t *testing.T) {
 
 func TestSendFailsVisiblyWhileDisconnected(t *testing.T) {
 	h := start(t)
-	// No connection delivered yet: say must error, not silently succeed.
-	if _, err := h.call(t, Request{Op: "say", Room: "lobby", Text: "x"}); err == nil {
+	// No connection delivered yet: say must error, not silently succeed. It
+	// names a sender: an empty one is refused first (D-221), for another reason.
+	if _, err := h.call(t, Request{Op: "say", Room: "lobby", From: "alpha", Text: "x"}); err == nil {
 		t.Fatal("say while disconnected must fail visibly")
 	} else if !strings.Contains(err.Error(), "not connected") {
 		t.Fatalf("error should say why: %v", err)

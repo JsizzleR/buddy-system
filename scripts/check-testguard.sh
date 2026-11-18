@@ -68,8 +68,7 @@ CDPATH= cd -- "$(repo_root "$0")"
 export LC_ALL=C
 
 # The exemptions: `<path> <late|owed> <reason>`, one per line.
-EXEMPT='internal/testguard/testguard_test.go late the package under test: a helper'"'"'s hold mode and the exit hook that records why it exited must be in place before Arm starts the poll and the watchdog
-internal/buddylist/main_test.go owed #130: chat-attrib holds internal/buddylist in an open full-tier claim; that lane adds testguard.Arm() first and drops this line'
+EXEMPT='internal/testguard/testguard_test.go late the package under test: a helper'"'"'s hold mode and the exit hook that records why it exited must be in place before Arm starts the poll and the watchdog'
 
 # A TestMain declaration: `func`, then blanks or /* */ comments, then the name
 # (Codex code pass: `func /* entrypoint */ TestMain(` is legal Go and gofmt

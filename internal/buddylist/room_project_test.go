@@ -52,9 +52,9 @@ func TestPresenceWithNoProjectFallsBackToTheLabel(t *testing.T) {
 func TestAddressedAlertsOnAnOperatorsBareSlug(t *testing.T) {
 	j := testJournal(t)
 	say(t, j, "harbor", testLabel, "NUMBER CLAIM: slug "+testSlug+".")
-	// Positive control: the same bare body from the concierge's own nick is
-	// a substring of the send, and still reads as this session's echo.
-	peerSays(t, j, "harbor", testSlug)
+	// Positive control: the concierge's row signed with this session's slot
+	// still reads as its echo (D-221: the slot, not the outbox, decides).
+	peerSays(t, j, "harbor", fromSlot(testLabel)+testSlug)
 	got, err := j.Addressed(testSession, testLabel, "SmarterChild", testTokens(), 0)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestDispatchAlertsKnowsTheConciergesName(t *testing.T) {
 		t.Fatal(err)
 	}
 	say(t, j, "harbor", testLabel, "NUMBER CLAIM: slug "+testSlug+".")
-	peerSays(t, j, "harbor", testSlug)
+	peerSays(t, j, "harbor", fromSlot(testLabel)+testSlug)
 	op, err := j.Append("harbor", "operator-client", "chat", testSlug)
 	if err != nil {
 		t.Fatal(err)

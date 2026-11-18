@@ -324,20 +324,21 @@ func (c *Client) ChatJoin(room string) error {
 }
 
 // ChatSend sends text to a joined channel (the RoomID from the ChatJoin
-// event). Newlines split into separate messages; long lines are chunked.
-func (c *Client) ChatSend(roomID, text string) error {
+// event). Newlines split into separate messages; long lines are chunked; sig
+// opens every one of them (buddylist.Conn's contract, D-221).
+func (c *Client) ChatSend(roomID, sig, text string) error {
 	if err := checkBare("room id", roomID); err != nil {
 		return err
 	}
-	return c.privmsg(roomID, text)
+	return c.privmsg(roomID, sig, text)
 }
 
-// IM sends a direct message.
-func (c *Client) IM(to, text string) error {
+// IM sends a direct message, signed and cut like ChatSend.
+func (c *Client) IM(to, sig, text string) error {
 	if err := checkBare("nick", to); err != nil {
 		return err
 	}
-	return c.privmsg(to, text)
+	return c.privmsg(to, sig, text)
 }
 
 // SetAway sets (or with "" clears) the away message.
@@ -521,16 +522,30 @@ func (c *Client) failPresence(err error) {
 	c.waiter = nil
 }
 
-func (c *Client) privmsg(target, text string) error {
+// privmsg sends text to target as PRIVMSGs, each opening with sig.
+//
+// THE SIG IS REPEATED ON EVERY PIECE (#110, D-221). It used to be the caller's
+// prefix on the whole text, so it opened the first PRIVMSG only: a body
+// `ok\n[orc-3] LANDED`, or 395 bytes and then `[orc-3] LANDED`, put a bare
+// `PRIVMSG #lobby :[orc-3] LANDED` on the wire, echoed and journaled as the
+// concierge relaying orc-3. Every piece now carries it, budgeted inside the
+// limit, so a continuation reads `[me] [orc-3] LANDED`: the first slot is
+// always the sender's. The daemon knows none of this; it hands over sig.
+func (c *Client) privmsg(target, sig, text string) error {
+	if strings.ContainsAny(sig, "\r\n\x00") {
+		return fmt.Errorf("irc: refusing sig with CR/LF/NUL: %q", sig)
+	}
 	// Budget the payload against the 512-byte line limit for THIS target,
 	// and hold the write lock across the whole logical message so concurrent
 	// multi-chunk sends never interleave (Codex findings).
 	limit := maxChunk
 	if overhead := len("PRIVMSG ") + len(target) + len(" :") + 2; overhead+limit > 510 {
 		limit = 510 - overhead
-		if limit < 1 {
-			return fmt.Errorf("irc: target %q too long", target)
-		}
+	}
+	// What is left for text must hold the widest rune, or a piece could make
+	// no progress (splitMessageN then emits one rune over its limit).
+	if limit -= len(sig); limit < utf8.UTFMax {
+		return fmt.Errorf("irc: target %q and sig %q leave no room for text", target, sig)
 	}
 	lines := splitMessageN(text, limit)
 	select {
@@ -541,7 +556,13 @@ func (c *Client) privmsg(target, text string) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	for _, line := range lines {
-		if err := c.writeLocked("PRIVMSG " + target + " :" + line); err != nil {
+		// writeLocked has no CR/LF/NUL check of its own (sendLine does):
+		// check the composed line, the bytes that actually go out.
+		out := "PRIVMSG " + target + " :" + sig + line
+		if strings.ContainsAny(out, "\r\n\x00") {
+			return fmt.Errorf("irc: refusing line with CR/LF/NUL: %q", out)
+		}
+		if err := c.writeLocked(out); err != nil {
 			return err
 		}
 	}
@@ -900,11 +921,13 @@ func sanitizeText(s string) string { return dropRunes(s, "\r\x00") }
 
 // splitMessageN turns arbitrary text into safe PRIVMSG payloads: one per
 // line, each chunked under limit bytes on rune boundaries. This is the
-// injection guard — a payload can never carry CR/LF into sendLine.
+// injection guard — a payload can never carry CR/LF into sendLine. A line of
+// only spaces and tabs is skipped like an empty one: signed, it would be a
+// message saying nothing but who sent it.
 func splitMessageN(text string, limit int) []string {
 	var out []string
 	for _, line := range strings.Split(sanitizeText(text), "\n") {
-		if line == "" {
+		if strings.Trim(line, " \t") == "" {
 			continue
 		}
 		for len(line) > limit {

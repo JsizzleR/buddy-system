@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/JsizzleR/buddy-system/internal/fence"
 )
 
 // RoomAlert is one room's unalerted addressed backlog for one session.
@@ -33,11 +35,6 @@ const (
 	// alertRowCap bounds one room's alert. The alert is counts and seqs, so
 	// the cap is about the SCAN, not about output size.
 	alertRowCap = 20
-	// ownSendWindow is how many of a session's own submissions the
-	// self-authored filter compares against. A session's echo comes back
-	// within seconds of its send, so a small window covers it; the cost of a
-	// miss is one self-alert, not a lost message.
-	ownSendWindow = 25
 	// sentRoom is the outbox pseudo-room. Say writes one row here per
 	// submission, BEFORE the server echoes it, so every row in it is
 	// self-authored by construction — alerting on it would tell every session
@@ -49,14 +46,23 @@ const (
 // not been alerted about yet.
 //
 // Rows the session sent ITSELF are dropped. That filter is not cosmetic: a
-// session announces its own claim slug in the room, the announcement is
-// chunked by the wire into rows only the first of which carries the "[label] "
-// attribution prefix, and the slug is the one token that matches anything. So
-// without it the first alert every session ever receives is about its own
-// post. The discriminator is the outbox: measured against the live journal,
-// every echoed chunk of a 3566-byte send was a literal substring of the @sent
-// row that recorded it (13 of 13). Containment can only ever suppress an
-// alert, never invent one, so its failure direction is a missed alert.
+// session announces its own claim slug in the room, and the slug is the one
+// token that matches anything, so without it the first alert every session
+// ever receives is about its own post. The discriminator is the session's own
+// `[label] ` slot at the head of the row (D-221): the wire repeats it on every
+// message it cuts a relay into, so every echoed chunk carries it. It used to
+// be the outbox, because only the first chunk carried the slot: a row was an
+// echo when its body was a substring of one of the session's recent @sent
+// rows. Signed continuations broke that three ways, each one a self-alert
+// (the slot itself now matches the label token on every chunk): an @sent row
+// cut at maxBody lost the tail its last chunks held, a NUL the wire dropped
+// left the chunk no substring, and a DM writes no @sent row at all (panel
+// lenses a and b). And containment had suppressed a PEER: with `[me] quoted
+// [peer] fix-gate` in my outbox, the peer's own `[peer] fix-gate` was a
+// substring of it and read as my echo (Codex design pass). Head equality has
+// neither failure: a peer's slot cannot begin with mine (fence.Slot quotes
+// anything that could), and only a `--from <my label>` relay — which the
+// outbox suppressed too — is taken for mine.
 //
 // When a room has nothing to report, its cursor is advanced HERE — there is
 // nothing that a lost reply could lose, and leaving it parked would make every
@@ -64,14 +70,14 @@ const (
 // alone for the caller to ack after it has actually delivered the alert.
 //
 // self is the concierge's own name, the sender of every row it relays (issue
-// #83). Containment ran on EVERY row, and a session's @sent rows hold its label
-// and the slugs it announced, so an operator typing an addressed message whose
-// whole body is the slug (`fix-gate`) matched one and was dropped as an echo:
-// 0 alert rows, where `fix-gate status?` gave 1. A session's sends reach the
-// room only through the concierge, so only the concierge's rows can be its
-// echo; a row from any other sender is never one. "" (a caller that does not
-// know the name) keeps the old test on every row: the over-alert it avoids is
-// the lesser failure there, and production always passes the name.
+// #83). The outbox test once ran on EVERY row, so an operator typing an
+// addressed message whose whole body is the slug (`fix-gate`) matched a @sent
+// row and was dropped as an echo: 0 alert rows, where `fix-gate status?` gave
+// 1. A session's sends reach the room only through the concierge, so only the
+// concierge's rows can be its echo; a row from any other sender is never one,
+// even one a person typed opening with this session's slot. "" (a caller that
+// does not know the name) applies the slot test to every row: production
+// always passes the name.
 func (j *Journal) Addressed(session, label, self string, tokens []string, limit int) ([]RoomAlert, error) {
 	if session == "" {
 		return nil, errNoSession
@@ -104,10 +110,7 @@ func (j *Journal) Addressed(session, label, self string, tokens []string, limit 
 		return nil, err
 	}
 
-	own, err := j.ownSends(label)
-	if err != nil {
-		return nil, err
-	}
+	own := ownEcho(label)
 
 	var out []RoomAlert
 	for _, r := range rooms {
@@ -325,48 +328,31 @@ func (j *Journal) alertCursors(session string) (map[string]int64, error) {
 	return out, rows.Err()
 }
 
-// ownSends is a session's recent outbox, used to recognize the echoes of its
-// own messages.
-type ownSends []string
+// ownEcho recognizes the echoes of a session's own relays: the slot Say and
+// DM sign every one of its messages with (fromSlot). "" is a session with no
+// label, which has no way to tell its sends from anyone else's: filtering
+// nothing over-alerts, and guessing would under-alert on somebody else's
+// message, which is the failure that matters.
+//
+// The slot identifies the session only when it is BARE: the label itself,
+// unquoted. A bare slot is the label byte for byte and never opens with `"`,
+// so no other label signs it. A quoted one is not unique: fence.Slot cuts at
+// 64 bytes, so `<64 a>/s-11111111` and `<64 a>/s-22222222` (default labels
+// both, which no validation sees) sign identically (Codex code pass), and
+// fence.Line folds what it quotes, so `a b` and `a<TAB>b` both sign `["a b"]`
+// (Codex re-verify). Either way one session's slug ping from the other read
+// as its own echo. A label that signs quoted filters nothing: the over-alert
+// again, not the lost alert.
+type ownEcho string
 
-func (o ownSends) authored(self string, m Msg) bool {
-	body := m.Body
-	if body == "" {
+func (o ownEcho) authored(self string, m Msg) bool {
+	if o == "" || fence.Slot(string(o), fence.LabelCap) != string(o) {
 		return false
 	}
 	if self != "" && fold(m.Sender) != fold(self) {
 		return false // not relayed by the concierge, so not this session's echo
 	}
-	for _, sent := range o {
-		if strings.Contains(sent, body) {
-			return true
-		}
-	}
-	return false
-}
-
-func (j *Journal) ownSends(label string) (ownSends, error) {
-	if label == "" {
-		// No label means no way to tell this session's sends from anyone
-		// else's. Filtering nothing over-alerts; guessing would under-alert
-		// on somebody else's message, which is the failure that matters.
-		return nil, nil
-	}
-	rows, err := j.db.Query(`SELECT body FROM messages WHERE room=? AND sender=?
-		ORDER BY seq DESC LIMIT ?`, sentRoom, label, ownSendWindow)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out ownSends
-	for rows.Next() {
-		var b string
-		if err := rows.Scan(&b); err != nil {
-			return nil, err
-		}
-		out = append(out, b)
-	}
-	return out, rows.Err()
+	return strings.HasPrefix(m.Body, fromSlot(string(o)))
 }
 
 // AlertDeps is what the proactive alert needs: a daemon socket and the names

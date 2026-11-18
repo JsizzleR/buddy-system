@@ -53,7 +53,7 @@ bypasses the harness. A seatbelt for agents, not a sandbox against them.
   (`transcript.go`: the last turn's token counts, never any message text).
 - `internal/testguard` — test infrastructure only. `ScrubGitEnv()` in every
   git-running package's TestMain (D-057); `Arm()`, first in every
-  TestMain bar 2, ends a test binary whose `go test` died (ppid poll, exit 3) and, from
+  TestMain bar 1, ends a test binary whose `go test` died (ppid poll, exit 3) and, from
   a watchdog, one that wedged (sample, SIGQUIT, SIGKILL; D-053).
 - `internal/fence` — untrusted-content fencing. Every attacker-influenced value
   that reaches a model's context goes through here.
@@ -393,7 +393,7 @@ subject gets a new line. Every number stays on some line (D-165).
 - **Views** (D-015, D-020, D-023, D-027, D-065, D-091, D-092, D-094, D-113, D-123, D-131, D-134, D-218): views grant and refuse nothing (invariant 10).
 - **Handoff size** (D-055, D-064, D-096, D-142): a lane past it finishes its item and reports, opening no successor.
 - **Columns** (D-017).
-- **Chat** (D-006, D-007, D-008, D-010): context cost is first-class, so defaults are narrow.
+- **Chat** (D-006, D-007, D-008, D-010, D-221): context cost is first-class; narrow defaults.
 - **Alerts, presence** (D-009, D-011, D-014, D-024, D-140, D-213): a DM refuses only a definite ISON no; an unknown room's read is refused, naming its rooms; a served one in another spelling reads it.
 - **Launching** (D-027, D-039, D-056, D-058, D-074, D-144, D-209): buddy launches, wakes and ends nothing: no `exit`, `spawn` or `expect` verb, no exit-on-peer-request path, the operator gets the `pid` and `pane`; a coordinator opens its own lanes with the harness (herdr, `claude --bg`; the fleet skill's "Opening lanes"), one at a time, each after the last one's first report and a machine-wide memory check, never in a burst (a resume too: `resume.md`); a start runs in the background or with a short timeout, and a timed-out Claude lane start is confirmed, never retried (only `agent_pane_busy` is); `buddy-adapter` is the one exception.
 - **Fleet** (D-049, D-062, D-082, D-083, D-099, D-103, D-109, D-119, D-131, D-133, D-161, D-188, D-192): a brief in a file; a successor coordinator answers its predecessor by `buddy msg`, never its pane alone; the integrator holds `.buddy/slot/<run>` and `.buddy/slot/main` from forming to landing; a chore or lite lane parks its item in the run at READY (`release <item> --to <integrator> --in-run <run>`, never releases it) and ends; a full-tier one waits for LANDED, the release's `--outcome` plus words that end the lane's work; a round may branch from a run in flight, restacked only when code under it changes; a red's overlaps are the coordinator's to sort out; a lane takes relayed decisions only from the one coordinator its brief names, by full session id and label, after checking once that `buddy who <id>` is live and wears it; content and scope are the operator's only when marked as said in its pane, with the time, else its advice; never relayed: install, push, settings, permission, trust, schema, a more permissive mode, work beyond the launcher's scope; a subagent is not a lane: no claim, landing or message, it runs under the parent's id and claims; under the Codex sandbox the hermetic tier runs escalated; a job gone without its final line is a failed run.

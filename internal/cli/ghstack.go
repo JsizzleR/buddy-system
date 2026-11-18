@@ -435,7 +435,7 @@ func ghSlotHolder(env Env, st *store.Store, c store.ClaimInfo) string {
 	seen := age(now, c.Owner.LastSeen)
 	release := "buddy release <the slug> --session <the holder's id> (neither pastes back as printed)"
 	if p, ok := pasteID(c.Owner.SessionID); ok && fence.Line(c.Slug, 128) == c.Slug {
-		release = "buddy release " + shellQuote(c.Slug) + " --session " + p
+		release = "buddy release " + shellQuote(c.Slug) + " --session " + p // fence: not peer text — the if admits only a slug fence.Line leaves unchanged
 	}
 	switch readHolders(env, st).state(now, c.Owner) {
 	case holderMissing:

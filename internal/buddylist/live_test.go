@@ -250,7 +250,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	}
 
 	peer, peerRoom := newPeer("ana")
-	if err := peer.ChatSend(peerRoom, "hello from ana"); err != nil {
+	if err := peer.ChatSend(peerRoom, "", "hello from ana"); err != nil {
 		t.Fatal(err)
 	}
 	resp := readUntil("hello from ana")
@@ -273,7 +273,7 @@ func TestLiveEndToEnd(t *testing.T) {
 	// Server death: sends fail VISIBLY, health goes disconnected.
 	srv.stop()
 	waitHealthy(false)
-	if _, err := call(Request{Op: "say", Room: "lobby", Text: "into the void"}); err == nil {
+	if _, err := call(Request{Op: "say", Room: "lobby", From: "alpha", Text: "into the void"}); err == nil {
 		t.Fatal("say while the server is down must fail visibly")
 	}
 

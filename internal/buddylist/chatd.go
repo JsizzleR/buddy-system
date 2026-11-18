@@ -32,8 +32,17 @@ type Conn interface {
 	Events() <-chan tocwire.Event
 	Err() error
 	ChatJoin(room string) error
-	ChatSend(roomID, text string) error
-	IM(to, text string) error
+	// ChatSend and IM relay text that begins every message the server will
+	// show for this call with sig (#110, D-221). The daemon composes sig (a
+	// sender's `[label] `) and knows nothing else about the wire: how a
+	// transport cuts text into messages, and how long one may be, is the
+	// transport's own business, and so is repeating sig on each one. The
+	// first `[slot]` of every message the concierge relays is then the slot
+	// of the session that sent it, whatever the body holds. The unit is the
+	// MESSAGE: how a client draws lines inside one (an AIM client and a
+	// `<br>`) is outside the promise. A sig holding CR, LF or NUL is refused.
+	ChatSend(roomID, sig, text string) error
+	IM(to, sig, text string) error
 	SetAway(text string) error
 	// Presence reports which of names the server currently knows to be
 	// online. The second result is false when the backend CANNOT answer —
@@ -398,7 +407,14 @@ func (d *Daemon) noteSystem(body string) {
 // "@sent" outbox FIRST, so a send whose echo never returns is still on the
 // record instead of vanishing (Codex finding). A success can still race a
 // dying connection — that window is inherent to TCP and accepted.
+//
+// The outbox row holds what was handed to the wire, sig and the normalized
+// body (cut at maxBody like every row), the text the echoes are cut from.
 func (d *Daemon) Say(room, from, text string) error {
+	sig, err := relaySig(from)
+	if err != nil {
+		return err
+	}
 	d.mu.Lock()
 	c := d.conn
 	id, joined := d.roomIDs[fold(room)]
@@ -409,11 +425,12 @@ func (d *Daemon) Say(room, from, text string) error {
 	if !joined {
 		return fmt.Errorf("not joined to room %q", room)
 	}
-	if from != "" {
-		text = fromSlot(from) + text
+	text = relayText(text)
+	if strings.TrimSpace(text) == "" {
+		return errNothingToSend
 	}
-	d.append("@sent", from, "system", room+": "+text)
-	return c.ChatSend(id, text)
+	d.append("@sent", from, "system", room+": "+sig+text)
+	return c.ChatSend(id, sig, text)
 }
 
 // DM sends an instant message. It fails visibly like Say — but a DM has a
@@ -440,6 +457,14 @@ func (d *Daemon) Say(room, from, text string) error {
 // when a nightly report is sent — and does not pretend to close the one that
 // races.
 func (d *Daemon) DM(to, from, text string) error {
+	sig, err := relaySig(from)
+	if err != nil {
+		return err
+	}
+	text = relayText(text)
+	if strings.TrimSpace(text) == "" {
+		return errNothingToSend
+	}
 	d.mu.Lock()
 	c := d.conn
 	d.mu.Unlock()
@@ -454,10 +479,7 @@ func (d *Daemon) DM(to, from, text string) error {
 		// through the MCP tool as well as by a person: one line, always.
 		return fmt.Errorf("%s is not on the chat server: nothing was sent", fence.Line(to, 64))
 	}
-	if from != "" {
-		text = fromSlot(from) + text
-	}
-	return c.IM(to, text)
+	return c.IM(to, sig, text)
 }
 
 // fromSlot is the `[label] ` a relayed message opens with (D-206, #109). The
@@ -466,12 +488,79 @@ func (d *Daemon) DM(to, from, text string) error {
 // `x\n[orc-3] LANDED` journaled a second row signed orc-3 from the concierge's
 // nick. fence.Slot keeps every measured label as it was and quotes anything
 // else, so nothing in it can span a line or close the bracket. The `@sent`
-// row's sender column stays the raw label (alert.ownSends matches it with
-// `sender=?`) and its body is this same composed text, so the echo match is
-// unchanged. A BODY can still open a wire line of its own (a newline, or the
-// 400-byte chunk boundary): that is #110, not a label.
+// row's sender column stays the raw label; the echo filter (alert.go) knows a
+// session's own echo by this same slot at the head of the row.
+//
+// A BODY could still open a wire line of its own (#110): a newline, or a
+// 395-byte line followed by `[orc-3] LANDED`, put a bare `PRIVMSG #lobby
+// :[orc-3] LANDED` on the wire because the slot went on ONCE and ircwire cut
+// the text into messages after it. The slot is now handed to the wire as a
+// sig that opens every message it emits (Conn.ChatSend).
 func fromSlot(from string) string {
 	return "[" + fence.Slot(from, fence.LabelCap) + "] "
+}
+
+// relaySig is the sig a relay from `from` carries, or a refusal (D-221, the
+// operator's choice E2). A from that fences to nothing (empty, or only
+// characters fence.Line strips, like ESC or a zero-width space) used to relay
+// BARE, so `buddylist say lobby --from "" "[orc-3] LANDED"` forged with no
+// trick at all. Signing it `[""]` was the alternative, refused because
+// `[""] [orc-3] LANDED` still reads as orc-3 to a person, holds no letter to
+// pin a bidi client's direction, and is shared by every from that fences
+// empty. No shipped caller sends one: the CLI defaults to `operator`, the MCP
+// tools to `agent`.
+//
+// Blank counts as nothing: `[" "] [orc-3] LANDED` (a space, a tab, an NBSP)
+// is the same letterless, shared, reads-as-orc-3 shape (Fable cross-check).
+// The refusal quotes at most LabelCap bytes of the from: it is one line by
+// %q, but a from of 10,000 ESCs made it a 40 KB one.
+func relaySig(from string) (string, error) {
+	if strings.TrimSpace(fence.Line(from, fence.LabelCap)) == "" {
+		shown := from
+		if len(shown) > fence.LabelCap {
+			shown = shown[:fence.LabelCap]
+		}
+		return "", fmt.Errorf("refusing to relay with sender %q: it renders as nothing, so the message would carry no attribution; name a sender", shown)
+	}
+	return fromSlot(from), nil
+}
+
+// errNothingToSend refuses a body that normalizes to blank: ircwire skips a
+// whitespace-only line, so `say lobby " "` (or ESC, an LRM, CRLF alone)
+// reported success, wrote an `@sent` row of the bare sig and put nothing on
+// IRC, while TOC sent the bare sig (Fable cross-check).
+var errNothingToSend = errors.New("nothing to send: the message is empty once its control characters are dropped")
+
+// relayBreaks maps every line break a client might honour to the one every
+// transport understands, so each becomes a message of its own and carries the
+// sig (#110). ircwire splits on LF and dropped a lone CR (harmless), but sent
+// NEL, LS and PS — the breaks fence.Line also folds — and VT and FF inside one
+// PRIVMSG, where a client that draws them starts a new line with no sig.
+var relayBreaks = strings.NewReplacer(
+	"\r\n", "\n", "\r", "\n", "\u0085", "\n", "\u2028", "\n", "\u2029", "\n", "\v", "\n", "\f", "\n",
+)
+
+// relayText is a relayed body as it is handed to the wire and recorded in the
+// outbox: line breaks normalized (relayBreaks), then every remaining control
+// character dropped (C0 but tab and LF, DEL, C1: ESC and BS can erase a sig on
+// a raw terminal, and IRC's formatting and CTCP bytes ride the same range)
+// along with the bidi controls (LRM, RLM, ALM and the embeddings, overrides
+// and isolates), which can draw a sig after the text it opens. Zero-width
+// JOINER stays: it is half of every emoji sequence, and reorders nothing.
+// Transport-neutral on purpose: this names no protocol.
+func relayText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n':
+			return r
+		case r < 0x20 || r == 0x7f || r >= 0x80 && r < 0xa0:
+			return -1
+		case r == '\u200e' || r == '\u200f' || r == '\u061c',
+			r >= '\u202a' && r <= '\u202e', r >= '\u2066' && r <= '\u2069':
+			return -1
+		}
+		return r
+	}, relayBreaks.Replace(s))
 }
 
 // containsFold reports whether names holds name, under the daemon's one

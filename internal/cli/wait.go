@@ -306,7 +306,7 @@ func cmdWaitCheck(args []string, env Env) error {
 		}
 		fmt.Fprintf(&b, "NO WAIT: nothing is registered for this session%s — %s\n", last, stop)
 	case r.Verdict == store.WaitLanded:
-		b.WriteString(landedLines(now, w, si.Label, stop, buddyCmd(env)))
+		b.WriteString(landedLines(now, w, si.Label, stop, buddyCmd(env))) // fence: not peer text — landedLines fences the label itself
 	case r.Verdict == store.WaitExpired:
 		b.WriteString(expiredLines(now, w, stop))
 	default:
@@ -420,7 +420,7 @@ func cmdWaitClear(args []string, env Env) error {
 		// A mail wait whose mail had come is closed landed, not cleared
 		// (D-208, store.ClearWait): the one verdict, said here as a check
 		// would say it, so a block that reads the close says the same.
-		_, err := io.WriteString(env.Stdout, landedLines(now, *w, si.Label, stop+" (it had already landed, so it was closed as landed, not cleared)", buddyCmd(env)))
+		_, err := io.WriteString(env.Stdout, landedLines(now, *w, si.Label, stop+" (it had already landed, so it was closed as landed, not cleared)", buddyCmd(env))) // fence: not peer text — landedLines fences the label itself
 		return err
 	}
 	fmt.Fprintf(env.Stdout, "cleared the wait of %s on %s (declared %s ago, %d check(s)) — its next `%s wait check` says NO WAIT; %s\n",
@@ -505,7 +505,7 @@ func targetPhrase(now time.Time, t store.WaitTarget) string {
 	default:
 		reported := ""
 		if t.Outcome != "" {
-			reported = ", outcome " + outcomePhrase(t.Outcome, t.OutcomeNote)
+			reported = ", outcome " + outcomePhrase(t.Outcome, t.OutcomeNote) // fence: not peer text — Outcome is a CHECK-constrained word; outcomePhrase fences the note
 		}
 		return fmt.Sprintf("%s %s %s ago%s%s", name, t.State, span(now.Sub(t.Closed)), reported, reopenedPhrase(now, t))
 	}

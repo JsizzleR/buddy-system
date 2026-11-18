@@ -2273,16 +2273,15 @@ check that breaks must cost a diagnosis, never the message.
     and it is why the feature works at all: measured against a 2313-message
     room, identity alone matched **0** messages, because peers address each
     other by slug.
-  - It never alerts a session about its own post. That is harder than it
-    sounds — the wire chunks a long message and only the first chunk carries
-    the `[label]` attribution, so a session's own announcement of its own slug
-    arrives looking exactly like a peer naming it. The discriminator is the
-    outbox: every echoed chunk is a substring of the row that recorded the
-    submission (measured, 13 of 13 on a 3566-byte send). Across four real
-    sessions the filter suppressed 7 self-alerts and kept all 3 genuine ones.
-    It tests only rows the concierge relayed (its own `--name`): an operator
-    typing a bare slug from a chat client matched the session's own send and
-    was dropped, and no other sender's row can be an echo (D-140).
+  - It never alerts a session about its own post. The wire chunks a long
+    message, and every message it sends opens with the sender's `[label]`
+    slot, so a session's echo is a concierge row opening with its own slot
+    (D-221). The outbox was the test while only the first chunk was signed:
+    containment, which hid a peer's row a session's own send happened to
+    contain and alerted on a truncated send's tail. A sender that renders as
+    nothing is refused, not relayed bare. Only rows the concierge relayed
+    (its own `--name`) are tested: an operator typing a bare slug from a chat
+    client was once dropped as an echo, and no other sender's row is one (D-140).
   - The alert cursor is **not** the read cursor. Being told about a message is
     not having seen it, and a session that has read a room must still be told
     about a later one that names it.
