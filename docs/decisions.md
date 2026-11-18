@@ -17147,3 +17147,38 @@ refusal text, Open). Codex@xhigh re-verify: 0 raised. `review: full (panel@opus,
 - index: CLAUDE.md § Decisions, the "Claims" and "Commit gate" lines; Knobs
 - charter: GIVEN 15 names D-228
 - amends: D-005 (its corollary that an unclaimed path is never stopped: an edit no claim of yours covers is caught while a peer holds a claim), D-012 (the cut of "paths you did not claim": reported now, never refused)
+
+## D-229 — O1 measured: Claude Code 2.1.327 delivers a PreToolUse `additionalContext` with no `permissionDecision` to the model, in a session and in a subagent, and leaves the permission flow as it was; auto mode only, n=2, 2 and a control of 1 (amends D-228)
+
+2026-11-18 · lane o1-record (Sonnet 5.5 at high, run r1118d, class research, tier lite) recording a measurement orc-9 took at about 09:20Z the same day, after installing main 615766c (`install.sh` rc=0). D-228's Open item O1 is answered for Claude Code in auto mode; D-228's text is not edited.
+
+**What was asked.** Does Claude Code put D-228's one-document warn (`{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"BUDDY UNCLAIMED: ..."}}`, no `permissionDecision`) in the model's context, in a session and in a subagent, while the call is still allowed without a prompt? If not, D-228 said the warn is inert and its line moves to `beat`. D-228 had only the hooks reference (fetched 2026-11-18) for it: documented, not measured.
+
+**Measured over.** Claude Code 2.1.327; buddy main 615766c, installed (so `~/bin/buddy` is the tip's gate); the measuring session orc-9 in AUTO mode; knob `BUDDY_OWN_CLAIM` unset (the default, `warn`). A throwaway repository outside this one with its own ledger, deleted after; the production ledger was never opened.
+
+**How to re-run it** (a successor needs this entry, an installed build and the gate WIRED: the install does not wire hooks by itself, `install.sh --wire-hooks` appends the lines and README's hook wiring names them; without the PreToolUse `buddy gate` hook in the session's settings the recipe prints no warning. The measuring session's own wiring is not recorded here beyond that it was the operator's installed one, so a re-run names its matcher and settings scope):
+1. A throwaway directory: `git init`, `buddy init`. Never this repository's `buddy.db`.
+2. A STAND-IN PEER that is a registered session holding a claim: run `buddy hello` from the throwaway directory with a SessionStart payload on stdin naming a fresh uuid, `{"session_id":"<fresh uuid>","cwd":"<dir>","hook_event_name":"SessionStart"}` (the fields `hello` reads, `internal/cli/cli.go`), then `buddy claim o1-peer --session <that uuid> --desc ... --scope peer.txt`. The peer must be NOT ended: D-228's arm needs another session with an open claim, and a holder that said bye arms nothing.
+3. Register the session under test in that ledger with `buddy hello </dev/null` run from the throwaway directory (the session's own id comes from its environment), and confirm with `buddy who`. D-228 lets the cwd ledger judge an unregistered caller too, so this only removes that variable.
+4. Make the session's cwd or its tool paths reach the throwaway directory, then Write an UNCOVERED file (`mine.txt`, covered by no claim of the session) and Edit it. Read the tool result for a `PreToolUse:Write hook additional context: BUDDY UNCLAIMED: no claim of this session covers mine.txt ...` line (Claude Code prints the hook's context under that heading) and confirm the write happened and no permission prompt appeared.
+5. Control, which proves the arm and not the harness is the cause: `buddy claim o1-mine --desc ... --scope mine.txt`, then Edit `mine.txt` again. No line.
+6. The same from a SUBAGENT: spawn one (general-purpose, a named model; it runs under the parent's session id, so the parent's row and claims judge it), have it Write then Edit an uncovered `sub.txt` and quote what its context showed.
+7. Delete the throwaway directory.
+
+**Result** (n stated per cell; no cell was repeated).
+- Session, Write of uncovered `mine.txt`: line DELIVERED (`PreToolUse:Write hook additional context: BUDDY UNCLAIMED: no claim of this session covers mine.txt (in <repo>) ...`); the write was allowed, no prompt. 1 of 1.
+- Session, Edit of uncovered `mine.txt`: DELIVERED (`PreToolUse:Edit`), allowed, no prompt. 1 of 1. Session total 2 of 2.
+- Control (step 5), Edit of `mine.txt` after claiming `o1-mine`: NO line. 1 of 1 silent.
+- Subagent (Sonnet 5.5, general-purpose), Write then Edit of uncovered `sub.txt`: both DELIVERED verbatim in the subagent's own context, the line ending `(A subagent: tell your parent.)`; neither asked permission nor was refused. Subagent total 2 of 2.
+So on this build, in auto mode, the line reached the model in a session and in a subagent and all four calls completed with no prompt and no refusal. That is what was observed. It does not separate "auto mode approves anyway" from "the hook approved": no call was run with the hook silent and the tool a kind auto mode would prompt for, and the control shows only that a covering claim silences the line.
+
+**What this does NOT settle.**
+- MANUAL (default) permission mode was not exercised: only auto mode ran. What a manual-mode session does with the call (whether it prompts as before, whether the line arrives beside the prompt, whether it changes what the prompt offers) is unmeasured. "Leaves the permission flow as it was" is not shown for any mode: auto mode showed no prompt and no refusal, which is the flow it would have had.
+- n is 2, 2 and a control of 1, one session, one machine, one build. It shows the line CAN arrive and the arm CAN be silenced by a covering claim; it gives no rate, and says nothing about a Claude Code build other than 2.1.327.
+- O2 (Codex on an admitted version), O3 (Code Mode inner calls, where D-195 says hook context is discarded) and O4 (whether the arm ever reaches adapter workers) stay open, as D-228 wrote them.
+- D-228's D10 is not touched and not restated here; its text is the rule (the transcript counts, each line answered or its class exempted by decision, one harmful event voiding a run, a run with no line written UNMEASURED, and the operator's word). This entry supplies only the delivery half of its O1 precondition, for auto mode and one build; nothing is flipped by it.
+- Whether the model ACTS on the line (claims under a new slug) is not what was measured: it was delivery. That is the transcript counts D10 names.
+
+**Where it lives.** No code or test changed. Measurement record: `~/.buddy/briefs/o1-measurement.md` (orc-9's notes, outside the repository). Index: CLAUDE.md § Decisions, the "Claims" line. amends: D-228 (its Open O1: answered for Claude Code, auto mode).
+
+review: lite (self-review: 0 raised + codex@xhigh code: pending)
