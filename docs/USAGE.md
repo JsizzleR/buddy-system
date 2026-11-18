@@ -216,6 +216,15 @@ it and by every distinct ledger above it, claims and brake, from every cwd
 (Claude Code's `.claude/worktrees/<lane>`), is placed against its own root only;
 a copy of one, a hand-written `gitdir:` or a `.git` link to the repository's
 own is placed against both roots (D-226 names one cwd where it is not).
+A `.git` whose ledger this user may not look for (permission denied on the way
+to its `buddy.db`: a mode-000 `.git`, worktree admin directory or link target,
+whoever owns it) denies every call below it, naming the path and its owner, as
+does a `.git` or bare git directory git passes or will not open while a
+`buddy.db` is in it; a dangling `.git` link or a stale pointer stays
+feature-off, and an unparsable `.git` file denies as it always did (#146,
+D-231). A discovery git that refuses or is killed at its 2 s budget is
+feature-off only where the nearest `.git` holds no ledger and no bare git
+directory at or above the path holds one (#147).
 
 **Shell-routed patches are refused, not checked.** Codex also applies
 `apply_patch <<'EOF' … EOF`, `applypatch`, and `cd <dir> && apply_patch …` from

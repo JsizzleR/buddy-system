@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -791,7 +792,11 @@ const ledgerName = "buddy.db"
 // discovery must produce a verdict rather than a timeout. Measured on this
 // machine, rev-parse costs 7-9 ms, so two seconds is three orders of magnitude
 // of headroom and only a genuinely wedged git can reach it.
-const discoveryBudget = 2 * time.Second
+//
+// A var only so the wedge rows of gateunreadable_test.go can lower it (#147: a
+// git killed here is no answer, and the suite must not pay 4 s a row); nothing
+// in the binary writes it.
+var discoveryBudget = 2 * time.Second
 
 // repoContext answers the two questions every hook asks on arrival: where the
 // ledger is, and where the worktree root is that repo-relative paths are
@@ -886,8 +891,8 @@ var errNoLedger = errors.New("buddy: no ledger here")
 // resolveRepo is discoverRepo for a hook's cwd, which may have been removed
 // under a live session (D-102, amends D-044). Measured in run1, 2026-10-20: a
 // lane removed its own worktree, which lived inside the main checkout; git
-// said "cannot change to '<cwd>': No such file or directory", hasGitAncestor
-// walked up to the checkout's .git, found its ledger PRESENT, and the gate
+// said "cannot change to '<cwd>': No such file or directory", the durable
+// probe walked up to the checkout's .git, found its ledger PRESENT, and the gate
 // denied every Bash call the lane made, its DONE report included. A worktree
 // removed from BESIDE the checkout had no .git above it and was silently
 // allowed. So the verdict hung on where the directory used to be.
@@ -920,7 +925,7 @@ func resolveRepo(dir string) (repoContext, error) {
 	// Re-read both ends. A cwd recreated while the ancestor was asked has its
 	// own answer, and that answer is the verdict (a repository with a paused
 	// ledger may have just been made there). An ancestor that vanished while
-	// it was asked is no evidence of feature-off: git and hasGitAncestor then
+	// it was asked is no evidence of feature-off: git and noLedgerProof then
 	// read the same missing directory the cwd's own discovery did. This
 	// narrows the window and does not close it: an ancestor moved away and
 	// back between the two reads is not seen (Codex code pass), the TOCTOU
@@ -1105,21 +1110,50 @@ func discoverRepo(dir string) (repoContext, error) {
 		if errors.As(err, &ee) {
 			// "Provably not a repo" must not hang on git's prose (a reworded
 			// message would hard-deny every edit outside a repo): the message
-			// check is a fast path, the .git-ancestor probe the durable one.
-			if gitSaysNotARepository(ee.Stderr) || !hasGitAncestor(dir) {
+			// check is a fast path, the level proof below the durable one.
+			if gitSaysNotARepository(ee.Stderr) {
 				return repoContext{}, errNoLedger
 			}
-			// Git REFUSED a repository it found, and a refused repository
-			// with no ledger in it is one that was never `buddy init`ed,
-			// which is feature-off, not unreadable (invariant 3). Measured
-			// 2026-09-24: something ran `git init` in /private/tmp, git
-			// then refused every path under /tmp as "dubious ownership"
-			// (root owns /tmp, the operator owns .git), and this arm denied
-			// every Edit and Write under /tmp in every session, scratchpads
-			// included, for a repository with no commits and no ledger.
-			if ledgerProvablyAbsent(dir) {
+			// git gave NO answer: it refused a repository it found (dubious
+			// ownership, a format it does not know, safe.bareRepository), or
+			// discoveryBudget killed it (#147). Feature-off only where no
+			// ledger git could have used sits at any level above dir
+			// (noLedgerProof). A refused repository with no ledger in it is
+			// one that was never `buddy init`ed, which is feature-off, not
+			// unreadable (invariant 3). Measured 2026-09-24: something ran
+			// `git init` in /private/tmp, git then refused every path under
+			// /tmp as "dubious ownership" (root owns /tmp, the operator owns
+			// .git), and this arm denied every Edit and Write under /tmp in
+			// every session, scratchpads included, for a repository with no
+			// commits and no ledger.
+			//
+			// The probes this replaces read only `.git` entries: with no
+			// `.git` above (hasGitAncestor) a killed git was feature-off, so a
+			// paused governed BARE cache.git passed `touch f` after 4 s under
+			// a git that hung (#147, reproduced with a wrapper and with real
+			// git on a FIFO HEAD); below a ledgerless `.git` the bare level
+			// was never checked (L/cache.git); and safe.bareRepository=explicit
+			// refused a governed bare repository into the same allow (D-137's
+			// residual). Denying wherever git did not exit (option A) was
+			// cut: a machine-wide wedge (an `[include]` of a FIFO in
+			// ~/.gitconfig, reproduced) then refused every Edit, Write and
+			// Bash in every directory, the Edit that would fix it included.
+			perr := noLedgerProof(dir)
+			if perr == nil {
 				return repoContext{}, errNoLedger
 			}
+			// The level the proof stopped at is named once, by the fix
+			// that ends the text (levelErr says why).
+			said := ""
+			if s := firstStderrLine(ee.Stderr); s != "" {
+				said = ": " + fence.Line(s, 256)
+			}
+			var le *levelErr
+			if errors.As(perr, &le) {
+				return repoContext{}, fmt.Errorf("repo discovery failed: git gave no answer (%w%s), and %s", err, said, le.text(fixGit))
+			}
+			return repoContext{}, fmt.Errorf("repo discovery failed: git gave no answer (%w%s), and %v; %s %s; never delete a ledger",
+				err, said, perr, fixGit, fence.Line(dir, 512))
 		}
 		return repoContext{}, fmt.Errorf("repo discovery failed: %w", err)
 	}
@@ -1142,7 +1176,7 @@ func discoverRepo(dir string) (repoContext, error) {
 // ubuntu-latest image 20261111). Matching only the old text, discovery under
 // 2.56 read those as a real failure, so the D-212 walk DENIED where macOS walks
 // past (CI on 1bfdf45: three nestedgate tests), and a cwd under a stale pointer
-// behind a link, which ledgerProvablyAbsent cannot follow, denied every call
+// behind a link, which the nearest-entry probe of the time could not follow, denied every call
 // (measured in an Ubuntu 26.04 container with each git, 2026-11-18). Both are
 // git's one READ_GITFILE_ERR_NOT_A_REPO case. The new text is matched only as
 // the START of git's first `fatal:` line, never anywhere in stderr: git echoes
@@ -1200,45 +1234,286 @@ func gitSetupSaysNoRepository(stdout string, err error) bool {
 		strings.HasPrefix(s, "fatal: gitfile does not point to a valid repository: ")
 }
 
-// hasGitAncestor reports whether dir or any ancestor contains a .git entry
-// (directory, or the file a linked worktree uses).
-func hasGitAncestor(dir string) bool {
-	dir = filepath.Clean(dir)
-	for {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return false
-		}
-		dir = parent
-	}
+// firstStderrLine is the first line git printed, for a deny that names it.
+func firstStderrLine(b []byte) string {
+	s, _, _ := strings.Cut(strings.TrimLeft(string(b), "\n"), "\n")
+	return s
 }
 
-// ledgerProvablyAbsent reports whether the git directory git would have used
-// for dir holds NO ledger, established without git: the nearest .git entry,
-// followed (for the file a linked worktree or a submodule uses) through its
-// `gitdir:` line and that directory's `commondir`, then an Lstat that answers
-// "does not exist". Only that positive answer returns true. An unreadable
-// path, an unparsable pointer, a symlinked .git, or a ledger that IS there
-// all return false, and the caller keeps denying. So does GIT_DIR or
-// GIT_COMMON_DIR in the environment, because then git is not using the
-// nearest .git at all.
-func ledgerProvablyAbsent(dir string) bool {
-	if os.Getenv("GIT_DIR") != "" || os.Getenv("GIT_COMMON_DIR") != "" {
-		return false
-	}
-	entry, ok := nearestGitEntry(dir)
-	if !ok {
-		return false
-	}
+// entryLedgerAbsent is the nearest-entry proof discoverRepo always used: the
+// .git entry resolved without git (commonDirOf) and its ledger Lstat saying
+// "does not exist". An unparsable pointer, a symlinked .git or an unreadable
+// path proves nothing (D-044).
+func entryLedgerAbsent(entry string) bool {
 	common, ok := commonDirOf(entry)
 	if !ok {
 		return false
 	}
 	_, err := os.Lstat(common + "/" + ledgerName) // raw: commonDirOf says why
 	return errors.Is(err, os.ErrNotExist)
+}
+
+// ledgerProvablyAbsent reports whether noLedgerProof holds for dir: the
+// boolean the discovery tests ask, kept under the name they pin.
+func ledgerProvablyAbsent(dir string) bool { return noLedgerProof(dir) == nil }
+
+// noLedgerProof returns nil when NO ledger git could have used for dir exists,
+// established without git, and otherwise why that cannot be told (#147). It
+// is discoverRepo's durable probe for a git that gave no answer.
+//
+// git's discovery visits each level D from dir up to "/": D/.git (a directory
+// or a gitfile) first, then D itself as a bare git directory. A ledger is
+// always <common>/buddy.db, so the proof visits the same levels, PHYSICALLY
+// (git's walk is; a lexical climb of a cwd through a link proved the link's
+// parent instead), each one SEQUENTIALLY (Codex design pass, X2: a governed
+// bare cache.git holding an empty cache.git/.git needs both checks):
+//
+//   - the NEAREST .git entry: entryLedgerAbsent must hold, the old
+//     nearest-entry probe's test (commonDirOf, then an Lstat saying
+//     ENOENT). NOT ledgerAbsentAt, which also proves a symlinked .git
+//     directory and a non-pointer .git file: that loosened
+//     TestGateOnAnUnparsableGitFile's pinned deny, a verdict neither #146
+//     nor #147 asks to move (panel lens b5, answered). An entry ABOVE the
+//     nearest is not judged here: it is the D-212 walk's, which asks git at
+//     each. Judging every entry to "/" denied every call in a ledgerless
+//     repository git refuses (a format it does not know) under a
+//     ledgerless top/.git link or a non-pointer top/.git file, which
+//     entryLedgerAbsent cannot prove, and under governed R, whose ledger IS
+//     behind R/.git, where base allowed and R's claims adjudicated (Fable
+//     cross-check, F1). The walk then CONTINUES upward for the bare levels:
+//     git passes an invalid entry (an empty .git directory) and goes on, so
+//     a proved entry does not end the proof (panel lens a). The old probe
+//     stopped at the nearest entry and never looked at the bare level below
+//     it (G2: a governed L/cache.git inside a ledgerless worktree L).
+//   - D a bare candidate (bareLevel): its ledger location must not exist.
+//   - a level this process cannot search (EACCES on its Lstats) is skipped:
+//     a deny for every unsearchable directory on the way refused every call
+//     below `r/locked` mode 000, ledger or none (the rejected U-alt-2, panel
+//     lens a8; a ledger behind one is recorded open as R3).
+//
+// Under GIT_DIR or GIT_COMMON_DIR nothing is proved: git is not using the
+// directories above dir at all. The hook verbs unset both at entry (D-137),
+// so this reaches only commit-gate and the typed verbs.
+func noLedgerProof(dir string) error {
+	if os.Getenv("GIT_DIR") != "" || os.Getenv("GIT_COMMON_DIR") != "" {
+		return errors.New("GIT_DIR or GIT_COMMON_DIR is set, so the directories above prove nothing")
+	}
+	start, err := physicalLevelStart(dir)
+	if err != nil {
+		return err
+	}
+	judged := false // the nearest .git entry has been
+	for d := start; ; {
+		entry := filepath.Join(d, ".git")
+		_, lerr := os.Lstat(entry)
+		if !errors.Is(lerr, syscall.EACCES) {
+			if lerr == nil && !judged {
+				judged = true
+				if !entryLedgerAbsent(entry) {
+					return &levelErr{at: d, what: ".git", why: "a ledger behind it cannot be proved absent"}
+				}
+			}
+			if loc, v, why := bareLevel(d); v == levelLedger {
+				return &levelErr{at: d, what: bareWhat, why: "it looks like one, and " + fence.Line(relUnder(d, loc), 512) + " is there"}
+			} else if v == levelUnknown {
+				return &levelErr{at: d, what: bareWhat, why: why}
+			}
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return nil
+		}
+		d = parent
+	}
+}
+
+// levelErr is a level walk's "cannot tell" verdict (noLedgerProof,
+// seenBareLevels, from bareLevel's reasons): what at the level may hold a
+// ledger and why that cannot be told, both relative to the level, which is
+// named once, by the fix that ends the text. The texts named the directory
+// up to four times, and behind the 512-byte target and ancestor wrappers a
+// fixture under a ~148-byte path lost its fix to the truncation (Fable
+// cross-check, F7). Every value in it is fenced where it is built.
+type levelErr struct {
+	at   string // the level directory, absolute
+	what string // ".git", or bareWhat for the level itself
+	why  string
+}
+
+// bareWhat names the level itself in a levelErr.
+const bareWhat = "the git directory"
+
+// The fixes a levelErr ends with: one for a level git will not open (SEEN,
+// a passed entry), one for a git that gave no answer at all (PROOF).
+const (
+	fixReadable = "make it readable or work outside"
+	fixGit      = "fix the git that hangs or refuses here, or work outside"
+)
+
+func (e *levelErr) text(fix string) string {
+	return fmt.Sprintf("cannot tell whether %s holds a buddy ledger: %s; %s %s; never delete a ledger", e.what, e.why, fix, fence.Line(e.at, 512))
+}
+
+func (e *levelErr) Error() string { return e.text(fixReadable) }
+
+// errnoText is err's errno text without the absolute path a PathError
+// carries: a levelErr names its paths relative to the level.
+func errnoText(err error) string {
+	var pe *os.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return err.Error()
+}
+
+// physicalLevelStart is the physical directory the level walks start from:
+// dir with every link resolved, joined RAW onto the working directory when
+// relative (filepath.Abs cleans `jump/..` lexically, homeWalkStart says why).
+// A dir that exists but will not resolve is "cannot tell"; one that does not
+// exist (a vanished cwd, a target about to be created) starts where an empty
+// directory at that path would be created (resolvedAncestor, D-102's walk),
+// and one behind an unsearchable directory from canon's deepest resolvable
+// prefix, whose unsearchable levels the walk skips.
+func physicalLevelStart(dir string) (string, error) {
+	if !filepath.IsAbs(dir) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("cannot tell where %s is: %v", fence.Line(dir, 512), err)
+		}
+		dir = wd + "/" + dir
+	}
+	p, err := filepath.EvalSymlinks(dir)
+	if err == nil {
+		return p, nil
+	}
+	if _, serr := os.Stat(dir); serr == nil {
+		return "", fmt.Errorf("cannot tell whether a buddy ledger governs %s: it exists and does not resolve (%v)", fence.Line(dir, 512), err)
+	}
+	if _, lerr := os.Lstat(dir); errors.Is(lerr, syscall.ENOENT) {
+		if a, ok := resolvedAncestor(dir); ok {
+			return a, nil
+		}
+	}
+	return canon(dir), nil
+}
+
+// The verdicts bareLevel gives one level.
+const (
+	levelNone    = iota // not a bare git directory, or one with no ledger
+	levelSkip           // this process cannot search it
+	levelLedger         // a bare git directory whose ledger file is there
+	levelUnknown        // a bare git directory whose ledger cannot be looked for
+)
+
+// bareLevel classifies D as git's discovery would see it as a BARE git
+// directory, for the ledger behind it, and names the ledger location.
+//
+// Two Lstats per level at most, of D/buddy.db and, where that is absent,
+// D/commondir: the markers git's is_git_directory needs (HEAD, objects,
+// refs; any one) are read only where one of the two exists. Without the
+// marker test a fleet home (~/.buddy/fleets/<f>/, a buddy.db and no
+// repository) and a stray buddy.db backup under a wedged git denied every
+// call below them (panel lenses b and c); with only the marker test a
+// governed bare repository whose HEAD git cannot read is still a candidate,
+// since Lstat needs no read permission. A valid D/commondir REPLACES D as the
+// ledger location (Codex design pass, X4): a backup buddy.db in a worktree
+// admin directory of ungoverned m is not m's ledger. An unreadable or
+// unparsable commondir, or one that is not a regular file, is levelUnknown;
+// one that is not a regular file is never opened (a FIFO there blocked the
+// read, and the hook with it: Codex code pass, P2).
+//
+// A level with no buddy.db of its own is still followed through its
+// commondir: git reads HEAD at D and objects and refs in the common
+// directory, so D with a copy of governed C's HEAD and a commondir naming C
+// is C's, and under a wedged git `touch f` there passed with the walk never
+// reading the commondir (Codex code pass, P1). A worktree admin directory git
+// made at <common>/worktrees/<n> was already read two levels later, at
+// <common>; the hand-written one elsewhere was not.
+//
+// The commondir is typed THROUGH a link (os.Stat), as git's read follows
+// it: typed by Lstat, a worktree admin directory of ledgerless m whose
+// commondir links to a regular file, and a plain level holding HEAD and such
+// a link, were levelUnknown and `ls` there denied, which the parent allowed
+// (Fable cross-check, F5). A link to a directory or a FIFO, and one Stat
+// cannot follow for any reason but ENOENT, stay levelUnknown, never opened; a
+// dangling one is no commondir, as git's file_exists reads it.
+//
+// An Lstat error on D/buddy.db other than ENOENT, ENOTDIR and EACCES
+// (ENAMETOOLONG, EPERM, ELOOP) is levelUnknown only where a marker says D is
+// a git directory: called unknown before the marker test, a plain directory
+// whose path leaves no room for "/buddy.db" (1018 bytes, ENAMETOOLONG)
+// denied `ls`, and EPERM took that arm against the EACCES-only ruling (Fable
+// cross-check, F6).
+//
+// The reason returned with levelUnknown names paths relative to D, for a
+// levelErr.
+func bareLevel(d string) (string, int, string) {
+	loc := d + "/" + ledgerName
+	cpath := d + "/commondir"
+	_, err := os.Lstat(loc)
+	own := true // D/buddy.db exists
+	var cfi os.FileInfo
+	var cerr, odd error
+	switch {
+	case errors.Is(err, syscall.ENOENT), errors.Is(err, syscall.ENOTDIR):
+		if cfi, cerr = os.Lstat(cpath); cerr != nil {
+			return loc, levelNone, ""
+		}
+		own = false
+	case errors.Is(err, syscall.EACCES):
+		return loc, levelSkip, ""
+	case err != nil:
+		odd = err // a verdict only where a marker says D is a git directory
+	}
+	marked := false
+	for _, m := range []string{"HEAD", "objects", "refs"} {
+		if _, err := os.Lstat(d + "/" + m); err == nil {
+			marked = true
+			break
+		}
+	}
+	if !marked {
+		return loc, levelNone, ""
+	}
+	if odd != nil {
+		return loc, levelUnknown, ledgerName + ": " + errnoText(odd)
+	}
+	if own {
+		cfi, cerr = os.Lstat(cpath)
+	}
+	if cerr == nil && cfi.Mode()&os.ModeSymlink != 0 {
+		cfi, cerr = os.Stat(cpath)
+	}
+	switch {
+	case own && errors.Is(cerr, os.ErrNotExist):
+		return loc, levelLedger, ""
+	case !own && errors.Is(cerr, os.ErrNotExist):
+		return loc, levelNone, "" // a dangling commondir link: none, as for git
+	case cerr != nil:
+		return loc, levelUnknown, "its commondir cannot be read (" + errnoText(cerr) + ")"
+	case !cfi.Mode().IsRegular():
+		return loc, levelUnknown, fmt.Sprintf("its commondir is not a regular file (%s), and is not opened", cfi.Mode().Type())
+	}
+	b, err := os.ReadFile(cpath)
+	if err != nil {
+		return loc, levelUnknown, "its commondir cannot be read (" + errnoText(err) + ")"
+	}
+	common := strings.TrimRight(string(b), "\r\n")
+	if common == "" || strings.ContainsAny(common, "\n") {
+		return loc, levelUnknown, "its commondir does not parse"
+	}
+	if !filepath.IsAbs(common) {
+		common = d + "/" + common // raw, as commonDirOf joins
+	}
+	loc = common + "/" + ledgerName
+	switch _, err := os.Lstat(loc); {
+	case err == nil:
+		return loc, levelLedger, ""
+	case errors.Is(err, syscall.ENOENT), errors.Is(err, syscall.ENOTDIR):
+		return loc, levelNone, ""
+	default:
+		return loc, levelUnknown, fence.Line(relUnder(d, loc), 512) + ": " + errnoText(err)
+	}
 }
 
 // nearestGitEntry is the first .git entry at or above dir: the one git's
@@ -3622,7 +3897,7 @@ func cmdGate(args []string, env Env) int {
 	// The cwd's discovery is kept apart from the ledger open and the D-212
 	// walk below, which overwrite rc and err: openGateRepo reuses THIS pair,
 	// git's answer for the cwd's own spelling (#142; panel lenses a and b).
-	cwdRC, cwdErr := resolveRepo(h.Cwd)
+	cwdRC, cwdErr := gateResolve(h.Cwd)
 	st, rc, err := openResolved(cwdRC, cwdErr, env)
 	if errors.Is(err, errNoLedger) {
 		// A cwd in a repository with no ledger is still governed by the first
@@ -4027,7 +4302,7 @@ type discoveredDir struct {
 	err error
 }
 
-// resolve is resolveRepo(dir) for openGateRepo, answered from the gate's own
+// resolve is gateResolve(dir) for openGateRepo, answered from the gate's own
 // discovery of its cwd when dir is that cwd spelled BYTE FOR BYTE the same
 // (#142): an Edit in a plain directory discovered the cwd, then the target's
 // directory, the same one, again. The same function on the same string a few
@@ -4037,9 +4312,9 @@ type discoveredDir struct {
 // Not keyed by anything looser. Not os.SameFile: a Linux bind mount gives one
 // inode two ancestries, a bare /x/cache.git/refs bound at /x/plain/view, and
 // git finds the bare repository from one and nothing from the other (Codex
-// design pass, P1). Not the canonical spelling: discoverRepo's lexical arms
-// (hasGitAncestor, ledgerProvablyAbsent, the substring match on a `-C` path git
-// echoes) read the spelling (panel lenses a and b). Not repos.m: its key, the
+// design pass, P1). Not the canonical spelling: discoverRepo reads the
+// spelling (the substring match on a `-C` path git echoes; before #147 its
+// lexical probes did too) (panel lenses a and b). Not repos.m: its key, the
 // folded nearest .git entry, is shared by a bare repository nested in a
 // worktree, so a seeded gateRepo there skipped the enclosing repository's
 // brake for `cd <R> && touch x` (panel lens b). A cwd spelled through a link
@@ -4051,7 +4326,7 @@ func (c *gateCache) resolve(dir string) (repoContext, error) {
 	if c.cwd != nil && dir == c.cwd.dir {
 		return c.cwd.rc, c.cwd.err
 	}
-	return resolveRepo(dir)
+	return gateResolve(dir)
 }
 
 // atHome reports whether a .git entry is the home's own: the same .git AND
@@ -4260,6 +4535,8 @@ type walkResult struct {
 // `git init`ed or vendored clone, a submodule, a stale .git file. Each .git
 // entry at and above start is visited in turn, nearest first:
 //
+//   - first, one whose ledger this process may not look for (entryUnknown,
+//     #146): found WITH that error, before the budget, the cache or git.
 //   - ABSENT, proved without git (ledgerAbsentAt): skipped. The nearest entry
 //     is normally the repository git just answered, and is skipped this way.
 //   - otherwise git is asked from the entry's directory. A ledger with a
@@ -4270,7 +4547,10 @@ type walkResult struct {
 //     SUCCEEDED is proof and is passed; from one that failed it is passed
 //     too unless Lstat sees a ledger file there (ledgerSeenAt), which git's
 //     "not a git repository" fast path cannot overrule (invariant 3; Codex
-//     design pass, P2). Any other error is found WITH that error: it denies.
+//     design pass, P2). A discovery that SUCCEEDED but answered a common
+//     directory not the entry's own, with a ledger file behind the entry,
+//     passed it (passedEntry): found WITH that error. Any other error is
+//     found WITH that error: it denies.
 //
 // The walk stops at the home's own .git entry (c.home, os.SameFile) with
 // settled set: the home arms already read its claims and brake. It ends
@@ -4289,6 +4569,13 @@ func enclosingLedger(env Env, start string, c *gateCache) (walkResult, bool) {
 		key := store.Fold(entry)
 		if c != nil && c.home != nil && c.atHome(entry) {
 			return walkResult{gateRepo: gateRepo{settled: true}, key: key}, false
+		}
+		// Before the budget and the cache (panel lenses c2, a7): an entry
+		// whose ledger this process may not look for denies however it was
+		// reached, and an exhausted budget or a cached "no ledger" under a
+		// shared key must not walk past it (#146).
+		if uerr := entryUnknown(entry); uerr != nil {
+			return walkResult{gateRepo: gateRepo{err: uerr}, key: key}, true
 		}
 		if c != nil && c.limit > 0 && c.opens >= c.limit {
 			// The caller's discovery budget is spent (gateReachedBrakes):
@@ -4317,6 +4604,17 @@ func enclosingLedger(env Env, start string, c *gateCache) (walkResult, bool) {
 			if c != nil {
 				c.opens++
 			}
+			if rc.ledger != "" && (err == nil || errors.Is(err, errNoLedger)) {
+				// git's discovery succeeded: had it passed this entry for
+				// a repository above while a ledger sits behind it, the
+				// arms below would read that one's (passedEntry, #146).
+				if perr := passedEntry(entry, rc); perr != nil {
+					if st != nil && !shared {
+						st.Close()
+					}
+					return walkResult{gateRepo: gateRepo{rc: rc, err: perr}, key: key}, true
+				}
+			}
 			switch {
 			case err == nil && rc.top != "":
 				return walkResult{gateRepo: gateRepo{st: st, rc: rc}, key: key, shared: shared}, true
@@ -4338,8 +4636,7 @@ func enclosingLedger(env Env, start string, c *gateCache) (walkResult, bool) {
 				// what git's discovery from that directory already reads as
 				// feature-off, and a deny there refused every call below it,
 				// ledger or none (Fable cross-check).
-				return walkResult{gateRepo: gateRepo{rc: rc, err: fmt.Errorf(
-					"cannot tell whether %s holds a buddy ledger: git cannot open that repository, and a ledger file is there", entry)}, key: key}, true
+				return walkResult{gateRepo: gateRepo{rc: rc, err: ledgerThereErr(entry)}, key: key}, true
 			case errors.Is(err, errNoLedger):
 				// No ledger seen: walked past, to the next entry above. Falling
 				// to the default arm ended the walk on "no ledger" and missed a
@@ -4359,8 +4656,10 @@ func enclosingLedger(env Env, start string, c *gateCache) (walkResult, bool) {
 }
 
 // ledgerAbsentAt reports whether NO ledger can be behind the .git entry,
-// proved without git: ledgerProvablyAbsent's test from the entry itself,
-// plus two shapes that test refuses to prove. A symlinked .git DIRECTORY is
+// proved without git: commonDirOf, then an Lstat that answers "does not
+// exist", from the entry itself (the nearest-entry probe discoverRepo used
+// before #147, and noLedgerProof's test at each .git entry now), plus two
+// shapes that probe refused to prove. A symlinked .git DIRECTORY is
 // proved through its target (a symlinked .git above a repository otherwise
 // cost a git process per call, and one git refuses for ownership spread a
 // deny over every healthy repository below it: Codex design pass, P2). And a
@@ -4422,6 +4721,416 @@ func ledgerSeenAt(entry string) bool {
 	}
 	_, err := os.Lstat(common + "/" + ledgerName)
 	return err == nil
+}
+
+// ledgerThereErr is the "cannot tell" verdict for a .git entry git gave no
+// answer for, or passed, while Lstat sees a ledger file behind it: a
+// levelErr at the entry's directory, so it ends with its fix (it named
+// none: Fable cross-check, F7).
+func ledgerThereErr(entry string) error {
+	return &levelErr{at: filepath.Dir(entry), what: fence.Line(filepath.Base(entry), 64), why: "git cannot open that repository, and a ledger file is there"}
+}
+
+// entryUnknown is the first check at each .git entry the gate's two walks
+// visit (enclosingLedger, gateAncestors), before the budget, every cache
+// lookup and any git: nil, or the entry's "cannot tell" verdict when
+// resolving it to <common>/buddy.db, the way commonDirOf and ledgerSeenAt
+// do, meets a PERMISSION error (#146). The steps are the `.git` symlink hop
+// (EvalSymlinks, the target's Stat), reading a `.git` file, reading
+// <gitdir>/commondir, and the Lstat of <common>/buddy.db.
+//
+// WHY. Governed r with `chmod 000 r/.git`: git says "not a git repository",
+// discovery reads that as feature-off (as it should: git found none), and
+// the D-212 walk's ledgerAbsentAt/ledgerSeenAt could not look behind the
+// entry either, so both read "nothing seen" and a peer's claim on r/x.txt
+// passed an Edit from cwd r and from a plain cwd (issue #146, reproduced at
+// 615766c; mode 400 the same). Nested, governed P/r inside governed P, git
+// PASSES the mode-000 entry and answers P, so r's claims were never read
+// from P/r, P or a plain cwd. A linked worktree whose admin directory is mode
+// 000 (git: "not a git repository: (null)"), a never-`buddy init`ed
+// repository behind one, and a `.git` symlink whose target is mode 000 are
+// the same class: invariant 3's off arm is "provably not a repo, or never
+// `buddy init`ed", and neither is provable where the Lstat that would prove
+// it is refused. So each denies, everything below it included (the
+// operator's ruling, amending D-212's "a .git git cannot open at all stays
+// feature-off" for the permission case only).
+//
+// Not unknown: ENOENT or ENOTDIR at any step (a pointer to nowhere, an absent
+// ledger: D-212 unchanged), an unparsable pointer, any other error. EACCES
+// only, never EPERM (errors.Is(err, fs.ErrPermission) matches both): a
+// sandbox profile's EPERM is not this class, and widening it is a deny
+// nobody measured (panel lens b2, recorded open as R7). An entry another
+// uid owns denies too, naming the owner (the operator's ruling on Codex's
+// X3: an admin chowning r/.git 0700 after `buddy init` leaves the ledger
+// there; ownership now is no evidence of absence then).
+func entryUnknown(entry string) error {
+	fi, err := os.Lstat(entry)
+	if err != nil {
+		return nil
+	}
+	// Paths under the entry's directory are named relative to it: the
+	// target and ancestor wrappers bound the error at 512 bytes, and four
+	// absolute paths 110 bytes deep cut the fix off the end.
+	root := filepath.Dir(entry)
+	denied := func(p string, err error) error {
+		if !errors.Is(err, syscall.EACCES) {
+			return nil
+		}
+		return fmt.Errorf("cannot tell whether %s holds a buddy ledger: %s: permission denied%s; make it readable to this user, or work outside %s; never delete a ledger",
+			fence.Line(entry, 512), fence.Line(relUnder(root, p), 512), ownerNote(root, p), fence.Line(root, 512))
+	}
+	gitdir := entry
+	pointed := false // gitdir is the absolute pointer of a linked .git file
+	if fi.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(entry)
+		if err != nil {
+			// Named by the object the hop could not get past (its
+			// PathError's path; ownerNote then names the deepest one it can
+			// Lstat), not the link: the link is mode 0755 and its owner says
+			// nothing about the fix, where the locked directory on the
+			// target's path does (Codex code pass, P3).
+			var pe *os.PathError
+			if errors.As(err, &pe) {
+				return denied(pe.Path, err)
+			}
+			return denied(entry, err)
+		}
+		// EvalSymlinks has just Lstat'ed every component of target, so this
+		// Stat fails only when the target changes between the two (D-005's
+		// window): its arm is that race's verdict, which no test can stage
+		// (a mutant leaving it unchecked survives, accepted).
+		tfi, err := os.Stat(target)
+		if err != nil {
+			return denied(target, err)
+		}
+		switch {
+		case tfi.IsDir():
+			gitdir, fi = target, tfi
+		case tfi.Mode().IsRegular():
+			// A symlinked .git FILE is followed as a plain .git file's is:
+			// reading the file and stopping passed a peer's claim on
+			// worktree W, W/.git a link to a gitfile naming W's admin
+			// directory, that directory mode 000, from a plain cwd (Codex
+			// code pass, P1). A RELATIVE gitdir is resolved from the LINK's
+			// directory, where git resolves it (measured, Apple Git-157:
+			// the link's path, not the target's, is the base): returning
+			// nil for one passed the same claim with the gitfile elsewhere
+			// (Fable cross-check, F3).
+			b, err := os.ReadFile(target)
+			if err != nil {
+				return denied(target, err)
+			}
+			rest, ok := gitdirLine(b, filepath.Dir(entry))
+			if !ok {
+				return nil
+			}
+			gitdir, pointed = rest, true
+		default:
+			return nil // no pointer; a FIFO is never opened
+		}
+	}
+	switch {
+	case pointed, fi.IsDir():
+	case fi.Mode().IsRegular() && fi.Size() <= 4096:
+		b, err := os.ReadFile(gitdir)
+		if err != nil {
+			return denied(gitdir, err)
+		}
+		rest, ok := strings.CutPrefix(strings.TrimRight(string(b), "\r\n"), "gitdir: ")
+		if !ok || rest == "" || strings.ContainsAny(rest, "\n") {
+			return nil
+		}
+		if !filepath.IsAbs(rest) {
+			rest = filepath.Dir(gitdir) + "/" + rest // raw, as commonDirOf joins
+		}
+		gitdir = rest
+	default:
+		return nil
+	}
+	common := gitdir
+	b, err := os.ReadFile(gitdir + "/commondir")
+	switch {
+	case err == nil:
+		c := strings.TrimRight(string(b), "\r\n")
+		if c == "" || strings.ContainsAny(c, "\n") {
+			return nil
+		}
+		if !filepath.IsAbs(c) {
+			c = gitdir + "/" + c
+		}
+		common = c
+	case !errors.Is(err, os.ErrNotExist):
+		return denied(gitdir+"/commondir", err)
+	}
+	_, err = os.Lstat(common + "/" + ledgerName)
+	return denied(common+"/"+ledgerName, err)
+}
+
+// gitdirLine parses a gitfile's `gitdir: <path>` line, a relative path
+// joined RAW onto base (commonDirOf says why raw).
+func gitdirLine(b []byte, base string) (string, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimRight(string(b), "\r\n"), "gitdir: ")
+	if !ok || rest == "" || strings.ContainsAny(rest, "\n") {
+		return "", false
+	}
+	if !filepath.IsAbs(rest) {
+		rest = base + "/" + rest
+	}
+	return rest, true
+}
+
+// relUnder is p relative to root when p is below it, else p.
+func relUnder(root, p string) string {
+	if r, ok := strings.CutPrefix(p, root+"/"); ok {
+		return r
+	}
+	return p
+}
+
+// ownerNote names, for a path whose read was refused, the deepest object on
+// it this process can Lstat (relative to root where it is below it): its
+// mode and owner, the uid always and the name where the user database
+// answers (a cgo-free build reads /etc/passwd only). It runs only on the
+// deny.
+func ownerNote(root, p string) string {
+	for q := p; ; {
+		if fi, err := os.Lstat(q); err == nil {
+			st, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok {
+				return ""
+			}
+			uid := strconv.FormatUint(uint64(st.Uid), 10)
+			name := ""
+			if u, err := user.LookupId(uid); err == nil && u.Username != "" {
+				name = " " + fence.Line(u.Username, 64)
+			}
+			return fmt.Sprintf(" (%s is mode %04o, owned by uid %s%s)", fence.Line(relUnder(root, q), 512), fi.Mode().Perm(), uid, name)
+		}
+		parent := filepath.Dir(q)
+		if parent == q {
+			return ""
+		}
+		q = parent
+	}
+}
+
+// passedEntry is the check after git's discovery from an entry's directory
+// SUCCEEDED in either walk: git landed on a common directory that is not the
+// entry's own while a ledger file is behind the entry, so git PASSED it
+// (panel lens a1). Governed P/r inside governed P with `chmod 000
+// P/r/.git/HEAD` (or HEAD emptied, or objects mode 000): git skips P/r/.git
+// as no repository and answers P, the walks met P again, and r's claims
+// passed an Edit from cwd P/r, P and a plain cwd (reproduced at 615766c).
+//
+// Where the entry's common directory cannot be resolved without git, there
+// is no identity to compare. A .git FILE (a symlinked one included) is then
+// git's to answer and is not judged. A .git DIRECTORY (through a link too)
+// is judged by its own buddy.db: with P/r/.git/commondir two lines, git
+// passed the entry and answered P, commonDirOf refused the pointer, and r's
+// claim on x.txt passed from P/r, P and a plain cwd (Fable cross-check, F2).
+func passedEntry(entry string, rc repoContext) error {
+	if rc.ledger == "" {
+		return nil
+	}
+	cd := commonDirIdentity(entry)
+	if cd == nil {
+		if fi, err := os.Stat(entry); err == nil && fi.IsDir() {
+			if _, err := os.Lstat(entry + "/" + ledgerName); err == nil {
+				return ledgerThereErr(entry)
+			}
+		}
+		return nil
+	}
+	if fi, err := os.Stat(filepath.Dir(rc.ledger)); err == nil && os.SameFile(fi, cd) {
+		return nil
+	}
+	if !ledgerSeenAt(entry) {
+		return nil
+	}
+	return ledgerThereErr(entry)
+}
+
+// gateResolve is resolveRepo for the gate: the hook cwd's discovery, a
+// target's (gateCache.resolve), and those the two walks make (openShared,
+// gateCache.discover). Those four sites are every discovery the gate runs,
+// and the only ones: resolveRepo itself serves every other hook and the typed
+// verbs, which refuse nothing a peer relies on, so the check stays here
+// (#147's SEEN use, the bare twin of #146).
+//
+// Where discovery said "no ledger" (git found no repository) or SUCCEEDED,
+// the levels from dir are read for a BARE git directory git did not use
+// whose ledger file is there (seenBareLevels): governed paused cache.git
+// with HEAD mode 000 (or objects, refs) is "not a git repository" to git,
+// and `touch f` from cwd cache.git and an Edit of cache.git/hooks/x from a
+// plain cwd passed (panel lens a2, reproduced at 615766c); in a ledgerless
+// worktree P, git passes the damaged P/cache.git and answers P (Codex
+// design pass, X1). Any other discovery error already denies, unchanged.
+func gateResolve(dir string) (repoContext, error) {
+	rc, err := resolveRepo(dir)
+	if err != nil && !errors.Is(err, errNoLedger) {
+		return rc, err
+	}
+	from := dir
+	if rc.gone != "" {
+		from = rc.from
+	}
+	if serr := seenBareLevels(from, rc, err == nil); serr != nil {
+		return repoContext{}, serr
+	}
+	return rc, err
+}
+
+// seenBareLevels walks the physical levels from start (noLedgerProof's walk,
+// bare candidates only: a `.git` entry is the walks' to judge) and returns
+// the "cannot tell" verdict for the first bare candidate whose ledger file is
+// there (or cannot be looked for) and is not the discovered repository's.
+//
+// With found unset (git found no repository) the walk goes to "/". With it
+// set, the walk STOPS at the level of the repository git answered, before
+// probing it (discoveredLevel): from that level up git never looked at a bare
+// level (it stops at the first git directory it accepts), so a governed bare
+// B.git holding a worktree of S must not deny inside S, and nothing there is
+// read at all. Recognising that level only on a hit read the levels above it
+// first: a FIFO named commondir at B (with a HEAD and a buddy.db) above a
+// ledgerless repository B/P blocked the hook for good (Codex code pass, P2).
+// Below that level a call pays, per level, bareLevel's Lstats and
+// discoveredLevel's.
+func seenBareLevels(start string, rc repoContext, found bool) error {
+	d, err := physicalLevelStart(start)
+	if err != nil {
+		return err
+	}
+	var discovered os.FileInfo
+	if found {
+		if fi, err := os.Stat(filepath.Dir(rc.ledger)); err == nil {
+			discovered = fi
+		}
+	}
+	for {
+		if discovered != nil && discoveredLevel(d, discovered) {
+			return nil
+		}
+		loc, v, why := bareLevel(d)
+		if v == levelLedger || v == levelUnknown {
+			if v == levelLedger && discovered != nil {
+				if fi, err := os.Stat(filepath.Dir(loc)); err == nil && os.SameFile(fi, discovered) {
+					return nil // the repository git answered, through D's commondir
+				}
+			}
+			if v == levelUnknown {
+				return &levelErr{at: d, what: bareWhat, why: why}
+			}
+			// The repository git answered is not named: the level, named
+			// by the fix, is what the reader must act on (levelErr).
+			what := "git found no repository there"
+			if found {
+				what = "git passed it for another repository"
+			}
+			return &levelErr{at: d, what: bareWhat, why: what + ", and " + fence.Line(relUnder(d, loc), 512) + " is there"}
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return nil
+		}
+		d = parent
+	}
+}
+
+// discoveredLevel reports whether d is the level git's discovery used, by
+// git's own directories and never by the toplevel it reported: d's .git
+// entry resolves to the discovered common directory (git looks at D/.git
+// before D), or d IS that directory (a bare repository). The toplevel was a
+// third test, and core.worktree makes it any directory: P's core.worktree
+// naming governed paused P/cache.git, its HEAD mode 000, git passed the bare
+// level, answered P/.git with toplevel P/cache.git, and `touch f` there
+// passed (Codex code pass, P1).
+//
+// A .git LINK to a gitfile is resolved here as git resolves it
+// (linkedGitfileCommon), where commonDirIdentity leaves it to git for
+// D-226's walk: unrecognised, a worktree B.git/w of ledgerless S inside
+// governed bare B.git, w/.git a link to its gitfile, read on to B.git and
+// denied `ls` there and a plain cwd's Edit of B.git/w/a.txt, which the
+// parent allowed (Fable cross-check, F4).
+//
+// An entry counts only where its git directory has a HEAD, which git's
+// discovery requires of every git directory it uses (Codex re-verify, round
+// 1): a crafted P/B.git/X/.git holding a commondir that names P's common
+// directory and no HEAD is passed by git, and matched by its commondir alone
+// it stopped SEEN at X, before governed paused bare B (HEAD mode 000) was
+// read; the D-212 walk then proved X and P absent and the call was allowed.
+func discoveredLevel(d string, discovered os.FileInfo) bool {
+	entry := filepath.Join(d, ".git")
+	if gitdirHasHEAD(entry) {
+		if cd := commonDirIdentity(entry); cd != nil && os.SameFile(cd, discovered) {
+			return true
+		}
+		if cd := linkedGitfileCommon(entry); cd != nil && os.SameFile(cd, discovered) {
+			return true
+		}
+	}
+	fi, err := os.Stat(d)
+	return err == nil && os.SameFile(fi, discovered)
+}
+
+// gitdirHasHEAD reports whether the git directory a .git entry names (the
+// directory itself, through a link too, or a gitfile's pointer resolved raw
+// from the entry's own directory, as git does) has a HEAD Lstat sees.
+func gitdirHasHEAD(entry string) bool {
+	fi, err := os.Stat(entry)
+	if err != nil {
+		return false
+	}
+	gitdir := entry
+	switch {
+	case fi.IsDir():
+	case fi.Mode().IsRegular() && fi.Size() <= 4096:
+		b, err := os.ReadFile(entry)
+		if err != nil {
+			return false
+		}
+		g, ok := gitdirLine(b, filepath.Dir(entry))
+		if !ok {
+			return false
+		}
+		gitdir = g
+	default:
+		return false
+	}
+	_, err = os.Lstat(gitdir + "/HEAD")
+	return err == nil
+}
+
+// linkedGitfileCommon is, for a .git entry that is a LINK to a regular file
+// holding a `gitdir:` line, the common directory that names, with a
+// relative gitdir resolved from the link's own directory, where git
+// resolves it (measured, Apple Git-157; entryUnknown follows the same
+// pointer). nil for anything else, or where it does not resolve.
+func linkedGitfileCommon(entry string) os.FileInfo {
+	fi, err := os.Lstat(entry)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	tfi, err := os.Stat(entry)
+	if err != nil || !tfi.Mode().IsRegular() || tfi.Size() > 4096 {
+		return nil
+	}
+	b, err := os.ReadFile(entry)
+	if err != nil {
+		return nil
+	}
+	gitdir, ok := gitdirLine(b, filepath.Dir(entry))
+	if !ok {
+		return nil
+	}
+	common, ok := commonDirOf(gitdir)
+	if !ok {
+		return nil
+	}
+	cfi, err := os.Stat(common)
+	if err != nil {
+		return nil
+	}
+	return cfi
 }
 
 // homeWalkStart is where the home's walk starts when the hook cwd's own

@@ -10,7 +10,7 @@ import "os"
 // <repo>/dir1/x.go from cwd <repo>/dir1 was ALLOWED, 0 bytes, where the control
 // denied with 480. A relative GIT_DIR makes git say "not a git repository" from
 // a subdirectory, which discoverRepo reads as errNoLedger before
-// ledgerProvablyAbsent's own GIT_DIR guard can run; an absolute one makes git
+// noLedgerProof's own GIT_DIR guard can run; an absolute one makes git
 // report the cwd as the worktree root, so dir1/x.go placed as x.go and the
 // claim missed. A dotfiles shell (GIT_DIR and GIT_WORK_TREE aimed at another
 // repository) read every repository on the machine as ledgerless; a
@@ -24,8 +24,9 @@ import "os"
 // what is being committed: a partial commit's temporary GIT_INDEX_FILE must
 // survive (the charter's git facts). A hook is a fresh process per call, so
 // unsetting the names in the process covers every discovery site at once
-// (revParse, ledgerProvablyAbsent's and vanishedCwdAncestor's own os.Getenv
-// reads, the per-directory discovery a shell route or a patch target makes)
+// (revParse, the os.Getenv reads in noLedgerProof, ledgerAbsentAt and
+// vanishedCwdAncestor, the per-directory discovery a shell route or a patch
+// target makes)
 // and every child the hook spawns. Threading an environment through
 // openRepo/resolveRepo/discoverRepo would have missed the os.Getenv reads.
 // Denying whenever one is set was cut: it bricks every dotfiles shell in every

@@ -17207,3 +17207,127 @@ review: lite (self-review: 0 raised + codex@xhigh code: pending)
 - index: CLAUDE.md § Decisions, the "Gate jurisdiction" line
 - charter: GIVEN 47 names D-230
 - amends: D-138 (its recorded cost "discovery runs git twice on a failure": once where git's setup said no repository)
+
+
+## D-231 — A ledger the gate cannot look for, or that git gives no answer for, is "cannot tell" and denies: a `.git` whose path to `buddy.db` meets EACCES, one git passes while its ledger is seen, a bare level git skipped or never finished asking; a killed or refusing discovery git is feature-off only where no level git visits can hold a ledger (issues #146, #147; amends D-212, D-044, D-137)
+
+2026-11-18 · issues #146, #147 (leads from #142's panel). Lanes gate-unreadable and gate-unreadable-2 (Opus 5.5 at high), run
+r1118f, class code, tier full. The operator, in orc-9's pane at 17:41Z: "1b, 2 deny, 3 yes, keep scope".
+
+**What was wrong.** Reproduced at 615766c with a binary built from that tree, mktemp fixtures, each row
+beside a readable / real-git control that denied (peer A holds `x.txt`, or B is paused):
+- #146: governed `r` with `chmod 000 r/.git` (or 400) ALLOWED B's Edit from cwd `r` and from a plain cwd:
+  git says "not a git repository" for a `.git` it cannot read, discovery read that as off, and the D-212
+  walk's `ledgerSeenAt` could not Lstat through it. Governed `P/r` with mode-000 `P/r/.git` inside
+  governed P ALLOWED from `P/r`, P and plain: git passes the entry and answers P, and the D-226 walk
+  re-met P there. A linked worktree whose admin directory is mode 000 ALLOWED. (A mode-000 `.git` FILE
+  already denied: git's text is "error opening".)
+- #147: a paused governed BARE `cache.git`, its discovery git killed at the 2 s budget, ALLOWED after
+  4 s, also with real git (a FIFO `HEAD`; `/usr/bin/git` and the CLT git alike): the killed git's empty
+  stderr fell to `!hasGitAncestor`, feature-off where no `.git` is above. The same in a ledgerless worktree
+  (`L/cache.git`: the old probe read `L/.git` and never the bare level), and D-137's residual (bare under
+  `safe.bareRepository=explicit`, exit 128 "cannot use bare repository").
+- Panel lens a: governed `P/r` with `P/r/.git/HEAD` mode 000 (git passes it; its ledger is in plain sight)
+  ALLOWED from every cwd; a governed bare repository with `HEAD` mode 000 ALLOWED.
+
+**The rule.**
+- U, in both gate walks (`enclosingLedger`, `gateAncestors`), first at each `.git` entry, before the
+  opens budget and every cache lookup: `entryUnknown` denies when resolving the entry to `<common>/buddy.db`
+  (the symlink hop, a `.git` file, `<gitdir>/commondir`, the ledger Lstat) meets EACCES, naming the path,
+  its owner and the fix. EACCES only: EPERM (a sandbox) and ENOENT/ENOTDIR (a pointer to nowhere, an
+  absent ledger) keep D-212's verdicts. Any owner: another uid's ownership now is no evidence a ledger
+  was never made there (Codex design pass; operator's choice 2). After a discovery from an entry that
+  SUCCEEDED onto another repository's common dir while Lstat sees the entry's own ledger (`passedEntry`):
+  D-212's "cannot tell" error.
+- B, `noLedgerProof`, discoverRepo's error arm after git's "not a git repository" fast path (#142's early
+  return untouched): replaces `!hasGitAncestor` and the nearest-entry probe. It walks the PHYSICAL levels
+  git visits, dir to "/", each SEQUENTIALLY: the NEAREST `.git` entry (the old commonDirOf test; an entry
+  above it is the D-212 walk's, which asks git there: judging every entry to "/" refused calls under a
+  ledgerless `top/.git` link and inside governed R that base allowed, Fable F1), then each level as a bare
+  candidate where `HEAD`, `objects` or `refs` exists, its ledger `D/buddy.db` or, through `D/commondir`
+  (followed by Stat; a dangling one is none, a directory or FIFO is never opened and is cannot-tell),
+  `<common>/buddy.db`. Feature-off only when every level proves absence; an unsearchable level is skipped
+  (as an unsearchable non-`.git` directory always was). Under GIT_DIR/GIT_COMMON_DIR nothing is proved.
+- SEEN, in the gate only (`gateResolve`, at the cwd, `gateCache.resolve`, `openShared`, `discover`): the
+  same levels from the start up to the level git's discovery landed on (to "/" when it found none) deny on
+  a bare candidate whose ledger is present and is not the discovered one: the bare form of U's passed check.
+  The discovered level is found by git's own directories, never by the toplevel it reports (core.worktree
+  makes that any directory: Codex code pass), and is checked BEFORE the level's bare probe, so nothing at or
+  above it is read (a FIFO commondir there hung the hook). A level's `.git` entry (a directory, a link, a
+  gitfile, a link to a gitfile resolved from the link's directory as git does) counts only where the git
+  directory it names has a HEAD, which git requires of every git directory it uses (Codex re-verify 1).
+
+**The open choice** (#147): A, deny wherever a discovery git did not exit, was rejected on a reproduced
+input (lens b): `~/.gitconfig` including a FIFO hangs every git; A then refuses every Edit, Write and Bash
+of every session in every directory, the Edit of `.gitconfig` that fixes it included. B denies only where a
+level could hold a ledger; a plain directory under a wedged git stays off. The operator chose B.
+
+**Verdicts that change.** Every row above DENIES. So does a never-`buddy init`ed repository behind a
+same-machine mode-000 `.git` (absence is unprovable), and a mode-000 `.git` ABOVE other repositories
+denies every call below it (a mode-000 `~/.git`: all of HOME): this amends D-212's "under a `.git` git
+cannot open at all ... stays feature-off" for EACCES, and corrects D-212's "an Edit under a governed `.git`
+that exists but cannot be read ... now DENIES", which held at its landing only for a `--x` `.git`.
+Unchanged, each tested: a plain directory, a stale pointer, a dangling `.git` link, an unparsable `.git`
+file (still denied by discovery, `TestGateOnAnUnparsableGitFile`; panel lens b's `ledgerAbsentAt` there
+would have loosened it: answered), `r/locked` mode 000 in a governed or ungoverned repository, a fleet
+home or stray `buddy.db` under a wedged git, an ungoverned bare repository or worktree admin directory
+under a wedge.
+
+**Open, recorded, not folded.**
+- `revParse` sets no `WaitDelay`: a git wrapper whose child keeps stdout makes `Output()` wait past the
+  budget (measured: a plain-directory Bash gate took 18 s); a killed first call still pays #142's second.
+- A `.git` behind an unsearchable directory is not an entry, and a bare level behind one is skipped.
+- D-219's echoed path: a governed bare repository under `explicit` inside a directory named
+  `not a git repository` still matches the substring fast path (a crafted respelling).
+- D-138's shared key: a plain cwd's `cd L/sub && cd L/cache.git && touch f` ALLOWS with real git
+  (L/sub caches "no ledger" under the key L/cache.git shares).
+- EPERM under a restricted-read sandbox profile: not measured; keeps today's verdict.
+- TOCTOU: a chmod between the check and the write (D-005).
+- A crafted HEAD git rejects by content (Codex re-verify 2): the re-verify-1 fixture plus an empty regular
+  `P/B.git/X/.git/HEAD`; git skips X and the damaged B and answers P, SEEN stops at X, and the call is
+  ALLOWED. Hand-made, never a layout git creates; validating HEAD's content as git does is the fix if one
+  is owed.
+- A FIFO `commondir` read by the older `commonDirOf`/`commonDirIdentity` (the D-212 and D-226 walks) still
+  blocks: pre-existing at 4d8fa63, not a regression; SEEN and the bare probe never open one.
+- A `commondir` linked to a DIRECTORY at a bare level stays cannot-tell (pinned by a test), not off.
+- The `os.Stat(target)` guard in `entryUnknown` is an accepted mutant survivor: after EvalSymlinks
+  succeeded the target's Stat fails only in a race.
+- Rows guarded by `t.Skipf` (U4, PASSED, SEEN, G3, the headless entry) skip, saying so, under a git whose
+  discovery passes or refuses differently from the one measured.
+
+**Review (full tier).** Panel on the design note: lens a (invariant 3 and every false allow; Fable 5.2)
+8 raised, 5 reproduced; lens b (false denies; Opus 5.5) 8 raised, 5 reproduced, among them the FIFO
+`~/.gitconfig` that sank option A; lens c (the D-212 walk, bare residuals, nested ledgers, fleet; Opus 5.5)
+10 raised, 6 reproduced. Codex design pass: 4 raised, 4 fixed (X1 a damaged bare level inside a ledgerless
+worktree, X2 the entry and bare checks sequential, X3 another uid's `.git` by the operator's ruling, X4 a
+worktree admin directory's shadow `buddy.db`: a valid commondir replaces the level's own location). Codex code pass: 5 raised, 5 fixed (C1 a `.git` link to an absolute gitfile, C2 the bare
+probe returning before `commondir`, C3 the discovered level by the toplevel under core.worktree, C4 a FIFO
+commondir above a ledgerless repository hanging SEEN, C5 the owner of the link named instead of the locked
+object). Fable 5.2 cross-check: 8 raised, 8 fixed (F1 every `.git` judged to "/", F2 an entry of unknown
+identity, F3 a link to a relative gitfile, F4 a linked-gitfile level, F5 commondir typed by Lstat, F6 an
+odd `buddy.db` error before the markers, F7 the deny text's level and fix, F8 USAGE's paragraph). Codex
+re-verify 1: twelve folds OK, 1 raised, 1 fixed (a headless `X/.git` naming P's common directory stopped
+SEEN above governed bare B). Re-verify 2, the round ceiling: the fold OK, no new false deny, 1 raised,
+1 answered (recorded open above). The implementer's own loosening of `TestGateOnAnUnparsableGitFile`
+(ledgerAbsentAt at an entry) was caught and reverted before the code pass.
+`review: full (panel@fable,opus,opus: 26 raised, 16 reproduced + codex@xhigh design: 4 raised, 4 fixed + codex@xhigh code: 5 raised, 5 fixed + fable: 8 raised, 8 fixed + codex@xhigh reverify: 2 raised, 1 fixed, 1 answered)`
+
+**Tests and mutants.** `internal/cli/gateunreadable_test.go`: every row above with its control, the OFF
+rows, the wedge through a `git` script first on PATH with `discoveryBudget` lowered, `safe.bareRepository`
+through a fixture `GIT_CONFIG_GLOBAL`, the GIT_DIR stand-down, the owner note. Skipped as root. 38 mutants
+in private copies: 35 killed. The first battery's M9 (a proved entry ends the proof), M10 (entry and bare
+checks as alternatives) and M16 (the GIT_DIR stand-down removed) survived until a test was added for each;
+the survivors are the symlink-target and link hops (M18, M18b) and the code-pass fold's `os.Stat(target)`
+guard (MG), the one guard dead after EvalSymlinks, answered above.
+
+### Where it lives
+- code: `internal/cli/cli.go` (`entryUnknown`, `passedEntry`, `ownerNote`, `noLedgerProof`,
+  `entryLedgerAbsent`, `bareLevel`, `gateResolve`, `seenBareLevels`, `passedDiscovered`,
+  `enclosingLedger`, `discoverRepo`, `discoveryBudget`); `internal/cli/gateancestors.go`
+  (`gateAncestors`, `discover`, `openShared`)
+- tests: `internal/cli/gateunreadable_test.go`
+- docs: `docs/USAGE.md` (the gate's cannot-tell verdicts)
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line
+- charter: GIVEN 47 names D-231
+- amends: D-212 (a `.git` git cannot open for EACCES now denies), D-044 (the refusal probe covers bare
+  levels and a git that did not finish), D-137 (its `safe.bareRepository=explicit` residual closes)

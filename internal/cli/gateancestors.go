@@ -27,6 +27,9 @@ package cli
 // os.SameFile, never by the ledger file (a symlinked `buddy.db` into R's is a
 // different repository sharing a file, and R's claims still apply there) and
 // never by `<top>/.git`. Per entry, nearest first:
+//   - first, an entry whose ledger this process may not look for (a
+//     permission error on the way to its buddy.db, entryUnknown) is
+//     collected as an error and stepped past with no git (#146);
 //   - a common directory already met: the same ledger at another root. Placed
 //     there too, UNLESS the nearest entry of that ledger is a REGISTERED
 //     linked worktree of it (registeredWorktree), which is then its only
@@ -38,8 +41,10 @@ package cli
 //   - otherwise git is asked, with D-212's arms: a ledger with a root is
 //     collected; a rootless one (a bare-layout `proj/.git`) passes; "no ledger"
 //     a successful discovery proved passes; a failed discovery where Lstat
-//     sees a ledger is "cannot tell"; any other failure is collected as an
-//     error. An error denies wherever it applies (invariant 3).
+//     sees a ledger is "cannot tell", and so is a successful one that
+//     PASSED the entry for another repository while a ledger is behind it
+//     (passedEntry); any other failure is collected as an error. An error
+//     denies wherever it applies (invariant 3).
 // A target's walk stops at the home's own entry (gateCache.atHome): the home
 // arms read the home's claims, its brake and ITS ancestors (cmdGate).
 //
@@ -157,7 +162,7 @@ func (c *gateCache) discover(entry string) (repoContext, error, bool) {
 	if c.limit > 0 && c.opens >= c.limit {
 		return repoContext{}, nil, false
 	}
-	rc, err := resolveRepo(filepath.Dir(entry))
+	rc, err := gateResolve(filepath.Dir(entry))
 	c.opens++
 	if c.disc == nil {
 		c.disc = map[string]discovery{}
@@ -306,12 +311,21 @@ func gateAncestors(h hookInput, env Env, start string, gov gateRepo, home bool, 
 		if !home && c.home != nil && c.atHome(entry) {
 			break
 		}
-		if m := find(commonDirIdentity(entry)); m != nil {
+		if uerr := entryUnknown(entry); uerr != nil {
+			// First, before the identity lookup and any git (#146; panel
+			// lens c1): governed P/r with a mode-000 .git inside governed P
+			// was discovered as P, re-met as P, and r's claims never read.
+			// The deny is this entry's; the walk steps on with no discover.
+			out = append(out, ancestor{err: uerr, at: filepath.Dir(entry)})
+		} else if m := find(commonDirIdentity(entry)); m != nil {
 			top := ""
 			if m.met && !m.registered {
 				rc, err, ran := c.discover(entry)
 				if !ran {
 					return out, true
+				}
+				if err == nil {
+					err = passedEntry(entry, rc)
 				}
 				if err != nil {
 					out = append(out, ancestor{err: err, at: filepath.Dir(entry)})
@@ -324,10 +338,15 @@ func gateAncestors(h hookInput, env Env, start string, gov gateRepo, home bool, 
 			if !ran {
 				return out, true
 			}
+			if err == nil {
+				// git passed this entry for a repository above while a
+				// ledger sits behind it (#146): the default arm would place
+				// that repository's ledger here instead.
+				err = passedEntry(entry, rc)
+			}
 			switch {
 			case errors.Is(err, errNoLedger) && ledgerSeenAt(entry):
-				out = append(out, ancestor{at: filepath.Dir(entry), err: fmt.Errorf(
-					"cannot tell whether %s holds a buddy ledger: git cannot open that repository, and a ledger file is there", entry)})
+				out = append(out, ancestor{at: filepath.Dir(entry), err: ledgerThereErr(entry)})
 			case errors.Is(err, errNoLedger):
 				// No ledger seen: walked past (D-212's arm).
 			case err != nil:
@@ -480,13 +499,13 @@ func mergeAncestors(a, b []ancestor) []ancestor {
 // halves (git's discovery, then the ledger open): the D-212 walk reopened a
 // ledger an ancestor walk already held (Codex code pass). shared marks a
 // store some other record owns, which the caller must not close. A nil cache
-// is openRepo.
+// is openRepo through gateResolve.
 func (c *gateCache) openShared(dir string, env Env) (*store.Store, repoContext, error, bool) {
+	rc, err := gateResolve(dir) // the gate's discovery (gateResolve says why)
 	if c == nil {
-		st, rc, err := openRepo(dir, env)
+		st, rc, err := openResolved(rc, err, env)
 		return st, rc, err, false
 	}
-	rc, err := resolveRepo(dir)
 	if err != nil {
 		return nil, rc, err, false
 	}
