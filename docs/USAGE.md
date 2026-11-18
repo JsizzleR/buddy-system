@@ -36,6 +36,7 @@ answer.
 - [The commit gate in detail](#the-commit-gate-in-detail)
 - [Chat internals](#chat-internals)
 - [Language servers — what `buddy init` reports](#language-servers--what-buddy-init-reports)
+- [GitHub issues — the reader and the issue-author hook](#github-issues--the-reader-and-the-issue-author-hook)
 - [Measuring context cost](#measuring-context-cost)
 - [Model routing — the `model-router` skill](#model-routing--the-model-router-skill)
 - [Structured adapters (experimental)](#structured-adapters-experimental)
@@ -2308,6 +2309,69 @@ language server: python (141 files) — NOT CONFIGURED: pyright-langserver not o
 - It never changes `init`'s exit status, never blocks, never runs in a hook,
   and never installs anything or edits your settings. Re-running `buddy init`
   in a repo that already has a ledger changes nothing else.
+
+## GitHub issues — the reader and the issue-author hook
+
+On a public repository anyone can open an issue or comment on one, so an agent
+that runs `gh issue view` reads a stranger's words beside the operator's
+(D-215). Two scripts, neither part of `buddy` (the claims binary has no
+network) and neither installed by `install.sh`:
+
+- **The reader**, `python3 -I scripts/issue-read.py <number> [--repo OWNER/REPO]`
+  or `--list [--state open|closed|all]`. It asks gh who is logged in (`gh api
+  user`) and keeps what that account wrote, compared by numeric account id,
+  never by login. An issue someone else opened is refused by number alone
+  (exit 3, no title); a pull request is refused (v1 reads issues). Otherwise
+  it prints the title on one line, the body, and each of the operator's
+  comments numbered with its timestamp, then `last allowed comment: K`;
+  comments by anyone else are a count, with no login and no text. Any gh
+  failure prints no issue text and exits 2, naming the step; the whole answer
+  is assembled before anything prints, so a failed last page shows nothing.
+  `--list` prints the operator's issues and a count of the rest.
+- **The hook**, `scripts/hooks/issue-author-gate.py`, a PreToolUse hook on
+  `Bash|WebFetch|Monitor` (Monitor's command runs in Bash's shell). It
+  refuses (exit 2, one line naming the reader, nothing echoed from the call)
+  `gh issue` and `gh pr` unless the next word is a write (`create`,
+  `comment`, `close`, `edit`, `reopen`; `pr ready`, `merge`), so a read gh
+  adds later refuses by default; `gh api` on a path naming issues,
+  pulls, comments, search, graphql, notifications, events, timeline,
+  discussions, logs or projects, or an endpoint it cannot read (a variable);
+  every top-level gh command outside a short list known to read no issue text
+  (`search`, `status`, `discussion`, `project`, aliases, extensions but
+  `stack`); any gh under `xargs`; and a Bash word or WebFetch url that is a
+  GitHub URL to such a page (normalised as a URL parser reads it), curl's
+  included, while repository files (`/blob/`, raw.githubusercontent.com)
+  pass. It reads the command with its own small shell lexer: quotes,
+  `$(...)` and backticks (quoted too), here-documents and here-strings,
+  `sh -c`, `eval`, `trap` and `env -S` text, what is piped into a shell,
+  redirections dropped from argv. A quoted mention
+  passes (`grep -rn "gh issue view" skills/`); the same words unquoted are
+  refused. Outside its jurisdiction (no `gh` word, no `github`) it exits 0;
+  inside it, a command it cannot read refuses. A variable, a function, a
+  wrapper script, another interpreter and an MCP GitHub tool all pass it: a
+  seatbelt (D-005), recorded in the script's header with the over-refusals.
+
+Allowed authors are the authenticated gh user only, the machine's operator
+(invariant 6), with no configuration. **Turning it on is the operator's act**:
+
+```sh
+cp scripts/hooks/issue-author-gate.py scripts/issue-read.py ~/bin/
+```
+
+then, in `~/.claude/settings.json` under `hooks.PreToolUse`:
+
+```json
+{"matcher": "Bash|WebFetch|Monitor", "hooks": [{"type": "command", "command": "python3 -I \"$HOME/bin/issue-author-gate.py\"", "timeout": 10}]}
+```
+
+Wire it only with the copy in place: python3 exits 2 on a missing script, and
+exit 2 blocks the call, so that line with no file behind it refuses **every
+Bash, WebFetch and Monitor call** on the machine. `install.sh` reports both (`issue-author
+hook:` lines: the copy current or DIFFERS, the wiring, and that MISSING case,
+loudly) and changes neither; `uninstall.sh` names the copies it leaves and
+says to remove the settings line first. Self-tests: `python3 -I -B
+scripts/hooks/issue-author-gate.py --self-test` and `python3 -I -B
+scripts/issue-read.py --self-test` (a fake gh), both in the hermetic tier.
 
 ## Measuring context cost
 

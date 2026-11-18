@@ -440,6 +440,14 @@ print(" ".join(sorted(hits)))
   # model), the exempt types, other tools, and stdin it cannot read (allowed:
   # it fails open). The operator wires it by hand; nothing installs it.
   python3 -I -B scripts/hooks/agent-model-gate.py --self-test >/dev/null
+  # The issue-author hook and its reader (D-215): the hook as the harness runs
+  # it, each refused read beside its control (a write, a quoted mention) and a
+  # parse failure naming gh refused; the reader against a fake gh first on
+  # PATH: a stranger's comment a count beside an all-operator thread, a
+  # stranger's issue refused beside the operator's, a gh failure refused. The
+  # operator copies and wires both by hand; nothing installs them.
+  python3 -I -B scripts/hooks/issue-author-gate.py --self-test >/dev/null
+  python3 -I -B scripts/issue-read.py --self-test >/dev/null
   # node --check, with a planted control so a check that accepts everything
   # cannot pass for one that checked.
   mjs_skipped=

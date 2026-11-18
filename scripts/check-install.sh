@@ -1026,6 +1026,49 @@ want_l "$got" "install: agent-model hook: entry in $WORK/s14m.json: matcher \"Ag
 wire14 "$WORK/s14m.json" '"Agent"' "$CMD14" '{"matcher": "^Agent$", "hooks": [{"type": "command", "command": "python3 -I /nowhere/agent-model-gate.py"}]}'
 amg "$WORK/s14m.json"; got=$(echo "$got" | tail -1)
 want_l "$got" "install: agent-model hook: entry in $WORK/s14m.json: matcher \"Agent\" runs $D14 (the copy above); and custom, not verified: matcher \"^Agent$\" not read as an exact list; $LOADS" "a custom entry beside a wired one"
+# QA-14j (D-215): the issue-author hook, the same report through the same
+# function, for the tools Bash, WebFetch and Monitor. The control is (b), a
+# current copy under the operator's own entry; the refusals: a matcher
+# selecting only Bash (wired, naming the others unjudged), one selecting none,
+# and a wired entry with no copy behind it, which blocks EVERY Bash, WebFetch
+# and Monitor call
+# and says so. Its install remedy copies the reader beside it; install.sh
+# copies neither.
+AI="scripts/hooks/issue-author-gate.py" DI="$H14/bin/issue-author-gate.py" RI="$H14/bin/issue-read.py"
+WHYI="optional, the operator's opt-in: D-215"
+CMDI='"python3 -I \"$HOME/bin/issue-author-gate.py\""'
+INSTI="cp $(shq "$ROOT/$AI") $(shq "$DI") && cp $(shq "$ROOT/scripts/issue-read.py") $(shq "$RI")"
+ia() { amg "$@"; got=$(echo "$o14" | grep '^install: issue-author hook: ' || true); }
+# (a) Neither installed nor wired: one line, beside the agent-model hook's.
+ia "$WORK/s14absent.json"
+want_l "$got" "install: issue-author hook: not installed at $DI and not wired in $WORK/s14absent.json ($WHYI)" "issue hook: missing + settings absent is one line"
+# ... and the agent-model hook's own wiring does not wire this one.
+ia "$WORK/s14wired.json"
+want_l "$got" "install: issue-author hook: not installed at $DI and not wired in $WORK/s14wired.json ($WHYI)" "issue hook: the agent-model entry is not this hook's"
+# (b) The control: a current copy under the operator's entry.
+cp "$AI" "$DI"
+wire14 "$WORK/s14i.json" '"Bash|WebFetch|Monitor"' "$CMDI"
+ia "$WORK/s14i.json"
+want_l "$got" "install: issue-author hook: $DI is current (byte-identical to this checkout's scripts/hooks/issue-author-gate.py)
+install: issue-author hook: entry in $WORK/s14i.json: matcher \"Bash|WebFetch|Monitor\" runs $DI (the copy above); $LOADS" "issue hook: current + wired (the control)"
+[ ! -e "$RI" ] || fail "QA-14j: install.sh installed the reader"
+# (c) A matcher selecting Bash only: wired, and the other two named unjudged.
+wire14 "$WORK/s14i.json" '"Bash"' "$CMDI"
+ia "$WORK/s14i.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: issue-author hook: entry in $WORK/s14i.json: matcher \"Bash\" runs $DI (the copy above); it does not select WebFetch or Monitor, so no WebFetch or Monitor call is judged; $LOADS" "issue hook: Bash only"
+# (d) A matcher selecting neither: not wired.
+wire14 "$WORK/s14i.json" '"Agent"' "$CMDI"
+ia "$WORK/s14i.json"; got=$(echo "$got" | tail -1)
+want_l "$got" "install: issue-author hook: NOT wired in $WORK/s14i.json: the PreToolUse entry naming issue-author-gate.py has matcher \"Agent\", which does not select Bash, WebFetch or Monitor" "issue hook: matcher Agent is not wired"
+# (e) Wired, copy missing: every Bash, WebFetch and Monitor call blocked, said loudly,
+# and the remedy copies the hook and its reader.
+rm -f "$DI"
+wire14 "$WORK/s14i.json" '"Bash|WebFetch|Monitor"' "$CMDI"
+ia "$WORK/s14i.json"
+want_l "$got" "install: issue-author hook: not installed at $DI ($WHYI; to install: $INSTI)
+install: issue-author hook: entry in $WORK/s14i.json: matcher \"Bash|WebFetch|Monitor\" runs $DI (the copy above; MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Bash, WebFetch and Monitor call); $LOADS" "issue hook: wired, copy missing"
+[ ! -e "$DI" ] || fail "QA-14j: install.sh installed the hook copy under a wired entry"
+[ "$(ls -A "$H14/bin" | sort | tr '\n' ' ')" = "agent-model-gate.py buddy buddylist " ] || fail "QA-14j: install.sh put a file in the bin dir: $(ls -A "$H14/bin")"
 # QA-15f (after QA-14, whose fake go and stubs it uses): an unstamped buddy
 # with no buddylist beside it (a claims-only install
 # from before D-124) is NOTED, never acted on; one with a buddylist beside it

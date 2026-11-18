@@ -130,6 +130,11 @@ nobody authorised.
   `status`, and `waitingFor` an approval. A new lane's first request writes
   about 60k tokens of cache (D-056), and an idle one re-writes its whole
   prompt after an hour (D-033): open lanes for work you have.
+- **A brief that names a GitHub issue says to read it with `python3 -I
+  scripts/issue-read.py <n>`**, never `gh issue view`: the reader prints
+  only what the authenticated gh user wrote (anyone else's comments as a
+  count), and the issue-author hook, where the operator wired it, refuses
+  the other reads (D-215).
 
 ## Assigning, waiting, ending
 

@@ -1309,6 +1309,12 @@ if [ -z "$chat_only" ]; then
 	hp=$(git config --get core.hooksPath 2>/dev/null || true)
 	[ -z "$hp" ] || say "left: core.hooksPath = $hp in $ROOT (setup-clone's or yours; its pre-commit exits 0 without buddy): git -C $(shq "$ROOT") config --unset core.hooksPath"
 	[ ! -e "$BIN_DIR/agent-model-gate.py" ] || say "left: $BIN_DIR/agent-model-gate.py, the Agent-model hook's copy (D-120); remove it and its settings line by hand if you wired it"
+	# The issue-author hook (D-215) the same way, with its order: a settings
+	# line left wired after its copy is gone BLOCKS every Bash, WebFetch and
+	# Monitor call.
+	for f in issue-author-gate.py issue-read.py; do
+		[ ! -e "$BIN_DIR/$f" ] || say "left: $BIN_DIR/$f, the issue-author hook's (D-215); if you wired it, remove its settings line FIRST, then the copy: a wired line with no script behind it blocks every Bash, WebFetch and Monitor call"
+	done
 	common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
 	[ -z "$common" ] || [ ! -e "$common/buddy.db" ] || say "data: left: this checkout's ledger $common/buddy.db"
 	say "data: left: every other repo's ledger (<git-common-dir>/buddy.db, wherever buddy init ran; not findable from here); each is inert without buddy"

@@ -292,6 +292,7 @@ EOF
 	printf '{"hooks": {"PreToolUse": [{"hooks": [{"command": "/abs/buddy gate"}]}]}}\n' > "$R/home/.codex/hooks.json"
 	printf 'a fixture ledger, never opened\n' > "$R/co/.git/buddy.db"
 	printf 'copy\n' > "$R/bin/agent-model-gate.py"
+	printf 'copy\n' > "$R/bin/issue-author-gate.py"
 	printf 'an earlier copy\n' > "$R/skills/buddy/SKILL.md.bak"
 	# The model router's state, where router.py's state_dir() puts it with
 	# XDG_STATE_HOME unset, as its scans leave it: removed on a full run
@@ -300,7 +301,7 @@ EOF
 	rs_plant "$RS"
 	# settings.json and .claude.json are edited now (D-173): the cases that
 	# edit them read them back, and every stop's snapshot holds them.
-	KEEP="$R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.other.plist"
+	KEEP="$R/home/.buddylist/journal.db $R/home/.codex/hooks.json $R/co/.git/buddy.db $R/bin/agent-model-gate.py $R/bin/issue-author-gate.py $R/skills/buddy/SKILL.md.bak $LA/com.buddy-system.other.plist"
 	keep_sum=$(cksum $KEEP)
 }
 # snap: every file and link under the case, with its checksum.
@@ -505,6 +506,7 @@ for want in "settings: $R/settings.json still wires: buddy idle" \
 	"codex: $R/home/.codex/hooks.json names buddy" \
 	"left: core.hooksPath = .githooks in $R/co" \
 	"left: $R/bin/agent-model-gate.py" \
+	"left: $R/bin/issue-author-gate.py, the issue-author hook's (D-215); if you wired it, remove its settings line FIRST" \
 	"data: left: this checkout's ledger" \
 	"left: $R/home/Library/LaunchAgents/com.buddy-system.other.plist, a launchd agent this cannot prove is buddy's"; do
 	echo "$out" | grep -qF "$want" || fail "U-4: no report line '$want':

@@ -655,7 +655,7 @@ fi
 # command is "not verified", never guessed. A wired path that does not exist is said loudly: python3 exits 2 on
 # a missing script (measured, 2026-10-29), and exit 2 BLOCKS a PreToolUse call,
 # so that wiring refuses every Agent call on the machine.
-amg_wiring() { # amg_wiring <python> <settings> <copy> <checkout script> <gate-hook.py> <home>
+amg_wiring() { # amg_wiring <python> <settings> <copy> <checkout script> <gate-hook.py> <home> <name> <tools,...>
 	amg_p=$1; shift
 	"$amg_p" -I -B - "$@" 2>/dev/null <<'PY'
 import importlib.util
@@ -664,8 +664,14 @@ import os
 import re
 import sys
 
-settings_path, dst, src, gate_hook, home = sys.argv[1:]
-NAME = "agent-model-gate.py"
+settings_path, dst, src, gate_hook, home, NAME, tools = sys.argv[1:]
+# The tools the hook guards, in its matcher's words. A matcher selecting some
+# of them is wired for those and says which it misses.
+TOOLS = tools.split(",")
+
+
+def said(ts, conj):
+    return ts[0] if len(ts) == 1 else ", ".join(ts[:-1]) + " " + conj + " " + ts[-1]
 spec = importlib.util.spec_from_file_location("gate_hook", gate_hook)
 gh = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gh)
@@ -707,7 +713,7 @@ def script_path(command):
     return home + "/" + rest
 
 
-def state(p):
+def state(p, selected):
     if same(p, dst):
         what = "the copy above"
     elif same(p, src):
@@ -722,7 +728,7 @@ def state(p):
             what = "not readable"
     if not os.path.isfile(p):
         what = (what + "; " if what else "") + (
-            "MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every Agent call")
+            "MISSING: python3 exits 2 on a missing script, and exit 2 BLOCKS every %s call" % said(selected, "and"))
     return what
 
 
@@ -757,7 +763,8 @@ def verdict():
         if names is None:
             custom.append("matcher %s not read as an exact list" % json.dumps(m))
             continue
-        if names != "*" and "Agent" not in names:
+        selected = list(TOOLS) if names == "*" else [t for t in TOOLS if t in names]
+        if not selected:
             missed.append(json.dumps(m))
             continue
         why = [w for k, w in (("if", "an if rule narrows when it runs"), ("args", "exec form (args)"),
@@ -772,7 +779,9 @@ def verdict():
         if why:
             custom.extend(why)
         else:
-            live.append("matcher %s runs %s (%s)" % (json.dumps(m), p, state(p)))
+            unsel = [t for t in TOOLS if t not in selected]
+            live.append("matcher %s runs %s (%s)%s" % (json.dumps(m), p, state(p, selected),
+                        "; it does not select %s, so no %s call is judged" % (said(unsel, "or"), said(unsel, "or")) if unsel else ""))
     if live:
         # A custom entry beside a wired one is named too: it may also select
         # Agent and run something else (Codex). The entry is what was read,
@@ -781,52 +790,70 @@ def verdict():
         return "wired", "entry in %s: %s%s; %s" % (settings_path, "; ".join(live), also, gh.LOADS)
     if custom:
         return "custom", "custom PreToolUse entry naming %s in %s (%s); not verified" % (NAME, settings_path, "; ".join(custom))
-    return "off", "NOT wired in %s: the PreToolUse entry naming %s has matcher %s, which does not select Agent" % (
-        settings_path, NAME, ", ".join(missed))
+    return "off", "NOT wired in %s: the PreToolUse entry naming %s has matcher %s, which does not select %s" % (
+        settings_path, NAME, ", ".join(missed), said(TOOLS, "or"))
 
 
 kind, text = verdict()
 print(kind + " " + " ".join(text.split()))
 PY
 }
-amg_src=$ROOT/scripts/hooks/agent-model-gate.py
-amg_dst=$BIN_DIR/agent-model-gate.py
-case $amg_dst in /*) ;; *) amg_dst=$ROOT/$amg_dst ;; esac
-amg_cp="cp $(shq "$amg_src") $(shq "$amg_dst")"
-amg_why="optional, the operator's opt-in: docs/CHEAPER-MODELS-PLAN.md 1.3, D-117"
-amg_copy=""
-if [ ! -e "$amg_dst" ] && [ ! -L "$amg_dst" ]; then
-	:
-elif [ -L "$amg_dst" ] && [ ! -e "$amg_dst" ]; then
-	# cp writes THROUGH a symlink into whatever it names, so every remedy for
-	# a link replaces the link.
-	amg_copy="$amg_dst is a symlink to nothing ($(readlink "$amg_dst" || true)); replace the link: rm $(shq "$amg_dst") && $amg_cp"
-elif [ ! -f "$amg_dst" ]; then
-	amg_copy="$amg_dst is not a regular file; move it aside, then: $amg_cp"
-elif cmp -s "$amg_src" "$amg_dst"; then
-	amg_copy="$amg_dst is current (byte-identical to this checkout's scripts/hooks/agent-model-gate.py)"
-	[ ! -L "$amg_dst" ] || amg_copy="$amg_copy, through a symlink to $(readlink "$amg_dst" || true)"
-elif [ -L "$amg_dst" ]; then
-	amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/agent-model-gate.py; it is a symlink to $(readlink "$amg_dst" || true), so replace the link, not what it names: rm $(shq "$amg_dst") && $amg_cp"
-else
-	amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/agent-model-gate.py, and a hook that runs it runs those bytes; update it: $amg_cp"
-fi
-amg_py=${BUDDY_PYTHON:-python3}
-if [ ! -f "$SETTINGS" ]; then
-	amg_kind=none amg_wire="not wired in $SETTINGS"
-elif ! command -v "$amg_py" >/dev/null 2>&1; then
-	amg_kind=unread amg_wire="wiring not checked (no $amg_py to decode $SETTINGS)"
-elif amg_v=$(amg_wiring "$amg_py" "$SETTINGS" "$amg_dst" "$amg_src" "$ROOT/scripts/gate-hook.py" "${HOME:-}") && [ -n "$amg_v" ]; then
-	amg_kind=${amg_v%% *} amg_wire=${amg_v#* }
-else
-	amg_kind=unread amg_wire="wiring not checked ($amg_py could not read $SETTINGS)"
-fi
-if [ -z "$amg_copy" ] && [ "$amg_kind" = none ]; then
-	say "agent-model hook: not installed at $amg_dst and $amg_wire ($amg_why)"
-else
-	say "agent-model hook: ${amg_copy:-not installed at $amg_dst ($amg_why; to install: $amg_cp)}"
-	say "agent-model hook: $amg_wire"
-fi
+# hook_report <label> <script name> <tools,...> <why> [<more to copy>]: the
+# two lines above for one hand-installed hook. The last argument is appended
+# to the install remedy only (the issue hook's reader goes beside it).
+hook_report() {
+	amg_label=$1 amg_name=$2 amg_tools=$3 amg_why=$4 amg_more=${5:-}
+	amg_src=$ROOT/scripts/hooks/$amg_name
+	amg_dst=$BIN_DIR/$amg_name
+	case $amg_dst in /*) ;; *) amg_dst=$ROOT/$amg_dst ;; esac
+	amg_cp="cp $(shq "$amg_src") $(shq "$amg_dst")"
+	amg_copy=""
+	if [ ! -e "$amg_dst" ] && [ ! -L "$amg_dst" ]; then
+		:
+	elif [ -L "$amg_dst" ] && [ ! -e "$amg_dst" ]; then
+		# cp writes THROUGH a symlink into whatever it names, so every remedy for
+		# a link replaces the link.
+		amg_copy="$amg_dst is a symlink to nothing ($(readlink "$amg_dst" || true)); replace the link: rm $(shq "$amg_dst") && $amg_cp"
+	elif [ ! -f "$amg_dst" ]; then
+		amg_copy="$amg_dst is not a regular file; move it aside, then: $amg_cp"
+	elif cmp -s "$amg_src" "$amg_dst"; then
+		amg_copy="$amg_dst is current (byte-identical to this checkout's scripts/hooks/$amg_name)"
+		[ ! -L "$amg_dst" ] || amg_copy="$amg_copy, through a symlink to $(readlink "$amg_dst" || true)"
+	elif [ -L "$amg_dst" ]; then
+		amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/$amg_name; it is a symlink to $(readlink "$amg_dst" || true), so replace the link, not what it names: rm $(shq "$amg_dst") && $amg_cp"
+	else
+		amg_copy="$amg_dst DIFFERS from this checkout's scripts/hooks/$amg_name, and a hook that runs it runs those bytes; update it: $amg_cp"
+	fi
+	amg_py=${BUDDY_PYTHON:-python3}
+	if [ ! -f "$SETTINGS" ]; then
+		amg_kind=none amg_wire="not wired in $SETTINGS"
+	elif ! command -v "$amg_py" >/dev/null 2>&1; then
+		amg_kind=unread amg_wire="wiring not checked (no $amg_py to decode $SETTINGS)"
+	elif amg_v=$(amg_wiring "$amg_py" "$SETTINGS" "$amg_dst" "$amg_src" "$ROOT/scripts/gate-hook.py" "${HOME:-}" "$amg_name" "$amg_tools") && [ -n "$amg_v" ]; then
+		amg_kind=${amg_v%% *} amg_wire=${amg_v#* }
+	else
+		amg_kind=unread amg_wire="wiring not checked ($amg_py could not read $SETTINGS)"
+	fi
+	if [ -z "$amg_copy" ] && [ "$amg_kind" = none ]; then
+		say "$amg_label: not installed at $amg_dst and $amg_wire ($amg_why)"
+	else
+		say "$amg_label: ${amg_copy:-not installed at $amg_dst ($amg_why; to install: $amg_cp${amg_more:+ && $amg_more})}"
+		say "$amg_label: $amg_wire"
+	fi
+}
+hook_report "agent-model hook" agent-model-gate.py Agent "optional, the operator's opt-in: docs/CHEAPER-MODELS-PLAN.md 1.3, D-117"
+
+# 6d. The issue-author hook (D-215), reported the same way and for the same
+# reason: a hand-installed copy drifts silently. Its matcher is
+# Bash|WebFetch|Monitor (Monitor's command runs in Bash's shell), so a wired
+# entry whose script is missing BLOCKS EVERY Bash, WebFetch and Monitor call
+# on the machine (python3 exits 2; exit 2 blocks), the loudest failure any
+# report here names. Its reader, issue-read.py, goes beside it: the refusal
+# names the copy it finds there.
+ir_dst=$BIN_DIR/issue-read.py
+case $ir_dst in /*) ;; *) ir_dst=$ROOT/$ir_dst ;; esac
+hook_report "issue-author hook" issue-author-gate.py Bash,WebFetch,Monitor \
+	"optional, the operator's opt-in: D-215" "cp $(shq "$ROOT/scripts/issue-read.py") $(shq "$ir_dst")"
 
 # 7. The handoff size, reported (D-064). BUDDY_HANDOFF_AT in the settings `env`
 # block reaches every session's hooks, the operator-launched first
