@@ -586,16 +586,26 @@ func assess(c string, src updateSource, env Env) updateReport {
 // its own (measured, git 2.54). Otherwise the ref's own reflog: when it last
 // CHANGED, which is older than or equal to the last fetch that saw it.
 func fetchedWhen(c, name string, now time.Time) string {
-	url, _ := updateGit(c, "config", "--get", "remote.origin.url")
+	// get-url, not the config value: it applies insteadOf, as the fetch
+	// that wrote FETCH_HEAD did (measured, git 2.54).
+	url, _ := updateGit(c, "remote", "get-url", "origin")
+	// The line must also carry the object origin/<name> points at now
+	// (Codex code pass): git's FETCH_HEAD spelling drops ".git", so a second
+	// remote at `/srv/p` fetched now writes the same `of /srv/p` an origin
+	// at `/srv/p.git` fetched hours ago would, and its line would date
+	// origin's observation. A fetch of origin's <name> moves the tracking
+	// ref to the object it records; a line naming another object is not
+	// the observation origin/<name> holds, and falls back to the reflog.
+	ref, _ := updateGit(c, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+name)
 	var newest time.Time
-	if url != "" {
+	if url != "" && ref != "" {
 		if out, err := updateGit(c, "rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD", "--git-common-dir"); err == nil {
 			f := strings.Split(out, "\n")
 			paths := []string{f[0]}
 			if len(f) == 2 {
 				paths = append(paths, filepath.Join(f[1], "FETCH_HEAD"))
 			}
-			want := "branch '" + name + "' of " + url
+			want := "branch '" + name + "' of " + fetchHeadURL(url)
 			for _, p := range paths {
 				fi, err := os.Stat(p)
 				if err != nil || !fi.ModTime().After(newest) {
@@ -606,7 +616,7 @@ func fetchedWhen(c, name string, now time.Time) string {
 					continue
 				}
 				for _, l := range strings.Split(string(b), "\n") {
-					if strings.HasSuffix(l, "\t"+want) {
+					if strings.HasSuffix(l, "\t"+want) && strings.HasPrefix(l, ref+"\t") {
 						newest = fi.ModTime()
 						break
 					}
@@ -626,6 +636,74 @@ func fetchedWhen(c, name string, now time.Time) string {
 		}
 	}
 	return "as of the last fetch (when that was, git did not record)"
+}
+
+// fetchHeadURL is the URL as git writes it after "of " in FETCH_HEAD (#117):
+// a configured `…/buddy-system.git` is recorded `…/buddy-system`, so matching
+// the configured spelling never matched, and every report of a clone made
+// from a .git URL fell back to the reflog or "git did not record" (the
+// audit's real fetch, a96d9f4; again at 6fb58ac). Ported from git's
+// builtin/fetch.c (append_fetch_head) and transport.c
+// (transport_anonymize_url): a `user[:password]@` before the host is dropped
+// (a URL with "://" whose scheme is RFC 1738 characters and whose @ comes
+// before the first slash after it, or a scp-style `user@host:path`; never a
+// local path, which has no ':' before its first '/'); then trailing slashes;
+// then a trailing ".git" when the last non-slash byte sits past index 4.
+// Measured on git 2.54 by a real fetch: `origin.git`, `origin.git/`,
+// `origin.git//`, `file://…/origin.git/` and `file://user@/…/origin.git`
+// all recorded without the suffix and the user (TestFetchedWhen…). The
+// scp-style and https-with-a-user rows are the source's, not measured here:
+// both need a network. A git that wrote the URL another way would only fall
+// back to the reflog's date, which says it is older; never a wrong "now".
+func fetchHeadURL(raw string) string {
+	u := anonymizeURL(raw)
+	i := len(u) - 1
+	for i >= 0 && u[i] == '/' {
+		i--
+	}
+	n := i + 1
+	if 4 < i && u[i-3:i+1] == ".git" {
+		n = i - 3
+	}
+	// git writes a newline in the URL as the two bytes `\n`, after the
+	// strip (Codex code pass; fetch.c's append_fetch_head).
+	return strings.ReplaceAll(u[:n], "\n", `\n`)
+}
+
+// anonymizeURL is git's transport_anonymize_url: the URL with its
+// `user[:password]@` removed, or the URL itself.
+func anonymizeURL(u string) string {
+	at := strings.IndexByte(u, '@')
+	if at < 0 || urlIsLocalNotSSH(u) {
+		return u
+	}
+	anon := u[at+1:]
+	scheme := strings.Index(u, "://")
+	if scheme < 0 {
+		if !strings.Contains(anon, ":") {
+			return u // cannot be "me@there:/path/name"
+		}
+		return anon
+	}
+	for i := 0; i < scheme; i++ {
+		c := u[i]
+		if !(c == '+' || c == '.' || c == '-' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+			return u
+		}
+	}
+	// An @ past the first slash after the scheme is the path's, not a user's.
+	if sl := strings.IndexByte(u[scheme+3:], '/'); sl >= 0 && scheme+3+sl < at {
+		return u
+	}
+	return u[:scheme+3] + anon
+}
+
+// urlIsLocalNotSSH is git's url_is_local_not_ssh without the DOS drive
+// prefix (macOS): no ':' at all, or a '/' before the first one.
+func urlIsLocalNotSSH(u string) bool {
+	colon := strings.IndexByte(u, ':')
+	slash := strings.IndexByte(u, '/')
+	return colon < 0 || (slash >= 0 && slash < colon)
 }
 
 // dirtyTracked is `git status --porcelain --untracked-files=no` with every

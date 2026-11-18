@@ -45,11 +45,11 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -246,6 +246,31 @@ func authorityNotice(st *store.Store, top string, si store.SessionInfo, now time
 // cmdAuthority: `buddy authority` lists, `add <path>` and `rm <path>` edit.
 func cmdAuthority(args []string, env Env) error {
 	const usage = usageAuthority
+	// The arguments are judged BEFORE the ledger opens (#111). `add`/`rm`
+	// take one path and no flags, and nothing here parsed flags, so `add
+	// --help` stored the row "--help" and exited 0, `add --bogus` stored
+	// "--bogus", and `add -h` stored "-h" (reproduced at a96d9f4 and
+	// 6fb58ac): each spent one of the eight slots, and each is a stat on
+	// every tool call. A help flag after the subcommand answers the usage,
+	// as Run answers one in first position (D-031); any other dash-led word
+	// is refused, usage first and `refused:` last (D-098, D-210). A file
+	// whose name really starts with a dash is named `./-name`, which
+	// NormalizeScope cleans to `-name`; `rm ./--help` is also how a row a
+	// pre-fix `add --help` stored is freed.
+	if len(args) >= 2 && (args[0] == "add" || args[0] == "rm") {
+		if isHelp(args[1]) {
+			fmt.Fprintln(env.Stdout, usage)
+			return nil
+		}
+		if strings.HasPrefix(args[1], "-") {
+			return usageRefusal(fmt.Sprintf("authority %s takes a path and no flags, got %s; a path that starts with a dash is written ./%s; nothing was written",
+				args[0], strconv.Quote(fence.Line(args[1], 64)), fence.Line(args[1], 64)), usage)
+		}
+		if len(args) > 2 {
+			return usageRefusal(fmt.Sprintf("authority %s takes one path, got a second, %s; nothing was written",
+				args[0], strconv.Quote(fence.Line(args[2], 64))), usage)
+		}
+	}
 	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
@@ -323,6 +348,6 @@ func cmdAuthority(args []string, env Env) error {
 		fmt.Fprintf(env.Stdout, "no longer watching %s\n", fence.Line(n, 512))
 		return nil
 	default:
-		return errors.New(usage)
+		return usageRefusal("authority takes nothing (list), add <path> or rm <path>; nothing was written", usage)
 	}
 }

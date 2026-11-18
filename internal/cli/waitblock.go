@@ -109,7 +109,12 @@ func blockOn(st *store.Store, env Env, si store.SessionInfo, w store.Wait) error
 	}
 	fmt.Fprintf(env.Stdout, "BLOCKING until %s: the ledger is re-read every %s (reads only; not a check) — exit 0 LANDED, %d EXPIRED, %d cleared or replaced, %d this session ended\n",
 		what, span(waitBlockPoll), blockExpired, blockCleared, blockEnded)
-	stop := "stop any /loop that runs `buddy wait check` (schedule no further check)"
+	// buddyCmd, not a bare `buddy` (#119): a `buddy fleet wait --block`
+	// arms `/loop buddy fleet wait check`, and a stop step naming `buddy
+	// wait check` names a loop that session never armed, so one followed
+	// literally leaves the fleet loop running. landedLines already took it.
+	bc := buddyCmd(env)
+	stop := "stop any /loop that runs `" + bc + " wait check` (schedule no further check)"
 	for {
 		env.sleep(waitBlockPoll)
 		now := nowOf(env)
@@ -151,7 +156,7 @@ func blockOn(st *store.Store, env Env, si store.SessionInfo, w store.Wait) error
 			case "expired":
 				verdict = store.WaitExpired
 			case "cleared":
-				fmt.Fprintf(env.Stdout, "CLEARED: the wait was withdrawn %s ago (`buddy wait clear`) — %s\n", span(now.Sub(row.Cleared)), stop)
+				fmt.Fprintf(env.Stdout, "CLEARED: the wait was withdrawn %s ago (`%s wait clear`) — %s\n", span(now.Sub(row.Cleared)), bc, stop)
 				return waitExit{blockCleared}
 			default:
 				fmt.Fprintf(env.Stdout, "ENDED: the wait closed with the session's run — %s\n", stop)
@@ -164,7 +169,7 @@ func blockOn(st *store.Store, env Env, si store.SessionInfo, w store.Wait) error
 		case store.WaitPending:
 			continue
 		case store.WaitLanded:
-			line = landedLines(now, row, si.Label, stop, buddyCmd(env))
+			line = landedLines(now, row, si.Label, stop, bc)
 		default:
 			line, exit = expiredLines(now, row, stop), waitExit{blockExpired}
 		}
