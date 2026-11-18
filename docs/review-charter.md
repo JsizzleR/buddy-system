@@ -553,7 +553,7 @@ ledger row entered through the CLI (D-006).
 63. **A `-race` forkExec child stuck before exec is ended by the watchdog (D-061, #53): target gone and pipe held, it ends the target's orphaned same-binary children in its process group, never itself.** Do not propose: a retry loop, a timeout knob, a box-wide process scan, or treating D-053's stop-the-world toy as the cause. (full text: part `testinfra`)
 
 64. **The `-race` forkExec hang is golang/go#79804, fixed in Go 1.26.5 (D-061, #55).** `go.mod`
-    pins `toolchain go1.26.8`; under `GOTOOLCHAIN=auto` every build, CI included, uses it.
+    pins `toolchain go1.27.1`; under `GOTOOLCHAIN=auto` every build, CI included, uses it.
     Do not propose a retry loop, a timeout knob, or dropping the `-race` legs for it; if it
     recurs, the toolchain in use is the first thing to check.
 

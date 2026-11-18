@@ -304,7 +304,7 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
   find a test binary as a child of its `go` process.
 - **A `-race` test binary hung in `forkExec` → `readlen` until go test's 10m
   timeout (darwin) is golang/go#79804, fixed in Go 1.26.5;** `go.mod` pins
-  `toolchain go1.26.8`. If it recurs, check `go version` in the repo first. Not
+  `toolchain go1.27.1`. If it recurs, check `go version` in the repo first. Not
   your diff, not git, not PATH (D-061).
 - **Restart the daemon when a change adds a journal table** (it migrates the
   journal at open). Hooks spawn a fresh binary per call: sessions need no restart.

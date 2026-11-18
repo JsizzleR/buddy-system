@@ -18,10 +18,10 @@ import (
 // one spelling did not guard an edit under the other: `ſrc/a.go` beside a claim
 // on `src` was allowed, and `claim --scope ſrc` was granted beside it.
 //
-// Only code points Unicode 15 assigns: go.mod's toolchain line names go1.26.8,
-// whose tables are Unicode 15, while a newer local go (1.27, Unicode 17) is
-// what `go` resolves to here. A pair from a later version would pass on one
-// and fail on the other.
+// Only code points Unicode 15 assigns: go.mod's toolchain line named go1.26.8,
+// whose tables are Unicode 15, until D-222 moved it to go1.27.1 (Unicode 17);
+// a build under an older GOTOOLCHAIN would still split a later pair, and these
+// rows hold under both.
 var apfsAliases = []struct{ name, a, b string }{
 	{"long s", "src", "\u017frc"},
 	{"sharp s", "strasse", "stra\u00dfe"},
