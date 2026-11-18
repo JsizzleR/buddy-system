@@ -2168,6 +2168,15 @@ func cmdHello(args []string, env Env) (err error) {
 	} else {
 		b.WriteString(helloHelpLine)
 	}
+	// A non-default own-claim posture, said once (D-228, panel a6): an `off`
+	// inherited from the shell that started the claude daemon or the herdr
+	// server reaches every lane it opens, and silence then reads exactly like
+	// a fleet whose every edit was covered. The hook's environment is this
+	// verb's, so what is printed is what the gate reads.
+	if v := env.getenv(EnvOwnClaim); v != "" && v != "warn" && rc.fleet == "" {
+		fmt.Fprintf(&b, "BUDDY: %s=%s here: the gate's check on an edit no claim of yours covers is %s\n",
+			EnvOwnClaim, strconv.Quote(fence.Line(v, 64)), ownPostureWords(v))
+	}
 	// A LABEL WORN TWICE (issue #17). Default labels are unique by
 	// construction (<worktree-base>/s-<8hex>), so only a hand-chosen --label
 	// collides — and when it does, every pause or msg addressed to it is
@@ -3773,6 +3782,14 @@ func cmdGate(args []string, env Env) int {
 	}
 	homeTop := store.Fold(canon(rc.top))
 	homeKey := filepath.Join(homeTop, ".git")
+	// The own-claim arm (D-228) speaks only once every path has passed every
+	// holder check: a peer's hold outranks it (D7), and one call gets one
+	// document. The cwd's own ledger is the home unless the home was walked
+	// to: a walked R judges no caller it has no row for (D3's residual).
+	targetRepos.own = newOwnJudge(env, h)
+	if targetRepos.own != nil && st != nil && !rc.walked {
+		targetRepos.own.own = st
+	}
 	for _, path := range paths {
 		targets, err := gateTargets(h.Cwd, path)
 		if err == nil && !placeable(h.Cwd, path) {
@@ -3799,12 +3816,25 @@ func cmdGate(args []string, env Env) int {
 			continue // feature off for every known spelling of this target
 		}
 		for _, cp := range targets {
+			targetRepos.own.target(cp)
 			if reason := gateTarget(st, rc, h, env, cp, homeTop, homeKey, targetRepos); reason != "" {
 				// All checks precede the tool call. One denial refuses the whole
 				// patch; multiple JSON documents would be invalid hook output.
 				deny(env, reason)
 				return 0
 			}
+		}
+	}
+	if reason, warn := targetRepos.own.verdict(h, env); reason != "" {
+		deny(env, reason)
+	} else if warn != "" {
+		// additionalContext and NO permissionDecision: "allow" would skip the
+		// permission prompt for every uncovered edit (D-228's carrier).
+		if err := writeHookContext(env, "PreToolUse", warn); err != nil {
+			// A warn that could not be written refuses nothing: the call is
+			// allowed either way, and a half-written document is not output
+			// the hook can take back.
+			return 0
 		}
 	}
 	return 0
@@ -3834,7 +3864,7 @@ func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeT
 	nested := targetKey != homeKey && strings.HasPrefix(targetKey, homeTop+"/")
 	homeOutside := false
 	if st != nil {
-		rel, _, outside := placeCanonical(rc.top, cp)
+		rel, cased, outside := placeCanonical(rc.top, cp)
 		homeOutside = outside
 		// A target in a REGISTERED linked worktree of the home's own
 		// repository, nested in the home, is placed against that worktree's
@@ -3848,7 +3878,7 @@ func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeT
 				// governs it, the root its claims are made from.
 				where = rc.top
 			}
-			if reason := denyIfHeld(st, h, env, rel, where); reason != "" {
+			if reason := denyIfHeld(st, h, env, rel, where, repos, rc.top, cased); reason != "" {
 				return reason
 			}
 		}
@@ -3931,6 +3961,9 @@ type gateCache struct {
 	homeCD  os.FileInfo
 	homeAnc []ancestor
 	orphans []*store.Store
+	// own collects the call's placements for the own-claim arm (D-228,
+	// ownclaim.go); nil when BUDDY_OWN_CLAIM=off or no session is named.
+	own *ownJudge
 }
 
 // atHome reports whether a .git entry is the home's own: the same .git AND
@@ -4352,7 +4385,7 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos *gateC
 		return fmt.Sprintf("buddy: could not resolve the target repo root for %s; refusing %s",
 			fence.Line(target, 512), fencedTool(h))
 	}
-	rel, _, outside := placeCanonical(top, target)
+	rel, cased, outside := placeCanonical(top, target)
 	if outside {
 		// A ledger was found under the target, so this repo IS governed — and
 		// the path could still not be placed inside its root. That is a
@@ -4363,7 +4396,7 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos *gateC
 		return fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
 			fence.Line(target, 512), fence.Line(top, 512), fencedTool(h))
 	}
-	if reason := denyIfHeld(st, h, env, rel, top); reason != "" {
+	if reason := denyIfHeld(st, h, env, rel, top, repos, top, cased); reason != "" {
 		return reason
 	}
 	// Every distinct governed ledger above this one applies too (#145,
@@ -4533,8 +4566,24 @@ func governedAny(h hookInput, env Env, dirs []string, why string, repos *gateCac
 // denyIfHeld is the shared adjudication tail for the home-repo and
 // foreign-repo gates: one deny wording, so the texts cannot drift apart
 // again. where names the foreign repo root ("" for the session's own repo).
-func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string) string {
-	c, held, err := st.OwnerOf(rel, h.SessionID)
+// top is the root rel was placed against and cased its spelling, both for the
+// own-claim arm (D-228): with it on, PathClaims answers OwnerOf's question from
+// the same statements and also whether a claim of the caller covers rel; with
+// it off (gc.own nil), OwnerOf runs exactly as before the arm existed.
+func denyIfHeld(st *store.Store, h hookInput, env Env, rel, where string, gc *gateCache, top, cased string) string {
+	var c store.ClaimInfo
+	var held bool
+	var err error
+	if gc != nil && gc.own != nil {
+		var v store.PathVerdict
+		v, err = st.PathClaims(rel, h.SessionID)
+		c, held = v.Owner, v.Held
+		if err == nil && !held {
+			gc.own.observe(st, top, rel, cased, v.Covered)
+		}
+	} else {
+		c, held, err = st.OwnerOf(rel, h.SessionID)
+	}
 	if err != nil {
 		return fmt.Sprintf("buddy ledger read failed (%s); refusing %s", fence.Line(err.Error(), 512), fencedTool(h))
 	}

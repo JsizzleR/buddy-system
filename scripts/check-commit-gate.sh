@@ -86,14 +86,28 @@ $out"
 echo "$out" | grep -q 'internal/router/proxy.go' || fail "QA-1: the warning must name the colliding path
 $out"
 
-# QA-1b: the CONTROL for QA-1 — a path nobody claimed produces no warning at
-# all. Without this, a gate that warned unconditionally would pass QA-1.
+# QA-1b: the CONTROL for QA-1 — a path nobody claimed draws no COLLISION
+# report. Without this, a gate that warned unconditionally would pass QA-1.
+# Since D-228 it draws the second section instead (row 27): report-only, the
+# commit lands under BUDDY_COMMIT_GATE=deny too, and BUDDY_OWN_CLAIM=off
+# silences it, which is the control that the section is the arm's own.
 seed docs/notes.md two
 git -C "$REPO" add -A
-out=$(commit "control case") && rc=0 || rc=$?
-[ "$rc" -eq 0 ] || fail "QA-1b: an unclaimed path must commit cleanly (rc=$rc)
+out=$(BUDDY_COMMIT_GATE=deny commit "control case") && rc=0 || rc=$?
+[ "$rc" -eq 0 ] || fail "QA-1b: an unclaimed path must commit, under deny too (rc=$rc)
 $out"
-echo "$out" | grep -q 'commit-gate' && fail "QA-1b: an unclaimed path must produce NO gate output
+echo "$out" | grep -q 'router-work' && fail "QA-1b: an unclaimed path must draw no collision report
+$out"
+echo "$out" | grep -q 'inside no claim of this session' || fail "QA-1b (row 27): an unclaimed staged path must be named in section 2
+$out"
+echo "$out" | grep -q 'docs/notes.md' || fail "QA-1b (row 27): section 2 must name the path
+$out"
+seed docs/notes2.md two
+git -C "$REPO" add -A
+out=$(BUDDY_OWN_CLAIM=off commit "control case, arm off") && rc=0 || rc=$?
+[ "$rc" -eq 0 ] || fail "QA-1b: an unclaimed path must commit cleanly with the arm off (rc=$rc)
+$out"
+echo "$out" | grep -q 'commit-gate' && fail "QA-1b: with BUDDY_OWN_CLAIM=off an unclaimed path must produce NO gate output
 $out"
 
 # QA-2: deny posture BLOCKS, and the block reaches git.
@@ -173,6 +187,6 @@ $out"
 echo "$out" | grep -q 'ledger unavailable' || fail "QA-7: the failure must name the cause
 $out"
 
-echo "check-commit-gate: GREEN (QA-1 warn+named, QA-1b clean control, QA-2 deny blocks via the hook,"
+echo "check-commit-gate: GREEN (QA-1 warn+named, QA-1b control + section 2 report-only + off, QA-2 deny blocks via the hook,"
 echo "  QA-3 --no-verify bypass, QA-4 kill switch, QA-5 partial-commit temp index + control,"
 echo "  QA-6 no-ledger silent, QA-7 unreadable ledger fails closed)"

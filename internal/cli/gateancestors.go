@@ -404,7 +404,7 @@ func ancestorClaims(h hookInput, env Env, cp string, anc []ancestor, outsideDeni
 		if reason := ancestorBrake(h, a); reason != "" {
 			return reason
 		}
-		rel, _, outside := placeCanonical(a.top, cp)
+		rel, cased, outside := placeCanonical(a.top, cp)
 		if outside {
 			if outsideDenies {
 				return fmt.Sprintf("buddy: %s is under a buddy-governed repo (%s) but could not be placed inside it; refusing %s rather than guessing",
@@ -415,7 +415,7 @@ func ancestorClaims(h hookInput, env Env, cp string, anc []ancestor, outsideDeni
 		if inRegisteredWorktree(h, env, cp, a.cd, a.top, c) {
 			continue
 		}
-		if reason := denyIfHeld(a.st, h, env, rel, a.top); reason != "" {
+		if reason := denyIfHeld(a.st, h, env, rel, a.top, c, a.top, cased); reason != "" {
 			return reason
 		}
 	}

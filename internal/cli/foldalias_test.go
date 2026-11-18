@@ -34,9 +34,11 @@ func TestGateRefusesAnAliasedSpellingOfAClaimedScope(t *testing.T) {
 			t.Errorf("Edit %+q inside alpha's claim: want a deny naming it, got out=%q stderr=%q", tc.rel, out, errw)
 		}
 	}
-	// Positive control: the gate allows what nothing claims.
-	if out, _, _ := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "Edit", filepath.Join(f.wtB, "docs/other.md")), "gate"); strings.TrimSpace(out) != "" {
-		t.Fatalf("an unclaimed path must pass: %q", out)
+	// Positive control: the gate allows what nothing claims (with the
+	// own-claim arm's line since D-228, an allow: not denied is the test).
+	other, _, _ := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "Edit", filepath.Join(f.wtB, "docs/other.md")), "gate")
+	if _, denied := decodeDeny(t, other); denied {
+		t.Fatalf("an unclaimed path must pass: %q", other)
 	}
 
 	for _, tc := range []struct{ name, body string }{

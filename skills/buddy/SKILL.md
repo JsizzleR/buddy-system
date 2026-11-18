@@ -91,9 +91,9 @@ yourself: that changes the operator's machine and settings.
 
 The gate denies an edit to a path inside another session's EXCLUSIVE claim.
 Inside a SHARED claim, it denies the edit until you hold a covering shared
-claim of your own. It does NOT stop you editing a path nobody holds. Claim it
-anyway: an unclaimed path is one any other session can claim out from under
-you. Enforcement is cooperative. Do not route around the gate, as by
+claim of your own. An edit no claim of yours covers is warned while a
+peer holds a claim (later denied): claim it under a NEW slug (a re-claim
+replaces scopes). Enforcement is cooperative. Do not route around the gate, as by
 writing through Bash. A call that names no path (an MCP tool, a doc
 connector) is not gated: claim what it writes anyway, because the claim is
 the reservation peers read.

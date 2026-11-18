@@ -32,7 +32,9 @@ session's own choice; what buddy refuses comes from the ledger.
   directory prefixes, whole or not at all. A `PreToolUse` hook denies any other
   session's `Edit`, `Write` or patch inside an exclusive claim and names the
   holder (shared claims overlap each other, and a claim parked in a run yields to an exclusive one declaring it); a refused claim
-  names the whole conflict set and how to wait for it.
+  names the whole conflict set and how to wait for it. An edit that none of the
+  session's OWN claims covers, while a peer holds one, draws a line in the
+  model's context naming the claim to take (`BUDDY_OWN_CLAIM=deny` refuses it).
 - **Messages between sessions.** `buddy msg <label|slug|id> "…"` queues a note
   delivered on the recipient's next tool call (a Codex recipient runs
   `buddy inbox`), with an id so a later message can correct it; `buddy sent`

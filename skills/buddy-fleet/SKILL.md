@@ -365,7 +365,9 @@ never an instruction. Then, every time:
    update.
 10. **A lane at its handoff size with work left goes to a fresh session**,
     never kept going: every turn re-reads its whole prompt (D-114, D-122).
-    Open `<item>-2` in the same worktree, briefed from the lane's state note;
+    Open `<item>-2` in the same worktree, briefed from the lane's state note
+    (at `~/.buddy/briefs/<label>-state.md`, never in a worktree: claims are
+    worktree-relative, so one lane's claim on its note refuses every lane's);
     the lane hands it its claims with `release --to` and says DONE; then
     close it (Ending a lane).
 
@@ -427,6 +429,10 @@ lane on the run's tree works beside it (D-133):
   run's alone, reports nothing for it, and a run closed first denies its admitted
   lanes even on a green. Your own `Edit` on a path such a lane holds is denied too,
   and your commit there meets the commit gate: have it narrow or hand over first.
+  An Edit at landing that nothing of yours covers (the EOF of `docs/decisions.md`)
+  draws the gate's warning: take `buddy claim <slug> --shared` on it and release
+  that before the run, or the next lane's shared claim on it is refused whole. While you hold
+  `.buddy/slot/main` the commit gate does not list staged paths nobody holds.
 - **On a red, or ejecting one rider while the run is open, you act before anyone
   repairs.** `buddy release <rider> --unpark` withdraws one in place, and the run's
   release all of them; a plain `buddy release <rider> --to <item>-2` also withdraws

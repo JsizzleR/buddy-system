@@ -116,7 +116,14 @@ func runHook(args []string, in io.Reader, out, errout io.Writer) error {
 	defer gateCancel()
 	cmd := exec.CommandContext(gateCtx, *buddy, "gate")
 	cmd.Dir = saved.Launch.Worktree
-	cmd.Env = append(os.Environ(), "BUDDY_HARNESS="+saved.Identity.Harness)
+	// BUDDY_OWN_CLAIM=off LAST, so it wins over an inherited value (exec keeps
+	// the last of a duplicated key): the adapter's qualified gate contract is
+	// deny-or-nothing (check-codex-gate.py's deny()), and its fixtures write an
+	// unclaimed allowed.txt beside a peer's held.txt, armed and uncovered. A
+	// warn there is output the contract has never seen, and a deny would refuse
+	// a call qualification passed; whether the own-claim arm ever reaches
+	// adapter workers is O4, for a qualification suite to earn (D-228's D9).
+	cmd.Env = append(os.Environ(), "BUDDY_HARNESS="+saved.Identity.Harness, "BUDDY_OWN_CLAIM=off")
 	cmd.Stdin = bytes.NewReader(b)
 	cmd.Stdout = out
 	cmd.Stderr = errout

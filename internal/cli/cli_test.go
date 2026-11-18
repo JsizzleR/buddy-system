@@ -269,10 +269,12 @@ func TestGateDeniesForeignScopeNamingClaimant(t *testing.T) {
 		t.Fatalf("denial must name the claimant and slug: %q", reason)
 	}
 
-	// B edits elsewhere → pass (no output).
+	// B edits elsewhere → pass. Not silently since D-228: A's claim arms the
+	// ledger and nothing of B's covers docs/x.md, so the own-claim arm adds a
+	// line (ownclaim_test.go owns that); this test is the holder's deny.
 	out, _, code := f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "Edit", filepath.Join(f.wtB, "docs/x.md")), "gate")
-	if code != 0 || strings.TrimSpace(out) != "" {
-		t.Fatalf("disjoint edit must pass silently, got %q", out)
+	if _, denied := decodeDeny(t, out); code != 0 || denied {
+		t.Fatalf("disjoint edit must pass, got %q", out)
 	}
 
 	// A editing its OWN scope → pass.
@@ -1658,9 +1660,11 @@ func TestGateResolvesRootsGitReportsAwkwardly(t *testing.T) {
 			}
 			// Positive control: an unclaimed path in the same awkward repo still
 			// passes, so the deny above is the CLAIM and not a blanket refusal
-			// of a repo whose name we could not parse.
+			// of a repo whose name we could not parse. Not denied, rather than
+			// silent: the own-claim arm's line on an armed, uncovered path
+			// (D-228) is an allow, and ownclaim_test.go owns its shape.
 			out, _, code := f.run(t, f.repo, hookJSON("sess-b", f.repo, "Edit", filepath.Join(f.repo, "free.go")), "gate")
-			if code != 0 || strings.TrimSpace(out) != "" {
+			if _, denied := decodeDeny(t, out); code != 0 || denied {
 				t.Fatalf("control: unclaimed path must pass, got code=%d out=%q", code, out)
 			}
 		})

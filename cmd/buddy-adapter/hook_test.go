@@ -143,6 +143,30 @@ func TestReceiptBoundHookExecutable(t *testing.T) {
 			t.Fatalf("peer path was not a native denial: %v %s %s", err, out, stderr)
 		}
 	})
+	// D-228's D9: the child gate runs with the own-claim arm OFF, whatever the
+	// adapter inherited. allowed.txt is armed (the peer holds held.txt) and no
+	// claim of the worker covers it. Positive control first: the same payload
+	// straight to `buddy gate` under BUDDY_OWN_CLAIM=deny is refused, so the
+	// arm was live for this worker; through the adapter it is 0 bytes.
+	t.Run("own-claim arm pinned off", func(t *testing.T) {
+		t.Setenv("BUDDY_OWN_CLAIM", "deny")
+		data, err := json.Marshal(input("allowed.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		direct := exec.CommandContext(ctx, buddy, "gate")
+		direct.Dir = repo
+		direct.Env = append(os.Environ(), "BUDDY_HARNESS=claude")
+		direct.Stdin = bytes.NewReader(data)
+		dout, err := direct.Output()
+		if err != nil || !denied(dout) || !bytes.Contains(dout, []byte("inside no claim of this session")) {
+			t.Fatalf("control: the direct gate under deny must refuse the uncovered path: %v %s", err, dout)
+		}
+		out, stderr, err := run(input("allowed.txt"), buddy)
+		if err != nil || len(bytes.TrimSpace(out)) != 0 {
+			t.Fatalf("the adapter's child gate must run with the own-claim arm off (0 bytes): %v %q %s", err, out, stderr)
+		}
+	})
 	for _, test := range []struct{ name, key, value string }{
 		{"wrong session", "session_id", "successor"}, {"wrong worktree", "cwd", dir},
 		{"subagent", "agent_id", "native-child"}, {"parent session", "parent_session_id", "parent"},

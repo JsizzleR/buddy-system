@@ -95,12 +95,12 @@ ledger row entered through the CLI (D-006).
     the daemon side, never journals and never speaks; it rides the alert hook's
     already-computed identity, and sends stay on the concierge because the `@sent` outbox
     is the discriminator the alert path depends on (D-009).
-15. **The commit gate reports claim COLLISIONS only, and warns before it denies (D-012).**
-    Reporting "paths you did not claim" was cut — it fires on nearly every commit, and a
-    warning that fires on everything gets disabled. Consulting `dirty_paths` was cut too: a
-    peer's tool call naming a file is not authorship of the staged hunks. There is no
-    pre-push CLAIM gate — it would compare historical commits against CURRENT claims.
-    (The `pre-push` hook this repo ships is unrelated: it runs the hermetic check tier.)
+15. **The commit gate refuses claim COLLISIONS only, and warns before it denies (D-012).**
+    Staged paths no claim of the committer covers are REPORTED, never refused, while a
+    peer holds a claim (D-228, the operator's word; the tool gate warns on such an edit).
+    `dirty_paths` was cut: a peer's tool call naming a file is not authorship of the
+    staged hunks. No pre-push CLAIM gate: it would judge old commits by CURRENT claims.
+    (This repo's `pre-push` hook is unrelated: it runs the hermetic check tier.)
 16. **`pause`, `resume` and `msg` share ONE target namespace, resolved before it is stored
     (D-013).** `all`, session id, label, `s-<8hex>` short form, or an OPEN claim slug —
     most-specific-first, exact and never folded; past the exact id, live sessions

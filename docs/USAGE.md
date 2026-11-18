@@ -55,6 +55,30 @@ the paths tools declare (including cross-repo targets, against the *target*
 repo's ledger), but it cannot bind processes that bypass the harness. It is a
 seatbelt for agents, not a sandbox against them.
 
+**An edit no claim of yours covers is caught (D-228).** A path a tool call
+declares (Edit, Write, NotebookEdit, a `file_path`, every side of a patch) that
+no open claim of the CALLING session covers, in any mode (exclusive,
+`--shared`, `--based-on`, a rider parked to you, one handed to you), draws one
+line in the model's context, `BUDDY UNCLAIMED: ...`, and the call proceeds:
+PreToolUse `additionalContext` with no `permissionDecision`, since `allow`
+would skip the permission prompt for every such edit and tell the model
+nothing. Whether Claude Code delivers it is documented, not yet measured.
+`BUDDY_OWN_CLAIM=deny` refuses instead, `off` turns it off, and any other
+value refuses, naming it: a typo of `deny` must not pass for enforcement.
+`hello`'s digest says a value that is not the default. It speaks only while
+ANOTHER session not positively ended holds an open claim in that ledger (a
+slot counts, so `orc-<project>` arms a fleet; one session alone is never told
+about every file it touches), never for a path with a `.git` component (git
+tracks none), and after every holder check: a peer's hold is refused as before
+and gets the only document. A ledger judges a session it has a row for; the
+cwd's own ledger also judges one it has none for, whose line says `buddy hello
+</dev/null` first. Its remedy names a NEW slug: re-claiming a slug you hold
+replaces that claim's scopes, which frees the files it held. Under Codex there
+is no line (an unsupported field fails the hook run), only `deny`;
+`buddy-adapter` pins it `off` for its workers. A Bash write declares no path
+and is not seen here: the commit gate's second section is where it shows. Not
+a lock, in D-005's words: cooperative.
+
 **An installed binary that cannot run is not a missing one (D-107).** README's
 gate line turns a `buddy` that crashes, is killed or is corrupt into a refusal
 (exit 2) of every gated call in every session, in repositories never `buddy
@@ -2216,10 +2240,16 @@ bypasses it for one commit.
 
 What it deliberately does **not** do, so the promise stays honest:
 
-- It reports **collisions only** — a path inside somebody else's open claim.
-  It does not nag about paths nobody claimed, which would fire on nearly every
-  commit; and it does not accuse you using the dirty-path table, because a
-  peer's tool call naming a file is not authorship of your staged hunks.
+- It **refuses collisions only** — a path inside somebody else's open claim.
+  Staged paths nobody holds that no claim of yours covers get a second section
+  (D-228), REPORT-ONLY under every posture, `deny` included: coverage at commit
+  time, never who edited them. It speaks only while another session holds a
+  claim in the ledger (one session alone is not nagged on every commit), and
+  not to an unknown committer, under `BUDDY_OWN_CLAIM=off`, or while you hold
+  `.buddy/slot/main` (the landing integrator replays riders' work). It is the
+  one line that sees a Bash write, when `pre-commit` runs at all. And it does
+  not accuse you using the dirty-path table, because a peer's tool call naming
+  a file is not authorship of your staged hunks.
 - It **never refuses a commit it cannot attribute.** A human typing `git commit`
   has no session id; blocking that is how a hook gets uninstalled. It still
   reports the covering claims, wording them as "these may be yours".

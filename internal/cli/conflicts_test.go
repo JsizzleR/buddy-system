@@ -94,9 +94,11 @@ func TestReleaseScopeNarrowsAndTheGateFollows(t *testing.T) {
 	if !strings.Contains(out, "docs") || !strings.Contains(out, "pkg") {
 		t.Fatalf("output should say what was released and what is still held: %q", out)
 	}
+	// Passes, with the own-claim arm's line (D-228): A still holds pkg, which
+	// arms the ledger, and nothing of B's covers docs. Not denied is the test.
 	out, _, code = f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "Edit", docs), "gate")
-	if code != 0 || strings.TrimSpace(out) != "" {
-		t.Fatalf("released scope must pass the gate silently: %q", out)
+	if _, denied := decodeDeny(t, out); code != 0 || denied {
+		t.Fatalf("released scope must pass the gate: %q", out)
 	}
 	out, _, _ = f.run(t, f.wtB, hookJSON("sess-b", f.wtB, "Edit", filepath.Join(f.wtB, "pkg/y.go")), "gate")
 	if _, denied := decodeDeny(t, out); !denied {

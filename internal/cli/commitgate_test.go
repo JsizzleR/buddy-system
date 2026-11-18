@@ -115,9 +115,11 @@ func TestCommitGateSilentOnOwnClaim(t *testing.T) {
 	}
 }
 
-// Signal B was cut deliberately: a path nobody claimed is not a conflict with
-// anybody, and warning about it would fire on nearly every commit.
-func TestCommitGateSilentOnUnclaimedPaths(t *testing.T) {
+// Signal B was cut deliberately (D-012) and restored report-only by D-228 on
+// the operator's word: a staged path nobody holds that no claim of the
+// committer covers is named in a second section, and the commit proceeds.
+// commitgate_ownclaim_test.go holds the section's silences and postures.
+func TestCommitGateReportsUnclaimedPathsAndAllows(t *testing.T) {
 	boundedParallel(t)
 	f := newFixture(t)
 	f.initAndHello(t)
@@ -129,8 +131,9 @@ func TestCommitGateSilentOnUnclaimedPaths(t *testing.T) {
 	f.asSession("sess-b", func() {
 		out, errw, code = f.run(t, f.wtB, "", "commit-gate")
 	})
-	if code != commitGateAllow || strings.TrimSpace(out) != "" || strings.TrimSpace(errw) != "" {
-		t.Fatalf("unclaimed paths must be silent: code=%d out=%q err=%q", code, out, errw)
+	if code != commitGateAllow || strings.TrimSpace(out) != "" ||
+		!strings.Contains(errw, "inside no claim of this session") || !strings.Contains(errw, `"docs/notes.md"`) {
+		t.Fatalf("an unclaimed staged path is reported and allowed: code=%d out=%q err=%q", code, out, errw)
 	}
 }
 

@@ -12,14 +12,16 @@ package cli
 //
 // WHAT IT DELIBERATELY DOES NOT DO, each cut for a stated reason:
 //
-//   - It does not report paths that are inside NOBODY's claim. The original
-//     one-line spec asked for "writes outside the session's own claims", but
-//     that fires on almost every commit — a README nobody reserved is not a
-//     collision with anyone — and a warning that fires on everything is read as
-//     noise and then disabled. It is also not computable from what the ledger
-//     is asked here: OwnerOf answering "no other session holds this" does not
-//     establish that the path is unclaimed, because it may sit inside the
-//     COMMITTING session's own claim.
+//   - It does not REFUSE paths that are inside nobody's claim. Until D-228 it
+//     did not report them either: the original one-line spec asked for
+//     "writes outside the session's own claims", cut because it fired on
+//     almost every commit and because OwnerOf could not compute it (a path no
+//     other session holds may sit inside the committer's own claim). The
+//     operator overturned that cut (2026-11-18, after a lane edited a file
+//     nobody held and a second lane claimed it unaware): the second section
+//     (ownClaimSection) names them, report-only, armed only while another
+//     session holds a claim here and silent for the landing integrator, from
+//     PathClaims, which reads the committer's coverage off OwnerOf's own scan.
 //   - It does not consult dirty_paths. "Another session's tool call last named
 //     this file" is not authorship of the staged hunks, and deliberate handoff
 //     produces exactly the same signal. That table is documented as advisory
@@ -246,8 +248,28 @@ func cmdCommitGate(args []string, env Env) int {
 	var order []string
 	hits := 0
 	groups := map[string]*group{}
+	// Section 2 (D-228, amends D-012): staged paths no claim of the KNOWN
+	// committer covers and nobody holds. PathClaims is OwnerOf's own scan with
+	// the committer's coverage read off it, so the collision section's
+	// statements and error arm are unchanged; under BUDDY_OWN_CLAIM=off, or for
+	// an unknown committer, OwnerOf runs as before and section 2 is silent.
+	ownPos, _ := readOwnPosture(env)
+	ownOn := ownPos != ownOff && mine != ""
+	var uncovered []string
 	for _, p := range paths {
-		c, held, err := st.OwnerOf(p, mine)
+		var c store.ClaimInfo
+		var held bool
+		var err error
+		if ownOn {
+			var v store.PathVerdict
+			v, err = st.PathClaims(p, mine)
+			c, held = v.Owner, v.Held
+			if err == nil && !held && !v.Covered && !gitComponent(p) {
+				uncovered = append(uncovered, p)
+			}
+		} else {
+			c, held, err = st.OwnerOf(p, mine)
+		}
 		if err != nil {
 			fmt.Fprintf(env.Stderr, "buddy commit-gate: ledger read failed (%s); refusing the commit.\n"+
 				"  Deliberate bypass for this one commit: git commit --no-verify\n", fence.Line(err.Error(), 512))
@@ -265,17 +287,19 @@ func cmdCommitGate(args []string, env Env) int {
 		g.paths = append(g.paths, p)
 		hits++
 	}
+	w := env.Stderr
 	if len(order) == 0 {
 		// Silent on the clean path, INCLUDING when identity could not be
 		// resolved. An identity complaint on every commit that collides with
 		// nothing is exactly the warning-on-everything failure this gate is
-		// built to avoid.
+		// built to avoid. Section 2 is report-only and needs a known
+		// committer, so it may still speak here.
+		ownClaimSection(w, st, mine, uncovered)
 		return commitGateAllow
 	}
 
 	now := nowOf(env)
 	h := readHolders(env, st)
-	w := env.Stderr
 	if mine == "" {
 		fmt.Fprintf(w, "\nbuddy commit-gate: could not tell which session is committing, so this cannot say\n"+
 			"whether these claims are yours. %s covered by an open claim:\n\n", headline(hits, len(order)))
@@ -325,6 +349,7 @@ func cmdCommitGate(args []string, env Env) int {
 	fmt.Fprint(w, "Coordinate with the owner before committing, or have them `buddy release <slug>`.\n"+
 		"`buddy ls` lists open claims; a holder that is ENDED or GONE above says what frees it.\n"+
 		"This is a claims check, not proof of authorship.\n")
+	ownClaimSection(w, st, mine, uncovered)
 
 	if pos == postureDeny && mine != "" {
 		fmt.Fprintf(w, "\nREFUSING the commit (%s=deny). Deliberate bypass: git commit --no-verify\n", EnvCommitPosture)
@@ -348,6 +373,54 @@ func cmdCommitGate(args []string, env Env) int {
 	}
 	fmt.Fprintf(w, "\nWarning only — the commit proceeds. Set %s=deny to refuse instead.\n", EnvCommitPosture)
 	return commitGateAllow
+}
+
+// ownClaimSection is the commit gate's second section (D-228): REPORT-ONLY in
+// every posture, BUDDY_COMMIT_GATE=deny included, because it is coverage at
+// commit time and never history. A path a lane edited unclaimed that a third
+// lane later claimed and parked to the integrator is not named here; one a
+// Bash write produced (which no PreToolUse arm sees) is, when pre-commit runs
+// at all (not --no-verify, not a plain cherry-pick, not where the hooks path
+// was never set). Silent when nobody else holds anything in this ledger (the
+// gate's arming rule, D2), and when the committer holds .buddy/slot/main: the
+// landing integrator replays riders' work, and the shared files every rider
+// appends to (docs/decisions.md, CLAUDE.md) are released at READY, so 57 of 77
+// lite squashes since 11-10 would have named them (panel P2-2). A read this
+// section alone makes that fails is said and refuses nothing: the commit
+// proceeds as the collision section decided (panel c8).
+func ownClaimSection(w io.Writer, st *store.Store, mine string, uncovered []string) {
+	if mine == "" || len(uncovered) == 0 {
+		return
+	}
+	slot, err := st.PathClaims(".buddy/slot/main", mine)
+	var armed bool
+	if err == nil {
+		_, _, armed, err = st.OwnClaimFacts(mine, true)
+	}
+	if err != nil {
+		fmt.Fprintf(w, "\nbuddy commit-gate: the own-claim report was skipped (ledger read failed: %s); this refuses nothing.\n",
+			fence.Line(err.Error(), 512))
+		return
+	}
+	if slot.Covered || !armed {
+		return
+	}
+	n := len(uncovered)
+	p := "paths"
+	if n == 1 {
+		p = "path"
+	}
+	fmt.Fprintf(w, "\nbuddy commit-gate: %d staged %s inside no claim of this session in this ledger, and nobody else's:\n", n, p)
+	for i, path := range uncovered {
+		if i == maxReportPaths {
+			fmt.Fprintf(w, "  ...and %d more path(s) inside no claim\n", n-maxReportPaths)
+			break
+		}
+		fmt.Fprintf(w, "  path %s\n", strconv.Quote(fence.Line(path, 512)))
+	}
+	fmt.Fprint(w, "Report only: this section refuses nothing, in any posture. A peer can claim these unaware of you;\n"+
+		"claim them under a NEW slug (re-claiming a slug you hold replaces its scopes) before the next edit.\n"+
+		"Coverage at commit time, not who edited them.\n")
 }
 
 // headline counts paths and claims separately, because "3 staged paths, 1

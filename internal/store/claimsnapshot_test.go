@@ -126,6 +126,15 @@ func TestClaimReadersSeeOneSnapshot(t *testing.T) {
 			}
 			return c
 		}},
+		// PathClaims is OwnerOf's own function (D-228, panel P2-4): the same
+		// seam, the same snapshot, so its Owner is pre-write too.
+		{"PathClaims", func(s *Store, fn func()) { s.betweenOwnerLoad = fn }, func(t *testing.T, f snapFixture) ClaimInfo {
+			v, err := f.st.PathClaims("internal/api/server.go", f.bravo.SessionID)
+			if err != nil || !v.Held || v.Covered {
+				t.Fatalf("PathClaims: %+v err=%v", v, err)
+			}
+			return v.Owner
+		}},
 	}
 	for _, r := range readers {
 		for _, w := range snapWrites {
@@ -290,6 +299,11 @@ func TestAChosenClaimThatDoesNotLoadRefuses(t *testing.T) {
 	if !strings.Contains(err.Error(), "loaded 0 rows") {
 		t.Fatalf("the error must say what failed: %v", err)
 	}
+	// PathClaims shares the load and its one-row check (D-228, P2-4): the
+	// gate's default posture calls it, so it must refuse the same way.
+	if v, err := st.PathClaims("internal/api/x.go", b.SessionID); err == nil || v.Held || !strings.Contains(err.Error(), "loaded 0 rows") {
+		t.Fatalf("PathClaims: a chosen claim that loads 0 rows must be an error: %+v err=%v", v, err)
+	}
 }
 
 // OwnerOf returns readSnapshot's own error (issue #126, Fable panel): the
@@ -301,9 +315,15 @@ func TestOwnerOfReturnsASnapshotFailure(t *testing.T) {
 	if _, held, err := st.OwnerOf("internal/api/x.go", b.SessionID); err != nil || held {
 		t.Fatalf("control: held=%v err=%v", held, err)
 	}
+	if _, err := st.PathClaims("internal/api/x.go", b.SessionID); err != nil {
+		t.Fatalf("control: PathClaims reads: %v", err)
+	}
 	st.Close()
 	if _, held, err := st.OwnerOf("internal/api/x.go", b.SessionID); err == nil || held {
 		t.Fatalf("a snapshot that cannot open must be an error: held=%v err=%v", held, err)
+	}
+	if v, err := st.PathClaims("internal/api/x.go", b.SessionID); err == nil || v.Held || v.Covered {
+		t.Fatalf("PathClaims: a snapshot that cannot open must be an error: %+v err=%v", v, err)
 	}
 }
 

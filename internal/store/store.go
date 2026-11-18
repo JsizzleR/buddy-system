@@ -2009,13 +2009,45 @@ func claimsWhereQ(q querier, between func(), where string, args ...any) ([]Claim
 // read as free. readSnapshot's own error is returned, never dropped:
 // TwoRemediesAt's `_ =` shape here would be a fail-open on a failed BEGIN.
 func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error) {
+	v, err := s.ownerOf(relPath, excludeSession)
+	return v.Owner, v.Held, err
+}
+
+// PathVerdict is PathClaims' answer for one path and one caller. Owner and
+// Held are OwnerOf's, from the same statements; Covered says an OPEN claim of
+// the caller has a scope covering the path, in any mode (exclusive, --shared,
+// --based-on, a rider parked to the caller's run, one handed to it): the set
+// BeatFrom renews (D-228's "covered").
+type PathVerdict struct {
+	Owner   ClaimInfo
+	Held    bool
+	Covered bool
+}
+
+// PathClaims is OwnerOf that also reports whether the caller's own claims
+// cover the path (D-228, the own-claim arm). It is the SAME function as
+// OwnerOf, not a second computation beside it: the load of the chosen claim
+// and its one-row check (issue #126: a BLOB claim_id joins in the scan and
+// loads nothing, and that must deny, never read as free) are what OwnerOf's
+// tests guard, and a PathClaims with its own load would have left the gate's
+// default posture guarded by tests of a function it no longer called (panel
+// lens c, P2-4). Covered costs no statement: the scan blockingClaim already
+// runs sees the caller's covering rows and used to skip them.
+func (s *Store) PathClaims(relPath, session string) (PathVerdict, error) {
+	return s.ownerOf(relPath, session)
+}
+
+func (s *Store) ownerOf(relPath, excludeSession string) (PathVerdict, error) {
 	rel := fold(relPath)
-	var out ClaimInfo
-	var held bool
+	var out PathVerdict
 	err := s.readSnapshot(func(q querier) error {
-		claimID, err := blockingClaim(q, rel, excludeSession)
-		if err != nil || claimID == "" {
+		claimID, covered, err := blockingClaim(q, rel, excludeSession)
+		if err != nil {
 			return err
+		}
+		out.Covered = covered
+		if claimID == "" {
+			return nil
 		}
 		if s.betweenOwnerLoad != nil {
 			s.betweenOwnerLoad()
@@ -2027,13 +2059,59 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 		if len(claims) != 1 {
 			return fmt.Errorf("claim %s covers %s but loaded %d rows, not 1; refusing rather than reading it as free", claimID, relPath, len(claims))
 		}
-		out, held = claims[0], true
+		out.Owner, out.Held = claims[0], true
 		return nil
 	})
 	if err != nil {
-		return ClaimInfo{}, false, err
+		return PathVerdict{}, err
 	}
-	return out, held, nil
+	return out, nil
+}
+
+// OwnClaimFacts is what the own-claim arm needs of one ledger beyond a path's
+// scan, read once per ledger per gate call (panel lens c, P2-6: they are facts
+// about the ledger and the caller, never about a path, and a 128-path patch
+// read them 128 times over). Known: the ledger has a sessions row for the
+// caller, live or ended; Ended: that row is positively ended; Armed: another
+// session that is not positively ended holds an open claim here (D-228's D2).
+// A holder with NO row arms (nothing says it ended); a holder that said bye
+// still refuses its paths (D-022) and arms nothing, workersAmong's rule: bye is
+// a statement, silence an inference. The caller's own claims never arm, under
+// any incarnation: compared by session_id alone (invariant 12).
+//
+// Armed is computed only where this ledger judges the caller: it has a row for
+// it, or judgeUnknown says it judges one it has no row for (the hook cwd's own
+// ledger, D3). A caller it will not judge pays one primary-key read, never the
+// claims scan, which has no index to stop it when nothing matches, the
+// lone-session case arming exists for.
+func (s *Store) OwnClaimFacts(session string, judgeUnknown bool) (known, ended, isArmed bool, err error) {
+	err = s.readSnapshot(func(q querier) error {
+		var e sql.NullInt64
+		switch err := q.QueryRow(`SELECT ended FROM sessions WHERE session_id=?`, session).Scan(&e); {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return err
+		default:
+			known, ended = true, e.Valid && e.Int64 != 0
+		}
+		if !known && !judgeUnknown {
+			return nil
+		}
+		var one int
+		switch err := q.QueryRow(`SELECT 1 FROM claims c LEFT JOIN sessions s ON s.session_id=c.session_id
+			WHERE c.state='open' AND c.session_id<>? AND (s.session_id IS NULL OR COALESCE(s.ended,0)=0) LIMIT 1`, session).Scan(&one); {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return err
+		default:
+			isArmed = true
+		}
+		return nil
+	})
+	if err != nil {
+		return false, false, false, err
+	}
+	return known, ended, isArmed, nil
 }
 
 // blockingClaim is OwnerOf's scan, on q: the id of the claim that stops rel
@@ -2041,7 +2119,10 @@ func (s *Store) OwnerOf(relPath, excludeSession string) (ClaimInfo, bool, error)
 // the function that opens them: a Rows left open when readSnapshot's fn returns
 // hangs conn.Close (measured, concurrency panel), and on the gate that is a hung
 // hook rather than a deny.
-func blockingClaim(q querier, rel, excludeSession string) (string, error) {
+//
+// covered reports that one of excludeSession's own open claims covers rel, in
+// any mode: the rows the second pass never needed for the verdict.
+func blockingClaim(q querier, rel, excludeSession string) (claimID string, covered bool, err error) {
 	// cs.scope, folded below, never cs.folded: that column holds the key a
 	// binary before D-222 reads, and a row it wrote must still be judged by
 	// today's rule. Reading it here let `ſrc`, written by the old binary, guard
@@ -2049,7 +2130,7 @@ func blockingClaim(q querier, rel, excludeSession string) (string, error) {
 	rows, err := q.Query(`SELECT cs.scope, cs.claim_id, c.session_id, c.shared, c.in_run, ` + runOpenSQL + `, c.based_on FROM claim_scopes cs
 		JOIN claims c ON c.claim_id=cs.claim_id WHERE c.state='open'`)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer rows.Close()
 	type covering struct {
@@ -2065,13 +2146,14 @@ func blockingClaim(q querier, rel, excludeSession string) (string, error) {
 		var c covering
 		var owner string
 		if err := rows.Scan(&c.folded, &c.id, &owner, &c.marks.shared, &c.marks.inRun, &c.marks.runOpen, &c.marks.basedOn); err != nil {
-			return "", err
+			return "", false, err
 		}
 		c.folded = fold(c.folded) // scanned as the spelling
 		if !scopeCovers(c.folded, rel) {
 			continue
 		}
 		if owner == excludeSession && excludeSession != "" {
+			covered = true
 			mineShared = mineShared || c.marks.shared
 			if d := c.marks.declaration(); d != "" {
 				declared = append(declared, d)
@@ -2081,7 +2163,7 @@ func blockingClaim(q querier, rel, excludeSession string) (string, error) {
 		foreign = append(foreign, c)
 	}
 	if err := rows.Err(); err != nil {
-		return "", err
+		return "", false, err
 	}
 	exclusive, shared := "", ""
 	for _, c := range foreign {
@@ -2097,11 +2179,11 @@ func blockingClaim(q querier, rel, excludeSession string) (string, error) {
 			shared = c.id
 		}
 	}
-	claimID := exclusive
+	claimID = exclusive
 	if claimID == "" && !mineShared {
 		claimID = shared
 	}
-	return claimID, nil
+	return claimID, covered, nil
 }
 
 // SessionByID returns the session row for id, if it exists. A point query for
