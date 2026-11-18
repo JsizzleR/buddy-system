@@ -450,10 +450,13 @@ class Lexer:
         self.piped_to_shell(line_segs)
         return n
 
+    # Raw docstring: in a plain one \` and \$ are invalid escapes, a
+    # SyntaxWarning on 3.12+ that put a line on stderr of every self-test
+    # case (CI red on 615766c); 3.9 says nothing unless warnings are errors.
     def backtick(self, text, i):
-        """Lex a `...` substitution from text[i:] (just past the backquote) the
+        r"""Lex a `...` substitution from text[i:] (just past the backquote) the
         way sh does: the span runs to the next unescaped backquote, quotes or
-        not, and \\, \` and \$ inside it are unescaped before it is read."""
+        not, and \, \` and \$ inside it are unescaped before it is read."""
         n, buf = len(text), []
         while i < n:
             ch = text[i]
@@ -1155,7 +1158,7 @@ def self_test():
         ("env -S attached, unquoted", bash("env -Sgh issue view 1"), R),
         ("env --S", bash("env --S'gh issue view 1'"), R),
         ("env -i-S", bash("env -i-S 'gh issue view 1'"), R),
-        ("find -exec env -S", bash("find . -maxdepth 0 -exec env -S 'gh issue view 1' \;"), R),
+        ("find -exec env -S", bash("find . -maxdepth 0 -exec env -S 'gh issue view 1' \\;"), R),
         ("control: git's -S after env runs git", bash("env GIT_PAGER=cat git log -S'gh issue view' -- skills/"), None),
         ("control: git -C env", bash("git -C env log -S'gh issue view'"), None),
         ("+= before alias", bash("sh -c $'x+=1 alias g=gh\\ng issue view 1'"), U),

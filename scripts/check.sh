@@ -333,9 +333,21 @@ if [ "$run_hermetic" = 1 ]; then
   # control it must agree with: a parse error and a compile-only error MUST be
   # reported, a clean file must NOT be. A sweep respelled into ast.parse misses
   # the second; one that never opens its arguments misses both.
+  #
+  # Compile-time warnings are ERRORS here. An invalid escape (`"\$"` in a
+  # plain string) is a SyntaxWarning on 3.12+, printed on stderr at every
+  # compile, and a silent DeprecationWarning on this machine's 3.9: CI went
+  # red on 615766c, every case of issue-author-gate.py's self-test failing on
+  # the warning line, while every local tier passed. Made errors, either one
+  # raises SyntaxError from compile, so the control's d_escape.py must be
+  # reported and e_raw.py, its raw spelling, must not. Each filter is the one
+  # its Python needs (measured: 3.9 DeprecationWarning, 3.14 SyntaxWarning),
+  # so the control holds one clause here and the other on CI's 3.12+.
   pysweep() {
     python3 -I -B -c '
-import sys
+import sys, warnings
+warnings.simplefilter("error", DeprecationWarning)
+warnings.simplefilter("error", SyntaxWarning)
 bad = []
 for path in sys.argv[1:]:
     try:
@@ -351,9 +363,11 @@ print(" ".join(p.rsplit("/", 1)[-1] for p in bad))
   printf 'def f(:\n    pass\n' > "$pyctl/a_parse.py"
   printf 'x = 1\nreturn x\n' > "$pyctl/b_compile.py"
   printf 'def f():\n    return 1\n' > "$pyctl/c_clean.py"
-  pyhit=$(pysweep "$pyctl/a_parse.py" "$pyctl/b_compile.py" "$pyctl/c_clean.py" 2>/dev/null || true)
+  printf 'def f():\n    """a \\` b"""\n    return "\\\\$"\n' > "$pyctl/d_escape.py"
+  printf 'def f():\n    r"""a \\` b"""\n    return "\\\\$"\n' > "$pyctl/e_raw.py"
+  pyhit=$(pysweep "$pyctl/a_parse.py" "$pyctl/b_compile.py" "$pyctl/c_clean.py" "$pyctl/d_escape.py" "$pyctl/e_raw.py" 2>/dev/null || true)
   rm -rf "$pyctl"
-  [ "$pyhit" = "a_parse.py b_compile.py" ] || { echo "check.sh: the python sweep reported '$pyhit' of its control, want 'a_parse.py b_compile.py' — the gate is broken, not the tree" >&2; exit 1; }
+  [ "$pyhit" = "a_parse.py b_compile.py d_escape.py" ] || { echo "check.sh: the python sweep reported '$pyhit' of its control, want 'a_parse.py b_compile.py d_escape.py' — the gate is broken, not the tree" >&2; exit 1; }
   # skills/*/*.py too (D-177): the model router's script ships to every
   # install, and this sweep was the only compile check a .py file got.
   pybad=$(pysweep scripts/*.py scripts/hooks/*.py skills/*/*.py)
