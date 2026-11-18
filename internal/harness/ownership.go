@@ -113,6 +113,10 @@ type OwnershipRecord struct {
 	WrittenAt  time.Time           `json:"written_at"`
 	Leader     *ProcessIdentity    `json:"leader,omitempty"`
 	Executable *ExecutableIdentity `json:"executable,omitempty"`
+	// StartError is set on phase not_started only: why the start failed
+	// before any child existed (D-216). Evidence for the operator, never
+	// parsed.
+	StartError string `json:"start_error,omitempty"`
 	// Descendants and Close are the narrow contract's observations
 	// (descendants.go): escaped descendants recorded while the worker ran,
 	// and what the close observed about them. Evidence, never a signal list.
@@ -124,6 +128,14 @@ type OwnershipRecord struct {
 // journal flock. It is a sentinel so a `--wait-prior` can wait through it
 // (and only through it): any other constructor failure refuses at once.
 var ErrJournalOwned = errors.New("receipt journal is already owned by another adapter")
+
+// childUncertainError is how a start function says it failed but cannot say
+// that no child exists. Spawn then keeps the intent, which refuses every later
+// resume (D-077); any other start error means no child was created (D-216).
+type childUncertainError struct{ err error }
+
+func (e *childUncertainError) Error() string { return e.err.Error() }
+func (e *childUncertainError) Unwrap() error { return e.err }
 
 // errProcessGone is observeProcess's answer for a pid the kernel does not have.
 var errProcessGone = errors.New("no such process")
@@ -229,6 +241,19 @@ type LaunchAuthorization struct {
 // group and reap the leader, and is called only when the child exists but its
 // record could not be published (the leader is still unreaped, so its group id
 // is still ours to signal). A refused second call creates no child.
+//
+// start's error means NO CHILD WAS CREATED, unless it wraps a
+// childUncertainError. On that definite failure Spawn replaces the intent with
+// the terminal phase not_started (D-216, issue #133): before this, the intent
+// stood, and every later resume refused it as "a worker may have started",
+// although the adapter had seen that none did, so a worktree missing for a
+// moment cost the captured session for good. That is sound only because
+// nothing can be running: exec.Cmd.Start returns an error only before or from
+// os.StartProcess, which reaps a child that failed between fork and exec, and
+// such a child runs no code of its own; and the PRIOR worker was admitted gone
+// by the resume that minted this authorization, under the same flock. An
+// uncertain failure, or a not_started that cannot be published, keeps the
+// intent: never deleted as error cleanup (D-077).
 func (a *LaunchAuthorization) Spawn(executable string, start func() (int, error), end func()) error {
 	if a == nil {
 		return errors.New("worker launch without a launch authorization is refused; nothing records a worker launched outside the controller")
@@ -254,6 +279,17 @@ func (a *LaunchAuthorization) Spawn(executable string, start func() (int, error)
 	}
 	pid, err := start()
 	if err != nil {
+		var uncertain *childUncertainError
+		if errors.As(err, &uncertain) {
+			return err
+		}
+		failed := a.template
+		failed.Phase = "not_started"
+		failed.WrittenAt = time.Now()
+		failed.StartError = err.Error()
+		if perr := a.rec.publish(failed); perr != nil {
+			return fmt.Errorf("worker could not be started (%w), and its not_started record could not be published (%v), so its intent stands and a resume of this receipt refuses", err, perr)
+		}
 		return err
 	}
 	leader, err := observeProcess(pid)
@@ -473,6 +509,9 @@ func classifyOwnership(rec *OwnershipRecord, f ownershipFacts) *AdmissionRefusal
 	if refusal := recordShape(rec); refusal != nil {
 		return refusal
 	}
+	if rec.Phase == "not_started" {
+		return nil // no worker to observe (recordShape checked the shape)
+	}
 	if f.AdapterErr != nil {
 		return &AdmissionRefusal{Reason: fmt.Sprintf("could not observe the recorded adapter pid %d: %v", rec.Adapter.PID, f.AdapterErr)}
 	}
@@ -545,6 +584,15 @@ func classifyOwnership(rec *OwnershipRecord, f ownershipFacts) *AdmissionRefusal
 // so a malformed record never names a group to kill(-pgid, 0), even with
 // signal 0 (Codex code review, 2026-10-07: the probe used to precede it).
 func recordShape(rec *OwnershipRecord) *AdmissionRefusal {
+	if rec.Phase == "not_started" {
+		// Terminal, and admitted: the attempt it records created no child
+		// (D-216). Only the shape Spawn writes: anything naming a process is
+		// not one, and is refused before it is probed.
+		if rec.Leader != nil || rec.Executable != nil || rec.Descendants != nil || rec.Close != nil || rec.StartError == "" {
+			return &AdmissionRefusal{Reason: fmt.Sprintf("ownership record %s has phase not_started but names a worker or no start error; Spawn writes neither, so refusing", rec.Receipt+".proc")}
+		}
+		return nil
+	}
 	if rec.Phase == "intent" {
 		return &AdmissionRefusal{Reason: fmt.Sprintf("ownership record %s is intent-only: attempt %s, recorded by adapter pid %d (start %d), published its intent to spawn a worker and no spawned record followed, so a worker may have started before its pid was published, and nothing identifies it; the adapter has verified nothing about that worker; the operator's recourse, after their own check for a stray worker, is to abandon this receipt and start a fresh worker with a NEW receipt; never delete the record or resume this captured session", rec.Receipt+".proc", rec.Attempt, rec.Adapter.PID, rec.Adapter.Start)}
 	}
@@ -564,7 +612,7 @@ func recordShape(rec *OwnershipRecord) *AdmissionRefusal {
 // passive; a record recordShape refuses is never probed.
 func observeOwnership(rec *OwnershipRecord) ownershipFacts {
 	var f ownershipFacts
-	if recordShape(rec) != nil {
+	if recordShape(rec) != nil || rec.Phase == "not_started" {
 		return f
 	}
 	f.Adapter, f.AdapterErr = observeState(rec.Adapter)

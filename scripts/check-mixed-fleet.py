@@ -276,7 +276,9 @@ def synthetic_natives(synthetic, receipt, harnesses):
     versions = {h: {"version": NATIVE_CONTRACTS[h][-1], "executable_sha256": ("a" if h == "claude" else "b") * 64}
                 for h in harnesses}
     # A synthetic run's bytes are its own candidate (D-080), never a record's.
-    admission.expect([h + ":" + admission.parse_version(h, v["version"]) + ":" + v["executable_sha256"] for h, v in versions.items()])
+    admission.EXPECTED.clear()
+    for h, v in versions.items():
+        admission.synthetic_binding(synthetic.root, h, admission.parse_version(h, v["version"]), v["executable_sha256"])
     synthetic.write("native-versions.json", versions)
     receipt["native_versions"] = versions
     for session in receipt["sessions"].values():
@@ -427,7 +429,7 @@ def synthetic_contract(receipt, sessions):
         # Synthetic bytes are their own candidate (D-080), never a record's.
         line = session.get("native_version", "")
         harness = "claude" if line.endswith(" (Claude Code)") else "codex"
-        admission.EXPECTED[harness] = (admission.parse_version(harness, line), session["native_sha256"])
+        admission.synthetic_binding(receipt["root"], harness, admission.parse_version(harness, line), session["native_sha256"])
     return receipt
 
 
@@ -902,7 +904,9 @@ def self_test():
         receipt.update(claude_version=cv, codex_version=xv, evidence_sha256={},
                        native_versions={"claude": {"version": cv + " (Claude Code)", "executable_sha256": "a" * 64},
                                         "codex": {"version": "codex-cli " + xv, "executable_sha256": "b" * 64}})
-        admission.expect(["claude:" + cv + ":" + "a" * 64, "codex:" + xv + ":" + "b" * 64])
+        admission.EXPECTED.clear()
+        admission.synthetic_binding(root, "claude", cv, "a" * 64)
+        admission.synthetic_binding(root, "codex", xv, "b" * 64)
         def artifact(name, value):
             path = root / name
             path.parent.mkdir(exist_ok=True)

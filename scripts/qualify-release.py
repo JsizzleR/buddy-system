@@ -331,7 +331,11 @@ def judge_receipt(harness, suite, receipt, binding):
     run bound must be the retained copy's, by the adapter's own word."""
     r = json.loads(receipt.read_text())
     root = receipt.parent
-    bindings, shas = admission.scan(root)
+    bindings, shas, skipped = admission.scan(root)
+    if skipped:
+        # #131: what the scan could not read may hold a stray candidate, so
+        # the run cannot be assessed; it is never judged on the rest.
+        return "the run's evidence holds what the scan could not read: " + "; ".join(skipped[:3])
     mine = {b for b in bindings if b[0] == harness}
     want = (harness, binding["version"], binding["sha256"])
     if suite in DIRECT:
@@ -666,6 +670,13 @@ def self_test():
         (direct / "result.json").write_text(json.dumps({"codex_sha256": "0" * 64}))
         case("direct_suite_judged_by_its_own_digest", ok and
              judge_receipt("codex", "codex-shell-lifecycle-edge", direct / "result.json", cb) is not None)
+        # #131: a torn control-receipt line is not judged on the rest. The
+        # direct receipt passes until the run holds a line the scan cannot read.
+        (direct / "result.json").write_text(json.dumps({"codex_sha256": csha}))
+        clean = judge_receipt("codex", "codex-shell-lifecycle-edge", direct / "result.json", cb) is None
+        (direct / "worker.json.events").write_text('{"operation": "start"}\n{"operation": "resume", "qualification_candidate": "99\n')
+        torn = judge_receipt("codex", "codex-shell-lifecycle-edge", direct / "result.json", cb) or ""
+        case("unreadable_evidence_refused", clean and "could not read" in torn)
     return {"passed": all(results.values()), "checks": results}
 
 

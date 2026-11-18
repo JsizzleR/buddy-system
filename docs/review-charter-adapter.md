@@ -38,34 +38,32 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     before any child (D-077).** `--operator-fd` must be open, `O_RDONLY`, a FIFO/char
     device/regular file, and is marked close-on-exec before the version probe; anything else
     refuses with no child and no journal. Close ends the worker's process group (TERM, then
-    KILL as soon as the leader exits or after 2 s at most — the grace is the leader's, so a
-    tool can get TERM and KILL back to back) while its leader is unreaped, and closes the
-    stdout reader; INT/TERM/HUP run
-    Close. A refusal before any native byte is `not_submitted` and retryable; a write that
-    may have happened stays uncertain. An unrecorded event makes state unknown, never
-    `observed_absent`. Claude gate settings use exact case-sensitive keys, no duplicates, a
-    matcher that is `""`, `*` or `.*`, or a literal list (plain or `^(…)$`-anchored) naming
-    all three tools, `timeout` 10-600 s. Executables are absolute,
-    resolved once, identity-checked before exec. Do not propose discarding oversized
-    frames, reading full Codex history on the live transport, or treating a free journal
-    lock as proof the worker exited. **Resume is fail-closed on an ownership record
-    (D-077, audit A-02):** every spawn publishes `<receipt>.proc`
-    (intent before the child, the leader's pid/start/pgid/sid before the first native
-    byte) through a single-use launch authorization consumed before `cmd.Start`; resume
-    refuses with no record, a record bound to another journal/receipt/identity, an
-    intent-only record, or while the recorded adapter, leader or group lives (`kill(-pgid,
-    0)`, ESRCH alone is absence); `--wait-prior` is a bounded passive re-check. `.start`
-    fences only Start; the flock plus intent-before-spawn fence every spawn. **Narrow
-    contract (D-077, the operator's choice):** descendants that left the group
-    are sampled every second (one `kern.proc.all` read; parentage only, every parent
-    re-checked by pid and start time after the read), recorded in `.proc`, captured again
-    before stdin closes on every adapter-initiated shutdown, reported at close (`ended`,
-    `survivors`, `unknown`; `unattributable` is always "unknown") and on one stderr line,
-    and NEVER signalled; resume refuses waitably while a recorded one lives, and outright
-    on overflow (256), an unresolved discovery error or a malformed section. Excluded, do
-    not re-propose: record rollback detection (invariant 6), killing what the adapter
-    cannot pin (a pid and start-time re-read is not a pin), `--end-prior`. Setsid waits on
-    native qualification Q1/Q3.
+    KILL once the leader exits or after 2 s — the grace is the leader's, so a tool can get
+    TERM and KILL back to back) while its leader is unreaped, and closes the stdout reader;
+    INT/TERM/HUP run Close. A refusal before any native byte is `not_submitted` and
+    retryable; a write that may have happened stays uncertain. An unrecorded event makes
+    state unknown, never `observed_absent`. Claude gate settings use exact case-sensitive
+    keys, no duplicates, a matcher that is `""`, `*` or `.*`, or a literal list (plain or
+    `^(…)$`-anchored) naming all three tools, `timeout` 10-600 s. Executables are absolute,
+    resolved once, identity-checked before exec. Do not propose discarding oversized frames,
+    reading full Codex history on the live transport, or a free journal lock as proof of
+    exit. **Resume is fail-closed on an ownership record (audit A-02):** every spawn
+    publishes `<receipt>.proc` (intent before the child, the leader's pid/start/pgid/sid
+    before the first native byte) through a single-use launch authorization consumed before
+    `cmd.Start`; resume refuses with no record, one bound to another
+    journal/receipt/identity, an intent-only one (`not_started`, no child, admits: D-216), or
+    while the recorded adapter, leader or group lives (`kill(-pgid, 0)`, ESRCH alone is
+    absence); `--wait-prior` is a bounded passive re-check. `.start` fences only Start; the
+    flock plus intent-before-spawn fence every spawn. **Narrow contract (the operator's
+    choice):** descendants that left the group are sampled every second (one `kern.proc.all`
+    read; parentage only, every parent re-checked by pid and start time after the read),
+    recorded in `.proc`, captured again before stdin closes on every adapter-initiated
+    shutdown, reported at close (`ended`, `survivors`, `unknown`; `unattributable` is always
+    "unknown") and on one stderr line, and NEVER signalled; resume refuses waitably while a
+    recorded one lives, and outright on overflow (256), an unresolved discovery error or a
+    malformed section. Excluded, do not re-propose: record rollback detection (invariant 6),
+    killing what the adapter cannot pin (a pid and start-time re-read is not a pin),
+    `--end-prior`. Setsid waits on native qualification Q1/Q3.
 
 80. **Native admission is a committed exact-artifact record, embedded in the adapter
     (D-079).** `internal/harness/admissions/<harness>/<version>-<sha8>/admission.json`
@@ -95,15 +93,16 @@ charter does (D-128). The chosen set and why the rest stay in full: D-128.
     path-exec window (no worker starts on a replacement); `--retained` is the mitigation.
 
 82. **A qualification run binds its own binary; checkers read the records (D-081).** Each
-    runner hashes the binary it was given, reads `--version`, and types the candidate flags
-    onto every adapter it starts (no `BUDDY_QUALIFY_*` env transport). Each checker takes its
-    versions from the committed records and `--candidate harness:version:sha256`, and accepts a
-    candidate run only for exactly those bound bytes with the route visible in the adapter's
-    receipts. A run bound to other bytes is never accepted because the version has a record.
-    `scripts/qualify-release.py` retains the build (staged, verified, renamed, never
-    overwritten), runs the code's suites from the copy, and writes a record only for tiers
-    whose suites and checkers all passed, only with `start`, and only on a clean tree at one
-    HEAD. Do not propose per-checker version lists or hand-written records.
+    runner hashes its binary, reads `--version`, and types the candidate flags onto every
+    adapter it starts (no `BUDDY_QUALIFY_*` env transport). Each checker takes its versions
+    from the committed records and `--candidate harness:version:sha256`, and accepts a
+    candidate run only for those bound bytes, the route visible in the adapter's receipts.
+    Other bytes never pass because the version has a record. Unbound under `--candidate`:
+    direct suite only; unreadable evidence refuses (D-216). `scripts/qualify-release.py`
+    retains the build (staged, verified, renamed, never overwritten), runs the code's suites
+    from the copy, and records only tiers whose suites and checkers all passed, only with
+    `start`, on a clean tree at one HEAD. Do not propose per-checker version lists or
+    hand-written records.
 
 135. **Codex inspect reads the latest turn as progress, never state (D-197).** `state` is
     `thread/read`'s thread status, which leads `detail` through `fence.Line` at 64 bytes.

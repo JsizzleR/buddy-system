@@ -613,7 +613,11 @@ func TestControllerResumeAfterCrashAtEachBoundary(t *testing.T) {
 			var worker *exec.Cmd
 			spawnErr := auth.Spawn(sleepPath(), func() (int, error) {
 				if boundary == "after-intent-before-spawn" {
-					return 0, errors.New("crash before spawn")
+					// A crashed adapter never returns from start, so it never
+					// publishes not_started (D-216): only the intent is on disk.
+					// An error Spawn may not treat as definite models that; a
+					// plain one now records not_started (notstarted_test.go).
+					return 0, &childUncertainError{errors.New("crash before spawn")}
 				}
 				worker = exec.Command(sleepPath(), "300")
 				worker.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

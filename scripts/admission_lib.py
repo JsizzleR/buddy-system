@@ -29,8 +29,13 @@ WHAT A CHECKER ACCEPTS (`admits`). A receipt is admissible evidence for
     given one, or else equals a committed record's bytes for that version. A
     receipt that ran as a candidate for OTHER bytes is never accepted because a
     record for the version exists;
-  - or it is a legacy run (no binding anywhere): the version has a record, and
-    the checker was not told to expect a candidate.
+  - or it is a legacy run (no binding anywhere): the version has a record (and
+    the receipt's own sha256, when it names one, is that record's bytes), and
+    the checker was not told to expect a candidate. Only the direct Codex gate
+    suite, which runs no adapter and so binds nothing, is judged under
+    `--candidate` by its receipt's sha256 alone (`direct=True`, #132).
+A run holding evidence the scan could not read (a symlink, a line that does
+not parse) is never admitted: it cannot be assessed (#131).
 Retired versions (2.1.289, 2.1.290) have no record and are refused: their
 receipts stay evidence of what was measured, and grant nothing now.
 
@@ -227,11 +232,27 @@ def expect(values):
         EXPECTED[parts[0]] = (parts[1], parts[2])
 
 
-def synthetic(harness, version, path):
-    """For a checker's synthetic self-test: the fake native's sha256, set as the
-    expected candidate for harness, because fake bytes can never be a record's."""
-    digest = sha256(path)
+def synthetic(harness, version, path, root):
+    """For a checker's synthetic self-test: the fake native's sha256, bound as
+    the run's candidate under root (synthetic_binding), because fake bytes can
+    never be a record's."""
+    return synthetic_binding(root, harness, version, sha256(path))
+
+
+def synthetic_binding(root, harness, version, digest):
+    """For a checker's synthetic self-test: write under root what a real run's
+    adapter receipts carry, one binding for harness and one control row naming
+    its sha256, and expect exactly that candidate.
+
+    WHY (#132). Synthetic runs bound nothing and passed through the unbound
+    `native_sha` arm, which admitted any harness's unbound run under
+    --candidate; no checker self-test exercised the bound path. That arm is
+    now the direct suite's alone, so a synthetic adapter run binds, as every
+    real one has since D-080. Returns digest."""
     EXPECTED[harness] = (version, digest)
+    path = pathlib.Path(root) / ("synthetic-" + harness + "-binding.json")
+    path.write_text(json.dumps({"qualification_candidate": {"harness": harness, "version": version, "sha256": digest},
+                                "control": [{"operation": "start", "qualification_candidate": digest}]}))
     return digest
 
 
@@ -252,35 +273,128 @@ def _walk(value, bindings, strays):
             _walk(v, bindings, strays)
 
 
+def _unique(pairs):
+    """object_pairs_hook: a repeated key refuses the document. json keeps
+    only a key's last value, so `"qualification_candidate": null` after a
+    stray sha erased it before _walk could see it (Codex code pass, #131)."""
+    seen = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise ValueError("repeated key " + repr(key)[:64])
+        seen.add(key)
+    return dict(pairs)
+
+
+def _loads(data):
+    return json.loads(data.decode("utf-8", errors="replace"), object_pairs_hook=_unique)
+
+
+def _files(root, skipped):
+    """Every non-directory under root, sorted, from a walk that follows no
+    link. A directory that cannot be listed, and a link to a directory, are
+    reported: rglob dropped both silently (Codex code pass, #131), and either
+    can hold a control receipt."""
+    out = []
+
+    def unlisted(err):
+        skipped.append(str(err.filename) + ": a directory that cannot be listed (" + err.__class__.__name__ + ")")
+    for top, dirs, files in os.walk(root, onerror=unlisted):
+        for d in dirs:
+            if os.path.islink(os.path.join(top, d)):
+                skipped.append(os.path.join(top, d) + ": a symlink to a directory, not followed")
+        out += [pathlib.Path(top, name) for name in files]
+    return sorted(out)
+
+
+def _lines(f):
+    """The b"\\n"-separated lines of a binary file, each at most SCAN_LIMIT
+    bytes, as (line number, bytes, too_long). Only b"\\n" ends a line: JSON
+    permits a raw U+0085 or U+2028 inside a string and Go's encoder leaves them
+    raw, and str.splitlines split one such record into two unparseable halves
+    that were then dropped (#131)."""
+    n = 0
+    while True:
+        line = f.readline(SCAN_LIMIT + 1)
+        if not line:
+            return
+        n += 1
+        if len(line) > SCAN_LIMIT and not line.endswith(b"\n"):
+            yield n, b"", True
+            while line and not line.endswith(b"\n"):
+                line = f.readline(SCAN_LIMIT + 1)
+            continue
+        yield n, line, False
+
+
 def scan(root):
     """Every qualification_candidate under root: the bindings (dicts naming
-    harness, version, sha256) and the control receipts' sha256 strings."""
-    bindings, shas = set(), set()
-    for p in sorted(pathlib.Path(root).rglob("*")):
-        if not p.is_file() or p.is_symlink() or not p.name.endswith(SCANNED) or p.stat().st_size > SCAN_LIMIT:
+    harness, version, sha256), the control receipts' sha256 strings, and what
+    could NOT be read, one "path: why" per file.
+
+    WHY THE THIRD VALUE (#131). This skipped, without saying so, a symlink, a
+    file over SCAN_LIMIT and every JSONL line that did not parse, and its
+    callers judged on the rest: a control receipt naming a stray sha256 in a
+    line it dropped could never refuse the run. Now nothing that matches
+    SCANNED is passed over silently. A file over SCAN_LIMIT is read line by
+    line instead of skipped (only a single over-long line is unreadable), so
+    size alone never costs a long run its evidence; a symlink, anything not a
+    regular file, a file that cannot be opened, a non-blank line that does not
+    parse (a repeated key included), a directory that cannot be listed and a
+    link to a directory are reported, and every caller that judges treats a report as
+    "cannot assess", never as admitted. Blank lines are not evidence and are
+    not reported."""
+    bindings, shas, skipped = set(), set(), []
+    for p in _files(root, skipped):
+        if not p.name.endswith(SCANNED):
             continue
-        text = p.read_text(errors="replace")
+        if p.is_symlink() or not p.is_file():
+            skipped.append(str(p) + ": " + ("a symlink, not followed" if p.is_symlink() else "not a regular file"))
+            continue
+        docs, bad, first = [], 0, None
         try:
-            docs = [json.loads(text)]
-        except ValueError:
-            docs = []
-            for line in text.splitlines():
-                try:
-                    docs.append(json.loads(line))
-                except ValueError:
-                    pass
+            with open(p, "rb") as f:
+                whole = unparsed = object()
+                if os.fstat(f.fileno()).st_size <= SCAN_LIMIT:
+                    try:
+                        whole = _loads(f.read())
+                    except ValueError:
+                        pass
+                    f.seek(0)
+                if whole is not unparsed:
+                    docs.append(whole)
+                else:
+                    for n, line, too_long in _lines(f):
+                        if not too_long and not line.strip():
+                            continue
+                        try:
+                            if too_long:
+                                raise ValueError("line over %d bytes" % SCAN_LIMIT)
+                            docs.append(_loads(line))
+                        except ValueError:
+                            bad += 1
+                            first = first or n
+        except OSError as err:
+            skipped.append(str(p) + ": could not be read (" + err.__class__.__name__ + ")")
+            continue
+        if bad:
+            skipped.append(str(p) + ": %d line(s) unparseable, the first at line %d" % (bad, first))
         for d in docs:
             _walk(d, bindings, shas)
-    return bindings, shas
+    return bindings, shas, skipped
 
 
-def admits(harness, version, root, native_sha=None, records_root=None):
+def admits(harness, version, root, native_sha=None, records_root=None, direct=False):
     """True when the run under root is admissible evidence for (harness,
     version); see the module comment for the rule. native_sha is the bytes the
     receipt says ran, when it says: a candidate run must have bound exactly
-    those, and a run that never went through the adapter (Codex's direct gate
-    suite) is judged by them alone."""
-    bindings, shas = scan(root)
+    those. Only a run that never went through the adapter (Codex's direct gate
+    suite, direct=True) is judged by native_sha alone (#132): any other suite's
+    unbound run never took the candidate route, so under --candidate it is
+    refused, and without one it is a legacy run whose bytes must be a record's.
+    Evidence the scan could not read refuses (#131)."""
+    bindings, shas, skipped = scan(root)
+    if skipped:
+        return False
     if shas - {b[2] for b in bindings}:
         return False
     mine = {b for b in bindings if b[0] == harness}
@@ -294,21 +408,27 @@ def admits(harness, version, root, native_sha=None, records_root=None):
         if expected is not None:
             return expected == (v, sha)
         return sha in recorded(harness, records_root).get(v, ())
-    if native_sha is not None:
-        if expected is not None:
-            return expected == (version, native_sha)
-        return native_sha in recorded(harness, records_root).get(version, ())
+    if direct and native_sha is not None and expected is not None:
+        return expected == (version, native_sha)
     if expected is not None:
         return False
+    if native_sha is not None:
+        return native_sha in recorded(harness, records_root).get(version, ())
     return version in recorded(harness, records_root)
 
 
-def need(harness, version, root, native_sha=None):
+def need(harness, version, root, native_sha=None, direct=False):
     """admits() for a checker's contract lambda, raising with the reason a
-    contract check prints."""
-    if not admits(harness, version, root, native_sha):
-        raise ValueError(harness + " " + repr(version) + " is not admissible here: no record for it, or the run "
-                         "bound a candidate the records and --candidate do not name")
+    contract check prints, and naming what the scan could not read."""
+    if not admits(harness, version, root, native_sha, direct=direct):
+        skipped = scan(root)[2]
+        if skipped:
+            more = "" if len(skipped) <= 3 else "; and %d more" % (len(skipped) - 3)
+            raise ValueError(harness + " " + repr(version) + " cannot be assessed: the evidence holds what the scan "
+                             "could not read, so a stray candidate in it would go unseen: " + "; ".join(skipped[:3]) + more)
+        raise ValueError(harness + " " + repr(version) + " is not admissible here: no record for it, the run "
+                         "bound a candidate the records and --candidate do not name, or an adapter suite's run "
+                         "bound nothing under --candidate")
     return True
 
 
@@ -367,6 +487,66 @@ def self_test():
                                                                                 "sha256": "a" * 64}},
                                     "adapter-events.json": [{"operation": "start"}]})
         case("binding_without_adapter_receipt_refused", not admits("claude", "2.1.291", unrouted, records_root=rec))
+        # #131: evidence the scan cannot read must refuse, never vanish. Each
+        # hazard sits beside its control: the same run without it is admitted.
+        good = json.dumps(events("a" * 64)[0])
+        resume = {"operation": "resume", "qualification_candidate": "e" * 64, "native_event": {"path": "x\u0085y"}}
+        nel = json.dumps(resume, ensure_ascii=False)
+        case("nel_line_is_one_record", nel.count("\u0085") == 1 and "\\u0085" not in nel)
+        # A raw NEL is read as part of its record, so the stray it carries is
+        # SEEN (nothing skipped); the torn and garbled lines are reported.
+        for name, tail, skips in (("nel_in_a_string_refused", nel + "\n", False),
+                                  ("truncated_line_refused", good[:-9] + "\n", True),
+                                  ("unparseable_line_refused", "{not json}\n", True)):
+            bad = run("h-" + name, {"worker.json": saved("2.1.291", "a" * 64), "worker.json.events": good + "\n" + tail})
+            case(name, not admits("claude", "2.1.291", bad, records_root=rec) and bool(scan(bad)[2]) == skips)
+        ctl = run("h-control", {"worker.json": saved("2.1.291", "a" * 64), "worker.json.events": good + "\n\n" + good + "\n"})
+        case("readable_journal_admitted_and_nothing_skipped", admits("claude", "2.1.291", ctl, records_root=rec) and
+             scan(ctl)[2] == [])
+        outside = tmp / "outside.events"
+        outside.write_text(json.dumps(resume) + "\n")
+        linked = run("h-link", {"worker.json": saved("2.1.291", "a" * 64), "worker.json.events": good + "\n"})
+        (linked / "more.events").symlink_to(outside)
+        case("symlinked_evidence_refused", not admits("claude", "2.1.291", linked, records_root=rec))
+        (linked / "more.events").unlink()
+        case("symlink_control_admitted", admits("claude", "2.1.291", linked, records_root=rec))
+        # The Codex code pass on this fix: a directory the scan cannot list,
+        # or a link to one, dropped out of rglob silently; a duplicate key
+        # kept only its last value, so `"qualification_candidate": null` after
+        # a stray erased it. Each refuses; each control, the same evidence
+        # readable, is admitted.
+        hidden = run("h-unlistable", {"worker.json": saved("2.1.291", "a" * 64), "worker.json.events": good + "\n",
+                                      "extra/resume.events": good + "\n"})
+        (hidden / "extra").chmod(0)
+        try:
+            case("unlistable_directory_refused", not admits("claude", "2.1.291", hidden, records_root=rec))
+        finally:
+            (hidden / "extra").chmod(0o700)
+        case("unlistable_directory_control_admitted", admits("claude", "2.1.291", hidden, records_root=rec))
+        elsewhere = tmp / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "resume.events").write_text(good + "\n")
+        dlink = run("h-dirlink", {"worker.json": saved("2.1.291", "a" * 64), "worker.json.events": good + "\n"})
+        (dlink / "more").symlink_to(elsewhere)
+        case("directory_symlink_refused", not admits("claude", "2.1.291", dlink, records_root=rec))
+        (dlink / "more").unlink()
+        case("directory_symlink_control_admitted", admits("claude", "2.1.291", dlink, records_root=rec))
+        dup = '{"operation": "resume", "qualification_candidate": "%s", "qualification_candidate": null}' % ("e" * 64)
+        duped = run("h-dup", {"worker.json": saved("2.1.291", "a" * 64), "worker.json.events": good + "\n" + dup + "\n"})
+        case("duplicate_key_refused", not admits("claude", "2.1.291", duped, records_root=rec) and bool(scan(duped)[2]))
+        global SCAN_LIMIT
+        limit = SCAN_LIMIT
+        try:
+            SCAN_LIMIT = 2 * len(good)  # each line and worker.json fit; neither events file does
+            big = run("h-big", {"worker.json": saved("2.1.291", "a" * 64),
+                                "worker.json.events": good + "\n" + json.dumps(resume) + "\n"})
+            case("over_limit_file_still_read", not admits("claude", "2.1.291", big, records_root=rec))
+            big_ctl = run("h-big-ctl", {"worker.json": saved("2.1.291", "a" * 64), "worker.json.events": (good + "\n") * 3})
+            case("over_limit_file_control_admitted", admits("claude", "2.1.291", big_ctl, records_root=rec))
+            SCAN_LIMIT = 4
+            case("over_limit_line_refused", not admits("claude", "2.1.291", big_ctl, records_root=rec))
+        finally:
+            SCAN_LIMIT = limit
         two = run("two", {"worker.json": saved("2.1.291", "a" * 64), "b/worker.json": saved("2.1.291", "f" * 64),
                           "adapter-events.json": events("a" * 64, "f" * 64)})
         case("two_bindings_refused", not admits("claude", "2.1.291", two, records_root=rec))
@@ -376,11 +556,20 @@ def self_test():
         (rec / "codex/0.160.0-bbbbbbbb").mkdir()
         (rec / "codex/0.160.0-bbbbbbbb/admission.json").write_text(json.dumps(
             {"harness": "codex", "version": "0.160.0", "executable": {"sha256": "b" * 64}}))
-        case("direct_run_recorded_bytes_admitted", admits("codex", "0.160.0", direct, "b" * 64, records_root=rec))
-        case("direct_run_other_bytes_refused", not admits("codex", "0.160.0", direct, "9" * 64, records_root=rec))
+        case("direct_run_recorded_bytes_admitted", admits("codex", "0.160.0", direct, "b" * 64, records_root=rec, direct=True))
+        case("direct_run_other_bytes_refused", not admits("codex", "0.160.0", direct, "9" * 64, records_root=rec, direct=True))
         expect(["codex:0.162.1:" + "9" * 64])
-        case("direct_run_candidate_bytes_admitted", admits("codex", "0.162.1", direct, "9" * 64, records_root=rec))
-        case("direct_run_candidate_other_bytes_refused", not admits("codex", "0.162.1", direct, "8" * 64, records_root=rec))
+        case("direct_run_candidate_bytes_admitted", admits("codex", "0.162.1", direct, "9" * 64, records_root=rec, direct=True))
+        case("direct_run_candidate_other_bytes_refused", not admits("codex", "0.162.1", direct, "8" * 64, records_root=rec, direct=True))
+        # #132: the native_sha arm is the direct suite's alone (D-081). An
+        # adapter suite's run that bound nothing never took the candidate
+        # route, whatever bytes its receipt says ran.
+        case("unbound_adapter_run_refused_under_candidate", not admits("codex", "0.162.1", direct, "9" * 64, records_root=rec))
+        expect(["claude:2.1.291:" + "a" * 64])
+        case("unbound_claude_run_refused_under_candidate", not admits("claude", "2.1.291", legacy, "a" * 64, records_root=rec))
+        EXPECTED.clear()
+        case("unbound_adapter_run_recorded_bytes_admitted", admits("claude", "2.1.291", legacy, "a" * 64, records_root=rec))
+        case("unbound_adapter_run_other_bytes_refused", not admits("claude", "2.1.291", legacy, "9" * 64, records_root=rec))
         EXPECTED.clear()
         CANDIDATES.clear()
         exe = tmp / "claude-bin"

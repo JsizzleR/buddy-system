@@ -183,6 +183,12 @@ func startJSONProcess(ctx context.Context, auth *LaunchAuthorization, executable
 	// fails: a worker nobody could later identify is not launched.
 	err = auth.Spawn(executable, func() (int, error) {
 		if err := cmd.Start(); err != nil {
+			if cmd.Process != nil {
+				// Not what exec.Cmd.Start does (a failed Start sets no
+				// Process), but if it ever did, a child may exist: keep the
+				// intent rather than record not_started (D-216).
+				return 0, &childUncertainError{err}
+			}
 			return 0, err
 		}
 		return cmd.Process.Pid, nil

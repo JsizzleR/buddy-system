@@ -349,7 +349,8 @@ def synthetic(root, kind):
     base = _base()
     s = base.Synthetic(root)
     version = admission.recorded_versions("claude")[-1]
-    admission.expect(["claude:" + version + ":" + "a" * 64])  # synthetic bytes are their own candidate
+    admission.EXPECTED.clear()
+    admission.synthetic_binding(s.root, "claude", version, "a" * 64)  # synthetic bytes are their own candidate
     s.write("native-version.json", {"version": version + " (Claude Code)", "executable_sha256": "a" * 64})
     s.write("source-manifest.json", "{}\n")
     s.write("bin/buddy", "synthetic buddy\n")

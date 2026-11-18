@@ -48,6 +48,7 @@ import json
 from pathlib import Path
 import shlex
 import sys
+import tempfile
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("start_tier", Path(__file__).with_name("check-claude-gate.py"))
@@ -143,7 +144,7 @@ def validate_gate(r, receipt_path):
     def at(command): return expected().index(command)
 
     e.check("receipt_location", lambda: g.located(e, receipt_path))
-    e.check("contract", lambda: g.admission.need("codex", version, e.root, r.get("codex_sha256")) and
+    e.check("contract", lambda: g.admission.need("codex", version, e.root, r.get("codex_sha256"), direct=True) and
             r["codex_version"] == "codex-cli " + version and
             "no real inference" in r["qualification"] and r["requests"] == len(e.json("requests.json")) == 5)
     e.check("runner_verdict", lambda: isinstance(r["checks"], dict) and set(r["checks"]) == CHECKS and
@@ -582,7 +583,7 @@ def synthetic_adapter(root, tag):
          "renewal": {"before": renewed(False), "after": renewed(True), "journal": [v["renewal"] for v in batches]},
          "codex_version": "codex-cli " + CODEX_VERSIONS[-1], "buddy_sha256": g.sha_file(root / "bin/buddy"),
          "adapter_sha256": g.sha_file(root / "bin/buddy-adapter"), "codex_path": str(root / "bin/codex"),
-         "codex_sha256": g.admission.synthetic("codex", CODEX_VERSIONS[-1], root / "bin/codex"), "mode": {"adapter": True}, "fixture_sha256": "0" * 64,
+         "codex_sha256": g.admission.synthetic("codex", CODEX_VERSIONS[-1], root / "bin/codex", root), "mode": {"adapter": True}, "fixture_sha256": "0" * 64,
          "requests": 4, "passed": True}
     g.write(root, "result.json", r)
     return r
@@ -715,8 +716,37 @@ def adapter_self_test():
                              ADAPTER_SPLICE)
 
 
+def direct_candidate_self_test():
+    """The direct gate suite runs no adapter, so it binds nothing: under
+    --candidate its own codex_sha256 is the binding (need's direct=True, #132,
+    D-216). Its run with the candidate's bytes passes and with other bytes
+    fails contract. The adapter suites' unbound runs are refused under
+    --candidate by admission_lib's own self-test."""
+    with tempfile.TemporaryDirectory(prefix="buddy-codex-gate-direct-") as tmp:
+        root = Path(tmp).resolve() / "run"
+        r = synthetic(root, "d")
+        g.write(root, "bin/codex", "synthetic codex d\n")
+        r.update(codex_path=str(root / "bin/codex"), codex_sha256=g.sha_file(root / "bin/codex"))
+        g.write(root, "result.json", r)
+        saved = dict(g.admission.EXPECTED)
+        try:
+            g.admission.EXPECTED["codex"] = (CODEX_VERSIONS[-1], r["codex_sha256"])
+            own = validate(r, root / "result.json")
+            g.admission.EXPECTED["codex"] = (CODEX_VERSIONS[-1], "0" * 64)
+            other = validate(r, root / "result.json")
+        finally:
+            g.admission.EXPECTED.clear()
+            g.admission.EXPECTED.update(saved)
+    if not own["passed"]:
+        raise AssertionError("a direct run under its own bytes as --candidate failed: " + json.dumps(own["errors"]))
+    if other["passed"] or other["checks"].get("contract") is not False:
+        raise AssertionError("a direct run under another --candidate did not fail contract")
+    return 1
+
+
 def synthetic_self_test():
     gate_mode, adapter = gate_self_test(), adapter_self_test()
+    gate_mode["rejected_mutations"] += direct_candidate_self_test()
     adapter["rejected_mutations"] += g.unhashed_image_self_test(validate, synthetic_adapter)
     return {"positive": "passed", "rejected_mutations": gate_mode["rejected_mutations"] + adapter["rejected_mutations"],
             "modes": {"gate": gate_mode["rejected_mutations"], "adapter": adapter["rejected_mutations"]},

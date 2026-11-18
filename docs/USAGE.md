@@ -2795,24 +2795,24 @@ nothing signalled and nothing written, while:
   its worker did);
 - the record is bound to another journal or receipt, or names another identity;
 - the record is intent-only: a worker may have started before its pid was
-  published and nothing identifies it. The refusal names the receipt, the
-  attempt and the recording adapter. The adapter has verified nothing; after
-  their own check for a stray worker, the operator's recourse is to abandon
-  this receipt and start a fresh worker with a NEW receipt. Never delete the
-  record or resume the same captured session;
-- the recorded adapter, the recorded worker leader (by pid AND start time), or
-  the recorded process group is still there (`kill(-pgid, 0)`; only "no such
-  process" is absence, so an unreaped zombie member or a permission error also
-  refuses). A pid that exists with another start time is recycled: not ours,
-  never signalled, counted as gone, although its numeric group still refuses
-  while it exists;
+  published and nothing identifies it (a start that failed with no child
+  records `not_started`, which admits: D-216). The refusal names the receipt,
+  the attempt and the recording adapter. The adapter has verified nothing;
+  after their own check for a stray worker, the operator's recourse is a fresh
+  worker with a NEW receipt. Never delete the record or resume the same
+  captured session;
+- the recorded adapter, worker leader (by pid AND start time) or process group
+  is still there (`kill(-pgid, 0)`; only "no such process" is absence, so an
+  unreaped zombie member or a permission error also refuses). A pid that
+  exists with another start time is recycled: not ours, never signalled,
+  counted as gone, although its numeric group still refuses while it exists;
 - an escaped descendant the record names (see below) is still running, by pid
   AND start time;
 - the record's escaped-descendant section cannot vouch for what it holds: it
   dropped observations for want of room (it keeps at most 256), its last scan
   could not observe everything it needed, one it names cannot be observed now,
-  or the section is malformed. These refuse outright; the recourse is a fresh
-  worker with a NEW receipt.
+  or the section is malformed. The recourse is a fresh worker with a NEW
+  receipt.
 
 Only an observation that could not be made at all, or a record that cannot
 vouch for itself, refuses outright. The alive verdicts clear with time:

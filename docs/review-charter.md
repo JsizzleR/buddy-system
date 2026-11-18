@@ -700,7 +700,7 @@ ledger row entered through the CLI (D-006).
     correction of adapter mail refuses. A lifecycle PostToolUse renews only claims covering
     the paths it names. `hello --session` still refuses non-hook stdin and names `</dev/null`.
 
-78. **The adapter owns its worker's process group and validates the operator descriptor before any child (D-077).** Resume fails closed on a `.proc` record; escaped descendants are recorded, never signalled. Do not propose: discarding oversized frames, full Codex history on the live transport, a free journal lock as proof of exit, record rollback detection, killing the unpinned, `--end-prior`. (full text: `CODEX_CHARTER=adapter`)
+78. **The adapter owns its worker's process group and validates the operator descriptor before any child (D-077, D-216).** Resume fails closed on `.proc`; escaped descendants are recorded, never signalled. Do not propose: discarding oversized frames, full Codex history on the live transport, a free journal lock as proof of exit, record rollback detection, killing the unpinned, `--end-prior`. (full text: `CODEX_CHARTER=adapter`)
 
 79. **An adapter-launched worker's claims renew from COMPLETED native writes, through the
     controller (D-078).** No PostToolUse joins the adapter's gate contract (that route is a
@@ -731,7 +731,7 @@ ledger row entered through the CLI (D-006).
 
 80. **Native admission is a committed exact-artifact record, embedded in the adapter (D-079).** Reconcile is never granted; a parse-rule change that alters a measured outcome bumps the contract id; a record is made before a planned adapter run, not per release (D-156). Do not propose: a runtime registry, ranges or probing alone, a metadata hash cache, invalidation by adapter hash. (full text: `CODEX_CHARTER=adapter`)
 81. **A qualification candidate is bound by typed sha256 and a loopback provider (D-080).** Every receipt carries `qualification_candidate`; cross-mode resume refuses. Do not propose: a candidate without the typed digest, a non-loopback provider. (full text: `CODEX_CHARTER=adapter`)
-82. **A qualification run binds its own binary; checkers read the records (D-081).** Earned tiers only, clean tree at one HEAD. Do not propose: per-checker version lists, hand-written records, `BUDDY_QUALIFY_*` env transport. (full text: `CODEX_CHARTER=adapter`)
+82. **A qualification run binds its own binary; checkers read the records (D-081, D-216).** Earned tiers only, one clean HEAD. Do not propose: per-checker version lists, hand-written records, `BUDDY_QUALIFY_*` env transport. (full text: `CODEX_CHARTER=adapter`)
 83. **The fleet recipe launches with the brief in a file, waits with no state named, retries a
     start the new tab refuses, and reads a Codex lane's JOBS line as "cannot say" (D-082, D-144).**
     The herdr measurements are D-082's record. Under the Codex sandbox the hermetic tier runs

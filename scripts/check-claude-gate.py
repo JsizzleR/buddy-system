@@ -1244,7 +1244,7 @@ def synthetic(root, tag, version=SYNTHETIC_VERSION):
     write(root, MANAGED + "result.json", managed)
     r = {"schema": "buddy.claude-qualification.v1", "root": str(root), "passed": True,
          "checks": {k: True for k in SUITE_CHECKS | TRACE_CHECKS}, "provider": "deterministic loopback Messages fixture",
-         "native_version": version + " (Claude Code)", "native_sha256": admission.synthetic("claude", version, root / "bin/claude"),
+         "native_version": version + " (Claude Code)", "native_sha256": admission.synthetic("claude", version, root / "bin/claude", root),
          "source_manifest_sha256": sha_file(root / "source-manifest.json"),
          "buddy_sha256": sha_file(root / "bin/buddy"), "adapter_sha256": sha_file(root / "bin/buddy-adapter"),
          "configuration_evidence": {"settings_sha256": sha_file(root / "settings.json"), "mods_profile": "builtin-only-" + version},
