@@ -19,7 +19,19 @@
 #         BUDDY_PREPUSH_CHECK=...  the command to run (the done-check stubs this,
 #                                  which is also what keeps the suite from
 #                                  running itself when it exercises this hook)
+#         BUDDY_PREPUSH_MEMGATE=.. the memory admission gate asked before each
+#                                  run; unset, $HOME/bin/mem-gate.py for the
+#                                  default tier only, skipped if not there
 # BYPASS: git push --no-verify
+#
+# WHAT IS TESTED IS WHAT IS PUSHED (#123, D-223). Each distinct pushed tip is
+# checked out in ONE detached tree per checkout, <git-common-dir>/buddy-prepush/
+# tree, and the tier runs there, never in the working tree. Run in the pushing
+# checkout, a commit that needed an untracked helper went GREEN (recorded), and
+# so would uncommitted fixes over a red commit, or `git push origin other` from
+# a checkout with another branch out. Refusing a dirty checkout was cut: a
+# shared checkout is normally dirty with a peer's files. Warning was cut: it
+# spends the tier on a tree known to be the wrong one.
 set -eu
 
 # Git hands the ref list on stdin once, and both readers below need it.
@@ -45,19 +57,20 @@ cd "$ROOT"
 
 # A push that deletes refs sends no commits, so there is nothing to check. Git
 # feeds `<local ref> <local sha> <remote ref> <remote sha>` on stdin and uses the
-# all-zero sha for a deletion; if every line is a deletion, allow.
+# all-zero sha for a deletion; if every line is a deletion, allow. The others'
+# shas are the tips to test, peeled below, once the environment is scrubbed.
 ZERO=0000000000000000000000000000000000000000
-pushing=0
+shas=
 while read -r _lref lsha _rref _rsha; do
 	[ -n "${lsha:-}" ] || continue
 	case "$lsha" in
 	"$ZERO") continue ;;
-	*) pushing=1 ;;
+	*) shas="$shas $lsha" ;;
 	esac
 done <<REFS
 $INPUT
 REFS
-if [ "$pushing" = "0" ]; then
+if [ -z "$shas" ]; then
 	exit 0
 fi
 
@@ -68,9 +81,9 @@ fi
 # absolute GIT_DIR — wrote core.bare=true and repositoryformatversion=99 into
 # the REAL repository, after which every git command there died and the claim
 # gate failed closed for every session. Everything above has already used the
-# environment it needed (discovery, the local hook). The tier finds its
-# repository from the cwd, which is the worktree being pushed. check.sh
-# unsets the same list itself, for any other caller.
+# environment it needed (discovery, the local hook). Everything below finds its
+# repository from a directory: the detached tree's git commands and the tier
+# itself. check.sh unsets the same list itself, for any other caller.
 for v in $(git rev-parse --local-env-vars 2>/dev/null || true) \
 	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT \
 	GIT_OBJECT_DIRECTORY GIT_DIR GIT_WORK_TREE GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE \
@@ -80,11 +93,121 @@ for v in $(git rev-parse --local-env-vars 2>/dev/null || true) \
 done
 
 CHECK=${BUDDY_PREPUSH_CHECK:-sh scripts/check.sh hermetic}
-echo "pre-push: running the hermetic tier ($CHECK)" >&2
-if sh -c "$CHECK" >&2; then
-	echo "pre-push: hermetic gate GREEN — push allowed." >&2
-	exit 0
+
+block() {
+	echo "pre-push: BLOCKED — $*. Fix it, or push anyway with:" >&2
+	echo "          git push --no-verify" >&2
+	exit 1
+}
+
+# THE MEMORY GATE. A git hook is invisible to the machine's Bash-level memory
+# gate (it sees `git push`, not the tier inside), so the hook asks it itself,
+# before each tier run, when the script exists: CI and other machines have none,
+# and skip it silently. Only the DEFAULT tier asks by default: the done-checks
+# that drive this hook run inside the real tier, which already holds its
+# booking, and a nested ask would wait on itself. BUDDY_PREPUSH_MEMGATE names a
+# gate for any tier (the done-check's stub).
+if [ -n "${BUDDY_PREPUSH_MEMGATE:-}" ]; then
+	MEMGATE=$BUDDY_PREPUSH_MEMGATE
+elif [ -z "${BUDDY_PREPUSH_CHECK:-}" ] && [ -n "${HOME:-}" ]; then
+	MEMGATE=$HOME/bin/mem-gate.py
+else
+	MEMGATE=
 fi
-echo "pre-push: BLOCKED — the hermetic tier is red. Fix it, or push anyway with:" >&2
-echo "          git push --no-verify" >&2
-exit 1
+[ -n "$MEMGATE" ] && [ -x "$MEMGATE" ] || MEMGATE=
+
+# Each pushed sha, peeled to its commit, once. One that positively peels to a
+# tree or a blob (a tag of one) has no tree to test; any other failure to peel,
+# an unreadable sha among them, blocks: an untested push is what this hook
+# exists to stop (Codex: a peel that merely failed was read as "no commit" and
+# skipped). --no-replace-objects, because git
+# sends the objects as stored: a refs/replace entry for a pushed tag would
+# otherwise have the tier test a commit the push does not carry (Codex), and
+# the scrub above has removed the GIT_NO_REPLACE_OBJECTS a pusher may have set.
+pgit() { git --no-replace-objects "$@"; }
+tips=
+for s in $shas; do
+	c=$(pgit rev-parse -q --verify "$s^{commit}" 2>/dev/null) || {
+		case $(pgit cat-file -t "$s^{}" 2>/dev/null) in
+		tree | blob)
+			echo "pre-push: $s names no commit; there is no tree of it to test" >&2
+			continue
+			;;
+		esac
+		block "the pushed object $s cannot be read or peeled here"
+	}
+	case " $tips " in
+	*" $c "*) ;;
+	*) tips="$tips $c" ;;
+	esac
+done
+[ -n "$tips" ] || exit 0
+
+# THE DETACHED TREE: ONE stable path per checkout, under the common dir so
+# every worktree of it shares one and git never sees it, and LOCKED, so two
+# pushes never check out over each other's run. Stable because cmd/go keys a
+# main module's compiles by its directory: a fresh path per push is a cold
+# build. A `--shared` clone and not `git worktree add`, which would register
+# itself in the checkout's worktree list; the clone's objects are the
+# checkout's own, through alternates, so a commit just made is already there.
+# It is not the checkout's repository: the tier sees the clone's refs and no
+# ledger, which is what a hermetic tier may depend on.
+# An empty answer must not reach `cd`: `cd ""` succeeds in place, and the tree
+# would land in the worktree.
+GCD=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$GCD" ] && COMMON=$(cd "$GCD" && pwd -P) && [ -n "$COMMON" ] ||
+	block "this checkout's git directory cannot be found"
+STATE=$COMMON/buddy-prepush
+TREE=$STATE/tree
+mkdir -p "$STATE" || block "$STATE cannot be made"
+
+# The lock is a flock(2) on fd 9, taken by python3 (the hermetic tier needs it
+# anyway; macOS has no flock(1)) and then held by THIS shell, which keeps the
+# open file: it ends with the hook, however the hook ends, so it is never
+# stale. A pid file was cut: two waiters that both find the holder dead can
+# each steal it. fd 9 is closed for every child below, so nothing the tier or
+# git leaves running holds it after the hook is gone.
+command -v python3 >/dev/null 2>&1 || block "python3 is required to lock $STATE/lock"
+exec 9>>"$STATE/lock"
+python3 -I -c 'import fcntl, sys
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.stderr.write("pre-push: waiting for another push to release %s\n" % sys.argv[1])
+    sys.stderr.flush()
+    fcntl.flock(9, fcntl.LOCK_EX)' "$STATE/lock" || block "$STATE/lock could not be taken"
+
+# Every git in the tree: no hooks and no fsmonitor daemon, which would outlive
+# the hook. No discovery ceiling: a tree whose .git is gone or broken is found
+# as the common dir around it, which has no work tree, so its toplevel never
+# matches and place() clones again (a ceiling was cut: no input reached it).
+tgit() {
+	git --no-replace-objects -C "$TREE" -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+		-c advice.detachedHead=false "$@" 9>&-
+}
+fresh() {
+	rm -rf "$TREE"
+	git -c core.hooksPath=/dev/null clone -q --shared --no-checkout "$COMMON" "$TREE" 9>&-
+}
+# place <commit> — the tree at exactly <commit>, and nothing else in it: a
+# previous run's build output or a forgotten untracked file would otherwise
+# pass for part of the commit. A tree that will not check out (a killed run's
+# index.lock, a moved checkout's alternates) is cloned again, once.
+place() {
+	[ "$(tgit rev-parse --show-toplevel 2>/dev/null)" = "$TREE" ] || fresh || return 1
+	tgit checkout -q --force --detach "$1" 2>/dev/null ||
+		{ fresh && tgit checkout -q --force --detach "$1"; } || return 1
+	tgit clean -q -ffdx
+}
+
+# One run per distinct tip, in the order git sent them; the first red blocks.
+for c in $tips; do
+	place "$c" || block "the detached tree $TREE could not be put at $c"
+	if [ -n "$MEMGATE" ]; then
+		echo "pre-push: asking the memory gate ($MEMGATE admit tier --wait 1800)" >&2
+		"$MEMGATE" admit tier --wait 1800 >&2 9>&- || block "the memory gate refused the tier ($MEMGATE)"
+	fi
+	echo "pre-push: running the hermetic tier on $c in $TREE ($CHECK)" >&2
+	( cd "$TREE" && sh -c "$CHECK" ) >&2 9>&- || block "the hermetic tier is red on $c"
+done
+echo "pre-push: hermetic gate GREEN on every pushed tip — push allowed." >&2
+exit 0

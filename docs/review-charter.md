@@ -511,12 +511,13 @@ ledger row entered through the CLI (D-006).
     before hello). The opt-in `buddy-adapter` is the one exception (D-074, GIVEN 75).
 
 59. **The test suite never runs with git's local environment (D-057, #49).** MEASURED (git
-    2.54): a push from a linked worktree hands the pre-push hook an ABSOLUTE `GIT_DIR`, and the fixtures'
-    `git -C <tmp>` inherited it and made the real repository bare. `git rev-parse --local-env-vars` (united with a fixed copy) is
-    unset by pre-push before the tier, by check.sh first thing, by sourcing lib.sh, and by
-    `testguard.ScrubGitEnv()` inside the TestMain of every package that imports os/exec and
-    names "git" (a gate enforces it, and a second keeps the four fixed copies of the list
-    equal). Do not propose stripping `GIT_*` wholesale, or relying on the hook alone.
+    2.54): pre-push from a linked worktree gets an ABSOLUTE `GIT_DIR`; fixtures'
+    `git -C <tmp>` inherited it, making the real repository bare. `git rev-parse --local-env-vars` (plus a fixed copy) is
+    unset by pre-push, by check.sh first, by sourcing lib.sh, and by
+    `testguard.ScrubGitEnv()` in the TestMain of every package importing os/exec and
+    naming "git" (gated; a second gate holds the four copies equal). Pre-push tests
+    each pushed tip in a locked clone, never the working tree (D-223). Do not propose
+    stripping `GIT_*` wholesale, or relying on the hook alone.
 
 60. **A `claude --bg` lane anchors at its own process, and its row names no pane (D-058,
     #50).** MEASURED (2.1.283): the lane retitles its argv[0] to the single string
