@@ -67,7 +67,7 @@ ledger row entered through the CLI (D-006).
    Descriptions, slugs, labels, scopes, paths and chat text are
    attacker-influenced; a newline could fabricate rows in a listing. Caps:
    slug 128, label/room 64, desc/scopes/path 512, body 4096. GitHub issue
-   text is read only through `scripts/issue-read.py` (D-215). Chat signs each
+   text is read only through `scripts/issue-read.py` (D-215, D-225). Chat signs each
    wire message with its sender's slot, refusing an empty one (D-221).
 8. **Room digests are never auto-injected into an agent's context (D-010).** Only operator
    inbox messages are. Visibility means the operator sees the room, not that every agent

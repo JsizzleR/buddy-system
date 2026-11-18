@@ -69,15 +69,20 @@ joined in an unquoted one, its delimiter included). The text a shell certainly
 runs is read too, to a depth of four: `$(...)`, backticks (unescaped first, as
 sh does) and `<(...)`, inside double quotes and unquoted here-documents as
 well (a `case` pattern's `)` does not close a substitution); a `-c` operand
-after a shell (past its other flags), `eval`'s, `trap`'s and `env -S`'s text;
+after a shell (past its other flags), `eval`'s, `trap`'s and `env -S`'s text
+(behind a prefix or find's -exec, attached, or ending `-iS`, with the words
+after it appended, as env runs them); an alias's text (`alias`, zsh's `hash`
+and `aliases[...]`) is judged as a command, and one that runs gh, a shell, a
+fetcher, `eval` or `alias`, or ends in a prefix, refuses (D-225);
 a here-document or here-string read by a shell or `. /dev/stdin` it is
 attached to or pipes into, across the body when the line ends in `|`; the
 words of commands piped into a shell reading stdin (`echo '...' | sh`); and a
 here-document with no terminator (sh reads to the end, and a `<<` the lexer
 mistook for one, `(( 1 << 2 ))`, must not hide the lines after it). A
 here-document read by curl, wget and the like has its GitHub URLs judged. A gh
-word is matched by basename, case-folded (the default macOS volume finds `GH`
-as gh), and every gh word is judged, not only the first. In command position
+word, a shell, a prefix and xargs are matched by basename under full Unicode
+case folding, as the default macOS volume looks a name up (`GH` is gh, and
+`\u017fh` with a long s is sh; D-225), and every gh word is judged, not only the first. In command position
 (after assignments, or a prefix: env, sudo, timeout, noglob, if, ...) every
 refusal applies; elsewhere (`grep -n gh README.md`, `which gh jq`) only a read
 or a gh subcommand or flag spelled out after it. Quoted mentions stay one word
@@ -87,7 +92,8 @@ view'`); the same words unquoted are refused.
 JURISDICTION AND FAILURE. Outside it, exit 0 and silent: stdin that is not a
 JSON object, another tool, a command or url that is not a string, and a
 command that never mentions `gh` (as a word, after joining backslash-newlines,
-percent-decoding, NFKC and deleting quote, backslash and `$` characters),
+percent-decoding, NFKC and deleting quote, backslash and `$` characters, or
+ending a short-flag cluster: `env -S'gh ...'`),
 `github` or `$'` (whose escapes can spell gh): invariant 3's shape, a call this
 gate has no opinion on costs nothing. Inside it, any failure to read the
 command (an unterminated quote or substitution, nesting past the depth cap,
@@ -99,13 +105,16 @@ measured 2026-10-29, and exit 2 blocks a PreToolUse call); install.sh's report
 says so loudly.
 
 DECLARED, NOT CLOSED (D-005: a seatbelt, not a sandbox; the Fable
-cross-check's verified inputs are in D-215): a command reached through a
-variable, function, shell or gh alias, wrapper script, or a substitution or
+cross-check's verified inputs are in D-215, the fold's sweep in D-225): a
+command reached through a variable, function, gh alias, a shell alias defined
+outside the command, wrapper script, or a substitution or
 glob spelling the command (`$(which gh)`, `g$()h`, `g[h]`, zsh `=gh`);
 text a shell reads from a substitution's OUTPUT (`source <(...)`, `bash
 <(...)`, `eval "$(...)"`, `sh -c "$(...)"`); a here-document fed by a brace
 group closed on a later line; `python3 -c`, node and other interpreters;
-brace expansion spelling gh; `#` read as a comment inside `${...}` or a
+brace expansion spelling gh; env -S text split by env's own rules where they
+are not sh's (`\_` and a form feed as blanks, `#` and `>` as plain characters,
+an -S inside the text); `#` read as a comment inside `${...}` or a
 regex, zsh-only `case`/paren parses inside a quoted substitution, `${ ...; }`
 command substitution, and bash 3.2 ending a here-document at `EOF)`;
 `hub`; zsh glob
@@ -180,12 +189,25 @@ PREFIXES = frozenset(("env", "sudo", "doas", "command", "builtin", "exec", "time
                       "ionice", "timeout", "stdbuf", "caffeinate", "unbuffer", "xargs", "parallel",
                       "noglob", "nocorrect", "arch", "if", "then", "else", "elif", "do", "while", "until",
                       "!", "{"))
-ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+# An assignment: name=, name+=, name[i]= (`x+=1 alias g=gh` is one before alias).
+ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=")
+# What an alias may not stand for: the names the gate reads a command through
+# (a prefix only when the alias ends in it: alias_verdict).
+ALIAS_HIDES = SHELLS | FETCHERS | frozenset(("gh", "eval", "trap", "source", ".", "alias", "hash"))
+ALIAS_TABLE = re.compile(r"[gs]?aliases\[[^\]]*\]=(.*)", re.S)  # zsh's alias tables
+# env's valueless options (`-` is -i), then -S and its text (-0 runs no command).
+ENV_S = re.compile(r"-[-iv]*S(.*)", re.S)
+ENV_VALUE_FLAGS = frozenset(("-u", "-P", "-C", "-L", "-U"))
+EXECS = frozenset(("-exec", "-execdir", "-ok", "-okdir"))
+STDIN_PATHS = frozenset(("/dev/stdin", "/dev/fd/0", "-"))
 HOST = re.compile(
     r"(?:[a-z][a-z0-9+.-]*:)?/{0,3}(?:[^/@\s]*@)?(?P<sub>(?:[a-z0-9-]+\.)*)"
     r"(?P<dom>github\.com|githubusercontent\.com)\.?(?::[0-9]*)?(?P<path>[/?#].*)?")
 SCHEME = re.compile(r"[a-z][a-z0-9+.-]*://")
 MENTION = re.compile(r"(?<![a-z0-9_.+-])gh(?![a-z0-9_+-])|github")
+# gh glued to what the shell ends before it: a short-flag cluster once quotes
+# are deleted (env -S'gh ...', --S'gh'), or a closed descriptor (2>&-gh).
+FLAG_GH = re.compile(r"(?:(?<![a-z0-9_.+-])-[-a-z]+|&-)gh(?![a-z0-9_+-])")
 OPAQUE = "\x00"  # stands for text only the shell knows: a substitution's output
 
 
@@ -194,7 +216,17 @@ class ParseError(Exception):
 
 
 def fold(s):
-    return unicodedata.normalize("NFC", s).lower()
+    # A command name is matched the way the default macOS volume looks it up:
+    # case-insensitive by full Unicode case folding, canonical forms equal.
+    # lower() missed the 11 code points full folding takes to ASCII, and APFS
+    # resolves every one (measured 2026-11-18 by creating `qXq` for each fold
+    # X and stat-ing the spelling, on the data volume and /bin): long s U+017F
+    # (`\u017fh -c 'gh issue view 12'` ran /bin/sh), sharp s U+00DF and
+    # U+1E9E, the Kelvin sign U+212A (`\u212a\u017fh` ran ksh), the ligatures
+    # U+FB00..FB06 (`\ufb06dbuf` ran stdbuf). Not NFKC: APFS resolves no
+    # full-width spelling (U+FF47 U+FF48 for gh), and no ignorable (a
+    # zero-width space or joiner, a soft hyphen) inside a name.
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFD", s).casefold())
 
 
 def reader_hint():
@@ -400,6 +432,11 @@ class Lexer:
                     while i < n and text[i] in "<>&|!":
                         i += 1
                     redir = "target"
+                    # >&- and <&- close a descriptor and take no target: sh and
+                    # bash run `2>&-gh issue view 1` as gh (the Fable check).
+                    if text[i - 1] == "&" and i < n and text[i] == "-":
+                        i += 1
+                        redir = None
             else:
                 word.append(c)
                 inword = True
@@ -559,11 +596,38 @@ def reads_stdin(seg):
     if k >= len(seg):
         return False
     b, rest = base(seg[k]), seg[k + 1:]
+    # The operand is a path, folded as the volume finds it (`/DEV/stdin`).
     if b in (".", "source"):
-        return any(w in ("/dev/stdin", "/dev/fd/0", "-") for w in rest)
+        return any(fold(w) in STDIN_PATHS for w in rest)
     if b not in SHELLS:
         return False
-    return "-s" in rest or not any(not w.startswith("-") for w in rest)
+    ops = [w for w in rest if not w.startswith("-")]
+    return "-s" in rest or not ops or any(fold(w) in STDIN_PATHS for w in ops)
+
+
+def env_options(seg):
+    """The indexes of env's own options (and their values) in seg, for an env
+    that runs a command: in command position or after find's -exec. An -S
+    elsewhere is not env's: `git log --grep env -S 'text'`, `git -C env log
+    -S` and `env X=1 git log -S'text'` are git's pickaxe (Codex, Fable)."""
+    out, k = set(), 0
+    while k < len(seg):
+        if base(seg[k]) == "env" and ((k > 0 and seg[k - 1] in EXECS) or command_position(seg, k)):
+            j = k + 1
+            while j < len(seg) and (seg[j].startswith("-") or seg[j - 1] in ENV_VALUE_FLAGS):
+                out.add(j)
+                j += 1
+            k = j
+        else:
+            k += 1
+    return out
+
+
+def env_text(text, rest):
+    """env -S runs its split text with the words after it appended:
+    `env -S'gh issue' view 1` runs `gh issue view 1`. Each appended word is
+    single-quoted so it lexes back as the one word it was."""
+    return text + "".join(" '" + x.replace("'", "'\\''") + "'" for x in rest)
 
 
 def odd_backslashes(line):
@@ -625,21 +689,38 @@ def lex(text):
     while k < len(segs):
         seg, d = segs[k], depth_of.get(k, 0)
         texts = []
+        # Found once per command, not per word: a run of flags was quadratic.
+        first_shell = next((j for j, x in enumerate(seg) if base(x) in SHELLS), len(seg))
+        env_opts = env_options(seg)
+        took_c = False
         for idx, w in enumerate(seg):
             b = base(w)
-            nxt = next((x for x in seg[idx + 1:] if not x.startswith("-")), None)
+            # The next operand, found only where it is used: computed for
+            # every word, its scan past a run of flags was quadratic (the
+            # Fable check: 8,000 words took 7.5 s against a 10 s hook timeout).
+            def nxt(idx=idx):
+                return next((x for x in seg[idx + 1:] if not x.startswith("-")), None)
+            # env's -S behind a prefix (`sudo env -S`) or find's -exec,
+            # attached (`-S'cmd'`) or closing a cluster of its valueless flags
+            # (`-iS`, `--S`): macOS env runs each, measured. Only an -S env
+            # owns (env_options).
+            env_s = ENV_S.fullmatch(w) if idx in env_opts else None
             if b == "eval":
                 texts.append(" ".join(seg[idx + 1:]))
-            elif b == "trap" and nxt is not None:
-                texts.append(nxt)
+            elif b == "trap" and nxt() is not None:
+                texts.append(nxt())
             elif (w.startswith("-") and not w.startswith("--") and "c" in w[1:]
-                  and nxt is not None and any(base(x) in SHELLS for x in seg[:idx])):
-                # sh -c -e 'cmd', bash -c -- 'cmd': the first operand.
-                texts.append(nxt)
-            elif w in ("-S", "--split-string") and base(seg[0]) == "env" and idx + 1 < len(seg):
-                texts.append(seg[idx + 1])
-            elif w.startswith("--split-string=") and base(seg[0]) == "env":
-                texts.append(w.split("=", 1)[1])
+                  and not took_c and first_shell < idx and nxt() is not None):
+                # sh -c -e 'cmd', bash -c -- 'cmd': the first operand, once
+                # (the words after it are $0 and the arguments).
+                texts.append(nxt())
+                took_c = True
+            elif env_s and env_s.group(1):
+                texts.append(env_text(env_s.group(1), seg[idx + 1:]))
+            elif (env_s or (w == "--split-string" and idx in env_opts)) and idx + 1 < len(seg):
+                texts.append(env_text(seg[idx + 1], seg[idx + 2:]))
+            elif w.startswith("--split-string=") and idx in env_opts:
+                texts.append(env_text(w.split("=", 1)[1], seg[idx + 1:]))
         for t in texts:
             if d + 1 > DEPTH_CAP:
                 raise ParseError("depth")
@@ -763,31 +844,90 @@ def gh_verdict(seg, i):
     return "read" if a0 in READS_TOP else "unknown"
 
 
+_CP = {}  # id(seg) -> (seg, limit); the seg is held so its id is not reused
+
+
 def command_position(seg, i):
     """True when seg[i] may be the command: only assignments before it, or
     a prefix (env, sudo, timeout, xargs, if, ...) first, whose options and
-    their values (`sudo -u x`) are not read as a command name."""
+    their values (`sudo -u x`) are not read as a command name. The last such
+    index is found once per command: walked per word, a chain of prefixes
+    (`env env env ...`) was quadratic, past the hook's timeout at ~10,000."""
+    hit = _CP.get(id(seg))
+    if hit is None or hit[0] is not seg:
+        hit = (seg, cp_limit(seg))
+        _CP[id(seg)] = hit
+    return i <= hit[1]
+
+
+def cp_limit(seg):
     k = 0
-    while k < i and ASSIGN.match(seg[k]):
+    while k < len(seg) and ASSIGN.match(seg[k]):
         k += 1
-    if k == i:
-        return True
-    if base(seg[k]) not in PREFIXES:
-        return False
+    if k == len(seg) or base(seg[k]) not in PREFIXES:
+        return k
     # Past the first prefix, only more prefixes, assignments, flags, counts
     # and a short flag's value (`sudo -u x`, `timeout 5s`, `xargs -I {}`);
-    # `command curl -s -o gh ...` is curl's.
-    for j in range(k + 1, i):
+    # `command curl -s -o gh ...` is curl's. The first other word may be the
+    # command, and nothing after it.
+    for j in range(k + 1, len(seg)):
         w = seg[j]
         if not (base(w) in PREFIXES or ASSIGN.match(w) or w.startswith("-")
                 or re.fullmatch(r"[0-9.]+[smhd]?", w)
                 or (len(seg[j - 1]) == 2 and seg[j - 1].startswith("-"))):
-            return False
-    return True
+            return j
+    return len(seg)
+
+
+def alias_texts(seg):
+    """The text of every alias this command defines: `alias NAME=TEXT` and
+    zsh's `hash NAME=PATH` and `hash -p PATH NAME` in command position or
+    opening a brace group (`function f { alias g=gh; }`), and an assignment to
+    zsh's alias tables (`aliases[g]=gh`)."""
+    out = []
+    for i, w in enumerate(seg):
+        m = ALIAS_TABLE.match(w)
+        if m and command_position(seg, i):
+            out.append(m.group(1))
+            continue
+        b = base(w)
+        if b not in ("alias", "hash") or not (command_position(seg, i) or (i > 0 and seg[i - 1] == "{")):
+            continue
+        rest = seg[i + 1:]
+        for k, x in enumerate(rest):
+            if "=" in x and not x.startswith("-"):
+                out.append(x.split("=", 1)[1])
+            elif b == "hash" and k > 0 and rest[k - 1] == "-p":
+                out.append(x)
+    return out
+
+
+def alias_verdict(seg):
+    """`alias g=gh`: a use of the alias appends words the gate never sees in
+    the definition, as xargs does. The text is judged as the command it is
+    (`alias g="taskpolicy -c utility gh issue view 1"` is the read), then it
+    refuses when it runs a name the gate reads a command through (gh, a
+    shell, a fetcher, eval, alias itself: `alias s=sh` hides the shell whose
+    -c text the gate would read) or ends in a prefix (`alias s=sudo`, not
+    `alias ll='command ls -l'`). /bin/sh (bash in POSIX mode) expands an
+    alias defined on an earlier line of its -c text or stdin, measured; zsh
+    -c, bash -c and the Bash tool's own top level did not, but zsh's eval of
+    a later line does (`aliases[g]=gh; eval 'g ...'`, the Fable check)."""
+    for t in alias_texts(seg):
+        v = judge_command(t)
+        if v:
+            return v
+        for s in lex(t):
+            if first_word(s) in ALIAS_HIDES or command_position(s, len(s)):
+                return "unknown"
+    return None
 
 
 def judge_command(cmd):
     for seg in lex(cmd):
+        v = alias_verdict(seg)
+        if v:
+            return v
         operands = len(seg)
         for i, w in enumerate(seg):
             if i < operands and url_refused(w):
@@ -814,7 +954,11 @@ def mentions(text):
         return True
     text = text.replace("\\\n", "")  # g\<newline>h is gh to a shell
     text = unicodedata.normalize("NFKC", urllib.parse.unquote(text)).lower()
-    return MENTION.search(re.sub(r"['\"\\$]", "", text)) is not None
+    # Deleted, the quotes join g''h into gh, and glue a quoted text onto the
+    # flag before it: env -S'gh issue view 1' and env -S'g''h ...' become
+    # -sgh, which a short-flag cluster ending in gh names too.
+    text = re.sub(r"['\"\\$]", "", text)
+    return MENTION.search(text) is not None or FLAG_GH.search(text) is not None
 
 
 def verdict(raw):
@@ -878,8 +1022,11 @@ def self_test():
         return json.dumps({"tool_name": "WebFetch", "tool_input": {"url": u, "prompt": "p"}})
 
     def run(payload):
-        p = subprocess.run([sys.executable, "-I", "-B", __file__], input=payload.encode("utf-8"),
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        try:
+            p = subprocess.run([sys.executable, "-I", "-B", __file__], input=payload.encode("utf-8"),
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        except subprocess.TimeoutExpired:
+            return -1, "", "timed out after 30 s"
         return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
 
     # (name, payload, refusal kind or None, its control's name or "")
@@ -981,6 +1128,58 @@ def self_test():
         ("trap -- operand", bash("trap -- 'gh issue view 1' EXIT"), R),
         ("env -S", bash("env -S 'gh issue view 1'"), R),
         ("csh -c", bash("csh -c 'gh issue view 1'"), R),
+        # APFS folds these to ASCII when it looks a name up, measured: /bin/\u017fh
+        # runs sh. The issue-gate-fold reproduction is the first.
+        ("long-s sh -c", bash("\u017fh -c 'gh issue view 12'"), R),
+        ("control: long-s sh -c running a write", bash("\u017fh -c 'gh issue comment 12 -b x'"), None),
+        ("Kelvin-sign ksh -c", bash("\u212a\u017fh -c 'gh issue view 1'"), R),
+        ("ligature fish -c", bash("\ufb01sh -c 'gh issue view 1'"), R),
+        ("piped into a long-s shell", bash("echo 'gh issue view 1' | \u017fh"), R),
+        ("long-s xargs finishing a subcommand", bash("echo view 1 | xarg\u017f gh issue"), U),
+        ("long-s sudo prefix", bash("\u017fudo gh iv 5"), U),
+        ("ligature stdbuf prefix", bash("\ufb06dbuf -o0 gh iv 5"), U),
+        ("control: full-width gh, which APFS does not fold", bash("\uff47\uff48 issue view 1"), None),
+        ("env -S behind a prefix", bash("sudo env -S 'gh issue view 1'"), R),
+        ("env -S attached", bash("env -S'gh issue view 1'"), R),
+        ("env -iS cluster", bash("env -iS 'gh issue view 1'"), R),
+        ("control: env -S behind a prefix running a write", bash("command env -S 'gh issue comment 1 -b x'"), None),
+        ("an alias of gh through sh -c", bash("sh -c $'alias g=gh\\ng issue view 1'"), U),
+        ("an alias of a gh subcommand", bash("alias g='gh issue'"), U),
+        ("an alias of a shell through sh -c", bash("sh -c $'alias s=sh\\ns -c \"gh issue view 1\"'"), U),
+        ("an alias of a prefix", bash("alias s=sudo; s gh iv 5"), U),
+        ("an alias of alias", bash("sh -c $'alias a=alias\\na g=gh\\ng issue view 1'"), U),
+        ("env -S attached, gh split by quotes", bash("env -S'g''h issue view 1'"), R),
+        ("control: git log's pickaxe after a grep for env", bash("git log --grep env -S 'gh issue view 1'"), None),
+        # The Fable cross-check of D-225's draft, each verified against it.
+        ("env -S text with words after it", bash("env -S'gh issue' view 1"), R),
+        ("env -S attached, unquoted", bash("env -Sgh issue view 1"), R),
+        ("env --S", bash("env --S'gh issue view 1'"), R),
+        ("env -i-S", bash("env -i-S 'gh issue view 1'"), R),
+        ("find -exec env -S", bash("find . -maxdepth 0 -exec env -S 'gh issue view 1' \;"), R),
+        ("control: git's -S after env runs git", bash("env GIT_PAGER=cat git log -S'gh issue view' -- skills/"), None),
+        ("control: git -C env", bash("git -C env log -S'gh issue view'"), None),
+        ("+= before alias", bash("sh -c $'x+=1 alias g=gh\\ng issue view 1'"), U),
+        ("+= before a shell", bash("x+=1 sh <<< 'gh issue view 1'"), R),
+        ("alias in a function keyword body", bash("sh -c $'function f { alias g=gh; }\\nf\\ng issue view 1'"), U),
+        ("an alias of a read behind a runner", bash("sh -c $'alias g=\"taskpolicy -c utility gh issue view 1\"\\ng'"), R),
+        ("an alias of curl", bash("sh -c $'alias c=curl\\nc -K - <<EOF\\nurl = https://api.github.com/repos/o/r/issues/5\\nEOF'"), U),
+        ("zsh's aliases table", bash("aliases[g]=gh; eval 'g issue view 1'"), U),
+        ("hash NAME=PATH", bash("hash g=/opt/homebrew/bin/gh; g issue view 1"), U),
+        ("hash -p PATH NAME", bash("hash -p /opt/homebrew/bin/gh g; g issue view 1"), U),
+        ("control: aliases of a prefix running a command, beside a write",
+         bash("alias ll='command ls -l'; alias mk='time make'; gh issue comment 1 -b x"), None),
+        ("a closed fd glued to gh", bash("sh -c '2>&-gh issue view 1'"), R),
+        (". /DEV/stdin", bash(". /DEV/stdin <<< 'gh issue view 1'"), R),
+        ("bash /dev/stdin", bash("bash /dev/stdin <<< 'gh issue view 1'"), R),
+        ("control: 20,000 words before a write, in linear time",
+         bash("git add " + " ".join("f%d" % k for k in range(20000)) + " && gh pr create --fill"), None),
+        ("control: 20,000 prefixes before a write, in linear time", bash("env " * 20000 + "gh issue comment 1 -b x"), None),
+        ("control: 20,000 -c flags before a write, in linear time", bash("sh " + "-c " * 20000 + "'gh issue comment 1 -b x'"), None),
+        ("control: 20,000 -c flags and no shell, in linear time", bash("echo " + "-c " * 20000 + "&& gh issue comment 1 -b x"), None),
+        ("env -u NAME -S", bash("env -u X -S 'gh issue view 1'"), R),
+        ("an array assignment before a shell", bash("a[0]=1 sh <<< 'gh issue view 1'"), R),
+        ("control: a shell's words after its -c text are arguments", bash("sh -c 'echo \"$1\"' -c 'gh issue view 1'"), None),
+        ("control: an alias of another command beside a write", bash("alias gs='git status'; gh issue comment 1 -b x"), None),
         ("g$\"h\"", bash('g$"h" issue view 1'), R),
         ("percent-encoded host", bash("curl -s https://api.git%68ub.com/repos/o/r/issues/1"), R),
         ("curl glob braces", bash("curl -s 'https://api.github.com/repos/o/r/{issues}/5'"), R),
