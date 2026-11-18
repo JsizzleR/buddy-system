@@ -16735,3 +16735,41 @@ be off; a day of slack costs reading at most one more day of files.
 - index: CLAUDE.md "Tests" line; the repo map's `internal/testguard` line
 - code: the TestMains of `internal/harness/ledger_test.go`, `cmd/buddy-adapter/hook_test.go`, `internal/store/migrate_test.go`; `scripts/check-testguard.sh`; `scripts/check.sh` (`done_check testguard`, `required`)
 - docs: charter GIVEN 55 (main stub and `docs/review-charter-testinfra.md`); D-053's amendment line
+
+## D-219 — Discovery reads git 2.56's "gitfile does not point to a valid repository" as git's "not a git repository": the D-212 walk, and a cwd under a stale pointer behind a link, no longer deny under git 2.56 where git 2.54 allows (CI red on 1bfdf45; amends D-212)
+
+2026-11-18. CI run 44236883339 on main 1bfdf45, relayed by orc-7. Lane nested-ledger (Opus 5.5 at high), run r1118a, a separate commit ahead of #145, class code, tier lite (orc-7: it brings Linux to the verdicts D-212 reviewed on macOS and moves no macOS row).
+
+**What was wrong.** Three of D-212's tests failed on the ubuntu-latest runner and passed on macOS: `TestGateNestedWalkKeepsItsThreeStates` (want "cannot tell"), `TestGateNestedWalkContinuesPastAnUnreadableGit` (want A's claim, "vend") and `TestGateNestedWalkSeesNoLedgerBehindAnUnreadableGit` (want ALLOW), each denied `buddy ledger unavailable (repo discovery failed: exit status 128)`. `discoverRepo` reads "provably not a repository" from git's message, `not a git repository`, and git changed one case's wording. Measured 2026-11-18, `git rev-parse --git-common-dir` from each shape:
+
+| `.git` at the directory | 2.54.0 (Apple Git-157, macOS) | 2.53.0 (Ubuntu 26.04's own) | 2.56.1 (git-core PPA; the runner image 20261111.196.1 lists 2.56.1) |
+|---|---|---|---|
+| `gitdir:` pointer to a directory holding only a ledger file | not a git repository | not a git repository: `<dir>` | **gitfile does not point to a valid repository: `<.git>`** |
+| a link to a stale `gitdir:` file | not a git repository: (null) | not a git repository: `<dir>` | **gitfile does not point to a valid repository** |
+| a plain stale `gitdir:` file | (same) | not a git repository: `<dir>` | **gitfile does not point to a valid repository** |
+| a dangling `.git` link | not a git repository (or any of the parent directories) | (same) | (same) |
+| `gitdir: ` with no path; format 99 | no path in gitfile; Expected git repo version <= 1 | (same) | (same) |
+
+The 2.56 lines are git's one READ_GITFILE_ERR_NOT_A_REPO case. Unmatched, they fell through to the durable probes: a `.git` link defeats `ledgerProvablyAbsent` (it proves nothing through a symlinked entry), and a pointer to a directory holding a ledger file is "present", so both were a real failure.
+
+**The rule.** `gitSaysNotARepository`, `discoverRepo`'s fast path and the one place that reads git's message, keeps the old substring match unchanged and adds the 2.56 text only as the START of git's first `fatal:` line. Anywhere in stderr was the first draft, and git echoes paths: a `gitdir:` under a directory named that text, its `commondir` unreadable and a ledger behind it, fails `fatal: failed to read <...>/commondir: Permission denied`, which the draft read as feature-off, a Write from the repository ALLOWED where git 2.54's discovery denies (Codex code pass, P1, reproduced on macOS git with the draft's matcher). "No path in gitfile", a format git does not know and dubious ownership still take `hasGitAncestor` and `ledgerProvablyAbsent`.
+
+**Linux verdicts that move, under git 2.56 only** (no macOS row moves; Apple's git never prints the new text):
+- A repository below a link to a stale `gitdir:` file, no ledger Lstat sees behind it, nothing governing above: an Edit, Write or `cd … && touch` from its cwd or a plain cwd, DENY → ALLOW (feature-off, as git 2.54 reads it).
+- The same inside governed R: DENY "unavailable" → R's claim and brake decide (the holder ALLOW, a peer DENY naming the claim; paused, DENY).
+- A cwd DIRECTLY under such a link (the gate's home, not the walk; predates D-212): every mutating call DENY → ALLOW.
+- A `gitdir:` pointer to a directory holding a ledger file (git cannot open it; Lstat sees the ledger): still DENY, now "cannot tell" (invariant 3 kept: a ledger Lstat sees behind the failing `.git` still denies).
+Unchanged under 2.56: a plain stale pointer (a pruned worktree's `.git`), whose absence `ledgerAbsentAt`/`ledgerProvablyAbsent` prove without git; a dangling `.git` link.
+
+**Open.** The old text's substring match has the same echoed-path shape (a directory named `not a git repository` above an unreadable `commondir` reads as feature-off under every git); it predates this change and is left as it was, so no git 2.54 verdict moves here: anchoring it too is a one-line fold for a later item. A path holding a newline can still plant a line that begins the 2.56 text ahead of git's own first `fatal:` line only where git prints a non-fatal line naming it first; crafted. A crafted value git echoes into its message (D-137's `GIT_DISCOVERY_ACROSS_FILESYSTEM`, kept by the scrub) can now spell either text; same class, the session's own environment (invariant 6). Another rewording in a later git falls to the durable probes again: a deny, never a silent allow (invariant 3's safe side), and the hermetic tier on CI's git is what sees it.
+
+**Tests and mutants.** `TestGateReadsGit256sNotARepositoryWording` (`nestedgate_test.go`): a shim ahead of git on PATH rewrites `not a git repository: <x>` to 2.56's text (checked armed: it prints the new text, never the old), then the home arm under a stale pointer behind a link (Write and Bash, ALLOW), the walk under governed R (a peer DENY by A's claim, the holder ALLOW), and the "cannot tell" pointer beside its no-ledger control (ALLOW; an absence control, the entry skipped without git). `TestGateDoesNotReadGit256sWordingInAnEchoedPath`: the Codex P1 layout DENIES, and with the `commondir` readable and no ledger the same layout ALLOWS. With the second clause removed, in a private rsync'd copy, it FAILED at the home row with CI's exact deny, and with the home rows dropped at the walk row (want "vend"), the same deny. The three CI tests pass on macOS with the fix; on Linux they are this test's rows.
+
+**Review** (lite): self-review 1 raised, 1 answered (the crafted echo, Open above). Codex@xhigh code, one pass over `1bfdf45..4d76d4e`: REJECT, 3 raised, 3 fixed: the echoed-path P1 above; the test's armed probe inherited the caller's locale (now `LC_ALL=C`, as `revParse` pins it); this entry's "nothing wider" overclaimed (rewritten above).
+
+### Where it lives
+- code: `internal/cli/cli.go` (`gitSaysNotARepository`, `discoverRepo`)
+- tests: `internal/cli/nestedgate_test.go` (`TestGateReadsGit256sNotARepositoryWording`)
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line
+- charter: GIVEN 74 names D-219
+- amends: D-212 (its walk's "not a git repository" arms now read git 2.56's wording)

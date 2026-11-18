@@ -674,13 +674,13 @@ ledger row entered through the CLI (D-006).
     deferred, separate from `adapter inspect`.
 
 74. **The gate checks every spelling a write can land on, decides jurisdiction before
-    identity, and adds a nested repo's ledger to the home one (D-073, D-212).** Shell-routed
+    identity, and adds a nested repo's ledger to the home one (D-073, D-212, D-219).** Shell-routed
     `apply_patch`/`applypatch` (command position, Codex's in-process engine) refuses wherever
     a ledger governs, naming the tool; it is never parsed and adjudicated, because the
     payload omits the workdir. An identity conflict refuses only where a home or target
     ledger governs; read-only tools pass. Lexical and physical spellings, each followed and as
     the link entry, plus a dangling link's target, are all checked; any held refuses. A home
-    claim covering a path inside a nested repo still refuses. A target repo's pause applies to
+    claim over a path in a nested repo still refuses. A target repo's pause applies to
     a cross-repo edit, and to a shell command's literal `cd`/`git -C` into it (at most four
     reached keys; variables, scripts and absolute-path writes stay open, D-138). Do not propose parsing shell-routed patches, refusing identity
     conflicts machine-wide, or checking one spelling.

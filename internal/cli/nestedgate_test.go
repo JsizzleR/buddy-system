@@ -815,3 +815,115 @@ func TestGateNestedWalkContinuesPastAnUnreadableGit(t *testing.T) {
 	wantGate(t, f, plain, bashHookJSON("sess-b", plain, "cd "+n+" && touch f"), true, "hold the line")
 	wantGate(t, f, plain, bashHookJSON("sess-a", plain, "cd "+n+" && touch f"), false, "")
 }
+
+// git 2.56 words a `gitdir:` file pointing at a non-repository "gitfile does
+// not point to a valid repository: <.git>", where 2.54 (macOS) and 2.53 said
+// "not a git repository: <dir>" (measured in Ubuntu 26.04 containers). Matching
+// only the old text, discovery read the new one as a real failure: CI's 2.56.1
+// denied the D-212 walk's rows and a cwd under a stale pointer behind a link.
+// A shim ahead of git on PATH rewrites the old wording to 2.56's, so this runs
+// the CI runner's discovery on any git; the shim is checked to be armed first.
+func TestGateReadsGit256sNotARepositoryWording(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	f := newFixture(t)
+	f.initAndHello(t)
+	mustClaim(t, f, f.repo, "vend", "sess-a", "vendor")
+	plain := canon(t.TempDir())
+	stale := filepath.Join(plain, "stale-gitfile")
+	mustWrite(t, stale, "gitdir: "+filepath.Join(plain, "gone")+"\n")
+
+	// Home arm: a cwd under a stale pointer behind a link, nothing governing.
+	y := filepath.Join(plain, "Y")
+	if err := os.MkdirAll(filepath.Join(y, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(stale, filepath.Join(y, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	// Walk: the same shape inside governed R, a repository below it.
+	x := filepath.Join(f.repo, "vendor/X")
+	if err := os.MkdirAll(x, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(stale, filepath.Join(x, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	n := filepath.Join(x, "N")
+	nestGit(t, n, "init", "-q")
+	// A pointer to a directory holding only a ledger file: "cannot tell".
+	lying := filepath.Join(plain, "lying")
+	mustWrite(t, filepath.Join(plain, "x-gitdir", ledgerName), "not sqlite")
+	mustWrite(t, filepath.Join(lying, ".git"), "gitdir: "+filepath.Join(plain, "x-gitdir")+"\n")
+	nestGit(t, filepath.Join(lying, "n"), "init", "-q")
+
+	shimDir := t.TempDir()
+	shim := "#!/bin/sh\nerr=$(mktemp)\n" + realGit + " \"$@\" 2>\"$err\"\nrc=$?\n" +
+		"sed 's/^fatal: not a git repository: \\(.*\\)$/fatal: gitfile does not point to a valid repository: \\1/' \"$err\" >&2\n" +
+		"rm -f \"$err\"\nexit $rc\n"
+	if err := os.WriteFile(filepath.Join(shimDir, "git"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// Armed: the shim prints 2.56's text for the stale pointer.
+	probe := exec.Command("git", "-C", y, "rev-parse", "--git-common-dir")
+	probe.Env = append(os.Environ(), "LC_ALL=C") // as revParse pins it (Codex code pass)
+	out, _ := probe.CombinedOutput()
+	if !strings.Contains(string(out), "gitfile does not point to a valid repository") || strings.Contains(string(out), "not a git repository") {
+		t.Fatalf("the shim must print git 2.56's wording, got %q", out)
+	}
+
+	wantGate(t, f, filepath.Join(y, "sub"), hookJSON("sess-b", filepath.Join(y, "sub"), "Write", "x.c"), false, "")
+	wantGate(t, f, filepath.Join(y, "sub"), bashHookJSON("sess-b", filepath.Join(y, "sub"), "ls"), false, "")
+	wantGate(t, f, plain, hookJSON("sess-b", plain, "Edit", filepath.Join(n, "x.c")), true, "vend")
+	wantGate(t, f, n, hookJSON("sess-b", n, "Write", "x.c"), true, "vend")
+	wantGate(t, f, plain, hookJSON("sess-a", plain, "Edit", filepath.Join(n, "x.c")), false, "")
+	wantGate(t, f, filepath.Join(lying, "n"), hookJSON("sess-b", filepath.Join(lying, "n"), "Write", "x.c"), true, "cannot tell")
+	// Control: with no ledger file behind the pointer, feature-off. An absence
+	// control, not wording coverage: ledgerAbsentAt skips the entry unasked.
+	if err := os.Remove(filepath.Join(plain, "x-gitdir", ledgerName)); err != nil {
+		t.Fatal(err)
+	}
+	wantGate(t, f, filepath.Join(lying, "n"), hookJSON("sess-b", filepath.Join(lying, "n"), "Write", "x.c"), false, "")
+}
+
+// git 2.56's text is read only as the start of git's first fatal line: git
+// echoes paths, and a gitdir under a directory NAMED that text, whose
+// commondir cannot be read, with a ledger behind it, fails `fatal: failed to
+// read <...>/commondir: Permission denied`. Read anywhere in stderr, that was
+// feature-off and a Write from the repository passed (Codex code pass, P1).
+// Control: the commondir readable and no ledger, the same layout allows.
+func TestGateDoesNotReadGit256sWordingInAnEchoedPath(t *testing.T) {
+	boundedParallel(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-000 file")
+	}
+	f := newFixture(t)
+	plain := canon(t.TempDir())
+	wt := filepath.Join(plain, "gitfile does not point to a valid repository", "wt")
+	common := filepath.Join(plain, "common")
+	for _, d := range []string{wt, filepath.Join(common, "objects"), filepath.Join(common, "refs")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWrite(t, filepath.Join(wt, "HEAD"), "ref: refs/heads/main\n")
+	mustWrite(t, filepath.Join(wt, "commondir"), common+"\n")
+	mustWrite(t, filepath.Join(common, ledgerName), "x")
+	r := filepath.Join(plain, "R")
+	mustWrite(t, filepath.Join(r, ".git"), "gitdir: "+wt+"\n")
+	if err := os.Chmod(filepath.Join(wt, "commondir"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(filepath.Join(wt, "commondir"), 0o644) })
+	wantGate(t, f, r, hookJSON("sess-b", r, "Write", "x.c"), true, "unavailable")
+	if err := os.Chmod(filepath.Join(wt, "commondir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(common, ledgerName)); err != nil {
+		t.Fatal(err)
+	}
+	wantGate(t, f, r, hookJSON("sess-b", r, "Write", "x.c"), false, "")
+}

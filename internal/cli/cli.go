@@ -1099,7 +1099,7 @@ func discoverRepo(dir string) (repoContext, error) {
 			// "Provably not a repo" must not hang on git's prose (a reworded
 			// message would hard-deny every edit outside a repo): the message
 			// check is a fast path, the .git-ancestor probe the durable one.
-			if strings.Contains(string(ee.Stderr), "not a git repository") || !hasGitAncestor(dir) {
+			if gitSaysNotARepository(ee.Stderr) || !hasGitAncestor(dir) {
 				return repoContext{}, errNoLedger
 			}
 			// Git REFUSED a repository it found, and a refused repository
@@ -1123,6 +1123,41 @@ func discoverRepo(dir string) (repoContext, error) {
 		rc.top = gitLine(top)
 	}
 	return rc, nil
+}
+
+// gitSaysNotARepository is discoverRepo's fast path: git's own words for "no
+// repository here", in each wording a supported git prints. One case changed
+// wording: a `gitdir:` file pointing at a directory that is not a repository
+// (a stale worktree pointer, behind a link or not, or one naming a directory
+// that holds only a ledger) is "not a git repository: <dir>" up to git 2.54
+// (Apple Git-157 on macOS; Ubuntu 26.04's own 2.53.0) and "gitfile does not
+// point to a valid repository: <.git>" in 2.56.1 (git-core PPA, the GitHub
+// ubuntu-latest image 20261111). Matching only the old text, discovery under
+// 2.56 read those as a real failure, so the D-212 walk DENIED where macOS walks
+// past (CI on 1bfdf45: three nestedgate tests), and a cwd under a stale pointer
+// behind a link, which ledgerProvablyAbsent cannot follow, denied every call
+// (measured in an Ubuntu 26.04 container with each git, 2026-11-18). Both are
+// git's one READ_GITFILE_ERR_NOT_A_REPO case. The new text is matched only as
+// the START of git's first `fatal:` line, never anywhere in stderr: git echoes
+// paths, and `fatal: failed to read <dir named "gitfile does not point to a
+// valid repository">/wt/commondir: Permission denied`, with a ledger behind
+// that unreadable commondir, was read as feature-off, an ALLOW where git 2.54's
+// discovery denies (Codex code pass, P1). The old text keeps its substring
+// match unchanged, so no verdict under git 2.54 moves; the same echoed-path
+// shape for it predates this change and is recorded open (D-219). A refusal
+// (dubious ownership, a format git does not know, "no path in gitfile") still
+// takes the durable probes below.
+func gitSaysNotARepository(stderr []byte) bool {
+	s := string(stderr)
+	if strings.Contains(s, "not a git repository") {
+		return true
+	}
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(line, "fatal: ") {
+			return strings.HasPrefix(line, "fatal: gitfile does not point to a valid repository: ")
+		}
+	}
+	return false
 }
 
 // hasGitAncestor reports whether dir or any ancestor contains a .git entry
