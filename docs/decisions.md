@@ -16912,3 +16912,118 @@ Estimated on the displayed rows: 4.45 → 1.49 MB of list bytes (−67%), ≈ �
 - code: `internal/store/store.go` (`fold`, `legacyFold`, `insertScopes`, `blockingClaim`, `BeatFrom`), `conflicts.go`, `logical.go`, `parked.go`, `authority.go`; `internal/cli/update.go` (`chatWord`), `cli.go` (`chatOff`)
 - docs: charter GIVEN 6 and GIVEN 64's toolchain line; D-002's rule; CLAUDE.md's forkExec gotcha
 - build: `go.mod`'s `toolchain go1.27.1`
+
+## D-227 — The adapter hook admits a payload cwd physically inside the worktree, past no repository boundary: a worker that `cd`s into a subdirectory is no longer refused every later gated call, #134 (amends D-070)
+
+2026-11-18 · issue #134. Lane adapter-cwd (Opus 5.5 at high), run r1118b, class code, tier full, adapter
+charter. The rule is a Fable 5.2 ruling the operator accepted in orc-7's pane at 05:20Z ("yes to all":
+physical containment after EvalSymlinks, invariant 14's exact form, no fold, payload and session check
+unchanged); its open question (a nested repository) was put to the operator by orc-8 and answered at
+06:15Z ("recommendation accepted": option (B), (B') recorded open).
+
+**What was wrong.** `cmd/buddy-adapter/hook.go` refused unless `Clean(worktree) == Clean(payload cwd)`.
+The payload's cwd is the worker's shell directory, so a worker that ran `cd sub` had every later gated
+call refused before the gate ran, and the refusal BLOCKS (exit 2 + deny); under a matcher that sends Bash
+(`""`, `*`, Codex's `apply_patch|Bash`) the `cd ..` that would repair it too. Under the qualified Claude
+matcher (`Edit|Write|NotebookEdit`) Bash never reaches the hook, so a `cd` back repaired it. Reproduced hermetically on 1bfdf45 (built `buddy` and `buddy-adapter`, a real
+ledger, a peer holding `sub/peer.txt`): an owned Write, Bash `cd ..`, `sub/../sub/`, a link into the
+worktree and a relative Write from `<worktree>/sub` all BLOCKED. The lexical Clean also ALLOWED
+`<worktree>/out2/..` with `out2` a link to `X/deep`: equal after Clean, `X` to the kernel, and the gate,
+judging from `X`, found no ledger (reproduced). Not measured: what cwd the admitted Claude build writes
+after `cd sub`; the rule is right whichever it writes.
+
+**The rule** (`judgedFromWorktree`), both halves physical.
+- Containment: both sides through `filepath.EvalSymlinks` (a `..` applies to the directory a link
+  reached), then `c == w || strings.HasPrefix(c, w+"/")`. No fold: the adapter links no store, and a
+  fold admits `/x/Repo` for `/x/repo` on a case-sensitive volume. A relative, empty or unresolvable cwd
+  refuses. The payload reaches the gate unchanged: a cwd rewritten to the worktree places `sub/peer.txt`
+  as `peer.txt` and misses the claim (a test row).
+- No repository boundary between the worktree root and the cwd. Containment alone was a NEW allow
+  (reproduced): from `<worktree>/vendor/gov`, a repository with its own ledger, a peer's `vendor` claim
+  and `pause all` in the worktree's ledger both passed, where base BLOCKED and the worktree root DENIES.
+  A linked worktree of the worktree's own repository, a `.git` symlink or `gitdir:` pointer to its git
+  directory, inside it, keeps the ledger and moves the placement root: the same claim missed. The
+  refusal is conservative: a plain mount under `GIT_DISCOVERY_ACROSS_FILESYSTEM` is judged from the
+  worktree's ledger and still refused. So each
+  directory strictly below the root down to the cwd is tested as git's discovery tests a level, Lstat
+  only: a `.git` entry of any type, a git directory by git's necessary condition (`HEAD`, dangling
+  included, plus `objects` or `commondir`), or another device (git stops at a filesystem boundary; the
+  gate keeps `GIT_DISCOVERY_ACROSS_FILESYSTEM`, D-137, and with it `gh stack` from a mount found the mounted
+  repository and skipped the gh-stack slot a walked home does not read: panel, reproduced). Any other
+  Lstat error refuses. Necessary only under the gate's scrub of git's local environment (`GIT_DIR`,
+  `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`, the ceiling; `hookgitenv.go`): that list is not trimmed
+  without revisiting this.
+
+The session check and Inspect on the captured incarnation are unchanged (invariant 12: the cwd was never
+identity). Inspect, the endpoint step and the gate keep `cmd.Dir` at the worktree; the gate reads only
+the payload cwd once it is absolute and non-empty (`decodeHook` fills an empty one, `homeWalkStart`
+resolves a relative one, both refused before). The check reads a path the worker chose, which can stall
+(a network mount gone away), and a hook past its native timeout lets the call go ahead
+(`internal/harness/claude.go`), so it runs against the gate's budget and a stall is a refusal (Fable
+cross-check).
+
+**Rejected.** (A) containment alone: the new allow above. (C) git's common directory at both ends,
+compared: two git spawns, a third copy of the scrub list, and a linked worktree inside shares the common
+directory but not the placement root (Codex design pass, P1). (D) Inspect run from the cwd: `adapter` is
+no hook verb, so it reads the worker's git environment unscrubbed, and a copied ledger knows the identity
+(Codex, P1). A fold, and admitting a gitfile whose common directory is the worktree's (the latter: the
+placement-root input above).
+
+**Open, recorded.**
+- (B'), the operator's to revisit with #145: admit a nested repository whose ledger is PROVED absent
+  (a submodule, a ledgerless nested repository, an empty `.git` directory git walks past). D-212
+  governs those correctly, and today a worker that `cd`s into one is wedged there as before this change;
+  admitting them needs a second copy of D-212's absence proof here, and a copy that drifts to "absent"
+  where the gate finds a ledger is the escape above. A Claude `--worktree` lane inside the worktree is
+  refused the same way (#145's Q2 decides its placement).
+- A worker registered only in the worktree's ledger is unknown to a nested ledger (no `who`, no pause
+  by label there): moot while (B) refuses those cwds; owed if (B') or #145 admits them.
+- A worker that deletes its own cwd still BLOCKS (D-102's ancestor walk is not ported); a case or
+  firmlink alias of the worktree, in the cwd or the receipt, BLOCKS, as before.
+- TOCTOU: the worker can create a `.git` or swap a link between this check and the gate; its own act on
+  its own call (D-005).
+- The refusal's text (`main.go`) is fixed and names no cwd, so a wedged worker is not told that a `cd`
+  back repairs it (pre-existing; a fixed string would carry no untrusted text).
+- Further over-refusals, each a level git walks past: `HEAD` plus `objects` without `refs`, a `HEAD`
+  directory, a dangling `.git` link (Fable cross-check, probed against git).
+- Accepted mutant survivors, verdict-equivalent at the gate (it denies where git cannot enter): an Lstat
+  error read as absent, and no `IsDir` test on a level. The case-alias row is a vanished cwd on a
+  case-sensitive volume (CI), where a fold would survive it.
+
+**Tests and mutants.** `TestReceiptBoundHookExecutable`'s cwd table (`hook_test.go`): allow rows (a
+subdirectory with an owned Write, Bash `cd ..`, `sub/../sub/`, a link into the worktree, `..` after a link
+in, a relative free path, two levels down, a plain `HEAD` file), gate-decides rows (relative `peer.txt`
+from `sub` and from `..` after a link in: the native deny), and adapter-refusal rows asserting exit 2,
+not any deny (sibling prefix beside a plain `repo/evil`, a link out, `..` out, `..` after a link out,
+empty, relative, a relative cwd that resolves into the worktree through a link beside the hook process,
+vanished, case alias, wrong session; gov, below it, a link into it, `core.worktree`
+pointing up, a bare repository with a ledger, a linked worktree of the worktree's repository and of
+another governed one, a `.git` symlink, a `gitdir:` pointer, a `commondir` directory, a dangling symbolic
+`HEAD`). Each row also asserts `judgedFromWorktree`'s own verdict in process (exit 2 is also an Inspect or
+gate failure). Every allow row BLOCKED on base; every nested row ALLOWED under containment alone.
+`TestPlainLevelRefusesAnotherDevice` and `TestJudgedFromWorktreeComparesWithTheRootsDevice` (a stubbed
+device lookup) hold the device arm and its root side (no mount in a hermetic test); a receipt worktree
+spelled through a link admits its root and a subdirectory; `TestHookStalledCwdCheckIsARefusalWithinTheBudget`
+stalls a stubbed check (its control: the real one allows). Mutants in a
+private copy, each killed: equality restored, `HasPrefix` without `/`, Clean for EvalSymlinks,
+EvalSymlinks of Clean, no `.git` test, no git-directory test, no `commondir` arm, Stat for Lstat on `HEAD`,
+no device test, the cwd's device for the root's, only the cwd's own level, `HEAD` alone refusing, no
+`IsAbs` test on the cwd, the payload's cwd rewritten, Clean for EvalSymlinks on the receipt's worktree,
+the check run unbounded.
+
+**Review** (full). Panel: lens a Fable 5.2 (spellings) 6 raised, 4 reproduced (the mount and gh-stack slot, `..` after a
+link, the physical walk, the `commondir` row); lens b Opus 5.5 (nested shapes) 3 raised, 3 reproduced (the
+placement-root aliases, the nested wedge, the unregistered worker); lens c Opus 5.5 (bypasses, invariant 12)
+1 raised, 1 reproduced (the `--worktree` lane wedge), no bypass. Codex@xhigh design: 5 raised, 3 fixed (test
+gaps, mount proof, cost wording), 2 answered (its failing inputs against A, C and D, above). Self-review: 1 raised,
+1 fixed. Codex@xhigh code: 4 raised, 4 fixed (the `IsAbs` row, the root-device test, USAGE wording, the in-process
+verdict). Fable 5.2 cross-check: 4 raised, 3 fixed (the budget, matcher scope, test gaps), 1 answered (the fixed
+refusal text, Open). Codex@xhigh re-verify: 0 raised. `review: full (panel@opus,fable: 10 raised, 8 reproduced + codex@xhigh design: 5 raised, 3 fixed, 2 answered + self-review: 1 raised, 1 fixed + codex@xhigh code: 4 raised, 4 fixed + fable: 4 raised, 3 fixed, 1 answered + codex@xhigh reverify: 0 raised)`
+
+### Where it lives
+- code: `cmd/buddy-adapter/hook.go` (`judgedFromWorktree`, `plainLevel`)
+- tests: `cmd/buddy-adapter/hook_test.go`
+- docs: `docs/USAGE.md` (the adapter's gate command)
+- index: CLAUDE.md § Decisions, the "Codex, adapter" line
+- charter: GIVEN 71 names D-227
+- amends: D-070 (its hook's worktree check)

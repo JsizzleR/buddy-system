@@ -157,6 +157,263 @@ func TestReceiptBoundHookExecutable(t *testing.T) {
 			}
 		})
 	}
+	// #134: the payload's cwd is the worker's shell directory, and a Claude
+	// worker that ran `cd sub` reports <worktree>/sub. Equality refused that
+	// call, the `cd ..` that would repair it included, before the gate ran: a
+	// BLOCK, so no tool call could ever get the worker out. The check is now
+	// PHYSICAL containment (EvalSymlinks both sides, then invariant 14's exact
+	// form); the payload reaches the gate unchanged, so a relative path still
+	// resolves against the real cwd. Each allow row was watched to BLOCK on the
+	// equality; each deny row is a control that kills one weaker check.
+	sub := filepath.Join(repo, "sub")
+	evil := filepath.Join(dir, "repo-evil")
+	// repo/evil exists too: without it a prefix test missing its "/" was
+	// still refused, by accident, when the walk below the root looked for
+	// `repo/evil` (the sibling's name past the dash) and found nothing.
+	for _, d := range []string{sub, evil, filepath.Join(repo, "evil")} {
+		if err := os.Mkdir(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(dir, filepath.Join(repo, "out")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(repo, filepath.Join(dir, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Claim(peer.SessionID, peer.Incarnation, "peer-sub", "", []string{"sub/peer.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	// Repositories nested inside the worktree, each a shape where the gate's
+	// home is NOT the worktree's ledger at the worktree's root: its own ledger
+	// (gov, a nested bare repository, core.worktree pointing back up, a linked
+	// worktree of another governed repository, a git directory reached through
+	// commondir), or the worktree's ledger placed against a nested root (a
+	// linked worktree of the worktree's own repository, a .git symlink to its
+	// git directory, a hand-written gitdir pointer). Containment alone let each
+	// pass a peer's `vendor` claim or the worktree's brake that a call from the
+	// worktree root meets (panel lens b, reproduced); every one is refused.
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	ledger := func(gitDir string) {
+		t.Helper()
+		nested, err := store.Open(filepath.Join(gitDir, "buddy.db"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nested.Close()
+	}
+	vendor := filepath.Join(repo, "vendor")
+	gov, cw := filepath.Join(vendor, "gov"), filepath.Join(vendor, "cw")
+	for _, d := range []string{gov, cw} {
+		git("init", "-q", d)
+		ledger(filepath.Join(d, ".git"))
+	}
+	if err := os.Mkdir(filepath.Join(gov, "deeper"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	git("-C", cw, "config", "core.worktree", "../../..")
+	bare := filepath.Join(repo, "cache.git")
+	git("init", "-q", "--bare", bare)
+	ledger(bare)
+	git("-C", repo, "commit", "-q", "--allow-empty", "-m", "fixture")
+	git("-C", repo, "worktree", "add", "-q", "--detach", filepath.Join(vendor, "same"))
+	other := filepath.Join(dir, "other")
+	git("init", "-q", other)
+	ledger(filepath.Join(other, ".git"))
+	git("-C", other, "commit", "-q", "--allow-empty", "-m", "fixture")
+	git("-C", other, "worktree", "add", "-q", "--detach", filepath.Join(vendor, "sw"))
+	for _, d := range []string{"ln", "hw"} {
+		if err := os.Mkdir(filepath.Join(vendor, d), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(repo, ".git"), filepath.Join(vendor, "ln", ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vendor, "hw", ".git"), []byte("gitdir: ../../.git\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	admin := filepath.Join(repo, "wtadmin")
+	if err := os.Mkdir(admin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"HEAD": "ref: refs/heads/main\n", "commondir": filepath.Join(gov, ".git") + "\n"} {
+		if err := os.WriteFile(filepath.Join(admin, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// git's necessary test for a git directory, each arm pinned: a dangling
+	// symbolic HEAD is still a HEAD to git (Lstat, not Stat; with objects and
+	// refs present git stops there, checked by hand: "must be run in a work
+	// tree"), and a lone HEAD
+	// file with neither objects nor commondir is a plain directory, the
+	// positive control that the HEAD arm alone does not refuse.
+	dangling, notes := filepath.Join(repo, "dangling"), filepath.Join(repo, "notes")
+	for _, d := range []string{"objects", "refs"} {
+		if err := os.MkdirAll(filepath.Join(dangling, d), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("refs/heads/main", filepath.Join(dangling, "HEAD")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(notes, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(notes, "HEAD"), []byte("not a ref\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Claim(peer.SessionID, peer.Incarnation, "peer-vendor", "", []string{"vendor", "cache.git", "wtadmin", "dangling"}); err != nil {
+		t.Fatal(err)
+	}
+	// Spellings whose `..` comes AFTER a symlink: the kernel applies it to the
+	// link's target, a lexical Clean to the link's parent (panel lens a: an
+	// EvalSymlinks(Clean(cwd)) mutant passed every other row). And a link from
+	// a plain subdirectory into a nested repository's subdirectory: a walk
+	// over the payload's spelling finds no .git on its way down (Fable
+	// cross-check: what refuses that walk is only the IsDir test at the link).
+	outside := filepath.Join(dir, "outside")
+	for _, d := range []string{filepath.Join(outside, "deep"), filepath.Join(sub, "deep")} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{
+		filepath.Join(repo, "out2"):   filepath.Join(outside, "deep"),
+		filepath.Join(outside, "in"):  filepath.Join(sub, "deep"),
+		filepath.Join(sub, "linkgov"): filepath.Join(gov, "deeper"),
+	} {
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := func(cwd, session, tool string, args map[string]any) map[string]any {
+		return map[string]any{"session_id": session, "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": args}
+	}
+	write := func(path string) map[string]any { return map[string]any{"file_path": path, "content": "test"} }
+	bash := func(command string) map[string]any { return map[string]any{"command": command} }
+	const (
+		allow = iota
+		nativeDeny
+		block
+	)
+	for _, test := range []struct {
+		name    string
+		payload map[string]any
+		want    int
+	}{
+		{"subdirectory, owned absolute Write", call(sub, worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), allow},
+		{"subdirectory, Bash cd ..", call(sub, worker.SessionID, "Bash", bash("cd ..")), allow},
+		{"subdirectory spelled through dot-dot", call(sub+"/../sub/", worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), allow},
+		{"subdirectory through a symlink to the worktree", call(filepath.Join(dir, "alias", "sub"), worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), allow},
+		{"subdirectory, relative free path", call(sub, worker.SessionID, "Write", write("free.txt")), allow},
+		// The gate still decides, from the real cwd: sub/peer.txt is the
+		// peer's. Resolved against the worktree root it would be peer.txt,
+		// unclaimed, and allowed (the row above is its control).
+		{"subdirectory, relative peer path", call(sub, worker.SessionID, "Write", write("peer.txt")), nativeDeny},
+		{"sibling sharing the worktree's prefix", call(evil, worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"symlink inside the worktree leading out", call(filepath.Join(repo, "out"), worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"dot-dot out of the worktree", call(sub+"/../..", worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"empty cwd", call("", worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"relative cwd", call("sub", worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"vanished cwd", call(filepath.Join(repo, "gone"), worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"upper-cased alias of the worktree", call(filepath.Join(filepath.Dir(repo), strings.ToUpper(filepath.Base(repo)), "sub"), worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"wrong session in a subdirectory", call(sub, "successor", "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"dot-dot after a symlink out", call(filepath.Join(repo, "out2")+"/..", worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), block},
+		{"dot-dot after a symlink in", call(filepath.Join(outside, "in")+"/..", worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), allow},
+		{"dot-dot after a symlink in, relative peer path", call(filepath.Join(outside, "in")+"/..", worker.SessionID, "Write", write("peer.txt")), nativeDeny},
+		{"nested repository with its own ledger", call(gov, worker.SessionID, "Write", write("x.c")), block},
+		{"below a nested repository with its own ledger", call(filepath.Join(gov, "deeper"), worker.SessionID, "Write", write("x.c")), block},
+		{"symlink into a nested repository", call(filepath.Join(sub, "linkgov"), worker.SessionID, "Write", write("x.c")), block},
+		{"nested repository whose core.worktree is the worktree", call(cw, worker.SessionID, "Bash", bash("touch f")), block},
+		{"nested bare repository with a ledger", call(bare, worker.SessionID, "Bash", bash("touch f")), block},
+		{"linked worktree of the worktree's repository", call(filepath.Join(vendor, "same"), worker.SessionID, "Write", write("x.c")), block},
+		{"linked worktree of another governed repository", call(filepath.Join(vendor, "sw"), worker.SessionID, "Write", write("x.c")), block},
+		{".git symlink to the worktree's git directory", call(filepath.Join(vendor, "ln"), worker.SessionID, "Write", write("x.c")), block},
+		{"hand-written gitdir pointer to the worktree's git directory", call(filepath.Join(vendor, "hw"), worker.SessionID, "Write", write("x.c")), block},
+		{"git directory reached through commondir", call(admin, worker.SessionID, "Bash", bash("touch f")), block},
+		{"git directory with a dangling symbolic HEAD", call(dangling, worker.SessionID, "Bash", bash("touch f")), block},
+		{"directory holding a plain HEAD file", call(notes, worker.SessionID, "Write", write("x.c")), allow},
+		{"two levels below the worktree", call(filepath.Join(sub, "deep"), worker.SessionID, "Bash", bash("cd ../..")), allow},
+	} {
+		t.Run("cwd: "+test.name, func(t *testing.T) {
+			// Exit 2 is also what an Inspect or gate-process failure
+			// gives, so the check's own verdict is asserted too: every
+			// block row but the wrong session is refused BY THE CWD.
+			cwd, _ := test.payload["cwd"].(string)
+			if want := !(test.want == block && test.payload["session_id"] == worker.SessionID); judgedFromWorktree(repo, cwd) != want {
+				t.Fatalf("judgedFromWorktree(%q) != %v", cwd, want)
+			}
+			out, stderr, err := run(test.payload, buddy)
+			switch test.want {
+			case allow:
+				if err != nil || denied(out) {
+					t.Fatalf("contained cwd refused: %v %s %s", err, out, stderr)
+				}
+			case nativeDeny:
+				if err != nil || !denied(out) {
+					t.Fatalf("the gate did not decide from the real cwd: %v %s %s", err, out, stderr)
+				}
+			case block:
+				// The adapter's OWN refusal (exit 2), not any deny: the gate
+				// natively denies some of these cwds anyway (a relative Write
+				// in a git directory has no root to place against), so
+				// "denied" could not tell the check from its absence.
+				if failure, ok := err.(*exec.ExitError); !ok || failure.ExitCode() != 2 {
+					t.Fatalf("cwd the gate would not judge from the worktree's ledger at its root was not refused by the adapter: %v %s %s", err, out, stderr)
+				}
+			}
+		})
+	}
+	// A RELATIVE payload cwd is refused even where it resolves into the
+	// worktree: EvalSymlinks resolves it against the HOOK's process
+	// directory, through a link there to the worktree, while the gate, run
+	// at the worktree, would resolve it against that (Codex code pass: an
+	// `IsAbs` mutant passed every row whose relative cwd resolved nowhere).
+	t.Run("cwd: relative, resolved through a link beside the hook", func(t *testing.T) {
+		hookDir := filepath.Join(dir, "hookcwd")
+		if err := os.Mkdir(hookDir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(sub, filepath.Join(hookDir, "link")); err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(call("link", worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.CommandContext(ctx, adapter, "hook", "--receipt", receipt, "--buddy", buddy)
+		cmd.Dir = hookDir
+		cmd.Stdin = bytes.NewReader(data)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if failure, ok := err.(*exec.ExitError); !ok || failure.ExitCode() != 2 {
+			t.Fatalf("relative cwd was not refused by the adapter: %v %s %s", err, out, stderr.String())
+		}
+	})
+	// The receipt's side is resolved too: a worktree captured through a link
+	// (here dir/alias -> repo, dir itself under the /var -> /private/var link)
+	// admits its own root and a subdirectory (Fable cross-check: every other
+	// row's receipt names the resolved path, so a Clean there survived).
+	t.Run("cwd: receipt worktree spelled through a link", func(t *testing.T) {
+		linked := saved
+		linked.Launch.Worktree = filepath.Join(dir, "alias")
+		writeReceipt(linked)
+		defer writeReceipt(saved)
+		for _, cwd := range []string{repo, sub} {
+			out, stderr, err := run(call(cwd, worker.SessionID, "Write", write(filepath.Join(repo, "owned.txt"))), buddy)
+			if err != nil || denied(out) {
+				t.Fatalf("cwd %s under a linked receipt worktree refused: %v %s %s", cwd, err, out, stderr)
+			}
+		}
+	})
 	t.Run("endpoint failure remains unknown", func(t *testing.T) {
 		// An endpoint failure is advisory; force that exact subprocess to fail
 		// regardless of the harness under which this test binary was launched.
@@ -303,5 +560,128 @@ esac
 				t.Fatalf("gate of %v: want allowed=%v, got %v; stderr: %s", test.gate, test.allow, err, errout.String())
 			}
 		})
+	}
+}
+
+// The device arm of judgedFromWorktree's walk: a filesystem mounted below the
+// worktree is a level git's discovery stops at (panel lens a reproduced the
+// gh-stack slot skip from one), and a hermetic test cannot mount. The level
+// is a plain directory; only the device it is compared with differs, and the
+// same level on its own device is the positive control.
+func TestPlainLevelRefusesAnotherDevice(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, ok := deviceOf(fi)
+	if !ok {
+		t.Fatal("no device number")
+	}
+	if !plainLevel(dir, dev) {
+		t.Fatal("control: a plain directory on the worktree's device was refused")
+	}
+	if plainLevel(dir, dev+1) {
+		t.Fatal("a level on another device passed")
+	}
+}
+
+// The root's side of the device comparison: a level mounted directly below the
+// worktree is refused only if the device it is compared with is the
+// WORKTREE's. Statting the cwd instead compared the mount with itself (Codex
+// code pass). deviceOf reports another device for any directory named "mnt";
+// a plain sibling on the real device is the positive control.
+func TestJudgedFromWorktreeComparesWithTheRootsDevice(t *testing.T) {
+	w, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"mnt/inner", "plain"} {
+		if err := os.MkdirAll(filepath.Join(w, d), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	real := deviceOf
+	t.Cleanup(func() { deviceOf = real })
+	deviceOf = func(fi os.FileInfo) (uint64, bool) {
+		dev, ok := real(fi)
+		if fi.Name() == "mnt" || fi.Name() == "inner" {
+			dev++
+		}
+		return dev, ok
+	}
+	for _, test := range []struct {
+		cwd  string
+		want bool
+	}{{"plain", true}, {"mnt", false}, {"mnt/inner", false}} {
+		if got := judgedFromWorktree(w, filepath.Join(w, test.cwd)); got != test.want {
+			t.Errorf("judgedFromWorktree(<root>/%s) = %v, want %v", test.cwd, got, test.want)
+		}
+	}
+}
+
+// A cwd check that stalls (the worker's cwd on a network mount gone away) is a
+// refusal within the gate's budget: a hook that outlives its native timeout is
+// neither a deny nor exit 2, and the tool call goes ahead (Fable cross-check).
+// The control is the same hook with the real check: the fake gate allows.
+func TestHookStalledCwdCheckIsARefusalWithinTheBudget(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, buddy := filepath.Join(dir, "receipt.json"), filepath.Join(dir, "buddy")
+	saved := harness.Saved{Schema: harness.Schema, Identity: harness.Identity{Schema: "buddy.lifecycle.v1", Harness: "codex", SessionID: "native", Incarnation: "captured"}, Launch: harness.Launch{Worktree: dir}}
+	data, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receipt, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	program := `#!/bin/sh
+case "$1 $2" in
+"adapter inspect") printf '%s\n' '{"schema":"buddy.adapter.v1","identity":{"session_id":"native","incarnation":"captured"},"lifecycle":{"value":"live"}}' ;;
+*) exit 0 ;;
+esac
+`
+	if err := os.WriteFile(buddy, []byte(program), 0700); err != nil {
+		t.Fatal(err)
+	}
+	input, err := json.Marshal(map[string]string{"session_id": "native", "cwd": dir, "hook_event_name": "PreToolUse"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := func() (time.Duration, error) {
+		var out, errout bytes.Buffer
+		began := time.Now()
+		err := runHook([]string{"--receipt", receipt, "--buddy", buddy}, bytes.NewReader(input), &out, &errout)
+		return time.Since(began), err
+	}
+	if _, err := hook(); err != nil {
+		t.Fatalf("control: the unstalled hook refused: %v", err)
+	}
+	release := make(chan struct{})
+	defer close(release)
+	real := cwdJudge
+	// Released after twice the budget at the latest, so a hook that waits on
+	// the check unbounded fails here in seconds rather than at go test's
+	// timeout: the check then answers "inside", and the hook allows.
+	cwdJudge = func(string, string) bool {
+		select {
+		case <-release:
+		case <-time.After(2 * harness.HookGateBudget):
+		}
+		return true
+	}
+	defer func() { cwdJudge = real }()
+	elapsed, err := hook()
+	if err == nil {
+		t.Fatal("a stalled cwd check was not a refusal")
+	}
+	if elapsed > harness.HookGateBudget+time.Second {
+		t.Fatalf("the stalled check took %v, past the gate budget", elapsed)
 	}
 }

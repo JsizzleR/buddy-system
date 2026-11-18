@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/JsizzleR/buddy-system/internal/harness"
@@ -59,17 +61,35 @@ func runHook(args []string, in io.Reader, out, errout io.Writer) error {
 	if err = json.Unmarshal(data, &saved); err != nil {
 		return err
 	}
-	if saved.Schema != harness.Schema || !saved.Identity.Valid() || saved.Identity.SessionID != input.SessionID || filepath.Clean(saved.Launch.Worktree) != filepath.Clean(input.Cwd) {
-		return errors.New("hook does not match captured worker and worktree")
+	if saved.Schema != harness.Schema || !saved.Identity.Valid() || saved.Identity.SessionID != input.SessionID {
+		return errors.New("hook does not match captured worker")
 	}
-	// The safety steps (identity check, then gate) share one budget and fail
-	// closed when it runs out. The advisory endpoint step between them runs on
+	// The safety steps (cwd check, identity check, then gate) share one budget
+	// and fail closed when it runs out. The advisory endpoint step between them runs on
 	// its own clock, which is not charged to the gate (F-29): it used to share
 	// the deadline, so a slow lock-holder on its write transaction made the
 	// gate start late or not at all, and the tool call was denied for an
 	// observation that is allowed to fail.
 	started := time.Now()
-	inspectCtx, cancel := context.WithTimeout(context.Background(), harness.HookGateBudget)
+	// The cwd check reads the filesystem at a path the worker chose, which
+	// can stall (a network mount gone away), and a hook that outlives its
+	// native timeout is neither a deny nor exit 2: the tool call goes ahead
+	// (internal/harness/claude.go). So it runs against the budget, never
+	// ahead of it (Fable cross-check); a stalled check is a refusal.
+	judged := make(chan bool, 1)
+	// Read before the goroutine starts: a stalled check outlives this call,
+	// and must not read the variable a test restores (-race).
+	judge := cwdJudge
+	go func() { judged <- judge(saved.Launch.Worktree, input.Cwd) }()
+	select {
+	case ok := <-judged:
+		if !ok {
+			return errors.New("hook cwd is not judged from the captured worktree's ledger at its root")
+		}
+	case <-time.After(harness.HookGateBudget):
+		return errors.New("hook cwd check did not finish within the gate budget")
+	}
+	inspectCtx, cancel := context.WithTimeout(context.Background(), harness.HookGateBudget-time.Since(started))
 	l := harness.CLILedger{Binary: *buddy, Worktree: saved.Launch.Worktree}
 	_, err = l.Inspect(inspectCtx, saved.Identity)
 	cancel()
@@ -101,4 +121,157 @@ func runHook(args []string, in io.Reader, out, errout io.Writer) error {
 	cmd.Stdout = out
 	cmd.Stderr = errout
 	return cmd.Run()
+}
+
+// judgedFromWorktree reports whether the gate, handed this payload cwd, judges
+// the call from the captured worktree's own ledger with the worktree's root as
+// its placement root: the only jurisdiction the receipt vouches for (#134).
+//
+// WHAT HAPPENED. This was `Clean(worktree) == Clean(cwd)`. The payload's cwd
+// is the worker's shell directory, so a worker that ran `cd sub` had every
+// later gated call refused: the refusal BLOCKS, before the gate runs, and under
+// a matcher that sends Bash (`""`, `*`, Codex's) the `cd ..` that would repair
+// it was refused too.
+// And the lexical Clean let `<worktree>/out/..` through, `out` a link to
+// X/deep: equal to the worktree after Clean, X to the kernel, and the gate,
+// judging from X, found no ledger and allowed (reproduced, hermetic).
+//
+// THE RULE has two halves, both PHYSICAL.
+//
+// 1. Containment: both sides through EvalSymlinks (which applies a `..` to the
+// directory a link reached, as the kernel does), then invariant 14's exact
+// form. No fold: the adapter links no store, and a fold admits /x/Repo for
+// /x/repo on a case-sensitive volume; a case or firmlink alias of the worktree
+// stays refused, as before. A relative, empty or unresolvable cwd refuses: an
+// empty one is the gate's cue to read its OWN process directory, a relative one
+// to resolve against it, and a vanished one has no physical path to contain.
+// The payload goes to the gate unchanged; a cwd rewritten to the worktree would
+// place `sub/peer.txt` as `peer.txt` against its root and miss the claim.
+//
+// 2. No repository boundary on the way down. Containment alone was a NEW allow
+// (the panel, reproduced): with a cwd in `<worktree>/vendor/gov`, a repository
+// with its own ledger, the gate's home is gov's ledger, where the worker is not
+// even registered, and a peer's `vendor` claim and `pause all` in the
+// worktree's ledger both passed it, where base blocked the call and a call from
+// the worktree root is denied. A linked worktree of the worktree's own
+// repository, a `.git` symlink to its git directory or a `gitdir:` pointer at
+// it, inside, keeps the ledger but moves the placement root, so the same claim
+// missed `vendor/same/x.c`. So every directory strictly below the worktree root
+// down to the cwd is tested the way git's discovery tests each level, and any
+// level git could stop at refuses: a `.git` entry of any type (a directory, a
+// gitdir file, a link, even a broken one), or the directory itself a git
+// directory by git's NECESSARY condition (a `HEAD` entry, Lstat so a dangling
+// symbolic HEAD counts, plus `objects` or a `commondir` redirect), or another
+// device (git stops discovery at a filesystem boundary; the gate keeps
+// GIT_DISCOVERY_ACROSS_FILESYSTEM on purpose, D-137, and with it set
+// `gh stack` from a mount found the mounted repository and skipped the
+// gh-stack slot a walked home does not read: panel lens a). Any Lstat error
+// but "does not exist" refuses. That test is necessary for git only under the
+// gate's own scrub of git's local environment (internal/cli/hookgitenv.go:
+// GIT_DIR, GIT_COMMON_DIR, GIT_OBJECT_DIRECTORY, the ceiling): with
+// GIT_OBJECT_DIRECTORY set HEAD plus refs is a repository, so that list must
+// not be trimmed without revisiting this. A cwd that passes is one whose
+// discovery climbs to the worktree root and finds the worktree's own `.git`.
+//
+// WHAT IT REFUSES THAT IT NEED NOT (recorded open, D-227): a submodule, a
+// nested repository with no ledger, an empty `.git` directory git walks past,
+// and a Claude `--worktree` lane inside the worktree. D-212 governs the first
+// three correctly, but every one of them was blocked before this change too.
+// Admitting a nested repository whose ledger is PROVED absent (the operator's
+// option B') needs a second copy of D-212's absence proof here, and a copy that
+// drifts into "absent" where the gate finds a ledger is this very escape; it
+// is revisited when #145 makes every governed ancestor apply. Not a recognizer
+// of nested ledgers: Lstat only, no git process, no ledger read.
+// cwdJudge is judgedFromWorktree, a variable only so a test can stall it.
+var cwdJudge = judgedFromWorktree
+
+func judgedFromWorktree(worktree, cwd string) bool {
+	if !filepath.IsAbs(worktree) || !filepath.IsAbs(cwd) {
+		return false
+	}
+	w, err := filepath.EvalSymlinks(worktree)
+	if err != nil {
+		return false
+	}
+	c, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return false
+	}
+	if c == w {
+		return true
+	}
+	if !strings.HasPrefix(c, w+"/") {
+		return false
+	}
+	root, err := os.Stat(w)
+	if err != nil {
+		return false
+	}
+	dev, ok := deviceOf(root)
+	if !ok {
+		return false
+	}
+	// EvalSymlinks returned a clean path with no link left in it, so each
+	// level below is a real directory entry and the walk is over the
+	// PHYSICAL path, never the payload's spelling (where `sub/linkgov` ->
+	// gov/deeper would hold no `.git` on the way down, and only the IsDir
+	// test at the link itself would refuse it).
+	level := w
+	for _, name := range strings.Split(c[len(w)+1:], "/") {
+		level += "/" + name
+		if !plainLevel(level, dev) {
+			return false
+		}
+	}
+	return true
+}
+
+// plainLevel reports that git's discovery, reaching this directory on its way
+// up, would not stop here (judgedFromWorktree's half 2).
+func plainLevel(dir string, dev uint64) bool {
+	fi, err := os.Lstat(dir)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	if d, ok := deviceOf(fi); !ok || d != dev {
+		return false
+	}
+	if present, ok := lstatPresent(dir + "/.git"); !ok || present {
+		return false
+	}
+	head, ok := lstatPresent(dir + "/HEAD")
+	if !ok {
+		return false
+	}
+	if !head {
+		return true
+	}
+	for _, name := range []string{"objects", "commondir"} {
+		if present, ok := lstatPresent(dir + "/" + name); !ok || present {
+			return false
+		}
+	}
+	return true
+}
+
+// lstatPresent is Lstat's answer as (present, known): known is false for any
+// error but "does not exist", which the caller refuses.
+func lstatPresent(path string) (present, known bool) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true, true
+	}
+	return false, errors.Is(err, os.ErrNotExist)
+}
+
+// deviceOf is a variable only so a test can stand a level on another device:
+// a hermetic test cannot mount one, and the ROOT's side of the comparison
+// (stat the worktree, never the cwd) is what a mount directly below the root
+// tests (Codex code pass).
+var deviceOf = func(fi os.FileInfo) (uint64, bool) {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return uint64(st.Dev), true
 }

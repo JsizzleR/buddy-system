@@ -347,7 +347,7 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
 stays an offline coordination CLI. Adapters consume versioned JSON and immutable
 captured lifecycle receipts; no human-output parsing, current-token recapture,
 task database or dashboard. Schema 15 added incarnation-bound inbox metadata and
-receiving Claude endpoint observations; the ledger is at 20. Older installed binaries refuse a
+Claude endpoint observations; the ledger is at 20. Older installed binaries refuse a
 migrated ledger (D-037), so any other build refuses to migrate one (D-136): never run a new binary on a production ledger or install
 it as part of a fixture exercise. Checks and qualification gaps:
 `docs/CODEX-ORCHESTRATOR-PLAN.md`.
@@ -400,6 +400,6 @@ subject gets a new line. Every number stays on some line (D-165).
 - **Review, models** (D-104, D-111, D-115, D-117, D-128, D-141, D-143, D-146, D-147, D-157, D-158, D-163, D-175, D-196): "Style and testing" and Commands; a lite or full receipt owes its review layers' counts; the charter's adapter and process GIVENs ride as stubs, in full on `CODEX_CHARTER=adapter|process|all`; a subagent names its model, and a hook refuses an unnamed general-purpose Agent call.
 - **Install** (D-050, D-067, D-110, D-120, D-124, D-125, D-126, D-127, D-135, D-173, D-176, D-178, D-179, D-181, D-182, D-183, D-184, D-217): Commands; install and uninstall share a bin-dir lock, and a held one stops the other; `claude doctor` is the user's to run, never a session's.
 - **Tests** (D-053, D-057, D-061, D-220): never with git's local environment.
-- **Codex, adapter** (D-068, D-070, D-074, D-076, D-077, D-078, D-197, D-198, D-199, D-200, D-202, D-207, D-216): "Structured harness adapters"; `buddy-adapter` controls only its own workers.
+- **Codex, adapter** (D-068, D-070, D-074, D-076, D-077, D-078, D-197, D-198, D-199, D-200, D-202, D-207, D-216, D-227): "Structured harness adapters"; `buddy-adapter` controls only its own workers.
 - **Admission, qualification** (D-071, D-072, D-075, D-079, D-080, D-081, D-156, D-205): a record is made before a planned adapter run; `diagnose` promotes nothing to readiness.
 - **This file** (D-010, D-112, D-116, D-118, D-122, D-165, D-169): what a session or Codex pass loads unasked has byte ceilings in `docs/prose-budget.tsv` (decisions.md and USAGE.md per entry), red in the hermetic tier, raised only by the operator; a gotcha or fleet recipe keeps its rule and a D-number.

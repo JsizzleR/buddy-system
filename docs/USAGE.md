@@ -2568,9 +2568,9 @@ turns a model turn into either. Native result references are emitted separately.
 
 Choose an absolute receipt path in a private artifact directory. The file must
 not exist on a new launch. A `.events` journal beside it records transport
-intent/results and holds an exclusive lock. Keep both for reconciliation.
-Missing begin receipts and uncertain sends are never retried blindly. These
-files contain native approval details and must remain private to the operator.
+intent/results and holds an exclusive lock. Keep both, private to the operator
+(they hold native approval details), for reconciliation. Missing begin
+receipts and uncertain sends are never retried blindly.
 Before native launch, a synced `.start` intent is created. It remains if launch
 or registration becomes uncertain, preventing an automatic fresh start even
 when no receipt was published. Reconcile it; do not delete it to force a retry.
@@ -2585,17 +2585,18 @@ with each path enclosed in POSIX single quotes:
 For Claude, put that exact command in an explicit settings JSON file, with a
 synchronous `PreToolUse` matcher naming `Edit`, `Write` and `NotebookEdit`. The
 matcher must be `""`, `*`, `.*`, an exact `|`/`,` list naming all three, or
-the anchored literal alternation `^(Edit|Write|NotebookEdit)$`. Any other
-pattern refuses, because native Claude compares a plain matcher as an exact list
-while Go's regexp matches anywhere, so `Edit|Write` "covered" NotebookEdit for
-Go and natively gates nothing for it (D-077). Keys are exact and
-case-sensitive, with no duplicates (native `JSON.parse` keeps the last key, and
-Go folds key case). `async` must be absent or `false`, and `timeout` must be
+the anchored literal alternation `^(Edit|Write|NotebookEdit)$`; any other
+pattern refuses (D-077: a plain matcher is an exact list natively, a regexp to
+Go). Keys are exact and case-sensitive, with no duplicates. `async` must be absent or `false`, and `timeout` must be
 10-600 seconds. The bounded settings contract accepts only `hooks`, false `disableAllHooks` and
 `allowManagedHooksOnly`, and an `enabledPlugins` map whose values are false.
 It refuses other settings, enabled plugins/Mods, asynchronous hooks and native
 lifecycle handlers. The controller owns lifecycle translation. Claude is
 launched with empty user/project setting sources and explicit empty MCP config.
+
+The hook admits a payload `cwd` physically inside the worktree but not below a
+nested `.git`, git directory or mount, where the gate may judge from another
+ledger or root; a refusal blocks the call (D-227).
 
 **Claim renewal (D-078).** The controller renews the worker's claims from
 COMPLETED native writes, with no hook added to the gate contract. The backend's

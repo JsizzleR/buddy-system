@@ -647,18 +647,17 @@ ledger row entered through the CLI (D-006).
 71. **Minimal structured adapters preserve captured identity and separate
     delivery stages (D-070).** `buddy.adapter.v1` exposes bounded ledger
     projections and incarnation-bound peer inbox operations. Schema 15 adds
-    message identity and receiving endpoint metadata, not tasks. Legacy drains
+    message identity and receiving endpoint metadata. Legacy drains
     cannot consume adapter mail. `buddy-adapter` is a separate control binary
     for one worker it launches (startup is argv; coordinator requests are inspect,
-    reconcile, send and interrupt; approval is the separate operator path); native IDs,
+    reconcile, send and interrupt); native IDs,
     raw JSON approval IDs and result references stay exact. Its journal records intent before wake input,
     refuses concurrent ownership and never repairs a missing receipt by looking
     up the current token. Native turn result, body delivery, acknowledgment,
     completion, validation and landing remain distinct. Only a separate
-    operator input descriptor may answer pending approvals; peer/coordinator
-    input cannot. Codex checks effective gate hash/trust; Claude checks bounded
+    operator input descriptor may answer pending approvals. Codex checks effective gate hash/trust; Claude checks bounded
     gate settings and the pinned built-in Mod profile (D-071). No install, trust
-    mutation, existing-session attach or task table. Qualification: the plan receipt.
+    mutation, existing-session attach or task table. Its hook admits a cwd physically in the worktree, past no nested repository (D-227). Qualification: the plan receipt.
 
 72. **Claude admission uses a pinned native built-in Mod profile (D-071).** The admitted pairs are the D-079 records; legacy `no_mods` refuses. Do not propose: semver ranges, an automatic upgrade. (full text: `CODEX_CHARTER=adapter`)
 
