@@ -114,7 +114,10 @@ so a late `bye` from a dead incarnation would end the live one and orphan its
 claims mid-edit. `hello` and a completed call's `beat` register the `claude`
 process the hook was spawned by, and `bye` ends the session only when no
 registered process is still alive. A hand-run `buddy bye <id>` is refused by a live registration and
-names the process; `--force` is the operator's act.
+names the process; `--force` is the operator's act. Typed, give it `</dev/null`: `bye` reads a
+hook payload first whatever its arguments (D-069), so a stdin left open (a harness's socket for
+a Bash call with a heredoc or `<`, a `sleep 4 |`) refuses after 2 s, and `echo |` as unparseable
+JSON; each refusal names `buddy bye <id> </dev/null` (D-218).
 
 `Stop` marks the session idle at its prompt so the roster can tell "waiting for
 a human" from "hard at work"; without it nothing ever prints `idle`, and
@@ -719,6 +722,7 @@ the same work.
 ```sh
 buddy claim api-refactor --desc "reworking the handler layer" --scope internal/api
 buddy ls                          # the board: who holds what, STALE where a holder has gone quiet
+buddy ls api-refactor             # those claims' rows alone (exact slugs); exit 1 names each with no row (D-218)
 buddy release api-refactor
 buddy release api-refactor api-refactor-shared   # several: ONE transaction, all or nothing (D-093)
 buddy who api-refactor            # every scope of the claim, one per line, uncut (D-094)
@@ -991,6 +995,15 @@ dirty in different checkouts are editing different files. `whose` reports them
 anyway, labelled, because it answers "who do I talk to?" rather than "am I in
 conflict?".
 
+A row whose worktree no longer exists is **hidden and counted**
+(`(N row(s) recorded in a worktree that no longer exists, not shown)`), in `whose`
+and in `who`'s `DIRTY PATHS`; nothing is deleted, so a directory that comes back
+brings its rows back (D-218). A removed worktree is a case no scan reaches, so its
+rows otherwise stay until the 30-day sweep: one ledger held 165, at most 4 in a
+worktree still on disk. Gone means a stat of the row's (folded) key finds nothing
+AND git's worktree list names no existing directory with that key; git unreadable
+hides nothing.
+
 ## Messages — `buddy msg`
 
 A message is signed with the sending session's **label**, which the recipient
@@ -1223,6 +1236,7 @@ exactly as before.
 ```sh
 buddy status                      # everything the ledger holds about YOU (a bare `buddy who` is the same)
 buddy who <id|label|s-id|slug>    # the same report for any name a session answers to
+buddy who <target> --exit         # its EXIT line alone: a pipe (`| grep EXIT`) returns the filter's status (D-218)
 # * repo/s-16c16a94  (16c16a94-…)  live  started 3h  seen 2m  idle 2m  pid 30479  pane tmux:%3
 # CLAIMS HELD  2
 #   api-work                 held 2h   scopes: internal/api

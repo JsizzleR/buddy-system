@@ -158,7 +158,7 @@ nobody authorised.
   done (`buddy wait --on` prints the line). Never report "waiting on <lane>"
   to the operator without its answer from the last 15 minutes.
 - **Ending a lane is the operator's act.** When its work has landed,
-  `buddy who <lane>`'s EXIT line reads "no claims held; no wait declared; no
+  `buddy who <lane> --exit` reads "no claims held; no wait declared; no
   shell found running under it", and it names no job of its own still running,
   say so. A pane holding `.buddy/slot/browser` is not closed. EXIT's `browser
   tools used` clause is a call observed, never that a tab is open: unless the
@@ -176,11 +176,11 @@ nobody authorised.
   claim and `buddy who <its id>` shows no claims, no wait, no job and no open browser work. Never a
   CONCURRENT orchestrator's lanes. If you may, do it as soon as the lane says
   DONE and `buddy who` agrees; if you may not, give the operator its pane id
-  in the same turn. **Then run `buddy bye <its session id>`:** a pane close
+  in the same turn. **Then run `buddy bye <its session id> </dev/null`:** a pane close
   does not reliably run the lane's SessionEnd hook, and its row stays `live
   STALE … pid N GONE` (D-091). A hand-run `bye` ends a row whose registered
-  process is dead without `--force`; one that says the session "stays live"
-  means its process is still exiting: run it again a few seconds later. A
+  process is dead without `--force`; one saying the session "stays live"
+  means its process is still exiting: run it again seconds later. A
   finished lane left open over 200k tokens is compacted about 55 minutes in (D-122).
 
 ## Handing off a coordinator

@@ -404,7 +404,8 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
                                 the claim guarded (a long run, a land), carried on
                                 every waiter's LANDED; a release alone says only that
                                 the reservation ended
-              ls [--all]            list claims        inbox [<id>]     drain my messages,
+              ls [--all] [<slug>...]   list claims, or only those; exit 1 names a slug
+                                    with no row        inbox [<id>]     drain my messages,
                                                        or re-read one
               whose <path>          BOTH registers: who has CLAIMED it (the one that
                                     reserves, and the one the gate reads) and who has
@@ -412,9 +413,10 @@ agent verbs   claim <slug> --desc <text> --scope <path> [--scope ...]   take a b
               status                everything the ledger holds about YOU: claims held,
                                     dirty paths, inbox, process, pane, and what ending
                                     now would leave held (a report — it grants nothing)
-              who <target>          the same report for ANY name a session answers to
+              who <target> [--exit]   the same report for ANY name a session answers to
                                     (id, label, s-<id>, an open claim slug): the
-                                    cross-reference, since a session has four names
+                                    cross-reference, since a session has four names;
+                                    --exit prints its EXIT line alone
               who is calling: --session <id>, else $BUDDY_SESSION, else native
               $CLAUDE_CODE_SESSION_ID or $CODEX_THREAD_ID (must agree if both set),
               else the worktree — and that only when it names the one live session there is
@@ -512,7 +514,7 @@ const (
 	usageCommitGate = "usage: buddy commit-gate [--session <id>] [--deny]"
 	usageClaim      = "usage: buddy claim <slug> --desc <text> --scope <path> [--scope ...] [--shared] [--based-on <run>] [--job <pid>] [--dry-run] [--session <id>]\n       (the slug comes first; --job declares the claim's job, read by who; exit 4: refused by a holder, nothing taken, and a dry run that forecasts it; 1: any other error)"
 	usageRelease    = "usage: buddy release <slug>... [--scope <path> ...] [--outcome pass|fail|aborted [--note <text>]] [--to <target>] [--in-run <run>] [--unpark] [--session <id>]\n       (several slugs release, hand on or park as ONE transaction: all or nothing; --scope, --outcome and --unpark take one slug)"
-	usageLs         = "usage: buddy ls [--all]"
+	usageLs         = "usage: buddy ls [--all] [<slug>...]   (slugs: those claims alone, exactly as spelled; exit 1 naming each with no row)"
 	usageSweep      = "usage: buddy sweep [--force] [--dry-run]   (tidy closed claims; --force also orphans open claims of\n" +
 		"       sessions silent >24h; --dry-run reports what a real run would orphan and delete, and writes nothing)"
 	usagePause     = "usage: buddy pause <session|label|slug|all> [--note <text>]"
@@ -523,7 +525,7 @@ const (
 	usageSessions  = "usage: buddy sessions [--all] [--by seen|started] [--session <id>]  (--all adds rows ended over 24h ago and live rows whose every process is GONE)"
 	usageWhose     = "usage: buddy whose <path>"
 	usageStatus    = "usage: buddy status [--session <id>]"
-	usageWho       = "usage: buddy who [<session|label|s-id|slug>]  (any name a session answers to; prints the rest. No name: the caller, as buddy status)"
+	usageWho       = "usage: buddy who [<session|label|s-id|slug>] [--exit]  (any name a session answers to; prints the rest. No name: the caller, as buddy status. --exit: the EXIT line alone)"
 	usageAuthority = "usage: buddy authority [add <path> | rm <path>]   (repo-relative; CLAUDE.md and AGENTS.md are always watched)"
 )
 
@@ -2361,7 +2363,21 @@ func cmdBye(args []string, env Env) error {
 	force := false
 	var from store.ProcRef
 	hookDriven := false
-	if h, err := readHook(env); err == nil {
+	// THE READ STAYS FIRST, even for a typed `bye <id>` (D-069: hook input is
+	// classified before the manual path; F-27: an open pipe or stray bytes are
+	// never "no hook"). What #116 fixed is the refusal: a typed bye whose stdin
+	// the harness left open (a Bash call with a heredoc or `<` in it gets a
+	// socket, measured) refused after two seconds, and `echo | bye <id>` as
+	// unparseable JSON, each naming no way out: 6 such refusals in 21 days on
+	// one machine. It now names the redirect, with the id it was given.
+	// Skipping the read when a positional is present (no shipped wiring passes
+	// one) is OPEN in D-218: it would amend D-069, full-tier ground.
+	h, err := decodeHook(env)
+	switch {
+	case err == nil:
+		if err := classifyHook(&h, env); err != nil {
+			return err
+		}
 		if h.Harness == "codex" {
 			return unsupportedCodexLifecycle("bye")
 		}
@@ -2369,9 +2385,16 @@ func cmdBye(args []string, env Env) error {
 		hookDriven = true
 		a, _ := hookAnchor(h, env)
 		from = a.Ref
-	} else if !errors.Is(err, errNoHookInput) {
-		return err
-	} else {
+	case !errors.Is(err, errNoHookInput):
+		// Only a decode failure carries the remedy: an identity refusal from
+		// classifyHook is a real hook's, and names its own.
+		id := "<session id>"
+		if i := slices.IndexFunc(args, func(a string) bool { return !strings.HasPrefix(a, "-") }); i >= 0 {
+			id = pasteIDOr(args[i], id)
+		}
+		return fmt.Errorf("%w; typed by hand, it takes no hook input: `buddy bye %s </dev/null`", err, id)
+	}
+	if !hookDriven {
 		for _, a := range args {
 			switch {
 			case a == "--force":
@@ -5227,14 +5250,24 @@ func releasedWaitersNote(st *store.Store, claimID string, env Env) string {
 		len(waiters), waitersPhrase(st, waiters, nowOf(env)))
 }
 
-func cmdLs(args []string, env Env) error {
+func cmdLs(args []string, env Env) (err error) {
 	fs := flag.NewFlagSet("ls", flag.ContinueOnError)
 	all := fs.Bool("all", false, "include released and orphaned claims")
 	if help, err := parseFlags(fs, args, usageLs, env); help || err != nil {
 		return err
 	}
-	if err := noStray("ls", fs, usageLs); err != nil {
-		return err
+	// THE NARROW FORM (#143): `ls <slug>...` lists those claims alone. On one
+	// machine 1,050 of 1,523 `ls` runs were `ls | grep <slug>`, up to 22 KB
+	// read to keep one row, and the pipe returned grep's status. Flags come
+	// first: Go's parser stops at the first slug, so `ls x --all` would read
+	// "--all" as a slug and list nothing it was asked for. Refused, like a
+	// stray after any other verb's flags.
+	slugs := fs.Args()
+	for _, a := range slugs {
+		if strings.HasPrefix(a, "-") {
+			return usageRefusal(fmt.Sprintf("flags go before the slugs, got %s after one%s",
+				strconv.Quote(fence.Line(a, 64)), unsplitHint(a)), usageLs)
+		}
 	}
 	st, _, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
@@ -5245,7 +5278,46 @@ func cmdLs(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	var missing []string
+	if len(slugs) > 0 {
+		// Exact, as the open-slug index is: another spelling is another slug.
+		// A narrowed list only drops rows; each one printed is the row the
+		// whole list prints.
+		var keep []store.ClaimInfo
+		for _, c := range claims {
+			if slices.Contains(slugs, c.Slug) {
+				keep = append(keep, c)
+			}
+		}
+		for _, sl := range slugs {
+			if !slices.ContainsFunc(keep, func(c store.ClaimInfo) bool { return c.Slug == sl }) &&
+				!slices.Contains(missing, sl) {
+				missing = append(missing, sl)
+			}
+		}
+		claims = keep
+	}
+	if len(missing) > 0 {
+		// Exit 1 naming each miss, after the rows that matched: the status a
+		// `until buddy ls <slug>` loop or an `&&` reads, which a grep's was.
+		what := "no open claim named"
+		if *all {
+			what = "no claim named"
+		}
+		quoted := make([]string, len(missing))
+		for i, m := range missing {
+			quoted[i] = strconv.Quote(fence.Line(m, 128))
+		}
+		defer func() {
+			if err == nil {
+				err = fmt.Errorf("%s %s", what, strings.Join(quoted, ", "))
+			}
+		}()
+	}
 	if len(claims) == 0 {
+		if len(slugs) > 0 {
+			return nil // the misses above are the answer
+		}
 		fmt.Fprintln(env.Stdout, "no claims")
 		return nil
 	}

@@ -400,6 +400,110 @@ func shellArg(v string) string {
 	return "'" + strings.ReplaceAll(fence.Line(v, 512), "'", `'\''`) + "'"
 }
 
+// ---- rows of a worktree that is gone (#125) ----
+
+// goneWorktrees returns a test of whether a dirty row's worktree key names a
+// worktree that no longer exists, for HIDING the row where it renders.
+//
+// THE FAILURE. A worktree removed outright is a case no scan reaches again
+// (sweepDirty says so), so its rows sat in `whose` for up to DirtyKeepAfterEnd:
+// one ledger held 165 rows, at most 4 in a worktree still on disk, and `whose
+// internal/cli/cli.go` printed 5 DIRTY IN rows, 4 in removed worktrees, 35 h to
+// 27 d old. A directory that is gone holds no hunk; its row answers nothing.
+//
+// HIDDEN, NEVER DELETED (invariant 10). A view verb writes nothing, and a
+// retraction keyed on "not on disk now" would be wrong for a volume that is
+// unmounted and comes back, or a worktree re-added at the same path: hiding
+// costs nothing when the directory returns, and every caller counts what it
+// hid, because a list that quietly drops rows reads as a smaller one.
+// (Rejected: deleting in the store's retain pass. The store has no filesystem
+// and the rows are the only record of who left a hunk, so a false "gone"
+// there is permanent; here it is one render.)
+//
+// TWO PROBES, because the key is FOLDED (worktreeKey: lower case, NFC). A stat
+// of the key that finds a directory settles it (the macOS default volume is
+// case-insensitive). A stat that says it does not exist is not enough on a
+// case-sensitive volume, where the folded spelling of /home/u/Projects/x never
+// exists, so the row is gone only if git's own worktree list, folded the same
+// way, names no existing directory with that key either. git is asked lazily,
+// once, and only when some stat missed. Anything that cannot be read (a stat
+// error other than not-exist, git failing) hides nothing.
+//
+// What it cannot see: a row keyed to a directory that is no worktree of this
+// repository's git (a nested repository a ledger above governs, D-212) on a
+// case-sensitive volume, in a mixed-case path, reads as gone and is hidden.
+// Counted on the line like every hidden row; the macOS volume this is used on
+// is case-insensitive.
+func goneWorktrees(top string) func(key string) bool {
+	return goneWorktreesWith(top, os.Stat)
+}
+
+// goneWorktreesWith is goneWorktrees with its stat injected: a test pins the
+// git arm by a stat that finds nothing, which the case-insensitive volume the
+// suite runs on never otherwise reaches.
+func goneWorktreesWith(top string, stat func(string) (os.FileInfo, error)) func(key string) bool {
+	var listed map[string]bool
+	asked, gitFailed := false, false
+	memo := map[string]bool{}
+	return func(key string) bool {
+		if g, ok := memo[key]; ok {
+			return g
+		}
+		gone := false
+		if _, err := stat(key); errors.Is(err, os.ErrNotExist) {
+			if !asked {
+				asked = true
+				listed, gitFailed = existingWorktrees(top)
+			}
+			gone = !gitFailed && !listed[key]
+		}
+		memo[key] = gone
+		return gone
+	}
+}
+
+// existingWorktrees is git's worktree list for the repository at top, as
+// worktreeKey folds each entry, keeping only entries that are a directory on
+// disk now (a removed but unpruned worktree is still LISTED, marked prunable),
+// or whose stat fails for any reason but not-exist.
+// failed reports that git could not be asked, so nothing may be judged gone.
+func existingWorktrees(top string) (keys map[string]bool, failed bool) {
+	if top == "" {
+		return nil, true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dirtyScanBudget)
+	defer cancel()
+	// -z: without it a worktree path holding a newline is printed raw and
+	// splits its line, so the half that is read stats as nothing (measured,
+	// git 2.54: no quoting in this listing). A git too old for -z fails,
+	// which hides nothing.
+	cmd := exec.CommandContext(ctx, "git", "-C", top, "worktree", "list", "--porcelain", "-z")
+	cmd.Env = cleanGitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, true
+	}
+	keys = map[string]bool{}
+	for _, ln := range strings.Split(string(out), "\x00") {
+		p, ok := strings.CutPrefix(ln, "worktree ")
+		if !ok {
+			continue
+		}
+		// Only a definite "not there" leaves an entry out. A stat that fails
+		// otherwise (an unsearchable parent: EACCES) cannot say the worktree
+		// is gone, and its rows are kept (Codex code pass).
+		if fi, err := os.Stat(p); (err == nil && fi.IsDir()) || (err != nil && !errors.Is(err, os.ErrNotExist)) {
+			keys[worktreeKey(p)] = true
+		}
+	}
+	return keys, false
+}
+
+// goneNote is the count line for rows hidden because their worktree is gone.
+func goneNote(n int) string {
+	return fmt.Sprintf("%d row(s) recorded in a worktree that no longer exists, not shown", n)
+}
+
 // ---- buddy whose ----
 
 func cmdWhose(args []string, env Env) error {
@@ -444,6 +548,19 @@ func cmdWhose(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
+	// A row in a worktree that is gone is hidden here and counted below
+	// (#125); nothing is deleted.
+	gone := goneWorktrees(top)
+	hidden := 0
+	shown := holders[:0:0]
+	for _, h := range holders {
+		if gone(h.Worktree) {
+			hidden++
+			continue
+		}
+		shown = append(shown, h)
+	}
+	holders = shown
 	// The CLAIM register, first and separately (issue #13). `whose` reports
 	// dirty-worktree attribution, its name reads as ownership, and it is silent
 	// in exactly the state that matters most — a session that has claimed a
@@ -474,6 +591,9 @@ func cmdWhose(args []string, env Env) error {
 	}
 	if len(holders) == 0 {
 		reportNoHolder(env, top, rel, dir)
+		if hidden > 0 {
+			fmt.Fprintf(env.Stdout, "  (%s)\n", goneNote(hidden))
+		}
 		return nil
 	}
 	fmt.Fprintln(env.Stdout, "DIRTY IN")
@@ -502,6 +622,9 @@ func cmdWhose(args []string, env Env) error {
 		fmt.Fprintf(env.Stdout, "  %-24s %-12s %6s  uncommitted %6s  %s\n",
 			fence.Field(h.Owner.Label, 64), sessionState(h, now), age(now, h.Owner.LastSeen),
 			age(now, h.FirstSeen), where)
+	}
+	if hidden > 0 {
+		fmt.Fprintf(env.Stdout, "  (%s)\n", goneNote(hidden))
 	}
 	// "after its next tool call" is Claude's beat; under Codex beat is
 	// refused (D-069) and only `buddy inbox` delivers (B4's sibling).

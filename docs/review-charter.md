@@ -204,14 +204,14 @@ ledger row entered through the CLI (D-006).
     the whole set even when there is only one conflict.
 
 27. **`buddy whose <path>` reports the claim registers first, then `DIRTY IN` (D-023, D-211).**
-    `CLAIMED BY` is invariant 14 containment and the relation the gate reads; `HELD UNDER`
-    is a claim on a path inside the one asked about and reserves nothing about it — they
-    are kept apart on purpose. The claim lookup consults NO FILESYSTEM (a claim under a
+    `CLAIMED BY` is invariant 14 containment, the relation the gate reads; `HELD UNDER`
+    is a claim on a path inside it and reserves nothing about it; kept apart on purpose.
+    The claim lookup consults NO FILESYSTEM (a claim under a
     not-yet-created directory must not read `(none)`), and reads ONE snapshot. `(none)`
-    prints explicitly rather than being omitted, and an unrenewed claim carries D-090's
-    holder words and "still refuses", D-022's qualifier. A `.buddy/slot/` path consults no git (D-092).
-    Neither register is a lock: dirty rows stay observations (invariant 10). It was NOT
-    renamed to `buddy dirty`.
+    prints, never omitted; an unrenewed claim carries D-090's holder words and "still
+    refuses", D-022's qualifier. Neither register is a lock: dirty rows stay observations
+    (invariant 10), and a gone worktree's are hidden, counted, never deleted (D-218). It was
+    NOT renamed to `buddy dirty`.
 
 27a. **`fence.Field` returns `∅` for an empty result, overturning "an empty value stays
     empty" (D-023).** A blank column is ZERO tokens and D-017 guarantees ONE, so the next
@@ -811,10 +811,11 @@ ledger row entered through the CLI (D-006).
 93. **`who` answers the close test on one EXIT line (D-092).** Claims held; wait declared (with
     its verdict); jobs (none / N shells / "cannot say", never collapsed). Still grants nothing
     (D-027). `who <slug>` lists only that claim's waiters and names it; a bare `who` is `status`;
-    a slash-shaped miss suggests `whose`; `whose` of a `.buddy/slot` path consults no git. Its
-    `browser tools used <age> ago` clause (D-134, schema 19) is one completed call on a named MCP
-    server, seen by `beat`, fenced by incarnation: it refuses, releases and expires nothing, and its
-    absence is never "no browser". `release --to` refuses, at every door, a claim whose scope
+    a slash-shaped miss suggests `whose`; `whose` of a `.buddy/slot` path consults no git;
+    `who --exit` prints EXIT alone; `ls <slug>...` exits 1 on a miss (D-218). Its
+    `browser tools used <age> ago` clause (D-134) is one completed call on a named MCP
+    server, fenced by incarnation: it refuses, releases and expires nothing, and its
+    absence is never "no browser". `release --to` refuses a claim whose scope
     overlaps `.buddy/slot/browser` (#72); do not propose a refusal on the clause.
 
 94. **`release` takes several slugs as ONE transaction, all or nothing; a recipient waiting on

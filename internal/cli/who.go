@@ -35,6 +35,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -64,7 +65,7 @@ func cmdStatus(args []string, env Env) error {
 	if err != nil {
 		return err
 	}
-	return sessionReport(env, st, rc, si, true, "")
+	return sessionReport(env, st, rc, si, true, "", false)
 }
 
 // cmdWho. With no argument it reports the caller, exactly as `status` does
@@ -73,25 +74,61 @@ func cmdStatus(args []string, env Env) error {
 // refusing with "use status" would answer a question it understood with a
 // lecture. D-031 refuses what a verb does not understand; an absent target
 // is understood.
+//
+// --exit prints the EXIT line alone (#143). 2,423 of 2,588 `who` calls on one
+// machine were piped, 330 of them `| grep EXIT`, and a pipe hands back the
+// filter's status, so a report that failed read as exit 0. The line is the
+// full report's own, computed by the same code; only what is printed narrows.
 func cmdWho(args []string, env Env) error {
-	if len(args) == 0 {
-		return cmdStatus(nil, env)
+	// named, not target != "": an empty argument (`who "$X"`, X unset) is a
+	// target that names nothing, refused by ResolveTarget as before, never
+	// the caller and never a slot the next word fills (Codex code pass).
+	target, named := "", false
+	rest := args
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		target, named, rest = args[0], true, args[1:]
 	}
-	if len(args) != 1 || strings.HasPrefix(args[0], "-") {
-		return errors.New(usageWho)
+	fs := flag.NewFlagSet("who", flag.ContinueOnError)
+	exitOnly := fs.Bool("exit", false, "print the EXIT line alone")
+	if help, err := parseFlags(fs, rest, usageWho, env); help || err != nil {
+		return err
+	}
+	extra := fs.Args()
+	if !named && len(extra) > 0 && !strings.HasPrefix(extra[0], "-") {
+		// `who --exit <target>`: the target after the flag.
+		target, named, extra = extra[0], true, extra[1:]
+	}
+	if len(extra) > 0 {
+		// One target, as before: `who a b` reporting a alone, or a flag after
+		// the target the parser stopped short of, is refused, never dropped.
+		return usageRefusal(fmt.Sprintf("who takes one target, got %s after it — flags after it would be IGNORED%s",
+			strconv.Quote(fence.Line(extra[0], 64)), unsplitHint(extra[0])), usageWho)
 	}
 	st, rc, err := mustFleetLedger(env.Cwd, env)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	ledgerLine(env, rc)
-	t, err := st.ResolveTarget(args[0])
+	if !named {
+		// No name: the caller, as `status` (D-092).
+		if !*exitOnly {
+			ledgerLine(env, rc)
+		}
+		si, err := whoAmI(st, env, "")
+		if err != nil {
+			return err
+		}
+		return sessionReport(env, st, rc, si, true, "", *exitOnly)
+	}
+	if !*exitOnly {
+		ledgerLine(env, rc)
+	}
+	t, err := st.ResolveTarget(target)
 	if err != nil {
 		// A slash is how a path reads, and `who .buddy/slot/x` asked about a
 		// path (one fleet's refusals). Labels carry slashes too, so this
 		// suggests and never redirects.
-		if errors.Is(err, store.ErrNoSuchTarget) && strings.Contains(args[0], "/") {
+		if errors.Is(err, store.ErrNoSuchTarget) && strings.Contains(target, "/") {
 			if rc.fleet != "" {
 				// whose is refused in a fleet (it keeps no paths); a slot's
 				// holder is on ls (the refusals lens, finding 2).
@@ -109,7 +146,7 @@ func cmdWho(args []string, env Env) error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("%s resolved to session %s, which is not in the ledger", fence.Line(args[0], 128), fence.Line(t.ID, 128))
+		return fmt.Errorf("%s resolved to session %s, which is not in the ledger", fence.Line(target, 128), fence.Line(t.ID, 128))
 	}
 	// The caller's own row wears the same marker the roster gives it, best
 	// effort for the reason cmdSessions gives: a listing must not fail for
@@ -118,18 +155,18 @@ func cmdWho(args []string, env Env) error {
 	if self, err := whoAmI(st, Env{Cwd: env.Cwd, Getenv: env.Getenv, Now: env.Now}, ""); err == nil && self.SessionID == si.SessionID {
 		me = true
 	}
-	if t.Via == "slug" {
+	if t.Via == "slug" && !*exitOnly {
 		// D-094: every scope, uncut, so "re-claim with the SAME scopes" can be done.
 		if err := claimScopesBlock(env, st, t.Slug); err != nil {
 			return err
 		}
-		fmt.Fprintf(env.Stdout, "%s is claim %s, held by:\n", fence.Line(args[0], 128), strconv.Quote(fence.Line(t.Slug, 128)))
+		fmt.Fprintf(env.Stdout, "%s is claim %s, held by:\n", fence.Line(target, 128), strconv.Quote(fence.Line(t.Slug, 128)))
 	}
 	onSlug := ""
 	if t.Via == "slug" {
 		onSlug = t.Slug
 	}
-	return sessionReport(env, st, rc, si, me, onSlug)
+	return sessionReport(env, st, rc, si, me, onSlug, *exitOnly)
 }
 
 // sessionReport renders every register the ledger holds about one session.
@@ -138,8 +175,16 @@ func cmdWho(args []string, env Env) error {
 // drops rows is indistinguishable from a smaller one. onSlug is the open
 // claim the target was named by, "" for any other name: WAITED ON then
 // speaks for that claim alone (D-092).
-func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInfo, me bool, onSlug string) error {
+func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInfo, me bool, onSlug string, exitOnly bool) error {
 	top := rc.top
+	// exitOnly (--exit, #143): every register below is still READ, because
+	// the EXIT line is built from them, and printed nowhere; only the two that
+	// leave the ledger for git or the filesystem (BASE, AUTHORITY) are not
+	// read, since EXIT does not use them.
+	out := env.Stdout
+	if exitOnly {
+		out = io.Discard
+	}
 	now := nowOf(env)
 	const maxRows = 20
 
@@ -185,7 +230,7 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 			head.WriteString("  pane " + fence.Field(si.Terminal, 64))
 		}
 	}
-	fmt.Fprintln(env.Stdout, head.String())
+	fmt.Fprintln(out, head.String())
 
 	// CLAIMS HELD — the register that reserves, and the one a release check
 	// forgot (issue #15). Keyed by (session, incarnation) like the roster's
@@ -201,16 +246,16 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 		}
 	}
 	hs := readHolders(env, st)
-	fmt.Fprintf(env.Stdout, "CLAIMS HELD  %d\n", len(held))
+	fmt.Fprintf(out, "CLAIMS HELD  %d\n", len(held))
 	for i, c := range held {
 		if i == maxRows {
-			fmt.Fprintf(env.Stdout, "  ...and %d more not shown\n", len(held)-maxRows)
+			fmt.Fprintf(out, "  ...and %d more not shown\n", len(held)-maxRows)
 			break
 		}
 		// The holder's words, not the renewal's (D-090).
 		stale := hs.judge(now, c).rowNote(now)
 		scopes := scopeList(c.Scopes) // whole items, one token each, with a count of what was cut
-		fmt.Fprintf(env.Stdout, "  %-24s held %-4s %s%sscopes: %s%s\n",
+		fmt.Fprintf(out, "  %-24s held %-4s %s%sscopes: %s%s\n",
 			fence.Field(c.Slug, 128), age(now, c.Created), sharedWord(c.Shared), parkWords(c), scopes, stale)
 	}
 
@@ -221,33 +266,55 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 	if err != nil {
 		return err
 	}
-	if len(dirty) == 0 {
-		fmt.Fprintln(env.Stdout, "DIRTY PATHS  (none recorded)")
-	} else {
-		paths := make([]string, 0, len(dirty))
+	// A row in a worktree that is gone is hidden and counted (#125, dirty.go's
+	// goneWorktrees); nothing is deleted. Not under --exit: EXIT does not
+	// read this register.
+	hidden := 0
+	var paths []string
+	if !exitOnly {
+		gone := goneWorktrees(top)
 		for _, d := range dirty {
+			if gone(d.Worktree) {
+				hidden++
+				continue
+			}
 			paths = append(paths, d.Path)
 		}
-		fmt.Fprintf(env.Stdout, "DIRTY PATHS  %d recorded to this session (observations, not locks): %s\n",
-			len(dirty), joinCapped(paths, 512))
+	}
+	switch {
+	case len(paths) > 0:
+		goneTail := ""
+		if hidden > 0 {
+			goneTail = fmt.Sprintf("; %d more recorded in a worktree that no longer exists, not shown", hidden)
+		}
+		fmt.Fprintf(out, "DIRTY PATHS  %d recorded to this session (observations, not locks): %s%s\n",
+			len(paths), joinCapped(paths, 512), goneTail)
+	case hidden > 0:
+		fmt.Fprintf(out, "DIRTY PATHS  (none in a worktree that exists; %d recorded in a worktree that no longer exists, not shown)\n", hidden)
+	default:
+		fmt.Fprintln(out, "DIRTY PATHS  (none recorded)")
 	}
 
 	// BASE (D-038) — the commit this session's tree was on when its last
 	// reported turn ended, and where that stands against main NOW. Printed
 	// as "(none recorded)" rather than omitted (D-023): absent means the Stop
 	// hook has not reported, not that the tree is current.
-	bases, err := st.Bases()
-	if err != nil {
-		return err
+	var bases map[string]store.Base
+	if !exitOnly {
+		if bases, err = st.Bases(); err != nil {
+			return err
+		}
 	}
-	if rc.fleet != "" {
+	if exitOnly {
+		// Not read: EXIT does not use it, and its note runs git.
+	} else if rc.fleet != "" {
 		// The base sample is git's, and idle records none in a fleet (D-191).
-		fmt.Fprintln(env.Stdout, "BASE         not kept in a fleet ledger")
+		fmt.Fprintln(out, "BASE         not kept in a fleet ledger")
 	} else if b, ok := bases[si.SessionID]; ok && b.Incarnation == si.Incarnation {
-		fmt.Fprintf(env.Stdout, "BASE         %s, as of its last reported turn\n",
+		fmt.Fprintf(out, "BASE         %s, as of its last reported turn\n",
 			strings.TrimPrefix(newBaseReader(env.Cwd).note(now, b), "base "))
 	} else {
-		fmt.Fprintln(env.Stdout, "BASE         (none recorded; the Stop hook records it)")
+		fmt.Fprintln(out, "BASE         (none recorded; the Stop hook records it)")
 	}
 
 	// INBOX — messages queued and not yet drained. For a live session that is
@@ -260,9 +327,9 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 	// 2 s ago is a queue draining, and the same count with an oldest of 2 h is
 	// a channel nobody is reading. The count alone cannot tell them apart.
 	if len(msgs) == 0 {
-		fmt.Fprintln(env.Stdout, "INBOX        0 undelivered")
+		fmt.Fprintln(out, "INBOX        0 undelivered")
 	} else {
-		fmt.Fprintf(env.Stdout, "INBOX        %d undelivered, the oldest %s old\n", len(msgs), age(now, oldestOf(msgs)))
+		fmt.Fprintf(out, "INBOX        %d undelivered, the oldest %s old\n", len(msgs), age(now, oldestOf(msgs)))
 	}
 	// ADAPTER — the adapter channel, its own register (review F-24). INBOX
 	// counts the legacy channel only, so a full adapter queue used to print
@@ -271,7 +338,7 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(env.Stdout, "ADAPTER      "+adapterRegister(ab, now))
+	fmt.Fprintln(out, "ADAPTER      "+adapterRegister(ab, now))
 
 	// WAITING — what this session has declared it is waiting on (D-033), with
 	// the one Verdict every view renders, when its keep-alive last checked in,
@@ -286,11 +353,11 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 	}
 	if declared {
 		c, observed := sampleOf(st, si)
-		fmt.Fprintf(env.Stdout, "WAITING      on %s — declared %s ago, %s, %s; %s%s%s\n",
+		fmt.Fprintf(out, "WAITING      on %s — declared %s ago, %s, %s; %s%s%s\n",
 			waitPhrase(now, w), span(now.Sub(w.Since)), deadlinePhrase(now, w), lastCheckPhrase(now, w),
 			observedRequest(now, c, observed), readyPhrase(w), notePhrase(w))
 	} else {
-		fmt.Fprintln(env.Stdout, "WAITING      none declared")
+		fmt.Fprintln(out, "WAITING      none declared")
 	}
 	// WAITED ON — the other end (field notes §9's `blocked-on`): the sessions
 	// that declared a wait on a claim this one holds. Information; nothing
@@ -335,16 +402,16 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 		}
 		switch {
 		case len(waiting) == 0:
-			fmt.Fprintf(env.Stdout, "WAITED ON    %sby no declared wait\n", on)
+			fmt.Fprintf(out, "WAITED ON    %sby no declared wait\n", on)
 		case riders:
 			// A batched run forming (D-049): the holder reads who is in.
 			summary, lines := ridersLines(st, waiting, now)
-			fmt.Fprintf(env.Stdout, "WAITED ON    %sby %d session(s), %s:\n", on, len(waiting), summary)
+			fmt.Fprintf(out, "WAITED ON    %sby %d session(s), %s:\n", on, len(waiting), summary)
 			for _, ln := range lines {
-				fmt.Fprintln(env.Stdout, ln)
+				fmt.Fprintln(out, ln)
 			}
 		default:
-			fmt.Fprintf(env.Stdout, "WAITED ON    %sby %d session(s): %s\n", on, len(waiting), waitersPhrase(st, waiting, now))
+			fmt.Fprintf(out, "WAITED ON    %sby %d session(s): %s\n", on, len(waiting), waitersPhrase(st, waiting, now))
 		}
 	}
 
@@ -352,7 +419,7 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 	// this session's registration (D-028). Advisory: the file on disk
 	// changed after the session started; not that its contents differ from
 	// what the session read, nor that it has not re-read them since.
-	if top != "" && si.Live() {
+	if top != "" && si.Live() && !exitOnly {
 		changed, unread, err := authorityChanged(st, top, si)
 		if err != nil {
 			return err
@@ -361,10 +428,10 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 			// Worded as the measurement: no watched file carries a later
 			// mtime, and how many could not be read at all — not "nothing
 			// changed", which a missing file would make untrue.
-			fmt.Fprintf(env.Stdout, "AUTHORITY    no watched file's mtime is later than this session's start (%s)\n", unreadNote(unread))
+			fmt.Fprintf(out, "AUTHORITY    no watched file's mtime is later than this session's start (%s)\n", unreadNote(unread))
 		}
 		for _, a := range changed {
-			fmt.Fprintf(env.Stdout, "AUTHORITY    %s changed on disk %s ago, AFTER this session started (%s ago) — its copy may be stale\n",
+			fmt.Fprintf(out, "AUTHORITY    %s changed on disk %s ago, AFTER this session started (%s ago) — its copy may be stale\n",
 				fence.Line(a.Path, 512), age(now, a.ModTime), age(now, si.Started))
 		}
 	}
@@ -374,13 +441,13 @@ func sessionReport(env Env, st *store.Store, rc repoContext, si store.SessionInf
 	// read as speaking for the session.
 	line, jobsClause := jobsLine(env, st, si)
 	if line != "" {
-		fmt.Fprintln(env.Stdout, line)
+		fmt.Fprintln(out, line)
 	}
 	// JOB — each job declared on a claim in focus (job.go, D-131): the other
 	// half of JOBS, which sees what is present and never what died. A line only
 	// where a job was declared, so every other report reads as it did.
 	for _, ln := range declaredJobLines(env, focus, maxRows) {
-		fmt.Fprintln(env.Stdout, ln)
+		fmt.Fprintln(out, ln)
 	}
 
 	// EXIT — what ending the session would leave behind, on ONE line: the

@@ -72,11 +72,11 @@ yourself: that changes the operator's machine and settings.
 
 1. `buddy claim <slug> --desc "<what and why>" --scope <path> [--scope ...]`.
    A scope is a file or a directory prefix, with no globs. Use one `--scope` per
-   path. A comma list is refused, because it would name one file nobody has. A
+   path. A comma list is refused: it names one file nobody has. A
    claim is granted whole or refused whole. In a fleet ledger (outside git:
    `buddy status` opens `LEDGER ... fleet`), claim only `.buddy/slot/<item>`.
    From a repository, `buddy fleet <verb>` acts in the fleet.
-2. Not sure it will be granted? Run `buddy claim <slug> --dry-run --desc ... --scope ...`
+2. Unsure? Run `buddy claim <slug> --dry-run --desc ... --scope ...`
    (the slug comes first). It names every conflict and writes nothing. A claim
    a holder refuses, and a dry run that forecasts one, exits 4; not a
    repository, no ledger here, or a mistyped flag exits 1. Building the scopes
@@ -84,15 +84,16 @@ yourself: that changes the operator's machine and settings.
    `S=(--scope a --scope b)`.
 3. Every lane appends to one file (a playbook, a log)? Use `--shared`. Shared
    claims overlap each other and nothing else, a shared claim PARKED in a run aside (below).
-4. When you finish, run `buddy release <slug>`. Use `buddy release <slug> --scope <path>` to
+4. When you finish, `buddy release <slug>`. Use `buddy release <slug> --scope <path>` to
    hand back part of a claim early; the last scope closes the claim.
-5. `buddy ls` lists the open claims (`buddy ls --all` adds the closed ones).
+5. `buddy ls` lists the open claims (`--all` adds closed ones; `buddy ls <slug>` that one,
+   exit 1 if none). A pipe returns the filter's status, never buddy's.
 
 The gate denies an edit to a path inside another session's EXCLUSIVE claim.
 Inside a SHARED claim, it denies the edit until you hold a covering shared
 claim of your own. It does NOT stop you editing a path nobody holds. Claim it
 anyway: an unclaimed path is one any other session can claim out from under
-you. Enforcement is cooperative. Do not route around the gate, for example by
+you. Enforcement is cooperative. Do not route around the gate, as by
 writing through Bash. A call that names no path (an MCP tool, a doc
 connector) is not gated: claim what it writes anyway, because the claim is
 the reservation peers read.
@@ -175,21 +176,21 @@ by itself, so decide BEFORE you end a turn that something else will end:
 ## Finding out who is who
 
 - `buddy sessions` shows the roster: idle, paused, claims, context size, and wait
-  state (`buddy sessions --by started` orders it by start instead of last seen).
+  state (`buddy sessions --by started` orders by start, not last seen).
   Rows ended over 24h ago and live rows whose every process is GONE fold into one
   count line at the end; `buddy sessions --all` lists them. Its `base` column says where a session's tree stands against main;
-  `carries N commit(s) main DROPPED` means main was rewritten (an amend, a reset)
-  under that tree: rebase onto current main before trusting its numbers.
+  `carries N commit(s) main DROPPED` means main was rewritten under that tree (an
+  amend, a reset): rebase before trusting its numbers.
 - `buddy who <target>` is everything the ledger holds about one session. A
   target is a session id, a label, an `s-<8hex>` short form, or an open claim slug;
   a full id answers first, then a live session before an ended one.
-  Its EXIT line is the close test on one line: claims held, wait declared, shells
-  running (or "cannot say"), and any browser tool call it observed. Named by a claim slug, WAITED ON lists only that
-  claim's waiters. A bare `buddy who` reports you.
+  Its EXIT line (alone: `buddy who <target> --exit`) is the close test: claims held, wait
+  declared, shells running (or "cannot say"), any browser tool call it observed.
+  Named by a claim slug, WAITED ON lists only that claim's waiters.
 - `buddy whose <path>` shows who CLAIMED it, and which sessions' tool calls
-  named it while it has uncommitted changes. The second list is an
-  observation. It does not prove who wrote the changes.
-- `buddy status` is the same report about you.
+  named it while it has uncommitted changes: an observation, never proof of who
+  wrote them.
+- `buddy status`, or a bare `buddy who`, is the same report about you.
 
 ## Messages
 
