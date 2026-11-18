@@ -673,7 +673,7 @@ ledger row entered through the CLI (D-006).
     deferred, separate from `adapter inspect`.
 
 74. **The gate checks every spelling a write can land on, decides jurisdiction before
-    identity, and adds a nested repo's ledger to the home one (D-073).** Shell-routed
+    identity, and adds a nested repo's ledger to the home one (D-073, D-212).** Shell-routed
     `apply_patch`/`applypatch` (command position, Codex's in-process engine) refuses wherever
     a ledger governs, naming the tool; it is never parsed and adjudicated, because the
     payload omits the workdir. An identity conflict refuses only where a home or target

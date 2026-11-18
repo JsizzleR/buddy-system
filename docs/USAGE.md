@@ -177,7 +177,13 @@ resolves `..` after a symlink), each with the final link followed and as the lin
 entry itself (a delete or a move's source unlinks the entry), plus a dangling
 link's would-be target. Any one held refuses. A home claim covering a path
 inside a nested repository still refuses; the nested repository's own ledger is
-consulted as well.
+consulted as well. A nested repository with NO ledger (a `git init`ed or
+vendored clone, a submodule, a stale `.git` file) is governed by the first
+ledger above it, from every cwd: its claims and its brake apply to a file tool,
+a patch and a `cd` into it, and a session whose cwd is inside it takes that
+ledger as its home, so its refusal names that repository's root, where its
+claims are made (D-212). A nested repository WITH its own ledger is governed by
+that ledger alone, except from the enclosing repository's own cwd (#145).
 
 **Shell-routed patches are refused, not checked.** Codex also applies
 `apply_patch <<'EOF' … EOF`, `applypatch`, and `cd <dir> && apply_patch …` from
@@ -924,12 +930,15 @@ repository, a file tool's write into it from anywhere, and a shell command
 that changes into it LITERALLY (`cd <repo>`, `pushd`, `git -C <repo>`, `env
 -C`, `sudo -D`) from anywhere, also inside a quoted operand (`su -c '...'`,
 `watch '...'`), which is why `logger 'cd <repo>'` from a paused session is
-denied too (D-138). Not stopped, because the gate cannot
+denied too (D-138). "Inside the repository" includes a nested repository with
+no ledger of its own (a vendored clone, a submodule): the first ledger above it
+governs it (D-212). Not stopped, because the gate cannot
 place them: a command from outside the repository that reaches it through a
 variable (`cd "$d"`), a command substitution, a script or Makefile that
 changes directory, or a write by absolute path with no `cd` (`echo x >
 <repo>/f`), or a repository past the fourth distinct repository or plain
-directory one command reaches (the hook's latency bound). Enforcement is cooperative (D-005). `sweep
+directory one command reaches, or past its eighth discovery (the hook's
+latency bound). Enforcement is cooperative (D-005). `sweep
 --dry-run` is the real sweep rolled back inside its transaction, so what it
 prints is what a sweep would do.
 

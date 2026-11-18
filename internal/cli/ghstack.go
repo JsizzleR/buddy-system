@@ -89,7 +89,6 @@ package cli
 // skipped wherever the route reads a command, as a flag taking nothing.
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -288,12 +287,22 @@ func ghTakesValue(t string) bool {
 // nil when the hook cwd has none) and each governed repo a literal directory
 // change discovers. It returns the deny reason, or "" when every governed
 // ledger admits the caller or none governs (invariant 3: feature off).
-func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub string, repos map[string]gateRepo) string {
+//
+// A ledger the gate reached by walking up from a repository with no ledger
+// (#121, D-212; the home as rc.walked, a directory's as repo.walked) applies
+// its BRAKE, read before this runs, but not its slot: gh stack rewrites the
+// catalog in the common dir of the repository git finds from the command's
+// directory, the nested one, which the enclosing repository's slot does not
+// serialize, and the refusal's words would be false (panel latency lens, Q4).
+func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub string, repos *gateCache) string {
 	dirs, routeErr := shellPatchDirs(h, env.getenv("HOME"))
 	seen := make(map[string]bool)
-	if st != nil {
+	if st != nil && !rc.walked {
 		// The home ledger first, by its handle, never by a key match (a
-		// vanished cwd keys its directory two ways, D-102; the panel).
+		// vanished cwd keys its directory two ways, D-102; the panel). A
+		// walked home seeds nothing: the cwd's key is then the ledgerless
+		// repository's, which a bare repository nested in it shares (Codex
+		// design pass, P1), and its other directories settle at the home.
 		_, homeKey := repoKeyForDir(existingDir(filepath.Join(canon(h.Cwd), "x")))
 		seen[homeKey] = true
 		if routeErr != nil {
@@ -316,13 +325,16 @@ func gateGHStack(h hookInput, env Env, st *store.Store, rc repoContext, sub stri
 		seen[key] = true
 		repo := openGateRepo(h, env, dir, key, repos)
 		switch {
-		case errors.Is(repo.err, errNoLedger):
-			continue // not governed: outside our jurisdiction
+		case repo.off():
+			continue // not governed (outside our jurisdiction), or the home's
 		case repo.err != nil:
 			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",
 				fence.Line(dir, 512), fence.Line(repo.err.Error(), 512), fencedTool(h))
 		case repo.paused != "":
 			return repo.paused // the target repo's brake applies (F-28)
+		}
+		if repo.walked {
+			continue // its brake applied above; its slot is not this repository's
 		}
 		ledger, top, where := repo.st, repo.rc.top, repo.rc.top
 		if routeErr != nil {

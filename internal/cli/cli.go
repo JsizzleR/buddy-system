@@ -817,6 +817,9 @@ type repoContext struct {
 	// top is always "": a fleet has no root, so nothing that places a path
 	// (the dirty scan, the authority watch, whose) has anything to act on.
 	fleet string
+	// walked is set by the gate alone, on a home it took from the first
+	// ledger ABOVE a hook cwd whose own repository has none (#121, D-212).
+	walked bool
 }
 
 // revParse runs one bounded, locale-pinned `git rev-parse` and returns stdout
@@ -1157,7 +1160,7 @@ func ledgerProvablyAbsent(dir string) bool {
 	if !ok {
 		return false
 	}
-	_, err := os.Lstat(filepath.Join(common, ledgerName))
+	_, err := os.Lstat(common + "/" + ledgerName) // raw: commonDirOf says why
 	return errors.Is(err, os.ErrNotExist)
 }
 
@@ -1180,6 +1183,14 @@ func nearestGitEntry(dir string) (string, bool) {
 
 // commonDirOf resolves a .git entry to its common git directory, where the
 // ledger lives (a linked worktree shares its main checkout's).
+//
+// Each relative piece is appended RAW, never filepath.Join'ed: Join cleans
+// `..` lexically, and the kernel (and git) resolve it physically, after any
+// link before it. `gitdir: jump/../admin` with jump a link elsewhere named
+// <entry dir>/admin, which did not exist, so the absence proof skipped a
+// governing ledger in the link's parent (#121's Codex code pass, P1). The
+// raw spelling is what every caller hands to Lstat or ReadFile, which ask the
+// kernel; nothing compares it as a string.
 func commonDirOf(entry string) (string, bool) {
 	fi, err := os.Lstat(entry)
 	if err != nil {
@@ -1199,13 +1210,13 @@ func commonDirOf(entry string) (string, bool) {
 			return "", false
 		}
 		if !filepath.IsAbs(rest) {
-			rest = filepath.Join(filepath.Dir(entry), rest)
+			rest = filepath.Dir(entry) + "/" + rest
 		}
 		gitdir = rest
 	default:
 		return "", false
 	}
-	b, err := os.ReadFile(filepath.Join(gitdir, "commondir"))
+	b, err := os.ReadFile(gitdir + "/commondir")
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		return gitdir, true
@@ -1217,7 +1228,7 @@ func commonDirOf(entry string) (string, bool) {
 		return "", false
 	}
 	if !filepath.IsAbs(common) {
-		common = filepath.Join(gitdir, common)
+		common = gitdir + "/" + common
 	}
 	return common, true
 }
@@ -3382,6 +3393,21 @@ func cmdGate(args []string, env Env) int {
 		return 0
 	}
 	st, rc, err := openRepo(h.Cwd, env)
+	if errors.Is(err, errNoLedger) {
+		// A cwd in a repository with no ledger is still governed by the first
+		// ledger above it (#121, D-212): a session in R/vendor/lib, a
+		// `git init`ed directory or a submodule of governed R, used to have no
+		// home, so R's brake, its claims and the shell-patch and identity
+		// refusals all passed it by. Walked from the PHYSICAL cwd: git's own
+		// discovery is physical, and a cwd G/link -> R/vendor/lib walked
+		// lexically climbed to G and found nothing (panel, Codex design pass).
+		if start, ok := homeWalkStart(h.Cwd); ok {
+			if gov, found := enclosingLedger(env, start, nil); found {
+				st, rc, err = gov.st, gov.rc, gov.err
+				rc.walked = true
+			}
+		}
+	}
 	if err != nil && !errors.Is(err, errNoLedger) {
 		// Ambiguous discovery failure or unreadable ledger: fail closed.
 		// The words are D-084's register, the cause and the fix (issue #85).
@@ -3408,14 +3434,27 @@ func cmdGate(args []string, env Env) int {
 	}
 	// Reuse target-repo discovery for a multi-file patch. Distinct files in
 	// one foreign worktree must not each fork git and reopen its ledger.
-	targetRepos := make(map[string]gateRepo)
+	targetRepos := &gateCache{m: make(map[string]gateRepo)}
 	defer func() {
-		for _, repo := range targetRepos {
+		for _, repo := range targetRepos.m {
 			if repo.st != nil {
 				repo.st.Close()
 			}
 		}
 	}()
+	if st != nil && rc.top != "" {
+		// The walk from a nested target stops at the home's own .git entry,
+		// whose claims and brake the home arms adjudicate: compared by
+		// os.SameFile, never by folded key, which on a case-SENSITIVE volume
+		// matches /x/repo/.git to a home at /x/Repo (Fable panel lens).
+		if fi, err := os.Stat(filepath.Join(rc.top, ".git")); err == nil {
+			targetRepos.home = fi
+		}
+		if fi, err := os.Stat(rc.top); err == nil {
+			targetRepos.homeTop = fi
+		}
+		targetRepos.homeKey = filepath.Join(store.Fold(canon(rc.top)), ".git")
+	}
 	route := shellPatchRoute(h)
 	shellPatch := route.refuses()
 	// shellCmd is shellPatchRoute's own condition: a command the shell walker
@@ -3461,7 +3500,7 @@ func cmdGate(args []string, env Env) int {
 			// <governed> && make` from a plain cwd discovered nothing and
 			// passed (#81's Codex design pass, P1). The same bounded set the
 			// brake reads, without the cwd, already answered (latency lens).
-			for _, r := range reachedDirs(h, env, false) {
+			for _, r := range reachedDirs(h, env, "") {
 				dirs = append(dirs, r.dir)
 			}
 		}
@@ -3493,7 +3532,14 @@ func cmdGate(args []string, env Env) int {
 		}
 	}
 	if shellCmd {
-		if reason := gateReachedBrakes(h, env, st != nil, targetRepos); reason != "" {
+		skip := targetRepos.homeKey
+		if rc.walked {
+			// A walked home's key is the enclosing repository's, which a bare
+			// repository nested in it shares: skipping it passed a paused
+			// `cd <R>/cache.git` from a nested cwd (Fable cross-check).
+			skip = ""
+		}
+		if reason := gateReachedBrakes(h, env, skip, targetRepos); reason != "" {
 			deny(env, reason)
 			return 0
 		}
@@ -3570,7 +3616,12 @@ func cmdGate(args []string, env Env) int {
 // peer's claim on the enclosing directory. HEAD before the Codex work denied
 // both. Lexical containment says the home reservation applies; the nearest
 // .git says which OTHER ledger may also apply.
-func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeTop, homeKey string, repos map[string]gateRepo) string {
+//
+// A nested repository with NO ledger is not the end of it (#121, D-212): its
+// target is governed by the first ledger above it (openGateRepo's walk), so
+// from a plain or nested cwd the enclosing repository's claims still apply;
+// from the home itself that walk stops at the home, already checked here.
+func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeTop, homeKey string, repos *gateCache) string {
 	dir, targetKey := gateRepoKey(cp)
 	// An alias that placement folds into the home repo may not exist
 	// literally on a case-sensitive volume. Only a discovered nested
@@ -3578,7 +3629,13 @@ func gateTarget(st *store.Store, rc repoContext, h hookInput, env Env, cp, homeT
 	nested := targetKey != homeKey && strings.HasPrefix(targetKey, homeTop+"/")
 	if st != nil {
 		if rel, _, outside := placeCanonical(rc.top, cp); !outside {
-			if reason := denyIfHeld(st, h, env, rel, ""); reason != "" || !nested {
+			where := ""
+			if rc.walked {
+				// The cwd's own repository has no ledger: name the one that
+				// governs it, the root its claims are made from.
+				where = rc.top
+			}
+			if reason := denyIfHeld(st, h, env, rel, where); reason != "" || !nested {
 				return reason
 			}
 		}
@@ -3595,6 +3652,74 @@ type gateRepo struct {
 	// paused is the deny text when the operator's brake in THIS ledger
 	// stops the caller, computed once per repo per gate call.
 	paused string
+	// via is set on the entry of a repository with no ledger whose
+	// directories the first ledger ABOVE it governs (#121): the key of that
+	// ledger's own entry, which holds the handle. An alias owns nothing, so
+	// the deferred close closes each store once.
+	via string
+	// walked marks a repo returned through an alias: the walk reached it,
+	// git's own discovery did not (gh stack's slot is not required there).
+	walked bool
+	// settled marks the walk's stop at the home's own .git entry, whose
+	// claims and brake the home arms already adjudicated.
+	settled bool
+}
+
+// off reports that nothing more is adjudicated at this repo: no ledger
+// governs it, or the walk reached the home, already checked.
+func (r gateRepo) off() bool { return r.settled || errors.Is(r.err, errNoLedger) }
+
+// gateCache is one gate call's discovered repositories, keyed as
+// gateRepoKey keys them (each key discovered once), with the home's .git
+// entry the walk stops at.
+type gateCache struct {
+	m map[string]gateRepo
+	// home is os.Stat of the home ledger's <top>/.git and homeKey its
+	// folded key; both zero when the call has no home ledger.
+	home    os.FileInfo
+	homeTop os.FileInfo
+	homeKey string
+	// limit, when set, is the opens count past which a walk stops
+	// (gateReachedBrakes' budget); 0 is none.
+	limit int
+	// opens counts openRepo calls (git discoveries) the cache made, so a
+	// caller can bound them (gateReachedBrakes).
+	opens int
+}
+
+// atHome reports whether a .git entry is the home's own: the same .git AND
+// the same worktree directory. The .git alone is not enough: S/.git a link
+// to R/.git shares R's git directory with a different root, and a target in
+// S is outside every path the home claim check placed, so stopping there
+// passed it unread (Codex code pass, P1).
+func (c *gateCache) atHome(entry string) bool {
+	fi, err := os.Stat(entry)
+	if err != nil || !os.SameFile(fi, c.home) {
+		return false
+	}
+	di, err := os.Stat(filepath.Dir(entry))
+	return err == nil && c.homeTop != nil && os.SameFile(di, c.homeTop)
+}
+
+// lookup returns the repo cached under key, following an alias to the ledger
+// that governs it.
+func (c *gateCache) lookup(key string) (gateRepo, bool) {
+	repo, _, ok := c.lookupOwner(key)
+	return repo, ok
+}
+
+// lookupOwner is lookup that also names the key holding the handle. An alias
+// always names an owner directly (openGateRepo stores the owner's key, never
+// another alias), so one hop suffices.
+func (c *gateCache) lookupOwner(key string) (gateRepo, string, bool) {
+	repo, ok := c.m[key]
+	if ok && repo.via != "" {
+		owner := repo.via
+		repo = c.m[owner]
+		repo.walked = true
+		return repo, owner, true
+	}
+	return repo, key, ok
 }
 
 // gateRepoKey is only a discovery/cache hint. Failure to find a .git entry
@@ -3639,12 +3764,65 @@ func existingDir(p string) string {
 // a session whose cwd was another repo, or no repo, from editing X. The label
 // is the one THIS ledger knows the session by, or none; a label borrowed from
 // another ledger could name somebody else here.
-func openGateRepo(h hookInput, env Env, dir, key string, repos map[string]gateRepo) gateRepo {
-	if repo, ok := repos[key]; ok {
+//
+// Where git's discovery finds a repository with no ledger, the first ledger
+// above it governs dir (#121, D-212; enclosingLedger), and key becomes an
+// alias of the walked ledger's own "walk:" key. A ledger with a root is
+// opened once per call; one with no root, passed over, is opened by each walk
+// through it.
+func openGateRepo(h hookInput, env Env, dir, key string, repos *gateCache) gateRepo {
+	if repo, ok := repos.lookup(key); ok {
 		return repo
 	}
 	var repo gateRepo
 	repo.st, repo.rc, repo.err = openRepo(dir, env)
+	repos.opens++
+	if errors.Is(repo.err, errNoLedger) {
+		gov, found := enclosingLedger(env, dir, repos)
+		switch {
+		case gov.exhausted:
+			// The caller's budget ran out mid-walk: nothing was proved, so
+			// nothing is cached. A later file target asks again, unbudgeted;
+			// caching "no ledger" here let an Edit naming the same directory
+			// pass (re-verify, round 1).
+			return gateRepo{err: errNoLedger}
+		case gov.settled:
+			repos.m[key] = gov.gateRepo
+			return gov.gateRepo
+		case found:
+			owner := gov.key
+			if !gov.cached {
+				// A ledger the walk opened itself is kept under a key of its
+				// own, "walk:" + its .git key, never the .git key: a bare
+				// repository nested in that worktree keys with it (D-138's key
+				// collision), and git finds the bare one first from inside it.
+				// Under the shared key the walked ledger was discarded (and
+				// leaked) when the bare one held it (Codex code pass, P2), an
+				// error the walk found was dropped the same way (re-verify,
+				// round 1), and a later `cd <bare>` read the walked ledger's
+				// brake instead of the bare one's (Fable cross-check).
+				owner = "walk:" + owner
+				if _, ok := repos.m[owner]; ok {
+					if gov.st != nil {
+						gov.st.Close()
+					}
+				} else {
+					repos.m[owner] = gateBrake(h, gov.gateRepo)
+				}
+			}
+			if owner != key {
+				repos.m[key] = gateRepo{via: owner}
+			}
+			r, _ := repos.lookup(key)
+			return r
+		}
+	}
+	repos.m[key] = gateBrake(h, repo)
+	return repos.m[key]
+}
+
+// gateBrake reads the operator's brake for the caller in repo's ledger.
+func gateBrake(h hookInput, repo gateRepo) gateRepo {
 	if repo.st != nil {
 		label, err := sessionLabel(repo.st, h.SessionID)
 		var note string
@@ -3664,8 +3842,210 @@ func openGateRepo(h hookInput, env Env, dir, key string, repos map[string]gateRe
 			repo.paused = msg + " — stop current work there; wait for `buddy resume`."
 		}
 	}
-	repos[key] = repo
 	return repo
+}
+
+// walkResult is the ledger enclosingLedger found and the folded key of the
+// .git entry it was found at (the cache key of its handle).
+type walkResult struct {
+	gateRepo
+	key string
+	// cached: the result came from the call's cache, under key.
+	cached bool
+	// exhausted: the walk stopped on the caller's budget, not on proof.
+	exhausted bool
+}
+
+// enclosingLedger finds the ledger that governs start when git's own
+// discovery from start found a repository with NO ledger (#121, D-212): a
+// `git init`ed or vendored clone, a submodule, a stale .git file. Each .git
+// entry at and above start is visited in turn, nearest first:
+//
+//   - ABSENT, proved without git (ledgerAbsentAt): skipped. The nearest entry
+//     is normally the repository git just answered, and is skipped this way.
+//   - otherwise git is asked from the entry's directory. A ledger with a
+//     worktree root governs: found. A ledger with NO root (a bare-layout root,
+//     proj/.git above proj/scratch) places nothing inside itself and is
+//     passed (Fable panel lens: stopping there denied every write below it,
+//     with nothing that lifts the deny). "No ledger" from a discovery that
+//     SUCCEEDED is proof and is passed; from one that failed it is passed
+//     too unless Lstat sees a ledger file there (ledgerSeenAt), which git's
+//     "not a git repository" fast path cannot overrule (invariant 3; Codex
+//     design pass, P2). Any other error is found WITH that error: it denies.
+//
+// The walk stops at the home's own .git entry (c.home, os.SameFile) with
+// settled set: the home arms already read its claims and brake. It ends
+// explicitly at the root, where nearestGitEntry(Dir(Dir("/.git"))) would
+// return /.git again. found=false with nothing set is feature-off: no
+// ledger at or above start. c may be nil (the home's own walk); with one,
+// each entry's key is looked up before any open, so a ledger already open
+// in this call is not opened again (Codex design pass, Q5).
+//
+// The first ledger found ends the walk: a nested repository WITH a ledger
+// was `buddy init`ed to be coordinated on its own, and the home claim stays
+// additive beside it (D-073 F-03). Recorded open (D-212): from its own cwd or
+// a plain one, an enclosing repository's claim and brake do not reach it.
+func enclosingLedger(env Env, start string, c *gateCache) (walkResult, bool) {
+	entry, ok := nearestGitEntry(start)
+	for ok {
+		key := store.Fold(entry)
+		if c != nil && c.home != nil && c.atHome(entry) {
+			return walkResult{gateRepo: gateRepo{settled: true}, key: key}, false
+		}
+		if c != nil && c.limit > 0 && c.opens >= c.limit {
+			// The caller's discovery budget is spent (gateReachedBrakes):
+			// like the key bound, it invents no jurisdiction (D-138).
+			return walkResult{exhausted: true}, false
+		}
+		if c != nil {
+			// A key this call already discovered answers without a second open:
+			// its ledger, its error, or the home stop. One with no ledger, or
+			// with no root, is walked past like any other.
+			for _, k := range []string{"walk:" + key, key} {
+				r, owner, ok := c.lookupOwner(k)
+				if !ok {
+					continue
+				}
+				switch {
+				case r.settled:
+					return walkResult{gateRepo: r, key: owner, cached: true}, false
+				case r.err != nil && !errors.Is(r.err, errNoLedger), r.st != nil && r.rc.top != "":
+					return walkResult{gateRepo: r, key: owner, cached: true}, true
+				}
+			}
+		}
+		if !ledgerAbsentAt(entry) {
+			st, rc, err := openRepo(filepath.Dir(entry), env)
+			if c != nil {
+				c.opens++
+			}
+			switch {
+			case err == nil && rc.top != "":
+				return walkResult{gateRepo: gateRepo{st: st, rc: rc}, key: key}, true
+			case err == nil:
+				st.Close() // a ledger with no worktree root contains nothing
+			case errors.Is(err, errNoLedger) && rc.ledger != "":
+				// git FOUND the repository and openLedgerAt's Lstat says its
+				// ledger is absent: proved, by the discovery itself (a
+				// symlinked .git FILE, a relative pointer through a link).
+				// Only a discovery that failed, git's "not a git
+				// repository", is no proof (Codex code pass, P2).
+			case errors.Is(err, errNoLedger) && ledgerSeenAt(entry):
+				// git's discovery FAILED ("not a git repository") where Lstat
+				// sees a ledger file: that cannot overrule it (Codex design
+				// pass, P2). Where no ledger is seen (a dangling .git link, a
+				// .git git cannot read, a stale pointer behind a link) it is
+				// what git's discovery from that directory already reads as
+				// feature-off, and a deny there refused every call below it,
+				// ledger or none (Fable cross-check).
+				return walkResult{gateRepo: gateRepo{rc: rc, err: fmt.Errorf(
+					"cannot tell whether %s holds a buddy ledger: git cannot open that repository, and a ledger file is there", entry)}, key: key}, true
+			case errors.Is(err, errNoLedger):
+				// No ledger seen: walked past, to the next entry above. Falling
+				// to the default arm ended the walk on "no ledger" and missed a
+				// governing R above a dangling .git (Codex re-verify, round 2).
+			default:
+				return walkResult{gateRepo: gateRepo{rc: rc, err: err}, key: key}, true
+			}
+		}
+		dir := filepath.Dir(entry)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		entry, ok = nearestGitEntry(parent)
+	}
+	return walkResult{}, false
+}
+
+// ledgerAbsentAt reports whether NO ledger can be behind the .git entry,
+// proved without git: ledgerProvablyAbsent's test from the entry itself,
+// plus two shapes that test refuses to prove. A symlinked .git DIRECTORY is
+// proved through its target (a symlinked .git above a repository otherwise
+// cost a git process per call, and one git refuses for ownership spread a
+// deny over every healthy repository below it: Codex design pass, P2). And a
+// regular .git file that is not a `gitdir: ` pointer can hold no ledger: git
+// refuses it ("invalid gitfile format") and `buddy init` creates through
+// git's discovery, which fails there (Opus invariants lens). A symlinked
+// .git FILE is not proved: where git resolves its relative gitdir from is
+// not this code's to guess. Under GIT_DIR or GIT_COMMON_DIR nothing is
+// proved (git is not using the nearest .git at all).
+func ledgerAbsentAt(entry string) bool {
+	if os.Getenv("GIT_DIR") != "" || os.Getenv("GIT_COMMON_DIR") != "" {
+		return false
+	}
+	fi, err := os.Lstat(entry)
+	if err != nil {
+		return false
+	}
+	switch {
+	case fi.Mode()&os.ModeSymlink != 0:
+		target, err := filepath.EvalSymlinks(entry)
+		if err != nil {
+			return false
+		}
+		if tfi, err := os.Stat(target); err != nil || !tfi.IsDir() {
+			return false
+		}
+		entry = target
+	case fi.Mode().IsRegular() && fi.Size() <= 4096:
+		b, err := os.ReadFile(entry)
+		if err != nil {
+			return false
+		}
+		if !strings.HasPrefix(string(b), "gitdir: ") {
+			return true
+		}
+	}
+	common, ok := commonDirOf(entry)
+	if !ok {
+		return false
+	}
+	_, err = os.Lstat(common + "/" + ledgerName)
+	return errors.Is(err, os.ErrNotExist)
+}
+
+// ledgerSeenAt reports whether Lstat sees a ledger file behind the .git
+// entry, resolved as ledgerAbsentAt resolves it: the evidence that a failed
+// discovery there cannot be read as feature-off.
+func ledgerSeenAt(entry string) bool {
+	if fi, err := os.Lstat(entry); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(entry)
+		if err != nil {
+			return false
+		}
+		entry = target
+	}
+	common, ok := commonDirOf(entry)
+	if !ok {
+		return false
+	}
+	_, err := os.Lstat(common + "/" + ledgerName)
+	return err == nil
+}
+
+// homeWalkStart is where the home's walk starts when the hook cwd's own
+// repository has no ledger: the PHYSICAL cwd, or for a vanished one the
+// deepest existing directory an empty one would be created in (D-102's
+// walk, never a lexical climb of the dead path).
+func homeWalkStart(cwd string) (string, bool) {
+	if !filepath.IsAbs(cwd) {
+		// A relative hook cwd is the process's own, which is what git's
+		// discovery just read: rejecting it skipped the walk, and a paused
+		// session's `touch x` from cwd "." passed (Codex code pass, P2).
+		// Joined RAW, never filepath.Abs, which cleans `jump/..` lexically
+		// where the kernel resolves it after the link (re-verify, round 1);
+		// canon and the vanished walk below both resolve it physically.
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", false
+		}
+		cwd = wd + "/" + cwd
+	}
+	if cwdVanished(cwd) {
+		return vanishedCwdAncestor(cwd)
+	}
+	return canon(cwd), true
 }
 
 // gateForeignRepo adjudicates a target outside the session's own repo: if it
@@ -3673,11 +4053,13 @@ func openGateRepo(h hookInput, env Env, dir, key string, repos map[string]gateRe
 // (the session id won't match any session there, so every open scope is
 // foreign). target is canonical (gateTargets) and is placed without resolving
 // it again.
-func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[string]gateRepo) string {
+func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos *gateCache) string {
 	repo := openGateRepo(h, env, dir, key, repos)
 	st, rc, err := repo.st, repo.rc, repo.err
-	if errors.Is(err, errNoLedger) {
-		return "" // not buddy-governed → genuinely outside our jurisdiction
+	if repo.off() {
+		// Not buddy-governed → genuinely outside our jurisdiction; or the
+		// walk reached the home, whose claim gateTarget already checked.
+		return ""
 	}
 	if err != nil {
 		return fmt.Sprintf("buddy: target %s is in a repo whose ledger is unavailable (%s); refusing %s",
@@ -3741,12 +4123,18 @@ func gateForeignRepo(h hookInput, env Env, target, dir, key string, repos map[st
 // on top of the gate's 20. Past the bound the rest are not read: like an
 // exhausted routing budget, it invents no jurisdiction, and a crafted command
 // can hide a paused repository behind four others (recorded open in D-138).
-func gateReachedBrakes(h hookInput, env Env, home bool, repos map[string]gateRepo) string {
-	for _, r := range reachedDirs(h, env, home) {
+func gateReachedBrakes(h hookInput, env Env, homeKey string, repos *gateCache) string {
+	start := repos.opens
+	repos.limit = start + maxReachedOpens
+	defer func() { repos.limit = 0 }()
+	for _, r := range reachedDirs(h, env, homeKey) {
+		if repos.opens-start >= maxReachedOpens {
+			break // invents no jurisdiction; recorded open (D-138, D-212)
+		}
 		dir, key := r.dir, r.key
 		repo := openGateRepo(h, env, dir, key, repos)
 		switch {
-		case errors.Is(repo.err, errNoLedger):
+		case repo.off():
 			continue
 		case repo.err != nil:
 			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",
@@ -3761,23 +4149,41 @@ func gateReachedBrakes(h hookInput, env Env, home bool, repos map[string]gateRep
 // maxReachedBrakes bounds the ledgers gateReachedBrakes discovers per call.
 const maxReachedBrakes = 4
 
+// maxReachedOpens bounds the git discoveries those keys may cost, the walk
+// above a ledgerless repository's included (#121, D-212): a key in a
+// ledgerless repository nested in a distinct governed one costs two, so
+// four of them would have cost eight where four plain directories cost four
+// (each a failing discovery, two git processes). Eight discoveries is that
+// worst case's process count; past it the rest are not read, as past the key
+// bound. It is enforced between keys AND inside a walk (gateCache.limit): a
+// chain of bare-layout roots above one key let a single walk run past it
+// (Codex code pass, P3).
+const maxReachedOpens = 2 * maxReachedBrakes
+
 type reachedDir struct{ dir, key string }
 
 // reachedDirs is the bounded set of directories a shell command's literal
 // directory changes reach that the home discovery has not already answered,
 // at most maxReachedBrakes distinct keys: gateReachedBrakes reads their
 // brakes, and the ambiguous-identity arm their jurisdiction.
-func reachedDirs(h hookInput, env Env, home bool) []reachedDir {
+//
+// homeKey is the home ledger's own .git key, "" with no home: a base under
+// it reads the ledger whose brake was just read. It used to be the CWD's
+// nearest .git, the same key until a cwd in a ledgerless repository took the
+// first ledger above it as its home (#121): then a bare repository nested in
+// that cwd's repository, keyed with it, was skipped unread, and its pause
+// with it (Codex design pass, P1).
+func reachedDirs(h hookInput, env Env, homeKey string) []reachedDir {
 	bases := shellBaseDirs(h, env.getenv("HOME"))
 	if len(bases) < 2 {
 		return nil
 	}
-	cwdDir, cwdKey := repoKeyForDir(bases[0])
+	cwdDir, _ := repoKeyForDir(bases[0])
 	var out []reachedDir
 	keys, dirs := map[string]bool{}, map[string]bool{}
 	for _, d := range bases[1:] {
 		dir, key := repoKeyForDir(d)
-		if dir == cwdDir || (home && key == cwdKey) || dirs[dir] {
+		if dir == cwdDir || (homeKey != "" && key == homeKey) || dirs[dir] {
 			continue
 		}
 		if !keys[key] {
@@ -3798,12 +4204,12 @@ func reachedDirs(h hookInput, env Env, home bool) []reachedDir {
 // lies in a buddy-governed repo, the unavailable-ledger refusal when one cannot
 // be read (invariant 3: that is DENY, never off), and "" when every one is
 // provably ungoverned.
-func governedAny(h hookInput, env Env, dirs []string, why string, repos map[string]gateRepo) string {
+func governedAny(h hookInput, env Env, dirs []string, why string, repos *gateCache) string {
 	for _, d := range dirs {
 		dir, key := repoKeyForDir(d)
 		repo := openGateRepo(h, env, dir, key, repos)
 		switch {
-		case errors.Is(repo.err, errNoLedger):
+		case repo.off():
 			continue
 		case repo.err != nil:
 			return fmt.Sprintf("buddy: %s is in a repo whose ledger is unavailable (%s); refusing %s",

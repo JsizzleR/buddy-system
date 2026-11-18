@@ -16368,6 +16368,125 @@ entry itself) found the live-process remedy, four unnamed render sites, the unwa
 an uncontrolled pin; 3 s of one writer and three readers on two handles tore 0 of 33,844 reads.
 Codex re-verify round 1 (xhigh: 0 raised) confirmed the five folds; round 2 was not needed.
 
+## D-212 — The first ledger at or above a directory governs it: a nested repository with no ledger keeps the enclosing repository's claims and brake, from every cwd; the home ledger stays additive (issue #121; amends D-073 F-03, D-138)
+
+2026-11-17 · issue #121, the 2026-11 audit's G2. Lane nested-claims (Opus 5.5 at high), run r1117c,
+class code, tier full. Q1 ruled by orc-5 at 21:20Z on a Fable 5.2 judgement-call ruling: first
+ledger, home additive.
+
+**What was wrong.** Reproduced at 39c0c92 with a binary built from that tree, in a throwaway
+repository and HOME: governed `R`, `R/vendor/lib` a `git init`ed repository with no ledger, `R/mods/sub`
+a submodule; A holds `vendor` and `mods`. B's Edit of `R/vendor/lib/x.c` was DENIED from cwd R (D-073
+F-03) and ALLOWED from cwd `R/vendor/lib`, from a relative Write there, and from a plain directory
+above R (the control, `R/src/a.go` under a claim on `src` from the same cwd, denied); the submodule
+the same. Paused in R, B's `cd R/vendor/lib && touch f` passed from both cwds, and so did a path-less
+`touch f` from the nested cwd and an Edit from the parent. Every site asked git which ledger governs
+a directory; git stops at the NEAREST repository, and its "no ledger" was read as feature-off: the
+gate's home (`cmdGate`'s `openRepo`), a file target (`gateForeignRepo`), a reached `cd` (`gateReachedBrakes`),
+the ambiguous-identity and shell-patch arm (`governedAny`) and gh stack's directories.
+
+**The rule.** Where git's discovery finds a repository with no ledger, each `.git` entry above it
+is visited, nearest first (`enclosingLedger`): one whose ledger is ABSENT, proved without git
+(`ledgerAbsentAt`: the `commonDirOf` test, a symlinked `.git` directory proved through its target,
+a `.git` file that is no `gitdir:` pointer holding none), is skipped; otherwise git is asked there.
+A ledger with a worktree root governs. A ledger with no root (a bare-layout `proj/.git` above
+`proj/scratch`) places nothing and is passed. "No ledger" where absence was not proved, and any
+other error, DENIES (invariant 3: git's "not a git repository" fast path cannot overrule a ledger
+Lstat saw). The walk ends at the root explicitly and, for a target, at the home's own `.git`
+(`os.SameFile`), whose claims and brake the home arms already read; the home claim check in
+`gateTarget` is unchanged (D-073 F-03). `openGateRepo` runs it for every site; the gate's home runs
+it from the PHYSICAL cwd (`canon`), or a vanished cwd's deepest existing directory (D-102). Each
+call opens an enclosing ledger once: an entry's key is looked up before any open, and a nested key
+is an alias that owns no handle.
+
+**Verdicts that change.** Every bold row above now DENIES (A's claim, or B's pause, in R), from
+the nested cwd, a relative path there, a plain parent, a symlinked or vanished cwd; so do the
+ambiguous-identity and shell-patch refusals from a cwd inside a ledgerless nested repository of R,
+and an Edit under a governed `.git` that exists but cannot be read, or that Lstat sees behind a
+`.git` git calls "not a git repository". A cwd on a filesystem mounted inside R is now governed by R
+(git stopped at the mount). Unchanged: a ledgerless repository nested in nothing governed, under a
+`.git` git cannot open at all, under a symlinked `.git` directory with no ledger, or under a
+bare-layout root, stays feature-off. A deny from a walked home names the governing root (`(in
+<R>)`), where its claims are made. gh stack from a nested cwd: the walked ledger's BRAKE applies,
+its `.buddy/slot/gh-stack` does not (the nested repository's catalog lives in its own common dir).
+
+**What else moved.** `reachedDirs` skips a base by the HOME's own `.git` key, no longer the cwd's
+nearest: with the home now R, a bare repository nested in the cwd's ledgerless repository keys with
+it, and skipping that key passed a paused `cd cache.git && touch f` that HEAD denied (Codex design
+pass, P1); gh stack's `seen` the same. The reached-brake bound adds `maxReachedOpens` (8 git
+discoveries, the walk's included) beside the four keys: four reached keys, each a ledgerless
+repository in a distinct governed one, cost eight and are all read.
+
+**Open, recorded, not recognized.**
+- A nested repository WITH a ledger (`git init` + `buddy init` in `R/vendor/gov`, A holding
+  `vendor` in R): B's Edit from cwd R DENIES (D-073 F-03, unchanged, now tested), from cwd
+  `R/vendor/gov` and from a plain parent ALLOWS; `pause all` in R does not stop B's `touch f` from
+  cwd `R/vendor/gov`. Pinned by `TestGateLedgerBearingNestedRepoRows`; #145 asks whether `init`
+  should refuse inside a governed worktree or every distinct governed ancestor should apply.
+- `hello` and the typed verbs do not walk (orc-5's ruling): a session that said hello only inside a
+  ledgerless nested repository is unregistered in R; `pause all` and a pause by id stop it, by label
+  not; its claims are made from R's root.
+- The commit gate never runs in a nested repository (`core.hooksPath` is R's local config).
+- A ledger-bearing BARE repository between a ledgerless one and R is not a `.git` entry and is not
+  visited (D-138's bare residual).
+- Without a stop at the root the walk would not end where `/.git` exists; the stop is code, not
+  tested (no hermetic fixture can make `/.git`).
+- The walk is bounded by path depth, not a count; a git process only per entry not proved absent.
+- Recorded from the Fable cross-check, base allows too, crafted: a target spelled through a firmlink
+  (`/System/Volumes/Data<R>/...`) from cwd R is settled at the home though the home check placed
+  nothing; a RELATIVE hook cwd with a relative file path walks from the relative directory. `beat`
+  does not walk either: a holder whose cwd is in the nested repository stops heartbeating in R.
+- Accepted mutant survivors: `ledgerAbsentAt`'s GIT_DIR guard (the hook verbs scrub it, D-137), the
+  walk's cached settled/error arms and the between-keys budget break (each verdict-equivalent given
+  the in-walk limit and the key bound).
+
+**Latency** (Fable cross-check, a binary from the tree, load 12, medians of 30): Edit from cwd N
+36 ms against 26 at base; Bash from cwd N 27 against 16; Edit into N from a plain cwd 46 against
+31; `cd N` from a plain cwd 47 against 34; an ungoverned ledgerless repository 24 against 24. Each
+under the 100 ms budget; the cwd-N Edit discovers N twice (the home's answer is not seeded in the
+cache).
+
+**Review (full tier).** Panel on the design note (Fable 5.2: nested write shapes, symlinks and
+case; Opus 5.5: invariants 2/3/14 and the brake; Opus 5.5: latency and every bypass): 18 raised,
+9 reproduced on the base binary, folded into the design's v2. Codex design @xhigh: PASS WITH
+CHANGES, 4 raised, 4 fixed (a bare repository under a nested cwd skipped once the home is R; a
+lexical home walk through a symlinked cwd; git's "not a repository" overruling a present ledger; a
+symlinked `.git` above spreading a deny). Q1 ruled by orc-5 (21:20Z) on a Fable judgement call:
+first ledger, home additive. Codex code @xhigh: REJECT, 6 raised, 6 fixed (a lexical `gitdir:`
+join; the home stop by `.git` alone; a collided key discarding the walked governor; a successful
+discovery's absence read as "cannot tell"; a relative hook cwd; the budget not binding inside a
+walk). Fable cross-check (Fable 5.2, the diff, a binary from the tree): 8 raised, 5 fixed (a new
+deny under a dangling `.git` where nothing governs; two bare-collision regressions; overclaiming
+comments; untested arms and controls), 3 answered (recorded above). Codex re-verify @xhigh, round
+1: REJECT, 3 raised, 3 fixed (an error lost in a collision; `filepath.Abs` cleaning `jump/..`; an
+exhausted budget cached as absence); round 2, the ceiling: REJECT, 1 raised, 1 fixed (a failed
+discovery with no ledger seen ended the walk instead of continuing to R), its fold tested and
+mutated, not re-reviewed.
+
+**Tests and mutants.** `internal/cli/nestedgate_test.go`: every issue row and the brake row for a
+`git init`ed, a stale-pointer and a submodule-shaped nested repository, from cwd R, nested,
+nested-relative, plain, symlinked and vanished (also behind a link), file tools, the apply_patch
+tool, `cd`, `git -C`, the ambiguous identity, a shell patch, gh stack; each refusal beside its
+control (the holder, unpaused, nothing governing). Each was watched to FAIL on the base tree. The
+three states, the bare collision both orders, the budget (four keys read, eight bare roots past
+it, an exhausted walk not cached), the pinned open rows, and the cache counted (`opens`, the alias,
+the home stop). Mutants in private rsync'd copies, one guard each: 21 on the first code, 19 killed
+at once and 2 after a test or a rewrite; 6 on the code-pass folds, 3 on round 1's, 7 on the
+cross-check's, all killed; 1 on round 2's, killed once its fixture was a stale pointer behind a
+link (git skips a dangling link and finds R itself, so the first fixture never reached the arm).
+
+### Where it lives
+- code: `internal/cli/cli.go` (`enclosingLedger`, `ledgerAbsentAt`, `ledgerSeenAt`,
+  `homeWalkStart`, `gateCache`, `openGateRepo`, `gateBrake`, `gateTarget`, `reachedDirs`,
+  `maxReachedOpens`, `commonDirOf`); `internal/cli/ghstack.go` (`gateGHStack`)
+- tests: `internal/cli/nestedgate_test.go`
+- docs: `docs/USAGE.md` (every spelling; the brake's governed calls)
+- index: CLAUDE.md § Decisions, the "Gate jurisdiction" line
+- charter: GIVEN 74 names D-212 (the core charter's 11 free bytes held only the number)
+- follow-up: #145
+- amends: D-073 (F-03's nested arm now walks past a ledgerless repository), D-138 (the reached-brake
+  skip key and bound)
+
 ## D-213 — A served room is read, cursored and acked by the spelling its journal rows carry, so another letter case or a trailing space reads the room, never a quiet one; the digest's help line and `--help`'s wait row arm `/loop buddy wait check` only if the declaration's reply says to (amends D-024, D-203)
 
 2026-11-17. GitHub #124, #139 (the 2026-11 audit's chat and docs findings), run r1117d, lane room-hints, lite tier. Each reproduced by a test watched to fail on 6fb58ac in a private copy.
