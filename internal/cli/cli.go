@@ -1083,16 +1083,23 @@ func placeable(cwd, p string) bool { return filepath.IsAbs(p) || !cwdVanished(cw
 // stopped existing (invariant 3). For a hook's cwd, resolveRepo first tries a
 // deleted one's deepest existing ancestor (D-102).
 func discoverRepo(dir string) (repoContext, error) {
-	if out, err := revParse(dir, "--git-common-dir", "--show-toplevel"); err == nil {
+	out, err := revParse(dir, "--git-common-dir", "--show-toplevel")
+	if err == nil {
 		if common, top, ok := splitTwoPaths(out); ok {
 			return repoContext{ledger: filepath.Join(common, ledgerName), top: top}, nil
 		}
+	}
+	if gitSetupSaysNoRepository(out, err) {
+		// The second call below would repeat the same failed setup and print
+		// the same fatal line (#142): every hook outside a repository paid
+		// for two git processes, the gate on an Edit there for four.
+		return repoContext{}, errNoLedger
 	}
 	// One question at a time. Three ways to get here, all rare and none of them
 	// worth a guess: a repo with no worktree (bare — the combined form exits
 	// non-zero even though the common dir did print), a path containing a
 	// newline, and a real failure that is about to be diagnosed below.
-	out, err := revParse(dir, "--git-common-dir")
+	out, err = revParse(dir, "--git-common-dir")
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -1158,6 +1165,39 @@ func gitSaysNotARepository(stderr []byte) bool {
 		}
 	}
 	return false
+}
+
+// gitSetupSaysNoRepository reports whether discovery's FIRST call failed in
+// git's own setup with "no repository here", so that the second call, which
+// differs only in not asking --show-toplevel, would fail the same way (#142).
+// Setup fails before rev-parse reads any option; the second call answers
+// differently only when setup SUCCEEDED and --show-toplevel then died (a bare
+// repository, a cwd inside .git, GIT_DIR naming a bare one), and then the
+// common directory is already on stdout. So all three must hold, and anything
+// else takes the second call and today's classification unchanged: a miss
+// costs one git process and never a verdict.
+//
+//   - exit 128, git's die(): not a timeout or a signal (-1), not a shell's 127;
+//   - stdout EMPTY: the structural test that setup failed (panel lens a);
+//   - stderr BEGINS with the text, at byte 0, never a later line: a config
+//     value can forge a fatal-looking line inside a warning, and a bare
+//     repository whose core.fsyncMethod is "bogus\nfatal: not a git
+//     repository" printed that warning, then the work-tree fatal, exit 128,
+//     where the second call succeeds (Codex design pass, P1). Anchored, the
+//     warning comes first and the match misses. So does a GIT_TRACE line or a
+//     localized `fatal: ` prefix: each costs the second call, as before.
+//
+// The two texts are gitSaysNotARepository's: git's "not a git repository"
+// (the parent-directories, mount-point and bad-GIT_DIR forms all start so)
+// and git 2.56's gitfile wording (D-219).
+func gitSetupSaysNoRepository(stdout string, err error) bool {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 128 || stdout != "" {
+		return false
+	}
+	s := string(ee.Stderr)
+	return strings.HasPrefix(s, "fatal: not a git repository") ||
+		strings.HasPrefix(s, "fatal: gitfile does not point to a valid repository: ")
 }
 
 // hasGitAncestor reports whether dir or any ancestor contains a .git entry
@@ -1304,6 +1344,12 @@ func openLedgerAt(rc repoContext, env Env) (*store.Store, error) {
 // name the path it looked for still can.
 func openRepo(dir string, env Env) (*store.Store, repoContext, error) {
 	rc, err := resolveRepo(dir)
+	return openResolved(rc, err, env)
+}
+
+// openResolved is openRepo's second half, for a caller that keeps the
+// discovery itself (cmdGate hands its cwd's to openGateRepo, #142).
+func openResolved(rc repoContext, err error, env Env) (*store.Store, repoContext, error) {
 	if err != nil {
 		return nil, rc, err
 	}
@@ -3573,7 +3619,11 @@ func cmdGate(args []string, env Env) int {
 		deny(env, fmt.Sprintf("buddy gate %s; refusing %s", fence.Line(err.Error(), 512), fencedTool(h)))
 		return 0
 	}
-	st, rc, err := openRepo(h.Cwd, env)
+	// The cwd's discovery is kept apart from the ledger open and the D-212
+	// walk below, which overwrite rc and err: openGateRepo reuses THIS pair,
+	// git's answer for the cwd's own spelling (#142; panel lenses a and b).
+	cwdRC, cwdErr := resolveRepo(h.Cwd)
+	st, rc, err := openResolved(cwdRC, cwdErr, env)
 	if errors.Is(err, errNoLedger) {
 		// A cwd in a repository with no ledger is still governed by the first
 		// ledger above it (#121, D-212): a session in R/vendor/lib, a
@@ -3617,6 +3667,7 @@ func cmdGate(args []string, env Env) int {
 	// one foreign worktree must not each fork git and reopen its ledger.
 	targetRepos := &gateCache{m: make(map[string]gateRepo)}
 	defer targetRepos.closeAll()
+	targetRepos.cwd = &discoveredDir{dir: h.Cwd, rc: cwdRC, err: cwdErr}
 	if st != nil && rc.top != "" {
 		// The walk from a nested target stops at the home's own .git entry,
 		// whose claims and brake the home arms adjudicate: compared by
@@ -3964,6 +4015,43 @@ type gateCache struct {
 	// own collects the call's placements for the own-claim arm (D-228,
 	// ownclaim.go); nil when BUDDY_OWN_CLAIM=off or no session is named.
 	own *ownJudge
+	// cwd is the gate's own discovery of the hook cwd, which openGateRepo
+	// reuses for a directory spelled the same (resolve); nil outside cmdGate.
+	cwd *discoveredDir
+}
+
+// discoveredDir is resolveRepo's answer for one directory string.
+type discoveredDir struct {
+	dir string
+	rc  repoContext
+	err error
+}
+
+// resolve is resolveRepo(dir) for openGateRepo, answered from the gate's own
+// discovery of its cwd when dir is that cwd spelled BYTE FOR BYTE the same
+// (#142): an Edit in a plain directory discovered the cwd, then the target's
+// directory, the same one, again. The same function on the same string a few
+// milliseconds later is the same verdict, up to the TOCTOU window the gate
+// already accepts (D-005); nothing after discovery is reused.
+//
+// Not keyed by anything looser. Not os.SameFile: a Linux bind mount gives one
+// inode two ancestries, a bare /x/cache.git/refs bound at /x/plain/view, and
+// git finds the bare repository from one and nothing from the other (Codex
+// design pass, P1). Not the canonical spelling: discoverRepo's lexical arms
+// (hasGitAncestor, ledgerProvablyAbsent, the substring match on a `-C` path git
+// echoes) read the spelling (panel lenses a and b). Not repos.m: its key, the
+// folded nearest .git entry, is shared by a bare repository nested in a
+// worktree, so a seeded gateRepo there skipped the enclosing repository's
+// brake for `cd <R> && touch x` (panel lens b). A cwd spelled through a link
+// (/var for /private/var) misses here and pays one more git process.
+//
+// opens is still counted, so gateReachedBrakes' budget runs out exactly where
+// it did.
+func (c *gateCache) resolve(dir string) (repoContext, error) {
+	if c.cwd != nil && dir == c.cwd.dir {
+		return c.cwd.rc, c.cwd.err
+	}
+	return resolveRepo(dir)
 }
 
 // atHome reports whether a .git entry is the home's own: the same .git AND
@@ -4059,7 +4147,7 @@ func openGateRepo(h hookInput, env Env, dir, key string, repos *gateCache) gateR
 	// the home's included (#145's cost lens: a target in R after a walk
 	// through a nested repository opened R a second time).
 	var shared *handle
-	repo.rc, repo.err = resolveRepo(dir)
+	repo.rc, repo.err = repos.resolve(dir)
 	if repo.err == nil {
 		if cd, err := os.Stat(filepath.Dir(repo.rc.ledger)); err == nil {
 			shared = repos.handleFor(cd)

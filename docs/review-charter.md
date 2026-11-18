@@ -414,13 +414,13 @@ ledger row entered through the CLI (D-006).
     revises D-032's no-"delivered" rule, for a report of an OBSERVED delivery row. Do not
     propose withholding, retraction, read receipts, or ownership by label or `--from`.
 
-47. **A repository git refuses, with no ledger in it, is feature-off (D-044).** On a git
-    refusal (not "not a git repository") with a `.git` above the path, the nearest `.git`
-    (through `gitdir:` and `commondir` for a linked worktree) is checked for `buddy.db` without
-    git. Only a positive "does not exist" allows. A present ledger, an unreadable path, an
-    unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` still deny (outside a hook: the hook verbs
-    unset git's local environment and the ceiling at entry, D-137). A cwd that does not exist at all (exact ENOENT) is not a refusal: since D-102 it is
-    discovered from its deepest existing ancestor first, and this check applies there.
+47. **A repository git refuses, holding no ledger, is feature-off (D-044).** On a git refusal (not
+    "not a git repository") under a `.git`, the nearest one (through `gitdir:`/`commondir` for a
+    linked worktree) is checked for `buddy.db` without git. Only a positive "does not exist" allows.
+    A present ledger, an unreadable path, an unparsable pointer, or `GIT_DIR`/`GIT_COMMON_DIR` deny
+    (outside a hook: hook verbs unset git's local env and ceiling at entry, D-137). A missing cwd
+    (exact ENOENT) is not a refusal: it is discovered from its deepest existing ancestor first
+    (D-102), where this check applies. Do not loosen D-230 (the second `rev-parse`, the cwd reuse).
 
 48. **A message says what kind of claim it carries, as the SENDER's declaration (D-045).**
     `msg --lead | --measured "<scope>" | --relay <source>`, at most one, rendered between `#id`
