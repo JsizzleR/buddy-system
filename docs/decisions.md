@@ -17596,7 +17596,7 @@ Never this repository's `buddy.db`, an install or a hook: the harness runs git o
 - Control: none possible. Under Code Mode `REPL` is the only top-level tool (Write and Edit exist only as functions inside it), so the plain-call cell of the brief did not run; the armed control is A, and B's delivery is its own positive.
 - The result file's Write (outside the repository, ungoverned) drew no line; its replay is silent.
 
-So, on this build and mode: an inner call's PreToolUse `additionalContext` reaches the model (not D-195's poll-event discard, which is a UserPromptSubmit on background code), but Claude Code delivers one copy of identical hook text per run of code. The warn names the path and not the tool, so a second uncovered call on the SAME path in one script is silent, and a lane that claims after the first line covers both. Whether two DIFFERENT uncovered paths in one script each deliver (dedup by text, as the notice says) or only the first does was not separated: n=1, one script.
+So, on this build and mode: an inner call's PreToolUse `additionalContext` reaches the model (not D-195's poll-event discard, which is a UserPromptSubmit on background code), but Claude Code delivers one copy of identical hook text per run of code. The warn names the path and not the tool, so a second uncovered call on the SAME path in one script is silent, and a lane that claims after the first line covers both. Whether two DIFFERENT uncovered paths in one script each deliver (dedup by text, as the notice says) or only the first does was not separated: n=1, one script. (Separated in D-237: by text.)
 
 ### O2 — Codex
 
@@ -17609,6 +17609,8 @@ So, on this build and mode: an inner call's PreToolUse `additionalContext` reach
 So D9's premise, that Codex marks a hook run failed on the field, did not hold on 0.169.0 in this run: the context reached the model and the patch went ahead. n=2 delivered, 1 armed block, one session.
 
 **0.165.0**, the retained admitted build (`~/.buddy/harness/codex/0.165.0-a4509915/codex`, `--version` 0.165.0): UNRUN. Its fixture was built beside the first (own repository, ledger, peer and records; same probe build and brief) and launched, and it was still at Codex's folder-trust dialog when this entry was written; the run was not waited for. Open.
+
+**Amended (D-237).** Both runs' hooks ran in Codex's app-server daemon, 0.170.0 from 21:19Z, with the named TUI its client: the 0.169.0 cell above is that server's, and 0.165.0, run since, is not measured either.
 
 ### What this does NOT settle
 
@@ -17631,3 +17633,52 @@ So D9's premise, that Codex marks a hook run failed on the field, did not hold o
 - index: CLAUDE.md § Decisions, the "Claims" line
 - charter: GIVEN 15 names D-236
 - amends: D-228 (Open O3: answered for Code Mode, acceptEdits, 2.1.327; Open O2: answered for 0.169.0, open for an admitted build; D9's "marks a hook run failed": not seen on 0.169.0), D-229 (its "O2 … O3 … stay open")
+
+## D-237 — O2b and O3b measured: the hooks of BOTH O2 runs ran in Codex's machine-wide app-server daemon, 0.170.0, with the named TUI as its client; that server delivered each warn as a developer message (6 of 6 over both runs) and blocked the peer's patch; 0.165.0's and 0.169.0's own hook engines stay UNMEASURED. In Code Mode (Claude Code 2.1.328) two DISTINCT uncovered paths in one script each deliver, and only their identical repeats are left out: dedup by text (amends D-236, D-235)
+
+2026-11-19 (UTC) · lane o2b-record (Opus 5.5 at high, run r1118i, class research, tier lite) under orc-11, recording the probe orc-11 typed into the 0.165.0 pane once the operator had trusted the fixture's project and its one hook (the operator's word, "O2 on BOTH versions", D-236), and a second O3 probe, the operator's word relayed by orc-11, said in its pane at 03:42Z: "do the second o3 probe". The lane launched nothing: it read the O2b run's files, its rollout, Codex's `logs_2.sqlite` and the process table, built the O3b fixture, and orc-11 launched it.
+
+### O2b — Codex 0.165.0
+
+**What ran.** D-236's O2 fixture `o2-165`: its own repository and ledger, stand-in peer `o2b-peer` (`5f1be096…`) holding `peer.txt`, project `.codex/hooks.json` PreToolUse `^(apply_patch|Bash)$` through a recording wrapper around `BUDDY_HARNESS=codex <probe> gate`, the probe build the 0.169.0 run used (`o2/buddy-probe`, 5b3dedf less D9's Codex return; sha256 `0d01daae56c95c74…`), the same brief. The pane ran `~/.buddy/harness/codex/0.165.0-a4509915/codex`, whose `bin/codex` hashes to `a45099154d7fb4a5…`, the admission record's build (`2026-10-29-codex-0.165.0-a4509915`). (`LAUNCH.txt`'s comments swap the two fixtures' peer names and name a probe path beside it; the wrapper and the gate's own output are what ran.)
+
+**The server, not the TUI, ran the hooks.** Codex's TUI here is a client of a machine-wide app-server daemon over a unix socket. Every one of the thread's 87 `logs_2` rows (`thread_id` `01a1f1e0-76a5-…`, 03:36:22Z to 03:39:26Z) carries one `process_uuid`, pid 32238, whose argv is `~/.codex/packages/app-server-daemon/releases/0.170.0-aarch64-apple-darwin/bin/codex app-server --listen unix:// …`, started 21:19:22Z; its request spans name `app_server.client_name="codex-tui" app_server.client_version="0.165.0"`, and its model requests `client_version=0.170.0`. The only other process logging in the window, pid 37892 (22:04:34Z to 03:37:19Z, a TUI by its rows), logged only `codex_tui`, HTTP and config rows. pid 32238 emitted 7 `hook/started` and 7 `hook/completed` events in the run's window, one pair per recorded payload, at the times of the rollout's calls. The rollout's `session_meta.cli_version` is `0.170.0`. The daemon's `current` link points at 0.170.0 since 21:19Z (its `selection-history` names 0.169.0 too): an auto-update, by every sign read.
+
+The 0.169.0 run D-236 records went the same way: its thread (`01a1f082-…`) was started at 21:14:23Z by pid 89920, a server whose model requests name `client_version=0.169.0` (its rows end 21:18:45Z), and pid 32238 resumed the running thread at 21:19:23Z (`resume_running_thr…`, `client_version="0.169.0"`, the TUI). Its three warns reached the rollout at 22:03:45Z, 22:03:47Z and 22:03:58Z, and every core row of that turn is pid 32238's. Its `session_meta.cli_version` `0.169.0` is the server that STARTED the thread, not the one that ran the turn.
+
+Why the TUI used the daemon and not a server of its own was not looked for beyond `~/.codex/config.toml`, where no key names a daemon or a listen address.
+
+**The turn** (`turn_context`): model `gpt-6-astra`, effort `xhigh` (the 0.169.0 turn's was null), approval `on-request`, sandbox `workspace-write` (network off); the payloads' `permission_mode` `default`. Codex made each patch from its code-mode `exec` (`tool_use_id` `exec-…`, `codex_code_mode::timing` rows).
+
+**Counts**, over the 7 PreToolUse payloads the wrapper recorded (`gate-stderr.log` empty, every status 0):
+- 3 Bash calls (the brief read and two lookups): the gate wrote nothing.
+- `A`, an `apply_patch` Update of `peer.txt`: DENIED. The rollout's tool output: "Script failed … Command blocked by PreToolUse hook: peer.txt is inside scope "peer.txt" claimed by session o2b-peer (slug "o2b-peer": stand-in peer for O2 0.165.0 probe). Coordinate or claim different scopes. …" (buddy's reason); `peer.txt` still `peer`.
+- `B` (Add `mine.txt`), `C` (Update it), `R` (Add `RESULT.md`): each applied (`mine.txt` is `mine-edited`), and each warn DELIVERED: the rollout holds a `developer` message after each call whose text equals the gate's `additionalContext` byte for byte (582, 582, 584 bytes; B's and C's identical, and both delivered), each tagged `content_item_kinds: ["hooks.additional_context"]`, provenance `{"type":"harness","hook":true}`, the tags the 0.169.0 rollout's three also carry. The line is the 0.169.0 run's but for the fixture path (`o2-165` for `o2`, its 4 more bytes), including its `buddy hello` step for a session with no ledger row.
+- Hook failure: none seen. The rollout has no hook-status record; every "failed" in it is A's "Script failed". The thread's 87 rows hold no WARN or ERROR (DEBUG 46, INFO 28, TRACE 13); across every process in the window, 1 ERROR is the tool router logging A's block, and the other 11 WARN/ERROR rows (websocket, SSE, HTTP client, skills) name no hook. The TUI logged none. The pane was not read by this lane.
+
+**What it settles.** For the 0.170.0 app-server, under a 0.165.0 and a 0.169.0 TUI: a PreToolUse `additionalContext` with no decision reaches the model as a developer message on each patch, an identical repeat included, the patch goes ahead, and no failure is recorded; a deny blocks. n: 2 runs, 6 of 6 warns delivered, 2 of 2 armed blocks, one model, one turn at `xhigh` and one with effort unrecorded (null), code-mode `exec` only.
+
+**What it does not settle.** One run per cell is no rate. D-228's O2 asks about an ADMITTED version: 0.170.0 has no admission record, and neither 0.165.0's nor 0.169.0's hook engine ran a hook in either run, so O2 on an admitted build is still OPEN; D-236's "Codex 0.169.0 delivers" reads "the 0.170.0 server delivers, under a 0.169.0 TUI". A cell that measures a named build needs that build to run the turn itself (no daemon, or a daemon pinned to it). The admitted-engine cell is recorded OPEN, not pending a run: orc-11's advice to the operator (03:49Z), since interactive lanes run on whatever the daemon runs and an adapter worker's Codex warn is refused at launch (D-235's choice D). It does not show that the gate's Codex silence (D9) was ever needed: no build has been seen marking the field failed. Nothing here changes code: D9's silence, D-235's refusal of a Codex warn at launch and D-228's D10 stand, each the operator's to move.
+
+### O3b — two distinct paths in one Code Mode script
+
+**Measured over.** Claude Code 2.1.328 (every transcript entry's `version`; the first O3 ran 2.1.327), model `claude-sonnet-5-5`, `--permission-mode acceptEdits`, `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1`, the installed `~/bin/buddy` main 9fb33d7 (`go version -m`), `BUDDY_OWN_CLAIM` unset (`warn`), the user settings' gate loaded unchanged, a recorder-only `--settings` file. n: one session (`2d09278e-…`, 03:46:36Z), one script, five inner calls.
+
+**The fixture**, D-236's recipe in the lane's scratchpad: `git init`, one commit, `buddy init`; stand-in peer `o3b-peer` holding `peer.txt`. Armed before the launch: replayed Write payloads for an unknown session drew the warn on `one.txt` and the deny on `peer.txt`, and the gate's document for `one.txt` hashed the same for Write and Edit and differently from `two.txt`'s. So in the script `A` Edit `peer.txt`, `B` Write `one.txt`, `C` Write `two.txt`, `D` Edit `one.txt`, `E` Edit `two.txt`, B and C carry distinct text, D repeats B's and E repeats C's. Dedup by text predicts B and C delivered, D and E left out; first line only predicts B alone. The prompt went BEFORE `--add-dir` this time and was taken from the argv: the first user turn equals it byte for byte and came 56 ms after the SessionStart hooks (the operator answered the folder-trust dialog).
+
+**Result.**
+- `A`: DENIED; the REPL result carries buddy's holder reason ("peer.txt is inside scope "peer.txt" claimed by session o3b-peer …").
+- `B`: written, line DELIVERED: a `hook_additional_context` attachment, `PreToolUse`, `toolUseID` B's inner id (`repl_8cfec150…`), "BUDDY UNCLAIMED: no claim of this session covers one.txt …".
+- `C`: written, line DELIVERED: the same, C's id (`repl_d7def156…`), naming `two.txt`.
+- `D`, `E`: edited, NO line each. One `PostToolUse` attachment, `toolUseID` `repl-hook-feedback-limit`, the notice D-236 quotes ("…left out hook messages from this code's tool calls that repeated one already sent…"). Each recorded PreToolUse payload replayed to the installed gate: D's document byte-identical to B's, E's to C's.
+- The result file's Write, outside the repository, drew nothing.
+
+So Claude Code drops a repeat of hook text already sent in the same run of code, not every line after the first: 2 of 2 distinct lines delivered, 2 of 2 repeats left out, one script. Read with that notice's own caps (50 messages, 50,000 characters a run of code), a script touching a few uncovered paths would show one line per path and one that edits a path twice one line; only two paths were measured. The O3 cell of D-236 and this one differ in build (2.1.327, 2.1.328) as well; one run per cell is no rate.
+
+**Review.** Lite. Self-review: 3 raised, 3 fixed (a claim that the 0.169.0 line lacked the `buddy hello` step, when only the fixture path differs; the TUI's pid stated where its rows only suggest it; the daemon's selection order read as history). Codex@xhigh code pass (`CODEX_DIFF=9fb33d7..5eb60b2`): 2 raised, 2 fixed (O3b's reading generalized past two paths and the notice's caps; "two efforts" where one turn's is null).
+
+### Where it lives
+- No code or test changed. Evidence: this entry; the fixtures and Codex's files stay where they are, the operator's.
+- index: CLAUDE.md § Decisions, the "Claims" line
+- charter: GIVEN 15 names D-237
+- amends: D-236 (its O2 is the 0.170.0 server's, and 0.165.0 is run but not measured; its O3's open dedup question: by text), D-235 (its Open's "measured … on Codex 0.169.0" reads the same way)

@@ -97,8 +97,8 @@ ledger row entered through the CLI (D-006).
     is the discriminator the alert path depends on (D-009).
 15. **The commit gate refuses claim COLLISIONS only, and warns before it denies (D-012).**
     Staged paths no claim of the committer covers are REPORTED, never refused, while a
-    peer holds a claim (D-228, D-229, D-236, the operator's word; the gate warns on such edits).
-    `dirty_paths` was cut: a peer's tool call naming a file is not authorship of the
+    peer holds one (D-228, D-229, D-236, D-237, the operator's word; the gate warns on such edits).
+    `dirty_paths` was cut: a peer's tool call naming a file is not authorship of
     staged hunks. No pre-push CLAIM gate: it would judge old commits by CURRENT claims.
     (This repo's `pre-push` hook, unrelated, runs the hermetic tier.)
 16. **`pause`, `resume` and `msg` share ONE target namespace, resolved before it is stored
