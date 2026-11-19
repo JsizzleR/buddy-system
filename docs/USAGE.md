@@ -1904,6 +1904,55 @@ lifecycle beat records no browser call. A call made with its cwd outside the
 ledger's repository lands nowhere: beat picks the ledger from the payload's cwd. A hook delayed across a `bye` and a `hello` is credited to the new
 incarnation, because the payload names none.
 
+### The memory slot — `buddy mem` (D-238)
+
+A machine-wide admission slot for HEAVY starts, so sessions in every repository
+cannot all start a test run in the same minute (#144: twelve lanes resumed 3 s
+apart froze a 24 GB laptop twice). It is OFF until the operator runs
+`buddy mem init [--floor-gb <n>]` (default 4 GB); `~/.buddy/mem/config.json`
+is the switch, and deleting it turns the slot off; macOS only (init refuses where no reading can be taken). Its state is not the ledger
+(that is per repository, D-001): `~/.buddy/mem/bookings.json`, rewritten whole
+under a flock(2) on `lock`, fsynced; `overrides.log` records every override and
+init.
+
+`buddy gate` judges a shell call the claims phase allowed, ledger or none. Only
+text that runs is read (mvdan.cc/sh, as for patches): a quoted `go test` in a
+commit message or a `buddy msg` books nothing. A whole-package or `-race` Go
+test, build, vet or install books 3 to 6 GB, `scripts/check.sh` 8, another
+`check-*.sh` 3, a `podman machine start` 4, a lane start (`herdr agent start`,
+`claude --bg` or `--resume`) 1, a `codex exec` or `codex-review.sh` 0.5.
+Sequential parts take the max, a pipeline or `&` adds up, a loop of lane starts
+counts its items. The call is refused when free memory, less what is booked,
+less its own cost would sit under the floor, or kernel pressure is warn or
+worse, or swap is over 8 GB with under 30% free. A booking fades to nothing over
+90 s (by then the start is in the free reading); `buddy beat` drops a
+foreground call's booking when it ends. A failed call reaches beat only on
+`PostToolUseFailure`: README's hook block carries that line (matcher `Bash`),
+and `install.sh --wire-hooks` appends it when missing. A lane, a VM and
+`&`-detached work are never released early; they fade.
+
+A refusal is a wait: re-send the command as
+`buddy mem admit <kind>... --wait 900 && { <command>; }` under
+run_in_background (the braces keep every statement behind the admit).
+`admit` holds a PENDING place in line, re-judged every 15 s, which later
+arrivals count in full, so smaller starts cannot starve it; it exits 0 admitted
+(or with the slot off), 3 still refused, 1 on an error. The gate does not judge
+that tail again when the kinds admitted cover it. A script that starts heavy
+work inside asks `admit` itself; `.githooks/pre-push` asks
+`buddy mem admit tier --wait 1800` where the slot is on, the local script
+otherwise. `buddy mem status` prints free, booked, floor, pressure, swap and
+every row.
+
+Fail mode: with the slot on, a HEAVY call is denied, naming the cause, when the
+state cannot be read, parsed or locked, or no memory reading can be taken
+(invariant 3's "exists but unreadable"); a light call never touches the slot.
+`BUDDY_MEM_OK='<reason>' <command>` skips the verdict, still books, and is
+logged; an empty reason, or one that cannot be logged, is judged normally. It
+is the operator's word only, as are init and `--reset`. Codex is judged where
+its gate is wired; nothing releases a Codex row, so it fades. Not read: script
+files other than the check scripts, `make`, `go test $pkgs` (one package), a
+delayed start, a throwaway `HOME`. Cooperative, as the gate is (D-005).
+
 ## One long run closes out several sessions
 
 `buddy wait --ready` and `buddy release --outcome` (D-049). A slot takes

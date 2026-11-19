@@ -34,7 +34,10 @@ on the machine is resuming too, so other repositories' lanes count.
 3. **Rank the lanes** by what waits on them: an item a run is waiting to
    land, one a peer waits on, then the rest. Resume in that order.
 4. **One lane at a time** (Opening lanes): resume it, wait for its first
-   report, and only then, if the memory check admits it, the next. A lane is
+   report, and only then, if the memory check admits it (`buddy mem status`
+   where the slot is on), the next. The slot drops bookings from before a
+   reboot by itself; `buddy mem init --reset` (clear every booking) and
+   `buddy mem init --floor-gb <n>` are the operator's, never yours. A lane is
    resumed with the harness, with its own session id (`claude --resume <its
    session id>` in its tab), and a prompt that says: you were resumed after
    a crash; re-run at most ONE heavy job at a time (a test run, a done-check,

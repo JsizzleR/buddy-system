@@ -7,7 +7,7 @@ and the install report's reading of a settings file against it (D-107).
     python3 -I scripts/gate-hook.py legacy                # the old fail-open command, one line
     python3 -I scripts/gate-hook.py check-readme <README.md> [<USAGE.md>]
     python3 -I scripts/gate-hook.py report <settings.json>
-    python3 -I scripts/gate-hook.py browser-report <settings.json>
+    python3 -I scripts/gate-hook.py browser-report <settings.json>   # also the failure beat (D-238)
     python3 -I scripts/gate-hook.py tokens                # install.sh's `wanted`, one line
 
 WHY THE LINE CHANGED. The documented gate was
@@ -100,6 +100,11 @@ README_HOOKS = {
     "Stop": [{"hooks": [_cmd("buddy", "idle")]}],
     "UserPromptSubmit": [{"hooks": [_cmd("buddy", "busy")]}],
     "SessionEnd": [{"hooks": [_cmd("buddy", "bye"), _cmd("buddylist", "presence --gone")]}],
+    # The memory slot's release of a FAILED shell call (D-238): Claude Code
+    # sends a failed call PostToolUseFailure, never PostToolUse, so without it
+    # a `go test ./...` that failed at 5 s held its booking until the fade
+    # (90 s), and the re-run that fits was refused (panel, Codex design pass).
+    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [_cmd("buddy", "beat")]}],
 }
 # The two optional #71 entries (D-134), USAGE "The browser slot".
 BROWSER_MATCHER = "mcp__.*"
@@ -110,7 +115,17 @@ BROWSER_HOOKS = {ev: [{"matcher": BROWSER_MATCHER, "hooks": [_cmd("buddy", "beat
 TOKENS = [("buddy hello", "SessionStart"), ("buddy gate", "PreToolUse"), ("buddy beat", "PostToolUse"),
           ("buddy idle", "Stop"), ("buddy bye", "SessionEnd"), ("buddy busy", "UserPromptSubmit"),
           ("buddylist alert", "PostToolUse"), ("buddylist presence", "SessionEnd"),
-          ("browser PreToolUse", "PreToolUse"), ("browser PostToolUseFailure", "PostToolUseFailure")]
+          ("browser PreToolUse", "PreToolUse"), ("browser PostToolUseFailure", "PostToolUseFailure"),
+          ("failure beat", "PostToolUseFailure")]
+# A DECODED token is not install.sh's grep: `buddy beat` reads as wired on any
+# event and any matcher alike, so the browser beats and the failure beat are
+# judged from the decoded file (browser_gone, failure_gone) and appended by
+# --wire-hooks when gone, never named in `wanted`.
+FAILURE_TOKEN = "failure beat"
+
+
+def decoded(token):
+    return token.startswith("browser ") or token == FAILURE_TOKEN
 
 
 def line_for(token):
@@ -120,6 +135,8 @@ def line_for(token):
     ev = dict(TOKENS)[token]
     if token.startswith("browser "):
         return ev, BROWSER_HOOKS[ev][0]
+    if token == FAILURE_TOKEN:
+        return ev, README_HOOKS[ev][0]
     binary, verb = token.split(" ")
     for e in README_HOOKS[ev]:
         for h in e["hooks"]:
@@ -434,6 +451,32 @@ def browser_gone(settings):
     return [] if gone == ["PostToolUseFailure"] else gone
 
 
+def selects_bash(m):
+    names = matcher_names(m)
+    if names == "*":
+        return True
+    if names is None:
+        try:
+            return re.search(m, "Bash") is not None
+        except (re.error, TypeError):
+            return True
+    return "Bash" in names
+
+
+def failure_gone(settings):
+    """No buddy beat on PostToolUseFailure selects Bash: the memory slot's
+    release of a failed shell call is not wired (D-238). Read as the browser
+    beats are; one Python cannot read is not judged (counted as present)."""
+    hooks = settings.get("hooks") or {}
+    return not any(selects_bash(m) for m in beat_matchers(hooks, "PostToolUseFailure"))
+
+
+def gone_tokens(settings):
+    """The decoded tokens --wire-hooks appends: the browser beats, then the
+    failure beat."""
+    return ["browser " + ev for ev in browser_gone(settings)] + ([FAILURE_TOKEN] if failure_gone(settings) else [])
+
+
 UNREADABLE = (ValueError, RecursionError, AttributeError, TypeError)
 
 
@@ -457,6 +500,13 @@ def browser_report(settings):
         out.append('hooks: no buddy beat on %s for browser tools, so `who` misses a browser call %s; docs/USAGE.md "The browser '
                    'slot" has the optional lines (#71)' % (" or ".join(gone), " or ".join(
                        {"PreToolUse": "in flight", "PostToolUseFailure": "that failed"}[ev] for ev in gone)))
+    try:
+        failed = failure_gone(settings)
+    except UNREADABLE:
+        failed = False
+    if failed:
+        out.append('hooks: no buddy beat on PostToolUseFailure for Bash, so a failed heavy shell call keeps its memory-slot '
+                   'booking until it fades (90 s); README "Hook wiring" has the line (D-238)')
     return out
 
 
@@ -508,7 +558,7 @@ def main(argv):
         for l in lines:
             print(l)
     elif argv == ["tokens"]:
-        print(" ".join(t for t, _ in TOKENS if not t.startswith("browser ")))
+        print(" ".join(t for t, _ in TOKENS if not decoded(t)))
     elif argv[:1] == ["check-readme"] and len(argv) in (2, 3):
         try:
             got = readme_entries(argv[1])

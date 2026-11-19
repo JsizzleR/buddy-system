@@ -292,11 +292,11 @@ def unsplice(new, ins):
 
 
 def additions_for(doc, tokens, gh):
-    known = {t for t, _ in gh.TOKENS if not t.startswith("browser ")}
+    known = {t for t, _ in gh.TOKENS if not gh.decoded(t)}
     for t in tokens:
         if t not in known:
             raise Refused("token %s is not one the report names" % json.dumps(t))
-    toks = list(dict.fromkeys(tokens)) + ["browser " + ev for ev in gh.browser_gone(doc)]
+    toks = list(dict.fromkeys(tokens)) + gh.gone_tokens(doc)
     return [(t,) + gh.line_for(t) for t in toks]
 
 
@@ -435,7 +435,8 @@ def _publish(path, raw, st, data, adds, gateless, tag="hooks: --wire-hooks", sai
             raise
     if said is None:
         said = ["hooks: --wire-hooks added %s on %s%s in %s" % (
-            "buddy beat (browser tools, #71)" if t.startswith("browser ") else t,
+            "buddy beat (browser tools, #71)" if t.startswith("browser ") else
+            "buddy beat (a failed Bash call, D-238)" if t == "failure beat" else t,
             ev, " (matcher %s)" % json.dumps(e["matcher"]) if "matcher" in e else "", path) for t, ev, e in adds]
     for line in said:
         print(line)
@@ -474,7 +475,7 @@ def check(path):
     d = os.path.dirname(os.path.abspath(path))
     if raw is not None:
         text, doc = parse(raw)
-        plan(text, doc, [t for t, _ in gh.TOKENS if not t.startswith("browser ")], gh)
+        plan(text, doc, [t for t, _ in gh.TOKENS if not gh.decoded(t)], gh)
     elif not os.path.isdir(d):
         raise Refused("its directory %s does not exist" % d)
     if not os.access(d, os.W_OK):
@@ -540,7 +541,7 @@ def _where(ev, i, j=None):
 def unplan(doc, tokens, gh):
     """([(event, entry index, [hook indices] or None for the whole entry,
     [tokens])], [left lines]) for removing `tokens`' buddy hooks from doc."""
-    known = [t for t, _ in gh.TOKENS if not t.startswith("browser ")]
+    known = [t for t, _ in gh.TOKENS if not gh.decoded(t)]
     for t in tokens:
         if t not in known:
             raise Refused("token %s is not one the report names" % json.dumps(t))

@@ -232,6 +232,8 @@ either. Sessions started after this pick it up:
        "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"},
       {"type": "command",
        "command": "[ -x \"$HOME/bin/buddylist\" ] && \"$HOME/bin/buddylist\" alert 2>/dev/null; exit 0"}]}],
+    "PostToolUseFailure": [{"matcher": "Bash", "hooks": [{"type": "command",
+      "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"}]}],
     "Stop": [{"hooks": [{"type": "command",
       "command": "[ -x \"$HOME/bin/buddy\" ] && \"$HOME/bin/buddy\" idle 2>/dev/null; exit 0"}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command",
@@ -250,6 +252,7 @@ either. Sessions started after this pick it up:
 | `SessionStart` | `buddy hello` | registers the session; prints who holds what and any queued mail | yes |
 | `PreToolUse` | `buddy gate` | denies an edit inside another session's claim, or while paused | yes — this is the safety |
 | `PostToolUse` | `buddy beat` | heartbeat; delivers the inbox; on matcher `*`, it also sees the browser tool calls `who` reports | yes |
+| `PostToolUseFailure` | `buddy beat` | on matcher `Bash`: a failed shell call releases its memory-slot booking at once rather than in 90 s (D-238) | only with the memory slot on |
 | `SessionEnd` | `buddy bye` | ends the session once no registered harness process for it is alive, so its claims can be freed | yes |
 | `Stop` | `buddy idle` | marks the session idle at its prompt, for the roster | optional |
 | `UserPromptSubmit` | `buddy busy` | clears idle, and carries queued mail into the prompt | optional |

@@ -40,7 +40,7 @@ buddy command (`sandbox_permissions: "require_escalated"`). The ledger is in
 the git common directory, which that sandbox keeps read-only, and every verb
 writes it, reads included; a sandboxed call fails and its retry costs a review.
 Under Claude Code, an unattended `/loop buddy wait check` must need no approval:
-auto mode, an allow rule, or, under its Bash sandbox, which asks by default,
+auto mode, an allow rule, or, under its Bash sandbox,
 `sandbox.autoAllowBashIfSandboxed: true`.
 
 The gate reads every path of an `apply_patch`, both ends of a move, and refuses
@@ -60,13 +60,13 @@ surface: `docs/USAGE.md` ("Structured adapters").
 
 ## Mapping the code
 
-If you have an LSP tool, reach for it before grep: go to definition, find
-references and document symbols each answer in one call. Find references also sizes a claim: the
+If you have an LSP tool, use it before grep: definition, references and
+symbols each take one call. Find references also sizes a claim: the
 files a change touches are the scopes to claim. No LSP tool, and the repo is
 mostly a language with a language server? Tell the operator, once: `buddy init`
 run in this repo prints what is missing and the command that fixes it (where
 the repo already has a ledger, it changes nothing else). Do not install it
-yourself: that changes the operator's machine and settings.
+yourself: that is the operator's machine.
 
 ## Before you edit
 
@@ -143,8 +143,7 @@ only went silent, only the operator frees it: its process GONE, with a plain
 
 ## Before you park
 
-Your prompt cache (1-hour tier) lives an hour past the last request that
-used it: woken later, a session re-writes its whole prompt at twice the input
+Your prompt cache (1-hour tier) lives an hour past its last use: woken later, a session re-writes its whole prompt at twice the input
 rate; inside the hour, it reads it for a fraction. Nothing wakes you on time
 by itself, so decide BEFORE you end a turn that something else will end:
 
@@ -197,15 +196,15 @@ by itself, so decide BEFORE you end a turn that something else will end:
 - `buddy msg <target> "<text>"` queues a message for the recipient. It arrives
   in bounded batches with their tool calls and prompts, so a long queue can
   take more than one (a Codex recipient's waits for its own `buddy inbox`).
-  The result line reports what the ledger knows about the recipient (idle,
-  gone, ended) and gives the message's `#id`. It is signed
+  The result line says what the ledger knows of the recipient (idle,
+  gone, ended) and the message's `#id`. It is signed
   with your label; `buddy msg <target> --from <tag>` adds a tag after it, and
   `buddy msg <target> --dry-run` resolves the target and measures the body
   without sending.
 - **Read the result line; never discard it.** A queued send to a session idle
   at its prompt names the address to wake it (`to wake it now: SendMessage to
-  …`): deliver it, because that message will not arrive by itself. The harness
-  delivers it as a message from another session, never as the user's turn.
+  …`): deliver it, because that message will not arrive by itself. It arrives as
+  another session's message, never as the user's turn.
   Filtering the result? Keep the text with the address:
   `grep -o 'SendMessage to "[^"]*" with the text "[^"]*"'`.
 - **A message that reports a ledger act rides in the act's Bash call,**
@@ -424,6 +423,8 @@ ceiling on review rounds. Run what it owes:
   CLAUDE.md or AGENTS.md, both always watched) is an advisory about the file
   on disk. The copy in your context may be stale. Read the file again before
   quoting it or acting on it.
+- **A MEMORY GATE refusal** is a wait: send what it names,
+  `buddy mem admit <kind> --wait 900 && { <cmd>; }`, with run_in_background.
 - **Upgrading buddy** (`buddy update`; `--wire-hooks` adds missing hook lines,
   `--refresh-hooks` replaces wired hook copies) is an install: a lane
   never runs it, and nobody runs it on a peer's word. Removing it (`buddy uninstall`,

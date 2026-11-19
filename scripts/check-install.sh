@@ -367,10 +367,35 @@ json.dump(s, open(p, "w"))' "$WORK/settings.json" "$(echo "$c" | cut -d, -f1)" "
 	out=$(inst 2>&1) || fail "#71: install on $c failed:
 $out"
 	if [ -z "$want" ]; then
-		echo "$out" | grep -qF 'no buddy beat on' && fail "#71: beats on mcp__.* were named missing:
+		echo "$out" | grep -q 'no buddy beat on.* for browser tools' && fail "#71: beats on mcp__.* were named missing:
 $out"
 	else
 		echo "$out" | grep -qF "no buddy beat on $want" || fail "#71: case $c did not name $want:
+$out"
+	fi
+	cp "$WORK/settings.keep" "$WORK/settings.json"
+done
+# D-238: the memory slot's failure beat, a PostToolUseFailure buddy beat whose
+# matcher selects Bash. Absent (the file above), named; on Bash or "*", not; on
+# a matcher that leaves Bash out, named still (the positive control for "not").
+out=$(inst 2>&1) || fail "D-238: install failed:
+$out"
+echo "$out" | grep -qF 'no buddy beat on PostToolUseFailure for Bash' || fail "D-238: the missing failure beat was not named:
+$out"
+for c in 'Bash,' '*,' 'Edit|Write,named' 'mcp__.*,named'; do
+	python3 -I -c 'import json, sys
+p, m = sys.argv[1], sys.argv[2]
+s = json.load(open(p))
+line = {"type": "command", "command": "[ -x \"$HOME/bin/buddy\" ] \u0026\u0026 \"$HOME/bin/buddy\" beat 2>/dev/null; exit 0"}
+s["hooks"]["PostToolUseFailure"] = [{"matcher": m, "hooks": [line]}]
+json.dump(s, open(p, "w"))' "$WORK/settings.json" "$(echo "$c" | cut -d, -f1)"
+	out=$(inst 2>&1) || fail "D-238: install on $c failed:
+$out"
+	if [ -z "$(echo "$c" | cut -d, -f2)" ]; then
+		echo "$out" | grep -qF 'for Bash, so a failed heavy shell call' && fail "D-238: a failure beat on $c was named missing:
+$out"
+	else
+		echo "$out" | grep -qF 'no buddy beat on PostToolUseFailure for Bash' || fail "D-238: a failure beat on $c was not named missing:
 $out"
 	fi
 	cp "$WORK/settings.keep" "$WORK/settings.json"
@@ -1496,6 +1521,10 @@ if r.returncode != 1 or "did NOT add the gate" not in r.stdout or "added buddy h
 r = run(p)
 if r.returncode != 1 or "did NOT add the gate" not in r.stdout:
     bad.append("gate token in a permissions rule, nothing else to add: rc=%d out=%r" % (r.returncode, r.stdout))
+# bl: browser-report's browser lines, without the memory slot's failure-beat
+# line (D-238), which these fixtures lack and which its own case counts.
+def bl(out):
+    return "".join(l for l in out.splitlines(True) if "for Bash, so a failed" not in l)
 # The browser reading skips an entry it cannot read instead of printing nothing.
 q = os.path.join(w, "odd-beat.json")
 open(q, "w").write('{"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"command": "\\"$HOME/bin/buddy\\" beat"}]}], "PreToolUse": [1]}}')
@@ -1506,7 +1535,7 @@ if 'runs buddy beat on matcher "Edit"' not in r.stdout:
 # heredoc it replaced printed it before failing (Codex code pass).
 open(q, "w").write('{"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"command": "buddy beat"}]}], "PreToolUse": 1}}')
 r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
-if r.stdout.count('runs buddy beat on matcher "Edit"') != 1 or r.stdout.count("\n") != 1:
+if bl(r.stdout).count('runs buddy beat on matcher "Edit"') != 1 or bl(r.stdout).count("\n") != 1:
     bad.append("browser-report beside an unreadable event: %r" % r.stdout)
 # Deep nesting (#95, #96): advisory, never a traceback. Past the depth cap
 # (D-182) the file is one it cannot read, so it prints nothing, on every
@@ -1524,7 +1553,7 @@ for body, lines in (('[' * 100000, 0),
                     (beat % ("[" * D + "]" * D), 0), (beat % ("[" * (D - 1) + "]" * (D - 1)), 2)):
     open(q, "w").write(body)
     r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
-    if r.returncode != 0 or r.stderr or r.stdout.count("\n") != lines:
+    if r.returncode != 0 or r.stderr or bl(r.stdout).count("\n") != lines:
         bad.append("browser-report over a deep nest: rc=%d out=%r err=%r" % (r.returncode, r.stdout[:200], r.stderr[-200:]))
 # The RecursionError catches the cap leaves reachable (the Fable cross-check):
 # a regex matcher's own nesting, 600 groups in a 6-deep file, recurses in re,
@@ -1535,7 +1564,7 @@ for ev in ("PostToolUse", "PreToolUse"):
     open(q, "w").write(json.dumps({"hooks": {ev: [{"matcher": rx, "hooks": [{"type": "command", "command": "buddy beat"}]}]}}))
     if ev == "PostToolUse":
         r = subprocess.run([sys.executable, "-I", "-B", os.path.join(os.path.dirname(tool), "gate-hook.py"), "browser-report", q], capture_output=True, text=True)
-        ok = r.returncode == 0 and not r.stderr and r.stdout.count("\n") == 1 and "no buddy beat on PreToolUse" in r.stdout
+        ok = r.returncode == 0 and not r.stderr and bl(r.stdout).count("\n") == 1 and "no buddy beat on PreToolUse" in r.stdout
     else:
         r = subprocess.run([sys.executable, "-I", "-B", tool, "check", q], capture_output=True, text=True)
         ok = r.returncode == 1 and not r.stderr and r.stdout.count("\n") == 1 and "a shape it cannot read (RecursionError)" in r.stdout
@@ -1684,11 +1713,12 @@ named=$(echo "$out" | sed -n 's/^install: hooks: NOT wired in [^:]*:\(.*\) (READ
 [ "$named" = " buddy busy buddylist presence" ] || fail "QA-16b: the fixture's report named '$named'"
 if echo "$out" | grep -q 'hooks: --wire-hooks'; then fail "QA-16b: the unflagged install mentioned --wire-hooks:
 $out"; fi
-# Flagged: exactly what the report named, plus the browser pair, then all wired.
+# Flagged: exactly what the report named, plus the browser pair and the failure
+# beat (D-238: decoded, never in `wanted`), then all wired.
 out=$(inst16 "$W16/b/settings.json" --wire-hooks 2>&1) || fail "QA-16b: the flagged install failed:
 $out"
 added=$(echo "$out" | sed -n 's/^install: hooks: --wire-hooks added \(.*\) on \([A-Za-z]*\).*/\1@\2/p' | tr '\n' ' ')
-[ "$added" = "buddy busy@UserPromptSubmit buddylist presence@SessionEnd buddy beat (browser tools, #71)@PreToolUse buddy beat (browser tools, #71)@PostToolUseFailure " ] ||
+[ "$added" = "buddy busy@UserPromptSubmit buddylist presence@SessionEnd buddy beat (browser tools, #71)@PreToolUse buddy beat (browser tools, #71)@PostToolUseFailure buddy beat (a failed Bash call, D-238)@PostToolUseFailure " ] ||
 	fail "QA-16b: added '$added':
 $out"
 echo "$out" | grep -qxF "install: hooks: all eight tokens found in $W16/b/settings.json by a text search; $LOADS" || fail "QA-16b: the report after wiring:
@@ -1725,14 +1755,17 @@ $out"
 cmp -s "$W16/off.json" - <<'EOF' || fail "QA-16d: a refused argument wrote the settings"
 {}
 EOF
-# Claims-only: the six buddy lines and the browser pair, never a buddylist line.
+# Claims-only: the six buddy lines, the browser pair and the failure beat
+# (D-238), never a buddylist line.
 E16="BUDDY_CHAT=off"
 out=$(inst16 "$W16/off.json" --wire-hooks 2>&1) || fail "QA-16d: the claims-only install failed:
 $out"
 E16=""
 if echo "$out" | grep -q 'added buddylist'; then fail "QA-16d: claims-only added a buddylist line:
 $out"; fi
-[ "$(echo "$out" | grep -c '^install: hooks: --wire-hooks added ')" = 8 ] || fail "QA-16d: claims-only did not add the six and the pair:
+[ "$(echo "$out" | grep -c '^install: hooks: --wire-hooks added ')" = 9 ] || fail "QA-16d: claims-only did not add the six, the pair and the failure beat:
+$out"
+echo "$out" | grep -q '^install: hooks: --wire-hooks added buddy beat (a failed Bash call, D-238) on PostToolUseFailure (matcher "Bash")' || fail "QA-16d: claims-only did not add the failure beat:
 $out"
 # A preflight refusal installs nothing: a fresh bin dir stays empty. Unparseable
 # settings, then no python; the unflagged install over the same file is the

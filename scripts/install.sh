@@ -604,7 +604,9 @@ else
 	# decoded and said only then; and when no beat on PreToolUse or
 	# PostToolUseFailure selects one, the optional #71 entries, in one line
 	# until wired, never as a fault. The reading is gate-hook.py's
-	# (browser_report), the one --wire-hooks acts on (D-135). Advisory.
+	# (browser_report), the one --wire-hooks acts on (D-135). Advisory. It
+	# also names the memory slot's failure beat (PostToolUseFailure on Bash,
+	# D-238) until wired: `buddy beat` is wired on any event to the grep above.
 	if command -v "$py" >/dev/null 2>&1; then
 		beat=$("$py" -I -B "$ROOT/scripts/gate-hook.py" browser-report "$SETTINGS" 2>/dev/null || true)
 		[ -z "$beat" ] || printf '%s\n' "$beat" | while IFS= read -r l; do say "$l"; done

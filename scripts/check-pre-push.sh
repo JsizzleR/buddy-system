@@ -341,6 +341,25 @@ hook8 "echo tier >> '$L'" "refs/heads/main $S9 refs/heads/main $ZERO" HOME="$FAK
 	|| fail "QA-15d: a stubbed tier must not ask the default gate"
 [ "$(cat "$L")" = "tier" ] || fail "QA-15d: a stubbed tier asked the default gate:
 $(cat "$L")"
+# (f) D-238: where buddy's memory slot is on (the config exists) and an
+# installed buddy runs, the default tier asks `buddy mem admit tier --wait
+# 1800` and NOT the local script beside it (one booking in the migration's
+# overlap); refusing, it blocks. (c) above is the control: the same HOME
+# without the config asks the script.
+FH2="$WORK/fakehome2"
+mkdir -p "$FH2/bin" "$FH2/.buddy/mem"
+echo '{"version":1,"floor_gb":4}' > "$FH2/.buddy/mem/config.json"
+cp "$MG" "$FH2/bin/mem-gate.py"
+printf '#!/bin/sh\necho "buddy $*" >> "$Q15_LOG"\nexit "${Q15_RC:-0}"\n' > "$FH2/bin/buddy"
+chmod +x "$FH2/bin/buddy"
+L="$WORK/q15f"
+out=$( cd "$R8" && printf 'refs/heads/main %s refs/heads/main %s\n' "$S9" "$ZERO" \
+	| env -u BUDDY_PREPUSH_CHECK -u BUDDY_PREPUSH_MEMGATE BUDDY_PREPUSH_SKIP= HOME="$FH2" Q15_LOG="$L" Q15_RC=3 sh "$HOOK" origin url 2>&1 ) && rc=0 || rc=$?
+[ "$rc" -ne 0 ] && echo "$out" | grep -q 'BLOCKED' || fail "QA-15f: a refusing buddy mem admit must block (rc=$rc)
+$out"
+[ "$(cat "$L" 2>/dev/null)" = "buddy mem admit tier --wait 1800" ] || fail "QA-15f: the default tier did not ask buddy's slot alone:
+$(cat "$L" 2>/dev/null)
+$out"
 out=$(hook8 'exit 0' "refs/heads/main $S9 refs/heads/main $ZERO" BUDDY_PREPUSH_MEMGATE="$WORK/no-such-gate") || fail "QA-15e: a missing gate must be skipped
 $out"
 case "$out" in
@@ -445,7 +464,7 @@ echo "  QA-7 sourcing lib.sh clears git's local env, with and without git on PAT
 echo "  QA-8..11 the tier runs on each pushed tip, not the working tree: an untracked helper blocks,"
 echo "  a fixed working tree reads the broken commit, another branch is its own sha, distinct tips once,"
 echo "  QA-12 the checkout's status, worktrees, refs and stash unchanged, QA-13 one stable clean tree,"
-echo "  QA-14 the tree is locked, QA-15 the memory gate asked, obeyed, defaulted and skipped,"
+echo "  QA-14 the tree is locked, QA-15 the memory gate asked, obeyed, defaulted (buddy mem where the slot is on, D-238) and skipped,"
 echo "  QA-16 a broken tree is rebuilt, QA-17 an unreadable or unpeelable sha blocks, a tree's tag is skipped,"
 echo "  QA-18 a tier's leftover child does not hold the lock, QA-19 a replace ref picks no commit,"
 echo "  QA-20 the lock is held for the whole run)"

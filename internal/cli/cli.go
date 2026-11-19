@@ -7,6 +7,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -77,6 +78,10 @@ type Env struct {
 	// package var is process-wide and every test here is parallel: a test
 	// that set it would race every hello in the package.
 	ChatStamp func() string
+	// MemReading is the memory slot's sample of the machine's memory
+	// (memslot.go); nil means the real sysctl reading, which a test must never
+	// take: the suite would be judged by the box's real pressure.
+	MemReading func() (memReading, error)
 }
 
 func (e Env) chatStamp() string {
@@ -183,6 +188,7 @@ var verbs = map[string]verb{
 	"who":         {usageWho, heardVerb("who", cmdWho)},
 	"authority":   {usageAuthority, heardVerb("authority", cmdAuthority)},
 	"ids":         {idsUsage, heardVerb("ids", cmdIDs)},
+	"mem":         {usageMem, errVerb("mem", cmdMem)},
 	"wait":        {usageWait, waitVerb},
 	// fleet runs another verb of this table, so Run hands it the table
 	// (cmdFleetVerb): naming it here would be an initialization cycle, and its
@@ -470,6 +476,11 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     never in this directory's ledger: how a session in a
                                     governed repository acts in its fleet (D-193)
 setup         init                  create the ledger for this repo
+              mem init|status|admit   the machine-wide memory slot (~/.buddy/mem; OFF until
+                                    the operator's mem init): gate refuses a heavy Bash start
+                                    (Go tests, a tier, a done-check, a lane) below its floor;
+                                    a refused session waits its turn with
+                                    buddy mem admit <kind>... --wait 900 && { <command>; }
               update [--dry-run] [--wire-hooks] [--refresh-hooks]   reinstall from the
                                     checkout this buddy was installed from: says where it
                                     stands (read locally, nothing fetched) and which git
@@ -494,8 +505,8 @@ hooks         hello · gate · beat · idle · bye   (hook JSON on stdin; Codex 
 git hook      commit-gate [--deny]  staged paths vs. other sessions' claims (pre-commit;
               install with "sh scripts/setup-clone.sh"; BUDDY_COMMIT_GATE=warn|deny|off)
 
-enforcement is COOPERATIVE. A claim is the only thing that reserves anything, and gate is the
-only thing that refuses anything. "whose" and the dirty-path notice beat emits are ADVISORY
+enforcement is COOPERATIVE. A claim is the only thing that reserves a path, and gate is the
+only thing that refuses anything (the memory slot refuses inside it, heavy starts only). "whose" and the dirty-path notice beat emits are ADVISORY
 observations of the working tree: announced is not locked, and nothing they report blocks any
 edit. They exist so that a message about a file can be ADDRESSED to someone.
 `)
@@ -564,6 +575,12 @@ type hookInput struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 		Command      string `json:"command"`
+		// RunInBackground is read by the memory slot alone (memslot.go:
+		// a backgrounded call's booking fades instead of being released).
+		// RAW for the reason the fields below are: a typed bool would fail
+		// the gate's whole decode on `"run_in_background":"true"`, and a
+		// failed decode is a DENY.
+		RunInBackground json.RawMessage `json:"run_in_background"`
 	} `json:"tool_input"`
 	// Source, ToolUseID and ToolResponse are read for ONE question: is this
 	// event Code Mode's code output (codeOutput, pollEvent; D-195)? Source is
@@ -3189,6 +3206,12 @@ func cmdBeat(args []string, env Env) error {
 	if h.Harness == "codex" {
 		return unsupportedCodexLifecycle("beat")
 	}
+	// The memory slot's release (memslot.go, D-238), before anything that
+	// returns early: a shell call that ended, PostToolUse or
+	// PostToolUseFailure, drops its foreground booking, ledger or none.
+	if h.HookEventName != "PreToolUse" {
+		releaseMem(h, env)
+	}
 	// PreToolUse and PostToolUseFailure record a browser call and nothing else,
 	// silently: a PreToolUse hook can refuse its call (#71, browser.go).
 	if beatOffSuccess(h, env) {
@@ -3949,7 +3972,63 @@ var readOnlyTools = map[string]bool{
 	"WebFetch": true, "WebSearch": true,
 }
 
+// cmdGate is the claims gate, then the machine-wide memory slot (memslot.go,
+// D-238). The slot judges only a shell call the claims phase ALLOWED, so a
+// call refused there books nothing (a denied call gets no PostToolUse to
+// release it), and it judges every allow, ledger or none: gateClaims has six
+// allowing exits, and the memory phase used to be planned at the pathless one
+// alone, missing the ungoverned-identity exit (panel lens A, Codex design
+// pass). One output path: the claims phase writes into a buffer, and the call
+// gets that document or the slot's refusal, never both. With the slot OFF
+// (no ~/.buddy/mem/config.json) nothing here differs from the claims gate.
 func cmdGate(args []string, env Env) int {
+	started := time.Now()
+	slot := memSlotOf(env)
+	if !slot.on || stdinIsTTY(env) {
+		return gateClaims(args, env)
+	}
+	data, rerr := readHookInput(env)
+	var buf bytes.Buffer
+	claims := env
+	claims.Stdout = &buf
+	claims.Stdin = &replayReader{data: data, err: rerr}
+	code := gateClaims(args, claims)
+	if buf.Len() > 0 || rerr != nil {
+		env.Stdout.Write(buf.Bytes())
+		return code
+	}
+	var h hookInput
+	if json.Unmarshal(data, &h) != nil {
+		return code // the claims phase allowed it: nothing here can be read either
+	}
+	_ = classifyHook(&h, env) // the harness word only; identity was the claims phase's
+	if reason := gateMemory(h, env, slot, started); reason != "" {
+		deny(env, reason)
+	}
+	return code
+}
+
+// replayReader hands the claims phase the hook bytes cmdGate already read, or
+// the error reading them gave, so its own decode says what it always said.
+type replayReader struct {
+	data []byte
+	err  error
+	off  int
+}
+
+func (r *replayReader) Read(p []byte) (int, error) {
+	if r.off >= len(r.data) {
+		if r.err != nil {
+			return 0, r.err
+		}
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.off:])
+	r.off += n
+	return n, nil
+}
+
+func gateClaims(args []string, env Env) int {
 	h, err := decodeHook(env)
 	if err != nil {
 		// The gate cannot prove an unreadable call safe: malformed, oversized,

@@ -134,7 +134,8 @@ func unsupportedCodexLifecycle(verb string) error {
 // own contract, bye must never look like activity, and the gate has a 100 ms
 // budget); lifecycle and adapter (logical events carry a captured
 // incarnation, D-069, and are the adapter's register); diagnose (never opens
-// the ledger with SQLite, D-072).
+// the ledger with SQLite, D-072); mem (the machine-wide memory slot opens no
+// ledger, so an admit works outside every repository, D-238).
 func heardVerb(name string, fn func([]string, Env) error) func([]string, Env) int {
 	return errVerb(name, func(args []string, env Env) error {
 		noteHeard(env)

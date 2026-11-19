@@ -12,7 +12,9 @@ operator's machine. Two halves that must never be confused:
 
 - **Claims (`buddy`)** — a transactional SQLite ledger of who has reserved which
   file scopes, plus the operator's brake (`pause`) and the message inbox. The
-  **safety** half: the only thing that reserves or refuses anything. No daemon.
+  **safety** half: the only thing that reserves or refuses anything (its gate
+  also holds the opt-in machine-wide memory slot, which refuses heavy starts
+  only; D-238). No daemon.
 - **Chat (`buddylist`)** — a concierge daemon over IRC (or TOC/AIM), a durable
   journal, an MCP server, a proactive alert hook, and per-session presence. The
   **visibility** half: it never reserves and never refuses.
@@ -166,7 +168,7 @@ Knobs (`docs/USAGE.md` documents each `BUDDY_*`; `codex-review.sh`'s header each
 `CODEX_*`): `BUDDY_COMMIT_GATE=warn|deny|off` (default `warn`), `BUDDY_OWN_CLAIM=warn|deny|off` (default `warn`; D-228),
 `BUDDY_COMMIT_GATE_SKIP=1`, `BUDDY_CONTEXT_WINDOW` and `BUDDY_HANDOFF_AT`
 (declared, never inferred; D-055), `BUDDY_LABEL` (D-089), `BUDDY_MIGRATE=1` (D-136), `BUDDY_COST_DAYS`,
-`BUDDY_OSCAR_BIN` (the live test's server); `BUDDY_LEDGER` is a report knob
+`BUDDY_OSCAR_BIN` (the live test's server), `BUDDY_MEM_OK='<reason>'` (the operator's word only, logged; D-238); `BUDDY_LEDGER` is a report knob
 ONLY, `buddy` never reads it. `CODEX_EFFORT` (default `xhigh`; `max` is a second
 pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
 `CODEX_CHARTER=core|adapter|process|all` (default `core`; D-128, D-147),
@@ -211,6 +213,8 @@ pass, not a first), `CODEX_TIER`, `CODEX_BUDGET`, `CODEX_NO_CHARTER=1`,
     and git attributes nothing. The same holds for a session's context
     footprint: an observation of its last turn, read from that session's own
     transcript, stale by construction, and never a denominator it had to guess.
+    One opt-in exception: where the operator turned it on, the memory slot
+    refuses a heavy start on a memory reading (D-238), and grants nothing.
 11. **Stale claims are never auto-reaped.** Staleness marks; it never reaps.
     Only positively-ended sessions are cleaned automatically. `sweep --force` is
     the operator's explicit act.
@@ -379,6 +383,7 @@ subject gets a new line. Every number stays on some line (D-165).
 - **Scopes** (D-002, D-066, D-100, D-222): a scope list is repeated `--scope`; `claim` refuses a comma; an absolute scope is refused, backslashes folded to `/` first (`\etc`).
 - **Claims** (D-019, D-022, D-042, D-088, D-090, D-133, D-211, D-228, D-229, D-236, D-237): never claim over a conflicting holder; an edit no claim of yours covers is caught while a peer holds one: claim it under a NEW slug; stale claims refuse like fresh ones; `--shared` overlaps only shared ones, and a claim parked in an open run only an exclusive declarer of it (`--based-on`); you still need your own covering claim; a holder's refusal exits 4.
 - **Handing on, slots** (D-035, D-063, D-093, D-133, D-134): `release <slug> --to <target>` hands a claim on with its waits; a slot is a claim on `.buddy/slot/<name>`, capacity 1, never parked or yielding; `release --to` refuses `.buddy/slot/browser`, whose holder stays open until it releases.
+- **Memory slot** (D-238): OFF until the operator's `buddy mem init`; a MEMORY GATE refusal is a wait (`buddy mem admit <kind> --wait 900 && { <cmd>; }`, run_in_background); init, `--reset` and `BUDDY_MEM_OK` are the operator's; a heavy call it cannot judge is denied, a light one never.
 - **Coordination state** (D-030, D-101): a claim, not a message; the coordination claim is `orc-<project>`, `<project>` the main checkout's directory name.
 - **Gate jurisdiction** (D-005, D-044, D-084, D-102, D-107, D-137, D-138, D-185, D-191, D-193, D-194, D-212, D-219, D-226, D-230, D-231, D-233): invariant 3; every distinct ledger at or above a directory governs it, the home ledger additive; a vanished cwd is judged from its deepest live ancestor; the hook verbs and, with `BUDDY_FLEET` set, the plan's section-6 verbs (bare; `buddy fleet` forces its ledger) unset git's local environment and the ceiling at entry, `commit-gate` keeps it; each ledger a literal `cd`/`git -C` reaches applies its brake; an unwritable ledger denies, naming cause and fix; a dead installed `buddy` refuses every gated call, ledger or none: replace it by `go build -o` or `install.sh`, never `cp`; a Codex gate in a project `.codex/hooks.json` loads only in a trusted project; the gate never reads a fleet ledger (`BUDDY_FLEET` chooses a ledger where discovery finds none, for the lifecycle hooks and typed verbs, and beside a found one keeps the lifecycle hooks on both; a bare typed verb is the directory's, `buddy fleet <verb>` the fleet's; made only by `buddy init --fleet`); a repository ledger, or a sidecar beside the database it resolves to, landing directly in a fleet's directory denies, a fleet-home error never does; never open a ledger by a raw `file:`+path.
 - **Gate recognition** (D-073, D-087, D-106, D-108, D-189, D-190, D-195): a literal `apply_patch` from a shell refuses under every harness, and under Codex a shell command the gate cannot rule out as a patch; gh stack's rewriting subcommands need `.buddy/slot/gh-stack`.

@@ -74,12 +74,13 @@ nobody authorised.
   and heavy jobs (a whole-package or `-race` test run, a done-check, a VM),
   not only your fleet's. A free-memory reading cannot see a lane that has
   started but not yet peaked, so lanes started seconds apart each see
-  headroom and all start: 12 lanes resumed 3 s apart on a 24 GB machine ran
-  tests in one minute, swap ran out, and the OS suspended the terminal
-  holding every lane, a hard freeze (#144). Use the machine-wide gate or
-  reading your operator names; with none, free memory (`memory_pressure -Q`
-  on macOS) less a heavy job's peak (2.3 GB measured for one cold Go link)
-  for each running lane that may start one. The operator's lane cap is a
+  headroom and all start: 12 lanes resumed 3 s apart ran tests, swap ran
+  out, and the OS suspended the terminal holding every lane, a hard
+  freeze (#144). Where `buddy mem status` says
+  ON, that is the check (a launch script runs `buddy mem admit lane --wait
+  600` first; init and `BUDDY_MEM_OK` are the operator's); else the gate or
+  reading your operator names, or free memory (`memory_pressure -Q`) less
+  2.3 GB (one cold Go link) per running lane that may start one. The operator's lane cap is a
   ceiling, not a target. After a crash or reboot, read
   `resume.md` beside this file before you resume anything.
 - **A launch must not hand the lane your identity.** A herdr tab's shell takes

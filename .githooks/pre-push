@@ -20,8 +20,10 @@
 #                                  which is also what keeps the suite from
 #                                  running itself when it exercises this hook)
 #         BUDDY_PREPUSH_MEMGATE=.. the memory admission gate asked before each
-#                                  run; unset, $HOME/bin/mem-gate.py for the
-#                                  default tier only, skipped if not there
+#                                  run; unset, for the default tier only:
+#                                  `$HOME/bin/buddy mem` where the memory slot
+#                                  is on (D-238), else $HOME/bin/mem-gate.py;
+#                                  skipped if not there
 # BYPASS: git push --no-verify
 #
 # WHAT IS TESTED IS WHAT IS PUSHED (#123, D-223). Each distinct pushed tip is
@@ -107,8 +109,19 @@ block() {
 # that drive this hook run inside the real tier, which already holds its
 # booking, and a nested ask would wait on itself. BUDDY_PREPUSH_MEMGATE names a
 # gate for any tier (the done-check's stub).
+#
+# buddy's machine-wide memory slot (D-238, amending D-223) replaces the local
+# script: where it is on (~/.buddy/mem/config.json, the operator's
+# `buddy mem init`) the default tier asks the installed buddy instead, never
+# both, so the migration's overlap books the tier once. `buddy mem admit`
+# exits 0 admitted, 3 still refused after the wait, 1 on an error: any non-zero
+# blocks, as the script's refusal does.
+MEMSUB=
 if [ -n "${BUDDY_PREPUSH_MEMGATE:-}" ]; then
 	MEMGATE=$BUDDY_PREPUSH_MEMGATE
+elif [ -z "${BUDDY_PREPUSH_CHECK:-}" ] && [ -n "${HOME:-}" ] && [ -f "$HOME/.buddy/mem/config.json" ] && [ -x "$HOME/bin/buddy" ]; then
+	MEMGATE=$HOME/bin/buddy
+	MEMSUB=mem
 elif [ -z "${BUDDY_PREPUSH_CHECK:-}" ] && [ -n "${HOME:-}" ]; then
 	MEMGATE=$HOME/bin/mem-gate.py
 else
@@ -203,8 +216,8 @@ place() {
 for c in $tips; do
 	place "$c" || block "the detached tree $TREE could not be put at $c"
 	if [ -n "$MEMGATE" ]; then
-		echo "pre-push: asking the memory gate ($MEMGATE admit tier --wait 1800)" >&2
-		"$MEMGATE" admit tier --wait 1800 >&2 9>&- || block "the memory gate refused the tier ($MEMGATE)"
+		echo "pre-push: asking the memory gate ($MEMGATE ${MEMSUB:+$MEMSUB }admit tier --wait 1800)" >&2
+		"$MEMGATE" $MEMSUB admit tier --wait 1800 >&2 9>&- || block "the memory gate refused the tier ($MEMGATE${MEMSUB:+ $MEMSUB})"
 	fi
 	echo "pre-push: running the hermetic tier on $c in $TREE ($CHECK)" >&2
 	( cd "$TREE" && sh -c "$CHECK" ) >&2 9>&- || block "the hermetic tier is red on $c"

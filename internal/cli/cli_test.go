@@ -102,7 +102,13 @@ type fixture struct {
 	// retitled says the anchor above was recognised only by a retitled
 	// argv[0], the shape a `claude --bg` lane has (D-058).
 	retitled bool
-	alive    map[int]int64
+	// mem is the memory slot's reading (memslot.go). nil answers an error,
+	// never the machine's real memory: a test judged by the box's pressure
+	// would pass or fail with the developer's other sessions.
+	mem func() (memReading, error)
+	// sleep stands in for a waiting verb's pause (Env.Sleep); nil: time.Sleep.
+	sleep func(time.Duration)
+	alive map[int]int64
 	// procs is the process table the JOBS line reads, and self the pid it is
 	// read from (jobs.go). EMPTY for the reason proc is.
 	procs []procEntry
@@ -181,6 +187,13 @@ func (f *fixture) runReader(t *testing.T, cwd string, stdin io.Reader, args ...s
 		ProcTable: func() ([]procEntry, int, bool) { return f.procs, f.self, true },
 		SockDir:   f.sockDir,
 		ChatStamp: func() string { return f.chatStamp },
+		Sleep:     f.sleep,
+		MemReading: func() (memReading, error) {
+			if f.mem == nil {
+				return memReading{}, errors.New("no fake memory reading set (a test never reads the real one)")
+			}
+			return f.mem()
+		},
 	})
 	return out.String(), errw.String(), code
 }
