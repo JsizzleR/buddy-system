@@ -7,7 +7,7 @@ to install it. The rest, by what you need:
 
 | Document | What it is |
 | --- | --- |
-| [MANUAL.md](MANUAL.md) | The user manual: install, a first claim with two sessions, waits, chat, fleets, upgrading, uninstalling and troubleshooting, task by task |
+| [MANUAL.md](MANUAL.md) | The user manual: install, a first claim with two sessions, waits, chat, fleets, work that is not code or is outside git, the memory slot, upgrading, uninstalling and troubleshooting, task by task |
 | [USAGE.md](USAGE.md) | Every feature in depth: hooks, claims, messages, the roster, waits, slots, long runs, authority files, ids, the commit gate, chat internals |
 | [AGENT-SETUP.md](AGENT-SETUP.md) | The install recipe written for an agent installing buddy for a user, a checkpoint per step |
 | [../skills/buddy/SKILL.md](../skills/buddy/SKILL.md) | The skill installed for agents: the order to use the verbs in, written for a session |
@@ -23,6 +23,7 @@ the skills in step with them.
 
 | Document | What it is |
 | --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | The map: what runs, where state lives, how one tool call becomes a verdict, what fails closed |
 | [DESIGN.md](DESIGN.md) | The rationale in one read, including the assumptions measurement refuted. Read this before proposing a change. |
 | [decisions.md](decisions.md) | The append-only decision record, D-001 onward: for each rule, what was wrong, what shipped, what was cut and why. Search it for the D-number a page cites. |
 
@@ -32,6 +33,7 @@ the skills in step with them.
 | --- | --- |
 | [CODEX-ORCHESTRATOR-PLAN.md](CODEX-ORCHESTRATOR-PLAN.md) | Codex orchestration work order and receipts: participation, adapters, a native mixed-fleet exercise and the offline diagnostic built; real-provider and recovery qualification open |
 | [BEYOND-CODE-PLAN.md](BEYOND-CODE-PLAN.md) | Plan: buddy for work that is not code, a session over several coordinators, a model pick per item; steps 1 and 5 landed in the skill |
+| [NON-GIT-PLAN.md](NON-GIT-PLAN.md) | Plan: sessions outside git on one fleet ledger; stages 1b and 2 built (D-191, D-193) |
 | [ROUTING-PLAN.md](ROUTING-PLAN.md) | Plan: a model pick per lane printed inside the operator's cap, never a launcher; step 2 built (D-175) |
 | [ROUTER-SKILL-PLAN.md](ROUTER-SKILL-PLAN.md) | Phase 2 built (D-177): a drop-in skill routing models from a user's own past sessions, counts only |
 

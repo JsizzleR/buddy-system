@@ -5,12 +5,13 @@ and whenever you come back to a part you have not used. It is task by task:
 each section says what to type, what you should see, and where the detail
 lives. The [README](../README.md) says what buddy is; [USAGE.md](USAGE.md) is
 the per-feature reference this manual points into; `buddy --help` and
-`buddy <verb> --help` are always current, and every command below answers
-`--help` as written.
+`buddy <verb> --help` are always current, and every `buddy` command below
+answers `--help` as written.
 
 **Who it is for.** You run two or more Claude Code (or Codex) sessions on one
-machine, in one repository or several, and you want them to stop editing the
-same files without knowing it. You are the *operator*: the one person whose
+machine, in one repository or several (or in plain folders outside git,
+section [13](#13-work-that-is-not-code-and-work-outside-git)), and you want
+them to stop editing the same files without knowing it. You are the *operator*: the one person whose
 machine, repositories and decisions these are. Buddy is single-operator by
 design; it trusts your user account and is not a boundary between people.
 
@@ -43,22 +44,26 @@ installing buddy for you follows [AGENT-SETUP.md](AGENT-SETUP.md).
 10. [Chat (optional)](#10-chat-optional)
 11. [Codex sessions](#11-codex-sessions)
 12. [Running a fleet](#12-running-a-fleet)
-13. [Upgrading](#13-upgrading)
-14. [Uninstalling](#14-uninstalling)
-15. [Troubleshooting: what each refusal means](#15-troubleshooting-what-each-refusal-means)
-16. [Where the details are](#16-where-the-details-are)
+13. [Work that is not code, and work outside git](#13-work-that-is-not-code-and-work-outside-git)
+14. [Many sessions on one machine: the memory slot](#14-many-sessions-on-one-machine-the-memory-slot)
+15. [Upgrading](#15-upgrading)
+16. [Uninstalling](#16-uninstalling)
+17. [Troubleshooting: what each refusal means](#17-troubleshooting-what-each-refusal-means)
+18. [Where the details are](#18-where-the-details-are)
 
 ## 1. Before you start
 
 - **Go 1.26 or later, and `git`.** Nothing else is needed for claims; the
-  binaries are pure Go.
+  binaries are pure Go. The install and uninstall scripts read your settings
+  file with `python3`: `--wire-hooks` needs it, and without it the install
+  report says `gate: not checked` (section [3](#3-wire-the-hooks)).
 - **macOS** is where buddy is developed and used. Linux builds and passes the
   hermetic test tier, but a session's harness process cannot be found there,
   so the roster never marks a process gone, `buddy msg` prints no wake
   address, and `buddy who` says "cannot say" about jobs. Windows is not built.
 - **Decide on chat now.** Claims-only (no daemon, nothing listening) is the
   default recommendation; coordination never needs chat. You can add or remove
-  chat later (sections [10](#10-chat-optional) and [14](#14-uninstalling)).
+  chat later (sections [10](#10-chat-optional) and [16](#16-uninstalling)).
 
 ## 2. Install
 
@@ -75,10 +80,16 @@ it does not edit your settings unless you ask it to (next section). The
 binary records your chat choice, so later installs and `buddy update` keep it
 until you set `BUDDY_CHAT=on` or `=off` on one run.
 
-Put `~/bin` on your `PATH` (or set `BUDDY_BIN_DIR` before installing; the hook
-lines spell the path out either way). **What you should see:** the report
-ends `install: done`. If it says `install: done, but ACTION NEEDED (N below)`,
-the lines after it name each thing to do; `install: FAILED` says what failed.
+Put `~/bin` on your `PATH`, so that you and your sessions can type `buddy`.
+The hook lines of the next section name `$HOME/bin/buddy` in full and do not
+depend on `PATH`. (`BUDDY_BIN_DIR=<dir>` installs somewhere else; the hook
+lines then have to name that directory, written by hand, because lines that
+run `$HOME/bin/buddy` would run nothing, and `--wire-hooks` refuses for that
+reason.)
+
+**What you should see:** the report ends `install: done`. If it says
+`install: done, but ACTION NEEDED (N below)`, the lines after it name each
+thing to do; `install: FAILED` says what failed.
 
 This checkout is your install source from now on: `buddy update` and
 `buddy uninstall` run the scripts of the checkout the installed `buddy` was
@@ -89,7 +100,9 @@ built from, so keep it.
 The hooks are what make a session take part: they register it at start,
 refuse an edit inside someone else's claim, deliver its messages and mark it
 idle. They go in `~/.claude/settings.json` (every repository) or in one
-repository's `.claude/settings.local.json`.
+repository's `.claude/settings.local.json`. The install script reads and
+writes only the first: lines you keep in a repository's own file work, and
+the install report still calls them not wired.
 
 The simplest way, once you have read what it will add:
 
@@ -106,9 +119,10 @@ are chat's, left out of a claims-only install.
 Every line is guarded: a missing binary turns the feature off instead of
 failing a tool call. The one exception is deliberate: `gate` **fails
 closed**, so a `buddy` that is installed but cannot run refuses the edit rather
-than letting it through (section [15](#15-troubleshooting-what-each-refusal-means)).
+than letting it through (section [17](#17-troubleshooting-what-each-refusal-means)).
 
-**What you should see:** re-run `sh scripts/install.sh` and its `hooks:` line
+**What you should see,** with the lines in the user-level file: re-run
+`sh scripts/install.sh` and its `hooks:` line
 reports every line found, and its `gate:` line names the fail-closed entry.
 Hooks load when a session starts, so only sessions started after this take
 part. Whether Claude Code accepts the whole settings file is for your own
@@ -142,17 +156,18 @@ mkdir -p "$hooks_dir"
 ln -s /path/to/buddy-system/.githooks/pre-commit "$hooks_dir/pre-commit"
 ```
 
-It warns by default (`BUDDY_COMMIT_GATE=deny` refuses, `=off` or
+If the repository already has a `pre-commit` there, the link fails: add the
+line `"$HOME/bin/buddy" commit-gate || exit $?` to that hook instead. The
+gate warns by default (`BUDDY_COMMIT_GATE=deny` refuses, `=off` or
 `BUDDY_COMMIT_GATE_SKIP=1` silences it), and it refuses only a collision with
 another session's claim: a staged path no claim of yours covers is reported,
 never refused. Details: [USAGE "The commit gate in detail"](USAGE.md#the-commit-gate-in-detail).
 
-**Outside git** (a folder of documents, an operations workspace), there is no
-repository to hold a ledger. A *fleet ledger* covers that:
-`buddy init --fleet <name>` makes one under `~/.buddy/fleets/<name>/`, and
-sessions launched with `BUDDY_FLEET=<name>` use it wherever no repository
-ledger governs their directory. It coordinates claims and
-messages; it governs no edit gate. See [USAGE "Outside git"](USAGE.md#outside-git--a-fleet-ledger).
+**A folder that is not a git repository** has nowhere to keep a ledger, and
+buddy is off there. Section
+[13](#13-work-that-is-not-code-and-work-outside-git) covers both ways on:
+making the folder a repository, which gives it everything in this manual, or
+a *fleet ledger*, which coordinates sessions and protects no file.
 
 ## 5. Check it works
 
@@ -182,6 +197,11 @@ worktrees of it: they share one ledger). Call them A and B. The commands are
 what each session runs; in practice the agent runs them itself, prompted by
 the `buddy` skill (`/buddy`) and by the digest it gets at start.
 
+Each session has a *label*, the name on its first `BUDDY:` line: by default
+the directory's name and a short form of its id (`myrepo/s-1a2b3c4d`). To give
+one a name you choose, start it with `BUDDY_LABEL=<name>` in its environment
+(`BUDDY_LABEL=alpha claude`; lower-case letters, digits, `.`, `_` and `-`).
+
 1. **A claims a file.**
 
    ```sh
@@ -192,11 +212,22 @@ the `buddy` skill (`/buddy`) and by the digest it gets at start.
    repository root); repeat `--scope` for several. A claim is granted whole or
    refused whole.
 
-2. **B tries the same.** It is refused, exit status 4, and nothing is taken:
+2. **B asks for the same file, under a slug of its own.**
+
+   ```sh
+   buddy claim demo-b --desc "also trying buddy" --scope README.md
+   ```
+
+   It is refused, exit status 4, and nothing is taken:
 
    ```text
    REFUSED: README.md  (overlaps "README.md" held by <A's label>, claim "demo")
    ```
+
+   The last line it prints is the wait B can declare, `to be told when it
+   frees: buddy wait --on demo` (section 7). A slug names one open claim in
+   the ledger: had B reused `demo`, a line `REFUSED: slug "demo" is held by
+   <A's label>` would have come first.
 
    Had B skipped the claim and gone straight to an edit, the gate would have
    denied the edit with `README.md is inside scope "README.md" claimed by
@@ -211,10 +242,11 @@ the `buddy` skill (`/buddy`) and by the digest it gets at start.
    ```
 
    A message can be addressed to a session id, a label, an open claim's slug
-   or `all`. It is delivered on the recipient's next tool call. The result
-   line gives the message's `#id` and, on macOS, says how to wake the
-   recipient through its harness: buddy wakes nobody, so if A is idle at its
-   prompt, that line is how B (or you) nudges it.
+   or `all`. It is delivered with the recipient's next tool call, or with the
+   next prompt typed into it. The result line gives the message's `#id` and
+   says what the ledger knows about the recipient. For one that is idle at
+   its prompt it also names, on macOS, the address to wake it through its
+   harness: buddy wakes nobody, so that line is how B (or you) nudges it.
 
 4. **A hands it back.**
 
@@ -225,7 +257,8 @@ the `buddy` skill (`/buddy`) and by the digest it gets at start.
    `--to` hands the claim straight to B, waits and all, so nothing can take
    it in between.
 
-5. **B claims again: granted.** Then B releases it too.
+5. **B claims `demo-b` again: granted** (after a `--to`, B already holds
+   `demo`). Then B releases what it holds.
 
 Now look at the whole thing from your own terminal in the repository:
 
@@ -244,7 +277,8 @@ instead, or `=off` to silence it.
 
 ## 7. Refused? Waiting and messages
 
-A refused session should wait, not spin. It declares what it waits on:
+A refused session should wait, not spin. It declares what it waits on, with
+the command the refusal printed and a deadline:
 
 ```sh
 buddy wait --on demo --until 2h --block
@@ -263,7 +297,8 @@ buddy wait clear                            # withdraw it
 buddy wait ls                               # every open wait
 ```
 
-A wait reserves nothing; the deadline is required (default 3h, at most 12h).
+A wait reserves nothing, and every wait has a deadline (`--until`: 3h when
+you name none, 12h at most).
 Why the wait shape matters for the prompt cache, and how a Codex session
 waits, is in [USAGE "Waiting without going cold"](USAGE.md#waiting-without-going-cold--buddy-wait).
 
@@ -292,7 +327,10 @@ the ledger: claims, `pause`, and what you type in a session's own pane.
   --scope .buddy/slot/browser`. Release it when done. See
   [USAGE "Resource slots"](USAGE.md#resource-slots--a-claim-on-buddyslotname).
 - **Numbers several sessions must not reuse** (decision numbers, migration
-  ids): `buddy ids take <space> <count>` hands out a block nobody else gets.
+  ids): you seed the space once with the highest number already used,
+  `buddy ids seed <space> <n>`; from then on `buddy ids take <space> <count>`
+  hands a session a block nobody else gets. A space never seeded is refused:
+  the register does not read your files and will not guess where to start.
   See [USAGE "The identifier register"](USAGE.md#the-identifier-register--buddy-ids).
 
 ## 9. Your controls as the operator
@@ -310,7 +348,9 @@ buddy sweep --dry-run              # what a sweep would tidy; writes nothing
 
 `pause` is the brake: the paused session's next edit is refused with
 `the operator paused this session (buddy pause): <your note> — stop current
-work; wait for `buddy resume`.` It stops nothing already running.
+work; wait for `buddy resume`.` It stops nothing already running. A message
+typed from a plain terminal, where no session is running, is signed
+`operator`.
 
 **Stale claims are never reaped automatically.** A session that ended
 normally has its claims freed; one that went silent keeps them, marked stale,
@@ -335,17 +375,30 @@ sh scripts/get-ergo.sh                   # a pinned IRC server into .cache/ergo-
 ```
 
 Then install with chat (`BUDDY_CHAT=on sh scripts/install.sh` if you started
-claims-only), wire the two `buddylist` hook lines, register the MCP server
-per repository as [README "Presence"](../README.md#presence-the-fun-half)
-shows, and point any IRC client at the server. Sessions get `chat_read` and
-`chat_send` tools; an alert tells a session it was named, by counts only,
-never text. Everything else: [USAGE "Chat internals"](USAGE.md#chat-internals).
+claims-only) and wire the two `buddylist` hook lines. The install builds
+`buddylist` and starts nothing, so start the daemon that sits between the
+sessions and the server yourself, naming a room after each repository's
+directory, and leave it running:
+
+```sh
+buddylist serve --rooms yourproject
+```
+
+Register the MCP server per repository as
+[README "Presence"](../README.md#presence-the-fun-half) shows, and point any
+IRC client at the server. Sessions get `chat_read` and `chat_send` tools; an
+alert tells a session it was named, by counts only, never text. If you keep
+the daemon under a launchd agent of your own named
+`com.buddy-system.buddylistd`, each later install restarts it on the new
+build. Everything else: [USAGE "Chat internals"](USAGE.md#chat-internals).
 
 ## 11. Codex sessions
 
 Codex takes part through the same ledger: its patch tool goes through the
 gate, it is identified by its native thread id, and it reads its own messages
-with `buddy inbox`, because no tool call delivers them. Its hook wiring and
+with `buddy inbox`, because no tool call delivers them. The `BUDDY UNCLAIMED:`
+line of section 6 is not shown under Codex; only `BUDDY_OWN_CLAIM=deny` acts
+there. Its hook wiring and
 limits, including running every buddy call escalated under the Codex sandbox,
 are in [USAGE "Codex participation"](USAGE.md#codex-participation), and the
 `buddy` skill's "Harness boundaries" section is what a Codex session reads.
@@ -362,7 +415,9 @@ at once, which model and permission mode, the context size at which a session
 hands off to a fresh one, and how deep a review each item owes. Start from
 [examples/fleet-conventions.md](examples/fleet-conventions.md) and fill in its
 angle brackets. Set the handoff size in your settings' `env` block as
-`BUDDY_HANDOFF_AT`; the install report says whether it is set.
+`BUDDY_HANDOFF_AT`; the install report's `handoff:` line says whether it is
+set. A session is told it has passed that size by the `busy` hook line, so
+that line must be wired.
 
 What buddy does and does not do in a fleet: the orchestrator holds a claim
 saying it coordinates, each lane claims its own files, and a lane that is done
@@ -373,19 +428,284 @@ and ["Landing through an orchestrator"](USAGE.md#landing-through-an-orchestrator
 Buddy launches no session, wakes none and ends none: the harness (or you)
 opens and closes lanes, and buddy reports who holds what.
 
-## 13. Upgrading
+## 13. Work that is not code, and work outside git
 
-**Re-run the install after every pull.** Either:
+A claim reserves a path, and nothing in the ledger asks what the path holds.
+So several sessions can be coordinated on research notes, a report, a runbook
+or configuration as well as on code. There are two cases, and they differ in
+what buddy can refuse:
+
+| | Inside a git repository | A plain directory, outside every repository |
+| --- | --- | --- |
+| How sessions join | `buddy init` once; the hooks do the rest | a *fleet ledger* you create; each session is started with `BUDDY_FLEET=<name>` |
+| File claims and the edit gate | yes, as for code | **no**: nothing reserves or refuses a file |
+| The brake, `buddy pause` | yes | **no**: refused; you stop a session in its own pane |
+| Roster, messages, waits, outcomes | yes | yes |
+| Several sessions' work landed in one run | yes, with four words translated (13.1) | **no**: nothing is integrated; a session reports and is done |
+
+In a plain directory with neither, buddy is off: every hook is silent and
+every verb that needs a ledger exits 1, saying `not a git repository`.
+
+### 13.1 In a repository: notes, a report, a runbook, configuration
+
+**The folder must be a git repository; commits are optional.** For a folder
+that is not one yet:
+
+```sh
+cd /path/to/notes
+git init
+buddy init
+```
+
+That puts a `.git` in a folder you keep, so it is your decision and never a
+session's. If you never commit, everything works except what names a commit:
+`buddy who` has no base commit to show, and `buddy wait --ready HEAD` is
+refused.
+
+Sessions then claim the deliverable's paths exactly as in section 6
+(`buddy claim q3-report --desc "the Q3 summary" --scope reports/q3`), and an
+edit inside another session's claim is refused like any other.
+
+**Where the gate does not reach.** It judges the paths a tool call names. A
+call that names none (browsing, a chat tool, a document or spreadsheet
+connector) is allowed, so a deliverable written through such a tool is not
+gated. Have the session claim it anyway: the claim is the reservation its
+peers read. The brake has the same edge: `buddy pause` stops only the tools
+the gate is wired to see, and never a web fetch or a web search.
+
+**Run as a fleet,** section 12 applies with four words translated. Your
+coordinator reads them in the fleet skill's
+[not-code.md](../skills/buddy-fleet/not-code.md); what you will see:
+
+| In a code fleet | When the deliverable is not code |
+| --- | --- |
+| a commit | a path and a version word, the lane's own name for which state of the files to read: "draft 2", "sections 1-4 final" |
+| READY at a commit | the path and the version word in the lane's READY message; a lane that waits for the outcome also carries them in its wait's note, `buddy wait --on <run> --until 4h --note "READY: reports/q3/summary.md draft 2"`, and `buddy wait ls` shows every note |
+| the shared test run | whatever check the work has: a review pass over the assembled report, a checklist script, your own read. With none, the run is "read and accept" |
+| main | the directory the pieces are assembled into; the coordinator still holds `.buddy/slot/main` while it assembles them |
+
+The run still closes with an outcome that every waiting lane is told, and its
+note says which check it was:
+`buddy release <run> --outcome pass --note "read and accepted, draft 2"`.
+
+### 13.2 Outside every repository: a fleet ledger
+
+**When it fits.** Several sessions each work an item of their own in a plain
+directory (ten investigations, a batch of support tickets), git tracks none
+of it, and you want one coordinating session to show you who is working, who
+is waiting on an answer from you and who is done, and to carry your answers
+back. A *fleet ledger* gives those sessions one roster, one message queue,
+waits, and a recorded outcome per item. For a short batch in which each
+session asks one question at most and reports once, your harness's own
+session list and messages may be all you need; the ledger adds messages that
+outlive the turn they were sent in, a wait that says what a session is
+waiting on, outcomes you can read back, and one address (`orc-<name>`) that
+survives the coordinator handing over to a successor.
+
+**What it does not do.** Read this before relying on it.
+
+- **No edit gate reads a fleet ledger, so it reserves no file.** A claim on a
+  file or a directory is refused there. Two sessions writing the same file
+  outside git are stopped by nothing: keep them apart in their briefs, one
+  directory or one output file each.
+- **It carries no brake.** `buddy pause` and `buddy resume` are refused in a
+  fleet. To stop a session, interrupt it in its own pane or close the pane.
+- **Nothing lands.** There is no run, no READY, no shared test run and no
+  main: a session's last act is a report. `buddy release --in-run`,
+  `buddy wait --ready`, `buddy claim --shared` and `--based-on` are refused,
+  and so are `buddy whose` and `buddy authority` (a fleet has no paths).
+- **It replaces no repository's ledger.** An edit that reaches into a
+  repository with a ledger of its own is judged by that ledger, as always.
+
+A fleet's refusals read `refused: <what> in fleet <name>: <why>`.
+
+**1. Create the ledger,** once per batch. It is your act, or your
+coordinator's on your word; a lane never does it.
+
+```sh
+buddy init --fleet inv-a
+```
+
+A name is 1 to 64 of `a-z`, `0-9` and `-`, starting with a letter or a digit,
+taken exactly as typed. It answers `fleet ledger ready:
+<home>/.buddy/fleets/inv-a/buddy.db`, then the variable to start sessions
+with. Use a new name for each batch. Keep `~/.buddy/fleets` on a local disk
+that nothing syncs, as real directories and not symlinks.
+
+**2. Start every session of the batch with the variable,** the coordinator
+included, each in a plain directory of its own:
+
+```sh
+cd ~/investigations/ticket-41
+BUDDY_FLEET=inv-a BUDDY_LABEL=t-41 claude
+```
+
+The variable must be in the session's environment when it starts: a session
+already running cannot join. A coordinator that opens the lanes itself puts
+both variables on each tab it opens; the fleet skill's
+[outside-git.md](../skills/buddy-fleet/outside-git.md) is its recipe, and it
+says which ways of starting a session carry no variable.
+
+**What you should see.** The session's first line says where it is:
+
+```text
+BUDDY: you are session t-41 (<session id>) in fleet inv-a: a coordination-only ledger (names, messages, waits, outcomes) with no file claim, gate or brake. Claim your item as a slot: buddy claim <item> --desc ... --scope .buddy/slot/<item>
+```
+
+and `buddy status` in it opens with `LEDGER       fleet inv-a: <path>
+(coordination only: no file claim, gate or brake)`. A session whose
+`buddy status` fails is on no roster.
+
+**3. What the sessions then do.** These are the commands you will see them
+run, told to by their brief; after a `buddy msg` the sender delivers the
+wake address when its result line prints one, as in section 6.
+
+```sh
+# the coordinator takes the address every lane reports to
+buddy claim orc-inv-a --desc "coordinating inv-a: report with buddy msg orc-inv-a" --scope .buddy/slot/orc-inv-a
+# a lane takes its item's name: an address and a status, never a lock on a file
+buddy claim t-41 --desc "ticket 41: which date column the export uses" --scope .buddy/slot/t-41
+
+# a lane needs you: it asks the coordinator, then declares what it waits on
+buddy msg orc-inv-a "NEED INPUT: which date column is the audit keyed on?"
+buddy wait --until 2h --note "NEED INPUT: date column"
+# you answer in the coordinator's pane; it relays your words, and the lane goes on
+buddy msg t-41 "the operator, in my pane at 14:05: posted_at"
+buddy wait clear
+
+# a lane is done: an outcome and where its findings are, then the headline
+buddy release t-41 --outcome pass --note "DONE: findings in ticket-41/findings.md"
+buddy msg orc-inv-a "t-41 DONE: the audit keys on posted_at"
+```
+
+The coordinator watches with one wait on every item
+(`buddy wait --on t-41 --on t-42`): each `buddy wait check` lists every
+item, the finished ones with their outcome and note. For "where are we" at
+any moment, ask it, or run `BUDDY_FLEET=inv-a buddy fleet sessions` and
+`BUDDY_FLEET=inv-a buddy fleet wait ls` from any terminal. Read the outcomes
+before anyone runs a sweep: `buddy sweep` deletes a released claim, with its
+outcome and note, 24 hours after its release.
+
+**What stands in for the words of section 12:**
+
+| In a repository's fleet | In a fleet ledger |
+| --- | --- |
+| a file claim | a claim on `.buddy/slot/<item>`: who has the item, never who may write a file |
+| a commit | the path of the findings, in the release's note |
+| READY, and parking the item in a run | nothing: there is no run. `buddy release <item> --outcome pass --note "DONE: <path>"` (or `fail`) and the lane's message are the whole report |
+| the shared test run | nothing of buddy's: whoever reads the findings is the check |
+| main, and landing | nothing merges. A change an investigation calls for in some repository is a new item there, through that repository's own claims, tests and review |
+| `buddy pause` | the session's own pane |
+
+**A coordinator that lives in a repository.** Your usual orchestrator pane,
+in a repository with a ledger of its own, can coordinate a fleet too if it
+is *started* with `BUDDY_FLEET=<name>`: its hooks keep it on both rosters and
+bring it both inboxes. There a bare verb acts in the repository's ledger and
+`buddy fleet <verb>` acts in the fleet (`buddy fleet sessions`,
+`buddy fleet msg t-41 "..."`, `buddy fleet wait --on t-41`). The same holds
+for a lane that works inside such a repository, and its edits there are
+judged by that repository's gate.
+
+**When the fleet does not open,** the session says so in one line at its
+start, repeated at each prompt while it lasts if the `busy` hook line is
+wired, and every fleet verb exits 1 with the same words. No tool call is ever
+refused for it: the session is on no fleet roster and gets no fleet mail, and
+nothing else changes (in a repository with a ledger of its own, that ledger's
+roster and inbox work as before).
+
+- `BUDDY_FLEET=<name> names no fleet ledger on this machine (looked in
+  <path>)`: a mistyped name, a different home directory, or a fleet not
+  created yet.
+- `... is not a fleet name`: start the session again with a well-formed one.
+- `fleet ledger unavailable (<cause>)`: fix what the cause names. Never
+  delete the ledger to clear it: it holds every session's messages, waits
+  and outcomes.
+- A session started without the variable is off and says nothing:
+  `buddy who <its session id>`, run by the coordinator, refuses, which is how
+  it is found.
+
+Details: [USAGE "Outside git"](USAGE.md#outside-git--a-fleet-ledger).
+
+## 14. Many sessions on one machine: the memory slot
+
+Claims keep sessions out of each other's files. They do nothing about a
+dozen sessions each starting a test run in the same minute, which can freeze
+the machine. The *memory slot* is an admission check on heavy starts, shared
+by every session on the machine, in every repository. It is **off until you
+turn it on**, and it is macOS only.
+
+```sh
+buddy mem init          # turn it on; --floor-gb <n> sets the floor (default 4)
+buddy mem status        # free memory, what is booked and pending, the floor
+```
+
+Once it is on, the gate hook that checks claims also judges each shell
+command a session starts, whether or not the directory has a ledger. A
+*heavy* start (a whole-package or `-race` Go test or build, a
+`scripts/check.sh` run, starting a virtual machine, starting another agent
+session; USAGE has the list and what each books) books an estimate of the
+memory it will take. It is refused when free memory, less what is already
+booked, less its own cost, would fall under the floor, or when the system
+already reports memory pressure or heavy swapping. A light command never
+touches the slot. A booking fades to nothing over 90 seconds, by when the
+start shows in the free-memory reading itself. A command the session ran and
+waited for gives its booking back when it ends, if that is sooner; a session
+start, a virtual machine and anything left running in the background only
+fade, and so does every booking of a Codex session.
+
+**A refusal is a wait.** It starts `MEMORY GATE: nothing in this call ran`
+and names the command to send instead, run in the background:
+
+```sh
+buddy mem admit <kind> --wait 900 && { <the same command>; }
+```
+
+The braces keep every statement of the command behind the admit. `admit`
+holds a place in line and is judged again every 15 seconds; later
+arrivals count that place in full, so a small start cannot starve a large
+one. It exits 0 once admitted (at once when the slot is off), 3 if still
+refused when the wait runs out, 1 on an error. The refusal names the
+`<kind>`, and `buddy mem --help` lists them. A session must not retry the
+bare command in a loop.
+
+**Yours alone:** `buddy mem init`, `buddy mem init --reset` (it clears every
+booking), and the override `BUDDY_MEM_OK='<reason>' <command>`, which skips
+the verdict, still books, and is logged. Deleting `~/.buddy/mem/config.json`
+turns the slot off.
+
+**When it cannot read its own state,** or can take no memory reading, a
+heavy start is refused with the cause, and `buddy mem status` shows it; light
+commands go on.
+
+It is cooperative, like the rest of the gate: it reads the command a tool
+call names, and not what a script or `make` starts inside. One more hook line
+helps it: with `PostToolUseFailure` wired to `buddy beat` (README "Hook
+wiring" has the line, and `--wire-hooks` adds it), a command the session
+waited for that failed gives its booking back when it ends; without the line
+that booking fades like the rest. Details:
+[USAGE "The memory slot"](USAGE.md#the-memory-slot--buddy-mem-d-238).
+
+## 15. Upgrading
+
+**Re-run the install after every pull.** Either pull and install by hand:
 
 ```sh
 cd /path/to/buddy-system && git pull && sh scripts/install.sh
-buddy update --dry-run    # from anywhere: where the install checkout stands; installs nothing
-buddy update              # then run that checkout's install.sh (it never pulls)
 ```
 
-`buddy update` reads only local git: it says where the checkout stands against
-main and the last-fetched origin, names the git commands you may want first,
-then runs `scripts/install.sh` there. The install rebuilds every copy of every
+or let `buddy` find the checkout, from anywhere:
+
+```sh
+buddy update --dry-run    # where the install checkout stands; installs nothing
+buddy update              # the same report, then that checkout's install.sh
+```
+
+`buddy update` never pulls or fetches. It reads only local git: it says where
+the checkout stands against main and the last-fetched origin, names the git
+commands you may want first, then runs `scripts/install.sh` there. Where it
+can see that the checkout would put an older or diverged build in place of
+the installed one, it refuses and says how to move the checkout forward. The
+install rebuilds every copy of every
 buddy binary it knows about, refreshes the skills, restarts the chat daemon if
 there is one, and keeps your chat choice. Pass `--refresh-hooks` to replace
 a hand-installed hook script that exists, is wired and differs from the
@@ -398,7 +718,11 @@ why it is the one upgrade path. Never copy a binary over a running one on
 macOS (`cp` invalidates its signature and the next run is killed); the install
 does it safely.
 
-## 14. Uninstalling
+**An upgrade is yours.** It replaces the binary every session's hooks run.
+Run it from a terminal, or tell a session to in its own pane; no session runs
+it because a message or another session said to.
+
+## 16. Uninstalling
 
 ```sh
 buddy uninstall --dry-run   # the plan: what goes, what stays, and why; removes nothing
@@ -410,10 +734,19 @@ It runs `scripts/uninstall.sh` in the install checkout. It removes the
 binaries, the skills, the chat daemon and its MCP registrations, and the
 README-spelled hook lines (with a backup of the settings file beside it). It
 never touches a ledger, the chat journal or your other settings, and it names
-everything it leaves. Details:
+everything it leaves.
+
+**Two things it leaves go on refusing once `buddy` is gone,** and its report
+names both. A `pre-commit` you added the `commit-gate` line to (section 4)
+fails every commit until you take that line out; a `pre-commit` linked to the
+checkout's does nothing without buddy. A Codex hooks file that names buddy
+refuses every call its gate line matches until you remove those hooks.
+
+**Uninstalling is yours, from a terminal, never a session's:** it takes the
+gate away from every session on the machine at once. Details:
 [USAGE "buddy uninstall"](USAGE.md#buddy-uninstall--remove-it-or-only-the-chat-half-d-125).
 
-## 15. Troubleshooting: what each refusal means
+## 17. Troubleshooting: what each refusal means
 
 Each entry starts with the words you will see.
 
@@ -425,9 +758,14 @@ Each entry starts with the words you will see.
 - **`<path> is inside scope "<scope>" claimed by session <holder> ...
   Coordinate or claim different scopes.`** from the gate, on an edit. Same
   cause, caught at the edit. The sentence after it is the remedy for the
-  holder's state: a holder that said bye is freed by any `buddy claim` or a
-  plain `buddy sweep`; one whose harness process is GONE is freed with the
-  `buddy bye` command the refusal prints; a silent one needs you.
+  holder's state. A holder that said bye is freed by any session's
+  `buddy claim` or a plain `buddy sweep`. Every other remedy is yours, and
+  the refusal tells the session to ask you: for a holder whose harness
+  process is GONE, or whose row is missing from the ledger, it prints the
+  commands, ending in `buddy bye <its id>` and a plain `buddy sweep`; for one that
+  only went silent, `buddy release <slug> --session <its id>`, or
+  `buddy sweep --force` once it has been silent 24 hours. A session never
+  frees another session's claim itself.
 - **`the operator paused this session (buddy pause) ...`** You (or a script
   of yours) ran `buddy pause`. `buddy resume <session>` lifts it.
 - **`BUDDY UNCLAIMED: no claim of this session covers <path> ...`** Not a
@@ -465,15 +803,29 @@ Each entry starts with the words you will see.
   typed verb. This directory's repository was never `buddy init`ed. Run the
   verb from the repository your peers use, or `buddy init` this one if it is
   meant to be coordinated on its own.
+- **`not a git repository: <directory> — buddy finds its ledger from the
+  working directory ...`** from a typed verb. You are outside every
+  repository. `cd` into the one you mean; for work that lives outside git,
+  section [13](#13-work-that-is-not-code-and-work-outside-git).
+- **`refused: <what> in fleet <name>: <why>`**, or a line starting
+  **`BUDDY_FLEET=<name> names no fleet ledger on this machine`** or **`fleet
+  ledger unavailable`**. The session is in, or was started for, a fleet
+  ledger: section 13.2 says what a fleet refuses and what each line means.
+- **`MEMORY GATE: nothing in this call ran ...`** The memory slot refused a
+  heavy start. It is a wait: send the `buddy mem admit ... --wait 900 &&`
+  form the refusal names (section
+  [14](#14-many-sessions-on-one-machine-the-memory-slot)).
 - **A refusal ending `refused: <reason>`** is a usage refusal: an unknown
   flag, a stray argument, or a value that looks like a flag. `buddy <verb>
   --help` gives the usage line.
-- **A message that never arrives.** A message is delivered on the
-  recipient's next tool call; a session idle at its prompt takes none. Check
-  `buddy sent`; nudge the session at the wake address the `msg` result
-  printed.
+- **A message that never arrives.** A message is delivered with the
+  recipient's next tool call or its next prompt; a session sitting idle at its
+  prompt has neither. The sender's `buddy sent` says whether it is still
+  queued and names the wake address again: nudge the session there, or type
+  into its pane. A Codex session gets its mail only when it runs
+  `buddy inbox`.
 
-## 16. Where the details are
+## 18. Where the details are
 
 | You want | Read |
 | --- | --- |
@@ -484,6 +836,10 @@ Each entry starts with the words you will see.
 | The roster's columns | [USAGE "The roster"](USAGE.md#the-roster--buddy-sessions) |
 | Waits and the prompt cache | [USAGE "Waiting without going cold"](USAGE.md#waiting-without-going-cold--buddy-wait) |
 | Files every session is told changed | [USAGE "Authority files"](USAGE.md#authority-files--buddy-authority) |
+| A fleet whose deliverable is not code | the fleet skill's [not-code.md](../skills/buddy-fleet/not-code.md) |
+| Sessions outside git, and every fleet-ledger refusal | [USAGE "Outside git"](USAGE.md#outside-git--a-fleet-ledger); the coordinator's recipe is [outside-git.md](../skills/buddy-fleet/outside-git.md) |
+| One session over several repositories' coordinators | the fleet skill's [fleet-of-fleets.md](../skills/buddy-fleet/fleet-of-fleets.md) |
+| The memory slot | [USAGE "The memory slot"](USAGE.md#the-memory-slot--buddy-mem-d-238) |
 | Upgrades and the ledger's schema | [USAGE "Upgrading and the ledger's schema"](USAGE.md#upgrading-and-the-ledgers-schema) |
 | Measuring what buddy costs in context | [USAGE "Measuring context cost"](USAGE.md#measuring-context-cost) |
 | A read-only check of this machine for many sessions | `sh scripts/env-check.sh` (`--list` names the checks) |
