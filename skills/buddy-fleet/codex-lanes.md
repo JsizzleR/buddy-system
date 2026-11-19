@@ -12,10 +12,11 @@ A worker that `buddy-adapter` launched renews its claims only from completed
 file writes (`buddy lifecycle renew`, D-078), and its adapter mail is its own
 channel: both as the buddy skill's "Harness boundaries" says. For an offline
 compatibility report, run
-`buddy diagnose --harness codex --launch <json>` before a launch, or
-`buddy diagnose --receipt <saved-receipt> --evidence <capture>` afterwards;
-exit 0 means a report was produced, never readiness. Wiring Codex hooks by
-hand, check the layer with `buddy diagnose --codex-hooks <hooks.json>`: every
+`buddy diagnose --harness codex --launch <absolute-json-path>` before a launch, or
+`buddy diagnose --receipt <absolute-saved-receipt> --evidence
+<absolute-json-path>` afterwards;
+every path absolute; exit 0 means a report was produced, never readiness. Wiring Codex hooks by
+hand, check the layer with `buddy diagnose --codex-hooks <absolute-hooks-json>`: every
 buddy command there needs `BUDDY_HARNESS=codex`.
 
 A worker brief names the operator-authorized scope, the coordinator (by full

@@ -470,10 +470,11 @@ operator      pause <target> [--note <text>]             deny the target's next 
                                     never in this directory's ledger: how a session in a
                                     governed repository acts in its fleet (D-193)
 setup         init                  create the ledger for this repo
-              update [--dry-run]    reinstall from the checkout this buddy was installed
-                                    from: says where it stands (read locally, nothing
-                                    fetched) and which git commands you may want first,
-                                    then runs its scripts/install.sh; never pulls
+              update [--dry-run] [--wire-hooks] [--refresh-hooks]   reinstall from the
+                                    checkout this buddy was installed from: says where it
+                                    stands (read locally, nothing fetched) and which git
+                                    commands you may want first, then runs its
+                                    scripts/install.sh; never pulls
               uninstall [--chat] [--dry-run]   remove what install.sh installed, from
                                     that checkout's scripts/uninstall.sh, and say what it
                                     leaves (settings, ledgers, journal: never touched);

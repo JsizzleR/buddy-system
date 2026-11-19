@@ -35,7 +35,8 @@
 #      `gate` once in a fresh temp directory, which must exit 0. Each is
 #      built BESIDE its target and renamed over it only once it passed, so a
 #      build that fails here leaves the old binary in place;
-#   3. installs the user-level skills, buddy and buddy-fleet (scripts/install-skill.sh);
+#   3. installs the user-level skills, buddy, buddy-fleet, buddy-lead and
+#      model-router (scripts/install-skill.sh);
 #   4. restarts the chat daemon under launchd (`kickstart -k`, never kill:
 #      KeepAlive respawns a killed daemon and the loser of the socket race
 #      dies — CLAUDE.md) and checks it is running again, waiting out the
