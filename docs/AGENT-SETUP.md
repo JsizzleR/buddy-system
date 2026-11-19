@@ -8,8 +8,8 @@ fails. Every command on this page exists in this repository or in `buddy --help`
 **Do not, without the user saying yes to that specific step:** edit
 `~/.claude/settings.json` or any other settings file; install packages (Go,
 `ergo`, anything via a package manager); change a permission mode; use `sudo`;
-push to any repository. The install script itself never edits settings, and
-neither should you until step 3 asks.
+push to any repository. The install script edits no settings unless it is run
+with `--wire-hooks` (step 3), and neither should you until step 3 asks.
 
 ## 0. Requirements
 
@@ -39,22 +39,25 @@ BUDDY_CHAT=off sh scripts/install.sh    # claims-only: no server of any kind
 ```
 
 The script builds the binaries into `~/bin` (`BUDDY_BIN_DIR` overrides), runs
-each once to prove it starts, installs the skills to `~/.claude/skills/buddy/`,
-`~/.claude/skills/buddy-fleet/` and `~/.claude/skills/buddy-lead/`,
+each once to prove it starts, installs every skill under `skills/` to
+`~/.claude/skills/` (`buddy`, `buddy-fleet`, `buddy-lead`, `model-router`),
 wires this checkout's own git hooks and ledger, and ends by REPORTING which
-Claude Code hook entries `~/.claude/settings.json` holds. It never edits that
-file, and it cannot tell whether Claude Code loads it (D-184). Under `BUDDY_CHAT=off` it builds and checks only the claims half and
+Claude Code hook entries `~/.claude/settings.json` holds. Without
+`--wire-hooks` it never edits that file, and it cannot tell whether Claude Code loads it (D-184). Under `BUDDY_CHAT=off` it builds and checks only the claims half and
 reports any chat remnants it found and left alone.
 
-**Checkpoint.** The output ends in `install: done`, and:
+**Checkpoint.** The output ends in `install: done` (or `install: done, but
+ACTION NEEDED (N below)`, the lines after it naming each thing to do: read them
+to the user), and:
 
 ```sh
 "$HOME/bin/buddy" help | head -1       # buddy — the Buddy System: ...
 ls ~/.claude/skills/buddy/SKILL.md ~/.claude/skills/buddy-fleet/SKILL.md ~/.claude/skills/buddy-lead/SKILL.md
 ```
 
-The report's `hooks:` line will say `NOT wired` on a first install. That is
-expected; step 3 fixes it.
+On a first install the report's `hooks:` line says `NOT wired in …` (or, with
+no settings file at all, `no … — none are wired`). That is expected; step 3
+fixes it.
 
 ## 2. Put `~/bin` on the PATH
 
@@ -73,7 +76,12 @@ Ask before appending to a shell profile. **Checkpoint:** a new shell answers
 
 Show the user the "Hook wiring" JSON block from the README (the exact spelling
 matters: the install script's report looks for those lines) and ask to add it
-to `~/.claude/settings.json`. Then merge, never overwrite:
+to `~/.claude/settings.json`. The user may instead run the install command from
+step 1 with `--wire-hooks` added: it appends only the buddy lines its report
+names missing, each in an entry of its own, spelled as the README spells them,
+changes nothing else, and refuses beside a `BUDDY_BIN_DIR` other than `~/bin`
+(D-135); it does not replace an old gate line (below). By hand, merge, never
+overwrite:
 
 - If the file does not exist, write it with that block as its content.
 - If it exists and has no `hooks` key, add the block's `hooks` object beside the

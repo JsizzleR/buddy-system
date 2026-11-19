@@ -47,7 +47,7 @@ dead earlier run of the same session," and process ids are recycled lies. The
 end-of-session hook deliberately only *marks* a session ended and never
 orphans its claims inline: a delayed `bye` racing a re-hello of the same
 session id would otherwise orphan a live session's work. Orphaning happens in
-`hello` and `sweep`, where it's idempotent and keyed to rows still ended when
+`hello`, `sweep`, `claim` and `wait check`, where it's idempotent and keyed to rows still ended when
 they run.
 
 Sweeps are conservative on principle: staleness *marks*, it never reaps. A
@@ -59,9 +59,12 @@ anything uncertain requires an explicit `--force` from a human.
 
 Enforcement is **cooperative**. The PreToolUse gate adjudicates the paths
 tools declare — canonicalized, case-folded (case-insensitive filesystems will
-happily alias a repo root two ways), resolved against the *target* repo's
-ledger when an edit crosses repos — and it fails closed when a ledger exists
-but can't be read. It cannot bind a process that bypasses the harness, and a
+happily alias a repo root two ways), judged by every distinct ledger at or
+above the *target* path, additively, when an edit crosses repos — and it fails
+closed when a ledger exists but can't be read. Besides a peer's hold, it
+notices a declared path no claim of the caller covers while another session
+holds one: a line in the model's context by default, a refusal under
+`BUDDY_OWN_CLAIM=deny` (D-228). It cannot bind a process that bypasses the harness, and a
 shell command's side effects are invisible to it. It's a seatbelt for agents,
 not a sandbox against them. Pretending otherwise would be the worse design.
 
@@ -69,7 +72,8 @@ There is a **second line** at the commit boundary, because the first one is
 structurally blind to a whole class of writes: a generator, a shell redirect or
 a tree-wide formatter never declares a path to any tool. `buddy commit-gate`,
 run from `pre-commit`, adjudicates the paths of the pending commit against open
-claims. It reports collisions only, warns rather than refuses by default, and
+claims. It refuses collisions only (staged paths no claim of the committer
+covers get a report-only section, D-228), warns rather than refuses by default, and
 never refuses a commit it cannot attribute to a session — a human at a terminal
 has no session id, and blocking them is how a hook gets uninstalled. Its
 coverage claim is deliberately narrow: the ordinary commit path, when the hook

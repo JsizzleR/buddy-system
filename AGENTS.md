@@ -16,7 +16,8 @@ The operator's request determines the role, not the model name:
   review passes through `scripts/codex-review.sh`, in the foreground; that
   workflow does not build or test. A review verdict is not test evidence. A
   review of adapter code (`internal/harness`, `cmd/buddy-adapter`, the
-  qualify/check `.py` scripts, `docs/admissions/`) sets `CODEX_CHARTER=adapter`
+  qualify/check `.py` scripts, `docs/admissions/`, USAGE's adapter sections)
+  sets `CODEX_CHARTER=adapter`
   (D-128); one of process text (the skills, CLAUDE.md, this file, the review
   docs) sets `process`, and one of both `all` (D-147). Name the diff under review
   as `CODEX_DIFF=<rev>|<a>..<b>`: unnamed, the install and test-infrastructure
@@ -60,7 +61,7 @@ does not need to be asked for again.
 
 A session a coordinator launched receives its operator request as a launch
 brief: its first prompt, written by the launcher from what the operator gave
-it and nothing more (the Buddy skill, "Running a fleet"). The brief's bounds
+it and nothing more (the `buddy-fleet` skill). The brief's bounds
 are that session's bounds. It may name ONE coordinator, by full session id
 and label, as the relay of the operator's decisions about this work: what to
 take next, what to stop or hand on, which claims to release, when a lane

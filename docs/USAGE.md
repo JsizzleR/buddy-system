@@ -62,8 +62,10 @@ no open claim of the CALLING session covers, in any mode (exclusive,
 line in the model's context, `BUDDY UNCLAIMED: ...`, and the call proceeds:
 PreToolUse `additionalContext` with no `permissionDecision`, since `allow`
 would skip the permission prompt for every such edit and tell the model
-nothing. Whether Claude Code delivers it is documented, not yet measured.
-`BUDDY_OWN_CLAIM=deny` refuses instead, `off` turns it off, and any other
+nothing. Claude Code 2.1.327 was measured delivering it to the model, in a
+session and in a subagent, with the permission flow unchanged (D-229); in Code
+Mode a line repeating one already sent from the same script is left out,
+while distinct paths each get theirs (D-236, D-237). `BUDDY_OWN_CLAIM=deny` refuses instead, `off` turns it off, and any other
 value refuses, naming it: a typo of `deny` must not pass for enforcement.
 `hello`'s digest says a value that is not the default. It speaks only while
 ANOTHER session not positively ended holds an open claim in that ledger (a
@@ -74,8 +76,12 @@ and gets the only document. A ledger judges a session it has a row for; the
 cwd's own ledger also judges one it has none for, whose line says `buddy hello
 </dev/null` first. Its remedy names a NEW slug: re-claiming a slug you hold
 replaces that claim's scopes, which frees the files it held. Under Codex there
-is no line (an unsupported field fails the hook run), only `deny`;
-`buddy-adapter` pins it `off` for its workers. A Bash write declares no path
+is no line, only `deny`: D-228 chose silence where the field was expected to
+fail the hook run; Codex's 0.170.0 app-server was later measured delivering it
+under 0.165.0 and 0.169.0 clients, and no admitted build's own hook engine has
+been measured (D-236, D-237). A `buddy-adapter` worker gets its posture only from
+its launch file's `own_claim` field, absent meaning `off` (D-235; "Structured
+adapters" below). A Bash write declares no path
 and is not seen here: the commit gate's second section is where it shows. Not
 a lock, in D-005's words: cooperative.
 
@@ -110,7 +116,8 @@ session whose shell exports `GIT_DIR` for a dotfiles repository is still
 governed by the repository it works in (D-137); a `buddy-adapter` worker's
 hook, whose identity check runs a typed verb, is refused there instead. `commit-gate` keeps git's
 environment, which is how a pre-commit hook says what is being committed, and
-so does every verb you type.
+so does every verb you type, except that with `BUDDY_FLEET` set the fleet
+plan's typed verbs unset it at entry as the hook verbs do (D-191).
 
 `SessionStart` (`hello`) ends its digest with a chat hint unless chat is
 declared off: `BUDDY_CHAT` `off` or `on` (trimmed, then folded by the repo's
@@ -849,7 +856,13 @@ saying so, by the operator: a holder whose every registered process is `GONE`
 (a crashed pane) with a plain `buddy bye <id>`, which refuses while any of them
 runs, and then `buddy sweep`; any other with `buddy release <slug> --session
 <id>`, or `buddy sweep --force` once it has been silent 24h. The refusal, `who`,
-`whose`, the gate's deny and the commit gate name the bye on the GONE arm only. `bye` itself records the
+`whose`, the gate's deny and the commit gate name the bye on the GONE arm only,
+and one more state: a holder whose session row is MISSING (only a hand-edited
+ledger gets there) still refuses at every door, is shown as MISSING, and is
+freed only by `buddy hello --session <id> </dev/null`, then `buddy bye <id>`,
+then a plain `buddy sweep`, the recipe each of them prints (D-211); a `bye`
+refused because a registered process still runs means the holder is alive: ask
+it to release, or end it with `buddy bye <id> --force`. `bye` itself records the
 ending and deliberately touches no claim row, so `buddy ls` still shows an
 exited session's claims as `open` until something orphans them, and the
 PreToolUse gate still denies an unclaimed edit under them until then (the deny
@@ -1791,7 +1804,7 @@ What it deliberately is not:
 - **Not inferred.** A refused claim, an idle report and silence are not waits.
   No row means the session has not said.
 - **Not a check anyone else can run.** `wait check` speaks only for the
-  session in `$CLAUDE_CODE_SESSION_ID`: it records a keep-alive and can clear a
+  session the harness names (`$CLAUDE_CODE_SESSION_ID` or `$CODEX_THREAD_ID`): it records a keep-alive and can clear a
   LANDED verdict, and neither is true of a check typed in another shell.
   `buddy who <target>` and `buddy wait ls` look from outside without touching
   anything.
@@ -2106,7 +2119,7 @@ literal file.
 | Verb | In a fleet ledger |
 | --- | --- |
 | `hello`, `beat`, `busy`, `idle`, `bye` | work; no dirty scan, no base sample, no authority watch (a cwd is no root) |
-| `msg`, `inbox`, `sent`, `wait` (timer, `--on`, `--block`), `wait check`/`ls`/`clear`, `sessions`, `ls`, `sweep`, `ids` | unchanged |
+| `msg`, `inbox`, `sent`, `wait` (timer, `--on`, `--for-mail`, `--block`), `wait check`/`ls`/`clear`, `sessions`, `ls`, `sweep`, `ids` | unchanged |
 | `status`, `who` | first line `LEDGER       fleet <name>: <path> (coordination only: no file claim, gate or brake)`; `BASE` reads `not kept in a fleet ledger`; a `who` of an `a/b` that names nobody suggests `buddy ls` |
 | `claim` | only `.buddy/slot/<name>` scopes (after normalization: not the slot root, not `.buddy/slot/gh-stack` or under it, the one slot the gate reads, D-108); `--job` works; `--shared` and `--based-on` refused |
 | `release` | `--outcome`, `--note`, `--to` work; `--in-run` and `--unpark` refused (nothing integrates) |
@@ -2261,8 +2274,15 @@ buddy commit-gate: 2 staged paths in 1 claim inside ANOTHER session's open claim
       claim "router-work" held by repo/s-5d6c5614 (live, last seen 40s)
       scope internal/router — edge cap rework
 
+Coordinate with the owner before committing, or have them `buddy release <slug>`.
+`buddy ls` lists open claims; a holder that is ENDED or GONE above says what frees it.
+This is a claims check, not proof of authorship.
+
 Warning only — the commit proceeds. Set BUDDY_COMMIT_GATE=deny to refuse instead.
 ```
+
+The report-only second section described below, when it speaks, sits between
+the footer and the posture line.
 
 It **warns and lets the commit through** by default. Nobody has yet measured how
 often a commit in a shared checkout legitimately touches a peer's scope — a
@@ -2285,7 +2305,10 @@ What it deliberately does **not** do, so the promise stays honest:
   a file is not authorship of your staged hunks.
 - It **never refuses a commit it cannot attribute.** A human typing `git commit`
   has no session id; blocking that is how a hook gets uninstalled. It still
-  reports the covering claims, wording them as "these may be yours".
+  reports the covering claims, saying it "could not tell which session is
+  committing, so this cannot say whether these claims are yours", and under
+  `deny` adds `NOT refusing: BUDDY_COMMIT_GATE=deny enforces only when the
+  committing session is known.`
 - It covers the **ordinary commit path only**. `--no-verify` and `commit-tree`
   skip it; merge commits run a different hook; the commits that rebase,
   cherry-pick, revert and `git am` create do not run `pre-commit` at all.
@@ -2423,11 +2446,13 @@ network) and neither installed by `install.sh`:
   `gh issue` and `gh pr` unless the next word is a write (`create`,
   `comment`, `close`, `edit`, `reopen`; `pr ready`, `merge`), so a read gh
   adds later refuses by default; `gh api` on a path naming issues,
-  pulls, comments, search, graphql, notifications, events, timeline,
-  discussions, logs or projects, or an endpoint it cannot read (a variable);
-  every top-level gh command outside a short list known to read no issue text
-  (`search`, `status`, `discussion`, `project`, aliases, extensions but
-  `stack`); any gh under `xargs`; and a Bash word or WebFetch url that is a
+  pull, pulls, comments, search, graphql, notifications, events,
+  received_events, timeline, discussions, logs, projects, deliveries or
+  milestones, or an endpoint it cannot read (a variable); every top-level gh
+  command outside a short list known to read no issue text (`repo`, `release`,
+  `run`, `workflow` and the like), so `search`, `status`, `discussion`,
+  `project`, `agent-task`, an alias and any extension but `stack` refuse; any
+  gh under `xargs` or `parallel`; and a Bash word or WebFetch url that is a
   GitHub URL to such a page (normalised as a URL parser reads it), curl's
   included, while repository files (`/blob/`, raw.githubusercontent.com)
   pass. It reads the command with its own small shell lexer: quotes,
@@ -2457,7 +2482,10 @@ Wire it only with the copy in place: python3 exits 2 on a missing script, and
 exit 2 blocks the call, so that line with no file behind it refuses **every
 Bash, WebFetch and Monitor call** on the machine. `install.sh` reports both (`issue-author
 hook:` lines: the copy current or DIFFERS, the wiring, and that MISSING case,
-loudly) and changes neither; `uninstall.sh` names the copies it leaves and
+loudly) and, unflagged, changes neither; under `--refresh-hooks` it replaces
+a wired copy that DIFFERS once the checkout's bytes pass `--self-test`, never
+installs a missing one, and names a copy still differing in its last lines
+(D-232); `uninstall.sh` names the copies it leaves and
 says to remove the settings line first. Self-tests: `python3 -I -B
 scripts/hooks/issue-author-gate.py --self-test` and `python3 -I -B
 scripts/issue-read.py --self-test` (a fake gh), both in the hermetic tier.
@@ -2625,7 +2653,8 @@ The legacy views keep the two channels apart rather than hiding one (D-076).
 - `buddy msg --supersedes` refuses to correct an adapter message.
 
 `inspect` returns identity, worktree, lifecycle observation, queued-message
-metadata, READY SHA, run outcomes and endpoint observations. Ledger absence of
+metadata, READY SHA, run outcomes, endpoint observations and the own-claim
+postures this build's gate states (`"gate":{"own_claim":[...]}`, D-235). Ledger absence of
 an idle report or approval telemetry is `unknown`. No READY or outcome is a
 claim of native completion. Acknowledgment and work completion are `unknown`
 unless a separate consumer has evidence; this slice exposes no operation that
@@ -3240,9 +3269,12 @@ The endpoint fixture is macOS-specific and uses the native process table plus
 providers, retain artifact hashes and failure receipts, and clean up their owned
 processes. See the canonical plan for current results and remaining gates.
 
-The gate, Mod, completed-turn resume and cancellation runners still default to
-2.1.289, which the adapter no longer admits: 2.1.289 and 2.1.290 are retired (D-079;
-no binary or hash survives), so pass the version of a committed record:
+The gate, Mod, completed-turn resume and cancellation runners bind the
+`--claude` executable (default: `claude` on PATH) and take its own version as the
+run's contract; a typed `--claude-version` that disagrees refuses (D-080).
+2.1.289 and 2.1.290 are retired (D-079; no binary or hash survives), so the
+binary must be one a committed record admits, or a qualification candidate
+bound by its typed sha256 against a loopback provider (D-080):
 
 ```sh
 python3 scripts/qualify-claude.py --claude-version 2.1.291 --trace-native
@@ -3255,12 +3287,10 @@ python3 scripts/qualify-claude-peers.py --claude-version 2.1.291
 
 `--claude` selects the existing executable; the fixture refuses a version other
 than the explicit contract. The option does not bypass adapter admission.
-Endpoint and peer runners also retain the 2.1.289 default. Their explicit
-2.1.291 exercises passed separately; accepting `--claude-version 2.1.290` as a
-probe does not establish a measured endpoint/peer contract for that version.
-Mixed-fleet and SDK history fixtures now also qualify retained 2.1.291; their
-defaults remain 2.1.289. Manual compaction and its refusal fixtures separately qualify
-2.1.290 and 2.1.291; their default remains 2.1.290.
+Endpoint and peer runners default to the newest recorded version and accept
+only recorded ones (`choices=`); their explicit 2.1.291 exercises passed
+separately. Mixed-fleet, SDK history, manual compaction and its refusal fixtures
+default to the bound binary's own version.
 The Mod fixture retains original native frames and effective settings before and after
 reload alongside actual denial/allow and permissive-Mod controls.
 
@@ -3472,9 +3502,9 @@ python3 scripts/qualify-claude-compaction.py --claude-version 2.1.291
 python3 scripts/check-claude-compaction.py /private/tmp/buddy-claude-compaction-EXAMPLE/result.json --self-test
 ```
 
-This opt-in fixture accepts the separately qualified 2.1.290 and 2.1.291
-contracts. The default remains 2.1.290; select the matching retained executable
-with `--claude` when needed. It uses a disposable linked worktree and fixed
+This opt-in fixture was qualified on 2.1.290 and 2.1.291; its version is the
+`--claude` executable's own (default `claude` on PATH), and 2.1.290 is retired
+(D-079). It uses a disposable linked worktree and fixed
 loopback Messages responses, and records original native frames,
 journal, history copies and immutable ledger snapshots. Its private proxy
 substitutes one explicitly armed `/compact` input while preserving the input
@@ -3518,8 +3548,8 @@ commit/targets and queued bodies, and observe owned native child cleanup.
 The checker reads original wire, journals, history, immutable SQLite captures
 and hashes independently of the runner's verdict. `--self-test` rejects damaged
 receipts and missing cases. This qualifies bounded refusal and the successful
-control on separately measured 2.1.290 and 2.1.291. The default remains
-2.1.290; `--claude` selects the matching executable. It does not add unfinished
+control on separately measured 2.1.290 and 2.1.291. The version is the
+`--claude` executable's own; 2.1.290 is retired (D-079). It does not add unfinished
 recovery, compaction control, automatic thresholds, real-provider work or production
 installation. Like the other native fixtures, this stays opt-in and outside
 the hermetic tier.
@@ -3593,8 +3623,8 @@ the lookup helper calls only `getSessionMessages`, for the captured session and
 worktree. Native state is disposable. `--ipv6` selects literal IPv6 loopback;
 the default is `127.0.0.1`.
 
-`--claude-version` selects the exact contract to probe; its default remains
-2.1.289. A mismatched executable refuses before builds, providers or workers.
+`--claude-version` names the exact contract to probe; it defaults to the
+`--claude` executable's own version. A mismatched executable refuses before builds, providers or workers.
 The runner captures the native version and executable hash before building and
 rechecks them before launch. SDK 0.3.202's package, module and declaration hashes
 are captured before the exercise and by each lookup. The checker binds those
@@ -3677,8 +3707,9 @@ incarnation tokens are never echoed. Inputs are observations, never authority.
 
 The report separates:
 
-- **Ledger:** absent, unreadable, invalid, too large, changing, journal present,
-  migration required, newer than this binary, or current schema. The binary's
+- **Ledger:** absent, discovery failed (`discovery_failed`: discovery erred
+  for a reason other than "no ledger", never read as absent), unreadable,
+  invalid, too large, changing, journal present, migration required, newer than this binary, or current schema. The binary's
   supported schema and the snapshot's version/hash are reported when available.
   `current_schema` describes the version and the small session projection read
   here, not every table's compatibility or runtime readiness.
@@ -3724,7 +3755,8 @@ Optional historical evidence has this schema:
 Replace the example values with an existing capture; `codex_hooks` is the
 unwrapped native `hooks/list` result. The empty example proves no gate exists.
 For Claude, omit `codex_hooks` and use its exact captured version output, for
-example `2.1.289 (Claude Code)`. Captures must name the same harness, worktree and
+example `2.1.312 (Claude Code)` (a version no admission record names, such as
+the retired 2.1.289, is judged unsupported). Captures must name the same harness, worktree and
 configuration hash and carry an RFC3339 timestamp. The file hash binds only that
 file, not every layered or imported hook source. The report labels matching
 captures `supplied_snapshot`; it does not authenticate their origin or freshness.

@@ -104,7 +104,7 @@ whole thing, from an empty directory to the first claim in another project:
 
 ```sh
 git clone https://github.com/JsizzleR/buddy-system && cd buddy-system
-sh scripts/install.sh                   # builds buddy + buddylist into ~/bin, installs the skill, REPORTS hook wiring
+sh scripts/install.sh                   # builds buddy + buddylist into ~/bin, installs the skills, REPORTS hook wiring
 # BUDDY_CHAT=off sh scripts/install.sh  # claims only: no daemon, no MCP server, nothing listening
 cd /path/to/your/repo && buddy init     # one ledger per repo, inside .git; every worktree shares it
 ```
@@ -125,7 +125,8 @@ conventions it reads: [docs/examples/fleet-conventions.md](docs/examples/fleet-c
 and the [lead skill](skills/buddy-lead/SKILL.md), which a first-time user (or
 the agent helping one) loads with `/buddy-lead`: it asks what you are trying
 to do before anything is installed, and its `sh scripts/env-check.sh` is a
-read-only look at the machine for settings that help many parallel sessions.
+read-only look at the machine for settings that help many parallel sessions;
+the [model-router skill](skills/model-router/SKILL.md) installs beside them.
 Put `~/bin` on your `PATH`
 (`BUDDY_BIN_DIR` overrides it; the hook lines spell the path out either way).
 
@@ -277,7 +278,8 @@ Why each hook behaves as it does is in [docs/USAGE.md](docs/USAGE.md#hooks-in-de
 The tool-call gate sees only the path a tool declares; a file written by a
 code generator or a shell redirect reaches the index unasked. The commit gate
 reports, at `git commit`, any staged path inside **another** session's open
-claim, warning by default. Git will not let a repository enable its own
+claim, warning by default; staged paths no claim of yours covers get a
+report-only section (D-228). Git will not let a repository enable its own
 hooks, so link it in your repo:
 
 ```sh
@@ -405,6 +407,7 @@ chat-command bridge (waits on real auth) and multi-machine claims.
 
 | Document | What it is |
 | --- | --- |
+| [docs/MANUAL.md](docs/MANUAL.md) | The user manual: install to first claim to fleet, upgrade, uninstall and troubleshooting, task by task |
 | [docs/USAGE.md](docs/USAGE.md) | Every feature in depth: hooks, claims, messages, the roster, waits, slots, long runs, landing through an orchestrator, authority files, ids, the commit gate |
 | [docs/DESIGN.md](docs/DESIGN.md) | Why it is built this way, and the assumptions measurement refuted |
 | [docs/decisions.md](docs/decisions.md) | The append-only decision record (D-001 onward) behind every rule |

@@ -26,7 +26,9 @@ skill).
 
 - **The orchestrator opens its lanes' panes itself**, for the work it was
   given (`herdr tab create` + `herdr agent start`). It does not ask the
-  operator to open them.
+  operator to open them. One at a time, never in a burst: each after the
+  last one's first report and a memory check of the whole machine (D-209; a
+  resume after a crash follows the fleet skill's `resume.md`).
 
 - **Lanes start in auto mode**: `--permission-mode auto`, on a model that has
   auto mode. Never a more permissive mode (not `bypassPermissions` or

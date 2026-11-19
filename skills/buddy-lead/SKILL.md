@@ -21,7 +21,7 @@ Three rules before anything else:
   command shown first.** Installing, a settings file, a shell profile, a
   permission mode, `sudo`, launching a session: each is the user's own act,
   in their own shell. You run only what reads: `buddy status`, `buddy ls`,
-  `buddy claim --dry-run`, `sh scripts/env-check.sh`.
+  `buddy claim <slug> --dry-run ...`, `sh scripts/env-check.sh`.
 - **Every step ends in something the user can see working.** A checkpoint
   that fails is where you stop and read the error together.
 
