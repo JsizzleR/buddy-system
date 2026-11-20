@@ -632,7 +632,8 @@ Claims keep sessions out of each other's files. They do nothing about a
 dozen sessions each starting a test run in the same minute, which can freeze
 the machine. The *memory slot* is an admission check on heavy starts, shared
 by every session on the machine, in every repository. It is **off until you
-turn it on**, and it is macOS only.
+turn it on**, and it reads memory on macOS and Linux (in a container, the
+container's own cgroup v2 limit; a cgroup v1 host has no reading).
 
 ```sh
 buddy mem init          # turn it on, fitted to this machine; --floor-gb <n>|auto sets the floor
@@ -646,7 +647,7 @@ command a session starts, whether or not the directory has a ledger. A
 session; USAGE has the list and what each books) books an estimate of the
 memory it will take. It is refused when free memory, less what is already
 booked, less its own cost, would fall under the floor, or when the system
-already reports memory pressure or heavy swapping. A light command never
+already reports memory pressure or (on macOS) heavy swapping. A light command never
 touches the slot. A booking fades to nothing over 90 seconds: it limits how
 much may *start* inside one such window, and it is not a promise that the
 start shows in the free-memory reading by then (on macOS it shows there only

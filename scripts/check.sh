@@ -243,6 +243,18 @@ if [ "$run_hermetic" = 1 ]; then
   awk '/^func envFleetFrom\(/{on=1} on{print} on && /^}/{exit}' internal/cli/fleet_reach_test.go | sed 's|//.*||' | grep -q 'g\.reach(pkgInit, "cmdGate", "cmdCommitGate")\[fleetEnvNode\]' || { echo "check.sh: the fleet gate's BUDDY_FLEET scan (envFleetFrom) no longer walks from init, cmdGate and cmdCommitGate to EnvFleet (D-191)" >&2; exit 1; }
 
   go vet ./...
+  # D-241: the memory slot's readers are chosen by build constraint
+  # (memread_darwin.go, memread_linux.go, memread_other.go), so the tier on
+  # one platform compiles only that platform's file: before this, nothing
+  # compiled the Linux wrapper before CI did, and nothing ever compiled the
+  # refusal (panel lens c, finding 4). With it a darwin run compiles all three
+  # and CI's ubuntu run the Linux wrapper and the refusal (the operator's
+  # choice, linux and freebsd, 2026-11-20). The packages
+  # are the ones the readers live in and the binary that links them, not ./...:
+  # what differs by GOOS here is the reader's selection, and vetting every
+  # package twice more buys this leg nothing.
+  GOOS=linux go vet ./internal/cli ./cmd/buddy
+  GOOS=freebsd go vet ./internal/cli ./cmd/buddy
   go test ./... -count=1
   go test -race ./... -count=1
 

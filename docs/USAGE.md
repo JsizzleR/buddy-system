@@ -1910,7 +1910,7 @@ A machine-wide admission slot for HEAVY starts, so sessions in every repository
 cannot all start a test run in the same minute (#144: twelve lanes resumed 3 s
 apart froze a 24 GB laptop twice). It is OFF until the operator runs
 `buddy mem init [--floor-gb <n>|auto]`; `~/.buddy/mem/config.json`
-is the switch, and deleting it turns the slot off; macOS only (init refuses where no reading can be taken). Its state is not the ledger
+is the switch, and deleting it turns the slot off; macOS and Linux (below; init refuses where no reading can be taken). Its state is not the ledger
 (that is per repository, D-001): `~/.buddy/mem/bookings.json`, rewritten whole
 under a flock(2) on `lock`, fsynced; `overrides.log` records every override and
 init.
@@ -1974,6 +1974,30 @@ work inside asks `admit` itself; `.githooks/pre-push` asks
 otherwise. `buddy mem status` prints free, booked, floor, pressure, swap, the
 rule in force (where the floor came from, the cap, the config's version) and
 every row.
+
+On Linux (D-241) free is `/proc/meminfo`'s `MemAvailable`, the kernel's
+estimate of what a new process gets without swapping (not `MemFree`, which
+leaves out the page cache), and the total `MemTotal`. Inside a cgroup v2
+container that is the HOST's figure (a 4 GB container on a 64 GB host reads 50
+GB free, and the OOM killer ends the lane), so each level from the process's
+own cgroup up to the visible root with a finite `memory.max` or `memory.high`
+caps both: free at limit - `memory.current` + the cache of this process's own
+path at that level (`active_file`, `inactive_file`, `slab_reclaimable`; never a
+sibling's, nor, against an ancestor's limit, what that path's `memory.min`
+protects), clamped to 0 and the
+limit, the total at the limit. Pressure is critical when PSI's
+`full avg10` reaches 10, at the host or a limited level (an unmeasured
+heuristic; a kernel without PSI, or booted `psi=0`, has the signal off). Swap
+is not judged on Linux. `mem status` and `init` print the figures' basis on a
+`reading:` line, swap included. No reading, so init refuses and a heavy call
+is denied where the slot is on: a cgroup v1 or hybrid memory controller (RHEL
+or Rocky 8, Amazon Linux 2, Ubuntu 20.04, WSL2 without systemd), a kernel
+before 3.14, a process whose cgroup no visible cgroup2 mount places (or a
+`/proc/self/cgroup` naming no v2 path beside a mounted cgroup2), a limit of 0. Not seen:
+a limit above the container's cgroup namespace (a Kubernetes pod's), ZFS's ARC
+(`MemAvailable` leaves it out; cap it with `zfs_arc_max`). The book is per
+`HOME`, so a container's slot guards its limit against its own sessions only.
+The BSDs and Windows have no reader.
 
 Fail mode: with the slot on, a HEAVY call is denied, naming the cause, when the
 state cannot be read, parsed or locked, or no memory reading can be taken

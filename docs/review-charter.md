@@ -26,7 +26,7 @@ binaries so the claims ledger is never dragged behind the chat stack (D-004):
 
 - **Claims (`buddy`)** — a SQLite ledger of who has reserved which file scopes, plus the
   operator's brake (`pause`) and message inbox. This is the safety half. It alone reserves
-  or refuses anything (its opt-in memory slot too, D-238, D-239).
+  or refuses anything (its opt-in memory slot too, D-238, D-239, D-241).
 - **Chat (`buddylist`)** — an IRC/AIM concierge daemon, a durable journal, an MCP server,
   and per-session presence. This is the visibility half. **Chat is never the lock.**
 
