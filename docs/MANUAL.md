@@ -815,10 +815,26 @@ Each entry starts with the words you will see.
   `sh scripts/install.sh` (or `buddy update`) from a current checkout.
 - **`buddy ledger read failed (...); refusing <tool>`** or a refusal naming
   the ledger as unavailable or unwritable: the ledger exists but cannot be
-  read or written (permissions, a full disk, a lock). A verb fails when a
-  read or write it needs does; the gate refuses only one it cannot read,
-  rather than guess; the text names the cause and the fix. A repository with no
-  ledger at all is different: buddy stays silent there.
+  read or written (permissions, on the ledger or on a `-wal`/`-shm` left
+  beside it; a full disk; a lock). A verb fails when a read or write it needs
+  does; the gate refuses a ledger whose open or a read fails, rather than
+  guess, and never one merely because it cannot write it. A verb's text names
+  the cause and the fix where the system refuses it permission to write the
+  ledger file itself (`EACCES` or `EPERM`, a mode or a sandbox; not a
+  read-only filesystem, and not where only a `-wal`/`-shm` beside it is
+  refused); the gate's names the error and, for a ledger it could not open,
+  sends you to `buddy status` for more. A file you can read can still fail to open: SQLite must find the
+  `-wal` and `-shm` files beside the ledger or create them, and where it can
+  do neither the refusal carries its `attempt to write a readonly database
+  (1544)` or `unable to open database file (14)` (that failed create, not a
+  write of the gate's; the same words with `(8)`, from a verb, are a refused
+  write). A ledger at this buddy's schema that the gate opens but cannot write
+  is judged by its claims as usual. So under a sandbox a refusal can come and
+  go with those two files, which are there while any buddy process has the
+  ledger open. Where one of them has lost its write permission, restore it
+  (`chmod u+w`); never delete a `-wal` that is not empty, which can hold
+  claims the ledger file does not yet. A repository with no ledger at all is
+  different: buddy stays silent there.
 - **`session <id> (from <source>) has not said hello in this repo's ledger`**
   from a typed verb. The session never registered: its hooks were not wired
   or not loaded (it started before you wired them). Wire them (section 3) and

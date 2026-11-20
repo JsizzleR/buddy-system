@@ -757,13 +757,13 @@ ledger row entered through the CLI (D-006).
     prompt`, any authority-conferring verb or flag. D-109 widens
     the relayed decisions to the item's content and scope (GIVEN 110).
 
-85. **A ledger this process may not write gets its cause and fix named (D-084).**
-    Codex's workspace-write sandbox keeps the git common dir read-only (measured: CANTOPEN
-    14 at open, READONLY 8 on a write if a peer has it open). A failing VERB whose error
-    is that family, over a ledger the OS refuses `O_RDWR` (EPERM/EACCES), appends the
-    cause and "request escalation up front"; nothing else changes. The gate, not routed
-    through it, denies only an unreadable ledger. Do not propose opening read-only to get
-    a verb through, or deciding anything from `CODEX_SANDBOX`.
+85. **A ledger this process may not write gets its cause and fix named (D-084, D-240).**
+    Codex's workspace-write sandbox keeps git's common dir read-only (measured: CANTOPEN
+    14 at open with no `-wal`/`-shm`, else READONLY 8 on a write). A VERB failing so, over
+    a ledger the OS refuses `O_RDWR` (EPERM/EACCES), appends the cause and "request
+    escalation up front". The gate, not routed through it, denies when its open or a read
+    fails, else judges, writable or not. Do not propose a read-only open for a verb or the
+    gate, or deciding anything from `CODEX_SANDBOX`.
 
 86. **Disagreeing native ids refuse, naming the remedy; nothing orders them (D-085).**
     `env -u` the other harness's variable. Measured: a herdr tab takes the herdr server's

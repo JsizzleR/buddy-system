@@ -16,20 +16,8 @@ import (
 // fresh ledger identically — "inspect ledger schema version: unable to open
 // database file (14)" and a `file-write-data` denial on buddy.db — so the
 // profile stands in for Codex without launching it. The verb runs in a child
-// of this test binary, because a sandbox applies to a whole process.
-
-const ledgerChildEnv = "BUDDY_TEST_LEDGER_CHILD"
-
-// TestLedgerAccessChild is not a test on its own: it is the process the
-// seatbelt leg runs under sandbox-exec, and it returns at once otherwise.
-func TestLedgerAccessChild(t *testing.T) {
-	if os.Getenv(ledgerChildEnv) == "" {
-		return
-	}
-	args := strings.Split(os.Getenv(ledgerChildEnv), "\x1f")
-	cwd, _ := os.Getwd()
-	os.Exit(Run(args, Env{Stdin: strings.NewReader(""), Stdout: os.Stdout, Stderr: os.Stderr, Cwd: cwd}))
-}
+// of this test binary (TestLedgerAccessChild, ledgeraccess_test.go), because a
+// sandbox applies to a whole process.
 
 func TestLedgerAccessUnderSeatbelt(t *testing.T) {
 	boundedParallel(t)
@@ -75,9 +63,12 @@ func TestLedgerAccessUnderSeatbelt(t *testing.T) {
 		t.Fatalf("control: unsandboxed child: %d %s", code, out)
 	}
 	out, code := run(t, true, "status")
-	if strings.Contains(out, "sandbox_apply") {
+	if code != 0 && strings.HasPrefix(out, seatbeltUnapplied) {
 		// Already inside a sandbox, which may not nest: the leg cannot run
-		// here, and says so rather than passing.
+		// here, and says so rather than passing. Known by sandbox-exec's own
+		// line opening the output, not by the word anywhere in it: the cause
+		// text below prints the ledger's path, and a TMPDIR holding
+		// "sandbox_apply" then skipped a leg whose sandbox had applied.
 		t.Skipf("sandbox-exec cannot apply a profile here: %s", out)
 	}
 	if code == 0 {

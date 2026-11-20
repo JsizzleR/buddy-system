@@ -18,7 +18,12 @@ func (e codedErr) Error() string { return e.msg }
 func (e codedErr) Code() int     { return e.code }
 
 // F1: a ledger this process may not write gets its cause and fix named, on
-// the verb path only, and the gate still denies over it (invariants 2, 3).
+// the verb path only. The gate is not routed through that text, and what it
+// does over such a ledger is not one verdict: it refuses one whose open, or a
+// read after it, fails, and judges any other (D-240;
+// ledgeraccess_gate_test.go pins both, row by row). This header said "the
+// gate still denies over it", the sentence CLAUDE.md's jurisdiction line was
+// written from; that holds only where the open or a read fails.
 //
 // File modes stand in for a sandbox here, so the suite runs everywhere; the
 // OS answers EACCES where seatbelt answers EPERM, and both count.
@@ -26,11 +31,38 @@ func (e codedErr) Code() int     { return e.code }
 
 const ledgerCause = "cause: this process may not write the ledger"
 
+// ledgerChildEnv carries the argv of the buddy call TestLedgerAccessChild
+// runs, joined by \x1f; ledgerChildStdinEnv carries that call's stdin (the
+// gate reads its hook JSON there; "" for a verb that reads none).
+const (
+	ledgerChildEnv      = "BUDDY_TEST_LEDGER_CHILD"
+	ledgerChildStdinEnv = "BUDDY_TEST_LEDGER_CHILD_STDIN"
+)
+
+// TestLedgerAccessChild is not a test on its own: it is the PROCESS the
+// seatbelt leg and the gate rows run buddy in, and it returns at once
+// otherwise. A sandbox applies to a whole process, and a hook is a fresh
+// process per call; neither can be had from Run inside this one. It builds
+// its Env as cmd/buddy does (streams and cwd, nothing injected), so the child
+// reads the real environment and the wall clock. It lived in the darwin file
+// while only the seatbelt leg used it; the file-mode gate rows need it on
+// every platform.
+func TestLedgerAccessChild(t *testing.T) {
+	if os.Getenv(ledgerChildEnv) == "" {
+		return
+	}
+	args := strings.Split(os.Getenv(ledgerChildEnv), "\x1f")
+	cwd, _ := os.Getwd()
+	os.Exit(Run(args, Env{Stdin: strings.NewReader(os.Getenv(ledgerChildStdinEnv)), Stdout: os.Stdout, Stderr: os.Stderr, Cwd: cwd}))
+}
+
 // lockLedger makes the fixture's ledger unwritable to this process, and with
-// dirToo its directory as well, so SQLite cannot create the -shm beside it
-// either: that is the shape with no peer holding the ledger open, which fails
-// at open with CANTOPEN. Without dirToo a read succeeds and a write fails
-// with READONLY. Restored at cleanup so TempDir can be removed.
+// dirToo its directory as well, so SQLite cannot create the -wal and -shm
+// beside it either: that is the shape with no sidecars there, which fails at
+// open. Under file modes the open says READONLY_DIRECTORY (1544); CANTOPEN
+// (14), which this comment used to name, is what a seatbelt makes of it.
+// Without dirToo a read succeeds and a write fails with READONLY (8).
+// Restored at cleanup so TempDir can be removed.
 func lockLedger(t *testing.T, f *fixture, dirToo bool) string {
 	t.Helper()
 	gitDir := filepath.Join(f.repo, ".git")
@@ -70,7 +102,8 @@ func TestLedgerAccessNamesCauseAndFix(t *testing.T) {
 		// which the darwin leg pins.
 		{"read verb fails at open", true, "", []string{"status", "--session", "sess-a"},
 			[]string{"inspect ledger schema version", "require_escalated", "read-only ones included"}},
-		// A peer holding it open: the read would pass, the write does not.
+		// File 0444, directory writable (SQLite makes the sidecars itself):
+		// the read passes, the write does not.
 		{"write verb is refused", false, "", []string{"claim", "w", "--session", "sess-a", "--desc", "d", "--scope", "pkg"},
 			[]string{"readonly database", "require_escalated"}},
 		// Through a verb that flattens its error with fencedErr first.
