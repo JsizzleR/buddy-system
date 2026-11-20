@@ -790,8 +790,9 @@ Each entry starts with the words you will see.
   `sh scripts/install.sh` (or `buddy update`) from a current checkout.
 - **`buddy ledger read failed (...); refusing <tool>`** or a refusal naming
   the ledger as unavailable or unwritable: the ledger exists but cannot be
-  read or written (permissions, a full disk, a lock). The gate refuses rather
-  than guess; the text names the cause and the fix. A repository with no
+  read or written (permissions, a full disk, a lock). A verb fails when a
+  read or write it needs does; the gate refuses only one it cannot read,
+  rather than guess; the text names the cause and the fix. A repository with no
   ledger at all is different: buddy stays silent there.
 - **`session <id> (from <source>) has not said hello in this repo's ledger`**
   from a typed verb. The session never registered: its hooks were not wired
