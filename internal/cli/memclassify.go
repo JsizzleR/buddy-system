@@ -68,6 +68,8 @@ import (
 // package peaked at 2.3 GB of linker RSS (gotest 3), a fresh VM start lowered
 // available memory by 2 to 3 GB (vm 4), a Claude session starts near 0.25 GB
 // and grows (lane 1). race and goall are not measured; tier is check.sh.
+// Under the fitted slot one start books at most a third of the machine
+// (memKindGB, D-239); the figures themselves are kept as they are, on purpose.
 var memKindCost = map[string]float64{
 	"tier":   8,
 	"goall":  6,
@@ -150,16 +152,43 @@ func joinKinds(a, b []string) []string {
 	return out
 }
 
-func kindCost(kind string, detached bool) memCost {
-	if detached {
-		return memCost{det: memKindCost[kind], detKinds: []string{kind}}
+// memKindGB is what ONE start of a kind books: the table's figure, or the cap
+// where the fitted slot's cap is under it (limit 0: no cap, the table as it
+// is). The cap is a whole number of MiB (memConfig.startCap) and every table
+// figure is one, so sums of these are exact in any order; RAM/3 itself is not
+// a binary fraction on most machines, and a tail summed in tree order then
+// differed from its admit summed in argument order by one unit in the last
+// place (the 10 GB witness in memslot_test.go; D-239).
+func memKindGB(kind string, limit float64) float64 {
+	gbs := memKindCost[kind]
+	if limit > 0 && gbs > limit {
+		return limit
 	}
-	return memCost{fg: memKindCost[kind], fgKinds: []string{kind}}
+	return gbs
+}
+
+// kindCost is the ONLY constructor of a cost above zero, so it is where the
+// cap applies (at a leaf, never to a call's total: twelve lane starts in a
+// loop still book twelve) and where the walk counts that it met a kind.
+func (w *memWalker) kindCost(kind string, detached bool) memCost {
+	w.leaves++
+	gbs := memKindGB(kind, w.limit)
+	if detached {
+		return memCost{det: gbs, detKinds: []string{kind}}
+	}
+	return memCost{fg: gbs, fgKinds: []string{kind}}
 }
 
 // memWalker carries what one command's walk found besides its cost.
 type memWalker struct {
 	parses, parsed int
+	// limit is the most one start books in this walk, in GB; 0 is no cap
+	// (a version-1 config, and the gate's first walk under any config).
+	limit float64
+	// leaves counts the kinds the walk met, admitted or not. None met is a
+	// LIGHT call. Not "books nothing": a covered admit books nothing too, and
+	// whether it covers its tail is a question the cap changes (D-239).
+	leaves int
 	// override is the first literal, non-empty BUDDY_MEM_OK assignment at a
 	// command position (memslot.go says how it is honored).
 	override string
@@ -168,22 +197,31 @@ type memWalker struct {
 	under string
 }
 
-// classifyMem reads one shell command. A panic books nothing (see the header).
+// classifyMem reads one shell command with no cap on what a start books. A
+// panic books nothing (see the header).
 func classifyMem(cmd string) (memCost, *memWalker) {
-	return classifyRecovered(func(w *memWalker) memCost { return w.script(cmd, 0) })
+	c, w, _ := classifyMemCapped(cmd, 0)
+	return c, w
+}
+
+// classifyMemCapped reads one shell command, each start booking limit GB at
+// most (0: no cap). ok is false when the walk panicked: what it returns then
+// books nothing, and the gate's second walk falls back to its first.
+func classifyMemCapped(cmd string, limit float64) (c memCost, w *memWalker, ok bool) {
+	return classifyRecovered(limit, func(w *memWalker) memCost { return w.script(cmd, 0) })
 }
 
 // classifyRecovered runs one walk under the recover, apart from the walk so
 // a test can hand it one that panics: no input is known to panic the walker,
 // and a recover no test reaches is one a refactor could drop unseen.
-func classifyRecovered(walk func(*memWalker) memCost) (c memCost, w *memWalker) {
-	w = &memWalker{}
+func classifyRecovered(limit float64, walk func(*memWalker) memCost) (c memCost, w *memWalker, ok bool) {
+	w = &memWalker{limit: limit}
 	defer func() {
 		if recover() != nil {
-			c, w = memCost{}, &memWalker{}
+			c, w, ok = memCost{}, &memWalker{}, false
 		}
 	}()
-	return walk(w), w
+	return walk(w), w, true
 }
 
 func (w *memWalker) script(src string, depth int) memCost {
@@ -431,9 +469,13 @@ func (w *memWalker) andChain(x *syntax.BinaryCmd, depth int) memCost {
 			}
 			tail = seq(tail, w.stmt(ops[j], depth))
 		}
+		// The admit is priced as the verb will book it, kind by kind under the
+		// same cap as the tail's leaves: on 8 GB `admit tier && { go test ./a &
+		// go test ./b & wait; }` covers 8 of 6 by the table and 2.67 of 5.33
+		// as booked (Codex design pass, panel lenses A and B; D-239).
 		covered := 0.0
 		for _, k := range kinds {
-			covered += memKindCost[k]
+			covered += memKindGB(k, w.limit)
 		}
 		if tail.total() > covered && w.under == "" {
 			w.under = fmt.Sprintf("its `buddy mem admit %s` covers %s GB, and the commands chained after it start %s GB (%s). Admit what they start, `buddy mem admit %s --wait 900 && ...` (lane starts: one admit per start), or split the call",
@@ -670,37 +712,37 @@ func (w *memWalker) named(name string, rest []shellWord, s *syntax.Stmt, depth i
 	}
 	switch name {
 	case "go":
-		return goCost(rest, race)
+		return w.goCost(rest, race)
 	case "golangci-lint":
 		if arg(0) == "run" {
-			return kindCost("gotest", false)
+			return w.kindCost("gotest", false)
 		}
 	case "herdr":
 		if arg(0) == "agent" && arg(1) == "start" {
-			return kindCost("lane", true)
+			return w.kindCost("lane", true)
 		}
 	case "claude":
-		return claudeCost(rest)
+		return w.claudeCost(rest)
 	case "codex":
 		if arg(0) == "exec" || arg(0) == "e" {
-			return kindCost("codex", false)
+			return w.kindCost("codex", false)
 		}
 	case "podman":
 		if arg(0) == "machine" && arg(1) == "start" {
-			return kindCost("vm", true)
+			return w.kindCost("vm", true)
 		}
 	case "buddy":
 		// `buddy update` builds every binary; its --help and --dry-run
 		// build nothing (Codex code pass: both were refused at 6 GB free).
 		if arg(0) == "update" && !hasAnyWord(rest[1:], "--help", "-h", "help", "--dry-run") {
-			return kindCost("gotest", false)
+			return w.kindCost("gotest", false)
 		}
 	}
 	if scriptShells[name] {
 		return w.shell(rest, s, depth)
 	}
 	if k := scriptKind(name); k != "" {
-		return kindCost(k, false)
+		return w.kindCost(k, false)
 	}
 	return memCost{}
 }
@@ -757,7 +799,7 @@ func (w *memWalker) shell(rest []shellWord, s *syntax.Stmt, depth int) memCost {
 			return memCost{}
 		}
 		if k := scriptKind(commandName(rest[0])); k != "" {
-			return kindCost(k, false)
+			return w.kindCost(k, false)
 		}
 		return memCost{}
 	}
@@ -795,7 +837,7 @@ var goValueFlags = set("-run", "-bench", "-count", "-cpu", "-parallel", "-timeou
 // goCost: `go test|build|vet|install|run` books gotest for one package,
 // goall for a `...` pattern or two or more packages, race for -race on one
 // package (over `...` the heavier goall: the local gate booked race 5 there).
-func goCost(rest []shellWord, race bool) memCost {
+func (w *memWalker) goCost(rest []shellWord, race bool) memCost {
 	for len(rest) >= 2 && rest[0].known && rest[0].text == "-C" {
 		rest = rest[2:]
 	}
@@ -841,11 +883,11 @@ func goCost(rest []shellWord, race bool) memCost {
 	}
 	switch {
 	case all || pkgs >= 2:
-		return kindCost("goall", false)
+		return w.kindCost("goall", false)
 	case race:
-		return kindCost("race", false)
+		return w.kindCost("race", false)
 	}
-	return kindCost("gotest", false)
+	return w.kindCost("gotest", false)
 }
 
 // mayExpand: an unquoted literal the shell would still turn into several
@@ -890,7 +932,7 @@ func hasRaceFlag(fields []string) bool {
 // claudeCost: a Claude session start. --bg and the resume/session flags start
 // a lane that outlives the call (detached); -p/--print runs one turn in the
 // call's own process (foreground).
-func claudeCost(rest []shellWord) memCost {
+func (w *memWalker) claudeCost(rest []shellWord) memCost {
 	lane, print := false, false
 	for _, wd := range rest {
 		if !wd.known {
@@ -906,12 +948,16 @@ func claudeCost(rest []shellWord) memCost {
 	}
 	switch {
 	case print:
-		return kindCost("lane", false)
+		return w.kindCost("lane", false)
 	case lane:
-		return kindCost("lane", true)
+		return w.kindCost("lane", true)
 	}
 	return memCost{}
 }
 
 // gb formats a GB figure the way the refusal prints it.
 func gb(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) }
+
+// gb3 is gb to the MiB, for the one refusal that sets two totals side by
+// side: at one decimal 23.96 and 24.0 both print 24.0.
+func gb3(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }

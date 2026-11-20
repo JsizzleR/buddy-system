@@ -635,8 +635,8 @@ by every session on the machine, in every repository. It is **off until you
 turn it on**, and it is macOS only.
 
 ```sh
-buddy mem init          # turn it on; --floor-gb <n> sets the floor (default 4)
-buddy mem status        # free memory, what is booked and pending, the floor
+buddy mem init          # turn it on, fitted to this machine; --floor-gb <n>|auto sets the floor
+buddy mem status        # free memory, what is booked and pending, the floor and the rule behind it
 ```
 
 Once it is on, the gate hook that checks claims also judges each shell
@@ -647,14 +647,39 @@ session; USAGE has the list and what each books) books an estimate of the
 memory it will take. It is refused when free memory, less what is already
 booked, less its own cost, would fall under the floor, or when the system
 already reports memory pressure or heavy swapping. A light command never
-touches the slot. A booking fades to nothing over 90 seconds, by when the
-start shows in the free-memory reading itself. A command the session ran and
+touches the slot. A booking fades to nothing over 90 seconds: it limits how
+much may *start* inside one such window, and it is not a promise that the
+start shows in the free-memory reading by then (on macOS it shows there only
+as the system compresses memory to make room). A command the session ran and
 waited for gives its booking back when it ends, if that is sooner; a session
 start, a virtual machine and anything left running in the background only
 fade, and so does every booking of a Codex session.
 
-**A refusal is a wait.** It starts `MEMORY GATE: nothing in this call ran`
-and names the command to send instead, run in the background:
+**It fits the machine it is on.** The floor is a sixth of the machine's
+memory, never under 1 GB nor over 8 GB (1.3 GB on an 8 GB machine, 2.7 on 16,
+4 on 24, 8 from 48 up), worked out at every check and never stored;
+`buddy mem init --floor-gb <n>` sets one of your own, and `--floor-gb auto`
+goes back. No single start books more than a third of the machine (never
+under 1 GB), so on 8 GB the largest start is admitted when half the machine
+is free, where a fixed table refused it for ever. Two starts at once still
+book two. A call that starts more at once than the machine could hold with
+nothing else running is told so at once, by the gate and by `admit` (exit 3,
+no place held): waiting will not help, so start them one after another, or
+fewer. (If it is a single start, the floor you set leaves it no room on this
+machine, and the refusal says so.) If you turned the slot on before it fitted
+itself (its config says `"version":1`), it keeps the floor you set and the
+full table until you run `buddy mem init --floor-gb auto` or `--floor-gb <n>`;
+a bare `buddy mem init` changes nothing and prints what fitting would give.
+Every binary on the machine must be the one that knows the fitted config: an
+older `buddy` refuses heavy starts under it and names `install.sh`, but its
+own `buddy mem init --reset` would write the old fixed floor (4 GB unless you
+name one) over it, so run `install.sh` rather than an older binary's init.
+
+**A refusal is a wait** when memory is only short for now (the refusal above
+for a call the machine can never hold, and the one below for a slot that
+cannot read its own state, say what to do instead). It starts
+`MEMORY GATE: nothing in this call ran` and names the command to send
+instead, run in the background:
 
 ```sh
 buddy mem admit <kind> --wait 900 && { <the same command>; }

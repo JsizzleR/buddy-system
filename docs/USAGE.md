@@ -1909,7 +1909,7 @@ incarnation, because the payload names none.
 A machine-wide admission slot for HEAVY starts, so sessions in every repository
 cannot all start a test run in the same minute (#144: twelve lanes resumed 3 s
 apart froze a 24 GB laptop twice). It is OFF until the operator runs
-`buddy mem init [--floor-gb <n>]` (default 4 GB); `~/.buddy/mem/config.json`
+`buddy mem init [--floor-gb <n>|auto]`; `~/.buddy/mem/config.json`
 is the switch, and deleting it turns the slot off; macOS only (init refuses where no reading can be taken). Its state is not the ledger
 (that is per repository, D-001): `~/.buddy/mem/bookings.json`, rewritten whole
 under a flock(2) on `lock`, fsynced; `overrides.log` records every override and
@@ -1925,13 +1925,44 @@ Sequential parts take the max, a pipeline or `&` adds up, a loop of lane starts
 counts its items. The call is refused when free memory, less what is booked,
 less its own cost would sit under the floor, or kernel pressure is warn or
 worse, or swap is over 8 GB with under 30% free. A booking fades to nothing over
-90 s (by then the start is in the free reading); `buddy beat` drops a
+90 s: it bounds how much may START inside one window, and is not a handover to
+the reading (on macOS what a start took shows there only as the kernel
+compresses or wires for it; measured, D-239). `buddy beat` drops a
 foreground call's booking when it ends. A failed call reaches beat only on
 `PostToolUseFailure`: README's hook block carries that line (matcher `Bash`),
 and `install.sh --wire-hooks` appends it when missing. A lane, a VM and
 `&`-detached work are never released early; they fade.
 
-A refusal is a wait: re-send the command as
+The floor and the costs fit the machine (D-239). A first `buddy mem init`
+writes `{"version":2,"floor":"auto"}`: the floor is a sixth of the machine's
+memory, never under 1 GB nor over 8 GB, derived at every judge and never
+stored (1.3 GB on 8 GB, 2.7 on 16, 4 on 24, 8 from 48 up); `--floor-gb <n>`
+sets an explicit one, `--floor-gb auto` goes back. Under either, no single
+start books more than a third of the machine, never under 1 GB, in whole MiB:
+on 8 GB a tier, a `./...` run and one package each book 2.67 GB, on 16 GB a
+tier 5.33, and from 24 GB up the figures above stand. The cap is per start: two
+at once book two, twelve lane starts twelve. A call that starts more at once
+than the machine less its floor can ever hold is refused as that, at once, by
+the gate and by `admit` (exit 3, no place held), not taught to wait: start them
+one after another, or fewer (for a single start it is the floor that leaves no
+room, and the refusal says so: the operator's). A config an earlier init wrote,
+`{"version":1,"floor_gb":N}`, keeps its explicit floor and the uncapped table
+under any binary until the operator's own `buddy mem init --floor-gb <n>|auto`;
+a bare init over a readable config changes nothing, and over a version-1 one
+says what fitting it would give. A binary older than D-239 refuses a version-2
+config, naming `install.sh`, at the gate, `status`, `admit` and a bare init;
+its `init --reset` does not, and writes its own version 1 (4 GB, or its
+`--floor-gb`) over it: that binary's act, out of this one's reach.
+`--reset` takes the slot's lock first and writes nothing without it.
+`--floor-gb` takes a number above 0 or `auto`; anything else is
+refused and nothing is written. Not scaled with `-p` or the core count
+(measured: a build's peak is one large process at a time), and no CPU limit.
+
+A refusal for memory that is short NOW (the floor, pressure, swap) is a wait.
+Each other one says what to do instead: the machine can never hold the call;
+the total changed (send it again); an admit in the call does not cover what
+follows it (it names the admit that does); the slot cannot judge the call
+(Fail mode, below: ask the operator). The wait: re-send the command as
 `buddy mem admit <kind>... --wait 900 && { <command>; }` under
 run_in_background (the braces keep every statement behind the admit).
 `admit` holds a PENDING place in line, re-judged every 15 s, which later
@@ -1940,12 +1971,21 @@ arrivals count in full, so smaller starts cannot starve it; it exits 0 admitted
 that tail again when the kinds admitted cover it. A script that starts heavy
 work inside asks `admit` itself; `.githooks/pre-push` asks
 `buddy mem admit tier --wait 1800` where the slot is on, the local script
-otherwise. `buddy mem status` prints free, booked, floor, pressure, swap and
+otherwise. `buddy mem status` prints free, booked, floor, pressure, swap, the
+rule in force (where the floor came from, the cap, the config's version) and
 every row.
 
 Fail mode: with the slot on, a HEAVY call is denied, naming the cause, when the
 state cannot be read, parsed or locked, or no memory reading can be taken
-(invariant 3's "exists but unreadable"); a light call never touches the slot.
+(invariant 3's "exists but unreadable"); a light call, one that starts nothing
+the slot books, never touches the slot. A config is readable in three shapes
+only (version 1 with a `floor_gb`; version 2 with a `floor_gb`, or with
+`"floor":"auto"`): a newer version, both a word and a figure, neither, any
+other word, or a key named twice is unreadable, never guessed at. A reading is
+no reading unless its total is a positive finite figure, its available figure 0
+to the total, its level 0 to 100, its swap not negative and the free figure
+they give finite; a reader that panics is one that failed. A memory total that changes between the gate's two readings of one
+call is refused; send the call again.
 `BUDDY_MEM_OK='<reason>' <command>` skips the verdict, still books, and is
 logged; an empty reason, or one that cannot be logged, is judged normally. It
 is the operator's word only, as are init and `--reset`. Codex is judged where

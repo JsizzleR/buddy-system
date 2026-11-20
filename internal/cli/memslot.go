@@ -4,7 +4,8 @@ package cli
 // (whole-package or -race Go tests, a test tier, a done-check, a Codex pass, a
 // lane or VM start) books its expected memory in one file every session on
 // the machine shares, and a start that would leave less than the floor free
-// is refused by `buddy gate` with the exact form that waits its turn.
+// is refused by `buddy gate` with the exact form that waits its turn (all but
+// a start this machine could never hold, which is told so instead: D-239).
 //
 // WHY. Two hard freezes in 30 minutes on one 24 GB macOS laptop (2026-11-17)
 // were swap exhaustion: free memory went from 6.6 GB to 0.1 GB in one minute
@@ -30,14 +31,42 @@ package cli
 // migration story beyond a version number.
 //
 // THE MEASURED RULES KEPT from the operator's earlier local gate (each was an
-// incident there): a 4 GB floor; refuse also at kernel pressure >= 2, and on
-// swap over 8 GB only with under 30% free (swap stays in use after pressure
-// passes, so alone it is no signal); an admitted booking FADES linearly to 0
-// over 90 s, because counting it in full double-counted (27 GB "booked"
-// against 18 GB free on a healthy box refused every start: by its peak a build
-// is in the free reading); a waiter holds a PENDING place that later arrivals
-// count in full, and a waiter counts only the pending rows AHEAD of it
-// (counting those behind deadlocked seven waiters).
+// incident there): a 4 GB floor on its 24 GB machine; refuse also at kernel
+// pressure >= 2, and on swap over 8 GB only with under 30% free (swap stays in
+// use after pressure passes, so alone it is no signal); an admitted booking
+// FADES linearly to 0 over 90 s, because counting it in full double-counted
+// (27 GB "booked" against 18 GB free on a healthy box refused every start); a
+// waiter holds a PENDING place that later arrivals count in full, and a
+// waiter counts only the pending rows AHEAD of it (counting those behind
+// deadlocked seven waiters).
+//
+// WHAT THE FADE IS (D-239's measurement corrects the reason first written
+// here, "by its peak a build is in the free reading"). On macOS the level is
+// the share of usable memory neither wired nor held by the compressor, so a
+// start shows in it only as the kernel compresses or wires for it: 2 GB of
+// anonymous memory held for 45 s moved the level by nothing while file cache
+// lasted. A faded booking is therefore mostly neither booked nor in the
+// reading. The fade is a BURST window, how much may start within 90 s; what
+// stops slow accumulation is the level falling once the machine compresses,
+// and the pressure clause.
+//
+// FITTED TO THE MACHINE (D-239). The 4 GB floor and the cost table were one
+// 24 GB laptop's: on 8 GB that floor is half the machine, a tier (8 GB) can
+// never be admitted, and `git push`, whose hook asks for one, waits out its
+// 1800 s and blocks, every time. A config of version 2 is the fitted slot:
+// the floor is RAM/6 held to [1, 8] GB, derived at every judge (or the
+// operator's explicit one), and no single start books more than RAM/3, never
+// under 1 GB. Both shares are the operator's own numbers on the measured
+// machine, so a 24 GB machine's verdicts do not change. A version-1 config is
+// D-238's, floor and table, until the operator's own init says otherwise.
+// NOT scaled with -p or the core count: measured here, a build's peak is one
+// large process at a time (841 MB at -p 1, 948 at -p 12), and the -race burst
+// on a third of the cores was 87% of the peak. NOT re-based on this
+// repository's figures (its Go starts sample at 0.2 to 1.0 GB against 3 to 8
+// booked): the slot is machine-wide and reads a command, not which repository
+// runs it, and no other repository was measured. No CPU dimension: the
+// freezes were memory, and a row fades in 90 s, so a count of rows is not a
+// count of what is running.
 //
 // WHAT A REVIEW OF THIS DESIGN CHANGED (panel and Codex design pass):
 //   - Rows are per CALL, never replaced by the same session's next call. The
@@ -67,12 +96,14 @@ package cli
 //   - no ~/.buddy/mem/config.json (never initialized, or turned off), or no
 //     HOME: OFF. Nothing is parsed or booked. Invariant 3's never-initialized
 //     verdict.
-//   - a light call: allowed, and the slot is never touched, the override
-//     included: a broken slot cannot stop a report, a commit or a message.
+//   - a light call (no kind anywhere in it, priceMem): allowed, and the slot
+//     is never touched, the override included: a broken slot cannot stop a
+//     report, a commit or a message.
 //   - a heavy call while the config cannot be stat'ed (anything but "does not
 //     exist"), the state cannot be read, parsed or locked, its version is
-//     newer, the memory reading fails, or the booking cannot be written: that
-//     call is DENIED, naming the cause. Invariant 3's "exists but unreadable".
+//     newer, the memory reading fails or is not usable (Env.memReading), or
+//     the booking cannot be written: that call is DENIED, naming the cause.
+//     Invariant 3's "exists but unreadable".
 //     Failing open, as the local gate did, lets a bookings file truncated by
 //     a full disk pass every heavy start without a word.
 //   - beat's release failing: silent; the row fades within 90 s.
@@ -83,6 +114,7 @@ package cli
 // sandbox; the skills say init, --reset and the override are the operator's.
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -105,10 +137,33 @@ import (
 )
 
 const (
-	memDirRel      = ".buddy/mem"
-	memVersion     = 1
+	memDirRel = ".buddy/mem"
+	// The config's versions (D-239). 1 is D-238's and stays D-238's exactly:
+	// an explicit floor_gb, the cost table as it is. 2 marks the FITTED slot
+	// (the floor a share of the machine or explicit, every start capped at a
+	// third of it), written only by this binary's init. A version, not a new
+	// field under version 1: two binaries reading one file two ways lowered a
+	// floor nobody chose (an older init rewriting a synced auto config), and
+	// let an older gate judge an admit's cover by the table while a newer
+	// admit booked it capped. An older binary refuses version 2 by D-238's own
+	// "its version is newer" rule, naming install.sh.
+	memConfigV1 = 1
+	memConfigV2 = 2
+	// memBookVersion is bookings.json's own version. It does NOT follow the
+	// config's: a row is a row under either.
+	memBookVersion = 1
 	memTTL         = 90 * time.Second
-	memDefaultGB   = 4.0
+	// The fitted slot's rule (D-239): floor = RAM/6 held to [1, 8] GB, and one
+	// start books at most max(RAM/3, 1 GB). Each share is the operator's own
+	// number on the one measured machine (4 GB and the tier's 8 GB on 24 GB),
+	// so a 24 GB machine's verdicts are the same under either version; the
+	// bounds are judgment and no machine in evidence sits at one.
+	memFloorShare  = 6.0
+	memFloorMinGB  = 1.0
+	memFloorMaxGB  = 8.0
+	memCapShare    = 3.0
+	memCapMinGB    = 1.0
+	memAuto        = "auto"
 	memLockWait    = 2 * time.Second
 	memReleaseWait = 50 * time.Millisecond
 	// memHookBudget is how long after the gate started the memory phase may
@@ -127,31 +182,167 @@ const (
 	memSwapLevel      = 30
 )
 
-const usageMem = "usage: buddy mem init [--floor-gb <n>] [--reset]   (the OPERATOR's act: turn the machine-wide memory slot on, ~/.buddy/mem; --reset clears every booking)\n" +
-	"       buddy mem status                    free memory, what is booked and pending, the floor\n" +
+const usageMem = "usage: buddy mem init [--floor-gb <n>|auto] [--reset]   (the OPERATOR's act: turn the machine-wide memory slot on, ~/.buddy/mem, fitted to this machine: the floor is 1/6 of its memory, 1 to 8 GB, or the <n> GB named, and one start books at most 1/3 of that memory (never under 1 GB); a config an earlier init wrote keeps its floor and uncapped costs until --floor-gb is given; --reset clears every booking)\n" +
+	"       buddy mem status                    free memory, what is booked and pending, the floor and where it came from\n" +
 	"       buddy mem admit <kind>... [--wait <secs>]   book a heavy start before running it; with --wait, hold a place in line (exit 0 admitted, 3 still refused, 1 an error; 0 with nothing booked when the slot is off)\n" +
 	"       (kinds: tier goall race vm gotest check lane codex; `buddy mem admit K --wait 900 && { <cmd>; }` is not judged again by the gate. Refused by the gate: wait that way, run_in_background)"
 
-// memReading is one sample of the machine's memory.
+// memReading is one sample of the machine's memory, filled by a reader
+// (memread_*.go) and judged only after Env.memReading has checked it.
 type memReading struct {
 	TotalGB  float64
-	Level    int // kern.memorystatus_level: percent available
-	Pressure int // kern.memorystatus_vm_pressure_level: 1 normal, 2 warn, 4 critical
+	Level    int // percent available (darwin: kern.memorystatus_level)
+	Pressure int // 1 normal, 2 warn, 4 critical (darwin: kern.memorystatus_vm_pressure_level)
 	SwapGB   float64
+	// AvailGB is the kernel's own available figure, where it reports one in
+	// bytes (Linux's MemAvailable); 0 means "not supplied", and free is then
+	// TotalGB * Level / 100, as on darwin. A reader that fills it fills Level
+	// from it too, so an available figure of exactly 0 reads 0 both ways
+	// (Codex design pass, D-239).
+	AvailGB float64
+	// Basis says, in the reader's words, what the figures were read from
+	// (which file, which limit, a swap figure the slot does not judge). Printed
+	// by `mem status` and `mem init` on one line (fence.Line, 256); never
+	// judged. Empty on darwin.
+	Basis string
 }
 
-func (r memReading) freeGB() float64 { return r.TotalGB * float64(r.Level) / 100 }
-
-func (e Env) memReading() (memReading, error) {
-	if e.MemReading != nil {
-		return e.MemReading()
+func (r memReading) freeGB() float64 {
+	if r.AvailGB > 0 {
+		return r.AvailGB
 	}
-	return readMemory()
+	return r.TotalGB * float64(r.Level) / 100
 }
 
+// unusable is why a reading cannot be judged on, or "" when it can. Each
+// figure's own RANGE is checked here, once, for every reader: an infinite
+// total admits everything (infinite headroom), a NaN one too (`left < floor`
+// is false for NaN), a total of 0 beside a positive available figure derives
+// a floor and prices every start from nothing (Codex design pass, panel lens
+// B; D-239), and a finite total can still overflow the free figure (1e308 GB
+// at level 100 is +Inf: Codex code pass). NOT checked, and the reader's
+// contract (memReading's comment): that Level agrees with a supplied AvailGB,
+// which the swap clause reads beside it, and Pressure, where any value under
+// 2 is "normal" as under D-238.
+func (r memReading) unusable() string {
+	bad := func(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
+	switch {
+	case bad(r.TotalGB) || r.TotalGB <= 0:
+		return fmt.Sprintf("its total is %g GB, not a positive figure", r.TotalGB)
+	case bad(r.AvailGB) || r.AvailGB < 0 || r.AvailGB > r.TotalGB:
+		return fmt.Sprintf("its available figure is %g GB, not between 0 and the total %g GB", r.AvailGB, r.TotalGB)
+	case r.Level < 0 || r.Level > 100:
+		return fmt.Sprintf("its level is %d, not 0 to 100", r.Level)
+	case bad(r.SwapGB) || r.SwapGB < 0:
+		return fmt.Sprintf("its swap figure is %g GB", r.SwapGB)
+	case bad(r.freeGB()):
+		return fmt.Sprintf("its total of %g GB at level %d is no finite free figure", r.TotalGB, r.Level)
+	}
+	return ""
+}
+
+// memReading is the ONE way a reading is taken, a test's fake and the real
+// reader alike: a reader's panic becomes an error (under D-107's hook line a
+// panic in the gate exits 2 and blocks the call), and a reading that is not
+// usable is no reading. Either way the caller has an error, and a heavy call
+// is denied on it as on a failed sysctl.
+func (e Env) memReading() (m memReading, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			m, err = memReading{}, fmt.Errorf("the memory reader panicked (%v)", p)
+		}
+	}()
+	if e.MemReading != nil {
+		m, err = e.MemReading()
+	} else {
+		m, err = readMemory()
+	}
+	if err != nil {
+		return memReading{}, err
+	}
+	if why := m.unusable(); why != "" {
+		return memReading{}, errors.New("the reading is not usable: " + why)
+	}
+	return m, nil
+}
+
+// basisLine is the reader's Basis as status and init print it: its own line,
+// one line (fence.Line: a reader builds it from files a container's host
+// controls), or nothing where the reader gave none.
+func basisLine(m memReading) string {
+	if m.Basis == "" {
+		return ""
+	}
+	return "reading: " + fence.Line(m.Basis, 256) + "\n"
+}
+
+// memConfig is config.json. What init writes, and what is readable beside it,
+// is readMemConfig's: {"version":1,"floor_gb":N}, {"version":2,"floor_gb":N}
+// and {"version":2,"floor":"auto"}. Floor is a pointer so that a `"floor":""`
+// somebody typed is a word that is not "auto", not an absent one.
 type memConfig struct {
 	Version int     `json:"version"`
-	FloorGB float64 `json:"floor_gb"`
+	FloorGB float64 `json:"floor_gb,omitempty"`
+	Floor   *string `json:"floor,omitempty"`
+}
+
+func (c memConfig) auto() bool   { return c.Floor != nil }
+func (c memConfig) fitted() bool { return c.Version == memConfigV2 }
+
+// floor is the floor a judge holds a start to on a machine of total GB:
+// explicit, or under auto a sixth of the machine held to [1, 8] GB. Derived at
+// every judge and never stored, so a config carried to another machine
+// follows the machine it is on.
+func (c memConfig) floor(total float64) float64 {
+	if c.auto() {
+		return math.Min(math.Max(total/memFloorShare, memFloorMinGB), memFloorMaxGB)
+	}
+	return c.FloorGB
+}
+
+// startCap is the most ONE start books on a machine of total GB under the
+// fitted slot, a third of it and never under 1 GB (without that least a lane
+// booked 0.67 GB on a 2 GB machine), rounded DOWN to a whole MiB so sums of
+// capped costs are exact (memKindGB). 0 under version 1: no cap.
+func (c memConfig) startCap(total float64) float64 {
+	if !c.fitted() {
+		return 0
+	}
+	return math.Floor(math.Max(total/memCapShare, memCapMinGB)*1024) / 1024
+}
+
+// rule says where a judge's figures come from, for status and init.
+func (c memConfig) rule(total float64) string {
+	floor := "explicit (--floor-gb)"
+	if c.auto() {
+		floor = fmt.Sprintf("1/%d of this machine's %s GB", int(memFloorShare), gb(total))
+		switch share := total / memFloorShare; {
+		case share < memFloorMinGB:
+			floor += fmt.Sprintf(", held up to the %s GB least", gb(memFloorMinGB))
+		case share > memFloorMaxGB:
+			floor += fmt.Sprintf(", held down to the %s GB most", gb(memFloorMaxGB))
+		}
+	}
+	if !c.fitted() {
+		return fmt.Sprintf("floor %s GB, %s; costs by the table, uncapped (config version %d)", gb(c.floor(total)), floor, c.Version)
+	}
+	// The cap's half names the machine itself: under an explicit floor "of it"
+	// had nothing to point at, and on 2 GB "1.0 GB, 1/3 of it" was half the
+	// machine with no word of the least (Fable cross-check).
+	least := ""
+	if total/memCapShare < memCapMinGB {
+		least = fmt.Sprintf(", held up to the %s GB least", gb(memCapMinGB))
+	}
+	return fmt.Sprintf("floor %s GB, %s; one start books at most %s GB, 1/%d of this machine's %s GB%s (config version %d)",
+		gb(c.floor(total)), floor, gb(c.startCap(total)), int(memCapShare), gb(total), least, c.Version)
+}
+
+// word is the config's floor as overrides.log and a reading-less status name it.
+func (c memConfig) word() string {
+	if c.auto() {
+		return memAuto
+	}
+	return gb(c.FloorGB)
 }
 
 type memRow struct {
@@ -203,28 +394,90 @@ func memSlotOf(env Env) memSlot {
 	}
 }
 
+// readMemConfig reads config.json, and every state it can be in has ONE
+// verdict (D-239). Readable: version 1 with a usable floor_gb and no floor
+// word (D-238's, kept exactly); version 2 with a usable floor_gb and no word
+// (fitted, the floor explicit); version 2 with the word "auto" and no
+// floor_gb (fitted, the floor derived). A `"floor":null` is no word and a
+// `"floor_gb":0` no figure, as if each were absent (encoding/json's reading,
+// and neither can lower a floor: what is left must still be one of the three).
+// Everything else is invariant 3's "exists but unreadable", a heavy call
+// denied naming it: a newer version; a floor word under version 1 (hand-made,
+// no init writes it, and either reading of it could lower a floor); both a
+// word and a floor_gb, or neither; any other word ("AUTO", "pressure", ""); a
+// floor that is a number, or a floor_gb that is a string (the file does not
+// parse); a key named twice. The error never carries the config: a caller
+// that has an error has no floor.
 func readMemConfig(dir string) (memConfig, error) {
-	var c memConfig
-	b, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	path := filepath.Join(dir, "config.json")
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return c, err
+		return memConfig{}, err
 	}
+	var c memConfig
 	if err := json.Unmarshal(b, &c); err != nil {
-		return c, fmt.Errorf("%s does not parse (%v)", filepath.Join(dir, "config.json"), err)
+		return memConfig{}, fmt.Errorf("%s does not parse (%v)", path, err)
 	}
-	if c.Version != memVersion {
-		return c, fmt.Errorf("%s is version %d and this buddy reads %d: upgrade this binary (sh scripts/install.sh)", filepath.Join(dir, "config.json"), c.Version, memVersion)
+	// encoding/json keeps the LAST of a repeated key without a word:
+	// {"version":2,"floor_gb":8,"floor_gb":1} read as a 1 GB floor, and
+	// {"version":1,"floor_gb":4,"version":2} as the fitted slot (Codex code
+	// pass, Fable cross-check). Byte-equal names only: a key in another case
+	// ("Floor_GB"), which encoding/json also matches, is recorded open.
+	if k, twice := repeatedKey(b); twice {
+		return memConfig{}, fmt.Errorf("%s names %s twice: which one holds is not for this binary to guess", path, strconv.Quote(fence.Line(k, 64)))
 	}
-	if c.FloorGB <= 0 || math.IsNaN(c.FloorGB) || math.IsInf(c.FloorGB, 0) {
-		return c, fmt.Errorf("%s has no usable floor_gb", filepath.Join(dir, "config.json"))
+	usableGB := c.FloorGB > 0 && !math.IsNaN(c.FloorGB) && !math.IsInf(c.FloorGB, 0)
+	switch {
+	case c.Version > memConfigV2:
+		return memConfig{}, fmt.Errorf("%s is version %d and this buddy reads up to %d: upgrade this binary (sh scripts/install.sh)", path, c.Version, memConfigV2)
+	case c.Version < memConfigV1:
+		return memConfig{}, fmt.Errorf("%s has no usable version (%d)", path, c.Version)
+	case c.Floor != nil && c.Version == memConfigV1:
+		return memConfig{}, fmt.Errorf("%s is version 1 and carries a floor word, which only a version 2 config has", path)
+	case c.Floor != nil && *c.Floor != memAuto:
+		return memConfig{}, fmt.Errorf("%s has the floor word %s, and the only one is %q", path, strconv.Quote(fence.Line(*c.Floor, 64)), memAuto)
+	case c.Floor != nil && c.FloorGB != 0:
+		return memConfig{}, fmt.Errorf("%s has both the floor word %q and a floor_gb: which one holds is not for this binary to guess", path, memAuto)
+	case c.Floor == nil && !usableGB:
+		return memConfig{}, fmt.Errorf("%s has no usable floor_gb", path)
 	}
 	return c, nil
+}
+
+// repeatedKey is the first top-level key a JSON object names twice. Only
+// called on bytes json.Unmarshal took, so every error here is "not an object"
+// and answers false. The key comes back beside a bool, not as "" for none:
+// the empty string is a key too, and {"":0,"":0,"version":2,"floor_gb":8,
+// "floor_gb":1} stopped at its repeated "" and read as "nothing repeated",
+// floor 1 (Codex re-verify 1).
+func repeatedKey(b []byte) (key string, twice bool) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return "", false
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		t, err := dec.Token()
+		k, ok := t.(string)
+		if err != nil || !ok {
+			return "", false
+		}
+		if seen[k] {
+			return k, true
+		}
+		seen[k] = true
+		var v json.RawMessage
+		if dec.Decode(&v) != nil {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 func readMemBook(dir string) (memBook, error) {
 	b, err := os.ReadFile(filepath.Join(dir, "bookings.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return memBook{Version: memVersion}, nil
+		return memBook{Version: memBookVersion}, nil
 	}
 	if err != nil {
 		return memBook{}, err
@@ -233,8 +486,8 @@ func readMemBook(dir string) (memBook, error) {
 	if err := json.Unmarshal(b, &book); err != nil {
 		return memBook{}, fmt.Errorf("%s does not parse (%v)", filepath.Join(dir, "bookings.json"), err)
 	}
-	if book.Version != memVersion {
-		return memBook{}, fmt.Errorf("%s is version %d and this buddy reads %d: upgrade this binary (sh scripts/install.sh)", filepath.Join(dir, "bookings.json"), book.Version, memVersion)
+	if book.Version != memBookVersion {
+		return memBook{}, fmt.Errorf("%s is version %d and this buddy reads %d: upgrade this binary (sh scripts/install.sh)", filepath.Join(dir, "bookings.json"), book.Version, memBookVersion)
 	}
 	return book, nil
 }
@@ -242,7 +495,7 @@ func readMemBook(dir string) (memBook, error) {
 // writeMemBook replaces the bookings through a synced temporary file, so a
 // forced power-off leaves the old file or the new one, never a torn one.
 func writeMemBook(dir string, book memBook) error {
-	book.Version = memVersion
+	book.Version = memBookVersion
 	data, err := json.Marshal(book)
 	if err != nil {
 		return err
@@ -378,6 +631,30 @@ func memVerdict(m memReading, floor, booked, need float64) ([]string, float64) {
 	return why, left
 }
 
+// neverFits: no reading of this machine could admit a start of need GB. It is
+// memVerdict's own subtraction with all of the total free and nothing booked,
+// and the gate and admit both ask it, so "never" and a verdict cannot differ
+// in the last place: written as need > total - floor, a floor of
+// 2.6679687500000004 GB on 8 GB did not call 5.33203125 GB "never" (8 less
+// that floor rounds to 5.33203125) while every verdict left 2.66796875, under
+// the floor, for the whole wait (Codex code pass). A start that leaves
+// exactly the floor fits.
+func neverFits(m memReading, floor, need float64) bool {
+	return m.TotalGB-need < floor
+}
+
+// neverFitsAdvice is what the two never-fit refusals tell the caller to do.
+// "Fewer at a time" is advice only for a call that starts several: for ONE
+// start it is the floor that leaves no room ({"version":2,"floor_gb":8}
+// carried to an 8 GB machine refused every heavy call with it), and the
+// floor is the operator's (Fable cross-check).
+func neverFitsAdvice(starts int) string {
+	if starts == 1 {
+		return "It is one start, so there is nothing to split: the floor leaves it no room on this machine, and the floor is the operator's (`buddy mem init --floor-gb <n>|auto`)"
+	}
+	return "Start them one after another, or fewer at a time"
+}
+
 // ---- the gate's half ----
 
 // memHookCall is what the gate needs from one PreToolUse or PostToolUse
@@ -408,6 +685,67 @@ func memIsShell(h hookInput) bool {
 	return h.ToolName != "apply_patch" && h.ToolInput.Command != ""
 }
 
+// memPriced is what the gate found one command to cost, and under what.
+type memPriced struct {
+	cost   memCost
+	w      *memWalker
+	cfg    memConfig
+	cfgErr error // the config could not be stat'ed or read: no floor, no cap
+	// capTotal is the memory total the costs were capped with. 0: they are
+	// the table's (a version-1 config, an unreadable one, or a fitted one
+	// whose reading or second walk failed).
+	capTotal float64
+}
+
+// memClassifier is classifyMemCapped's shape: a parameter of priceMem so a
+// test can hand it a second walk that panicked, which no input is known to do.
+type memClassifier func(cmd string, limit float64) (memCost, *memWalker, bool)
+
+// priceMem is the gate's pricing of one shell command, in the order D-239
+// settled.
+//
+// (1) The command is read with NO cap, exactly as before D-239. A call in
+// which the walk met no kind is LIGHT and nothing more is touched: no config,
+// no reading, no lock. The test is "no kind met", not "books nothing": on an
+// 8 GB machine `buddy mem admit tier --wait 900 && { go test ./a & go test
+// ./b & wait; }` books nothing by the table (8 covers 6) and returned here,
+// before the walk that prices it at 5.33 GB against an admit of 2.67 (Codex
+// design pass, panel lenses A and B). The cap changes what a kind costs,
+// never whether one is there, so this set is the same under any cap.
+//
+// (2) With a kind in it, the config is read, and NOT refused on here: the
+// caller refuses, after the covered-admit allow. Under a readable version 2,
+// one reading is taken and the command read a SECOND time with the cap. If
+// that reading fails, or the second walk panics, the first walk's costs
+// stand, uncapped: each START at the table's figure, never under its capped
+// one. (A CALL's total can be less: an admit that covers its tail by the
+// table and not at the cap totals 0 against 5.33 GB, the case D-239 records
+// open.) Nothing is refused for it yet: the override is honored and booked as
+// before, and the verdict's own reading, under the lock, is what refuses. One
+// reading before any classifying, as first drafted, put the reader in front
+// of every Bash call of a machine with the slot on, light ones included.
+func priceMem(cmd string, env Env, slot memSlot, classify memClassifier) (p memPriced, light bool) {
+	p.cost, p.w, _ = classify(cmd, 0)
+	if p.w.leaves == 0 {
+		return p, true
+	}
+	p.cfgErr = slot.err
+	if p.cfgErr == nil {
+		p.cfg, p.cfgErr = readMemConfig(slot.dir)
+	}
+	if p.cfgErr != nil || !p.cfg.fitted() {
+		return p, false
+	}
+	m, err := env.memReading()
+	if err != nil {
+		return p, false
+	}
+	if c, w, ok := classify(cmd, p.cfg.startCap(m.TotalGB)); ok {
+		p.cost, p.w, p.capTotal = c, w, m.TotalGB
+	}
+	return p, false
+}
+
 // gateMemory judges one shell call the claims phase allowed. It returns the
 // refusal, or "" to allow; it writes nothing on an allow (a
 // permissionDecision there would skip the user's permission prompt).
@@ -415,21 +753,27 @@ func gateMemory(h hookInput, env Env, slot memSlot, started time.Time) string {
 	if !memIsShell(h) {
 		return ""
 	}
-	cost, w := classifyMem(h.ToolInput.Command)
+	p, light := priceMem(h.ToolInput.Command, env, slot, classifyMemCapped)
+	if light {
+		return "" // no kind anywhere in it: the slot is not consulted, its state not read
+	}
+	cost, w, cfg := p.cost, p.w, p.cfg
 	if cost.total() == 0 && w.under == "" {
-		return "" // light: the slot is not consulted, its state not read
+		// An admit covers everything this call starts, at the price the admit
+		// will book: allowed with NO verdict, and judged when that admit runs.
+		// With an unreadable config too, as before D-239: the admit itself
+		// then exits 1 and its tail does not run. Falling through to a verdict
+		// with nothing to book refused the very form the gate teaches, at
+		// pressure warn, printing an admit with no kind (panel lenses A, B).
+		return ""
 	}
 	kinds := cost.kinds()
 	refuse := func(why string) string {
 		return fmt.Sprintf("MEMORY GATE: nothing in this call ran. It starts %s, and the machine-wide memory slot cannot judge it: %s. The slot refuses heavy starts while it cannot read its own state (light commands are not affected). Ask the operator; `buddy mem status` shows the cause.",
 			fence.Line(strings.Join(kinds, ", "), 256), fence.Line(why, 1024))
 	}
-	if slot.err != nil {
-		return refuse(slot.err.Error())
-	}
-	cfg, err := readMemConfig(slot.dir)
-	if err != nil {
-		return refuse(err.Error())
+	if p.cfgErr != nil {
+		return refuse(p.cfgErr.Error())
 	}
 	if w.under != "" {
 		return "MEMORY GATE: nothing in this call ran: " + fence.Line(w.under, 1024) + "."
@@ -471,14 +815,34 @@ func gateMemory(h hookInput, env Env, slot memSlot, started time.Time) string {
 	if err != nil {
 		return refuse("no memory reading: " + err.Error())
 	}
+	// The costs were capped with one reading's total and are judged with
+	// this one's. A total that moved between the two (a resized container,
+	// memory added) leaves a price for another machine: capped at 8 GB and
+	// judged at 24, a tier would book 2.67 GB where it owes 8 (Codex design
+	// pass). Refused, and a second send prices it afresh.
+	if p.capTotal != 0 && m.TotalGB != p.capTotal {
+		return fmt.Sprintf("MEMORY GATE: nothing in this call ran. It starts %s, priced for a machine of %s GB, and the memory total read %s GB at its verdict: the total changed while the call was judged. Send the same call again.",
+			fence.Line(strings.Join(kinds, ", "), 256), gb3(p.capTotal), gb3(m.TotalGB))
+	}
+	floor := cfg.floor(m.TotalGB)
+	need := cost.total()
+	// A start no reading of this machine could admit is told so at once, in
+	// words that do not teach the wait: the admit it would be sent to holds a
+	// place for 900 s and exits 3, every time (panel lens A; on 8 GB, three
+	// `go test` at once are 8.0 GB over a 1.33 GB floor). Only for costs
+	// capped with this total: uncapped, a lone tier on that machine reads the
+	// same and is not the same.
+	if p.capTotal != 0 && neverFits(m, floor, need) {
+		return fmt.Sprintf("MEMORY GATE: nothing in this call ran. It starts %s (%s GB at once), and this machine can never hold that: its %s GB of memory less the %s GB floor is %s GB. Waiting will not help, so do not send it through `buddy mem admit`. %s. `buddy mem status` shows the figures; an override is the operator's word only.",
+			fence.Line(strings.Join(kinds, ", "), 256), gb(need), gb(m.TotalGB), gb(floor), gb(m.TotalGB-floor), neverFitsAdvice(len(kinds)))
+	}
 	book.prune(env, now)
 	// The rows this call's booking replaces are not counted against it (Codex
 	// code pass): a Codex re-run of `go test ./...` 5 s after the last one
 	// was judged against that run's 5.7 GB still on the books, and refused.
 	// Nothing is written on a refusal, so they stay booked then.
 	dropReplaced(&book, call, cost)
-	need := cost.total()
-	why, _ := memVerdict(m, cfg.FloorGB, book.booked(nil, now, m.freeGB(), cfg.FloorGB), need)
+	why, _ := memVerdict(m, floor, book.booked(nil, now, m.freeGB(), floor), need)
 	if len(why) > 0 {
 		return fmt.Sprintf("MEMORY GATE: nothing in this call ran. It starts %s (%s GB) and the machine cannot hold that now: %s. Two hard freezes came from starts that each looked fine, landing together. To wait your turn (it holds your place, so smaller starts cannot starve you), send `buddy mem admit %s --wait 900 && { <the same command>; }` and run it with run_in_background (the braces keep every statement of it behind the admit). Or lower the cost: one package, not ./...; no -race until the plain run is green. `buddy mem status` shows what is booked. Do not retry the bare command in a loop; an override is the operator's word only.",
 			fence.Line(strings.Join(kinds, ", "), 256), gb(need), fence.Line(strings.Join(why, "; "), 1024), fence.Line(strings.Join(kinds, " "), 256))
@@ -623,9 +987,26 @@ func cmdMem(args []string, env Env) error {
 	return usageRefusal(fmt.Sprintf("unknown mem subcommand %s", strconv.Quote(fence.Line(args[0], 64))), usageMem)
 }
 
+// memInit turns the slot on, or rewrites its config. What it writes (D-239):
+//   - no config: version 2, the floor "auto", or the --floor-gb given.
+//   - a readable config and no --floor-gb: what it holds, version included.
+//     A version-1 config is the operator's D-238 slot, and an upgrade or a
+//     bare init never moves it: the cap lowers the tier's booking from 8 to 6
+//     GB on an 18 GB machine, and the table's figures are the operator's own
+//     gate's. The line it prints says what fitting it would give, and how.
+//   - a readable config and --floor-gb <n>|auto: version 2 with that floor.
+//     Asking for the floor again is asking for the fitted slot; the line says
+//     the cap in figures.
+//   - a config that cannot be read: refused, unless --reset, which writes a
+//     fresh version 2 (auto, or the --floor-gb given) and says what it
+//     replaced and why. It used to write the default 4 GB without a word.
+//   - --reset: the lock first, then the bookings, then the config (below).
+//
+// --floor-gb 0, a negative, NaN, Inf or any word but auto is refused and
+// nothing is written (0 used to mean "the default", silently).
 func memInit(args []string, env Env) error {
 	fset := flag.NewFlagSet("mem init", flag.ContinueOnError)
-	floor := fset.Float64("floor-gb", 0, "the floor")
+	floorArg := fset.String("floor-gb", "", "the floor in GB, or auto")
 	reset := fset.Bool("reset", false, "clear every booking")
 	if help, err := parseFlags(fset, args, usageMem, env); help || err != nil {
 		return err
@@ -633,12 +1014,24 @@ func memInit(args []string, env Env) error {
 	if fset.NArg() > 0 {
 		return usageRefusal(fmt.Sprintf("mem init: unexpected argument %s", strconv.Quote(fence.Line(fset.Arg(0), 64))), usageMem)
 	}
+	auto := memAuto
+	fit := memConfig{Version: memConfigV2, Floor: &auto}
+	var asked *memConfig // what --floor-gb names; nil when it was not given
+	fset.Visit(func(f *flag.Flag) {
+		if f.Name == "floor-gb" {
+			asked = &fit
+		}
+	})
+	if asked != nil && *floorArg != memAuto {
+		n, err := strconv.ParseFloat(*floorArg, 64)
+		if err != nil || n <= 0 || math.IsNaN(n) || math.IsInf(n, 0) {
+			return usageRefusal(fmt.Sprintf("mem init: --floor-gb is a number of GB above 0, or auto; got %s, and nothing was written", strconv.Quote(fence.Line(*floorArg, 64))), usageMem)
+		}
+		asked = &memConfig{Version: memConfigV2, FloorGB: n}
+	}
 	home := env.getenv("HOME")
 	if home == "" {
 		return errors.New("mem init: HOME is not set, so there is no ~/.buddy/mem")
-	}
-	if *floor < 0 || math.IsNaN(*floor) || math.IsInf(*floor, 0) {
-		return errors.New("mem init: --floor-gb must be a positive number")
 	}
 	m, err := env.memReading()
 	if err != nil {
@@ -648,43 +1041,71 @@ func memInit(args []string, env Env) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	cfg, err := readMemConfig(dir)
-	was := "turned ON"
-	if err == nil {
+	cfg, rerr := readMemConfig(dir)
+	was, replaced := "turned ON", ""
+	switch {
+	case rerr == nil:
 		was = "already on"
-	} else if !errors.Is(err, fs.ErrNotExist) && !*reset {
-		return fmt.Errorf("mem init: %v (--reset rewrites it)", err)
+	case errors.Is(rerr, fs.ErrNotExist):
+	case !*reset:
+		return fmt.Errorf("mem init: %v (--reset rewrites it)", rerr)
+	default:
+		replaced = rerr.Error()
 	}
-	if cfg.FloorGB <= 0 || err != nil {
-		cfg.FloorGB = memDefaultGB
+	kept := rerr == nil && asked == nil
+	switch {
+	case asked != nil:
+		cfg = *asked
+	case rerr != nil:
+		cfg = fit
 	}
-	if *floor > 0 {
-		cfg.FloorGB = *floor
-	}
-	cfg.Version = memVersion
-	data, _ := json.Marshal(cfg)
-	tmp := filepath.Join(dir, ".config.json.tmp")
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, filepath.Join(dir, "config.json")); err != nil {
-		return err
-	}
-	if *reset {
-		lk, err := memLock(dir, memLockWait)
-		if err != nil {
-			return err
+	// --reset takes the slot's lock BEFORE it writes anything, clears the
+	// bookings under it, and only then writes the config. It used to rename
+	// the new config into place first: with the lock held past 2 s (a judge
+	// hung in its reader holds it, which is when an operator reaches for
+	// --reset) the floor had changed, the command exited 1 naming only the
+	// lock, and nothing said or logged what it wrote (Codex code pass, Fable
+	// cross-check). In this order a failed lock or a failed clear writes
+	// nothing, and the one failure left after a write says what was written.
+	write := func() error {
+		cleared := ""
+		if *reset {
+			lk, err := memLock(dir, memLockWait)
+			if err != nil {
+				return fmt.Errorf("mem init: %w; nothing was written (--reset writes only under that lock)", err)
+			}
+			defer memUnlock(lk) // let go before anything is printed: a paged init must not stall every judge
+			if err := writeMemBook(dir, memBook{}); err != nil {
+				return fmt.Errorf("mem init: the bookings could not be cleared (%w); nothing was written", err)
+			}
+			cleared = "every booking was cleared (--reset), and "
 		}
-		err = writeMemBook(dir, memBook{})
-		memUnlock(lk)
-		if err != nil {
-			return err
+		data, _ := json.Marshal(cfg)
+		tmp := filepath.Join(dir, ".config.json.tmp")
+		err := os.WriteFile(tmp, append(data, '\n'), 0o600)
+		if err == nil {
+			err = os.Rename(tmp, filepath.Join(dir, "config.json"))
 		}
+		if err != nil {
+			return fmt.Errorf("mem init: %sthe config could not be written, so it is what it was: %w", cleared, err)
+		}
+		return nil
+	}
+	if err := write(); err != nil {
+		return err
 	}
 	who, _, _ := nativeSession(env)
-	_ = logMemOverride(dir, firstNonEmpty(who, "a terminal"), fmt.Sprintf("init floor_gb=%s reset=%t", gb(cfg.FloorGB), *reset), "buddy mem init", nowOf(env))
+	_ = logMemOverride(dir, firstNonEmpty(who, "a terminal"), fmt.Sprintf("init version=%d floor=%s reset=%t", cfg.Version, cfg.word(), *reset), "buddy mem init", nowOf(env))
 	fmt.Fprintf(env.Stdout, "memory slot %s: floor %s GB, %s (free %s GB now). Heavy Bash starts are judged by buddy gate on every session of this machine; delete %s to turn it off.\n",
-		was, gb(cfg.FloorGB), dir, gb(m.freeGB()), filepath.Join(dir, "config.json"))
+		was, gb(cfg.floor(m.TotalGB)), dir, gb(m.freeGB()), filepath.Join(dir, "config.json"))
+	fmt.Fprintf(env.Stdout, "rule: %s\n", cfg.rule(m.TotalGB))
+	if kept && !cfg.fitted() {
+		fmt.Fprintf(env.Stdout, "kept as it was. Fitted to this machine it would be: %s. That is `buddy mem init --floor-gb auto`, or `--floor-gb <n>` to keep a floor of your own under the cap.\n", fit.rule(m.TotalGB))
+	}
+	fmt.Fprint(env.Stdout, basisLine(m))
+	if replaced != "" {
+		fmt.Fprintf(env.Stdout, "the config that was there could not be read (%s) and was replaced by this one (--reset)\n", fence.Line(replaced, 512))
+	}
 	if *reset {
 		fmt.Fprintln(env.Stdout, "every booking and place in line was cleared (--reset)")
 	}
@@ -717,10 +1138,18 @@ func memStatus(env Env) error {
 	book.prune(env, now)
 	m, merr := env.memReading()
 	if merr != nil {
-		fmt.Fprintf(env.Stdout, "memory slot: ON, floor %s GB; no memory reading (%s): heavy starts are refused\n", gb(cfg.FloorGB), fence.Line(merr.Error(), 256))
+		// No total, so an automatic floor has no figure: it is named, not guessed.
+		floor := cfg.word() + " GB"
+		if cfg.auto() {
+			floor = fmt.Sprintf("%s (1/%d of the machine's memory)", memAuto, int(memFloorShare))
+		}
+		fmt.Fprintf(env.Stdout, "memory slot: ON, floor %s; no memory reading (%s): heavy starts are refused\n", floor, fence.Line(merr.Error(), 256))
 	} else {
+		floor := cfg.floor(m.TotalGB)
 		fmt.Fprintf(env.Stdout, "memory slot: ON  free %s GB (%d%%)  booked %s GB  floor %s GB  pressure %d  swap %s GB\n",
-			gb(m.freeGB()), m.Level, gb(book.booked(nil, now, m.freeGB(), cfg.FloorGB)), gb(cfg.FloorGB), m.Pressure, gb(m.SwapGB))
+			gb(m.freeGB()), m.Level, gb(book.booked(nil, now, m.freeGB(), floor)), gb(floor), m.Pressure, gb(m.SwapGB))
+		fmt.Fprintf(env.Stdout, "rule: %s\n", cfg.rule(m.TotalGB))
+		fmt.Fprint(env.Stdout, basisLine(m))
 	}
 	for _, r := range book.Rows {
 		state := "booked"
@@ -774,17 +1203,12 @@ func memAdmit(args []string, env Env) error {
 	if _, err := readMemConfig(slot.dir); err != nil {
 		return err // before any wait: each try reads it again (admitOnce)
 	}
-	need := 0.0
-	for _, k := range kinds {
-		need += memKindCost[k]
-	}
 	owner, _, _ := nativeSession(env)
 	if owner == "" {
 		owner = fmt.Sprintf("pid%d", os.Getppid())
 	}
 	pid := os.Getpid()
 	call := fmt.Sprintf("admit-%d", pid)
-	label := memKindLabel(kinds)
 	sigs := make(chan os.Signal, 1)
 	if env.Sleep == nil {
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -811,14 +1235,19 @@ func memAdmit(args []string, env Env) error {
 		}
 	}()
 	for attempt := 0; ; attempt++ {
-		ok, msg, err := admitOnce(env, slot.dir, owner, call, label, need, pid, deadline, *wait > 0)
+		res, msg, err := admitOnce(env, slot.dir, owner, call, kinds, pid, deadline, *wait > 0)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintln(env.Stderr, "buddy mem admit: "+msg)
-		if ok {
+		switch res {
+		case memAdmitted:
 			queued = false
 			return nil
+		case memNeverFits:
+			// queued stays as it is: a place held from an earlier try is given
+			// up by the cleanup above.
+			return exitErr{code: 3, err: errors.New("no wait can admit it, so it holds no place in line; nothing booked")}
 		}
 		queued = *wait > 0
 		// Tries after the first: one per poll, rounded UP, the last sleeping
@@ -850,12 +1279,21 @@ func memSleep(env Env, d time.Duration, sigs chan os.Signal) bool {
 	}
 }
 
+// memAdmitResult is one try's outcome.
+type memAdmitResult int
+
+const (
+	memRefused   memAdmitResult = iota // not now; with a wait, its place is held
+	memAdmitted                        // booked
+	memNeverFits                       // no reading of this machine could admit it: not queued
+)
+
 // admitOnce judges one admit under the lock. Admitted, the pending place (if
 // any) becomes a fading booking; refused with a wait, the place is kept.
-func admitOnce(env Env, dir string, owner, call, label string, need float64, pid int, deadline time.Time, hold bool) (bool, string, error) {
+func admitOnce(env Env, dir string, owner, call string, kinds []string, pid int, deadline time.Time, hold bool) (memAdmitResult, string, error) {
 	lk, err := memLock(dir, memLockWait)
 	if err != nil {
-		return false, "", err
+		return memRefused, "", err
 	}
 	defer memUnlock(lk)
 	// The config is read on every try, under the lock: a waiter that kept the
@@ -863,27 +1301,60 @@ func admitOnce(env Env, dir string, owner, call, label string, need float64, pid
 	// had raised meanwhile (Codex code pass).
 	cfg, err := readMemConfig(dir)
 	if err != nil {
-		return false, "", err
+		return memRefused, "", err
 	}
 	book, err := readMemBook(dir)
 	if err != nil {
-		return false, "", err
+		return memRefused, "", err
 	}
 	m, err := env.memReading()
 	if err != nil {
-		return false, "", fmt.Errorf("no memory reading: %v", err)
+		return memRefused, "", fmt.Errorf("no memory reading: %v", err)
 	}
 	now := nowOf(env)
 	book.prune(env, now)
+	// Priced on every try, from this try's config and reading, kind by kind as
+	// the gate's capped walk prices the tail this admit covers (D-239): an
+	// admit priced once at its start would keep a cap, or none, the operator
+	// has since changed. That keeps the BOOKING current; it does not re-judge
+	// the cover the gate allowed this admit's tail on. A config moved from
+	// version 1 to 2 while a waiter is in line books a tier's admit at the cap
+	// (2.67 GB on 8 GB) over a tail the gate passed as covered by the table's
+	// 8 (5.33 GB at the cap): recorded open in D-239 (Fable cross-check).
+	limit, floor := cfg.startCap(m.TotalGB), cfg.floor(m.TotalGB)
+	need := 0.0
+	for _, k := range kinds {
+		need += memKindGB(k, limit)
+	}
+	label := memKindLabel(kinds)
 	var me *memRow
 	for i := range book.Rows {
 		if book.Rows[i].Owner == owner && book.Rows[i].Call == call && book.Rows[i].Pending {
 			me = &book.Rows[i]
 		}
 	}
+	// What no reading of this machine could admit is not queued: its place
+	// would be infeasible for the whole wait, and the waiter exits 3 after 900
+	// s having been taught to wait (panel lens A). Fitted slot only: under a
+	// version-1 config an 8 GB tier on an 8 GB machine waits and exits 3, as
+	// D-238 has it.
+	if cfg.fitted() && neverFits(m, floor, need) {
+		// A place it holds from an earlier try (the total fell while it
+		// waited) is given up by memAdmit's own cleanup, which reads the file
+		// afresh: `me` here is after the prune, and is not the file's word.
+		return memNeverFits, fmt.Sprintf("refused, and waiting will not help: %s is %s GB at once, and this machine's %s GB of memory less the %s GB floor is %s GB. %s",
+			label, gb(need), gb(m.TotalGB), gb(floor), gb(m.TotalGB-floor), neverFitsAdvice(len(kinds))), nil
+	}
+	// A waiter's place holds what it would book NOW: later arrivals count it
+	// in full, and a figure from an earlier try (another cap, another total)
+	// is not what it is waiting for.
+	moved := me != nil && me.GB != need
+	if moved {
+		me.GB = need
+	}
 	// A first try is a newcomer and counts every waiter already in line; a
 	// waiter counts only those ahead of it.
-	why, left := memVerdict(m, cfg.FloorGB, book.booked(me, now, m.freeGB(), cfg.FloorGB), need)
+	why, left := memVerdict(m, floor, book.booked(me, now, m.freeGB(), floor), need)
 	if len(why) == 0 {
 		kept := book.Rows[:0]
 		for _, r := range book.Rows {
@@ -896,18 +1367,21 @@ func admitOnce(env Env, dir string, owner, call, label string, need float64, pid
 		book.Rows = append(book.Rows, memRow{Owner: owner, Call: call, Kind: label, GB: need,
 			T: unixSec(now), Until: unixSec(now.Add(memTTL)), Seq: book.Seq, Detached: true})
 		if err := writeMemBook(dir, book); err != nil {
-			return false, "", err
+			return memRefused, "", err
 		}
-		return true, fmt.Sprintf("admitted %s (%s GB): %s GB left above what is booked", label, gb(need), gb(left)), nil
+		return memAdmitted, fmt.Sprintf("admitted %s (%s GB): %s GB left above what is booked", label, gb(need), gb(left)), nil
 	}
 	if hold && me == nil {
 		born := env.jobProc(pid).Born
 		book.Seq++
 		book.Rows = append(book.Rows, memRow{Owner: owner, Call: call, Kind: label, GB: need, Pending: true,
 			T: unixSec(now), Until: unixSec(deadline.Add(memPendingSlack)), Seq: book.Seq, PID: pid, Born: born})
+		moved = true
+	}
+	if moved {
 		if err := writeMemBook(dir, book); err != nil {
-			return false, "", err
+			return memRefused, "", err
 		}
 	}
-	return false, "refused (" + strings.Join(why, "; ") + ")", nil
+	return memRefused, "refused (" + strings.Join(why, "; ") + ")", nil
 }

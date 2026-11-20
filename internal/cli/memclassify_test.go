@@ -204,6 +204,84 @@ func TestMemClassifyOverride(t *testing.T) {
 	}
 }
 
+// The fitted slot's cap (D-239) applies where a cost is made, at each start,
+// never to a call's total: parts still take the max or sum as the tree says,
+// and a kind under the cap is the table's. Each row is priced uncapped beside
+// it, so a cap that reached nothing would fail the first column.
+func TestMemClassifyCapIsPerStart(t *testing.T) {
+	t.Parallel()
+	const third8 = 2730.0 / 1024 // one start's cap on an 8 GB machine, whole MiB
+	for _, tc := range []struct {
+		cmd           string
+		limit         float64
+		capped, table float64
+	}{
+		{"sh scripts/check.sh", third8, third8, 8},
+		{"go test ./...", third8, third8, 6},
+		{"go test -race ./x", third8, third8, 5},
+		{"go test ./x", third8, third8, 3},
+		{"herdr agent start a", third8, 1, 1},
+		{"codex exec x", third8, 0.5, 0.5},
+		{"go build ./...; go test -race ./...", third8, third8, 6},           // one after another: the max
+		{"go test ./a/... & go test ./b/... & wait", third8, 2 * third8, 12}, // at once: the sum of capped starts
+		{"go test ./... | tee log", third8, third8, 6},
+		{"printf '%s\\n' a b | xargs -n 1 -P 0 go test", third8, 3 * third8, 9},
+		// Twelve lanes in a loop still book twelve: capping a call's total at a
+		// third of the machine would book #144's own burst as one start.
+		{"for i in 1 2 3 4 5 6 7 8 9 10 11 12; do claude --bg -n l$i x; done", third8, 12, 12},
+		{"for s in a b c d; do herdr agent start $s; sleep 3; done", 1, 4, 4},
+		{"sh scripts/check.sh", 8, 8, 8},    // a 24 GB machine: nothing in the table is over the cap
+		{"sh scripts/check.sh", 1, 1, 8},    // the cap's least, on a machine of 3 GB or less
+		{"herdr agent start a", 1, 1, 1},    // and a lane is still a lane there
+		{"git status", third8, 0, 0},        // what books nothing has no cap to meet
+		{"sh scripts/check.sh", 0, 8, 8},    // no cap (a version-1 config)
+		{"sh scripts/check.sh", -1, 8, 8},   // nor a nonsense one
+		{"sh scripts/check.sh", 64, 8, 8},   // a cap over the table changes nothing
+		{"go test ./x & wait", 2.5, 2.5, 3}, // any cap under the kind's figure is the figure
+	} {
+		c, _, ok := classifyMemCapped(tc.cmd, tc.limit)
+		if !ok || c.total() != tc.capped {
+			t.Errorf("%q under a %v GB cap books %v GB, want %v", tc.cmd, tc.limit, c.total(), tc.capped)
+		}
+		if u, _ := classifyMem(tc.cmd); u.total() != tc.table {
+			t.Errorf("control: %q books %v GB by the table, want %v", tc.cmd, u.total(), tc.table)
+		}
+	}
+}
+
+// What makes a call LIGHT is that the walk met no kind, not that it books
+// nothing (D-239): a covered admit books nothing and has a kind in its tail,
+// and whether it is covered is a question the cap changes. The gate reads
+// leaves; these are the three states it tells apart.
+func TestMemClassifyLeavesCountKindsMet(t *testing.T) {
+	t.Parallel()
+	const third8 = 2730.0 / 1024
+	for _, tc := range []struct {
+		cmd    string
+		limit  float64
+		leaves int
+		total  float64
+		under  bool
+	}{
+		{"git commit -m 'go test ./... green'", 0, 0, 0, false},
+		{"buddy mem admit tier --wait 900 && echo ok", 0, 0, 0, false}, // an admit with nothing heavy after it
+		{"buddy mem admit goall --wait 900 && go test ./...", 0, 1, 0, false},
+		{"go test ./x", 0, 1, 3, false},
+		{"go test ./a & go test ./b & wait", 0, 2, 6, false},
+		// The 8 GB shapes: covered by the table and not at the cap, and the reverse.
+		{"buddy mem admit tier --wait 900 && { go test ./a & go test ./b & wait; }", 0, 2, 0, false},
+		{"buddy mem admit tier --wait 900 && { go test ./a & go test ./b & wait; }", third8, 2, 2 * third8, true},
+		{"buddy mem admit gotest --wait 900 && go test ./...", 0, 1, 6, true},
+		{"buddy mem admit gotest --wait 900 && go test ./...", third8, 1, 0, false},
+	} {
+		c, w, ok := classifyMemCapped(tc.cmd, tc.limit)
+		if !ok || w.leaves != tc.leaves || c.total() != tc.total || (w.under != "") != tc.under {
+			t.Errorf("%q under a %v GB cap: %d kinds met, books %v GB, under-covered %v (%q); want %d, %v, %v",
+				tc.cmd, tc.limit, w.leaves, c.total(), w.under != "", w.under, tc.leaves, tc.total, tc.under)
+		}
+	}
+}
+
 // A panic in the classifier books nothing; these node shapes are the ones the
 // design review named as easy to dereference wrong.
 func FuzzClassifyMem(f *testing.F) {
@@ -222,18 +300,22 @@ func FuzzClassifyMem(f *testing.F) {
 // control: the same wrapper hands a walk's cost through untouched.
 func TestMemClassifyPanicBooksNothing(t *testing.T) {
 	t.Parallel()
-	c, w := classifyRecovered(func(w *memWalker) memCost {
+	c, w, ok := classifyRecovered(0, func(w *memWalker) memCost {
 		w.under = "half-written"
-		return kindCost("tier", false)
+		return w.kindCost("tier", false)
 	})
-	if c.total() != memKindCost["tier"] || w.under != "half-written" {
+	if !ok || c.total() != memKindCost["tier"] || w.under != "half-written" || w.leaves != 1 {
 		t.Fatalf("control: a walk's cost passes through: %+v %+v", c, w)
 	}
-	c, w = classifyRecovered(func(w *memWalker) memCost {
+	c, w, ok = classifyRecovered(0, func(w *memWalker) memCost {
 		w.under = "half-written"
+		w.kindCost("tier", false)
 		panic("a walker bug")
 	})
-	if c.total() != 0 || w == nil || w.under != "" || w.override != "" {
-		t.Fatalf("a panic books nothing and refuses nothing: %+v %+v", c, w)
+	// leaves 0 too: the gate reads a walk that met no kind as LIGHT, which is
+	// what a panicked first walk must be (and ok false is what tells its
+	// second walk to fall back to the first, D-239).
+	if ok || c.total() != 0 || w == nil || w.under != "" || w.override != "" || w.leaves != 0 {
+		t.Fatalf("a panic books nothing, refuses nothing and says it panicked: %v %+v %+v", ok, c, w)
 	}
 }
