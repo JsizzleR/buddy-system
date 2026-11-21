@@ -1260,8 +1260,16 @@ def self_test():
             bad.append("case '%s': exit %d, stdout %d bytes, stderr %r" % (name, rc, len(out), err[:90]))
     refused = [c for c in cases if c[2]]
     # A refusal echoes nothing from the payload: no case's distinctive words.
+    # Judged with the reader's path cut out: reader_hint() names issue-read.py
+    # by ABSOLUTE path, so a checkout under .../int-r1120a/ or .../JsizzleR/
+    # put "12" or "JsizzleR" in every refusal and this check read where the
+    # file lives, not what the refusal says (red on a clean tree there). Every
+    # other word of the refusal is still read, so a refusal that copies the
+    # command, or a payload word written into its text, fails at any path.
+    hint = reader_hint()
     for kind in ("read", "unknown", "parse"):
-        if "12" in refusal(kind) or "JsizzleR" in refusal(kind):
+        words = refusal(kind).replace(hint, "<reader>")
+        if "12" in words or "JsizzleR" in words:
             bad.append("the %s refusal echoes payload text" % kind)
     # The settings line in the header is what the operator copies: it must parse.
     lines = [l.strip() for l in (__doc__ or "").splitlines() if l.strip().startswith('{"matcher"')]
